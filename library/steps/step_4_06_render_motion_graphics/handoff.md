@@ -74,6 +74,34 @@ palette.
 A project with no brand template is not a project with a reduced layer. Plan
 it exactly as you would with one, and state the colours yourself.
 
+## When the visual is about what is being said
+
+A graphic may land because of the SUBJECT of the speech, not just as
+decoration over it. When a span of speech is about something the picture
+does not show - money, a place, a count - name the subject and cue the
+graphic to the very words that say it:
+
+- `subject`: free text saying what the span is about, in your own words
+  ("money - paid advertising budgets"). It travels with the plan as the
+  record of your reasoning; the engine never reads it to decide anything.
+- `anchor_phrase`: the words from `timeline_context_toon` that say it
+  ("lots of money"). The engine searches the measured word timings and
+  the graphic ARRIVES on the first anchored word. Quote only words the
+  table actually shows - a phrase nobody said is dropped, by name.
+- `hold_seconds`: how long it stays. Omit it and the graphic lives
+  exactly as long as the words. An entry naming BOTH an anchor phrase
+  and explicit `start_seconds`/`duration_seconds` is dropped: two timings
+  is ambiguous and nobody picks one for you.
+
+`subject_emblem` is the element for this: a large flat mark (name it in
+`copy` as the display run - "$" - with a short label beside it) on a
+backplate in a colour you state. The mark is drawn from type and shapes,
+never fetched, so name a mark type can draw: a glyph, a digit, a short
+sign - never a face, a logo or a photograph of a thing. The same
+anchoring works for any element whose moment is a spoken one: a
+`counter_roll` arriving on the number it counts, a `list_build` staged to
+the words that enumerate it.
+
 ## Rules
 
 - How many graphics this video gets is a creative decision, not a quota.
@@ -97,6 +125,9 @@ One entry per graphic:
 ```json
 {
   "element": "a key from motion_elements_toon",
+  "subject": "free text, what this span is about - your reasoning, on the record",
+  "anchor_phrase": "words from timeline_context_toon this lands on - INSTEAD of start/duration",
+  "hold_seconds": 2.0,
   "start_seconds": 0.0,
   "duration_seconds": 0.0,
   "anchor": "one of motion_graphics_frame.anchors",

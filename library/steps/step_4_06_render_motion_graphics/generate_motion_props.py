@@ -37,6 +37,7 @@ from library.tools.motion_graphics_plan import (  # noqa: F401 - re-exported
 )
 from library.tools.caption_band import captioned_spans, occupied_bands
 from library.tools.safe_area import resolve_safe_area
+from library.tools.semantic_visual import collect_word_windows
 
 # The cyan every video carried until P3.1. It is not any shipped
 # template's colour and it is NO LONGER A FALLBACK - it exists only so
@@ -156,6 +157,11 @@ def generate_motion_props(
             brand_effect=brand_effect, brand_style=brand_style,
             project_folder=project_folder or None),
         captioned_spans=captioned_spans(audio_spine),
+        # The measured words, in timeline seconds, for entries that cue
+        # to their own speech. An entry naming `anchor_phrase` is timed
+        # by search over these (library/tools/semantic_visual.py); a run
+        # whose spine carries no timed words drops such an entry by name.
+        word_windows=collect_word_windows(audio_spine),
         # A project-supplied file, for the elements that draw one. The
         # engine ships no artwork (AGENTS.md 14): this looks one up and
         # never supplies a substitute.

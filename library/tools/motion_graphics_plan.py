@@ -54,8 +54,8 @@ would silently change what composites over what - a stacking order
 nobody chose.
 
 **What is refused, and why refusing is the honest answer.**
-`motion_graphics_vocabulary.ROSTER` is seventeen elements and the
-composition draws four of them.  An entry naming one of the other eleven
+`motion_graphics_vocabulary.ROSTER` is eighteen elements and the
+composition draws all but one of them.  An entry naming that one
 is DROPPED with `renderer_cannot_draw_it_yet` and the drop is RECORDED -
 never quietly rendered as nothing, and never silently substituted with a
 neighbouring element.  The whole roster still reaches the prompt, because
@@ -102,6 +102,7 @@ from typing import (Any, Callable, Dict, FrozenSet, List, Optional,
 
 from library.tools import caption_band
 from library.tools import motion_graphics_vocabulary as vocabulary
+from library.tools import semantic_visual
 
 #: What the model's answer is called.  One spelling, here.
 PLAN_KEY = "motion_graphics_plan"
@@ -206,6 +207,25 @@ DROP_REASONS: Dict[str, str] = {
         "Neither a brand palette role nor a colour stated by the plan "
         "itself resolves to a colour. There is no fallback: drawing in a "
         "constant is what PR #310 emptied house_look.py to stop."
+    ),
+    "anchor_phrase_not_found": (
+        "The entry's anchor phrase occurs nowhere in the measured word "
+        "timings. The visual lands on its words or not at all - landing "
+        "near them would be decorating across the speech."
+    ),
+    "anchor_word_untimed": (
+        "The anchor phrase is said but its measured window is missing. "
+        "A graphic cued to an unmeasured word is cued to a guess."
+    ),
+    "no_word_timings_to_anchor_against": (
+        "The entry anchors to words and no measured word timings reached "
+        "the resolver on this run. Without a measurement there is no "
+        "window to land on."
+    ),
+    "conflicting_timing": (
+        "The entry names both an anchor phrase and explicit timeline "
+        "seconds - two timings. The engine does not pick one, because "
+        "choosing would be choosing when the graphic plays."
     ),
 }
 
@@ -488,7 +508,8 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
                  asked: bool = True,
                  caption_bands: Optional[FrozenSet[str]] = None,
                  captioned_spans: Sequence[Tuple[float, float]] = (),
-                 resolve_asset: Optional[Callable[[str], str]] = None
+                 resolve_asset: Optional[Callable[[str], str]] = None,
+                 word_windows: Sequence[Dict[str, Any]] = (),
                  ) -> ResolvedPlan:
     """Turn the model's plan into drawable moments, naming every casualty.
 
@@ -514,6 +535,14 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
     fallback and no placeholder: the engine ships no artwork (AGENTS.md
     14), so an unresolvable asset is a drop with a reason rather than an
     element rendered as an empty frame.
+
+    `word_windows` is the measured speech - `{word, start, end}` in
+    timeline seconds, the shape `semantic_visual.collect_word_windows`
+    produces. An entry naming `anchor_phrase` is timed by SEARCH over
+    these (AGENTS.md 6) instead of by declared seconds, so the visual
+    lands on its own words. An entry naming both is dropped as
+    `conflicting_timing`: two timings is ambiguous and the engine does
+    not pick one.
     """
     palette_roles = palette_roles or {}
     if not asked:
@@ -566,6 +595,24 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
 
         start = _number(entry.get("start_seconds"))
         duration = _number(entry.get("duration_seconds"))
+        timing_basis = "declared"
+        phrase = _text(entry.get(semantic_visual.ANCHOR_PHRASE_KEY))
+        if phrase:
+            # A visual cued to its own words. Explicit seconds beside a
+            # phrase is two timings, and the engine picks neither.
+            if start is not None or duration is not None:
+                drop(entry, key, "conflicting_timing",
+                     f"anchor_phrase={phrase!r} beside "
+                     f"start_seconds={entry.get('start_seconds')!r} "
+                     f"duration_seconds={entry.get('duration_seconds')!r}")
+                continue
+            try:
+                start, duration, timing_basis = (
+                    semantic_visual.resolve_anchor_timing(
+                        entry, word_windows or []))
+            except semantic_visual.SemanticVisualError as anchor_err:
+                drop(entry, key, anchor_err.reason, anchor_err.detail)
+                continue
         if start is None or duration is None:
             drop(entry, key, "no_timing_declared",
                  "start_seconds and duration_seconds are both required; "
@@ -650,6 +697,13 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
             # what the plan actually said.
             "timeline_start": round(start, 3),
             "timeline_end": round(end, 3),
+            # How this span was timed: declared seconds, or the measured
+            # word window an anchor phrase searched for. `subject` is the
+            # model's free-text reasoning for the visual, carried as
+            # provenance - nothing resolves from it
+            # (library/tools/semantic_visual.py).
+            "timing_basis": timing_basis,
+            "subject": semantic_visual.entry_subject(entry),
             # Where this span sits in the WHOLE piece, as fractions.
             # `progress_bar` is the element that draws them; every other
             # element carries them because a reader of the props file

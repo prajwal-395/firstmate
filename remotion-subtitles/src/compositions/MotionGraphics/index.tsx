@@ -22,12 +22,13 @@ loadBundledFonts();
  * allowed to use multiple rows in order to have various motion
  * graphics"). See library/tools/motion_graphics_vocabulary.py.
  *
- * `element` is a roster key. The sixteen this composition draws are
+ * `element` is a roster key. The seventeen this composition draws are
  * `title_lockup`, `quote_card`, `progress_bar`, `frame_accents`,
  * `lower_third`, `channel_bug`, `context_stamp`, `stat_callout`,
+ * `subject_emblem`,
  * `beat_accent`, `pointer_annotation`, `counter_roll`, `digit_counter`,
  * `list_build`, `comparison_bars`, `step_counter` and `website_panel` -
- * the sixteen the roster marks `reachable_now`. The seventeenth roster
+ * the seventeen the roster marks `reachable_now`. The eighteenth roster
  * entry, `tracked_label`, has no arm: it needs a per-frame position
  * nothing measures, so no plan reaches here asking for it. An entry
  * naming any other element never reaches these props:
@@ -1111,6 +1112,79 @@ const DrawnElement: React.FC<{
         }}
       >
         <TextContent scl={scale * 1.5} />
+      </div>
+    );
+  }
+
+  // `subject_emblem` - a flat mark for what the speech is ABOUT at that
+  // moment: a currency sign while money is discussed, drawn from type
+  // and shapes, never fetched. `library/tools/semantic_visual.py` states
+  // the source and its cost; this arm is only the drawing. The display
+  // run is the mark, set large on a backplate in the plan's own colour,
+  // with the supporting runs labelling it underneath. The colour is the
+  // whole of the look - the plate, the sizes and the letterforms are
+  // this composition's own drawing, the way a bar is what
+  // comparison_bars draws. Ink is white over the plan's colour with a
+  // dark shadow, the same readability contract context_stamp draws in.
+  // A `typewriter` entrance reveals the mark character by character
+  // through the shared helper, so a declared character draws rather
+  // than arriving whole.
+  if (element.element === "subject_emblem") {
+    const mark = element.runs.find((run) => run.type_role === "display");
+    const label = element.runs.filter(
+      (run) => run.type_role !== "display");
+    const plate = Math.round(200 * scale);
+    let markText = mark ? mark.text : "";
+    let markCursor = false;
+    if (typewriting && mark) {
+      const split = typewriterSplit([mark.text.length], shown);
+      markText = mark.text.slice(0, split.shown[0]);
+      markCursor = split.cursorRun === 0;
+    }
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: `${Math.round(16 * scale)}px`,
+        }}
+      >
+        <div
+          style={{
+            width: `${plate}px`,
+            height: `${plate}px`,
+            borderRadius: `${Math.round(48 * scale)}px`,
+            backgroundColor: element.color,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: `${(TYPE_SIZE.display ?? 56) * scale * 2}px`,
+              fontWeight: 900,
+              color: "#fff",
+              lineHeight: 1,
+              textShadow: "0 4px 16px rgba(0,0,0,0.5)",
+            }}
+          >
+            {markText}
+            {markCursor && (
+              <span style={{ opacity: typewriterCursorOn(shown) ? 1 : 0 }}>
+                |
+              </span>
+            )}
+          </div>
+        </div>
+        {label.length > 0 && (
+          <Runs element={{ ...element, runs: label }} scale={scale * 0.8} />
+        )}
       </div>
     );
   }

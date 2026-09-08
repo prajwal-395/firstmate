@@ -11,7 +11,7 @@ planning surface it never had.
 What it puts in front of the model:
 
 * **the whole roster**, from `motion_graphics_vocabulary.roster_rows()`,
-  with its legend and its axis table.  Nothing is shortlisted: fifteen
+  with its legend and its axis table.  Nothing is shortlisted: eighteen
   entries fit, and whatever selects a shortlist becomes the chooser
   (AGENTS.md 10.5).  `reachable` is a column, so the model is told the
   truth about what the renderer can draw and still chooses.

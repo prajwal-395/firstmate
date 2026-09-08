@@ -23,7 +23,7 @@ render path is broken is not a reason to keep it at three.
 **So this table is written from what an editor needs, not from what the
 composition can draw today.**  Every entry carries
 :attr:`MotionElement.reachable` saying whether the current renderer can
-put it on a frame, and eleven of the fifteen cannot.  The reachability
+put it on a frame, and one of the eighteen cannot.  The reachability
 flag is a fact reported about each entry; it is not a filter on
 membership.  A roster written around today's renderer would bake a
 defect into the vocabulary permanently.
@@ -102,7 +102,7 @@ the same shape ``sfx_library.load_sfx_catalog`` and
 ``music_measurement.MEASUREMENT_LEGEND`` take, so a planning step's
 bridge can put the whole roster in front of the model as a table without
 this module knowing anything about prompts.  Nothing is shortlisted:
-seventeen entries fit, and whatever selects a shortlist becomes the chooser
+eighteen entries fit, and whatever selects a shortlist becomes the chooser
 (AGENTS.md section 10.5).
 """
 
@@ -383,7 +383,7 @@ class MotionElement:
     reachability_note: str = ""
 
 
-#: The roster. Seventeen entries across seven functions.
+#: The roster. Eighteen entries across seven functions.
 #:
 #: **What the size was aimed at.** Small enough that the whole table fits
 #: in a prompt and nothing has to be shortlisted - whatever selects a
@@ -504,6 +504,51 @@ ROSTER: tuple[MotionElement, ...] = (
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note="Implemented as a translucent panel in the upper corner. It assumes the title safe band is clear of primary visual interest.",
+    ),
+
+    MotionElement(
+        key="subject_emblem",
+        function="identify",
+        what_it_is=(
+            "A large flat mark standing in for what the speech is about "
+            "at that moment - a currency sign while money is discussed - "
+            "drawn from type and shapes, never fetched."
+        ),
+        earns_its_place=(
+            "The speech is about something the picture does not show, "
+            "and hearing about it while seeing nothing of it leaves the "
+            "viewer with a sentence and no image. A mark that arrives on "
+            "the word gives the subject a shape for as long as the point "
+            "holds."
+        ),
+        needs=(
+            "the subject as free text, for the record; the mark itself "
+            "as copy; a timing anchored to the words that say it - an "
+            "anchor phrase the engine searches the measured timings for, "
+            "or timeline seconds the plan states"
+        ),
+        never=(
+            ("For a specific real thing - a face, a logo, a product, a "
+             "place. A mark stands in for a subject; portraying one is "
+             "illustration, and illustration is artwork a project "
+             "supplies."),
+            ("As a second caption rail. Copy here is a mark and a short "
+             "label, never a sentence the captions are already showing."),
+            ("Fetched from anywhere. The engine draws the mark from "
+             "type and shapes; a picture from outside the run is a "
+             "project asset, staged verbatim or not at all."),
+        ),
+        axes=("timing", "anchor", "footprint", "entrance", "exit",
+              "emphasis", "colour_role", "type_role", "copy"),
+        copy="required",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Drawn as a flat backplate in the plan's own colour with the "
+            "display run set large over a supporting label. The colour "
+            "the plan states is the whole of the look; the shape is the "
+            "composition's own drawing, the way a bar is what "
+            "comparison_bars draws."
+        ),
     ),
 
     # ── quantify ─────────────────────────────────────────────────────
@@ -1241,7 +1286,7 @@ def roster_rows(include_unreachable: bool = True) -> list[dict]:
     """The roster as rows, for a bridge to serialise into a prompt table.
 
     `include_unreachable` exists for a caller that has to plan against
-    today's renderer. It defaults to the WHOLE roster: seventeen entries
+    today's renderer. It defaults to the WHOLE roster: eighteen entries
     fit, nothing needs shortlisting, and whatever selects a shortlist
     becomes the chooser (AGENTS.md section 10.5).
     """
