@@ -88,6 +88,12 @@
           "total_estimated_duration_seconds": "float",
           "structure": "list"
         }
+      },
+      {
+        "name": "duration_zone",
+        "type": "object",
+        "required": false,
+        "description": "Bridge output: the project's target duration resolved to real numbers (minimum_seconds, target_seconds, maximum_seconds) with the legend that defines the band - the same MEASUREMENT_LEGEND route step 2.04 takes. Emitted only when something declared a target; when nothing did the absence is a fact about the project, not a value to invent (AGENTS.md 10.5). Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
       }
     ],
     "llm_outputs": [

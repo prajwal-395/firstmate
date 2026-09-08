@@ -24,6 +24,17 @@
         "name": "reel_judgement",
         "type": "object",
         "description": "State output: reel_judgement - the checked readings, the verdicts the engine derived from them, and the ordering. Shape: {readings: list, refused: list, ordering: list, contract: object}. A reading whose quotes are not in the reel it is about is REFUSED and reported as refused rather than stored as a judgement (library/tools/reel_quality_bar.check_reading)."
+      },
+      {
+        "name": "reels_to_read",
+        "type": "array",
+        "description": "Bridge output: one row per proposed reel - its number, how long it runs and every line a listener hears in the order they hear it. The table the handoff tells the reader to read, and the one context_fields names. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "reels_not_readable",
+        "type": "array",
+        "required": false,
+        "description": "Bridge output, only when some reel cannot be read: one entry per unreadable reel with why (a moment the builder cannot lay out, or seconds containing no measured speech). Not projected into the prompt - it is about reels the reader is not shown - but carried so the post-bridge can say who was never offered. Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
       }
     ],
     "llm_outputs": [

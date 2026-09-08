@@ -75,6 +75,11 @@
         "name": "vfx_candidates_toon",
         "type": "string",
         "description": "State output: vfx_candidates_toon"
+      },
+      {
+        "name": "vfx_candidates_legend",
+        "type": "object",
+        "description": "Bridge output: what the derived vfx_candidates_toon columns mean, carried as DATA because handoff.md is frozen - the route step 4.02 takes for CUTS_LEGEND. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       }
     ],
     "llm_outputs": [

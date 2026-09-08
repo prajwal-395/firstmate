@@ -44,6 +44,42 @@
         "description": "State output: reel_candidates. Built by bridge.py. One row per contiguous exchange stretch the measurements found - the shape of each candidate conversation the model chooses reels from."
       },
       {
+        "name": "turns",
+        "type": "array",
+        "description": "Bridge output: the STRUCTURE of the conversation - who spoke and between which two seconds - which is what a reader needs to judge whether a stretch is a two-hander. Carries no words: a turn's text is its segments' texts joined, so publishing it would be the summary and the structure it was rendered from (AGENTS.md 10.1). Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "length_guidance_seconds",
+        "type": "array",
+        "description": "Bridge output: the brief's length guidance as numbers - published rather than enforced, because a hard ceiling silently withholds every story that needs longer to finish. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "picture_holes",
+        "type": "array",
+        "description": "Bridge output: the transcript's measured picture holes, carried beside the candidates so a span is never drawn over seconds with no picture. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "lead_speaker",
+        "type": "string",
+        "description": "Bridge output: which speaker asks - the inferred lead of the exchange. Inferred, not declared; the handoff invites correction. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "answering_speaker",
+        "type": "string",
+        "description": "Bridge output: the other voice - the speaker the lead is measured against. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "who_leads_was_inferred",
+        "type": "string",
+        "description": "Bridge output: WHY the lead/answerer inference was drawn, in numbers - ask rates and mean turn lengths for both voices. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "undetermined",
+        "type": "array",
+        "required": false,
+        "description": "Bridge output, degenerate path only: why no exchange can be identified - the transcript names fewer than two speakers, and a reel is a conversation. (A bridge key, not the could_not_determine demand signal in library/tools/undetermined.py.) Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
         "name": "reel_selection",
         "type": "object",
         "description": "State output: reel_selection",

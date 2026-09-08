@@ -30,6 +30,11 @@
         "name": "validation_result",
         "type": "object",
         "description": "State output: validation_result"
+      },
+      {
+        "name": "deterministic_validation",
+        "type": "object",
+        "description": "Bridge output: the deterministic half's verdict over the render - status, checks, all_issues, distribution_ready. post_bridge.py merges it with the model's validation_result with the deterministic half decisive, and run_hybrid_step preserves it in the step output. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       }
     ]
   },

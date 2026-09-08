@@ -53,6 +53,36 @@
         "name": "timed_text_overlay",
         "type": "object",
         "description": "Rendered timed text segments for the brand template's effect.timed_text_overlay declaration, or declared:false when the template declares none. See library/tools/timed_text_overlay.py."
+      },
+      {
+        "name": "motion_elements_toon",
+        "type": "string",
+        "description": "Bridge output: the motion-graphics roster as a TOON table, one row per element - the table the prompt reads when it plans the layer. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "motion_axes_toon",
+        "type": "string",
+        "description": "Bridge output: the roster's axes as a TOON table (axis, ranges_over, positions, continuous, resolved_against) - the magnitudes the plan may state per entry. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "motion_elements_legend",
+        "type": "object",
+        "description": "Bridge output: what each roster column means, carried as DATA because handoff.md is frozen. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "timeline_context_toon",
+        "type": "string",
+        "description": "Bridge output: the spine as context, one row per block with its span, type and what is said in it - where the speech and cutaways are, not a grid the plan must land on. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "motion_graphics_frame",
+        "type": "object",
+        "description": "Bridge output: the timebase the plan is timed on - timeline duration, fps, delivery frame, safe area, anchors, entrance/exit characters, colour and type roles, and which elements the renderer draws today. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "brand_refinement",
+        "type": "object",
+        "description": "Bridge output: what the brand template refines (palette roles, declared effect slots) or that it declares nothing - stated either way, because a silent absence is what used to switch the layer off. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       }
     ],
     "requirements": [
