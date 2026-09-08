@@ -144,7 +144,7 @@ fi
 IFS=' ' read -r -a fields <<< "$line" 2>/dev/null || exit 1
 ver=${fields[0]:-}
 [ "$ver" = v1 ] || exit 1
-attempt= next= model= session=
+attempt='' next='' model='' session=''
 f=
 for f in "${fields[@]:1}"; do
   case "$f" in
