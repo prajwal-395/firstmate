@@ -20,10 +20,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 # step.py does `from resolve_build_timeline import build_timeline` - a
-# sibling import that needs its own directory on sys.path to execute.
-STEP_DIR = os.path.join(PROJECT_ROOT, "library", "steps", "step_6_01_render")
-if STEP_DIR not in sys.path:
-    sys.path.insert(0, STEP_DIR)
+# sibling import served by tests/conftest.py, which owns every non-root
+# sys.path entry so collection order cannot change what it binds to.
 
 # Full package path, never bare `import step`: several test modules insert
 # different step directories at sys.path[0] (and collection order decides

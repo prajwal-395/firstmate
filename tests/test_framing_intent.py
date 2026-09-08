@@ -18,9 +18,8 @@ import textwrap
 import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (PROJECT_ROOT, os.path.join(PROJECT_ROOT, "library")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from library.schemas.brand_template import BrandTemplate, StyleSlots
 from library.tools.brand_registry import resolve_project_template

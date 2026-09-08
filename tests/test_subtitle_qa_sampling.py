@@ -23,9 +23,10 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "library"))
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 
-from tools.qa.subtitle_qa import (  # noqa: E402
+from library.tools.qa.subtitle_qa import (  # noqa: E402
     ALPHA_INK_THRESHOLD,
     check_caption_geometry,
     find_inked_timestamps,

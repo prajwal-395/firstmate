@@ -5,11 +5,11 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
-# Add library/tools to sys.path to allow importing the modules
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'library', 'tools')))
-
-import video_segment_analyzer
-from vision_model import VisionModel
+# library/tools is on sys.path via tests/conftest.py, which owns every
+# non-root entry so collection order cannot change what a bare name
+# binds to; the sibling imports below reach it by absolute package path.
+from library.tools import video_segment_analyzer  # noqa: E402
+from library.tools.vision_model import VisionModel  # noqa: E402
 
 
 class TestVideoSegmentAnalyzer(unittest.TestCase):
@@ -24,9 +24,9 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    @patch('vision_model.generate')
-    @patch('vision_model.load')
-    @patch('vision_model.apply_chat_template')
+    @patch('library.tools.vision_model.generate')
+    @patch('library.tools.vision_model.load')
+    @patch('library.tools.vision_model.apply_chat_template')
     def test_vision_model_mocked(self, mock_apply, mock_load, mock_generate):
         # Mock mlx_vlm components
         mock_load.return_value = (MagicMock(), MagicMock())
@@ -42,7 +42,7 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         model = VisionModel()
         
         # Test analyze_image
-        with patch('vision_model.load', return_value=(MagicMock(), MagicMock())):
+        with patch('library.tools.vision_model.load', return_value=(MagicMock(), MagicMock())):
             result = model.analyze_image("dummy.jpg", "prompt")
             self.assertEqual(result, "Mocked analysis result")
 
@@ -50,7 +50,7 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         result = model.analyze_video(self.dummy_video, "prompt")
         self.assertEqual(result, "Mocked analysis result")
 
-    @patch('video_segment_analyzer.get_model')
+    @patch('library.tools.video_segment_analyzer.get_model')
     @patch('render_qa.analyze_color_histogram')
     @patch('render_qa.measure_lufs')
     def test_analysis_routing_and_output(self, mock_lufs, mock_color, mock_get_model):
@@ -84,7 +84,7 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         self.assertIn("audio", results["model_analysis"])
         self.assertEqual(mock_model.analyze_video.call_count, 2)
 
-    @patch('video_segment_analyzer.run_analysis')
+    @patch('library.tools.video_segment_analyzer.run_analysis')
     def test_cli_cleanup(self, mock_run_analysis):
         # Ensure dummy video exists
         self.assertTrue(os.path.exists(self.dummy_video))
@@ -104,7 +104,7 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         # Verify video was deleted
         self.assertFalse(os.path.exists(self.dummy_video))
 
-    @patch('video_segment_analyzer.run_analysis')
+    @patch('library.tools.video_segment_analyzer.run_analysis')
     def test_cli_no_cleanup(self, mock_run_analysis):
         # Ensure dummy video exists
         self.assertTrue(os.path.exists(self.dummy_video))
@@ -124,7 +124,7 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         # Verify video was NOT deleted
         self.assertTrue(os.path.exists(self.dummy_video))
 
-    @patch('video_segment_analyzer.run_analysis')
+    @patch('library.tools.video_segment_analyzer.run_analysis')
     def test_cli_json_output(self, mock_run_analysis):
         mock_run_analysis.return_value = {"test_key": "test_value"}
         

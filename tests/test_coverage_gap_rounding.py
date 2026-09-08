@@ -21,7 +21,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-sys.path.insert(0, str(REPO_ROOT / "library" / "steps" / "step_5_04_compile_manifest"))
 
 import importlib.util  # noqa: E402
 

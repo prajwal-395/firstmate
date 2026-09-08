@@ -41,10 +41,12 @@ accidentally."""
 
 
 def _load_405():
-    """4.05 imports a sibling by bare name, as every step body does."""
+    """4.05 imports a sibling by bare name, as every step body does.
+
+    The step directory is owned by tests/conftest.py, so this loader
+    adds nothing to sys.path itself.
+    """
     step_dir = os.path.join(REPO, "library/steps/step_4_05_render_subtitles")
-    if step_dir not in sys.path:
-        sys.path.insert(0, step_dir)
     spec = importlib.util.spec_from_file_location(
         "s405_under_test", os.path.join(step_dir, "step.py"))
     module = importlib.util.module_from_spec(spec)
@@ -415,15 +417,14 @@ def test_the_region_rerun_form_parses_and_validates_its_span():
 
 
 def _runner():
-    """The runner module, imported the way `operations.Operation` does."""
-    import sys as _sys
-    from pathlib import Path as _Path
+    """The runner module, by absolute package path.
 
-    process_dir = (_Path(__file__).resolve().parents[1] / "library"
-                   / "processes" / "edit_video")
-    if str(process_dir) not in _sys.path:
-        _sys.path.insert(0, str(process_dir))
-    import run_pipeline
+    Production (`operations.Operation`) reaches it through a bare
+    ``import run_pipeline`` with the process directory on sys.path; the
+    tests need the same file's behaviour, and the bare name is
+    collection-order-sensitive, so this route spells the package out.
+    """
+    from library.processes.edit_video import run_pipeline
     return run_pipeline
 
 

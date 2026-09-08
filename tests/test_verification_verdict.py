@@ -16,21 +16,14 @@ Two layers of testing:
      those functions and has not regressed to a hardcoded True.
 """
 import os
-import sys
 from types import SimpleNamespace
 
 import pytest
 
-# The pure helpers live in library/steps/step_6_01_render/ which is not
-# on sys.path in a normal test run. Add it.
-_STEP_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "library", "steps", "step_6_01_render",
-)
-if _STEP_DIR not in sys.path:
-    sys.path.insert(0, _STEP_DIR)
-
-from build_verification import (
+# The pure helpers live in library/steps/step_6_01_render/, whose
+# directory tests/conftest.py owns on sys.path (it is needed for the
+# sibling import inside resolve_build_timeline).
+from library.steps.step_6_01_render.build_verification import (  # noqa: E402
     derive_verification_verdict,
     detect_unreachable_fusion_effects,
     format_fusion_drop_error,

@@ -31,13 +31,12 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
-RUNNER_DIR = os.path.join(PROJECT_ROOT, "library", "processes", "edit_video")
-if RUNNER_DIR not in sys.path:
-    sys.path.insert(0, RUNNER_DIR)
 
 from library.tools import brief_attachment as ba  # noqa: E402
 from library.tools import briefing_interview as bi  # noqa: E402
-from run_pipeline import present_llm_step  # noqa: E402
+from library.processes.edit_video.run_pipeline import (  # noqa: E402
+    present_llm_step,
+)
 
 MANIFEST = {"interface": {"outputs": [{"name": "a_verdict"}]}}
 

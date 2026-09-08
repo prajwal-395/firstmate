@@ -11,27 +11,14 @@ rough cut.
 
 These tests use plain mock objects - no Resolve writes.
 """
-import os
-import sys
-
 import pytest
 
 # apply_fusion_comps lives outside a regular package and needs
 # DaVinciResolveScript on sys.path.  We mock the import so the tests
-# run without Resolve installed.
-_EXECUTION_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "library", "tools", "execution",
-)
-
-
-
-
-# Inject the fake before importing the module under test.
-if _EXECUTION_DIR not in sys.path:
-    sys.path.insert(0, _EXECUTION_DIR)
-
-from apply_fusion_comps import (  # noqa: E402
+# run without Resolve installed. Its sibling imports
+# (`from transition_vocabulary import ...`) are served by
+# tests/conftest.py, which owns every non-root sys.path entry.
+from library.tools.execution.apply_fusion_comps import (  # noqa: E402
     DestinationMismatchError,
     verify_destination,
     _map_clips_to_items,

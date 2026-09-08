@@ -17,11 +17,8 @@ import sys
 import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (PROJECT_ROOT,
-           os.path.join(PROJECT_ROOT, "library"),
-           os.path.join(PROJECT_ROOT, "library", "steps", "step_5_04_compile_manifest")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.subject_framing import (
     CENTRE_DEADBAND,
@@ -305,8 +302,9 @@ def test_the_pan_reaches_a_property_resolve_accepts():
     the real `_apply_conform` with a fake that refuses unknown names.
     """
     from tests.test_framing_parameter import FakeTimelineItem
-    sys.path.insert(0, os.path.join(PROJECT_ROOT, "library", "steps", "step_6_01_render"))
-    from resolve_build_timeline import _apply_conform
+    from library.steps.step_6_01_render.resolve_build_timeline import (
+        _apply_conform,
+    )
 
     clip = conform(framing_intent=1.0, subject_center_x=0.30)
     clip["label"] = "subject_tracked"

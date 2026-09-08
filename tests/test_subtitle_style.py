@@ -21,10 +21,8 @@ import pytest
 import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (PROJECT_ROOT,
-           os.path.join(PROJECT_ROOT, "library", "steps", "step_4_05_render_subtitles")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.subtitle_style import (
     LEGACY_ACCENT_COLOR,
@@ -292,7 +290,9 @@ def test_the_props_generator_has_no_hardcoded_style_default():
 
 
 def test_missing_style_raises_rather_than_defaulting():
-    from generate_remotion_props import generate_subtitle_props_per_block
+    from library.steps.step_4_05_render_subtitles.generate_remotion_props import (  # noqa: E402
+        generate_subtitle_props_per_block,
+    )
     entries = [{
         "text": "hello", "timeline_start": 0.0, "timeline_end": 1.0,
         "spine_block_position": 0, "emphasis_words": [], "words": [],

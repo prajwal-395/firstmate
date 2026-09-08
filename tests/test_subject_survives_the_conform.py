@@ -26,12 +26,8 @@ from unittest.mock import patch
 import pytest
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-for _p in (PROJECT_ROOT,
-           os.path.join(PROJECT_ROOT, "library"),
-           os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_5_04_compile_manifest")):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools import render_qa
 from library.tools.manifest_validator import validate_manifest_semantics

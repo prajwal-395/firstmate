@@ -17,20 +17,16 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # ── Import the compile_manifest helper under test ──
-# compile_manifest/step.py manipulates sys.path at import time; mirror that.
-_step_dir = os.path.join(PROJECT_ROOT, "library", "steps", "step_5_04_compile_manifest")
-_lib_dir = os.path.join(PROJECT_ROOT, "library")
-for _p in (_step_dir, _lib_dir, PROJECT_ROOT):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
-
+# compile_manifest/step.py puts `library/` and the repo root on sys.path
+# itself at import time, so only the root is added here.
 from library.steps.step_5_04_compile_manifest.step import _conform_fields
 
 
 # ── Import the renderer helper under test ──
 
-sys.path.insert(0, os.path.join(PROJECT_ROOT, "library", "steps", "step_6_01_render"))
-from resolve_build_timeline import _apply_conform
+from library.steps.step_6_01_render.resolve_build_timeline import (
+    _apply_conform,
+)
 
 
 # ── Import schema to verify the field exists ──
@@ -202,7 +198,7 @@ class TestFramingEndToEnd:
 
     def test_pan_property_names_match_resolve(self):
         """The names are pinned, so a rename cannot pass silently."""
-        import resolve_build_timeline as rbt
+        import library.steps.step_6_01_render.resolve_build_timeline as rbt
         assert rbt._CONFORM_PAN_PROP in RESOLVE_VIDEO_ITEM_PROPERTIES
         assert rbt._CONFORM_TILT_PROP in RESOLVE_VIDEO_ITEM_PROPERTIES
         for prop in rbt._CONFORM_ZOOM_PROPS:

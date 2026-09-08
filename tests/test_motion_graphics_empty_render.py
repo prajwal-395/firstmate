@@ -33,9 +33,8 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 STEP_DIR = REPO / "library" / "steps" / "step_4_06_render_motion_graphics"
-for _p in (str(REPO), str(STEP_DIR)):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 
 from library.tools import motion_graphics_plan as mgp  # noqa: E402
 

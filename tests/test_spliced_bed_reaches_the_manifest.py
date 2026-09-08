@@ -20,7 +20,6 @@ import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
-sys.path.insert(0, os.path.join(REPO, "library", "steps", "step_6_01_render"))
 
 from library.steps.step_5_04_compile_manifest.step import (  # noqa: E402
     compile_manifest,
@@ -176,7 +175,9 @@ def test_the_ramps_across_each_splice_reach_the_mix(manifest):
 
 def test_the_renderer_puts_the_overlapping_pieces_on_separate_lanes(manifest):
     """Two clips cannot share one Resolve audio track."""
-    from resolve_build_timeline import _allocate_audio_tracks
+    from library.steps.step_6_01_render.resolve_build_timeline import (
+        _allocate_audio_tracks,
+    )
 
     built, _, _ = manifest
     allocations = _allocate_audio_tracks(

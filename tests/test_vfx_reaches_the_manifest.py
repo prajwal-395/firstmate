@@ -30,8 +30,7 @@ import pytest
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.project_layout import ProjectLayout
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_compile_manifest_without_the_decoration import (  # noqa: E402
+from tests.test_compile_manifest_without_the_decoration import (  # noqa: E402
     _step_outputs,
 )
 

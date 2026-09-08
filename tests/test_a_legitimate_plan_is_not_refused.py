@@ -368,8 +368,9 @@ def _sfx(media, entries):
 def test_two_sounds_at_one_span_compile_and_reach_separate_tracks(media):
     """The reproduction, end to end: the plan compiles and the builder
     gives the two layers their own physical tracks."""
-    sys.path.insert(0, str(REPO / "library" / "steps" / "step_6_01_render"))
-    from resolve_build_timeline import _allocate_audio_tracks
+    from library.steps.step_6_01_render.resolve_build_timeline import (
+        _allocate_audio_tracks,
+    )
 
     inputs = dict(_inputs(media))
     inputs.update(_sfx(media, [
@@ -477,8 +478,9 @@ def test_the_bucket_track_is_the_only_exemption():
 
 def test_a_single_layered_moment_as_the_whole_plan_compiles(media):
     """The reproduction: two sounds, one block, nothing else planned."""
-    sys.path.insert(0, str(REPO / "library" / "steps" / "step_6_01_render"))
-    from resolve_build_timeline import _allocate_audio_tracks
+    from library.steps.step_6_01_render.resolve_build_timeline import (
+        _allocate_audio_tracks,
+    )
 
     entries = [
         {"label": "sfx_004", "sfx_id": "riser",

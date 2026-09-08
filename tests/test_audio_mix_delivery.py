@@ -555,8 +555,9 @@ def test_a_plan_with_nothing_in_it_is_not_a_failure(tmp_path):
 # so the mix has to be delivered BEFORE the Fusion pass draws anything.
 # The renderer already placed every clip before drawing a comp, so this
 # costs nothing - but it is now load-bearing, and this is what holds it.
-
-sys.path.insert(0, str(REPO / "library" / "steps" / "step_6_01_render"))
+# (The step_6_01_render directory this file once added to sys.path here
+# now lives in tests/conftest.py; the bare `import
+# resolve_build_timeline` below reaches it by absolute package path.)
 
 
 class _BuildProject(FakeProject):
@@ -669,7 +670,7 @@ def _run_build(tmp_path, manifest, media, configure=None):
     whatever timeline is CURRENT when it runs. `configure`, when given,
     is called with (resolve, project) before the build runs, so a test
     can reshape the fake scripting surface."""
-    import resolve_build_timeline as rbt
+    import library.steps.step_6_01_render.resolve_build_timeline as rbt
 
     project = _BuildProject()
     resolve = MagicMock()
@@ -746,7 +747,7 @@ def test_the_build_falls_back_to_markers_and_says_so(tmp_path):
     fallback nobody can see. When the route declines, the markers come
     back AND the run records why."""
     media, manifest = _build_manifest(tmp_path)
-    import resolve_build_timeline as rbt
+    import library.steps.step_6_01_render.resolve_build_timeline as rbt
     with patch.object(rbt, "deliver_mix", return_value={
             "delivered": False, "reason": "Resolve said no",
             "timeline": None, "timeline_name": "", "applied": [],

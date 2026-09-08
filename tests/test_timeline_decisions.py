@@ -25,7 +25,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -40,8 +39,7 @@ from library.tools.project_layout import (  # noqa: E402
     ProjectLayout,
 )
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_marker_routing import (  # noqa: E402
+from tests.test_marker_routing import (  # noqa: E402
     AMBIGUOUS_NOTE,
     CLIP_NOTE,
     MOMENT_NOTE,

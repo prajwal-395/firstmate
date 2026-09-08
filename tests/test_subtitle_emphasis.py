@@ -131,7 +131,9 @@ import os
 import json
 import shutil
 import subprocess
-from test_timed_text_delivery import _extract_frames, REMOTION_DIR, remotion_available
+from tests.test_timed_text_delivery import (
+    _extract_frames, REMOTION_DIR, remotion_available,
+)
 
 def _get_pixel_colors(png_path: str) -> set:
     from PIL import Image

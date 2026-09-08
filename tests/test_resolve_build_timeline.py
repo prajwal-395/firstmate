@@ -11,10 +11,14 @@ from unittest.mock import MagicMock, patch
 # it, reporting "Resolve is not running" on a machine where it was.
 mock_dvr = MagicMock()
 
-# Add library path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../library/steps/step_6_01_render')))
-
-from resolve_build_timeline import build_timeline, _preflight_check, _allocate_audio_tracks
+# The step directory this file once appended to sys.path now lives in
+# tests/conftest.py; the sibling import below reaches it by absolute
+# package path instead of a bare name bound by collection order.
+from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E402
+    build_timeline,
+    _preflight_check,
+    _allocate_audio_tracks,
+)
 
 @pytest.fixture(autouse=True)
 def _the_fake_resolve_is_this_files_own(monkeypatch):
@@ -117,7 +121,7 @@ def mock_resolve():
     fusion_proc.returncode = 0
     fusion_proc.stdout = ""
     fusion_proc.stderr = ""
-    patcher = patch("resolve_build_timeline.subprocess.run",
+    patcher = patch("library.steps.step_6_01_render.resolve_build_timeline.subprocess.run",
                     return_value=fusion_proc)
     patcher.start()
 
@@ -591,7 +595,8 @@ def test_loud_banner_prints_on_qa_failure_but_not_fatal(mock_resolve, sample_man
     report.checks.append(QACheck(name="mock_loud_check", passed=False, expected="foo", actual="bar"))
     
     with patch('os.path.exists', return_value=True), \
-         patch('resolve_build_timeline.run_full_timeline_qa', return_value=report):
+         patch('library.steps.step_6_01_render.resolve_build_timeline.run_full_timeline_qa',
+               return_value=report):
         result = build_timeline(sample_manifest)
         
     assert result["success"] is True, "QA failures should NOT be fatal yet."

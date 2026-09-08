@@ -41,13 +41,13 @@ import pytest
 import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-STEP_DIR = os.path.join(
-    PROJECT_ROOT, "library", "steps", "step_4_06_render_motion_graphics")
-for _p in (PROJECT_ROOT, STEP_DIR):
-    if _p not in sys.path:
-        sys.path.insert(0, _p)
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
 
-from generate_motion_props import generate_motion_props, props_draw_ink
+from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (  # noqa: E402
+    generate_motion_props,
+    props_draw_ink,
+)
 
 REMOTION_DIR = os.path.join(PROJECT_ROOT, "remotion-subtitles")
 

@@ -304,9 +304,9 @@ def test_consumer_subtitle_style_resolves_the_inset():
 
 
 def test_consumer_motion_props_carries_the_inset():
-    sys.path.insert(0, os.path.join(
-        PROJECT_ROOT, "library", "steps", "step_4_06_render_motion_graphics"))
-    from generate_motion_props import generate_motion_props
+    from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (  # noqa: E402
+        generate_motion_props,
+    )
 
     spine = {"structure": [{
         "block_type": "speech", "position": 1,

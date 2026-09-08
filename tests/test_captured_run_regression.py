@@ -179,8 +179,9 @@ def test_hook_and_a_body_passage_share_one_source_range(broken_steps):
 
 def test_word_end_cutting_is_reachable_on_a_conformant_spine():
     """The guard that gated beat-snapping now opens."""
-    sys.path.insert(0, str(REPO_ROOT / "library" / "steps" / "step_4_02_plan_transitions"))
-    from library.steps.step_4_02_plan_transitions.post_bridge import resolve_cut_point
+    from library.steps.step_4_02_plan_transitions.post_bridge import (
+        resolve_cut_point,
+    )
 
     outgoing = {
         "position": 1,

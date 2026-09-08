@@ -43,6 +43,39 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# ── Non-root directories tests may import from: owned HERE, nowhere else ─
+#
+# Several step bodies import a sibling by bare name, so the step's own
+# directory has to be on sys.path before the step module can be
+# imported - by absolute package path or otherwise. When each test
+# module did that insert itself, at import time, collection order
+# decided which directory a bare name bound to (PR 624: a bare
+# `import step` bound step_5_04's step.py instead of step_6_01's).
+# tests/test_no_syspath_shadowing.py forbids test modules from adding
+# anything but the repo root, so the entries that production code
+# genuinely requires live here instead: this file is imported before
+# every test module, deterministically, so what it establishes cannot
+# depend on collection order. Each entry names the bare sibling import
+# that requires it; remove the entry when that import goes absolute.
+_NON_ROOT_ENTRIES = (
+    # step_6_01_render/step.py:21 `from resolve_build_timeline import ...`
+    # and resolve_build_timeline.py:51 `from build_verification import ...`.
+    os.path.join(PROJECT_ROOT, "library", "steps", "step_6_01_render"),
+    # step_4_05_render_subtitles/step.py:60
+    # `from generate_remotion_props import ...`.
+    os.path.join(PROJECT_ROOT, "library", "steps",
+                 "step_4_05_render_subtitles"),
+    # execution/apply_fusion_comps.py:60 `from transition_vocabulary
+    # import ...` and :62 `from fusion.comp_builder import ...`.
+    os.path.join(PROJECT_ROOT, "library", "tools", "execution"),
+    # tools/video_segment_analyzer.py:8 `from vision_model import ...`
+    # and :23 `import render_qa`.
+    os.path.join(PROJECT_ROOT, "library", "tools"),
+)
+for _entry in _NON_ROOT_ENTRIES:
+    if _entry not in sys.path:
+        sys.path.append(_entry)
+
 # ── The captain's projects root is not reachable from a test ────────
 #
 # `library.tools.paths.PROJECTS_ROOT` is the ONE constant that names

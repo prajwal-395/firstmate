@@ -1224,14 +1224,9 @@ class TestP4DoesNotCollideWithTheBuildVerdict:
             "authorities on the same question and they can disagree")
 
     def test_the_two_verdicts_use_different_result_types(self):
-        import os
-        import sys
-        step_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "library", "steps", "step_6_01_render")
-        if step_dir not in sys.path:
-            sys.path.insert(0, step_dir)
-        from build_verification import derive_verification_verdict
+        from library.steps.step_6_01_render.build_verification import (  # noqa: E402
+            derive_verification_verdict,
+        )
 
         # A station report is not a RenderQAResult and vice versa; the
         # station verdict is computed only from the former.

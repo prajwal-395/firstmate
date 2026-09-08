@@ -2,9 +2,6 @@ import pytest
 import sys
 from unittest.mock import MagicMock
 import numpy as np
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Mock the entire libraries before importing the pipeline module
 mock_madmom = MagicMock()

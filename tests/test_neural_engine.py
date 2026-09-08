@@ -1,9 +1,12 @@
 import unittest
-import sys
-import os
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../library/tools')))
-from neural_engine import apply_super_scale, apply_stabilization
+# library/tools is on sys.path via tests/conftest.py; the import below
+# reaches it by absolute package path instead of a bare name bound by
+# collection order.
+from library.tools.neural_engine import (  # noqa: E402
+    apply_super_scale,
+    apply_stabilization,
+)
 
 
 class MockMediaPoolItem:
@@ -53,7 +56,7 @@ class TestNeuralEngine(unittest.TestCase):
         and the wrapper's `hasattr` guard is True for every name on a
         Resolve proxy. See the note in neural_engine.py.
         """
-        import neural_engine
+        import library.tools.neural_engine as neural_engine
         self.assertFalse(hasattr(neural_engine, "apply_smart_reframe"))
 
     def test_apply_super_scale_targets_the_media_pool_item(self):
@@ -86,7 +89,7 @@ class TestNeuralEngine(unittest.TestCase):
 
     def test_magic_mask_has_no_wrapper(self):
         """Withdrawn: CreateMagicMask returns False for every mode."""
-        import neural_engine
+        import library.tools.neural_engine as neural_engine
         self.assertFalse(hasattr(neural_engine, "apply_magic_mask"))
 
 
