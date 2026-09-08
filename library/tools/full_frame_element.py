@@ -252,7 +252,7 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
               "The word the seven-back-to-back-cards build of "
               "docs/ANIMATED_REEL_CEILING.md was missing."),
         axes=("placement", "segments", "entrance", "exit", "copy",
-              "type_role", "colour_role", "image"),
+              "type_role", "colour_role", "image", "word_sync"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -263,7 +263,12 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "and reads per-segment ink back off the frames before this "
             "flag was set. A segment may name a project image through "
             "the same slot a card's mark takes, drawn by the same "
-            "composition node tests/test_fullframe_card_image.py proved."),
+            "composition node tests/test_fullframe_card_image.py proved. "
+            "A span declaring word_sync paces the typewriter/mask/draw "
+            "entrance off the transcript's own word timings, measured "
+            "per segment at plan time and proved by a render that fails "
+            "without the cue-driven node "
+            "(tests/test_fullframe_word_cues.py)."),
         never=(
             "Never a card beside it: the span already covers the reel's "
             "whole body, so a head or tail card on the same reel is two "
@@ -388,6 +393,14 @@ one vocabulary of motion character in this engine, and the composition
 that draws these cards reuses the overlay composition's own
 ``entranceTransform`` for the same reason.
 """
+
+#: The entrances a word clock can pace.  ``typewriter`` spells the words
+#: out, ``mask`` wipes across them and ``draw`` resolves onto them - the
+#: three reveals docs/ANIMATED_REEL_CEILING.md names as time-based
+#: across a card.  Every other character (a slide, a blur, a glitch) has
+#: no word-shaped progress to follow, so ``word_sync`` beside one of
+#: them is refused rather than silently running time-based.
+WORD_CUED_ENTRANCES = ("typewriter", "mask", "draw")
 
 NO_MOTION = "cut"
 """The motion character that draws no motion, and the ONLY default here.
@@ -733,6 +746,14 @@ def _normalise(raw: Any, index: int) -> dict:
             f"bookends.MAX_BOOKEND_SECONDS records.")
 
     shared = _shared_fields(raw, index, label)
+    if shared["word_sync"]:
+        raise FullFrameDeclarationError(
+            f"{label} sets word_sync, and a card covers its own seconds, "
+            f"not speech seconds: the words it quotes are spoken before "
+            f"or after it plays, so no word clock runs while it is on "
+            f"screen. A word-paced reveal lives on a full_frame_span, "
+            f"whose segments play over their own speech - the same "
+            f"reading that refuses `range_line` outside a span segment.")
     runs = raw.get("runs")
     if not isinstance(runs, (list, tuple)) or not runs:
         raise FullFrameDeclarationError(
@@ -819,6 +840,21 @@ def _shared_fields(raw: Any, index: int, label: str) -> dict:
     # plan time rather than drawing a card with a hole in it.
     image_fields = _normalise_image_fields(raw, label)
 
+    # A word clock for the reveal, off by default.  When true the plan
+    # measures each span segment's words out of the transcript - the same
+    # timings the caption path already reads - and the FullFrameCard
+    # composition paces its typewriter/mask/draw entrance off them, so
+    # the animation lands ON words instead of across the card's own
+    # seconds (docs/ANIMATED_REEL_CEILING.md).  A card never takes this:
+    # it covers its own seconds, not speech seconds, so `_normalise`
+    # refuses it there the way `range_line` is refused outside a span.
+    word_sync = raw.get("word_sync", False)
+    if not isinstance(word_sync, bool):
+        raise FullFrameDeclarationError(
+            f"{label} has word_sync={raw.get('word_sync')!r}; pacing the "
+            f"reveal off the spoken words is either on or off - omit it "
+            f"and the reveal runs time-based, as before.")
+
     return {
         "background": background,
         "entrance": entrance,
@@ -827,6 +863,7 @@ def _shared_fields(raw: Any, index: int, label: str) -> dict:
         "font_file": str(font_file) if font_file else None,
         "y": float(y) if y is not None else None,
         **image_fields,
+        "word_sync": word_sync,
         "separator": str(raw.get("separator") or ", "),
         "opening_seconds": (float(opening_seconds)
                             if opening_seconds is not None else None),
@@ -903,6 +940,12 @@ def _normalise_span(raw: dict, index: int, placement: str) -> dict:
             f"covers the body with nothing, and an element that draws "
             f"nothing is not rendered (AGENTS.md 10.2)")
     shared = _shared_fields(raw, index, label)
+    if shared["word_sync"] and shared["entrance"] not in WORD_CUED_ENTRANCES:
+        raise FullFrameDeclarationError(
+            f"{label} sets word_sync with entrance={shared['entrance']!r}; "
+            f"a word clock can pace {', '.join(WORD_CUED_ENTRANCES)} and "
+            f"nothing else. Omit word_sync and the entrance runs "
+            f"time-based, as before.")
     return {
         "element": "full_frame_span",
         "placement": placement,
@@ -1242,6 +1285,88 @@ def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
     return out
 
 
+def _word_cues(label: str, position: int, range_index: int,
+               ranges: Sequence[tuple[float, float]], transcript: dict,
+               fps: float, seg_start_frame: int, duration_frames: int,
+               resolved: tuple[dict, ...]) -> list[dict]:
+    """One segment's word clock: what the reveal lands on, and when.
+
+    Each cue carries the word's segment-local seconds (``start``/``end``,
+    frame-exact on the same per-edge rounding the plan lays the segment
+    down in) and ``chars`` - the cumulative characters shown through the
+    end of that word, counted over the segment's resolved runs in the
+    order ``typewriterSplit`` reveals them.  The composition owns the
+    time-to-progress mapping and never aligns text itself; it just shows
+    ``chars`` of the last cue whose ``start`` has passed.
+
+    Two refusals, both by name.  A range with no timed words has no clock
+    (the same rule that refuses an empty ``range_line``).  And the clock
+    only exists where the segment quotes its range and nothing else: the
+    resolved words must read exactly the range's spoken words, so a cue
+    boundary always coincides with a word boundary on screen.  A segment
+    carrying an eyebrow beside its quotation, or literal text that merely
+    resembles the speech, would pace the reveal to words the viewer
+    cannot match to glyphs - so it refuses rather than landing near
+    words instead of on them.
+    """
+    from library.tools.reel_build import reel_time
+
+    seg_label = f"{label}.segments[{position}]"
+    lo = sum(r[1] - r[0] for r in ranges[:range_index])
+    hi = lo + (ranges[range_index][1] - ranges[range_index][0])
+    spoken: list[tuple[str, float, float]] = []
+    for segment in ((transcript or {}).get("segments") or []):
+        for word in (segment.get("words") or []):
+            if not word.get("timed"):
+                continue
+            text = str(word.get("word", ""))
+            if not text:
+                continue
+            at = reel_time(float(word["start"]), ranges)
+            if at is None or not (lo - 1e-9 <= at < hi - 1e-9):
+                continue
+            end_at = reel_time(float(word["end"]), ranges, at_end=True)
+            if end_at is None:
+                continue
+            spoken.append((text, at - lo, end_at - lo))
+    if not spoken:
+        raise FullFrameDeclarationError(
+            f"{seg_label} sets word_sync and keep range {range_index} "
+            f"holds no timed words. There is no clock to pace the reveal "
+            f"off - the same reading that refuses an empty `range_line`.")
+    drawn = "".join(run["text"] for run in resolved)
+    if [w.lower() for w in drawn.split()] != [w.lower() for w, _, _ in spoken]:
+        raise FullFrameDeclarationError(
+            f"{seg_label} sets word_sync and its runs do not read exactly "
+            f"the range's spoken words ({len(spoken)} word(s) there). A "
+            f"word clock paces a quotation of the range - bind the "
+            f"segment's run(s) to `range_line` - never an eyebrow beside "
+            f"it or literal text about it.")
+    cues: list[dict] = []
+    cursor = 0
+    for text, start, end in spoken:
+        while cursor < len(drawn) and drawn[cursor].isspace():
+            cursor += 1
+        if drawn[cursor:cursor + len(text)].lower() != text.lower():
+            raise FullFrameDeclarationError(
+                f"{seg_label} sets word_sync and its runs do not read exactly "
+                f"the range's spoken words ({len(spoken)} word(s) there). A "
+                f"word clock paces a quotation of the range - bind the "
+                f"segment's run(s) to `range_line` - never an eyebrow beside "
+                f"it or literal text about it.")
+        cursor += len(text)
+        # Frame-exact on the plan's own arithmetic: seconds into the
+        # segment, rounded to frames and clamped to the segment, so a
+        # word starting on the edit point reads frame 0, not frame -1.
+        start_f = min(max(int(round(start * fps)), 0), duration_frames)
+        end_f = min(max(int(round(end * fps)), 0), duration_frames)
+        cues.append({"word": text,
+                     "start": start_f / fps,
+                     "end": end_f / fps,
+                     "chars": cursor})
+    return cues
+
+
 def _plan_span(declaration: dict, index: int, facts: ReelFacts,
                ranges: Optional[Sequence[tuple[float, float]]],
                transcript: Optional[dict],
@@ -1337,6 +1462,14 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             props["image"] = url
             if segment.get("image_width") is not None:
                 props["imageWidth"] = segment["image_width"]
+        # A word-paced reveal, measured off the transcript's own timings -
+        # the routing this layer was missing (docs/ANIMATED_REEL_CEILING.md).
+        # Absent unless declared, which is what keeps props written before
+        # this slot existed rendering byte-identically.
+        if declaration.get("word_sync"):
+            props["wordCues"] = _word_cues(
+                label, position, position - 1, list(ranges), transcript,
+                fps, cursor, duration_frames, resolved)
         planned.append(PlannedCard(
             index=position,
             element="full_frame_span",

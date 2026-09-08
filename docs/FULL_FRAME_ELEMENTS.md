@@ -307,6 +307,24 @@ whole span, because each segment is the unit that renders. Where a
 span plays the footage video is suppressed and the spine audio stays, so
 the reel is an animated cut over its own speech.
 
+**A span may pace its reveal off the spoken words.** `word_sync: true`
+on the span declaration measures each segment's word clock out of the
+transcript at plan time - the same timings the caption path already
+reads - and the composition paces its `typewriter`/`mask`/`draw`
+entrance off them, so the animation lands ON words instead of across
+the segment's own seconds. Each cue carries segment-local seconds plus
+the cumulative characters shown through that word, so a cue boundary
+always coincides with a word boundary on screen. Two refusals keep that
+promise: a range with no timed words has no clock, and a segment whose
+runs do not read exactly the range's words (an eyebrow beside the
+quotation, literal text about it) refuses rather than landing near
+words. A card may not take `word_sync` at all - it covers its own
+seconds, not speech seconds - and neither may a span whose entrance is
+not one of the three a word clock can pace. The exit half stays on the
+frame clock: it runs after the words are spoken. Pinned by
+`tests/test_fullframe_word_cues.py`, including stills that fail with
+identical pixels on a composition without the cue-driven node.
+
 **How long it may hold** is the declaration's. The engine bounds it only where
 the bound is mechanical: at least one frame, and at most
 `MAX_CARD_SECONDS = 30.0` - the same number and the same reading as

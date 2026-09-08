@@ -31,10 +31,30 @@ import {
   elementOpacity,
   entranceTransform,
   exitTransform,
+  rampFrames,
   typewriterCursorOn,
   typewriterShown,
   typewriterSplit,
 } from "../MotionGraphics";
+
+/** One word the reveal lands on, measured at plan time.
+ *
+ * `start`/`end` are seconds on the CARD's own clock (frame-exact on the
+ * plan's own rounding), and `chars` is the cumulative characters shown
+ * through the end of that word, counted over the resolved runs in the
+ * order they reveal. The composition owns the time-to-progress mapping
+ * and never aligns text itself: it shows `chars` of the last cue whose
+ * `start` has passed, so a cue boundary always coincides with a word
+ * boundary on screen. Planned by
+ * `library/tools/full_frame_element.py` (`word_sync`), which refuses
+ * the segment rather than emitting cues its runs cannot match.
+ */
+export type WordCue = {
+  word: string;
+  start: number;
+  end: number;
+  chars: number;
+};
 
 export type CardRun = {
   text: string;
@@ -82,6 +102,13 @@ export type FullFrameCardProps = {
   image?: string;
   /** The image's width in pixels of the delivery frame, when stated. */
   imageWidth?: number;
+  /**
+   * The segment's own word clock, one cue per spoken word. Absent for
+   * every card and every span segment that was planned time-based -
+   * which is what keeps props written before this slot existed
+   * rendering byte-identically: no key, no change of path.
+   */
+  wordCues?: WordCue[];
 };
 
 export const fullFrameCardSchema = {} as any;
@@ -106,6 +133,63 @@ const TYPE_WEIGHT: Record<string, number> = {
   micro: 600,
 };
 
+/** The entrances a word clock can pace - the three reveals
+ * `docs/ANIMATED_REEL_CEILING.md` names as time-based across a card.
+ * The plan refuses `word_sync` beside any other entrance, so this list
+ * agreeing with `full_frame_element.WORD_CUED_ENTRANCES` is load-bearing;
+ * a character added here without its plan-side refusal would run
+ * time-based beside cues that claim otherwise.
+ */
+export const WORD_CUED_ENTRANCES = ["typewriter", "mask", "draw"];
+
+/** Characters shown at `frame` off the word clock.
+ *
+ * The last cue whose `start` has passed owns the frame - karaoke
+ * reading, not interpolation, so the reveal steps exactly on word
+ * starts and holds between them. Clamped to `totalChars`: cues count
+ * over the resolved runs, so anything past the end is a plan defect
+ * contained here rather than drawn past the text.
+ */
+export const wordCuedChars = (
+  frame: number,
+  fps: number,
+  cues: WordCue[],
+  totalChars: number,
+): number => {
+  if (!cues || cues.length === 0 || totalChars <= 0) return 0;
+  const t = fps > 0 ? frame / fps : 0;
+  const ordered = [...cues].sort((a, b) => a.start - b.start);
+  let shown = 0;
+  for (const cue of ordered) {
+    if (t >= cue.start) shown = Math.min(cue.chars, totalChars);
+  }
+  return Math.max(0, shown);
+};
+
+/** The entrance transform at word progress `p`, 0..1.
+ *
+ * The same drawing `entranceTransform` in MotionGraphics gives `mask`
+ * and `draw`, with the word clock substituted for the ramp clock - one
+ * drawing of each character, not two. `typewriter` needs none: it is a
+ * reveal, not a transform, and the split below already reads the cues.
+ */
+export const wordCuedEntrance = (
+  progress: number,
+  entrance: string,
+): React.CSSProperties => {
+  const p = Math.min(1, Math.max(0, progress));
+  if (entrance === "mask") {
+    return { clipPath: `inset(0 ${(1 - p) * 100}% 0 0)` };
+  }
+  if (entrance === "draw") {
+    return {
+      transform: `scale(${0.85 + 0.15 * p})`,
+      filter: `blur(${(1 - p) * 4}px)`,
+    };
+  }
+  return {};
+};
+
 /** Gap between two stacked runs, in pixels.
  *
  * A gap rather than a row pitch, for the reason MotionGraphics' own
@@ -121,6 +205,7 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   exit,
   fontFamily,
   fontFile,
+  fps,
   width,
   height,
   durationInFrames,
@@ -128,6 +213,7 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   y,
   image,
   imageWidth,
+  wordCues,
 }) => {
   const frame = useCurrentFrame();
 
@@ -160,24 +246,45 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
 
   const opacity = elementOpacity(frame, durationInFrames, entrance, exit);
 
-  // `typewriter` is not a transform, it is a reveal, so `entranceTransform`
-  // returns nothing for it and the card would hold still while claiming a
-  // typewriter entrance - a declared character that draws nothing, which
-  // is the defect class this repository keeps removing (AGENTS.md 10.2).
-  // The split is MotionGraphics' own, shared rather than respelled.
-  //
-  // `typewriterShown` and not `typewriterProgress`: the latter answers
-  // the ENTRANCE only, so a card declaring `exit: "typewriter"` held
-  // every glyph and faded, which is the same defect this comment
-  // describes seen from the other end of the element.
-  const reveal = typewriterShown(frame, durationInFrames, entrance, exit);
-  const { shown, cursorRun } = typewriterSplit(
-    runs.map((run) => run.text.length),
-    reveal,
-  );
+  // The word clock, when the plan measured one. `wordCues` present and
+  // the entrance one of the three it can pace: the reveal steps on word
+  // starts instead of running across the card's own seconds. Absent cues
+  // take the frame-clock path exactly as before - no key, no change of
+  // path, which is what keeps old props rendering byte-identically.
+  // The exit half stays on the frame clock either way: the exit runs
+  // after the words are spoken, where no word starts to land on.
+  const runLengths = runs.map((run) => run.text.length);
+  const totalRunChars = runLengths.reduce((sum, n) => sum + n, 0);
+  const cued =
+    !!wordCues &&
+    wordCues.length > 0 &&
+    WORD_CUED_ENTRANCES.includes(entrance);
+  let reveal: number;
+  let wordProgress = 1;
+  if (cued) {
+    wordProgress =
+      totalRunChars > 0
+        ? wordCuedChars(frame, fps, wordCues as WordCue[], totalRunChars) /
+          totalRunChars
+        : 1;
+    // The exit half of `typewriterShown`, with the word progress standing
+    // in for the entrance half: the exit wins while its ramp is active,
+    // the words own every frame before it - the same precedence the
+    // shared helper gives, so the two cannot disagree about an end.
+    const outFrames = exit === "typewriter" ? rampFrames(exit) : 0;
+    reveal =
+      outFrames > 0 && durationInFrames - frame < outFrames
+        ? Math.min(1, Math.max(0, (durationInFrames - frame) / outFrames))
+        : wordProgress;
+  } else {
+    reveal = typewriterShown(frame, durationInFrames, entrance, exit);
+  }
+  const { shown, cursorRun } = typewriterSplit(runLengths, reveal);
   const cursorOn = typewriterCursorOn(reveal);
   const motion = {
-    ...entranceTransform(frame, durationInFrames, entrance),
+    ...(cued && entrance !== "typewriter"
+      ? wordCuedEntrance(wordProgress, entrance)
+      : entranceTransform(frame, durationInFrames, entrance)),
     ...exitTransform(frame, durationInFrames, exit),
   };
 
