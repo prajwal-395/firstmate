@@ -211,6 +211,42 @@ def test_the_flagging_steps_are_every_model_step_but_the_author():
     )
 
 
+def test_validate_was_considered_and_stays_out_for_a_stated_reason():
+    """vep-validate-in-flagging-steps: does `validate` belong in the
+    contradicts-direction channel, or only in could-not-determine.
+
+    The answer is no, on the direction half of the membership rule: 6.02
+    reaches a model and holds measurements (its own bridge runs render_qa
+    over the finished render), but it is handed no inherited creative
+    direction to hold them against.  Its manifest declares no
+    `creative_direction` input and no DAG edge routes one to it; its only
+    deterministic-routed input is the declined consolidation
+    `assembly_manifest`.  The exclusion is recorded in the module rather
+    than left as a derivation side-effect, so the next edit here meets
+    the question deliberately instead of re-answering it by accident.
+    """
+    assert "validate" in dc.CONSIDERED_AND_EXCLUDED, (
+        "validate's exclusion from the flagging set must be a recorded "
+        "decision, not a derivation side-effect nobody stated")
+    assert dc.CONSIDERED_AND_EXCLUDED["validate"].strip(), (
+        "a recorded exclusion with no reason is omission with a comment")
+    assert not dc.flags("validate")
+    assert dc.evidence_sources("validate") == {}
+    # The reason's claims, re-derived from the expressions the module
+    # uses rather than copied literals: the manifest the derivation
+    # reads, and the DAG edges it derives the routed half from.
+    manifest = dc._MANIFESTS["validate"]
+    input_names = {i.get("name")
+                   for i in manifest.get("interface", {}).get("inputs", [])}
+    assert "creative_direction" not in input_names, (
+        f"validate now declares a direction input {sorted(input_names)} - "
+        "its recorded exclusion is stale; delete the row and let the "
+        "derivation pick it up")
+    assert undetermined.declares("validate"), (
+        "validate stopped reaching a model - the recorded exclusion "
+        "answers a question that no longer arises")
+
+
 def test_every_flagging_step_has_at_least_one_routed_measurement():
     for step_id in dc.FLAGGING_STEPS:
         assert dc.evidence_sources(step_id), step_id

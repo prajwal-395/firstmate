@@ -134,7 +134,7 @@ One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run
 - **Captain's ruling, 2026-09-01: a step MAY FLAG and MAY NOT ACT.** Nothing reads a flag's content, nothing gates on one, and the field is SPLIT OUT of the answer before validation - so the output a flagging step produces is byte-for-byte the one it would have produced silently. Escalation to the captain happens OUTSIDE the pipeline.
 - **It is `undetermined.py`'s twin carrying different cargo** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA beside the context because the handoffs are frozen. Do not build a second mechanism.
 - **FOUR readings, not the sibling's three.** A gap is named by naming it; a CONTRADICTION is a claim ABOUT a measurement, and a claim with no measurement is a model politely disagreeing with its brief. `contradicted` needs an entry naming a `direction_field` in `DIRECTION_KEYS`, a `measurement`, and a `measured_in` the step was really routed. Everything else is `unevidenced` - kept verbatim, reported as itself, and NEVER counted as a contradiction. `nothing_contradicted` (`[]`) and `not_declared` (key absent) are the other two, and they are not each other.
-- **Every step that reaches a model except the one that authors the direction - nine of them.** `color_grade` joined on 2026-09-03 by DERIVATION alone when 5.01 stopped being deterministic. A step needs a prompt to say it in, an inherited direction claim and a routed measurement. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`; the routed half is DERIVED from `dag.json`, so a new edge cannot leave it stale, and `render_motion_graphics` joined by that derivation alone when 4.06 stopped being deterministic. `creative_cohesion` declares `creative_direction` and is deterministic, so it has nothing to say it in.
+- **Every step that reaches a model except the one that authors the direction - nine of them.** `color_grade` joined on 2026-09-03 by DERIVATION alone when 5.01 stopped being deterministic. A step needs a prompt to say it in, an inherited direction claim and a routed measurement. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`; the routed half is DERIVED from `dag.json`, so a new edge cannot leave it stale, and `render_motion_graphics` joined by that derivation alone when 4.06 stopped being deterministic. `creative_cohesion` declares `creative_direction` and is deterministic, so it has nothing to say it in. `validate` reaches a model and holds measurements but is handed no inherited direction, so it is out on the direction half - recorded in `CONSIDERED_AND_EXCLUDED` rather than left as a derivation side-effect.
 - **`MEASURED_OUTPUTS` and `DECLINED_OUTPUTS` must together account for every output of every deterministic step**, and an unaccounted one raises at import - a new deterministic output says which side it is on before it can go quiet.
 - **Its collector is the sibling's, and so are the sibling's two rules**: one flag per model ATTEMPT, numbered, with `final_by_step` the per-STEP reading the summary prints; and `state["direction_contradictions"]` MERGED rather than replaced, carried rows marked `from_a_previous_run`. The two channels print into the same run summary, so they must count on the same basis.
 - **`Flag` and `Declaration` are constructed POSITIONALLY, so a new field goes LAST.** Added above `entries`, it takes the entries and the real entries land in the field after it - no error, just wrong rows, until something compares them.
@@ -473,6 +473,31 @@ OFF_DAG_MEASUREMENTS = {
 
 # The step that AUTHORS the direction cannot inherit one.
 AUTHORS_THE_DIRECTION = "creative_direction"
+
+
+# Considered and deliberately left out.  `validate` (6.02) reaches a
+# model and holds measurements - its own bridge runs render_qa over the
+# finished render - so whether it belongs in this channel is a real
+# question (task vep-validate-in-flagging-steps, 2026-09-02).  The
+# answer is no, on the direction half of the membership rule: its
+# manifest declares no `creative_direction` input and no DAG edge routes
+# one to it, so it holds nothing inherited to hold those measurements
+# against.  Its only deterministic-routed input is `assembly_manifest`,
+# which DECLINED_OUTPUTS records as a consolidation of decisions, not a
+# measurement.  Recorded here rather than left to the derivation alone
+# so the next edit to this file meets the question deliberately instead
+# of re-answering it by accident.  If a future edge routes the
+# direction to `validate`, delete this row and let the derivation pick
+# it up - and list its bridge's render_qa measurements in
+# OFF_DAG_MEASUREMENTS, the route `music_selection` and `select_reels`
+# take for measurements no edge carries.
+CONSIDERED_AND_EXCLUDED = {
+    "validate": (
+        "declares no `creative_direction` input and no DAG edge routes "
+        "one to it; nothing inherited to hold its render_qa measurements "
+        "against"
+    ),
+}
 
 
 def _flagging_steps() -> Dict[str, Dict[str, str]]:
