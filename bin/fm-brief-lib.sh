@@ -5,7 +5,8 @@
 # and both bin/fm-brief.sh --check and bin/fm-spawn.sh gate dispatch through
 # this one implementation: first on unfilled scaffold placeholders, then on the
 # four scope fields, then on the whole-suite Done-check guard, then on the
-# Herdr lifecycle scan. No side effects on source. set -u / set -e safe.
+# merge-before-PR step, then on the Herdr lifecycle scan. No side effects on
+# source. set -u / set -e safe.
 #
 # The four fields, in scaffold order:
 #   What done means for this task  - this task's finish line, not the project's.
@@ -65,6 +66,26 @@
 # fan-out cue in the same section (fan-out, because, reason, justif-, wide,
 # touch-, affect-, span-, across, cover-): presence, never quality, because a
 # required reason that is judged gets filled with noise.
+#
+# The same fail-closed shape guards the merge-before-PR step of a ship brief:
+# a squash merge of a stale branch reverts cleanly with no conflict, so the
+# worker must merge the tracked upstream and re-run the chosen selection ON
+# the merged tree before the PR is opened. The gate refuses a ship brief that
+# lacks both halves of that step, the way the scope contract refuses emptiness
+# rather than judging quality. bin/fm-brief.sh --check and bin/fm-spawn.sh
+# both gate through fm_brief_merge_check below, so the two never hold separate
+# opinions.
+#
+# Detection rule, presence only. A ship brief passes when it carries the
+# merge half (merge the tracked upstream) and the verify half (on the merged
+# tree), each matched case-insensitively anywhere in the brief. The scaffold
+# states both in its own Definition of done, so a freshly scaffolded brief
+# passes and a brief with the step deleted is refused. The Done-check section
+# is the ship marker, the same one the full-suite gate above uses: scout
+# briefs, secondmate charters, and minimal fixtures without one carry no PR
+# and pass vacuously. There is deliberately no pre-contract grandfathering: an
+# older ship brief with a Done-check but without the step is refused so the
+# missing merge is reported rather than silently skipped.
 #
 # The same fail-closed shape guards omitted Herdr intent. A brief scaffolded
 # without --herdr-lab carries a short declaration instead of the lab contract,
@@ -213,6 +234,30 @@ fm_brief_fullsuite_demand_line() {
     /pytest/ && !/\// && !/\.py/ && !/-k([^a-z]|$)/ && !/-m([^a-z]|$)/ && !/--deselect/ && !/--lf/ { print; exit }
     /(^|[ \t])make[ \t]+(test|check)([ \t]|$|[;&])/ { print; exit }
   '
+}
+
+# Gate one brief on the required merge-before-PR step. Returns 0 when dispatch
+# may proceed (not a ship brief, or a ship brief carrying both halves of the
+# step), 1 naming the missing half otherwise. <what> names the action being
+# gated so the refusal reads in the caller's own terms. Only presence is
+# judged, never how the step is worded beyond its two halves.
+fm_brief_merge_check() {  # <brief-path> <what>
+  local brief=$1 what=$2 section lowered has_merge has_verify
+  section=$(fm_brief_donecheck_section "$brief")
+  [ -n "$section" ] || return 0
+  lowered=$(tr '[:upper:]' '[:lower:]' < "$brief" 2>/dev/null)
+  has_merge=0
+  has_verify=0
+  printf '%s\n' "$lowered" | grep -q 'merge the tracked upstream' || has_merge=1
+  printf '%s\n' "$lowered" | grep -q 'on the merged tree' || has_verify=1
+  [ "$has_merge" -eq 0 ] && [ "$has_verify" -eq 0 ] && return 0
+  echo "error: $brief lacks the required merge-before-PR step, so $what is refused:" >&2
+  [ "$has_merge" -eq 0 ] || echo "       missing: merge the tracked upstream before opening the PR" >&2
+  [ "$has_verify" -eq 0 ] || echo "       missing: run the chosen test selection once ON the merged tree" >&2
+  echo "       A squash merge of a stale branch reverts cleanly with no conflict, so the" >&2
+  echo "       worker must merge the tracked upstream and verify ON the merged tree before" >&2
+  echo "       the PR is opened; restore the scaffold's own step instead of working around it." >&2
+  return 1
 }
 
 # Print the # Task section of a brief: from its heading to the next
