@@ -110,6 +110,13 @@ mkdir -p "$STATE"
 # just the dispatch.
 # shellcheck source=bin/fm-agy-descent-lib.sh
 . "$SCRIPT_DIR/fm-agy-descent-lib.sh"
+# Live opencode ladder enforcement. The dispatch gate only routes the next
+# spawn; this is what moves a lane that is ALREADY RUNNING off a free tier it
+# has exhausted, so a mid-run cap costs a relaunch onto Go and not a day-long
+# stall. bin/fm-opencode-descent-lib.sh owns the trigger, the move, and why
+# there is no climb-back and no point-of-spend gate.
+# shellcheck source=bin/fm-opencode-descent-lib.sh
+. "$SCRIPT_DIR/fm-opencode-descent-lib.sh"
 # Positive progress measurement. Pane staleness is an ABSENCE of rendered change
 # and cannot tell a long turn from a wedge; this library measures the pane's own
 # process subtree instead and is the one owner of that contract.
@@ -1170,6 +1177,18 @@ while :; do
     fm_wake_append check agy-ladder "$agy_reason" || exit 1
     wake "$agy_reason"
   done < <(fm_agy_descent_tick "$STATE" 2>/dev/null || true)
+
+  # Live opencode ladder enforcement. Silent and local unless this home runs
+  # an opencode lane on a governed tier with a proven quota-scale cap,
+  # rate-limited to FM_OPENCODE_DESCENT_INTERVAL, and queued rather than
+  # acted on here: the descent has already moved the lane (or refused to) by
+  # the time a line comes back, and the wake is how the captain finds out.
+  while IFS= read -r opencode_line; do
+    [ -n "$opencode_line" ] || continue
+    opencode_reason=$(fm_opencode_descent_wake_reason "$opencode_line")
+    fm_wake_append check opencode-ladder "$opencode_reason" || exit 1
+    wake "$opencode_reason"
+  done < <(fm_opencode_descent_tick "$STATE" 2>/dev/null || true)
 
   # Process-to-event liveness repair. This never discovers a result by polling:
   # each registered source has its own child blocking on that source, and this
