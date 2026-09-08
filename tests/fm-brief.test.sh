@@ -1176,6 +1176,126 @@ FILL
   pass "fm-brief.sh --check: an untouched scaffold is refused, placeholder-only scope prose is empty, and a filled brief passes"
 }
 
+# Brief boilerplate diet: the PR-target paragraph is load-bearing only where a
+# PR can ship. Scouts and local-only ships forbid push and PR in rule 1, so
+# for them the paragraph is instruction about a path they must never take,
+# re-read every turn. The tool line and the working-file rule stay everywhere:
+# the first is still how they read GitHub, the second still guards teardown.
+test_pr_target_prose_only_where_a_pr_can_ship() {
+  local home id brief
+  home="$TMP_ROOT/pr-target-home"
+  mkdir -p "$home/data"
+
+  for mode in no-mistakes direct-PR; do
+    id="pr-target-$mode"
+    FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode "$mode" >/dev/null 2>&1 \
+      || fail "scaffold failed for ship $mode"
+    brief="$home/data/$id/brief.md"
+    assert_grep "actually TRACKS" "$brief" "ship $mode brief lost the PR-target paragraph"
+  done
+
+  id="pr-target-local-only"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only >/dev/null 2>&1 \
+    || fail "scaffold failed for ship local-only"
+  brief="$home/data/$id/brief.md"
+  assert_no_grep "actually TRACKS" "$brief" \
+    "local-only brief kept PR-target prose for a PR its rule 1 forbids"
+
+  id="pr-target-scout"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1 \
+    || fail "scaffold failed for scout"
+  brief="$home/data/$id/brief.md"
+  assert_no_grep "actually TRACKS" "$brief" \
+    "scout brief kept PR-target prose for a PR its rule 1 forbids"
+
+  for id in pr-target-local-only pr-target-scout; do
+    brief="$home/data/$id/brief.md"
+    assert_grep "gh-axi for GitHub operations" "$brief" \
+      "$id brief lost the tool line with the PR-target paragraph"
+    assert_grep "OUTSIDE the repository" "$brief" \
+      "$id brief lost the working-file rule with the PR-target paragraph"
+  done
+  pass "fm-brief.sh: PR-target prose ships only where a PR can ship; the tool line and working-file rule stay everywhere"
+}
+
+# The Herdr NOT-ENABLED declaration is short because the guarantee no longer
+# lives in prose alone: dispatch scans the filled task text and refuses Herdr
+# lifecycle without the lab contract, through the same lib gate in --check and
+# spawn. The regeneration and hand-add lines stay, because no dispatch-time
+# gate can catch a mid-task hand-add.
+test_herdr_omission_is_short_and_structurally_gated() {
+  local home id brief out status
+  home="$TMP_ROOT/herdr-diet-home"
+  mkdir -p "$home/data"
+
+  # Fill every placeholder of a ship brief with the given task body.
+  fill_ship_task() {  # <brief-path> <task-body>
+    TASK_BODY="$2" python3 - "$1" <<'FILL'
+import os, sys
+path = sys.argv[1]
+text = open(path).read()
+text = text.replace("{TASK}", os.environ["TASK_BODY"])
+text = text.replace("{DONE_CHECK}", "run the check")
+text = text.replace("{SCOPE_DONE}", "The gate fires.")
+text = text.replace("{SCOPE_OUT_OF_SCOPE}", "Anything else.")
+text = text.replace("{SCOPE_KNOWN_UNKNOWNS}", "Nothing unknown.")
+text = text.replace("{SCOPE_BLOCKED_ON}", "nothing")
+open(path, "w").write(text)
+FILL
+  }
+
+  id="herdr-diet-ship"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the Herdr diet case"
+  brief="$home/data/$id/brief.md"
+  assert_grep "# Herdr lifecycle declaration - NOT ENABLED" "$brief" \
+    "the compact declaration lost its heading"
+  # shellcheck disable=SC2016  # Literal backticks must remain unexpanded.
+  assert_grep 'regenerate the brief with `--herdr-lab` before dispatch' "$brief" \
+    "the compact declaration lost the regeneration instruction"
+  assert_grep "Do not add Herdr lifecycle commands to this unguarded brief by hand." "$brief" \
+    "the compact declaration lost the hand-add prohibition"
+  assert_no_grep "HARD SAFETY GATE" "$brief" \
+    "the declaration kept its rationale line; that protection now lives in the dispatch scan"
+
+  # A task driving Herdr lifecycle is refused without the lab contract.
+  fill_ship_task "$brief" "Restart the Herdr server between runs to isolate state."
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "a task driving Herdr lifecycle without the lab contract was reported as ready"
+  assert_contains "$out" "--herdr-lab" "the Herdr refusal did not name the regeneration path"
+
+  # The same task passes when the brief carries the lab contract.
+  id="herdr-diet-lab"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR --herdr-lab >/dev/null 2>&1 \
+    || fail "scaffold failed for the Herdr lab case"
+  brief="$home/data/$id/brief.md"
+  fill_ship_task "$brief" "Restart the Herdr server between runs to isolate state."
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a Herdr task with the lab contract must report ready"
+
+  # A read-only Herdr mention drives no lifecycle and stays dispatchable.
+  id="herdr-diet-readonly"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the read-only case"
+  brief="$home/data/$id/brief.md"
+  fill_ship_task "$brief" "Check what the session list reports and change nothing."
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a task that drives no Herdr lifecycle must stay dispatchable"
+
+  # A benign task passes with the new Done-check hint in place, proving the
+  # hint itself is guard-clean and that ordinary work still dispatches.
+  id="herdr-diet-benign"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "scaffold failed for the benign case"
+  brief="$home/data/$id/brief.md"
+  assert_grep "do not restate the test-selection ladder above" "$brief" \
+    "the Done-check lost its anti-restatement hint"
+  fill_ship_task "$brief" "Fix the retry loop in the uploader."
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code_out 0 "$status" "$out" "a benign filled brief must report ready"
+  pass "fm-brief.sh: the Herdr declaration is short, lifecycle without the lab contract is refused, and read-only or benign tasks still dispatch"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -1204,4 +1324,6 @@ test_ship_base_verification_before_branching
 test_scout_does_not_assert_false_detached_head
 test_paused_examples_include_long_local_processes
 test_ship_and_scout_include_test_selection_ladder
+test_pr_target_prose_only_where_a_pr_can_ship
+test_herdr_omission_is_short_and_structurally_gated
 
