@@ -95,6 +95,14 @@ class PipelineConfig:
     # video is a judgement belonging to whoever owns the video, so the
     # engine keeps no default list.  Empty means "the map is enough".
     creative_brief_inline: List[str] = field(default_factory=list)
+    # Which series this video belongs to - the membership anchor for a
+    # channel brief that names several (#258, library/tools/
+    # brief_reference.py).  Empty means the project names none, and the
+    # run says so where the model reads the brief rather than leaving
+    # the roster as a choice.  A per-video statement: the brand template
+    # names its own series_id, but the template is a look, not the
+    # project's word about which creative world this video is in.
+    series: str = ""
     # Project-declared creative tasks: named pieces of craft judgement the
     # pipeline INVOKES, instead of adding a permanent step for work only
     # some projects need (reel selection is the first). Each entry is a
@@ -225,6 +233,11 @@ class ProjectConfig:
                     "pipeline.attach_creative_brief is true and no "
                     "pipeline.creative_brief path is declared. Declare the "
                     "path, or set attach_creative_brief to false.")
+        if not isinstance(self.pipeline.series, str):
+            errors.append(
+                "pipeline.series must be the name of the series this "
+                "video belongs to, got "
+                f"{type(self.pipeline.series).__name__}.")
         if self.pipeline.subtitle_typography is not None:
             from library.tools.subtitle_style import TYPOGRAPHY_KEYS
             declared = self.pipeline.subtitle_typography
@@ -303,6 +316,13 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(
             pipeline_data.get("creative_brief_inline", []) or []),
+        # Top-level fallback: the runtime (`brief_reference.
+        # project_series_identity`) reads `series` at the top level or
+        # under `pipeline:`, so the schema must not drop a top-level
+        # declaration the run would otherwise honour.
+        series=(pipeline_data.get("series")
+                if pipeline_data.get("series") is not None
+                else data.get("series")) or "",
         creative_tasks=list(
             pipeline_data.get("creative_tasks", []) or []),
         sfx_library=pipeline_data.get("sfx_library", ""),
@@ -381,6 +401,12 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if not config.pipeline.creative_brief_inline
                else {"creative_brief_inline":
                      list(config.pipeline.creative_brief_inline)}),
+            # Only when declared: an empty `series:` in every
+            # project.yaml would read as a decision nobody made, and
+            # the runtime reads "" and "not declared" as the same
+            # absence anyway (brief_reference.project_series_identity).
+            **({} if not config.pipeline.series
+                else {"series": config.pipeline.series}),
             # Only when declared, for the same reason: an empty list in
             # every project.yaml reads as a decision nobody made.
             **({} if not config.pipeline.creative_tasks

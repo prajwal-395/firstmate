@@ -1202,10 +1202,17 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                 # the model will have to use and it runs from wherever
                 # the harness put it, not from the project folder.
                 from library.tools.brief_reference import (
-                    build_reference, project_pinned_sections)
+                    build_reference, project_pinned_sections,
+                    project_series_identity)
                 inputs["creative_brief"] = build_reference(
                     os.path.abspath(brief_path), content,
-                    pinned=project_pinned_sections(project_folder))
+                    pinned=project_pinned_sections(project_folder),
+                    # #258: the channel brief names several series and
+                    # the model reached for one by name.  The project
+                    # states which one this video is - or, by passing ""
+                    # when it names none, has the absence said out loud.
+                    series_identity=project_series_identity(
+                        project_folder))
 
         # The captain's own notes off the built timeline, routed to the
         # step that owns the decision each one is about.  This is the ONE

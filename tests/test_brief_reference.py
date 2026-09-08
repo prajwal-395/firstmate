@@ -33,7 +33,9 @@ from library.tools.brief_reference import (  # noqa: E402
     is_inline,
     parse_sections,
     project_pinned_sections,
+    project_series_identity,
     reference_path,
+    restore_for_harness,
 )
 
 # A document shaped like the captain's: a preamble, a section far too big
@@ -247,3 +249,227 @@ def test_the_api_harness_gets_the_brief_restored_in_the_prompt(tmp_path):
     assert "UNIQUE_DEEP_SENTENCE_7c21" in seen["prompt"], (
         "the api harness cannot follow a path, so it must be handed the "
         "document whole - a route the model cannot follow is a loss")
+
+
+# ── #258: which series this video belongs to ─────────────────────────
+#
+# The captain's channel brief names eight series, and the blind A/B on
+# 001 showed the model reaching for one of them by name - "Through the
+# 4th Wall", precisely the series 001 is not.  Nothing in the run said
+# which series the video is in, so the roster read as a choice.  The
+# reference header now states the project's membership - or, when the
+# project names none, says that absence out loud.
+
+def test_a_declared_series_is_stated_where_the_model_reads_the_brief(tmp_path):
+    _, ref = _reference(tmp_path, series_identity="Through the 4th Wall")
+    assert ("This video belongs to the series 'Through the 4th Wall'."
+            in ref)
+    assert "do not present this video as one of them." in ref
+
+
+def test_an_undeclared_series_is_stated_as_an_absence(tmp_path):
+    """001 names no series, and that silence is the case that
+    mis-steered the model: a roster with no membership statement reads
+    as a menu."""
+    _, ref = _reference(tmp_path, series_identity="")
+    assert "The project names no series for this video." in ref
+    assert ("do not present this video as belonging to any of them "
+            "by name." in ref)
+
+
+def test_documents_that_are_not_the_brief_carry_no_membership_line(tmp_path):
+    """The anchor is the brief's, not the mechanism's.  The SFX
+    catalogue and the footage analysis name no series, so a reference
+    built without an identity carries no line either way."""
+    _, ref = _reference(tmp_path)
+    assert "belongs to the series" not in ref
+    assert "names no series" not in ref
+
+
+def _project_with(tmp_path, declaration: str):
+    project = tmp_path / "project"
+    project.mkdir(exist_ok=True)
+    (project / "project.yaml").write_text(declaration, encoding="utf-8")
+    return project
+
+
+def test_project_series_identity_reads_the_top_level_or_the_pipeline(tmp_path):
+    assert project_series_identity("") == ""
+    assert project_series_identity(str(tmp_path / "missing")) == ""
+
+    project = _project_with(tmp_path, 'name: "T"\nslug: "t"\n')
+    assert project_series_identity(str(project)) == ""
+
+    project = _project_with(
+        tmp_path, 'name: "T"\nslug: "t"\nseries: "Through the 4th Wall"\n')
+    assert (project_series_identity(str(project))
+            == "Through the 4th Wall")
+
+    project = _project_with(
+        tmp_path,
+        'name: "T"\nslug: "t"\npipeline:\n  series: "Night Owls"\n')
+    assert project_series_identity(str(project)) == "Night Owls"
+
+
+def test_a_malformed_series_declaration_raises(tmp_path):
+    project = _project_with(
+        tmp_path,
+        'name: "T"\nslug: "t"\npipeline:\n  series:\n    - "a"\n')
+    with pytest.raises(ValueError, match="series"):
+        project_series_identity(str(project))
+
+
+def test_a_harness_that_cannot_read_keeps_the_anchor_but_not_the_header(tmp_path):
+    """Under `api` the whole document travels, so the header does not -
+    but the anchor is what keeps the full roster from reading as a
+    choice, and it must survive the route."""
+    ref = build_reference(str(tmp_path / "b.md"), DOCUMENT, harness="api",
+                          series_identity="Through the 4th Wall")
+    assert ref.startswith(
+        "This video belongs to the series 'Through the 4th Wall'.")
+    assert ref.endswith(DOCUMENT)
+
+    ref = build_reference(str(tmp_path / "b.md"), DOCUMENT, harness="api",
+                          series_identity="")
+    assert ref.startswith("The project names no series for this video.")
+    assert ref.endswith(DOCUMENT)
+
+
+def test_the_api_restore_states_the_series_ahead_of_the_document(tmp_path):
+    """`present_llm_step` replaces the reference with the whole file for
+    a harness that cannot follow a path.  That is the route on which the
+    model reads the full eight-series roster, so the membership line is
+    stated ahead of it rather than lost with the header."""
+    from library.processes.edit_video import run_pipeline
+
+    brief = tmp_path / "brief.md"
+    brief.write_text(DOCUMENT, encoding="utf-8")
+    ref = build_reference(str(brief), DOCUMENT,
+                          series_identity="Through the 4th Wall")
+
+    project = _project_with(
+        tmp_path, 'name: "T"\nslug: "t"\nseries: "Through the 4th Wall"\n')
+    prompt = tmp_path / "handoff.md"
+    prompt.write_text("Do the work.\n", encoding="utf-8")
+
+    seen = {}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        def generate(self, full_prompt, system=None):
+            seen["prompt"] = full_prompt
+            return json.dumps({"vfx_plan": []})
+
+    import library.tools.llm_client as llm_client
+    original = llm_client.LLMClient
+    llm_client.LLMClient = _FakeClient
+    try:
+        run_pipeline.present_llm_step(
+            str(prompt),
+            {"creative_brief": ref, "project_folder": str(project)},
+            "plan_vfx",
+            manifest={"interface": {"inputs": [{"name": "creative_brief"}],
+                                    "outputs": [{"name": "vfx_plan"}]}},
+            full_auto="api", llm_timeout=5)
+    finally:
+        llm_client.LLMClient = original
+
+    assert ("This video belongs to the series 'Through the 4th Wall'."
+            in seen["prompt"])
+    assert "UNIQUE_DEEP_SENTENCE_7c21" in seen["prompt"]
+
+
+def test_the_api_restore_states_the_absence_for_a_project_naming_none(tmp_path):
+    """The 001 case under `api`: no series declared, full roster
+    travelling, and the absence said out loud ahead of it."""
+    brief = tmp_path / "brief.md"
+    brief.write_text(DOCUMENT, encoding="utf-8")
+    ref = build_reference(str(brief), DOCUMENT, series_identity="")
+
+    project = _project_with(tmp_path, 'name: "T"\nslug: "t"\n')
+    inputs, restored = restore_for_harness(
+        {"creative_brief": ref, "project_folder": str(project)}, "api")
+
+    assert restored == ["creative_brief"]
+    assert inputs["creative_brief"].startswith(
+        "The project names no series for this video.")
+    assert "UNIQUE_DEEP_SENTENCE_7c21" not in ref
+    assert "UNIQUE_DEEP_SENTENCE_7c21" in inputs["creative_brief"]
+
+
+def test_other_referenced_documents_restore_without_a_membership_line(tmp_path):
+    """The restore states the anchor for the brief only.  The SFX
+    catalogue and the footage analysis travel whole under `api` with
+    nothing prepended."""
+    doc = tmp_path / "catalog.md"
+    doc.write_text(DOCUMENT, encoding="utf-8")
+    ref = build_reference(str(doc), DOCUMENT,
+                          document_name="A catalogue", why_referenced="why")
+    inputs, restored = restore_for_harness(
+        {"sfx_catalog_reference": ref,
+         "project_folder": str(tmp_path)}, "api")
+
+    assert restored == ["sfx_catalog_reference"]
+    assert inputs["sfx_catalog_reference"] == DOCUMENT
+
+
+# ── The declaration round-trips through the project config ────────────
+#
+# `manage_project.py new` writes `project.yaml` off
+# `project_config_to_dict`, so a series the schema cannot carry is a
+# series the next rewrite silently drops.
+
+def test_series_round_trips_through_project_config(tmp_path):
+    from library.schemas.project_config import (
+        load_project_config, project_config_to_dict,
+    )
+    project = _project_with(
+        tmp_path,
+        'name: "T"\nslug: "t"\n'
+        'pipeline:\n  series: "Through the 4th Wall"\n')
+
+    config = load_project_config(project / "project.yaml")
+    assert config.pipeline.series == "Through the 4th Wall"
+    assert (project_config_to_dict(config)["pipeline"]["series"]
+            == "Through the 4th Wall")
+
+
+def test_a_top_level_series_is_kept_not_dropped(tmp_path):
+    """The runtime reads `series` at the top level or under `pipeline:`,
+    so the schema must honour a top-level declaration rather than lose
+    it on the next rewrite."""
+    from library.schemas.project_config import (
+        load_project_config, project_config_to_dict,
+    )
+    project = _project_with(
+        tmp_path, 'name: "T"\nslug: "t"\nseries: "Night Owls"\n')
+
+    config = load_project_config(project / "project.yaml")
+    assert config.pipeline.series == "Night Owls"
+    assert (project_config_to_dict(config)["pipeline"]["series"]
+            == "Night Owls")
+
+
+def test_an_undeclared_series_is_omitted_not_emptied(tmp_path):
+    """An empty `series:` in every project.yaml would read as a decision
+    nobody made, and the runtime reads "" and "not declared" as the
+    same absence anyway."""
+    from library.schemas.project_config import (
+        load_project_config, project_config_to_dict,
+    )
+    project = _project_with(tmp_path, 'name: "T"\nslug: "t"\n')
+
+    config = load_project_config(project / "project.yaml")
+    assert config.pipeline.series == ""
+    assert "series" not in project_config_to_dict(config)["pipeline"]
+
+
+def test_a_non_string_series_is_refused(tmp_path):
+    from library.schemas.project_config import load_project_config
+    project = _project_with(
+        tmp_path,
+        'name: "T"\nslug: "t"\npipeline:\n  series:\n    - "a"\n')
+    with pytest.raises(ValueError, match="pipeline.series"):
+        load_project_config(project / "project.yaml")

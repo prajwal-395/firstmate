@@ -266,7 +266,8 @@ DEFAULT_WHY_REFERENCED = ("most of it is about the channel rather than "
 
 def build_reference(path: str, content: str, pinned=(), harness: str = "agy",
                     document_name: str = DEFAULT_DOCUMENT_NAME,
-                    why_referenced: str = DEFAULT_WHY_REFERENCED) -> str:
+                    why_referenced: str = DEFAULT_WHY_REFERENCED,
+                    series_identity: str | None = None) -> str:
     """The text a step receives in place of the document's own bytes.
 
     `path` is recorded exactly as the step will have to use it, so it is
@@ -278,9 +279,22 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agy",
     header says about WHICH document this is; everything else - the map,
     the line ranges, the inline clauses - is the same for any markdown
     document with `##` sections.
+
+    `series_identity` is the brief's membership anchor (#258) and only
+    the brief carries one: the channel brief names several series, and
+    without a line saying which one this video is (or that the project
+    names none) the roster reads as a choice.  `None` means "not the
+    brief" - the SFX catalogue and the footage analysis carry no such
+    line.  Any string, including "", states the reading, so only the
+    creative-brief call site passes it.
     """
     if not harness_reads_files(harness):
-        return content
+        if series_identity is None:
+            return content
+        # The whole document travels, so the header does not - but the
+        # series anchor (#258) is not the header, it is the one line
+        # that keeps the full roster from reading as a choice.
+        return series_membership_line(series_identity) + "\n\n" + content
 
     pinned = {_normalise(p) for p in pinned}
     preamble, sections = parse_sections(content)
@@ -310,6 +324,10 @@ def build_reference(path: str, content: str, pinned=(), harness: str = "agy",
         "document is at that path.",
         "",
     ]
+
+    if series_identity is not None:
+        out.append(series_membership_line(series_identity))
+        out.append("")
 
     if preamble.strip():
         out.append("--- the document's own opening, in full ---")
@@ -400,6 +418,85 @@ def project_pinned_sections(project_folder: str) -> list:
     return [str(d) for d in declared]
 
 
+# ── Which series this video belongs to ─────────────────────────────
+
+# Issue #258: the captain's channel brief names eight series, and the
+# blind A/B showed the model reaching for one of them by name - "Through
+# the 4th Wall", which is precisely the series 001 is not.  The brief
+# improves the answer overall and simultaneously pulls toward the wrong
+# creative world, because nothing in the run says which series (if any)
+# this video is in.  The issue's own prescription is "at minimum a line
+# in the project's own configuration stating which series it belongs to
+# - or explicitly that it belongs to none yet", so that is what the
+# engine carries: a project-declared identity, read here and stated in
+# the reference header where the model reads the brief.  The engine
+# chooses nothing - a project that declares none gets the absence said
+# out loud, which leaves the model no roster entry to adopt.
+SERIES_KEY = "series"
+
+
+def project_series_identity(project_folder: str) -> str:
+    """The series this project says its video belongs to, or "".
+
+    Read off `series` at the top level or under `pipeline:` in
+    `project.yaml` - the same two places `creative_brief` itself is read
+    from, so a project does not memorise one home for one brief key and
+    another for the rest.  A declaration that is not a string is
+    malformed and raises, the way a malformed `creative_brief_inline`
+    does: a list where a name should be is not a name the run can state.
+    """
+    if not project_folder:
+        return ""
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return ""
+    try:
+        import yaml
+        with open(project_yaml, "r", encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except Exception:
+        return ""
+    if not isinstance(data, dict):
+        return ""
+    declared = data.get(SERIES_KEY)
+    if declared is None:
+        pipeline = data.get("pipeline")
+        if isinstance(pipeline, dict):
+            declared = pipeline.get(SERIES_KEY)
+    if declared is None:
+        return ""
+    if not isinstance(declared, str):
+        raise ValueError(
+            f"{project_yaml}: {SERIES_KEY} must be the name of the series "
+            f"this video belongs to, got {type(declared).__name__}."
+        )
+    return declared.strip()
+
+
+def series_membership_line(series_identity: str) -> str:
+    """One factual line anchoring the video against the brief's roster.
+
+    A membership statement, not a creative judgement: it says which
+    named series this video is (or that the project names none), so the
+    channel brief's list of series reads as background rather than as a
+    choice.  Both readings refuse the failure #258 measured - presenting
+    the video as belonging to a series the project never named.
+    """
+    name = (series_identity or "").strip()
+    if name:
+        return (
+            f"This video belongs to the series {name!r}. The brief may "
+            f"name other series as channel background; do not present "
+            f"this video as one of them."
+        )
+    return (
+        "The project names no series for this video. The brief may name "
+        "several series as channel background; that roster is not a "
+        "menu, so do not present this video as belonging to any of them "
+        "by name."
+    )
+
+
 # ── Clause 5, applied ───────────────────────────────────────────────
 
 REFERENCED_INPUTS = ("creative_brief", "sfx_catalog_reference",
@@ -434,6 +531,14 @@ def restore_for_harness(inputs: dict, harness: str) -> tuple:
             continue
         with open(path, "r", encoding="utf-8") as handle:
             content = handle.read()
+        if key == "creative_brief":
+            # The whole document travels, so the header - and the series
+            # anchor in it (#258) - does not.  State it ahead of the
+            # document rather than lose it: under this harness the model
+            # reads the full roster, which is where the pull toward a
+            # named series was measured.
+            content = (series_membership_line(project_series_identity(
+                inputs.get("project_folder") or "")) + "\n\n" + content)
         if not restored:
             inputs = dict(inputs)
         inputs[key] = content
