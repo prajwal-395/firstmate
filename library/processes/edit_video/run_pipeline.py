@@ -77,6 +77,73 @@ class PreBridgeError(Exception): pass
 class LLMError(Exception): pass
 class PostBridgeError(Exception): pass
 
+
+def looks_like_a_path(value: str) -> bool:
+    """Whether a `source` value is naming a FILE at all.
+
+    `source` is not only a clip path: music_selection uses
+    it for which catalogue a track came from - "library",
+    "project", "external" - and this check reported all
+    three as unrecognised footage. A warning that fires on
+    correct output is noise, and noise is how a real one
+    gets scrolled past.
+
+    A genuine file reference always carries a directory
+    separator: the catalog holds absolute source paths, so
+    anything the footage really contains arrives with one.
+    A bare dotted tail is not enough - the designed pipeline
+    names brand-template slots like "brand template
+    style.house_look.cdl", whose suffix `os.path.splitext`
+    reads as an extension but which no disk ever held.
+    """
+    return "/" in value or "\\" in value
+
+
+def extract_clip_refs(obj) -> tuple:
+    """Every `clip_id` value and every path-like `source` value in `obj`.
+
+    A module-level function so the clip-reference check at the run site
+    and the regression test read the same code. Returns `(ids, paths)`.
+
+    What counts as a reference is deliberately narrow. A `clip_id`
+    value carrying whitespace is a DEFINITION of the term - the
+    grade-terms legend and the frame-strip legend both map the key to
+    a sentence - not a use of it, and a real clip id (`clip_XXX`) is
+    one token. Likewise a `source` value with no directory separator
+    is a slot name or an enum, never a file the catalog could hold.
+    """
+    ids: set = set()
+    paths: set = set()
+
+    def extract_refs(node, ids, paths):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                if k == "clip_id" and isinstance(v, str):
+                    token = v.strip()
+                    if len(token.split()) == 1:
+                        ids.add(token)
+                elif k in ("source", "source_path", "clip") and isinstance(v, str):
+                    if looks_like_a_path(v):
+                        paths.add(v)
+                else:
+                    extract_refs(v, ids, paths)
+        elif isinstance(node, list):
+            for item in node:
+                extract_refs(item, ids, paths)
+
+    extract_refs(obj, ids, paths)
+    return ids, paths
+
+
+def unknown_clip_refs(output: dict, catalog_ids: set, catalog_paths: set) -> tuple:
+    """Which references in a step `output` the catalog cannot account for.
+
+    Returns `(unknown_ids, unknown_paths)`. Empty both means the step
+    named nothing the footage does not contain.
+    """
+    out_ids, out_paths = extract_clip_refs(output)
+    return out_ids - catalog_ids, out_paths - catalog_paths
+
 def _is_transient_error(e: Exception) -> bool:
     if isinstance(e, subprocess.TimeoutExpired):
         return True
@@ -2960,35 +3027,8 @@ def run_pipeline(
                     for key in ("source_file", "path") if c.get(key)
                 }
                 
-                def looks_like_a_path(value: str) -> bool:
-                    """Whether a `source` value is naming a FILE at all.
-
-                    `source` is not only a clip path: music_selection uses
-                    it for which catalogue a track came from - "library",
-                    "project", "external" - and this check reported all
-                    three as unrecognised footage. A warning that fires on
-                    correct output is noise, and noise is how a real one
-                    gets scrolled past.
-                    """
-                    return "/" in value or "\\" in value or bool(
-                        os.path.splitext(value)[1])
-
-                def extract_refs(obj, ids, paths):
-                    if isinstance(obj, dict):
-                        for k, v in obj.items():
-                            if k == "clip_id" and isinstance(v, str): ids.add(v)
-                            elif k in ("source", "source_path", "clip") and isinstance(v, str):
-                                if looks_like_a_path(v): paths.add(v)
-                            else: extract_refs(v, ids, paths)
-                    elif isinstance(obj, list):
-                        for item in obj: extract_refs(item, ids, paths)
-                
-                out_ids = set()
-                out_paths = set()
-                extract_refs(output, out_ids, out_paths)
-                
-                unknown_ids = out_ids - catalog_ids
-                unknown_paths = out_paths - catalog_paths
+                unknown_ids, unknown_paths = unknown_clip_refs(
+                    output, catalog_ids, catalog_paths)
                 if unknown_ids or unknown_paths:
                     print(f"     ⚠ WARNING: LLM returned unrecognized clip references.", file=sys.stderr)
                     if unknown_ids: print(f"       Unknown clip_ids: {unknown_ids}", file=sys.stderr)
