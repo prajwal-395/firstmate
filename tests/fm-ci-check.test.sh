@@ -279,3 +279,74 @@ run_check "$home" build-status >/dev/null
 out=$(FM_HOME="$home" "$CI" status --task build-status) || fail "status failed: $out"
 assert_contains "$out" "reported: ci passed $PR" "status must report the verdict already sent"
 pass "fm-ci-check: status distinguishes unarmed, armed-and-silent, and already-reported"
+
+# --- the verdict also reaches the waiting worker directly --------------------
+#
+# The routing this suite exists to pin: a verdict wakes firstmate through the
+# check line AND is sent straight to the waiting worker, so no supervisor turn
+# is spent relaying a fact the worker can act on alone. The send is
+# best-effort: whatever happens on the worker channel, the firstmate wake
+# below must still print.
+
+SEND_LOG="$TMP_ROOT/send.log"
+: > "$SEND_LOG"
+cat > "$FAKEBIN/fm-send-stub.sh" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf 'task=%s\n' "${1:-}" >> "$FM_SEND_LOG"
+printf 'msg=%s\n' "${2:-}" >> "$FM_SEND_LOG"
+[ -z "${FM_SEND_FAIL:-}" ] || exit 1
+exit 0
+SH
+chmod +x "$FAKEBIN/fm-send-stub.sh"
+export FM_SEND_LOG="$SEND_LOG"
+export FM_CI_NOTIFY_SEND_BIN="$FAKEBIN/fm-send-stub.sh"
+
+send_count() { grep -c '^task=' "$SEND_LOG"; }
+
+notify_home=$(new_home notify)
+arm "$notify_home" build-direct >/dev/null || fail "arm failed"
+GH_FIXTURE="$TMP_ROOT/green.json"
+out=$(FM_HOME="$notify_home" run_check "$notify_home" build-direct)
+[ "$out" = "ci passed $PR" ] \
+  || fail "firstmate must still be woken with the verdict; got: '$out'"
+[ "$(send_count)" = 1 ] || fail "the verdict must be sent to the worker exactly once"
+assert_grep "task=build-direct" "$SEND_LOG" "the send must name the waiting task"
+assert_grep "ci passed $PR" "$SEND_LOG" "the worker message must carry the verdict"
+assert_grep "notified: ok" "$notify_home/state/build-direct.ci-watch-fired" \
+  "the marker must record that the worker was notified"
+out=$(FM_HOME="$notify_home" "$CI" status --task build-direct) || fail "status failed: $out"
+assert_contains "$out" "notified: ok" "status must report the worker notification"
+pass "fm-ci-check: a verdict wakes firstmate and is sent to the waiting worker"
+
+out=$(FM_HOME="$notify_home" run_check "$notify_home" build-direct)
+[ -z "$out" ] || fail "a verdict already reported must not wake again; got: '$out'"
+[ "$(send_count)" = 1 ] || fail "a silent re-poll must not re-send to the worker"
+pass "fm-ci-check: the direct worker send fires once, with the verdict"
+
+# --- a failure names the failing checks so the worker skips the forge --------
+
+fail_home=$(new_home notify-fail)
+arm "$fail_home" build-red-direct >/dev/null || fail "arm failed"
+GH_FIXTURE="$TMP_ROOT/red-names.json"
+rollup \
+  '{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"}' \
+  "$PASSING" > "$GH_FIXTURE"
+out=$(FM_HOME="$fail_home" run_check "$fail_home" build-red-direct)
+[ "$out" = "ci failed $PR" ] \
+  || fail "a failing check set must wake as failed; got: '$out'"
+assert_grep "task=build-red-direct" "$SEND_LOG" "the failure must be sent to the waiting task"
+assert_grep "lint" "$SEND_LOG" "the worker message must name the failing check"
+pass "fm-ci-check: a failure reaches the worker naming the failing checks"
+
+# --- a dead worker never costs firstmate its wake -----------------------------
+
+dead_home=$(new_home notify-dead)
+arm "$dead_home" build-dead >/dev/null || fail "arm failed"
+GH_FIXTURE="$TMP_ROOT/green.json"
+out=$(FM_SEND_FAIL=1 FM_HOME="$dead_home" run_check "$dead_home" build-dead)
+[ "$out" = "ci passed $PR" ] \
+  || fail "a failed worker send must not swallow firstmate's wake; got: '$out'"
+assert_grep "notified: send-failed" "$dead_home/state/build-dead.ci-watch-fired" \
+  "the marker must record the missed worker so firstmate can reconcile the exited case"
+pass "fm-ci-check: an unreachable worker is recorded, never a lost firstmate wake"
