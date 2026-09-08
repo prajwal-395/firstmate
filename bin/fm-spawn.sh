@@ -313,6 +313,12 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-agy-quota-lib.sh"
 # shellcheck source=bin/fm-agy-ladder-lib.sh
 . "$SCRIPT_DIR/fm-agy-ladder-lib.sh"
+if ! declare -f fm_agy_pin_task >/dev/null 2>&1; then
+  # The per-task ladder pin this file records below; guarded like every other
+  # shared source here.
+  # shellcheck source=bin/fm-agy-descent-lib.sh
+  . "$SCRIPT_DIR/fm-agy-descent-lib.sh"
+fi
 # shellcheck source=bin/fm-opencode-ladder-lib.sh
 . "$SCRIPT_DIR/fm-opencode-ladder-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
@@ -2921,6 +2927,16 @@ EOF
           printf 'spend_gate=%s\n' off
         else
           printf 'spend_gate=%s\n' on
+        fi
+        # The ladder tick cannot see FM_AGY_LADDER_OVERRIDE where it runs -
+        # neither the watcher nor the detached turn-end driver inherits it -
+        # so a launch past the ladder on the captain's word is recorded per
+        # task where the tick reads it back, and a launch under the ordinary
+        # rules clears any earlier pin (bin/fm-agy-descent-lib.sh owns both).
+        if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
+          fm_agy_pin_task "$STATE_REAL" "$ID" "$FM_AGY_LADDER_OVERRIDE" || true
+        else
+          fm_agy_pin_clear "$STATE_REAL" "$ID" || true
         fi
         printf 'home=%s\n' "$FM_HOME"
       } > "$auth_file"

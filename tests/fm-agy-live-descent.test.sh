@@ -1389,6 +1389,71 @@ test_the_climb_can_be_turned_off_on_its_own() {
   pass "fm_agy_descent_tick: FM_AGY_CLIMB=off disables the climb alone"
 }
 
+test_the_climb_off_file_is_honoured_where_the_tick_runs() {
+  local state out t
+  state=$(fresh_state climb-off-file)
+  climb_worker "$state" grounded "$RUNG3" 'Gemini 3.7 Flash'
+
+  # The off state the watcher actually reads is a state record, because neither
+  # evaluation driver inherits firstmate's environment: the watcher is a
+  # long-lived process and the turn-end driver is detached into the worker's
+  # own process tree with only FM_HOME and FM_STATE_OVERRIDE passed through.
+  # Every evaluation below runs with the variable absent, so this fails if the
+  # file is honoured only where it is set.
+  : > "$state/.agy-climb-off"
+  t=$NOW
+  out=$(unset FM_AGY_CLIMB; climb_tick "$state" "$t" 0.0 100.0 94.6)
+  [ -z "$out" ] || fail "a filed climb-off must hold the worker, got: $out"
+  out=$(unset FM_AGY_CLIMB; climb_tick "$state" "$((t + FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
+  [ -z "$out" ] || fail "a filed climb-off must hold the worker past the dwell, got: $out"
+  [ "$(fm_meta_get "$state/grounded.meta" model)" = "$RUNG3" ] \
+    || fail "a filed climb-off must leave the worker where it is"
+
+  # Removing the file returns the climb on the same evidence, so the file was
+  # what held it rather than the evidence having gone quiet.
+  rm -f "$state/.agy-climb-off"
+  out=$(unset FM_AGY_CLIMB; climb_tick "$state" "$((t + 2 * FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
+  assert_contains "$out" "climbed grounded" "removing the file must return the climb"
+
+  # ...while the descent the climb shares a tick with is untouched by the file,
+  # so the two halves stay separately controllable through it too.
+  state=$(fresh_state climb-off-file-descent)
+  climb_worker "$state" sinking "$RUNG2" 'Claude Opus 4.6 (Thinking)'
+  : > "$state/.agy-climb-off"
+  out=$(unset FM_AGY_CLIMB; climb_tick "$state" "$NOW" 0.0 0.0 94.6)
+  assert_contains "$out" "descended sinking" "a filed climb-off must not disable the descent"
+  FAKE_MODE=static
+  pass "fm_agy_descent_tick: a filed .agy-climb-off disables the climb where the tick runs, alone"
+}
+
+test_a_recorded_pin_holds_a_worker_without_the_env_var() {
+  local state out
+  state=$(fresh_state climb-pin-file)
+  climb_worker "$state" pinned "$RUNG3" 'Gemini 3.7 Flash'
+
+  # The pin firstmate records when it places a worker on the captain's word is
+  # read back where the tick runs, not from an environment neither driver
+  # inherits. The variable stays absent throughout, so this fails if the
+  # placement only sticks where the variable is set.
+  fm_agy_pin_task "$state" pinned 'captain: keep this one on gemini'
+  out=$(unset FM_AGY_LADDER_OVERRIDE; climb_tick "$state" "$NOW" 0.0 100.0 94.6)
+  [ -z "$out" ] || fail "a pinned worker must be held while the dwell runs, got: $out"
+  out=$(unset FM_AGY_LADDER_OVERRIDE; climb_tick "$state" "$((NOW + FM_AGY_CLIMB_DWELL))" 0.0 100.0 94.6)
+  [ -z "$out" ] || fail "a pinned worker on a slower rung is what the captain asked for, so it must not wake them, got: $out"
+  [ "$(fm_meta_get "$state/pinned.meta" model)" = "$RUNG3" ] \
+    || fail "a pinned worker must not be climbed"
+
+  # The downward side of the same pin still speaks, from the recorded reason.
+  state=$(fresh_state climb-pin-file-down)
+  climb_worker "$state" pinned "$RUNG2" 'Claude Opus 4.6 (Thinking)'
+  fm_agy_pin_task "$state" pinned 'captain: finish this run on opus'
+  out=$(unset FM_AGY_LADDER_OVERRIDE; climb_tick "$state" "$NOW" 0.0 0.0 94.6)
+  assert_contains "$out" "override pinned" "a pinned worker below its floor must still be reported"
+  assert_contains "$out" "captain: finish this run on opus" "the recorded reason must be printed"
+  FAKE_MODE=static
+  pass "fm_agy_descent_tick: a recorded pin holds a worker where the tick runs and still speaks below its floor"
+}
+
 test_the_dwell_timer_belongs_to_the_rung_not_to_a_worker() {
   # The condition is a property of the RUNG, so a worker that arrives on rung 2
   # after the timer started must inherit it rather than begin a clock of its own
@@ -1763,6 +1828,8 @@ test_a_spent_ladder_is_still_reported_when_nothing_above_has_reset
 test_a_failed_climb_is_reported_once_and_not_retried_every_minute
 test_the_captains_override_holds_a_worker_down_and_says_nothing
 test_the_climb_can_be_turned_off_on_its_own
+test_the_climb_off_file_is_honoured_where_the_tick_runs
+test_a_recorded_pin_holds_a_worker_without_the_env_var
 test_the_dwell_timer_belongs_to_the_rung_not_to_a_worker
 test_a_move_leaves_a_record_naming_only_the_model_the_worker_is_on
 test_a_move_that_cannot_be_recorded_is_never_reported_as_a_success
