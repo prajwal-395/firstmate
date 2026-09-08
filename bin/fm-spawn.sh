@@ -312,6 +312,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-agy-quota-lib.sh"
 # shellcheck source=bin/fm-agy-ladder-lib.sh
 . "$SCRIPT_DIR/fm-agy-ladder-lib.sh"
+# shellcheck source=bin/fm-opencode-ladder-lib.sh
+. "$SCRIPT_DIR/fm-opencode-ladder-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-tracker-lib.sh
@@ -1464,6 +1466,29 @@ case "$HARNESS" in
     # it stalls silently until a supervision cycle catches the wedge. Setting
     # showFeedbackSurvey=false in agy's settings.json disables it permanently.
     fm_agy_suppress_feedback_survey
+    ;;
+  opencode)
+    # The captain's free-then-Go ladder, enforced rather than remembered
+    # (bin/fm-opencode-ladder-lib.sh owns the rungs, the reactive evidence
+    # rule, and why an absent reading never moves a launch). It runs here
+    # because this case is on the one path every opencode crewmate and scout
+    # launch already takes, so an ordinary dispatch has nowhere to route
+    # around it. It never refuses: a proven free cap rewrites the model to
+    # the Go tier, and anything less than proof keeps the requested model
+    # (free when none was requested), so a broken gate degrades to today's
+    # behavior rather than a stalled fleet. MODEL_SET is left as it was: the
+    # meta record below reads MODEL itself, so the routed tier is what
+    # recovery relaunches on.
+    _FM_OPENCODE_LADDER_NOTE=$(mktemp "${TMPDIR:-/tmp}/fm-opencode-ladder.XXXXXX" 2>/dev/null) || _FM_OPENCODE_LADDER_NOTE=
+    if [ -n "$_FM_OPENCODE_LADDER_NOTE" ]; then
+      _FM_OPENCODE_LADDER_MODEL=$(fm_opencode_ladder_model "${MODEL:-}" "$STATE" 2>"$_FM_OPENCODE_LADDER_NOTE") \
+        || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
+      [ -n "$_FM_OPENCODE_LADDER_MODEL" ] || _FM_OPENCODE_LADDER_MODEL=${MODEL:-}
+      MODEL=$_FM_OPENCODE_LADDER_MODEL
+      [ -s "$_FM_OPENCODE_LADDER_NOTE" ] && cat "$_FM_OPENCODE_LADDER_NOTE" >&2 || true
+      rm -f "$_FM_OPENCODE_LADDER_NOTE"
+    fi
+    unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
