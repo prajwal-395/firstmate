@@ -413,6 +413,25 @@ class ReelTimeline:
     height: int = 0
     """Timeline resolution height, read from Resolve."""
     markers: dict = field(default_factory=dict)
+    picture_frames: Optional[int] = None
+    """Frames of picture (V1/V2 - footage and full-frame cards) from the
+    timeline origin: max V1/V2 end minus the snapshot's start frame.
+
+    Computed where both are known (`_snapshot_to_reel_timeline`), because
+    `total_frames` above is Resolve's GetEndFrame minus GetStartFrame over
+    ALL tracks - V3 captions included - while the plan
+    `check_plan_describes_timeline` holds against the extent is a PICTURE
+    plan (keep ranges plus card frames). Captions are laid by different
+    arithmetic (`frame_utils.span_frames` per-edge rounding on reel
+    seconds) than picture (per-range sums on master seconds), and the two
+    projections of the same seconds disagree by a frame at unlucky
+    fractions - measured 2026-09-08 as reel 13's "plan 1902f vs timeline
+    1903f" refusal on a build whose picture tiled exactly. The gate reads
+    this field so it grades picture against picture; audio, captions and
+    overlays keep their own gates (F1-audio, F2, F15, F18, F21).
+
+    None on hand-built fixtures, where `verify_reel` falls back to
+    `total_frames` - the old, caption-inclusive reading."""
 
 
 # ── The actual checks ────────────────────────────────────────────────
@@ -850,6 +869,22 @@ def check_plan_describes_timeline(reel_name: str,
     its ranges by exactly this - and left out, EVERY such reel would
     refuse F4 as "not the plan that built this reel". Zero for every
     project that declares none.
+
+    `total_frames` is the PICTURE extent - V1/V2 to the timeline origin -
+    never the whole-timeline GetEndFrame minus GetStartFrame. The plan
+    under test describes picture only, and the caption layer it does not
+    describe is laid by different arithmetic: `frame_utils.span_frames`
+    rounds each record edge on reel seconds, while the sum above rounds
+    each range edge on master seconds, and the two projections of the
+    same seconds diverge by a frame at unlucky fractions. Measured
+    2026-09-08: a single 79.354s keep range lays 1902 picture frames
+    while a caption closing exactly at the reel end records to frame
+    1903, so the timeline carries 1903 on a build whose picture tiled
+    exactly (reel 13, refused as +1f/+0.04s). The caller (`verify_reel`)
+    passes the picture extent; a caller passing the all-tracks extent
+    reintroduces that refusal. No tolerance is added - a genuinely
+    dropped or lengthened picture clip still moves the picture extent by
+    its frames and still refuses, frame-exact.
     """
     # `round()` on a float returns an int, so this IS
     # `reel_build.placements`' own `int(round(x * fps))` per range edge -
@@ -865,7 +900,8 @@ def check_plan_describes_timeline(reel_name: str,
         reel=reel_name,
         message=(
             f"the plan re-derived for this reel lays down "
-            f"{planned_frames} frames and the timeline carries "
+            f"{planned_frames} frames and the picture on the timeline "
+            f"carries "
             f"{total_frames} ({delta:+d} frames, "
             f"{delta / fps:+.2f}s), so it is not the plan that built "
             f"this reel - F4 is REFUSED rather than reporting the "
@@ -3296,8 +3332,24 @@ def verify_reel(plan: ReelPlan,
     # footage video they replace was suppressed at build time - so
     # counting them beside the ranges would lay down twice the reel.
     span_present = any(c.placement == "span" for c in plan.cards)
+    # The actual side is the PICTURE extent, never the whole-timeline
+    # one. `timeline.total_frames` is GetEndFrame minus GetStartFrame over
+    # every track, V3 captions included, and captions are laid by
+    # different arithmetic than picture (`frame_utils.span_frames`
+    # per-edge rounding on reel seconds, versus per-range sums on master
+    # seconds in `reel_build.placements`). The two projections of the
+    # same seconds diverge by a frame at unlucky fractions: 2026-09-08,
+    # reel 13, plan 1902f vs timeline 1903f on a build whose picture
+    # tiled exactly, the closing caption's record end landing one frame
+    # past it. Grading the picture plan against the caption-inclusive
+    # extent refuses correct output (AGENTS.md 10.4); the caption tail
+    # itself is F2/F15's to judge, on seconds. Hand-built timelines predate
+    # `picture_frames` and fall back to the old reading.
+    picture_frames = (timeline.picture_frames
+                      if timeline.picture_frames is not None
+                      else timeline.total_frames)
     not_this_plan = check_plan_describes_timeline(
-        plan.reel_name, plan_ranges, timeline.total_frames, fps,
+        plan.reel_name, plan_ranges, picture_frames, fps,
         card_frames=(0 if span_present
                      else sum(c.duration_frames for c in plan.cards)))
     findings.extend(not_this_plan)
@@ -3624,6 +3676,19 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         reel_name=snapshot.timeline_name,
         fps=fps,
         total_frames=snapshot.end_frame - snapshot.start_frame,
+        # The picture extent from the timeline origin, for the
+        # picture-scoped length gate in `verify_reel`. `video_items` here
+        # is V1/V2 only (footage and full-frame cards - the classifier
+        # above put V3 captions, V4 overlays and the explainer track
+        # elsewhere), so a caption tail past the last picture frame does
+        # not read as a longer reel. Empty when the timeline carries no
+        # picture at all, which is itself a refusal unless the plan is
+        # empty too.
+        picture_frames=(
+            max((i.end_frame for i in video_items
+                 if i.track_index in (1, 2)),
+                default=snapshot.start_frame)
+            - snapshot.start_frame),
         video_items=tuple(sorted(video_items,
                                  key=lambda i: (i.track_index, i.start_frame))),
         audio_items=tuple(sorted(audio_items,
