@@ -30,6 +30,8 @@ under `tmp_path`; nothing here reaches a real project (AGENTS.md 8).
 import ast
 import inspect
 import json
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -330,3 +332,45 @@ def test_the_ranking_puts_completeness_before_the_gap():
     assert [w["word"] for w in aligned] == ["and", "i", "have", "news"]
     assert notes["leading_gap"] == pytest.approx(1.0)
     assert notes["event"] == "held"
+
+
+# ─── the emitted document declares itself ──────────────────────
+
+def test_post_bridge_success_output_declares_every_top_level_key(
+        tmp_path, clip_011):
+    """Item 10: post_bridge.py's success output is merged into the step's
+    final output by run_hybrid_step, so every top-level key it emits must
+    be one the manifest declares - the `step` provenance marker 2.02
+    emitted read as `unexpected extra fields: step` on every run. The
+    post-bridge is DRIVEN as a subprocess over JSON stdin, the way the
+    runner runs it, over 001's own clip_011 timings."""
+    d = tmp_path / "temporal_index"
+    d.mkdir()
+    (d / "clip_011.json").write_text(
+        json.dumps({"speech_regions": clip_011["speech_regions"]}),
+        encoding="utf-8")
+    passage = dict(clip_011["passages"]["body_0"])
+    payload = {
+        "speech_sequence": {"hook_segment": None,
+                            "body_sequence": [passage]},
+        "temporal_index": {"index_dir": str(d)},
+    }
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(REPO_ROOT) + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "library" / "steps"
+                             / "step_2_02_speech_sequence" / "post_bridge.py")],
+        input=json.dumps(payload), capture_output=True, text=True,
+        encoding="utf-8", cwd=str(REPO_ROOT), env=env, timeout=120,
+        check=False)
+    assert proc.returncode == 0, proc.stderr[-2000:]
+    out = json.loads(proc.stdout)
+    assert out["speech_sequence"]["body_sequence"][0]["clip_id"] == (
+        "clip_011"), "the fixture must take the success path or this test proves nothing"
+    declared = {o.get("name") for o in json.loads(
+        (REPO_ROOT / "library" / "steps" / "step_2_02_speech_sequence"
+         / "manifest.json").read_text(encoding="utf-8")
+    )["interface"]["outputs"]}
+    assert not (set(out) - declared), (
+        "post_bridge.py emits top-level keys the manifest does not "
+        f"declare: {sorted(set(out) - declared)}")

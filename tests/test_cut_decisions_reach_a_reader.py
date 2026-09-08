@@ -319,3 +319,34 @@ def test_the_runner_prints_them_after_the_status_is_decided():
     assert marker in src
     assert src.index('summary = {\n        "status": status,') > src.index(
         marker), "the review findings must be read after status is decided"
+
+
+# ── The bridge's own emissions are declared ──────────────────────────
+
+def test_an_unjudged_cut_leaves_no_undeclared_field_on_the_step_output():
+    """Item 10: the bridge emits cuts_unjudged exactly when a cut went
+    unjudged - the conditional path the bridge sweep never exercises.
+    run_hybrid_step merges those emissions into the step's final output,
+    so the manifest must declare the key or validate_step_output reports
+    it as an unexpected extra field, the drift that makes a manifest
+    stop being trusted."""
+    from library.processes.edit_video.run_pipeline import (
+        validate_step_output,
+    )
+    reader_manifest = manifest("step_4_02_plan_transitions")
+    out = run_bridge({"timed_spine": SPINE,
+                      "cut_decisions": [CUT_DECISIONS[0]]})
+    assert out["cuts_unjudged"], (
+        "the fixture must take the conditional path - one cut judged, "
+        "one not - or this test proves nothing")
+    output = {
+        "cuts_toon": out["cuts_toon"],
+        "cuts_legend": out["cuts_legend"],
+        "transition_spec": [{"_probe": 1}],
+    }
+    output.update(out)
+    issues = validate_step_output(READER, output, reader_manifest)
+    extra = [i for i in issues if "unexpected extra fields" in i]
+    assert not extra, (
+        "the bridge emits keys the manifest does not declare: "
+        f"{extra}")

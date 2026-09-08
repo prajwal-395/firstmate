@@ -842,8 +842,12 @@ def main():
         if total_duration > max_dur or total_duration < min_dur:
             print(f"WARNING: Total speech duration ({total_duration:.1f}s) is out of bounds ({min_dur:.1f}-{max_dur:.1f}s).", file=sys.stderr)
 
+    # No provenance key beside the output: run_hybrid_step merges this
+    # dict into the step's final output and validate_step_output refuses
+    # any key the manifest does not declare, so a `step` marker here
+    # reads as an unexpected extra field on every run. The error paths
+    # above keep theirs - they exit non-zero and never reach validation.
     json.dump({
-        "step": "2.02_bridge",
         "speech_sequence": enriched,
     }, sys.stdout, indent=2)
 

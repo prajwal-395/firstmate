@@ -103,6 +103,12 @@
         "description": "What the two derived columns of cuts_toon ARE, from library/tools/transition_carriers.CUTS_LEGEND. handoff.md is frozen and cannot name them, so the definition travels as data - the route step 2.04 takes for MEASUREMENT_LEGEND."
       },
       {
+        "name": "cuts_unjudged",
+        "type": "string",
+        "required": false,
+        "description": "Bridge output: how much of the rough-cut review's judgement is missing, said rather than left to be inferred from a column of `unjudged` (library/tools/cut_verdicts.unjudged_summary). Emitted only on runs where any cut went unjudged; when every cut was judged the absence means nothing is missing, not a value to invent (AGENTS.md 10.5). Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
         "name": "transition_spec",
         "type": "array",
         "description": "State output: transition_spec",

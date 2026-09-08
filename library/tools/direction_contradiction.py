@@ -471,6 +471,36 @@ OFF_DAG_MEASUREMENTS = {
     },
 }
 
+# Measurements a step holds that travel on a DAG edge the derivation
+# cannot see.  `_build` only routes outputs of DETERMINISTIC steps, so a
+# deterministic measurement a HYBRID step's post-bridge computes - 2.02's
+# aligner writing `alignment_report` onto its own output - never appears
+# in `_ROUTED`, and 3.03's richest routed measurement was not citable:
+# any disagreement grounded in it read as UNEVIDENCED.
+#
+# Unlike OFF_DAG_MEASUREMENTS these DO arrive on an edge, so each entry
+# is admitted only where the step declares the input AND shows it to
+# the model.  `mesh_spine` is routed `speech_sequence` too but drops the
+# report by name (`-speech_sequence.alignment_report`) with no view
+# replacing it, so its model never sees the numbers and must not be
+# invited to cite them.  3.03 drops the raw report the same way but
+# declares `view:alignment` - the same numbers ordered for a reader
+# (`library/tools/alignment_findings.py`) - which is the half its model
+# sees, and the entry says so.
+HYBRID_MEASUREMENTS = {
+    "review_rough_cut": {
+        "speech_sequence": (
+            "2.02's aligner measurements of each passage's INSIDES "
+            "(alignment_report: leading_gap_seconds, "
+            "largest_gap_seconds, voiced_fraction, anchors_considered, "
+            "per passage), routed as `speech_sequence` and shown to you "
+            "as `view:alignment`. Cite only those numbers. The "
+            "`body_sequence` ordering beside them is 2.02's own judgement, "
+            "not a measurement of anything."
+        ),
+    },
+}
+
 # The step that AUTHORS the direction cannot inherit one.
 AUTHORS_THE_DIRECTION = "creative_direction"
 
@@ -520,6 +550,11 @@ def _flagging_steps() -> Dict[str, Dict[str, str]]:
             if name in inputs
         }
         evidence.update(OFF_DAG_MEASUREMENTS.get(node_id, {}))
+        evidence.update({
+            name: why
+            for name, why in HYBRID_MEASUREMENTS.get(node_id, {}).items()
+            if name in inputs
+        })
         if evidence:
             steps[node_id] = evidence
     return steps

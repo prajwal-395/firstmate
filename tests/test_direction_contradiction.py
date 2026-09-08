@@ -538,3 +538,49 @@ def test_the_inventory_s_existing_markings_still_hold():
     assert len(DIRECTION_KEYS) == 8, (
         f"step 2.01 is asked for {DIRECTION_KEYS} - if the schema grew, "
         "the inventory's SELF-MARKING row must say so")
+
+
+# ── 3.03 can cite the alignment it runs on ──────────────────────────
+
+ALIGNMENT_CONTRADICTION = {
+    "direction_field": "target_energy",
+    "direction_said": "high - urgent, propulsive, the viewer never settles",
+    "measurement": (
+        "body[0] largest internal gap 1.169s in a 2.982s block, "
+        "voiced_fraction 0.474, leading gap 0.312s, 3 anchors considered"
+    ),
+    "measured_in": "speech_sequence",
+    "why_they_disagree": (
+        "a block that is half silence cannot carry an urgent propulsion"
+    ),
+    "complied_by": (
+        "kept the passage where the sequence put it and judged the cut "
+        "on the surrounding continuity"
+    ),
+}
+
+
+def test_review_rough_cut_can_cite_the_alignment_it_runs_on():
+    """Item 8: 3.03's richest routed measurement is view:alignment -
+    leading gaps, largest internal gap, voiced fraction, anchors
+    considered, per passage - and it was on neither citable list, so any
+    disagreement grounded in the numbers the step is built around read
+    as UNEVIDENCED. The step IS routed speech_sequence and IS shown the
+    numbers as view:alignment, so citing them must read as contradicted.
+    """
+    sources = dc.evidence_sources("review_rough_cut")
+    assert "speech_sequence" in sources, (
+        f"3.03 cannot cite its own evidence: {sorted(sources)}"
+    )
+    _, flag = dc.take("review_rough_cut",
+                      {"review": {}, dc.FIELD: [ALIGNMENT_CONTRADICTION]})
+    assert flag.reading == dc.CONTRADICTED
+    assert flag.unevidenced == []
+    assert flag.entries[0]["measured_in"] == "speech_sequence"
+
+
+def test_the_alignment_citation_does_not_leak_to_a_step_that_cannot_see_it():
+    """mesh_spine is routed speech_sequence too, but drops the report by
+    name with no view replacing it - its model never sees the numbers,
+    so inviting it to cite them would invite fabrication."""
+    assert "speech_sequence" not in dc.evidence_sources("mesh_spine")
