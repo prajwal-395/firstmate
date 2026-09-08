@@ -108,10 +108,15 @@ test_refused_spawn_leaves_no_state() {
 # The secondmate branch reads its optional home positionally with a default,
 # so a missing home must still reach that branch's own refusal rather than a
 # crash. This pins the rest of the sweep: every other positional read in the
-# script is either count-gated or default-guarded.
+# script is either count-gated or default-guarded. The harness is explicit (a
+# raw launch command skips template lookup) because harness *detection* walks
+# the live process ancestry: under a harness-named parent it resolves and the
+# home refusal follows, while on a bare CI runner it yields 'unknown' and its
+# own refusal fires first. Depending on detection here would make this case
+# pass on one machine and fail on another.
 test_secondmate_without_home_reaches_its_own_refusal() {
   expect_refusal "secondmate without home" "no firstmate home supplied or registered" \
-    run_spawn nope-secondmate-z6 --secondmate
+    run_spawn nope-secondmate-z6 --secondmate --harness 'sleep 60'
   pass "secondmate without a home reaches its own refusal, not a crash"
 }
 
