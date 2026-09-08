@@ -100,10 +100,17 @@
 # THE OVERRIDE. FM_OPENCODE_LADDER_OVERRIDE is the launch gate's deliberate
 # escape and it is honoured here too: a worker held on free past a proven cap
 # on the captain's explicit request is not dragged off it behind their back.
-# Its use is printed, exactly as the launch gate prints it.
+# Its use is printed, exactly as the launch gate prints it. bin/fm-spawn.sh
+# records the override per task where this evaluation reads it back, because
+# the variable itself never reaches the watcher: the watcher is a long-lived
+# process that predates the instruction.
 #
 # FM_OPENCODE_DESCENT=off disables the whole evaluation, leaving the dispatch
-# gate as the only enforcement. FM_OPENCODE_DESCENT_CONTROL_BIN overrides the
+# gate as the only enforcement. In production the off state is filed as
+# <state-dir>/.opencode-descent-off, which the watcher reads: the variable
+# alone never reaches it, for the same reason. The variable stays as an
+# additional source for one-shot runs and the regression suite.
+# FM_OPENCODE_DESCENT_CONTROL_BIN overrides the
 # control-plane binary the relaunch runs through; production leaves it at the
 # default, tests point it at a stub so no real agent is ever stopped.
 
@@ -169,6 +176,59 @@ fm_opencode_descent_escalate_once() {  # <state-dir> <id> <next>
   fi
   printf '%s' "$3" > "$marker" 2>/dev/null || true
   return 0
+}
+
+# fm_opencode_descent_off_path: the filed descent off-switch for <state-dir>.
+# Existence is the signal, exactly as with the escalated- markers below; see
+# the FM_OPENCODE_DESCENT comment for why the production off state lives here
+# rather than in the environment.
+fm_opencode_descent_off_path() {  # <state-dir>
+  printf '%s/.opencode-descent-off' "$1"
+}
+
+# fm_opencode_descent_off: 0 when the descent evaluation is turned off for
+# <state-dir>, by the filed record the watcher reads or by the variable only
+# a manual run inherits. The caller already takes <state-dir>, so this costs
+# one file test on the decision path and no new plumbing.
+fm_opencode_descent_off() {  # <state-dir>
+  [ "${FM_OPENCODE_DESCENT:-on}" = off ] && return 0
+  [ -f "$(fm_opencode_descent_off_path "$1")" ]
+}
+
+# fm_opencode_pin_mark: the recorded deliberate placement of <id>. The content
+# is the reason firstmate placed it there.
+fm_opencode_pin_mark() {  # <state-dir> <id>
+  printf '%s/.opencode-pin-%s' "$1" "$2"
+}
+
+# fm_opencode_pin_task: pin <id> where firstmate deliberately put it, for
+# <reason>. bin/fm-spawn.sh records this when FM_OPENCODE_LADDER_OVERRIDE
+# holds a launch on free past a proven cap; the tick reads it back instead of
+# a variable it cannot see. A pin is not drift, so the tick moves a pinned
+# worker nowhere. Per task, not per home: the hold names one lane the captain
+# placed, and a home-wide file would freeze every lane on free past its cap,
+# including lanes the captain never asked about.
+fm_opencode_pin_task() {  # <state-dir> <id> <reason>
+  printf '%s' "$3" > "$(fm_opencode_pin_mark "$1" "$2")" 2>/dev/null
+}
+
+# fm_opencode_pin_clear: release <id>'s pin. A launch without the override
+# calls this, so a fresh placement under the ordinary rules is not frozen by
+# an earlier instruction; teardown calls it with the rest of the task's
+# records.
+fm_opencode_pin_clear() {  # <state-dir> <id>
+  rm -f "$(fm_opencode_pin_mark "$1" "$2")" 2>/dev/null || true
+}
+
+# fm_opencode_task_pin: print <id>'s recorded pin reason, or fail when
+# unpinned.
+fm_opencode_task_pin() {  # <state-dir> <id>
+  local path reason
+  path=$(fm_opencode_pin_mark "$1" "$2")
+  [ -f "$path" ] || return 1
+  reason=$(cat "$path" 2>/dev/null || true)
+  [ -n "$reason" ] || return 1
+  printf '%s' "$reason"
 }
 
 fm_opencode_descent_clear_task() {  # <state-dir> <id>
@@ -257,9 +317,9 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
 fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
   local meta id harness model kind cap horizon bound human note ctl_out reason
-  local recorded after next rest
+  local recorded after next rest hold_reason
 
-  [ "${FM_OPENCODE_DESCENT:-on}" != off ] || return 0
+  fm_opencode_descent_off "$state_dir" && return 0
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 0
   [ -n "$now" ] || now=$(date +%s)
 
@@ -310,11 +370,16 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
 
     # The captain's own escape, honoured before any move: a worker held on
     # free past a proven cap on explicit request is not dragged off it, and
-    # the hold is said once per episode.
-    if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+    # the hold is said once per episode. The hold is read from the task's
+    # recorded pin first and the environment second, because the tick runs
+    # where the variable cannot follow it; either source names the same
+    # authority and prints the same reason.
+    hold_reason=${FM_OPENCODE_LADDER_OVERRIDE:-}
+    [ -n "$hold_reason" ] || hold_reason=$(fm_opencode_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
+    if [ -n "$hold_reason" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'override %s %s is capped (next retry in %s) but FM_OPENCODE_LADDER_OVERRIDE=%s is holding it there\n' \
-          "$id" "${model:-<no model>}" "$human" "$FM_OPENCODE_LADDER_OVERRIDE"
+        printf 'override %s %s is capped (next retry in %s) but the captain'"'"'s hold is keeping it there: %s\n' \
+          "$id" "${model:-<no model>}" "$human" "$hold_reason"
       fi
       continue
     fi

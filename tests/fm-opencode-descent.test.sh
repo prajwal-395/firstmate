@@ -413,6 +413,64 @@ test_off_ladder_silent
 test_unknown_model_surfaces
 test_failed_relaunch_escalates_once
 test_override_holds
+
+test_filed_descent_off_holds_where_the_tick_runs() {
+  local state out
+  state=$(fresh_state descent-off-file)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  # The off state the watcher actually reads is a state record, because the
+  # watcher is a long-lived process that predates the instruction and never
+  # inherits firstmate's environment. Every evaluation below runs with the
+  # variable absent, so this fails if the file is honoured only where it is
+  # set.
+  : > "$state/.opencode-descent-off"
+  out=$(unset FM_OPENCODE_DESCENT; run_tick "$state") || fail "tick must never fail"
+  [ -z "$out" ] || fail "a filed descent-off must hold the lane, said: ${out:-<silent>}"
+  stub_called && fail "a filed descent-off must never reach the control plane"
+  # Removing the file returns the evaluation on the same evidence, so the
+  # file was what held it rather than the evidence having gone quiet.
+  rm -f "$state/.opencode-descent-off"
+  out=$(unset FM_OPENCODE_DESCENT; run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "removing the file must return the evaluation, said: ${out:-<silent>}" ;;
+  esac
+  pass "a filed .opencode-descent-off disables the evaluation where the tick runs"
+}
+
+test_recorded_pin_holds_without_the_env_var() {
+  local state out
+  state=$(fresh_state override-pin-file)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  # The pin firstmate records when it holds a lane on the captain's word is
+  # read back where the tick runs, not from an environment the watcher never
+  # inherits. The variable stays absent throughout, so this fails if the hold
+  # only sticks where the variable is set. Written directly: the production
+  # writer is fm-spawn.sh through fm_opencode_pin_task.
+  printf '%s' 'captain: hold free for this demo' > "$state/.opencode-pin-lane1"
+  out=$(unset FM_OPENCODE_LADDER_OVERRIDE; run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    override' '*) : ;;
+    *) fail "a recorded pin must hold the worker, said: ${out:-<silent>}" ;;
+  esac
+  case "$out" in
+    *'captain: hold free for this demo'*) : ;;
+    *) fail "the recorded reason must be printed, said: $out" ;;
+  esac
+  stub_called && fail "a pinned worker must never be moved"
+  out=$(unset FM_OPENCODE_LADDER_OVERRIDE; run_tick "$state") || fail "tick must never fail"
+  [ -z "$out" ] || fail "a pin must not wake twice, said: $out"
+  pass "a recorded pin holds a capped worker where the tick runs and says so once"
+}
+
+test_filed_descent_off_holds_where_the_tick_runs
+test_recorded_pin_holds_without_the_env_var
 test_unrecorded_move_reported
 test_unbound_cap_relaunches_with_ambiguity
 test_evaluation_rate_limited

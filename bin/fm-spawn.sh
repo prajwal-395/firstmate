@@ -321,6 +321,12 @@ if ! declare -f fm_agy_pin_task >/dev/null 2>&1; then
 fi
 # shellcheck source=bin/fm-opencode-ladder-lib.sh
 . "$SCRIPT_DIR/fm-opencode-ladder-lib.sh"
+if ! declare -f fm_opencode_pin_task >/dev/null 2>&1; then
+  # The per-task ladder pin this file records below; guarded like every other
+  # shared source here.
+  # shellcheck source=bin/fm-opencode-descent-lib.sh
+  . "$SCRIPT_DIR/fm-opencode-descent-lib.sh"
+fi
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-tracker-lib.sh
@@ -1496,6 +1502,16 @@ case "$HARNESS" in
       rm -f "$_FM_OPENCODE_LADDER_NOTE"
     fi
     unset _FM_OPENCODE_LADDER_NOTE _FM_OPENCODE_LADDER_MODEL
+    # The descent tick cannot see FM_OPENCODE_LADDER_OVERRIDE where it runs -
+    # the watcher is a long-lived process that predates the instruction - so
+    # a launch held on free on the captain's word is recorded per task where
+    # the tick reads it back, and a launch under the ordinary rules clears
+    # any earlier pin (bin/fm-opencode-descent-lib.sh owns both).
+    if [ -n "${FM_OPENCODE_LADDER_OVERRIDE:-}" ]; then
+      fm_opencode_pin_task "$STATE" "$ID" "$FM_OPENCODE_LADDER_OVERRIDE" || true
+    else
+      fm_opencode_pin_clear "$STATE" "$ID" || true
+    fi
     ;;
   cursor)
     # `cursor` is not the CLI name, and the legacy alias `agent` is far too
