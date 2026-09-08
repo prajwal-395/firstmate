@@ -679,6 +679,69 @@ def keep_ranges(start: float, end: float,
     return [(a, b) for a, b in ranges if b - a > MIN_RANGE_SECONDS]
 
 
+def midword_keep_edges(start: float, end: float, transcript: dict,
+                       cuts: Optional[Sequence[Cut]] = None) -> List[dict]:
+    """Interior keep-range edges landing strictly inside a timed word.
+
+    The cutter draws interior edges at dropped-take boundaries, which are
+    transcript SEGMENT edges - and a segment edge can sit inside a word
+    (R07's cut lands 0.02s into "Your"; R02's 3-frame sliver is shorter
+    than the words it plays). The outer span edges are owned by
+    `reel_proposal.snap_to_speech` and never appear here; every edge
+    reported is one a cut drew, which the snap never touches.
+
+    The predicate is the snap's own - strictly inside, bound or
+    straddling words alike, untimed words unable to testify - so "this
+    edge cuts a word" and "this boundary cuts a word" ask one question
+    rather than two. An edge exactly ON a word edge is clean and stays.
+    A transcript with no word timings yields no findings, never a pass
+    it did not earn: there is nothing to measure against.
+
+    REPORTS, never repairs. Widening an interior edge reinstates part of
+    a take the cutter deliberately dropped; narrowing it drops more
+    speech the cutter deliberately kept. Both change content, so the
+    span is redrawn by whoever chose it - the model at selection time,
+    the captain at review - and this names the edge and the word.
+    """
+    if cuts is None:
+        cuts = redundant_takes(start, end, transcript)
+    ranges = keep_ranges(start, end, cuts)
+    if len(ranges) < 2:
+        return []
+    words: List[Tuple[float, float, str]] = []
+    for segment in transcript.get("segments") or ():
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                words.append((word_start, word_end, str(word.get("word", ""))))
+    edges: Dict[float, str] = {}
+    for range_start, range_end in ranges:
+        for when, side in ((range_start, "keep_start"),
+                           (range_end, "keep_end")):
+            if when == start or when == end:
+                continue
+            key = round(when, 6)
+            if key not in edges:
+                edges[key] = side
+    found = []
+    for edge in sorted(edges):
+        for word_start, word_end, text in words:
+            if word_start < edge < word_end:
+                found.append({
+                    "edge": edge,
+                    "side": edges[edge],
+                    "word": text,
+                    "word_start": round(word_start, 2),
+                    "word_end": round(word_end, 2),
+                })
+                break
+    return found
+
+
 def cta_range(moment) -> Optional[Tuple[float, float]]:
     """The moment's closing CTA range on the MASTER, or None.
 
@@ -725,6 +788,25 @@ def reel_ranges(moment, transcript: dict) -> List[Tuple[float, float]]:
     assert_takes_are_whole(cuts, moment.timeline_start, moment.timeline_end,
                            transcript)
     ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
+    # A cut edge that lands inside a word plays half a word and then
+    # jumps - R07's "Your we-", R02's 125ms chirp. The snap owns the
+    # OUTER span edges only, so an interior edge through a word reaches
+    # here unrepaired, and placing it would author the defect the plan
+    # is refused for upstream. Refused, naming the edge and the word,
+    # so the span is redrawn past the take instead.
+    bad = midword_keep_edges(moment.timeline_start, moment.timeline_end,
+                             transcript, cuts)
+    if bad:
+        first = bad[0]
+        raise ReelBuildError(
+            f"REFUSING to build: a keep edge at {first['edge']:.2f}s "
+            f"lands inside the word {first['word']!r} "
+            f"({first['word_start']:.2f}-{first['word_end']:.2f}s), so "
+            f"the reel would play that word cut in half and then jump. "
+            f"A repair in either direction changes content - widening "
+            f"reinstates part of a take the cutter dropped, narrowing "
+            f"drops more speech it kept - so redraw the span past the "
+            f"take instead.")
     closer = cta_range(moment)
     if closer is None:
         return ranges

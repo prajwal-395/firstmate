@@ -928,6 +928,19 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"{first['timeline_end']:.2f}s] "
                 f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
                 f"move the boundaries out to whole segments.")
+        midword = _midword_keep_edges_for(moment, transcript)
+        if midword:
+            first = midword[0]
+            raise ProposalError(
+                f"{label} would keep an edge at {first['edge']:.2f}s "
+                f"through the word {first['word']!r} "
+                f"({first['word_start']:.2f}-{first['word_end']:.2f}s), "
+                f"once its repeated takes are cut out of it - the reel "
+                f"would play that word cut in half and then jump. A "
+                f"repair in either direction changes content: widening "
+                f"reinstates part of a take the cutter dropped, "
+                f"narrowing drops more speech it kept. Redraw the span "
+                f"past the take instead - no snap can do this one.")
         _check_call_to_action(moment, transcript, timeline_duration, label)
 
     # NOTHING here refuses two reels for sharing seconds, and that is
@@ -1106,6 +1119,22 @@ def enrich(moment: ReelMoment, transcript: dict) -> ReelMoment:
                        moment.timeline_start, moment.timeline_end,
                        transcript)),
                    refused_take_groups=tuple(refused_for(moment, transcript)))
+
+
+def _midword_keep_edges_for(moment: ReelMoment,
+                            transcript: dict) -> list:
+    """Interior cut edges through words, measured for the plan gate.
+
+    The cutter (`reel_build.redundant_takes` + `keep_ranges`) draws the
+    edges the snap never touches, so the plan asks what they cut through
+    before it is accepted - the same reason `refused_for` measures what
+    the builder will leave in while the span can still be redrawn. A
+    lazy import, like `refused_for` and `opening_for`: the builder
+    imports this module back.
+    """
+    from library.tools.reel_build import midword_keep_edges
+    return midword_keep_edges(moment.timeline_start, moment.timeline_end,
+                              transcript)
 
 
 def refused_for(moment, transcript: dict) -> list:
