@@ -44,7 +44,7 @@ class _Renderer:
     def __init__(self):
         self.calls = 0
 
-    def render(self, props_path, overlay_path):
+    def render(self, props_path, overlay_path, sequence=False):
         self.calls += 1
         with open(overlay_path, "wb") as handle:
             handle.write(b"pixels")
@@ -90,11 +90,16 @@ def reel_run(monkeypatch, tmp_path):
             }}
 
     class FakeRender:
-        def run(self, props, out_dir, name, progress="", reuse=False):
+        def run(self, props, out_dir, name, progress="", reuse=False,
+                overlay_geometry=None, overlay_container=None,
+                project_folder=""):
             seen.append(reuse)
             return render_one_segment(
                 props, out_dir, name, remotion_dir=REMOTION,
-                progress=progress, reuse=reuse, renderer=engine)
+                progress=progress, reuse=reuse, renderer=engine,
+                overlay_geometry=overlay_geometry,
+                overlay_container=overlay_container,
+                project_folder=project_folder)
 
     def fake_get(name):
         if name == "subtitles.plan":

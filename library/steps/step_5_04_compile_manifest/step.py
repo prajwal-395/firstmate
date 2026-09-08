@@ -1209,6 +1209,23 @@ def assert_overlay_segments_on_disk(manifest: dict) -> None:
                     f"rendered. Nothing downstream notices a missing "
                     f"overlay - the picture underneath is intact - so "
                     f"this is the only gate that can.")
+            # A sequence names a directory, not a file, and the same
+            # rule holds: every frame must be there, because a
+            # half-written sequence places short and nothing downstream
+            # notices that either.
+            frames_info = seg.get("frames") or {}
+            frame_dir = frames_info.get("dir", "")
+            if frame_dir:
+                expected = int(frames_info.get("count", 0))
+                try:
+                    have = sum(1 for name in os.listdir(frame_dir)
+                               if name.endswith(".png"))
+                except OSError:
+                    have = -1
+                if have != expected:
+                    raise OverlaySegmentMissing(
+                        f"{what} sequence declared with {expected} "
+                        f"frames but {frame_dir} holds {have}.")
 
 
 def compile_manifest(out_dir: str) -> dict:

@@ -74,6 +74,10 @@ for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
         sys.path.append(_p)
 
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.overlay_placement import (  # noqa: E402
+    place_overlay_segment,
+    sequence_frame_paths,
+)
 from library.tools.execution.deliver_audio_mix import (  # noqa: E402
     PREMIX_SUFFIX, deliver_mix,
 )
@@ -595,7 +599,15 @@ def build_timeline(
     total_imported += _import_to_folder("V1", [c.get('source_file', '') for c in v1_clips])
     total_imported += _import_to_folder("V2", [c.get('source_file', '') for c in v2_clips])
     total_imported += _import_to_folder("Audio", [c.get('source_file', '') for c in a2_clips + a3_clips])
-    total_imported += _import_to_folder("Subtitles", [s.get('overlay_path', '') for s in sub_segments])
+    # A sequence arrives as its frame files in one call, which is what
+    # groups them into a single image-sequence pool item.
+    sub_paths = [s.get('overlay_path', '') for s in sub_segments]
+    for s in sub_segments:
+        frame_dir = ((s.get('frames') or {}).get('dir', '')
+                     if s.get('container') == 'frames' else '')
+        if frame_dir:
+            sub_paths += sequence_frame_paths(frame_dir)
+    total_imported += _import_to_folder("Subtitles", sub_paths)
     total_imported += _import_to_folder("MotionGraphics", [s.get('overlay_path', '') for s in mg_segments])
     total_imported += _import_to_folder("TimedText", [s.get('overlay_path', '') for s in tt_segments])
     
@@ -606,6 +618,11 @@ def build_timeline(
     root_folder = media_pool.GetRootFolder()
     pool_clips_by_path = {}
     pool_clips_by_name = {}
+    # An image sequence reports one File Path with a bracket range
+    # (`dir/frame-[00-46].png`), so no single frame path matches it.
+    # The frame directory does - and frame directories are per segment,
+    # so the mapping stays one to one.
+    pool_sequences_by_dir = {}
 
     def _scan_folder(folder):
         for clip in (folder.GetClipList() or []):
@@ -613,6 +630,9 @@ def build_timeline(
             filepath = clip.GetClipProperty("File Path") or ""
             if filepath:
                 pool_clips_by_path[filepath] = clip
+                if '[' in filepath:
+                    pool_sequences_by_dir[
+                        os.path.dirname(filepath.split('[')[0])] = clip
             pool_clips_by_name[name] = clip
         for sub in (folder.GetSubFolderList() or []):
             _scan_folder(sub)
@@ -624,6 +644,11 @@ def build_timeline(
         item = pool_clips_by_path.get(filepath)
         if item: return item
         return pool_clips_by_name.get(os.path.basename(filepath))
+
+    def _find_pool_sequence(frame_dir: str) -> object:
+        """The pool item for a rendered frame directory, or None."""
+        return pool_sequences_by_dir.get(
+            os.path.normpath(frame_dir or ""))
 
     pool_clips = pool_clips_by_name  # Prefer _find_pool_clip() for all new code
     print(f"  Media pool: {len(pool_clips_by_name)} clips ({len(pool_clips_by_path)} with paths)", file=sys.stderr)
@@ -1055,7 +1080,12 @@ def build_timeline(
         for si, seg in enumerate(sub_segments):
             seg_path = seg.get('overlay_path', '')
             seg_basename = os.path.basename(seg_path)
-            
+            frames_info = seg.get('frames') or {}
+            frame_dir = frames_info.get('dir', '') if seg.get(
+                'container') == 'frames' else ''
+            if frame_dir:
+                seg_basename = os.path.basename(frame_dir.rstrip('/'))
+
             # Look up which spine block it belongs to
             block_idx = seg.get('_block_position')
             if block_idx is None:
@@ -1067,8 +1097,11 @@ def build_timeline(
                 # Block was cut from the final timeline (no V1 clip placed)
                 print(f"  ⚠ [{si}] {seg_basename}: spine block {block_idx} missing from V1, skipping", file=sys.stderr)
                 continue
-                
-            pool_item = _find_pool_clip(seg_path)
+
+            if frame_dir:
+                pool_item = _find_pool_sequence(frame_dir)
+            else:
+                pool_item = _find_pool_clip(seg_path)
             if not pool_item:
                 results["warnings"].append(f"V3[{si}] {seg_basename} not in pool")
                 print(f"  ✗ [{si}] {seg_basename} not in media pool", file=sys.stderr)
@@ -1080,7 +1113,10 @@ def build_timeline(
             offset_f = block_offsets.get(block_idx, 0) if block_idx is not None else 0
 
             # Trim the rendered animation handles: place the clip on its
-            # TRUE content bounds so adjacent blocks do not overlap.
+            # TRUE content bounds so adjacent blocks do not overlap. A
+            # frame sequence shares the mov's frame numbering - the
+            # render covers the same padded span - so the trim is the
+            # same arithmetic.
             src_in_f = seg.get('source_in_frame', 0)
             src_out_f = seg.get('source_out_frame')
             if src_out_f is None:
@@ -1092,19 +1128,23 @@ def build_timeline(
             # Shift the subtitle's timeline_start by the offset
             tl_in_frame += offset_f
 
+            # A tight clip is placed small and moved into position;
+            # full-canvas needs no transform. See
+            # library/tools/overlay_placement.py.
+            placement = (seg.get('tight_box') or {}).get('placement')
             assert_current_timeline(project, timeline)
-            result = media_pool.AppendToTimeline([{
-                "mediaPoolItem": pool_item,
-                "startFrame": src_in_f,
-                "endFrame": src_out_f,
-                "trackIndex": 3,
-                "recordFrame": tl_in_frame,
-                "mediaType": 1,  # video-only placement on V3
-            }])
-            if result:
+            placed, note = place_overlay_segment(
+                media_pool, timeline, pool_item,
+                track_index=3, record_frame=tl_in_frame,
+                source_in_frame=src_in_f, source_out_frame=src_out_f,
+                placement=placement, label=f"V3[{si}] {seg_basename}")
+            if placed:
                 v3_count += 1
                 print(f"  ✓ [{si}] {seg_basename} on V3 ({seg_frames}f @ TL {tl_in_frame})",
                       file=sys.stderr)
+                if note:
+                    results["warnings"].append(note)
+                    print(f"  ⚠ {note}", file=sys.stderr)
             else:
                 print(f"  ✗ [{si}] {seg_basename}: placement failed", file=sys.stderr)
                 results["warnings"].append(f"V3[{si}] placement failed: {seg_basename}")

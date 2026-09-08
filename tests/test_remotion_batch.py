@@ -652,7 +652,11 @@ def test_it_satisfies_the_seam_the_step_declares():
 
     signature = inspect.signature(PersistentRenderer.render)
     assert list(signature.parameters) == ["self", "props_path",
-                                          "overlay_path"], (
+                                          "overlay_path", "sequence"], (
         f"render() no longer matches the seam "
-        f"`render(props_path, overlay_path) -> (ok, error)`: "
-        f"{list(signature.parameters)}")
+        f"`render(props_path, overlay_path, sequence=False) -> (ok, "
+        f"error)`: {list(signature.parameters)}")
+    # The persistent renderer stitches video; a sequence it cannot
+    # draw must refuse loudly rather than report success.
+    with pytest.raises(ValueError, match="sequence"):
+        renderer.render("props.json", "out", sequence=True)

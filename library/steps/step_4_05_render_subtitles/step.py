@@ -62,7 +62,17 @@ from generate_remotion_props import generate_subtitle_props_per_block
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.step_stdout import claim_stdout, emit
 from library.tools.delivery_format import resolve_delivery_format
+from library.tools.overlay_mode import (
+    CONTAINERS,
+    GEOMETRIES,
+    resolve_overlay_container,
+    resolve_overlay_geometry,
+)
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.qa.subtitle_qa import (
+    ALPHA_INK_THRESHOLD,
+    check_caption_geometry,
+)
 from library.tools.subtitle_segment_id import (
     assert_named_timeline, assert_unique_segment_names, segment_binding,
     segment_identifier, timeline_scope,
@@ -78,6 +88,12 @@ REMOTION_DIR = os.path.join(PILOT_ROOT, "remotion-subtitles")
 # Above this share of failed segment renders the step refuses rather
 # than delivering a partial overlay track.
 MAX_RENDER_FAILURE_RATE = 0.1
+
+# The frame filename pattern for sequence renders, in Remotion's
+# `[frame]` vocabulary (zero-padded, one file per frame). Resolve
+# detects the pattern as one image-sequence pool item - measured with
+# `frame-00.png` … `frame-46.png` naming, 2026-09-08.
+FRAME_PATTERN = "frame-[frame].png"
 
 
 class SubtitleRenderRefused(Exception):
@@ -197,8 +213,8 @@ class SubprocessRenderer:
 
     The contract is two methods and no more:
 
-        render(props_path, overlay_path) -> (ok: bool, error: str)
-        close()                          -> None, optional
+        render(props_path, overlay_path, sequence=False) -> (ok, error)
+        close()                                          -> None, optional
 
     A replacement holding expensive state - a Remotion bundle, a browser -
     should build it LAZILY, on the first card that actually renders.
@@ -213,18 +229,30 @@ class SubprocessRenderer:
     def __init__(self, remotion_dir: str):
         self.remotion_dir = remotion_dir
 
-    def render(self, props_path: str, overlay_path: str):
+    def render(self, props_path: str, overlay_path: str, sequence: bool = False):
+        """Draw one card, as video or as a PNG sequence.
+
+        `sequence` renders straight to frames (`--sequence`) into
+        `overlay_path` as a directory - the frames-direct container, so
+        no intermediate video is rendered first. Video (the default) is
+        today's stitched ProRes path, unchanged.
+        """
+        args = ["npx", "remotion", "render",
+                "SubtitleOverlay",
+                overlay_path,
+                "--props", props_path,
+                "--image-format", "png",
+                "--transparent",
+                ]
+        if sequence:
+            args += ["--sequence",
+                     "--image-sequence-pattern", FRAME_PATTERN]
+        else:
+            args += ["--codec", "prores",
+                     "--prores-profile", "4444"]
         try:
             result = subprocess.run(
-                ["npx", "remotion", "render",
-                 "SubtitleOverlay",
-                 overlay_path,
-                 "--props", props_path,
-                 "--codec", "prores",
-                 "--prores-profile", "4444",
-                 "--image-format", "png",
-                 "--transparent",
-                 ],
+                args,
                 cwd=self.remotion_dir,
                 capture_output=True,
                 text=True, encoding="utf-8", errors="replace",
@@ -245,7 +273,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        remotion_dir: str = None,
                        progress: str = "",
                        reuse: bool = False,
-                       renderer=None) -> dict:
+                       renderer=None,
+                       overlay_geometry: str = None,
+                       overlay_container: str = None,
+                       project_folder: str = "") -> dict:
     """Render ONE subtitle segment.  ALWAYS returns an entry.
 
     The per-segment unit, split out from the orchestrator's loop because
@@ -274,14 +305,53 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     001, changing every caption in a block changed 0 of 8 filenames.
     Skipping on presence would skip exactly the work an operator asked
     for.
+
+    `overlay_geometry` / `overlay_container` choose the alternative
+    carrying (`library/tools/overlay_mode.py`): a tight canvas instead
+    of the delivery frame, a PNG sequence instead of a stitched mov.
+    Explicit values win; otherwise the project's declaration is read,
+    and a project that declares nothing renders exactly as before.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
+
+    geometry = overlay_geometry or resolve_overlay_geometry(
+        project_folder or None)
+    container = overlay_container or resolve_overlay_container(
+        project_folder or None)
+    if geometry not in GEOMETRIES:
+        raise ValueError(
+            f"Unknown overlay_geometry {geometry!r}; "
+            f"known: {list(GEOMETRIES)}.")
+    if container not in CONTAINERS:
+        raise ValueError(
+            f"Unknown overlay_container {container!r}; "
+            f"known: {list(CONTAINERS)}.")
+    is_frames = container == "frames"
 
     block_pos = props.get("_block_position")
     tl_start = props.get("_timeline_start")
     tl_end = props.get("_timeline_end")
     total_frames = props["durationInFrames"]
     num_subs = len(props.get("subtitles", []))
+
+    # The tight canvas, where declared. Computed from the same props
+    # the full render draws from, so the box fits the layout the frame
+    # would have drawn - see library/tools/tight_box.py.
+    tight = None
+    suffix = ""
+    render_props = props
+    if geometry == "tight":
+        from library.tools.tight_box import tighten_subtitle_props
+        tight = tighten_subtitle_props(props, project_folder or "")
+        if tight is None:
+            print(f"  {progress} no subtitles to bound - full canvas",
+                  file=sys.stderr)
+        else:
+            render_props = tight.props
+            suffix = "_tight"
+            print(f"  {progress} tight {tight.width}x{tight.height} "
+                  f"(full {tight.full_width}x{tight.full_height})",
+                  file=sys.stderr)
 
     # Generate output path.
     #
@@ -292,6 +362,11 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # reel's `body_1` silently overwrote the master's, and no name
     # said whose speech it captioned. See
     # library/tools/subtitle_segment_id.py.
+    #
+    # The geometry/container ride in the FILENAME (`_tight`, `.frames`)
+    # so one directory can hold today's render beside the alternative
+    # without either overwriting the other: the reuse key already
+    # separates them, but a listing should say so too.
     binding = segment_binding(
         timeline=timeline_label,
         speaker=props.get("_speaker"),
@@ -301,9 +376,48 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         source_end=props.get("_source_end"),
     )
     segment_name = segment_identifier(binding)
-    overlay_path = os.path.join(out_dir, f"{segment_name}.mov")
-    props_path = os.path.join(out_dir, f"{segment_name}_props.json")
-    key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
+    # Frame directories carry NO extension: the CLI's `--sequence`
+    # mode treats its output as a directory and refuses one that has
+    # an extension (`..._tight.frames` fails with "cannot have an
+    # extension. Got: frames").
+    if is_frames:
+        overlay_path = os.path.join(out_dir, f"{segment_name}{suffix}_frames")
+    else:
+        overlay_path = os.path.join(out_dir, f"{segment_name}{suffix}.mov")
+    props_path = os.path.join(out_dir, f"{segment_name}{suffix}_props.json")
+    key_path = os.path.join(out_dir, f"{segment_name}{suffix}_reuse_key.txt")
+
+    def _frames_on_disk() -> bool:
+        """A sequence skip needs every frame, not just the directory."""
+        try:
+            names = os.listdir(overlay_path)
+        except OSError:
+            return False
+        return (sum(1 for name in names if name.endswith(".png"))
+                == total_frames)
+
+    def _overlay_on_disk() -> bool:
+        if is_frames:
+            return os.path.isdir(overlay_path) and _frames_on_disk()
+        return os.path.isfile(overlay_path)
+
+    def _placement_record() -> dict:
+        if tight is None:
+            return None
+        return {
+            "width": tight.width,
+            "height": tight.height,
+            "placement": tight.placement,
+        }
+
+    def _frames_record() -> dict:
+        if not is_frames:
+            return None
+        return {
+            "dir": overlay_path,
+            "pattern": FRAME_PATTERN,
+            "count": total_frames,
+        }
 
     def entry(provenance: str, **extra) -> dict:
         """One segment's manifest entry.  `provenance` is never defaulted."""
@@ -313,7 +427,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                 f"{provenance!r}. A segment that does not say what "
                 f"happened to it is the thing this field exists to stop.")
         record = {
-            "overlay_path": overlay_path,
+            # Empty for a sequence: what reaches Resolve is the frame
+            # directory in `frames`, and a path here would send readers
+            # to a file that was never rendered.
+            "overlay_path": overlay_path if not is_frames else "",
             "segment_id": segment_name,
             # The unabridged binding. The filename slugs and truncates;
             # this is what a reader checks a segment against its audio
@@ -323,6 +440,16 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             "timeline_end": tl_end,
             "block_position": block_pos,
             "provenance": provenance,
+            # The carrying, so a reader knows what the file (or the
+            # directory) IS without re-deriving it: full-canvas video
+            # is today's path, and everything else is the option.
+            "geometry": geometry,
+            "container": container,
+            # Where a tight clip lands. None for full-canvas, which
+            # needs no transform.
+            "tight_box": _placement_record(),
+            # Where a sequence lives. None for stitched video.
+            "frames": _frames_record(),
         }
         record.update(extra)
         return record
@@ -340,7 +467,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             rendered_frames=total_frames,
         )
 
-    key = _reuse_key(props, remotion_dir)
+    # The reuse key digests what DRAWS - the tight props where the box
+    # is tight, so a geometry change never serves the other geometry's
+    # file.
+    key = _reuse_key(render_props, remotion_dir)
 
     # ── Skip only on proven-identical CONTENT ──
     if reuse:
@@ -349,8 +479,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             recorded = Path(key_path).read_text(encoding="utf-8").strip()
         except OSError:
             recorded = ""
-        if key and recorded == key and os.path.isfile(overlay_path):
-            print(f"  {progress} {segment_name} reused "
+        if key and recorded == key and _overlay_on_disk():
+            print(f"  {progress} {segment_name}{suffix} reused "
                   f"(tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
             return measured(REUSED)
         if not key:
@@ -362,9 +492,9 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
 
     # Write props file
     with open(props_path, "w") as f:
-        json.dump(props, f, indent=2)
+        json.dump(render_props, f, indent=2)
 
-    print(f"  {progress} {segment_name} "
+    print(f"  {progress} {segment_name}{suffix} "
           f"({num_subs} subs, {total_frames}f, "
           f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
 
@@ -372,10 +502,15 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # business; HOW one card is turned into pixels is the renderer's, and
     # the two are deliberately separable - see `SubprocessRenderer`.
     engine = renderer or SubprocessRenderer(remotion_dir)
-    ok, error = engine.render(props_path, overlay_path)
+    ok, error = engine.render(props_path, overlay_path,
+                              sequence=is_frames)
     if not ok:
         print(f"    WARN: Render failed: {error[:200]}", file=sys.stderr)
         return entry(FAILED, failure=error[:500].strip() or "render failed")
+    if is_frames and not _frames_on_disk():
+        print(f"    WARN: Render reported success but {overlay_path} "
+              f"holds no complete sequence", file=sys.stderr)
+        return entry(FAILED, failure="sequence incomplete on disk")
     print(f"    OK: {overlay_path}", file=sys.stderr)
 
     # Recorded only after a render that SUCCEEDED, so a failed or
@@ -397,8 +532,12 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              reuse: bool = False,
                              scope=None,
                              renderer=None,
-                             require_named_timeline: bool = False) -> dict:
-    """Render one ProRes 4444 overlay per captioned spine block.
+                             require_named_timeline: bool = False,
+                             overlay_geometry: str = None,
+                             overlay_container: str = None) -> dict:
+    """Render one overlay per captioned spine block: stitched ProRes 4444
+    video by default, a tight canvas and/or a PNG sequence where the
+    project declares it (`library/tools/overlay_mode.py`).
 
     Returns the `subtitle_overlay` payload.  Raises
     `SubtitleRenderRefused` where the step cannot deliver: no Remotion
@@ -409,6 +548,23 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     the reason, which is what the step has always done.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
+
+    # Explicit values win; otherwise the project's declaration, and a
+    # project that declares nothing renders exactly as before.
+    geometry = overlay_geometry or resolve_overlay_geometry(
+        project_folder or None)
+    container = overlay_container or resolve_overlay_container(
+        project_folder or None)
+    if geometry not in GEOMETRIES:
+        raise ValueError(
+            f"Unknown overlay_geometry {geometry!r}; "
+            f"known: {list(GEOMETRIES)}.")
+    if container not in CONTAINERS:
+        raise ValueError(
+            f"Unknown overlay_container {container!r}; "
+            f"known: {list(CONTAINERS)}.")
+    print(f"Overlay carrying: {geometry} geometry, {container} container",
+          file=sys.stderr)
 
     if not os.path.isdir(remotion_dir):
         print(f"ERROR: Remotion project not found at {remotion_dir}",
@@ -556,7 +712,10 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                 props, sub_output_dir, timeline_label,
                 remotion_dir=remotion_dir,
                 progress=f"[{i+1}/{len(props_list)}]",
-                reuse=reuse, renderer=engine)
+                reuse=reuse, renderer=engine,
+                overlay_geometry=geometry,
+                overlay_container=container,
+                project_folder=project_folder)
             # Appended unconditionally, failures included.  A dropped
             # segment is one the manifest never learns about, and 5.04
             # then refuses the compile citing a missing block rather than
@@ -582,8 +741,11 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     if usable:
         try:
             sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
-            from tools.qa.subtitle_qa import run_subtitle_qa
-            run_subtitle_qa(usable[0]["overlay_path"], project_folder)
+            if usable[0].get("container") == "frames":
+                _qa_frame_sequence(usable[0])
+            else:
+                from tools.qa.subtitle_qa import run_subtitle_qa
+                run_subtitle_qa(usable[0]["overlay_path"], project_folder)
         except Exception as e:
             error_msg = f"Subtitle QA Validation Failed: {str(e)}"
             print(f"ERROR: {error_msg}", file=sys.stderr)
@@ -624,9 +786,14 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             # failed.  `len(segments) > 0` was true on a partial render.
             "available": len(segments) == len(props_list) and not failed,
             "segments": segments,
-            "format": "ProRes 4444",
+            "format": ("PNG sequence" if container == "frames"
+                       else "ProRes 4444"),
             "has_alpha": True,
             "fps": fps,
+            # What this pass carried, so a reader knows without
+            # re-deriving it per segment.
+            "geometry": geometry,
+            "container": container,
             "total_segments": len(segments),
             "rendered": tally[RENDERED],
             "reused": tally[REUSED],
@@ -634,6 +801,61 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             "planned": len(props_list),
         }
     }
+
+
+def _qa_frame_sequence(segment: dict) -> None:
+    """The mechanical half of subtitle QA, for a PNG sequence.
+
+    `run_subtitle_qa` reads a mov (ffprobe duration, ffmpeg extracts);
+    frames are already discrete files, so the sampling is local: score
+    every frame's alpha channel with PIL, check the geometry of the two
+    most-inked, and raise on the same terms - a sequence that draws
+    nothing, or draws past its own edges, refuses the step exactly as
+    a bad mov does.
+    """
+    from PIL import Image
+
+    frames_info = segment.get("frames") or {}
+    frame_dir = frames_info.get("dir", "")
+    try:
+        names = sorted(f for f in os.listdir(frame_dir)
+                       if f.endswith(".png"))
+    except OSError as exc:
+        raise RuntimeError(
+            f"Subtitle QA Failed:\nFAIL\n{frame_dir} cannot be read: "
+            f"{exc}") from exc
+    if not names:
+        raise RuntimeError(
+            f"Subtitle QA Failed:\nFAIL\n{frame_dir} holds no frames: "
+            f"the overlay is blank, not merely paused.")
+
+    def ink(path: str) -> int:
+        try:
+            with Image.open(path) as im:
+                alpha = im.convert("RGBA").getchannel("A")
+                return sum(1 for value in alpha.getdata()
+                           if value >= ALPHA_INK_THRESHOLD)
+        except OSError:
+            return 0
+
+    scored = sorted(((ink(os.path.join(frame_dir, name)), name)
+                     for name in names), reverse=True)
+    if scored[0][0] == 0:
+        raise RuntimeError(
+            f"Subtitle QA Failed:\nFAIL\n{os.path.basename(frame_dir)} "
+            f"draws nothing anywhere in its {len(names)} frames: every "
+            f"frame measured an empty alpha channel. The overlay is "
+            f"blank, not merely paused.")
+    problems = []
+    for _, name in scored[:2]:
+        problems.extend(check_caption_geometry(
+            os.path.join(frame_dir, name)))
+    if problems:
+        raise RuntimeError(
+            "Subtitle QA Failed:\nFAIL\n"
+            + "\n".join(f"  - {p}" for p in problems))
+    print("  Caption geometry OK: inside the frame, bottom-positioned.",
+          file=sys.stderr)
 
 
 def main():

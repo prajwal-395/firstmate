@@ -1,0 +1,53 @@
+"""How a project chooses to carry its caption overlays, if it chooses.
+
+Two independent axes, both defaulting to today. See the test module
+for the declaration shape; resolvers below are what the steps call.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+GEOMETRIES = ("full", "tight")
+"""What the render draws: the delivery frame, or only the drawn bounds."""
+
+CONTAINERS = ("video", "frames")
+"""What reaches Resolve: one stitched mov, or the PNG sequence itself."""
+
+DEFAULT_GEOMETRY = "full"
+DEFAULT_CONTAINER = "video"
+
+
+def _pipeline_block(project_folder: Optional[str]) -> dict:
+    if not project_folder:
+        return {}
+    from library.tools.brand_registry import project_pipeline_block
+    return project_pipeline_block(project_folder) or {}
+
+
+def resolve_overlay_geometry(project_folder: Optional[str] = None) -> str:
+    """`pipeline.subtitle_overlay_geometry`: `full` unless `tight` is declared."""
+    declared = (_pipeline_block(project_folder).get(
+        "subtitle_overlay_geometry") or "").strip()
+    if not declared:
+        return DEFAULT_GEOMETRY
+    if declared not in GEOMETRIES:
+        raise ValueError(
+            f"Unknown subtitle_overlay_geometry {declared!r}. "
+            f"Known geometries: {list(GEOMETRIES)}. Declaring nothing "
+            f"means {DEFAULT_GEOMETRY!r}.")
+    return declared
+
+
+def resolve_overlay_container(project_folder: Optional[str] = None) -> str:
+    """`pipeline.subtitle_overlay_container`: `video` unless `frames` is declared."""
+    declared = (_pipeline_block(project_folder).get(
+        "subtitle_overlay_container") or "").strip()
+    if not declared:
+        return DEFAULT_CONTAINER
+    if declared not in CONTAINERS:
+        raise ValueError(
+            f"Unknown subtitle_overlay_container {declared!r}. "
+            f"Known containers: {list(CONTAINERS)}. Declaring nothing "
+            f"means {DEFAULT_CONTAINER!r}.")
+    return declared

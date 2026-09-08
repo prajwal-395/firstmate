@@ -190,7 +190,7 @@ class _Renderer:
     def __init__(self, ok=True, error=""):
         self.ok, self.error, self.calls = ok, error, 0
 
-    def render(self, props_path, overlay_path):
+    def render(self, props_path, overlay_path, sequence=False):
         self.calls += 1
         if self.ok:
             with open(overlay_path, "wb") as handle:
@@ -531,7 +531,7 @@ class _CountingRenderer:
     def __init__(self):
         self.rendered, self.closed = 0, 0
 
-    def render(self, props_path, overlay_path):
+    def render(self, props_path, overlay_path, sequence=False):
         self.rendered += 1
         with open(overlay_path, "wb") as handle:
             handle.write(b"pixels")
@@ -583,7 +583,7 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
     built = []
 
     class _Boom(_CountingRenderer):
-        def render(self, props_path, overlay_path):
+        def render(self, props_path, overlay_path, sequence=False):
             raise RuntimeError("mid-pass explosion")
 
     def factory(remotion_dir):

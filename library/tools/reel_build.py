@@ -1009,6 +1009,15 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
     out_dir = str(ProjectLayout(project_folder).write_dir(
         Area.SUBTITLE_SEGMENTS, step="render_subtitles"))
     render = operations.get("subtitles.render_segment")
+    # The project's declared carrying, resolved once for the reel. A
+    # project that declares nothing renders full-canvas video - today's
+    # path, byte for byte.
+    from library.tools.overlay_mode import (
+        resolve_overlay_container,
+        resolve_overlay_geometry,
+    )
+    overlay_geometry = resolve_overlay_geometry(project_folder or None)
+    overlay_container = resolve_overlay_container(project_folder or None)
     segments = _SegmentsWithEntries()
     segments.caption_entries = plan_entries
     segments.spine = spine
@@ -1026,7 +1035,10 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         # flipped) - this call site is the explicit opt-in.
         rendered = render.run(props, out_dir, name,
                               progress=f"[{index}/{len(props_list)}]",
-                              reuse=True)
+                              reuse=True,
+                              overlay_geometry=overlay_geometry,
+                              overlay_container=overlay_container,
+                              project_folder=project_folder)
         if rendered is not None:
             segments.append(rendered)
     return segments
@@ -1491,10 +1503,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # pipeline's renderer. This used to carry its own `npx remotion
     # render` loop - a third implementation of the same call - and it is
     # gone; `reel_subtitle_segments` above drives the step instead.
+    from library.tools.overlay_placement import (
+        place_overlay_segment,
+        sequence_frame_paths,
+    )
     for segment in (subtitle_segments or []):
-        items = pool.ImportMedia([segment["overlay_path"]])
+        frames_info = segment.get("frames") or {}
+        frame_dir = frames_info.get("dir", "") if segment.get(
+            "container") == "frames" else ""
+        if frame_dir:
+            items = pool.ImportMedia(sequence_frame_paths(frame_dir))
+        else:
+            items = pool.ImportMedia([segment["overlay_path"]])
         if not items:
-            print(f"Failed to import {segment['overlay_path']}",
+            print(f"Failed to import {segment.get('overlay_path') or frame_dir}",
                   file=sys.stderr)
             continue
 
@@ -1512,16 +1534,23 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         record_start, record_end = span_frames(
             segment["timeline_start"], segment["timeline_end"], fps)
         content_frames = max(record_end - record_start, 1)
-        pool.AppendToTimeline([{
-            "mediaPoolItem": items[0],
-            # 4.05 renders animation handles either side of the content
-            # and reports where the content actually starts and ends.
-            # Placing the whole rendered clip would overlap the next.
-            "startFrame": segment["source_in_frame"],
-            "endFrame": segment["source_in_frame"] + content_frames,
-            "trackIndex": 3,
-            "recordFrame": record_start,
-        }])
+        # A tight clip is placed small and moved into position;
+        # full-canvas needs no transform. A sequence shares the mov's
+        # frame numbering, so the handle trim is the same arithmetic.
+        placement = (segment.get("tight_box") or {}).get("placement")
+        placed, note = place_overlay_segment(
+            pool, timeline, items[0],
+            track_index=3, record_frame=record_start,
+            source_in_frame=segment["source_in_frame"],
+            source_out_frame=segment["source_in_frame"] + content_frames,
+            placement=placement,
+            label=segment.get("segment_id", "caption"))
+        if not placed:
+            print(f"Failed to place {segment.get('segment_id')}: {note}",
+                  file=sys.stderr)
+        elif note:
+            print(f"  caption {segment.get('segment_id')}: {note}",
+                  file=sys.stderr)
 
     # Transition elements last, on the track above the captions. Placed
     # from FRAMES the planner already computed against this reel's own

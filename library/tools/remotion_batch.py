@@ -462,13 +462,25 @@ class PersistentRenderer:
 
     # ── the seam ────────────────────────────────────────────────────
 
-    def render(self, props_path: str, overlay_path: str):
+    def render(self, props_path: str, overlay_path: str,
+               sequence: bool = False):
         """Draw one card. `(ok, error)` - the step's seam, unchanged.
+
+        `sequence` is refused, loudly: this renderer stitches video
+        through one bundle, and a sequence it cannot draw reported as
+        drawn would be the stale-but-reported-fresh defect in another
+        shape. Sequence renders go through the CLI renderer, which
+        passes `--sequence` per card.
 
         Raises `RendererUnavailable` if the renderer is not usable. That
         is not the same event as a card failing to draw, and conflating
         them is how one fault becomes 763 reported failures.
         """
+        if sequence:
+            raise ValueError(
+                "the persistent renderer stitches video and cannot "
+                "render a frame sequence; use the CLI renderer with "
+                "sequence=True.")
         # LAZY, and this is a requirement of the seam rather than a
         # nicety.  `render_one_segment` can return WITHOUT rendering:
         # with reuse on, a region-scoped pass skips most cards, so a
