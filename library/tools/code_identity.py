@@ -118,6 +118,10 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/camera_stability.py",
         # Imported by step.py: shapes the cached documents.
         "library/tools/vision_schema_adapter.py",
+        # Imported by vision_schema_adapter (and vision_pipeline_v3):
+        # renders the undescribed scene[] ranges into the prose every
+        # consumer reads, so a fix here changes the cached documents.
+        "library/tools/segment_coverage.py",
     ),
     "step_1_04_temporal_index": (
         # Face measurement feeding the per-clip index.
@@ -127,6 +131,10 @@ STEP_IMPLEMENTATION_DEPS = {
         # The confidence vocabulary carried in the cached segments
         # (avg_logprob): the transcription path keys its numbers here.
         "library/tools/transcript_confidence.py",
+        # Imported by step.py beside its only use: normalizes the face
+        # box that reaches the seeder, so a fix here changes the cached
+        # face_boxes.
+        "library/tools/analysis/object_segmentation.py",
     ),
     "step_1_05_prosody_analysis": (
         # The executed measurement.

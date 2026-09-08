@@ -309,6 +309,14 @@ def test_root_tsx_registers_only_general_compositions():
     (`library/tools/full_frame_element.py`, AGENTS.md 14).  The
     assertion stays an EQUALITY rather than a subset check, so a
     composition added without this reasoning still fails here.
+
+    `BrandMotion` is listed for the same reason: it plays whatever
+    staged brand file a project declares and states none of its own -
+    the studio default is an empty `src` that renders null, and there
+    is no copy, colour, typeface or motion character in the component
+    (`library/tools/brand_motion.py`, AGENTS.md 14).  PR 704 registered
+    it without writing this paragraph down; `test_brand_motion.py`
+    pins the registration itself, so removing it here is not the fix.
     """
     with open(ROOT_TSX, encoding="utf-8") as f:
         src = f.read()
@@ -317,7 +325,7 @@ def test_root_tsx_registers_only_general_compositions():
         for line in src.splitlines() if 'id="' in line
     )
     assert ids == {"SubtitleOverlay", "MotionGraphics", "TimedTextOverlay",
-                   "FullFrameCard"}, (
+                   "FullFrameCard", "BrandMotion"}, (
         f"Root.tsx registers {sorted(ids)}. A composition named after one "
         f"series is a project asset - declare it with content.bookends "
         f"and a project-owned `source:` instead.")

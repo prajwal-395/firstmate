@@ -1710,7 +1710,10 @@ UNREAD_BUDGET: Dict[str, int] = {
     # instants. Per-word timings had been written and never read.
     "DOC@timeline_transcript": 7,
     "DOC@vision_index": 64,
-    "DOC@vision_profile": 17,
+    # 17 -> 16 on 2026-09-08: `segment_coverage` reads the scene[] and
+    # camera[] bounds off the profile (`_bounds`), so one fewer field is
+    # carried unread. The budget follows the measurement down.
+    "DOC@vision_profile": 16,
     "OUT@assign_aroll": 13,
     "OUT@audio_mix": 41,
     "OUT@build_reels": 5,
