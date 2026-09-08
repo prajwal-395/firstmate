@@ -99,6 +99,9 @@
 #     --type decision requires a body carrying '## Context', '## Options' with at
 #     least two '- <option> - <consequence>' lines, and '## Recommendation'.
 #     '## Or something else' is appended by this script and must not be authored.
+#     A parent that already holds GitHub's ceiling of 100 sub-issues refuses
+#     the attachment; the created ticket then stands alone and is reported as
+#     such, so it is never silently lost.
 #   fm-tracker.sh frontier <owner/repo>
 #     READY, BLOCKED, HELD and CLAIMED. HELD ranks above BLOCKED because a hold
 #     does not clear when a blocker closes, and below CLAIMED because somebody
@@ -307,15 +310,32 @@ node_id_for() {  # <number>
 
 # Native sub-issue attachment, so hierarchy and completion rollup come from
 # GitHub rather than from a convention this script would have to re-derive.
+#
+# The one ceiling this can hit is GitHub's own: a parent holds at most 100
+# sub-issues, closed ones counted too, so a destination that accumulates enough
+# curated children stops accepting attachments. That failure degrades to a
+# standalone ticket, never a lost one - the child is already created, so this
+# names its number and says it stands alone. Task tickets never reach here at
+# all: they group by a project label, which is unbounded, so the dispatch path
+# has no fill state to hit. When a curated parent does fill, attach the
+# standalone ticket under a follow-on parent by hand; until then `validate`
+# lists it as orphaned so it stays findable.
 attach_parent() {  # <child> <parent>
-  local child=$1 parent=$2 child_id parent_id
+  local child=$1 parent=$2 child_id parent_id err
   child_id=$(node_id_for "$child") || true
   parent_id=$(node_id_for "$parent") || true
   [ -n "$child_id" ] && [ -n "$parent_id" ] \
     || die "could not resolve #$child or #$parent for attachment"
-  gh_api graphql -f "query=$FM_TRACKER_ADD_SUB_ISSUE" \
-    -F "parentId=$parent_id" -F "subIssueId=$child_id" >/dev/null \
-    || die "could not attach #$child under #$parent"
+  if err=$(gh_api graphql -f "query=$FM_TRACKER_ADD_SUB_ISSUE" \
+    -F "parentId=$parent_id" -F "subIssueId=$child_id" 2>&1 >/dev/null); then
+    return 0
+  fi
+  if printf '%s' "$err" | grep -qi '100 sub-issue'; then
+    [ -z "$err" ] || printf '%s\n' "$err" >&2
+    die "parent #$parent already holds GitHub's ceiling of 100 sub-issues (closed ones count too), so #$child stands alone rather than under it; attach it under a follow-on parent by hand"
+  fi
+  [ -z "$err" ] || printf '%s\n' "$err" >&2
+  die "could not attach #$child under #$parent"
 }
 
 # ONE GraphQL query answers the whole frontier: ready, blocked, and what each
@@ -412,9 +432,11 @@ cmd_add() {
 
   ensure_labels
   num=$(create_issue "$title" "$(compose_body "$body" "$blockers")" "$type") || exit 1
-  [ -z "$parent" ] || attach_parent "$num" "$parent"
   printf 'created #%s [%s] %s\n' "$num" "$(fm_tracker_type_label "$type")" "$title"
-  [ -z "$parent" ] || printf '  attached under #%s\n' "$parent"
+  if [ -n "$parent" ]; then
+    attach_parent "$num" "$parent" || exit 1
+    printf '  attached under #%s\n' "$parent"
+  fi
   if [ -n "$blockers" ]; then
     printf '  blocked by: %s\n' "$(printf '%s' "$blockers" | sed 's/[0-9][0-9]*/#&/g; s/,/ /g')"
   fi
