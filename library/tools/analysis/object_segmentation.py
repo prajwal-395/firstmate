@@ -71,6 +71,77 @@ The generator returns every region it can find - a few hundred on real footage,
 most of them foliage and texture. Tracking all of them costs propagation time
 per object with nothing to show for it, so the largest ones are kept."""
 
+FACE_SEED_LABEL = "face_seeded_subject"
+"""Label for the single target seeded from a face box.
+
+Blob-seeded objects are `auto_object_N` / `unknown`; a face-seeded one says
+what it is, so a reader of the masks knows the target was named, not found."""
+
+FACE_SEED_CATEGORY = "person"
+
+
+def normalize_face_box(fx, fy, fw, fh, frame_w, frame_h):
+    """A pixel detection rect as a normalized box, clamped to the frame.
+
+    `compute_face_presence` measures (x, y, w, h) in its own sample pixels;
+    the segmenter Prompts SAM 2 in the extraction frame's pixels. The box
+    travels between the two NORMALIZED - [x1, y1, x2, y2], each 0..1 -
+    so neither side names the other's size.
+
+    Returns None when there is no box to carry: a non-positive size, a
+    non-positive frame, or a rect lying fully outside the frame. A partially
+    overlapping rect is clamped, because a face at the frame edge is still a
+    face.
+    """
+    try:
+        fx, fy, fw, fh = float(fx), float(fy), float(fw), float(fh)
+        frame_w, frame_h = float(frame_w), float(frame_h)
+    except (TypeError, ValueError):
+        return None
+    if fw <= 0 or fh <= 0 or frame_w <= 0 or frame_h <= 0:
+        return None
+    x1 = min(max(fx / frame_w, 0.0), 1.0)
+    y1 = min(max(fy / frame_h, 0.0), 1.0)
+    x2 = min(max((fx + fw) / frame_w, 0.0), 1.0)
+    y2 = min(max((fy + fh) / frame_h, 0.0), 1.0)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return [round(x1, 4), round(y1, 4), round(x2, 4), round(y2, 4)]
+
+
+def first_frame_face_box(face_presence, width, height, sample_index=0):
+    """The face box to seed SAM 2 with, in extraction-frame pixels.
+
+    Reads the `face_boxes` track of a `face_presence` block - the normalized
+    [x1, y1, x2, y2] per 5 Hz sample that `compute_face_presence` records -
+    and scales one sample onto a (width, height) frame, clamped to it.
+
+    Returns None whenever there is no seed: no block, no track, an index past
+    the track, None at that sample, or a box covering no pixels after
+    clamping. A block that predates `face_boxes` (center and width only) also
+    returns None: those two cannot place the box vertically, and inventing a y
+    would fabricate the seed. The caller declines honestly instead.
+    """
+    if not face_presence or width <= 0 or height <= 0:
+        return None
+    boxes = face_presence.get("face_boxes")
+    if not boxes or sample_index < 0 or sample_index >= len(boxes):
+        return None
+    box = boxes[sample_index]
+    if box is None:
+        return None
+    try:
+        x1n, y1n, x2n, y2n = (float(v) for v in box)
+    except (TypeError, ValueError):
+        return None
+    x1 = min(max(x1n * width, 0.0), float(width))
+    y1 = min(max(y1n * height, 0.0), float(height))
+    x2 = min(max(x2n * width, 0.0), float(width))
+    y2 = min(max(y2n * height, 0.0), float(height))
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2, y2)
+
 @dataclass
 class TrackedObject:
     object_id: str
@@ -96,6 +167,13 @@ class SegmentationResult:
     resolution: Tuple[int, int]
     sample_fps: float
     objects: List[TrackedObject]
+    seed_note: Optional[str] = None
+    """How the tracked targets were chosen, or why there are none.
+
+    A result with no objects after blob seeding is an accident worth
+    investigating; a result with no objects because no face was present is
+    the honest decline issue #268 asks for. The note tells them apart.
+    """
 
     def save(self, output_dir: str):
         out_path = Path(output_dir) / f"{Path(self.video_path).stem}_segmentation.json"
@@ -106,6 +184,7 @@ class SegmentationResult:
             "frame_count": self.frame_count,
             "resolution": self.resolution,
             "sample_fps": self.sample_fps,
+            "seed_note": self.seed_note,
             "objects": []
         }
         
@@ -134,7 +213,10 @@ class SegmentationResult:
             frame_count=data["frame_count"],
             resolution=tuple(data["resolution"]),
             sample_fps=data["sample_fps"],
-            objects=objects
+            objects=objects,
+            # Files written before seed_note existed carry no key; that is
+            # "unseeded history", not a decline, so it reads as None.
+            seed_note=data.get("seed_note"),
         )
 
 
@@ -228,8 +310,60 @@ def find_match_cut_candidates(masks_a: SegmentationResult, masks_b: Segmentation
 class ObjectSegmenter:
     """Wrapper for SAM 2 video segmentation model using managed_model lifecycle."""
     
-    def segment_clip(self, video_path: str, sample_fps: float = 2.0) -> SegmentationResult:
-        """Samples frames from the video, runs auto-mask generation, tracks objects across frames."""
+    def segment_clip(self, video_path: str, sample_fps: float = 2.0,
+                       face_box=None, require_face: bool = False
+                       ) -> SegmentationResult:
+        """Samples frames from the video, seeds targets, tracks them across frames.
+
+        `face_box` is the normalized [x1, y1, x2, y2] (each 0..1) of the
+        largest face on the FIRST sampled frame - the `face_boxes` track
+        `compute_face_presence` records at 5 Hz. When it is given, the clip
+        is seeded from that one deliberate target through SAM 2's
+        `add_new_points_or_box` and the automatic blob seeding is skipped
+        entirely: one tracked object instead of ten, and the seed is the
+        subject rather than whichever region happened to be largest (issue
+        #268 - on a wide shot that was a car window or a patch of road).
+
+        When face seeding is asked for and no box arrives (`require_face`
+        with `face_box=None`, or a box covering no pixels after clamping),
+        the clip is HONESTLY DECLINED - an empty result naming the absence -
+        rather than tracking a blob. The decline returns before ffmpeg or
+        the model is touched. Without either flag the legacy blob path runs
+        unchanged, so nothing that does not opt in behaves differently.
+        """
+
+        def _validate_face_box(box) -> List[float]:
+            try:
+                vals = [float(v) for v in box]
+            except (TypeError, ValueError):
+                raise ValueError(
+                    f"face_box must be four numbers [x1, y1, x2, y2], "
+                    f"got {box!r}")
+            if len(vals) != 4:
+                raise ValueError(
+                    f"face_box must be four numbers [x1, y1, x2, y2], "
+                    f"got {box!r}")
+            return vals
+
+        def _decline(reason: str) -> SegmentationResult:
+            return SegmentationResult(
+                video_path=video_path,
+                frame_count=0,
+                resolution=(0, 0),
+                sample_fps=sample_fps,
+                objects=[],
+                seed_note=f"declined: {reason}",
+            )
+
+        if face_box is not None:
+            normalized_box = _validate_face_box(face_box)
+        elif require_face:
+            return _decline(
+                "face-seeded masking was requested but no face box arrived "
+                "for the first frame - no target worth tracking, so no "
+                "masks rather than a blob.")
+        else:
+            normalized_box = None
         
         def _load_sam2():
             if build_sam2_video_predictor_hf is None:
@@ -268,42 +402,90 @@ class ObjectSegmenter:
             resolution = (height, width)
             
             with managed_model("sam2", _load_sam2) as (predictor, generator):
-                # 1. Run automatic mask generation on the first frame to find objects
-                masks = generator.generate(first_frame_img)
-                
-                masks = sorted(masks, key=lambda x: x["area"],
-                               reverse=True)[:MAX_TRACKED_OBJECTS]
-                
-                # 2. Init video predictor state. Everything that touches the
-                # predictor stays INSIDE this block: managed_model moves the
-                # model to CPU on exit, and inference_state holds MPS tensors,
-                # so propagating after the block is a device mismatch.
+                # The frame the seeds are read from. Both paths prompt frame
+                # 0; only what the prompt IS differs.
                 inference_state = predictor.init_state(video_path=str(tmpdir_path))
-            
+
+                seed_note: Optional[str]
                 objects_dict = {}
-                for i, mask_data in enumerate(masks):
-                    obj_id = f"obj_{i+1}"
-                    seg_mask = mask_data["segmentation"] # boolean numpy array
-                
-                    # Add mask to predictor
-                    _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
+                if normalized_box is not None:
+                    # The face-seeded path (issue #268). One deliberate
+                    # target through add_new_points_or_box; the generator is
+                    # never run, so no blob is ever tracked. The box arrives
+                    # normalized and SAM 2 takes frame pixels, so it is
+                    # scaled onto the extraction frame and clamped to it.
+                    x1 = min(max(normalized_box[0] * width, 0.0), float(width))
+                    y1 = min(max(normalized_box[1] * height, 0.0), float(height))
+                    x2 = min(max(normalized_box[2] * width, 0.0), float(width))
+                    y2 = min(max(normalized_box[3] * height, 0.0), float(height))
+                    if x2 <= x1 or y2 <= y1:
+                        return _decline(
+                            f"face box {normalized_box} covers no pixels "
+                            f"of a {width}x{height} frame after clamping.")
+                    pixel_box = np.array([x1, y1, x2, y2], dtype=np.float32)
+
+                    _, out_obj_ids, out_mask_logits = predictor.add_new_points_or_box(
                         inference_state=inference_state,
                         frame_idx=0,
-                        obj_id=i+1,
-                        mask=seg_mask
+                        obj_id=1,
+                        box=pixel_box,
                     )
-                
-                    objects_dict[i+1] = TrackedObject(
-                        object_id=obj_id,
-                        label=f"auto_object_{i+1}",
-                        category="unknown",
+
+                    objects_dict[1] = TrackedObject(
+                        object_id="obj_1",
+                        label=FACE_SEED_LABEL,
+                        category=FACE_SEED_CATEGORY,
                         frames=[],
                         masks_rle={},
                         bboxes={},
                         avg_area_ratio=0.0
                     )
+                    seed_note = (
+                        "face_seeded: one subject target from the "
+                        f"first-frame face box {normalized_box}; automatic "
+                        "blob seeding skipped (1 tracked object, not 10).")
+                else:
+                    # The legacy path: seed on the largest automatic regions.
+                    # 1. Run automatic mask generation on the first frame to find objects
+                    masks = generator.generate(first_frame_img)
+
+                    masks = sorted(masks, key=lambda x: x["area"],
+                                   reverse=True)[:MAX_TRACKED_OBJECTS]
+
+                    # 2. Everything that touches the predictor stays INSIDE
+                    # this block: managed_model moves the model to CPU on
+                    # exit, and inference_state holds MPS tensors, so
+                    # propagating after the block is a device mismatch.
+                    for i, mask_data in enumerate(masks):
+                        obj_id = f"obj_{i+1}"
+                        seg_mask = mask_data["segmentation"] # boolean numpy array
+
+                        # Add mask to predictor
+                        _, out_obj_ids, out_mask_logits = predictor.add_new_mask(
+                            inference_state=inference_state,
+                            frame_idx=0,
+                            obj_id=i+1,
+                            mask=seg_mask
+                        )
+
+                        objects_dict[i+1] = TrackedObject(
+                            object_id=obj_id,
+                            label=f"auto_object_{i+1}",
+                            category="unknown",
+                            frames=[],
+                            masks_rle={},
+                            bboxes={},
+                            avg_area_ratio=0.0
+                        )
+                    seed_note = (
+                        f"blob_seeded: {len(objects_dict)} largest "
+                        "first-frame regions; no face box was provided.")
             
-                # 3. Propagate masks across frames
+                # Propagate the seeds across frames. Seeding above is the only
+                # thing that differs between the paths; everything from here
+                # stays INSIDE this block: managed_model moves the model to
+                # CPU on exit, and inference_state holds MPS tensors, so
+                # propagating after the block is a device mismatch.
                 mask_areas: Dict[int, List[int]] = {i: [] for i in objects_dict}
                 for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
                     for i, obj_id in enumerate(out_obj_ids):
@@ -331,7 +513,7 @@ class ObjectSegmenter:
                         tr_obj.bboxes[out_frame_idx] = bbox
                         mask_areas[obj_id].append(mask_area)
             
-                # 4. avg_area_ratio is the share of the frame the MASK covers,
+                # avg_area_ratio is the share of the frame the MASK covers,
                 # not the share its bounding box covers. A person with an arm
                 # out has a box several times the area of the silhouette, and
                 # this number is read as "how much of the picture is this
@@ -344,13 +526,14 @@ class ObjectSegmenter:
                     areas = mask_areas[obj_id]
                     tr_obj.avg_area_ratio = sum(areas) / (len(areas) * frame_area)
                     final_objects.append(tr_obj)
-            
+
                 return SegmentationResult(
                     video_path=video_path,
                     frame_count=len(frame_files),
                     resolution=resolution,
                     sample_fps=sample_fps,
-                    objects=final_objects
+                    objects=final_objects,
+                    seed_note=seed_note,
                 )
 
 def get_segmenter() -> ObjectSegmenter:

@@ -1261,6 +1261,10 @@ def compute_face_presence(
             "face_width": [float|None, ...],     # box width as a fraction of
                                                  # the frame width; None where
                                                  # no face was located
+            "face_boxes": [box|None, ...],       # the largest face as a
+                                                 # normalized [x1, y1, x2, y2]
+                                                 # box (each 0..1); None where
+                                                 # no face was located
             "face_present_times": [float, ...],  # timestamps where value > 0.5
             "face_absent_times": [float, ...]    # timestamps where value < 0.5
         }
@@ -1282,6 +1286,14 @@ def compute_face_presence(
     portrait frame is a width-limited crop: the source's full height is
     always shown, so a face can only ever be lost off the sides. A
     measurement nothing can read is not worth a key.
+
+    `face_boxes` carries the FULL rect the other two derive from, because
+    SAM 2's box prompt needs y extents and the centre-plus-width pair
+    cannot place the box vertically. The box travels NORMALIZED (each
+    coordinate 0..1) so the seeder - which works in its own extraction
+    frame's pixels - never names this function's sample size. See
+    `library/tools/analysis/object_segmentation.normalize_face_box` and
+    issue #268.
     """
     try:
         import numpy as np
@@ -1308,6 +1320,7 @@ def compute_face_presence(
                 "values": [],
                 "face_center_x": [],
                 "face_width": [],
+                "face_boxes": [],
                 "face_present_times": [],
                 "face_absent_times": [],
             }
@@ -1322,6 +1335,7 @@ def compute_face_presence(
                 "values": [],
                 "face_center_x": [],
                 "face_width": [],
+                "face_boxes": [],
                 "face_present_times": [],
                 "face_absent_times": [],
             }
@@ -1331,10 +1345,15 @@ def compute_face_presence(
         face_values = []
         face_center_x = []
         face_width = []
+        face_boxes = []
 
         cascade = _load_face_cascade()
         if cascade is not None:
             import cv2
+            # The full rect reaches the seeder; the import stays beside its
+            # only use so this step never pays for the SAM module at import.
+            from library.tools.analysis.object_segmentation import (
+                normalize_face_box)
 
             for frame in frames:
                 gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -1345,7 +1364,7 @@ def compute_face_presence(
                     # Score by face area relative to frame, and keep where
                     # that same largest face sits horizontally.
                     largest = max(faces, key=lambda f: f[2] * f[3])
-                    fx, _fy, fw, fh = largest
+                    fx, fy, fw, fh = largest
                     max_area = fw * fh
                     frame_area = sample_w * sample_h
                     presence = min(1.0, max_area / (frame_area * 0.15))
@@ -1356,10 +1375,18 @@ def compute_face_presence(
                     face_center_x.append(
                         round(float(fx + fw / 2.0) / sample_w, 4))
                     face_width.append(round(float(fw) / sample_w, 4))
+                    # The whole rect, normalised against BOTH sample axes,
+                    # is what the subject-masking seeder prompts SAM 2 with
+                    # (issue #268). A rect the clamp rejects reads as no
+                    # box, not as a squeezed one.
+                    face_boxes.append(
+                        normalize_face_box(
+                            fx, fy, fw, fh, sample_w, sample_h))
                 else:
                     face_values.append(0.0)
                     face_center_x.append(None)
                     face_width.append(None)
+                    face_boxes.append(None)
 
         else:
             # Fallback: mid-frequency variance heuristic.
@@ -1377,6 +1404,7 @@ def compute_face_presence(
                 # honest answer is None and consumers centre by default.
                 face_center_x.append(None)
                 face_width.append(None)
+                face_boxes.append(None)
 
         # Derive presence/absence time arrays
         face_present_times = [
@@ -1393,6 +1421,7 @@ def compute_face_presence(
             "values": face_values,
             "face_center_x": face_center_x,
             "face_width": face_width,
+            "face_boxes": face_boxes,
             "face_present_times": face_present_times,
             "face_absent_times": face_absent_times,
         }
@@ -1407,6 +1436,7 @@ def compute_face_presence(
             "values": [],
             "face_center_x": [],
             "face_width": [],
+            "face_boxes": [],
             "face_present_times": [],
             "face_absent_times": [],
         }
@@ -1420,6 +1450,7 @@ def compute_face_presence(
             "values": [],
             "face_center_x": [],
             "face_width": [],
+            "face_boxes": [],
             "face_present_times": [],
             "face_absent_times": [],
         }

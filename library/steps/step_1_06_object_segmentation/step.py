@@ -10,9 +10,19 @@ sys.path.insert(0, str(repo_root))
 from library.tools.analysis.object_segmentation import get_segmenter
 from library.tools.project_layout import Area, ProjectLayout
 
-def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str):
+def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str,
+             face_boxes_by_clip: dict = None):
     """
     Run object segmentation on each clip in the catalog.
+
+    `face_boxes_by_clip` maps clip_id to the normalized [x1, y1, x2, y2]
+    first-frame face box from that clip's `face_presence` block (issue
+    #268). When the map is given, every clip is seeded from its face box
+    and a clip with no box is honestly declined; when it is None the
+    legacy blob seeding runs. The map arriving at all is what opts in -
+    a clip merely absent from it reads the same as no face, never as a
+    blob run, because mixing the two seedings in one run would make the
+    object labels mean different things per clip.
     """
     segmenter = get_segmenter()
     results = []
@@ -30,8 +40,17 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str):
             
         print(f"Segmenting {clip_path}...", file=sys.stderr)
         try:
-            # Segment the clip
-            seg_result = segmenter.segment_clip(clip_path, sample_fps=2.0)
+            # Segment the clip. A face-box map opts the whole run into
+            # face seeding: box where one arrived, honest decline where not.
+            face_seeded = face_boxes_by_clip is not None
+            if face_seeded:
+                face_box = face_boxes_by_clip.get(clip_id)
+                seg_result = segmenter.segment_clip(
+                    clip_path, sample_fps=2.0,
+                    face_box=face_box, require_face=True)
+            else:
+                seg_result = segmenter.segment_clip(
+                    clip_path, sample_fps=2.0)
             
             # Save the detailed masks and metadata to output_dir
             seg_result.save(str(out_dir_path))
@@ -49,7 +68,8 @@ def run_step(raw_footage_files: list, clip_catalog: list, output_dir: str):
                 "clip_id": clip_id,
                 "video_path": clip_path,
                 "segmentation_file": new_file_name,
-                "object_count": len(seg_result.objects)
+                "object_count": len(seg_result.objects),
+                "seed_note": seg_result.seed_note,
             })
             
         except Exception as e:
@@ -68,10 +88,21 @@ def main():
         
     raw_footage_files = input_data.get("raw_footage_files")
     clip_catalog = input_data.get("clip_catalog")
-    
+
     if not raw_footage_files or not clip_catalog:
         print(json.dumps({
             "error": "Missing required input: raw_footage_files or clip_catalog",
+            "step": "1.06_object_segmentation"
+        }))
+        sys.exit(1)
+
+    # Optional opt-in to face seeding (issue #268): clip_id to normalized
+    # first-frame face box. Absent means the legacy blob seeding runs.
+    face_boxes_by_clip = input_data.get("face_boxes_by_clip")
+    if face_boxes_by_clip is not None and not isinstance(
+            face_boxes_by_clip, dict):
+        print(json.dumps({
+            "error": "face_boxes_by_clip must be a clip_id to box map",
             "step": "1.06_object_segmentation"
         }))
         sys.exit(1)
@@ -82,7 +113,8 @@ def main():
     output_dir = str(ProjectLayout(project_folder).write_dir(
         Area.SEGMENTATION, step="object_segmentation"))
     
-    result = run_step(raw_footage_files, clip_catalog, output_dir)
+    result = run_step(raw_footage_files, clip_catalog, output_dir,
+                      face_boxes_by_clip=face_boxes_by_clip)
     json.dump(result, sys.stdout, indent=2)
 
 if __name__ == "__main__":
