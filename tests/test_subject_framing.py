@@ -165,9 +165,6 @@ class TestSubjectCentersByClip:
         """
         idx = {
             "temporal_event_indices": [
-                {"clip_id": "clip_011", "index_path": "/tmp/clip_011.json"},
-            ],
-            "temporal_event_indices": [
                 {"clip_id": "clip_011",
                  "source_file": "/footage/IMG_1816.MOV",
                  "face_presence": face_track([0.3] * 10)},

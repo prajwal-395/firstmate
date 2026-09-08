@@ -2933,7 +2933,14 @@ def run_pipeline(
             # See library/tools/provenance.py.
             artifacts_before = _provenance.snapshot()
 
-            def execute_step_once():
+            # Defined inside `for node_id in steps_to_run`, so the loop
+            # variables it reads must arrive as BOUND arguments, not as a
+            # closure over the loop: an unbound closure keeps whatever the
+            # loop holds when the closure RUNS, not when it was defined.
+            # Called immediately by the retry loop today, so binding changes
+            # nothing at runtime - it is what keeps a deferred or retried
+            # call from running a LATER iteration's step with no error.
+            def execute_step_once(impl=impl, inputs=inputs, node_id=node_id):
                 if impl["type"] == "deterministic":
                     return run_deterministic_step(impl["entry"], inputs), False
                 elif impl["type"] == "deterministic_with_llm":

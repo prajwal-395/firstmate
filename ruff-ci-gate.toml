@@ -68,7 +68,7 @@ select = [
 
 # ── Enforced, with the existing occurrences RECORDED ──────────────────
 #
-# 132 findings across 66 files, deferred by FILE with the count stated.
+# 107 findings across 64 files, deferred by FILE with the count stated.
 # This is a staged path and it is weaker than it looks in one specific
 # way, said plainly rather than left to be discovered: a file listed here
 # is exempt from that rule ENTIRELY, so a NEW `subprocess.run` with no
@@ -85,18 +85,21 @@ select = [
 # hybrid, and its `subprocess.run` now passes `check=False`. Its line
 # is deleted rather than renamed - a deferral for a file that no
 # longer owes anything is a lie about what is still owed.
-#   B023     function-uses-loop-variable      24   (all of them in ONE file)
-#   F811     redefined-while-unused            1
+#   B023     function-uses-loop-variable       0   (was 24, all in ONE file)
+#   F811     redefined-while-unused            0   (was 1)
 #
-# B023 is the one worth reading twice: all 24 are in
-# `library/processes/edit_video/run_pipeline.py`, so the rule is already
-# enforced with no exception across every other file in the repository.
+# B023 is the rule this file's history is proudest of: all 24 findings
+# were one retry closure in `library/processes/edit_video/run_pipeline.py`
+# closing over its loop's `impl`, `inputs` and `node_id`, and it now binds
+# all three as default arguments - so B023 is enforced with NO exception
+# anywhere in the repository, and F811 with it.  The first NEW hit on
+# either rule fails the build instead of joining a list.
 #
-# Nothing here is fixed by this commit - fixing them is a separate task,
-# deliberately, because a lint sweep and a CI change do not belong in one
-# diff.
+# What REMAINS here is fixed file by file in later commits, deliberately,
+# because a lint sweep and a CI change do not belong in one diff - and a
+# blanket fix for `subprocess.run` without `check=` could turn a tolerated
+# failure into a crash. Each remaining line is a judgement still owed.
 [lint.per-file-ignores]
-"library/processes/edit_video/run_pipeline.py" = ["B023"]          # 24
 "library/steps/step_1_02_catalog_footage/step.py" = ["PLW1510"]    # 1
 "library/steps/step_1_04_temporal_index/step.py" = ["PLW1510"]     # 7
 "library/steps/step_1_05_prosody_analysis/step.py" = ["PLW1510"]   # 1
@@ -123,7 +126,6 @@ select = [
 "library/tools/window_frames.py" = ["PLW1510"]                     # 1
 "tests/test_brief_reference.py" = ["PLW1510"]                      # 2
 "tests/test_broll_context_share.py" = ["PLW1510"]                  # 2
-"tests/test_caption_case.py" = ["F811"]                            # 1
 "tests/test_caption_safe_area.py" = ["PLW1510"]                    # 1
 "tests/test_cli_ml_preflight.py" = ["PLW1510"]                     # 2
 "tests/test_cut_decisions_reach_a_reader.py" = ["PLW1510"]         # 1

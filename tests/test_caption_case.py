@@ -220,7 +220,6 @@ class TestShippedTemplates:
 # is durable rather than incidental.
 
 import glob
-import os
 
 import yaml
 
