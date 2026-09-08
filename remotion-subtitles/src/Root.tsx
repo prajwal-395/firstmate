@@ -21,6 +21,11 @@ import {
   fullFrameCardSchema,
   type FullFrameCardProps,
 } from "./compositions/FullFrameCard";
+import {
+  BrandMotion,
+  brandMotionSchema,
+  type BrandMotionProps,
+} from "./compositions/BrandMotion";
 // The studio has no pipeline behind it, so its preview defaults need the
 // safe area written down somewhere TypeScript can import. This file is
 // GENERATED from library/tools/safe_area.py by
@@ -67,6 +72,16 @@ const calculateTimedTextMetadata: CalculateMetadataFunction<TimedTextOverlayProp
   };
 
 const calculateFullFrameMetadata: CalculateMetadataFunction<FullFrameCardProps> =
+  async ({ props }) => {
+    return {
+      durationInFrames: props.durationInFrames,
+      fps: props.fps,
+      width: props.width,
+      height: props.height,
+    };
+  };
+
+const calculateBrandMotionMetadata: CalculateMetadataFunction<BrandMotionProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -240,6 +255,30 @@ export const RemotionRoot: React.FC = () => {
           safeArea: SAFE_AREA,
         }}
         calculateMetadata={calculateFullFrameMetadata}
+      />
+      <Composition
+        id="BrandMotion"
+        component={BrandMotion}
+        schema={brandMotionSchema}
+        durationInFrames={45}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          // Empty, for the same reason MotionGraphics defaults to no
+          // elements: a studio default naming a file would be artwork
+          // nobody chose sitting in the repository, and the component
+          // renders null on an empty src rather than throwing. `muted`
+          // is true here because a studio preview is not a render - the
+          // pipeline still requires it stated on every real props file.
+          src: "",
+          fps: 30,
+          width: 1080,
+          height: 1920,
+          durationInFrames: 45,
+          muted: true,
+        }}
+        calculateMetadata={calculateBrandMotionMetadata}
       />
     </>
   );

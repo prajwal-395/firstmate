@@ -450,7 +450,8 @@ def _rate(value: str) -> float:
         return 0.0
 
 
-def measure_alpha(path: str, timeout: int = 300) -> AlphaMeasurement:
+def measure_alpha(path: str, timeout: int = 300, *,
+                  video_decoder: str | None = None) -> AlphaMeasurement:
     """Read the element's alpha channel, frame by frame.
 
     ``alphaextract`` fails outright when the input has no alpha plane -
@@ -460,9 +461,24 @@ def measure_alpha(path: str, timeout: int = 300) -> AlphaMeasurement:
     known-opaque, a known-empty and a known-partial control, because an
     instrument that reports zero has to be shown reporting non-zero on
     something known first.
+
+    ``video_decoder`` names the ``-c:v`` decoder for the input, and is
+    None (ffmpeg's default) unless the container needs otherwise.
+    Measured 2026-09-08: the NATIVE ``vp9`` decoder drops WebM alpha
+    (``alphaextract`` sees no plane on a file Chrome paints with alpha),
+    while ``libvpx-vp9`` recovers every frame - all 45 of a 1.5s bumper
+    mezzanine. So a WebM source is measured with ``libvpx-vp9`` (``libvpx``
+    for VP8, same mechanism) and everything else with the default. The
+    parameter exists so there stays ONE alpha instrument rather than two
+    that could disagree.
     """
     cmd = [
-        "ffmpeg", "-v", "error", "-i", path,
+        "ffmpeg", "-v", "error",
+    ]
+    if video_decoder:
+        cmd += ["-c:v", video_decoder]
+    cmd += [
+        "-i", path,
         "-vf",
         ("alphaextract,format=gray,signalstats,"
          "metadata=print:file=-"),
@@ -537,13 +553,17 @@ def measure_alpha(path: str, timeout: int = 300) -> AlphaMeasurement:
     )
 
 
-def measure_element(path: str) -> Element:
+def measure_element(path: str, *,
+                    video_decoder: str | None = None) -> Element:
     """Measure a transition element, or refuse it by name.
 
     A file on disk is not a measurement (AGENTS.md 10.3): this opens the
     element and reads its pixels. Refuses when the alpha plane is absent
     (:class:`ElementHasNoAlpha`) and when it is present and empty
-    (:class:`ElementDrawsNothing`).
+    (:class:`ElementDrawsNothing`). ``video_decoder`` is
+    :func:`measure_alpha`'s - a WebM element measured with the default
+    decoder would be refused as having no alpha when the plane is there
+    and the decoder dropped it.
     """
     if not os.path.isfile(path):
         raise ElementUnmeasurable(f"element {path!r} is not a file")
@@ -556,7 +576,7 @@ def measure_element(path: str) -> Element:
             f"{path!r} reports no frame rate, so its length in frames "
             f"cannot be established")
 
-    alpha = measure_alpha(path)
+    alpha = measure_alpha(path, video_decoder=video_decoder)
     if not alpha.draws:
         raise ElementDrawsNothing(
             f"{path!r} has an alpha plane and it is zero on all "

@@ -137,7 +137,7 @@ def _assembled_prompt(project: Path) -> tuple:
         [sys.executable, str(BROLL_STEP / "bridge.py")],
         input=json.dumps(_routed_inputs(project)),
         capture_output=True, text=True, encoding="utf-8",
-        cwd=str(REPO), env=env,
+        cwd=str(REPO), env=env, check=False,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr
     pre = json.loads(proc.stdout)
