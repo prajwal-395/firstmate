@@ -86,6 +86,43 @@ case the channel has: a direction that says the piece is vibrant, held
 against nine clips one of which measures 53 luma.
 
 
+**The inventory this marking comes from, and what it judged.**
+Prose-as-evidence flows found 2026-09-07 by joining every step manifest's
+`context_fields` against the producing step's output schema (calibrated:
+the sweep was checked against `CUT_VERDICT_LEGEND` and
+`direction_justification.why_not_forbidden`, both known present, before
+any absence was believed).  The line drawn: whole-object prose keyed by
+its authoring step (`creative_direction`, `rough_cut_review`,
+`speech_sequence`) is SELF-MARKING - the key names the source.  Prose
+subfields inside an object this file classifies as a MEASUREMENT are
+not, and those are what `VISION_PROSE_PATHS` marks:
+
+* MARKED HERE - vision prose inside `semantic_analysis_documents` /
+  `semantic_analysis`, cited as measurement by 9 flagging steps
+  (2.02, 2.05, 3.02, 4.02, 4.03, 4.04 and the rest of
+  `EVIDENCE_SOURCES`).  A downstream DECISION (contradicted vs not)
+  rested on unattributed text: prose-vs-prose read as CONTRADICTED.
+* ALREADY MARKED - `cut_decisions` verdict+note reaches 4.02 as
+  `narrative_verdict` / `verdict_note` with `CUT_VERDICT_LEGEND`
+  (`library/tools/cut_verdicts.py`); the B-roll `description` column is
+  vision prose travelling beside measured framing/stability/tags, and
+  4.02's `outgoing/incoming_footage` deliberately carries measurements
+  only.  Pinned by test, not rebuilt.
+* SELF-MARKING, RECORDED - `creative_direction` (all eight fields are
+  model prose by construction; `DIRECTION_KEYS` + `direction_value`
+  raising on anything else is the source record), `rough_cut_review`
+  whole-object to 4.02/4.03/4.04 (the key is the source), 2.02's
+  `body_sequence` ordering (a judgement by construction; the spine
+  contract already marks its time fields as lookup hints, AGENTS.md 6).
+* CORRECTLY EXCLUDED - `music_selection.direction_justification`:
+  2.05 and 3.03 explicitly DROP `why_not_forbidden` with `-` paths.
+  The drop IS the marking.  Pinned by test.
+* GENUINELY JUST PROSE - `topics_toon` / `transcripts_toon`
+  (2.02's own prompt tables, consumed only by its own prompt),
+  `CUTS_LEGEND` / `MEASUREMENT_LEGEND` definitional text, run-summary
+  lines.  No decision rests on them as evidence.
+
+
 Rules relocated from AGENTS.md 3
 --------------------------------
 These are the engine's rules for this module.  They lived in AGENTS.md
@@ -161,13 +198,136 @@ MEASURED_OUTPUTS = {
     "clip_catalog": "1.02 - measured duration, frame rate and stored resolution per clip",
     "project_fps": "1.02 - the footage's measured frame rate",
     "source_resolution": "1.02 - the footage's measured stored resolution",
-    "semantic_analysis_documents": "1.03 - the vision pass's per-window scene, camera, action and assessment measurements",
+    # A MIXED container: per-window camera segments, usable ranges with a
+    # deterministic method, and subject-visibility ranges are measurements;
+    # the scene/action/object prose and the assessment judgements inside
+    # the SAME document are VLM readings. `VISION_PROSE_PATHS` names the
+    # prose half, and a step holding the document is told both halves by
+    # name in `prompt_block` - otherwise a summary is cited as a
+    # measurement and prose-vs-prose reads as CONTRADICTED.
+    "semantic_analysis_documents": "1.03 - the vision pass's per-window scene, camera, action and assessment measurements (MIXED with VLM prose - see VISION_PROSE_PATHS)",
     "temporal_event_indices": "1.04 - the same index, per clip, as the event view",
     "prosody_analysis": "1.05 - parselmouth pitch contour, speaking rate, voice quality and intensity",
     "object_segmentation": "1.06 - SAM 2 subject masks (unwired; nothing consumes them)",
     "ocr_extraction": "1.07 - on-screen text read off the frames",
     "music_analysis": "2.06 - librosa tempo, beat grid and energy dynamics of the chosen track",
 }
+
+
+# ── The prose half of the vision document ─────────────────────────────
+#
+# One step's prose becomes another step's evidence with no record of its
+# source (2026-09-07 inventory, full table in the module docstring's
+# PROSE_AS_EVIDENCE section).  The sharpest case is this file's own:
+# `semantic_analysis_documents` is listed above as a measurement, and the
+# document DOES contain measurements - camera segments, usable ranges
+# with `usable_ranges_method`, subject-visibility ranges.  But the same
+# document carries VLM prose judgements under the paths below, and every
+# flagging step routed the document was told the whole of it is something
+# it MEASURED.  A contradiction entry citing scene prose against the
+# direction's prose is then prose-vs-prose recorded as CONTRADICTED -
+# exactly the shape of the dashboard defect where unmeasured assessment
+# defaults were rendered as findings.
+#
+# Marking, not removal: the paths still travel (B-roll, VFX and SFX
+# planning genuinely need to know what the footage shows).  What changes
+# is that `prompt_block` names them as NOT measurements for every step
+# routed the document, so a downstream decision can tell a measurement
+# from a reading.  The handoffs are frozen, so this takes the
+# MEASUREMENT_LEGEND / CUTS_LEGEND route: the words travel as data
+# beside the context.
+#
+# Keyed as the model addresses them: `analysis.*` / `assessment.*` /
+# `objects[]` / `blocks[]` inside one semantic document, matching the
+# `context_fields` dotted paths (`semantic_analysis_documents.*.`...)
+# and the `clip_observations` accessor in
+# `library/tools/semantic_index.py`.
+
+VISION_PROSE_PATHS = {
+    "analysis.scene": (
+        "VLM scene prose (`vision_schema_adapter.scene_prose` rendering of "
+        "`scene[]` - location, type, lighting, notable features). A "
+        "description of what the footage shows, not a measurement of it."
+    ),
+    "analysis.motion": (
+        "VLM camera prose (`camera_prose` rendering of `camera[]`). "
+        "Framing/movement/stability words are a reading of the picture, "
+        "not signal processing - v3 measures no mood and no energy at "
+        "all (AGENTS.md 10.1)."
+    ),
+    "analysis.mood": (
+        "Retired-schema VLM affect. v3 does not measure mood; a legacy "
+        "document's mood prose is a previous model's feeling about a "
+        "still, not evidence."
+    ),
+    "analysis.energy": (
+        "Same as mood: retired-schema VLM affect, unmeasured by v3."
+    ),
+    "analysis.emotion": (
+        "Same as mood: retired-schema VLM affect, unmeasured by v3."
+    ),
+    "analysis.audio_prediction": (
+        "The VLM guessing what the clip sounds like from the picture. "
+        "Step 4.04 reads it for SFX planning; it is a guess about audio "
+        "made without listening, never a measurement of any."
+    ),
+    "assessment.keywords": (
+        "Tags derived from scene types, object roles and framings "
+        "(`derived_keywords`) plus VLM-supplied keywords. Useful for "
+        "retrieval, not evidence of anything."
+    ),
+    "assessment.moment_type": (
+        "Retired-schema VLM verdict on what kind of moment this is. "
+        "Deliberately NOT re-derived by the adapter (its docstring says "
+        "why inventing it would mislead); a document carrying one was "
+        "judged by a model."
+    ),
+    "assessment.content_type": (
+        "VLM classification of what the clip is (talking-head vs "
+        "coverage). Coverage decisions rest on it in 3.02, so its source "
+        "matters: it is a classification, and `unknown` means unclassified, "
+        "never b-roll."
+    ),
+    "assessment.usable_portions": (
+        "A prose RENDERING of the ranges, not the ranges. "
+        "`usable_ranges` with `usable_ranges_method` decides; a legacy "
+        "document can carry `usable_portions: 0.0-188.5s` beside method "
+        "`unmeasured` (001: 17 of 17 clips), and reading the rendering "
+        "made the stale assertion look measured."
+    ),
+    "objects[].label": (
+        "VLM prose sentences about what is in shot "
+        "(`subject_summary` reads the primary subject first). "
+        "Deliberately excluded from `derived_keywords`: labels are "
+        "sentences, not tags."
+    ),
+    "objects[].readable_text": (
+        "On-screen text the VLM claims to see. The local model reads "
+        "sparsely, not never - a recorded claim that it provably cannot "
+        "was wrong - so a reading is a lead, not a transcript. Step 1.07 "
+        "(`ocr_extraction`) is the measurement where text matters."
+    ),
+    "blocks[].visual": (
+        "One observed action rendered as prose (`_blocks_from_actions`), "
+        "or `UNPARSED_WINDOW_VISUAL` where the VLM response could not be "
+        "parsed at all. The sentinel says unmeasured; citing it as what "
+        "the clip shows inverts its meaning."
+    ),
+    "blocks[].body_language": (
+        "VLM prose about bodies, per action window. Same status as "
+        "`blocks[].visual`."
+    ),
+    "blocks[].speech_cue": (
+        "VLM prose about what the speech seems to accompany. A cue, not "
+        "a transcript - the transcript is `temporal_index`."
+    ),
+}
+
+# Routed input names that carry a vision document.  Most steps address
+# it as `semantic_analysis_documents`; 4.02's input is named
+# `semantic_analysis`.  The name differs, the document does not, and a
+# caveat keyed on one spelling would leave the other unmarked.
+VISION_INPUT_NAMES = frozenset({"semantic_analysis_documents", "semantic_analysis"})
 
 DECLINED_OUTPUTS = {
     "sfx_library_status": "0.01 validates a SHARED library, not this project's material",
@@ -456,6 +616,23 @@ def prompt_block(step_id: str) -> str:
     ]
     for name, why in sorted(sources.items()):
         lines.append(f"- `{name}` - {why}\n")
+    if VISION_INPUT_NAMES & set(sources):
+        lines.append(
+            "\nOne of those inputs is MIXED: the vision document carries "
+            "measurements AND another model's prose in the same object, "
+            "and only the first half can contradict anything. These "
+            "paths are VLM readings, not measurements - do not cite them "
+            "as `measurement`, and an entry whose only evidence is one "
+            "of them is prose disagreeing with prose:\n\n"
+        )
+        for path in sorted(VISION_PROSE_PATHS):
+            lines.append(f"- `{path}` - {VISION_PROSE_PATHS[path]}\n")
+        lines.append(
+            "\nWhat DOES count in the vision document: camera segments "
+            "with time bounds, `usable_ranges` read with "
+            "`usable_ranges_method`, and subject-visibility ranges. "
+            "Cite those with their numbers and bounds.\n"
+        )
     lines.append(
         "\nAn entry with no `measurement`, or naming an input outside "
         "that list, is NOT a contradiction and is recorded separately as "

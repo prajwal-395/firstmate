@@ -365,3 +365,140 @@ def test_a_flag_built_positionally_still_binds_its_entries():
     names = [f.name for f in dataclasses.fields(dc.Flag)]
     assert names[:3] == ["step_id", "reading", "entries"], names
     assert names[-1] == "attempt", names
+
+
+# ── One step's prose is marked where another step reads it as evidence ─
+#
+# The 2026-09-07 inventory: `semantic_analysis_documents` is listed in
+# MEASURED_OUTPUTS but carries VLM prose beside its measurements, and
+# every flagging step routed the document was told the whole of it is
+# something it MEASURED.  These tests pin the marking in both
+# directions: the gate FAILS when the marking is removed, and it does
+# NOT fail output that was correct before it.
+
+def _vision_routed_steps():
+    return [step for step in sorted(dc.FLAGGING_STEPS)
+            if dc.VISION_INPUT_NAMES & set(dc.evidence_sources(step))]
+
+
+def test_every_vision_routed_step_is_told_which_paths_are_prose():
+    """The gate that CAN fail: remove the caveat from `prompt_block` and
+    this goes red.  A consumer that cannot tell a measurement from a
+    summary will mistake one for the other, which is the defect."""
+    steps = _vision_routed_steps()
+    assert len(steps) >= 5, (
+        f"expected most flagging steps to hold vision docs, found {steps} - "
+        "if the DAG really stopped routing them, update VISION_PROSE_PATHS "
+        "rather than this number")
+    for step in steps:
+        block = dc.prompt_block(step)
+        for path in sorted(dc.VISION_PROSE_PATHS):
+            assert path in block, (
+                f"{step}: prompt_block names no `{path}` as prose - a "
+                "contradiction citing it would read as measured")
+
+
+def test_steps_without_vision_inputs_carry_no_vision_caveat():
+    """The other side of the same gate: marking where nothing is mixed
+    is a warning that teaches the model to ignore real measurements."""
+    for step in sorted(dc.FLAGGING_STEPS):
+        if dc.VISION_INPUT_NAMES & set(dc.evidence_sources(step)):
+            continue
+        block = dc.prompt_block(step)
+        assert "MIXED" not in block, (
+            f"{step} holds no vision document but its prompt carries the "
+            "vision-prose caveat")
+        assert "analysis.scene" not in block
+
+
+def test_a_real_measurement_still_counts_after_the_marking():
+    """The gate that must NOT fail correct output: the prosody
+    contradiction this channel was built for still reads CONTRADICTED
+    with the caveat in the prompt."""
+    block = dc.prompt_block("speech_sequence")
+    assert "prosody_analysis" in block
+    assert "parselmouth" in block
+    _, flag = dc.take("speech_sequence",
+                      {"speech_sequence": {}, dc.FIELD: [PROSODY_CONTRADICTION]})
+    assert flag.reading == dc.CONTRADICTED
+    assert flag.entries[0]["measured_in"] == "prosody_analysis"
+
+
+def test_vision_prose_paths_name_real_reader_columns():
+    """A stale inventory reads as coverage: every marked path must still
+    be addressed by at least one step's prompt declaration or by a
+    reader that renders vision prose, or the row is describing prose
+    nobody reads.
+
+    Two routes, because the pipeline has two: `context_fields` dotted
+    paths (the `analysis.scene` half) and the view/bridge/reference
+    readers that never appear in a manifest (the `blocks[].visual` and
+    `objects[].readable_text` half - `context_views`,
+    `footage_reference`).  An instrument that checked only manifests
+    reported the second half as unread; it was calibrated against
+    `readable_text` in `footage_reference.py` before being believed."""
+    repo = Path(__file__).resolve().parents[1]
+    manifested = set()
+    for path in sorted((repo / "library" / "steps").glob("*/manifest.json")):
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for declared in (manifest.get("context_fields") or ()):
+            manifested.add(str(declared).split(".")[-1].lstrip("-"))
+    readers = [
+        "library/tools/vision_schema_adapter.py",
+        "library/tools/semantic_index.py",
+        "library/tools/context_views.py",
+        "library/tools/footage_reference.py",
+        "library/tools/analysis/vision_pipeline_v3.py",
+        "library/steps/step_3_02_select_broll/bridge.py",
+        "library/steps/step_4_02_plan_transitions/bridge.py",
+        "library/steps/step_4_03_plan_vfx/bridge.py",
+        "library/steps/step_4_04_plan_sfx/bridge.py",
+    ]
+    rendered = set()
+    for rel in readers:
+        try:
+            text = (repo / rel).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for path in dc.VISION_PROSE_PATHS:
+            leaf = path.split(".")[-1].rstrip("[]")
+            if f'"{leaf}"' in text or f"'{leaf}'" in text:
+                rendered.add(path)
+    missing = [path for path in dc.VISION_PROSE_PATHS
+               if path.split(".")[-1].rstrip("[]") not in manifested
+               and path not in rendered]
+    assert not missing, (
+        f"marked as prose but read nowhere: {missing} - the table has "
+        "drifted from what prompts actually address")
+
+
+def test_the_inventory_s_existing_markings_still_hold():
+    """The adjudicated half of the inventory cannot rot silently: the
+    verdict legend still defines its columns, the music justification is
+    still dropped where the inventory says it is, and the direction is
+    still prose-by-construction with a closed key set."""
+    from library.tools import cut_verdicts as cv
+    assert "narrative_verdict" in cv.CUT_VERDICT_LEGEND
+    assert "verdict_note" in cv.CUT_VERDICT_LEGEND
+    assert "rough-cut review" in cv.CUT_VERDICT_LEGEND["narrative_verdict"]
+
+    for step_dir, key in (
+        ("step_2_05_mesh_spine",
+         "-music_selection.direction_justification.why_not_forbidden"),
+        ("step_3_03_review_rough_cut",
+         ("-audio_spine.music_selection.direction_justification."
+          "why_not_forbidden")),
+    ):
+        manifest = json.loads(
+            (Path(__file__).resolve().parents[1] / "library" / "steps" /
+             step_dir / "manifest.json").read_text(encoding="utf-8"))
+        assert key in (manifest.get("context_fields") or ()), (
+            f"{step_dir} no longer drops the music justification - the "
+            "inventory's CORRECTLY EXCLUDED row is stale")
+
+    assert len(DIRECTION_KEYS) == 8, (
+        f"step 2.01 is asked for {DIRECTION_KEYS} - if the schema grew, "
+        "the inventory's SELF-MARKING row must say so")
