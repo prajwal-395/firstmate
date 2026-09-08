@@ -811,3 +811,232 @@ def test_real_step_directories_produce_a_hash():
         assert h is not None, f"{name} produced no hash"
         assert len(h) == 64, f"{name} hash is not SHA-256"
 
+
+# ── 5. Shared implementation files are part of the identity (D1) ──
+
+def _scratch_repo_with_semantic_analysis(tmp_path):
+    """A scratch repo tree where step 1.03 executes a shared script.
+
+    Mirrors the real layout - ``library/steps/<dir>`` plus
+    ``library/tools/analysis/<script>`` - so ``apply_code_identity``
+    resolves the declared implementation file under the scratch root
+    instead of the real one.
+    """
+    lib = tmp_path / "library"
+    step_dir = lib / "steps" / "step_1_03_semantic_analysis"
+    step_dir.mkdir(parents=True)
+    (step_dir / "step.py").write_text("# launcher: runs vision_pipeline_v3.py")
+    (step_dir / "manifest.json").write_text('{"id": "semantic_analysis"}')
+    shared = lib / "tools" / "analysis" / "vision_pipeline_v3.py"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("# original measurement code")
+    return lib, step_dir, shared
+
+
+def test_shared_implementation_change_invalidates_preflight_cache(
+        tmp_path, monkeypatch):
+    """D1: a fix to shared measurement code invalidates the step that
+    executes it.
+
+    Step 1.03's directory holds a launcher; the algorithm lives in
+    ``vision_pipeline_v3.py``.  Editing that file must invalidate the
+    cached ``semantic_analysis`` output, while editing an unrelated
+    shared file must not.
+    """
+    lib, _step_dir, shared = _scratch_repo_with_semantic_analysis(tmp_path)
+    monkeypatch.setattr(runner, "LIBRARY_ROOT", lib)
+
+    fake_nodes = {
+        "semantic_analysis": {
+            "step_ref": "steps/step_1_03_semantic_analysis"},
+    }
+    stage_by_node = {"semantic_analysis": step_ledger.PREFLIGHT}
+    manifests = {"semantic_analysis": MANIFESTS["semantic_analysis"]}
+    state = {
+        step_ledger.LEDGER_KEY[step_ledger.PREFLIGHT]: {
+            "semantic_analysis": {"completed_at": "2026-08-20T10:00:00"},
+        },
+    }
+
+    # First run: adopt current hashes, cache survives.
+    assert runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes) == []
+    assert step_ledger.is_completed(state, "semantic_analysis")
+
+    # An unrelated shared file changes: the cache must survive.
+    (lib / "tools" / "analysis" / "other_pipeline.py").write_text("# v1")
+    (lib / "tools" / "analysis" / "other_pipeline.py").write_text("# v2")
+    assert runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes) == []
+    assert step_ledger.is_completed(state, "semantic_analysis")
+
+    # The executed measurement changes: the cache must go.
+    shared.write_text("# FIXED measurement code with a new gate")
+    result = runner.apply_code_identity(
+        state, stage_by_node, manifests, fake_nodes)
+    assert result == ["semantic_analysis"], (
+        "a change to the shared measurement code must invalidate "
+        "the step that executes it")
+    assert not step_ledger.is_completed(state, "semantic_analysis")
+
+
+def test_step_hash_folds_in_declared_implementation_files():
+    """The runner's hash for a step with declared implementation differs
+    from the bare directory hash; a step with none is exactly its own
+    directory.
+
+    Both expectations are derived from the code's own expressions, not
+    copied digests: the fold-in must change the value, and the absence
+    of a declaration must leave it byte-identical.
+    """
+    semantic_dir = str(STEPS_ROOT / "step_1_03_semantic_analysis")
+    bare = code_identity.step_code_hash(semantic_dir)
+    full = code_identity.code_hashes_for(
+        {"semantic_analysis": semantic_dir})["semantic_analysis"]
+    assert bare != full, (
+        "semantic_analysis executes shared code, so its identity must "
+        "cover more than its own directory")
+
+    catalog_dir = str(STEPS_ROOT / "step_1_02_catalog_footage")
+    assert (code_identity.code_hashes_for({"catalog": catalog_dir})["catalog"]
+            == code_identity.step_code_hash(catalog_dir)), (
+        "catalog has no declared implementation, so its identity must "
+        "be exactly its own directory")
+
+
+def _strip_prose(text):
+    """Remove triple-quoted strings and #-comments for reference scanning.
+
+    The scanner below must see code references, not prose: a docstring
+    mentioning a module is not a dependency on it.
+    """
+    import re
+    text = re.sub(r'"""[\s\S]*?"""', "", text)
+    text = re.sub(r"'''[\s\S]*?'''", "", text)
+    return "\n".join(
+        line.split("#", 1)[0] for line in text.splitlines())
+
+
+def _resolve_dotted(base, names, root):
+    """Repo files a ``from library... import ...`` line can mean.
+
+    A name that resolves to its own file wins (``from
+    library.tools.analysis import picture_quality`` is picture_quality.py,
+    not the package ``__init__``); otherwise the base itself answers.
+    Only files that exist on disk are returned.
+    """
+    found = []
+    base_path = root / Path(*base.split("."))
+    for name in names:
+        name = name.strip()
+        if not name or name == "*":
+            continue
+        candidate = base_path / (name.split(" as ")[0].strip() + ".py")
+        if candidate.is_file():
+            found.append(candidate)
+    if found:
+        return found
+    for candidate in (base_path.with_suffix(".py"),
+                      base_path / "__init__.py"):
+        if candidate.is_file():
+            return [candidate]
+    return []
+
+
+def _referenced_repo_files(source_path, root):
+    """Every ``library/**/*.py`` file one source file references as code.
+
+    Two shapes: ``library.tools...`` imports, and ``library/tools/...``
+    path literals including ``os.path.join(PILOT_ROOT, 'library',
+    'tools', ...)`` constructions.  Returns repo-relative posix paths.
+    """
+    import re
+    text = _strip_prose(Path(source_path).read_text(encoding="utf-8"))
+    refs = set()
+
+    for match in re.finditer(
+            r"^\s*from\s+(library\.[\w.]+)\s+import\s+(.+)$", text,
+            re.MULTILINE):
+        for found in _resolve_dotted(match.group(1),
+                                     match.group(2).split(","), root):
+            refs.add(found.relative_to(root).as_posix())
+    for match in re.finditer(
+            r"^\s*import\s+(library\.[\w.]+(?:\s*,\s*library\.[\w.]+)*)",
+            text, re.MULTILINE):
+        for base in re.findall(r"library\.[\w.]+", match.group(1)):
+            for found in _resolve_dotted(base, [], root):
+                refs.add(found.relative_to(root).as_posix())
+
+    for match in re.finditer(r"library/tools/[\w\-/]+\.py", text):
+        candidate = root / match.group(0)
+        if candidate.is_file():
+            refs.add(match.group(0))
+    # os.path.join(PILOT_ROOT, 'library', 'tools', 'analysis', 'x.py')
+    for match in re.finditer(
+            r"['\"]library['\"]\s*,\s*['\"]tools['\"]"
+            r"((?:\s*,\s*['\"][\w\-.]+['\"])+)", text):
+        segments = re.findall(r"['\"]([\w\-.]+)['\"]", match.group(1))
+        candidate = root / "library" / "tools" / Path(*segments)
+        if candidate.suffix == ".py" and candidate.is_file():
+            refs.add(candidate.relative_to(root).as_posix())
+
+    return refs
+
+
+def _dag_preflight_step_dirs():
+    """{node_id: step dir} for every DAG node staged as preflight."""
+    dag = json.loads(
+        (PILOT_ROOT / "library" / "processes" / "edit_video"
+         / "dag.json").read_text(encoding="utf-8"))
+    out = {}
+    for node in dag.get("nodes", []):
+        node_id = node.get("id", "")
+        step_ref = node.get("step_ref", "")
+        if not node_id or not step_ref:
+            continue
+        manifest_path = (
+            PILOT_ROOT / "library" / step_ref / "manifest.json")
+        if not manifest_path.is_file():
+            continue
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if step_ledger.stage_of(manifest, node_id) == step_ledger.PREFLIGHT:
+            out[node_id] = PILOT_ROOT / "library" / step_ref
+    return out
+
+
+def test_preflight_shared_code_references_are_declared():
+    """No DAG-preflight step may reference shared measurement code the
+    identity check does not watch - that gap is D1.
+
+    For each preflight step, every repo file its step.py references as
+    code (minus plumbing in EXEMPT_IMPORTS) must be declared in
+    STEP_IMPLEMENTATION_DEPS, and every declared file must be referenced
+    either by the step or by another declared file - so the map can
+    neither miss the next shared script nor rot into over-invalidation.
+    Every declared file must exist.
+    """
+    deps = getattr(code_identity, "STEP_IMPLEMENTATION_DEPS", {})
+    exempt = getattr(code_identity, "EXEMPT_IMPORTS", set())
+    assert deps, (
+        "no step declares shared implementation files, so a fix to "
+        "shared measurement code is invisible to the preflight cache")
+
+    for node_id, step_dir in sorted(_dag_preflight_step_dirs().items()):
+        step_py = Path(step_dir) / "step.py"
+        assert step_py.is_file(), f"{node_id} has no step.py to scan"
+        declared = set(deps.get(Path(step_dir).name, ()))
+        for rel in sorted(declared):
+            assert (PILOT_ROOT / rel).is_file(), (
+                f"{node_id} declares {rel}, which does not exist")
+
+        required = (_referenced_repo_files(step_py, PILOT_ROOT) - set(exempt))
+        for rel in sorted(declared):
+            required |= (
+                _referenced_repo_files(PILOT_ROOT / rel, PILOT_ROOT)
+                - set(exempt))
+        assert required == declared, (
+            f"{node_id}: referenced-but-undeclared {sorted(required - declared)} "
+            f"would survive a code fix in cache; "
+            f"declared-but-unreferenced {sorted(declared - required)} "
+            f"would invalidate good cache on unrelated edits")
+

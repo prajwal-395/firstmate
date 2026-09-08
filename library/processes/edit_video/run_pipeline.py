@@ -910,7 +910,8 @@ def apply_code_identity(state: dict, stage_by_node: dict,
         step_dir = get_step_dir(node)
         preflight_dirs[node_id] = str(step_dir)
 
-    current = code_identity.code_hashes_for(preflight_dirs)
+    current = code_identity.code_hashes_for(
+        preflight_dirs, repo_root=LIBRARY_ROOT.parent)
     recorded = state.get(step_ledger.CODE_FINGERPRINTS_KEY)
 
     if not recorded:

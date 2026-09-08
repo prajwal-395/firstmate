@@ -24,14 +24,31 @@ minutes of vision analysis.
 
 What this deliberately does NOT hash
 -------------------------------------
-*Not the step's imports.*  A change to ``library/tools/vision_pipeline_v3.py``
-does not change the hash of step 1.03.  This is the right trade: a shared
-utility serves many steps, and a change to it should not invalidate all of
-them.  When a utility change matters, the step that calls it must change
-too (even a version bump in the manifest), and that changes its hash.
-
 *Not the model weights.*  A WhisperX upgrade is not a code change to step
 1.04.  The operator can ``--rerun temporal_index`` for that.
+
+*Not undeclared imports.*  Plumbing every step shares - the project
+layout, stdout claiming, the brand registry's project declarations -
+does not change a measured value and is listed in ``EXEMPT_IMPORTS``
+rather than hashed, so touching it does not cost a 69-minute vision
+re-run.  What IS hashed beyond the step directory is declared below in
+``STEP_IMPLEMENTATION_DEPS``: the shared implementation files a step
+executes as measurement code.  An undeclared shared import is a gap in
+that declaration, and ``tests/test_step_ledger.py`` refuses it - it
+scans every DAG-preflight step for the reference and fails until the
+map covers it.
+
+Why the map exists
+------------------
+Step 1.03's directory holds a launcher; the measurement lives in
+``library/tools/analysis/vision_pipeline_v3.py``, which the step runs
+as a subprocess.  Hashing the directory alone watches the launcher and
+never the algorithm, so a fix to the algorithm - the usable-ranges
+A-roll gate - was invisible to the cache on every existing project and
+the run reported success while the work did not happen.  The map makes
+that file part of step 1.03's identity, and the same shape everywhere
+else it occurs: any preflight step whose cached values are computed by
+shared code names that code here.
 
 Adoption on first encounter
 ----------------------------
@@ -59,8 +76,103 @@ from typing import Dict, Optional
 # change and should not cost a 69-minute recomputation.
 _SOURCE_EXTENSIONS = {".py", ".json"}
 
+# Repo root, for resolving the implementation files below.  Overridable
+# per call so tests can hash a scratch tree instead of this one.
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
-def step_code_hash(step_dir: str) -> Optional[str]:
+
+# Shared implementation files whose content belongs to a step's identity,
+# keyed by step directory basename and repo-relative.  A file is listed
+# here when a change to it can change the step's cached output: the step
+# executes it as measurement code (a subprocess script or an imported
+# measurement function).  Plumbing a step merely uses - the layout, a
+# stdout claim, project declarations that never travel in a preflight
+# cache - is NOT listed; it lives in EXEMPT_IMPORTS below.
+#
+# Keyed by directory, not DAG node id: node ids are the DAG's to rename,
+# the directory is what is hashed.  A step with no row is hashed on its
+# own directory alone (step 1.02's computation is inline in step.py and
+# its only subprocess is the external ffprobe binary, which is not repo
+# code and has no content to hash).
+#
+# step_1_06_object_segmentation has no row on purpose: it is unwired, so
+# the runner never hashes it, and a declaration nothing reads is the
+# failure mode output_contract exists to stop.  Whoever wires it into
+# the DAG names library/tools/analysis/object_segmentation.py here, and
+# the coverage test below fails until they do.
+STEP_IMPLEMENTATION_DEPS = {
+    "step_1_01_scan_project": (
+        # enumerate_footage produces raw_footage_files, the step's output.
+        "library/tools/footage_identity.py",
+        # Its declaration parsing: which directory counts as the footage
+        # root decides what the scan sees.  Scan is seconds, so a rare
+        # schema edit re-scanning is the cheap, correct trade.
+        "library/schemas/project_config.py",
+    ),
+    "step_1_03_semantic_analysis": (
+        # The executed measurement (D1: the usable-ranges gate lives here).
+        "library/tools/analysis/vision_pipeline_v3.py",
+        # Its measurement imports: soft-picture ranges and the steadiness
+        # reading both land in the cached profile.
+        "library/tools/analysis/picture_quality.py",
+        "library/tools/camera_stability.py",
+        # Imported by step.py: shapes the cached documents.
+        "library/tools/vision_schema_adapter.py",
+    ),
+    "step_1_04_temporal_index": (
+        # Face measurement feeding the per-clip index.
+        "library/tools/subject_framing.py",
+        # Span extraction feeding region re-measurement.
+        "library/tools/timeline_transcript.py",
+        # The confidence vocabulary carried in the cached segments
+        # (avg_logprob): the transcription path keys its numbers here.
+        "library/tools/transcript_confidence.py",
+    ),
+    "step_1_05_prosody_analysis": (
+        # The executed measurement.
+        "library/tools/analysis/speech_advanced_pipeline.py",
+        # Imported by step.py: classifies the cached profile.
+        "library/tools/prosody_profile.py",
+    ),
+    "step_1_07_ocr_extraction": (
+        # The whole measurement, imported by step.py.
+        "library/tools/analysis/ocr_extractor.py",
+    ),
+}
+
+# library.tools imports a step may reference WITHOUT declaring them
+# above, each with the reason.  Anything else a step references must be
+# declared: an undeclared measurement import is D1 again.
+EXEMPT_IMPORTS = {
+    # Directory plumbing: moving an area does not change a measured value.
+    "library/tools/project_layout.py",
+    # Stdout claiming plumbing.
+    "library/tools/step_stdout.py",
+    # Project declarations.  step_ledger's rule is that they do NOT travel
+    # in a preflight cache, so their code cannot stale one either.
+    "library/tools/brand_registry.py",
+    # Declaration VALIDATION.  The schema checks a declared delivery
+    # format, framing intent or subtitle style when it reads project.yaml.
+    # A change here can only move the refuse/accept line for a bad
+    # declaration - a refusal surfaces loudly at run time, never as a
+    # silently stale cached value for a valid project.  Declaring them
+    # would drag brand_palette and safe_area into a footage scan's cache
+    # key through their own imports, which is the over-invalidation rot
+    # the coverage test exists to stop in the other direction.
+    "library/tools/delivery_format.py",
+    "library/tools/framing_intent.py",
+    "library/tools/subtitle_style.py",
+    # Live-Resolve ingest machinery.  The only preflight-reachable
+    # reference is timeline_transcript.main, a command-line entry point
+    # no run executes; preflight transcription never connects to
+    # Resolve.  (It even imports a step file itself - orchestration, not
+    # measurement.)  Re-examine the day a preflight step imports it as
+    # measurement code.
+    "library/tools/timeline_ingest.py",
+}
+
+
+def step_code_hash(step_dir: str, extra_files=()) -> Optional[str]:
     """A content hash of every source file in a step's directory.
 
     Returns None if the directory does not exist or contains no source
@@ -69,6 +181,12 @@ def step_code_hash(step_dir: str) -> Optional[str]:
     The hash is deterministic: files are sorted by name, each one
     contributes its relative name and its content, and the result is a
     single SHA-256 hex digest.
+
+    ``extra_files`` are additional absolute paths folded in after the
+    directory, each contributing its repo-relative name and its content.
+    Missing files are skipped: a step cannot run without its
+    implementation, so it fails loudly at run time, and the hash simply
+    covers what is there.
     """
     step_path = Path(step_dir)
     if not step_path.is_dir():
@@ -86,18 +204,46 @@ def step_code_hash(step_dir: str) -> Optional[str]:
         digest.update(child.name.encode("utf-8"))
         digest.update(child.read_bytes())
 
+    for extra in sorted(set(extra_files)):
+        try:
+            data = Path(extra).read_bytes()
+        except OSError:
+            continue
+        found = True
+        digest.update(str(extra).encode("utf-8"))
+        digest.update(data)
+
     return digest.hexdigest() if found else None
 
 
-def code_hashes_for(step_dirs: Dict[str, str]) -> Dict[str, str]:
+def implementation_deps(step_dir: str, repo_root=None) -> list:
+    """Absolute paths of the declared shared files for one step directory.
+
+    Looks the step up by directory basename in
+    ``STEP_IMPLEMENTATION_DEPS`` and resolves each row against
+    ``repo_root`` (default ``REPO_ROOT``).  Unknown steps have no
+    declared implementation beyond their own directory.
+    """
+    root = Path(repo_root) if repo_root is not None else REPO_ROOT
+    rels = STEP_IMPLEMENTATION_DEPS.get(Path(step_dir).name, ())
+    return [str(root / rel) for rel in rels]
+
+
+def code_hashes_for(step_dirs: Dict[str, str],
+                    repo_root=None) -> Dict[str, str]:
     """{node_id: hash} for every step directory provided.
 
     A step whose directory is missing or empty is simply absent from the
-    result.
+    result.  Each step's hash folds in its declared
+    ``STEP_IMPLEMENTATION_DEPS`` files, so a change to shared
+    measurement code invalidates exactly the steps that execute it.
     """
     out: Dict[str, str] = {}
     for node_id, step_dir in step_dirs.items():
-        h = step_code_hash(step_dir)
+        h = step_code_hash(
+            step_dir,
+            extra_files=implementation_deps(step_dir, repo_root),
+        )
         if h is not None:
             out[node_id] = h
     return out
