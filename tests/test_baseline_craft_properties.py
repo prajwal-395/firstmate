@@ -1135,6 +1135,41 @@ class TestTheGatesActuallyDecide:
         assert len(automation) == 1
         assert offset == 0.0
 
+    def test_framing_spans_follow_frames_not_drifted_seconds(self):
+        """D4: the rendered timeline is frame-quantised, so the seconds
+        the plan wrote drift from the cut by up to a frame. The spans
+        must be built from `timeline_*_frame / fps`: the report's cut
+        at frame 1650 is 55.000s exactly while the seconds say 55.001,
+        and the sample at t=55.0 belongs to the cutaway starting there
+        (half-open), not to the letterboxed V1 the drifted seconds
+        still cover. Every expected value below is frame / fps, never
+        a copied second."""
+        from library.steps.step_6_02_validate_output import bridge as validate
+
+        fps = 30.0
+        v1_in, v1_out = 1364, 1650
+        v2_in, v2_out = 1650, 1740
+        manifest = {
+            "project": {"frame_rate": fps},
+            "tracks": {
+                "V1": {"clips": [{"framing_delivered": 0.0,
+                                  "timeline_in": 45.462,
+                                  "timeline_out": 55.001,
+                                  "timeline_in_frame": v1_in,
+                                  "timeline_out_frame": v1_out}]},
+                "V2": {"clips": [{"framing_delivered": 1.0,
+                                  "timeline_in": 55.001,
+                                  "timeline_out": 58.001,
+                                  "timeline_in_frame": v2_in,
+                                  "timeline_out_frame": v2_out}]},
+            },
+        }
+        spans = validate._framing_spans(manifest)
+        assert [(s.start, s.end, s.intent) for s in spans] == [
+            (v1_in / fps, v1_out / fps, 0.0),
+            (v2_in / fps, v2_out / fps, 1.0)]
+        assert render_qa._intent_at(spans, v2_in / fps) == 1.0
+
     def test_a_missing_music_file_disables_p3_rather_than_guessing(self):
         from library.steps.step_6_02_validate_output import bridge as validate
 
