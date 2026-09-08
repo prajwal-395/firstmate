@@ -2110,6 +2110,12 @@ def check_output_is_real(node_id: str, output: dict) -> list:
     `available: true` with zero profiles, music_analysis wrote
     `available: false` around a captured traceback, and the pipeline
     carried on and still called the run SUCCESS.
+
+    This covers ONLY hollow or unavailable output.  A considered
+    negative verdict - `validate` reporting `fail` - is complete and
+    usable output, not an absence of it, so it is NOT reported here;
+    see `check_validation_verdict`, which fails the run under its own
+    classification instead of borrowing this one's wording.
     """
     problems = []
     if node_id in OPTIONAL_ANALYSIS_STEPS or not isinstance(output, dict):
@@ -2143,12 +2149,24 @@ def check_output_is_real(node_id: str, output: dict) -> list:
 
     inspect(output, node_id)
 
-    if node_id == "validate":
+    return problems
+
+
+def check_validation_verdict(node_id: str, output: dict) -> list:
+    """Detect a considered negative verdict from the validation step.
+
+    `validate` reporting `fail` or `undetermined` produced a complete,
+    useful judgement - the opposite of hollow output - so it must fail
+    the run under its own classification rather than borrowing
+    `check_output_is_real`'s "produced no usable output" wording, which
+    makes a real hollow output harder to recognise.
+    """
+    problems = []
+    if node_id == "validate" and isinstance(output, dict):
         v = output.get("validation_result")
         if isinstance(v, dict):
             if v.get("status") in ("fail", "undetermined") or not v.get("distribution_ready", True):
                 problems.append(f"Validation outcome was not successful: {v.get('status')} - {v.get('summary', 'unknown')}")
-
     return problems
 
 
@@ -2985,7 +3003,10 @@ def run_pipeline(
                 # Do not crash on validation failures (warning mode for now)
 
             # A step that emits an unavailable or hollow result has not
-            # succeeded, whatever its exit code said.
+            # succeeded, whatever its exit code said.  A considered
+            # negative verdict from `validate` fails below it, under its
+            # own classification: it produced a complete judgement, not
+            # an absence of output.
             hollow = check_output_is_real(node_id, output)
             if hollow:
                 message = (
@@ -2993,6 +3014,23 @@ def run_pipeline(
                     f"usable output:\n  - " + "\n  - ".join(hollow)
                 )
                 print(f"     \u2717 FAILED (HollowOutput): {message}", file=sys.stderr)
+                run_logger = get_logger()
+                if run_logger:
+                    run_logger.log(step_id=node_id, event_type="step_failed",
+                                   error=message)
+                _record_step_failure(state, node_id, message)
+                save_pipeline_state(project_dir, state)
+                failed.append(node_id)
+                print("     Stopping pipeline due to failure.", file=sys.stderr)
+                break
+
+            verdict = check_validation_verdict(node_id, output)
+            if verdict:
+                message = (
+                    f"Step '{node_id}' returned a negative verdict:\n  - "
+                    + "\n  - ".join(verdict)
+                )
+                print(f"     \u2717 FAILED (ValidationFailed): {message}", file=sys.stderr)
                 run_logger = get_logger()
                 if run_logger:
                     run_logger.log(step_id=node_id, event_type="step_failed",
