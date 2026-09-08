@@ -3,10 +3,13 @@
 #
 # This is the direct-PR handoff point. A crewmate that has just opened a PR
 # arms this watch, declares a wait, and ends its turn; the watcher then wakes
-# firstmate once, when the check set reaches a verdict, and firstmate relays
-# that verdict back to the same worker. Re-checking the forge from inside the
+# firstmate once, when the check set reaches a verdict, and the same verdict
+# is sent straight to the waiting worker (bin/fm-ci-notify.sh, best-effort
+# from bin/fm-ci-poll.sh - a failure names the failing checks so the worker
+# never polls the forge for the detail). Re-checking the forge from inside the
 # agent costs a full model turn per check and produces nothing, which is the
-# cost this replaces.
+# cost this replaces. Firstmate still owns the merge decision and its QA;
+# what travels directly is the fact, never the judgement.
 #
 # It does NOT watch for a merge. bin/fm-pr-check.sh owns that, arming a
 # different static poll at the same state/<id>.check.sh path once the worker
@@ -151,7 +154,7 @@ cmd_disarm() {
 }
 
 cmd_status() {
-  local fired line
+  local fired line second
   parse_args "$@"
   [ -z "$PR_URL" ] || usage_die "status takes no --pr"
   if ! fm_ci_watch_read "$STATE" "$TASK"; then
@@ -164,6 +167,11 @@ cmd_status() {
   fired=$FM_CI_ARTIFACT
   if fm_ci_plain_file "$fired" && IFS= read -r line < "$fired"; then
     printf 'reported: %s\n' "$line"
+    second=$(sed -n '2p' "$fired")
+    case "$second" in
+      notified:\ *) printf '%s\n' "$second" ;;
+      *) printf 'notified: (worker delivery not yet recorded)\n' ;;
+    esac
   else
     printf 'reported: (nothing yet)\n'
   fi

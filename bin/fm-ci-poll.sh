@@ -24,6 +24,13 @@
 # The wake fires once per arming. bin/fm-ci-check.sh clears the marker when the
 # watch is re-armed after a fix push, which is what makes the next verdict wake
 # again without the watcher re-reporting a verdict nobody has acted on yet.
+#
+# The same verdict is also sent straight to the waiting worker through
+# bin/fm-ci-notify.sh, best-effort, between the marker publish and the print
+# below. That send carries facts the worker acts on alone; the printed line
+# keeps firstmate's wake - and with it the merge decision and QA - intact.
+# A failed send is recorded on the marker for firstmate to reconcile and never
+# blocks or silences this wake.
 set -u
 LC_ALL=C
 export LC_ALL
@@ -115,5 +122,13 @@ TMP=$(mktemp "$STATE/.fm-ci-fired.XXXXXX") || exit 0
 printf '%s\n' "$LINE" > "$TMP" || { rm -f -- "$TMP"; exit 0; }
 chmod 0600 "$TMP" || { rm -f -- "$TMP"; exit 0; }
 mv -f -- "$TMP" "$FIRED" || { rm -f -- "$TMP"; exit 0; }
+
+# One hop, not two: the verdict wakes the waiting worker directly as well as
+# firstmate. Best-effort and silent by contract - the notify helper records
+# its own outcome on the marker, and whatever it reports, the wake below
+# still prints.
+if [ -x "$SCRIPT_DIR/fm-ci-notify.sh" ]; then
+  FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-ci-notify.sh" --task "$ID" >/dev/null 2>&1 || true
+fi
 
 printf '%s\n' "$LINE"

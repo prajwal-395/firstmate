@@ -513,7 +513,7 @@ Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the 
 If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
 When the merged tree is green, push your branch and open a PR with \`gh-axi\`.
 
-**Hand the build wait to firstmate - never poll the check set yourself.**
+**Wait for the verdict - never poll the check set yourself.**
 Re-checking a build from here costs a full model turn per check and delivers nothing.
 The moment the PR exists, arm the build watch, declare the wait, and END YOUR TURN:
 
@@ -523,19 +523,19 @@ echo "working: PR {url} opened, build watch armed" >> $STATUS_FILE
 echo "$PAUSED_VERB: awaiting the build verdict on PR {url}" >> $STATUS_FILE
 \`\`\`
 
-Then stop this turn. Do not look at the build again.
+Then stop this turn. Do not look at the build again, do not write your own watcher script, and do not schedule rechecks of it (a scheduler loop is polling by another name and is refused here as firmly as a foreground one).
 Both lines are required: the \`$PAUSED_VERB:\` line is what tells firstmate your idle pane is a declared wait rather than a wedge.
 If arming refuses, append \`blocked: build watch could not be armed - {the exact error}\` and stop; do not fall back to polling.
 
-**You still own your own build failures.** Firstmate is woken once the check set reaches a verdict and relays it to you:
+**You still own your own build failures.** The verdict is sent to you directly and firstmate is woken with it in parallel; firstmate keeps the merge decision and its QA, while the facts below are yours to act on:
 - **Passed** - the branch can still have gone stale while the checks were running, so re-check freshness before reporting done: fetch the tracked remote and see whether the default branch advanced since your pre-PR merge.
   If it did, \`comm -12\` the two file lists: on overlap, merge the tracked upstream again, re-run your chosen test selection once ON the merged tree, push, and re-arm the watch with the declare-and-stop above instead of reporting done; on no overlap, append \`done: PR {url} checks complete\` and stop.
   If it did not advance, append \`done: PR {url} checks complete\` and stop.
-- **Failed** - diagnose and fix on the same branch, push the fix, then arm the watch again and repeat the declare-and-stop above. Repeat until it passes.
+- **Failed** - the delivery names the failing checks so you can go straight to the logs: diagnose and fix on the same branch, push the fix, then arm the watch again and repeat the declare-and-stop above. Repeat until it passes.
   If you cannot fix the failure, append \`blocked: PR {url} checks failed - {summary}\` and stop.
 - **Conflicting, or no checks at all** - that is not a pass. Resolve it (rebase the branch, or report what is missing) and re-arm, or append \`blocked: {why}\` and stop.
 
-A red, empty, or unknown check set is NEVER \`done:\`. Only a relayed pass earns that line.
+A red, empty, or unknown check set is NEVER \`done:\`. Only a delivered pass earns that line.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
 EOF
     ;;

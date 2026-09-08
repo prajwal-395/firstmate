@@ -324,7 +324,7 @@ If fast-path risk needs more rigor, escalate whether to use no-mistakes instead 
 The path's worker, automated gates, and captain approval remain authoritative:
 
 - **no-mistakes** runs the full pipeline through a PR, then waits for the configured merge authority.
-- **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, arm the build watch with `bin/fm-ci-check.sh` and declare that wait rather than polling the check set; firstmate relays the verdict back to that same worker, which still fixes its own failures, and the PR then waits for the configured merge authority.
+- **direct-PR** has the worker push and open a PR without the no-mistakes pipeline, arm the build watch with `bin/fm-ci-check.sh` and declare that wait rather than polling the check set; the verdict reaches that same worker directly while firstmate is woken with it too, the worker still fixes its own failures, and the PR then waits for the configured merge authority.
 - **local-only** has the worker stop with a clean ready branch, then waits for the configured merge authority before firstmate uses the guarded fast-forward merge path.
 
 Delivery mode and `yolo` are orthogonal.
