@@ -443,6 +443,44 @@ def test_layered_sfx_at_same_position_are_not_a_collapse():
     )
 
 
+def test_a_single_layered_moment_is_not_a_collapse():
+    """The whole plan as one layered moment: two entries naming the SAME
+    spine block and resolving to the same span is the layering the schema
+    invites, not a collapse. The old rule counted positions and refused
+    it for having only one."""
+    from library.steps.step_4_04_plan_sfx.post_bridge import (
+        _assert_sfx_distributed,
+    )
+
+    # No raise: this is the corrected behaviour.
+    _assert_sfx_distributed(
+        [
+            {"label": "sfx_001", "timeline_in": 6.0,
+             "spine_block_position": 2},
+            {"label": "sfx_002", "timeline_in": 6.0,
+             "spine_block_position": 2},
+        ]
+    )
+
+
+def test_moments_planned_apart_landing_together_are_a_collapse():
+    """The narrowed check still catches the true collapse: entries naming
+    SEVERAL spine positions that landed on one timeline position."""
+    from library.steps.step_4_04_plan_sfx.post_bridge import (
+        _assert_sfx_distributed,
+    )
+
+    with pytest.raises(ValueError, match="collapse"):
+        _assert_sfx_distributed(
+            [
+                {"label": "sfx_001", "timeline_in": 6.0,
+                 "spine_block_position": 1},
+                {"label": "sfx_002", "timeline_in": 6.0,
+                 "spine_block_position": 4},
+            ]
+        )
+
+
 # ── The VFX post-bridge must not pad the plan ─────────────────────────
 #
 # The third floor, and the one that outlived the ruling by hiding in code

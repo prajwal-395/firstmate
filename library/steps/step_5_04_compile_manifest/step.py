@@ -217,8 +217,8 @@ def _assert_no_doubled_sound(track_name: str, clips: list) -> None:
     a whoosh is sound design and TWO SOUNDS AT ONE SPAN IS LAYERING - the
     obvious thing to do on a short block, and what step 4.04's craft role
     invites in as many words. `manifest_validator._check_sfx_distributed`
-    has always read it that way and refuses only a collapse: every clip
-    on one frame.
+    reads the `spine_block_position` carried on each A3 clip and refuses
+    only a collapse: entries planned for several positions landing on one.
 
     What is left is the case layering cannot explain. The same file,
     entered at the same point, over the same span, is one waveform played
@@ -1769,6 +1769,16 @@ def compile_manifest(out_dir: str) -> dict:
                 "label": sfx_entry.get("label", f"sfx_{si+1:03d}"),
                 "sfx_id": sfx_id or os.path.basename(source_file),
             })
+            # The plan position travels with the clip so the manifest
+            # validator can tell a layer from a collapse the same way
+            # step 4.04 does: entries naming one spine_block_position
+            # are a layered moment, entries naming several that landed
+            # on one timeline position are a placement collapse. Only
+            # carried when the plan named one - a None here would read
+            # as provenance where there is none.
+            if sfx_entry.get("spine_block_position") is not None:
+                a3_clips[-1]["spine_block_position"] = sfx_entry.get(
+                    "spine_block_position")
         else:
             sfx_unresolved.append(
                 f"{sfx_entry.get('label', si)} (sfx_id={sfx_id}): the file "

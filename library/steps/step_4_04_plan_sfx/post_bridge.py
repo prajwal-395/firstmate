@@ -585,26 +585,45 @@ def resolve_sfx(
 
 
 def _assert_sfx_distributed(resolved: list) -> None:
-    """Fail when every planned SFX collapses onto one timeline position.
+    """Fail when several planned moments collapse onto one timeline position.
 
     Five whooshes all at 0.000s is a collapse, not a sound design pass, and
     it used to survive all the way into the manifest.
 
-    Layering - two or more sounds at the SAME position (whoosh + bass hit,
-    riser under a textural bed) - is legitimate sound design and is NOT
-    caught here.  A collapse is distinguished from layering by having only
-    ONE distinct position across the entire plan.
+    Layering - two or more sounds planned onto the SAME spine block
+    (whoosh + bass hit, riser under a textural bed) - is legitimate sound
+    design and is NOT caught here, even when the layered moment is the
+    only sound in the plan. The plan tells them apart: every resolved
+    entry carries the `spine_block_position` it was placed from, so
+    entries naming several positions that landed on one timeline position
+    are a placement collapse, and entries naming one are a layer.
+    Entries with no provenance (legacy callers) keep the old strictness:
+    several sounds sharing one position with nothing saying they were
+    planned together is still refused.
     """
     if len(resolved) < 2:
         return
     positions = {round(s["timeline_in"], 3) for s in resolved}
-    if len(positions) == 1:
+    if len(positions) > 1:
+        return
+    pos = next(iter(positions))
+    planned = {s.get("spine_block_position") for s in resolved
+               if s.get("spine_block_position") is not None}
+    if len(planned) == 1:
+        return
+    if len(planned) > 1:
         raise ValueError(
-            f"{len(resolved)} SFX all resolved to the same timeline "
-            f"position ({next(iter(positions))}s). A plan that places "
-            f"every sound on one frame is a collapse, not layering. "
-            f"Each SFX must name its own spine_block_position."
+            f"{len(resolved)} SFX planned for {len(planned)} distinct spine "
+            f"positions ({sorted(planned, key=repr)}) all resolved to the "
+            f"same timeline position ({pos}s) - placement collapsed. A "
+            f"layer shares one spine_block_position; these do not."
         )
+    raise ValueError(
+        f"{len(resolved)} SFX all resolved to the same timeline "
+        f"position ({pos}s). A plan that places "
+        f"every sound on one frame is a collapse, not layering. "
+        f"Each SFX must name its own spine_block_position."
+    )
 
 
 def _describe_placement(envelope: str) -> str:
@@ -660,8 +679,9 @@ def main():
     # downgraded to a warning, with the accepted consequence that a thin
     # sound design is no longer caught mechanically. Do not reintroduce an
     # equivalent check. Guarded by tests/test_no_creative_floors.py.
-    # `_assert_sfx_distributed` stays: it catches a COLLAPSE (every SFX on
-    # one frame), which is a broken plan, not a sparse one.
+    # `_assert_sfx_distributed` stays: it catches a COLLAPSE (several
+    # planned moments on one frame), which is a broken plan, not a sparse
+    # one. A single moment carrying several sounds is a layer and passes.
 
     # A plan naming a sound the library cannot play fails HERE, in step
     # 4.04, and not three steps later inside compile_manifest. The message

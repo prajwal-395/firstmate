@@ -413,22 +413,41 @@ def _check_distinct_cut_points(manifest: dict) -> list[str]:
 
 
 def _check_sfx_distributed(manifest: dict) -> list[str]:
-    """SFX must not all collapse onto one frame.
+    """SFX planned for several moments must not collapse onto one frame.
 
-    Layering - two or more sounds at the same position - is legitimate
-    sound design and the timeline builder already spreads them across
-    A3, A4, ....  A collapse is every clip at the same position.
+    Layering - two or more sounds planned onto the same spine block - is
+    legitimate sound design and the timeline builder already spreads the
+    layers across A3, A4, .... The plan tells them apart: `compile_manifest`
+    carries each entry's `spine_block_position` onto its A3 clip, so clips
+    naming several positions that landed on one timeline position are a
+    placement collapse, and clips naming one are a layer - even when the
+    layered moment is the only sound in the plan. Clips with no provenance
+    (legacy or hand-supplied manifests) keep the old strictness: every
+    clip on one frame with nothing saying they were planned together is
+    still refused.
     """
     clips = manifest.get("tracks", {}).get("A3", {}).get("clips", [])
     if len(clips) < 2:
         return []
     positions = {round(c.get("timeline_in", 0.0), 3) for c in clips}
-    if len(positions) == 1:
+    if len(positions) > 1:
+        return []
+    pos = next(iter(positions))
+    planned = {c.get("spine_block_position") for c in clips
+               if c.get("spine_block_position") is not None}
+    if len(planned) == 1:
+        return []
+    if len(planned) > 1:
         return [
-            f"{len(clips)} SFX all occupy the same timeline position "
-            f"({next(iter(positions))}s)"
+            f"{len(clips)} SFX planned for {len(planned)} distinct spine "
+            f"positions ({sorted(planned, key=repr)}) all occupy the same "
+            f"timeline position ({pos}s) - placement collapsed. A layer "
+            f"shares one spine_block_position; these do not."
         ]
-    return []
+    return [
+        f"{len(clips)} SFX all occupy the same timeline position "
+        f"({pos}s)"
+    ]
 
 
 def _check_vfx_distinct(manifest: dict) -> list[str]:

@@ -375,9 +375,13 @@ ROLES: Dict[str, CraftRole] = {
             "movement across, an accent on top - and the schema takes it: "
             "several entries may name the same `spine_block_position`, "
             "each with its own `sfx_id`, its own level and its own reason. "
-            "The engine tells a layer from a collapse by whether the PLAN "
-            "has more than one distinct position in it, so layering a "
-            "moment costs you nothing.",
+            "The engine tells a layer from a collapse by whether the entries "
+            "sharing a timeline position name the SAME `spine_block_position`: "
+            "several sounds planned onto one moment is a layer, and several "
+            "moments landing on one timeline position is a placement collapse "
+            "the compile refuses by name. So layering a moment costs you "
+            "nothing - even when the layered moment is the only sound in "
+            "the plan.",
             "A sound has a SHAPE in time, the library measured it for "
             "every sound it holds, and the shape is what decides where the "
             "engine puts the sound. `sfx_envelope_legend` in the context "
