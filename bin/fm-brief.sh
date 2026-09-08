@@ -14,7 +14,8 @@
 #   refuses while any scaffold placeholder below is still unfilled, while any
 #   required scope field below is still empty (naming every unfilled one), while
 #   a ship brief's Done-check demands the whole suite without a stated fan-out
-#   reason, and while a ship brief lacks the required merge-before-PR step.
+#   reason, while a ship brief lacks the required merge-before-PR step, and
+#   while the task text drives Herdr lifecycle without the lab contract.
 #   bin/fm-spawn.sh runs the identical gates before launching a ship or scout
 #   task, so a brief this reports ready is a brief the spawn accepts.
 #   bin/fm-brief-lib.sh owns every gate and its wording.
@@ -35,7 +36,9 @@
 #   It adds the hard isolation contract backed by bin/fm-herdr-lab.sh.
 #   The flag must be explicit because {TASK} is filled after scaffolding and the
 #   caller-supplied repo string cannot reliably identify this repo. Briefs made
-#   without it carry a loud declaration so an omitted contract cannot be silent.
+#   without it carry a short declaration so an omitted contract cannot be silent,
+#   and dispatch additionally scans the filled task text for Herdr lifecycle and
+#   refuses it without the contract; bin/fm-brief-lib.sh owns that scan.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -194,10 +197,10 @@ done
 
 # --check inspects a brief that already exists, so it takes neither a delivery
 # mode nor a scaffold kind. bin/fm-brief-lib.sh owns the verdict and its wording;
-# this branch only resolves the path and reports the ready case. The four gates
+# this branch only resolves the path and reports the ready case. The five gates
 # run in the same order as bin/fm-spawn.sh: unfilled placeholders first, then
 # the scope contract, then the whole-suite Done-check guard, then the
-# merge-before-PR step.
+# merge-before-PR step, then the Herdr scan.
 if [ "$CHECK" -eq 1 ]; then
   [ "$MODE_SET" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --mode" >&2; exit 1; }
   [ "$KIND" = ship ] || { echo "error: --check inspects an existing brief and takes no --scout or --secondmate" >&2; exit 1; }
@@ -210,6 +213,7 @@ if [ "$CHECK" -eq 1 ]; then
   fm_brief_scope_check "$CHECK_BRIEF" "dispatch" || exit 1
   fm_brief_fullsuite_check "$CHECK_BRIEF" "dispatch" || exit 1
   fm_brief_merge_check "$CHECK_BRIEF" "dispatch" || exit 1
+  fm_brief_herdr_check "$CHECK_BRIEF" "dispatch" || exit 1
   echo "ready: $CHECK_BRIEF (every required scope field is answered)"
   exit 0
 fi
@@ -370,7 +374,6 @@ HERDR_SECTION=$(printf '%s\n' \
 else
 IFS= read -r -d '' HERDR_SECTION <<'EOF' || true
 # Herdr lifecycle declaration - NOT ENABLED
-**HARD SAFETY GATE:** this scaffold cannot inspect the task text that replaces the task placeholder later.
 If the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.
 Do not add Herdr lifecycle commands to this unguarded brief by hand.
 EOF
@@ -398,6 +401,34 @@ Any run long enough that you would sit and wait on it is a bounded wait: append 
 A long silent run is indistinguishable from a wedged worker, and a steer sent to a sleeping worker QUEUES instead of arriving, so an undeclared wait can outlast firstmate's attempt to redirect you.
 EOF
 TEST_SELECTION=${TEST_SELECTION%$'\n'}
+
+# Rule 3 comes in two shapes. Workers that never open a PR - scouts, and
+# local-only ships whose rule 1 already forbids push and PR - get the trimmed
+# shape: the PR-target paragraph cannot fire for them, so it is omitted rather
+# than re-read every turn. Briefs that do ship a PR keep the full shape, whose
+# PR-target paragraph and working-file rule each prevented an observed failure.
+IFS= read -r -d '' RULE3_PR_TARGET <<'EOF' || true
+   Open a PR against the repository this worktree's default branch actually TRACKS, and pass
+   it explicitly with `-R <owner>/<repo>`. Check with `git rev-parse --abbrev-ref main@{upstream}`
+   rather than assuming: gh defaults to `origin`, and `origin` is not always where this fleet
+   ships - a fork can be the source of truth while `origin` still points at an upstream that
+   will not take the change.
+EOF
+RULE3_PR_TARGET=${RULE3_PR_TARGET%$'\n'}
+IFS= read -r -d '' RULE3_WORKING_FILES <<'EOF' || true
+   Keep every working file that is NOT part of the deliverable OUTSIDE the repository, and
+   remove it when done. That covers a PR body you pass to gh-axi, a note to yourself, and any
+   helper or migration script you write to perform your own edits - if it is scaffolding rather
+   than the change, it does not belong in the worktree. A stray untracked file blocks teardown,
+   because the cleanup guard cannot tell your throwaway from unlanded work - and it is right not
+   to guess.
+EOF
+RULE3_WORKING_FILES=${RULE3_WORKING_FILES%$'\n'}
+RULE3_FULL="3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
+$RULE3_PR_TARGET
+$RULE3_WORKING_FILES"
+RULE3_TRIMMED="3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
+$RULE3_WORKING_FILES"
 
 if [ "$KIND" = scout ]; then
 cat > "$BRIEF" <<EOF
@@ -429,18 +460,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 # Rules
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
-3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-   Open a PR against the repository this worktree's default branch actually TRACKS, and pass
-   it explicitly with \`-R <owner>/<repo>\`. Check with \`git rev-parse --abbrev-ref main@{upstream}\`
-   rather than assuming: gh defaults to \`origin\`, and \`origin\` is not always where this fleet
-   ships - a fork can be the source of truth while \`origin\` still points at an upstream that
-   will not take the change.
-   Keep every working file that is NOT part of the deliverable OUTSIDE the repository, and
-   remove it when done. That covers a PR body you pass to gh-axi, a note to yourself, and any
-   helper or migration script you write to perform your own edits - if it is scaffolding rather
-   than the change, it does not belong in the worktree. A stray untracked file blocks teardown,
-   because the cleanup guard cannot tell your throwaway from unlanded work - and it is right not
-   to guess.
+$RULE3_TRIMMED
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
@@ -482,6 +502,7 @@ case "$MODE" in
   direct-PR)
     SETUP2=""
     RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
+    RULE3="$RULE3_FULL"
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 Delivery contract: mode=direct-PR
@@ -489,7 +510,6 @@ This task ships **direct-PR**: you raise the PR yourself, without the no-mistake
 The task is complete only when committed on your branch.
 Before opening the PR, merge the tracked upstream into your branch so the PR cannot silently revert work that landed while you were building.
 Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the tracked upstream, resolve any conflicts, and run your chosen test selection once ON the merged tree before pushing.
-A squash merge of a stale branch reverts cleanly with no conflict, so this step is required, not advice.
 If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
 When the merged tree is green, push your branch and open a PR with \`gh-axi\`.
 
@@ -522,6 +542,7 @@ EOF
   local-only)
     SETUP2=""
     RULE1="1. Never push to any remote and never open a PR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
+    RULE3="$RULE3_TRIMMED"
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 Delivery contract: mode=local-only
@@ -529,7 +550,6 @@ This task ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$ID\`. Do NOT push, do NOT open a PR, do NOT merge.
 Before reporting ready, merge the tracked upstream into your branch so the eventual merge cannot silently revert work that landed while you were building.
 Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the tracked upstream (prefer a rebase onto it to keep the branch a clean fast-forward), resolve any conflicts, and run your chosen test selection once ON the merged tree.
-A fast-forward of a stale branch lands cleanly with no conflict, so this step is required, not advice.
 If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
 When it is implemented and committed on the merged tree, append \`done: ready in branch fm/$ID\` to the status file and stop.
 The configured merge authority approves the ready branch, then firstmate merges it into local \`main\` through the guarded fast-forward path.
@@ -539,13 +559,13 @@ EOF
     SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
     RULE1='1. Never push to the default branch. Never merge a PR.'
+    RULE3="$RULE3_FULL"
     IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 Delivery contract: mode=no-mistakes
 The task is complete only when committed on your branch.
 Before reporting complete, merge the tracked upstream into your branch so the PR cannot silently revert work that landed while you were building.
 Fetch the remote from \`git rev-parse --abbrev-ref main@{upstream}\`, merge the tracked upstream, resolve any conflicts, and run your chosen test selection once ON the merged tree.
-A squash merge of a stale branch reverts cleanly with no conflict, so this step is required, not advice.
 If the default branch advances again after that merge, a re-run is only warranted when the two changesets overlap - \`comm -12\` on the two file lists answers it in one command.
 When the merged tree is green, append \`done: {summary}\` to the status file and stop.
 Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
@@ -592,6 +612,7 @@ You are a crewmate: an autonomous worker agent managed by firstmate. Work on you
 ## Done-check
 {DONE_CHECK}
 
+Name the single narrowest command that proves the change here; do not restate the test-selection ladder above.
 Run the check above, and paste its real output into your final report, not a summary.
 Do not describe the check instead of running it.
 If the check fails or was not run, you are not done.
@@ -615,18 +636,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 # Rules
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
-3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-   Open a PR against the repository this worktree's default branch actually TRACKS, and pass
-   it explicitly with \`-R <owner>/<repo>\`. Check with \`git rev-parse --abbrev-ref main@{upstream}\`
-   rather than assuming: gh defaults to \`origin\`, and \`origin\` is not always where this fleet
-   ships - a fork can be the source of truth while \`origin\` still points at an upstream that
-   will not take the change.
-   Keep every working file that is NOT part of the deliverable OUTSIDE the repository, and
-   remove it when done. That covers a PR body you pass to gh-axi, a note to yourself, and any
-   helper or migration script you write to perform your own edits - if it is scaffolding rather
-   than the change, it does not belong in the worktree. A stray untracked file blocks teardown,
-   because the cleanup guard cannot tell your throwaway from unlanded work - and it is right not
-   to guess.
+$RULE3
 4. Report status by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
