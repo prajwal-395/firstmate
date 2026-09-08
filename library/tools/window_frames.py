@@ -419,9 +419,100 @@ def build_block(directory: str, rows: list, missing: list = ()) -> str:
     return "\n".join(out) + "\n"
 
 
+# ── The block the review step receives ───────────────────────────────
+
+REVIEW_HEADERS = ("clip_id", "position", "timeline_start", "video_in",
+                  "video_out", "frames", "file")
+
+REVIEW_LEGEND = {
+    "clip_id": "the clip this window is cut from",
+    "position": "the spine block position this window plays over",
+    "timeline_start": "seconds into the finished cut where the window starts",
+    "video_in": (
+        "seconds into the clip where the window starts - the first frame "
+        "the viewer sees"
+    ),
+    "video_out": (
+        "seconds into the clip where the window ends - the strip's last "
+        "frame is one frame before this"
+    ),
+    "frames": "how many frames of that window the strip shows, left to right",
+    "file": "the strip's filename inside the directory named above",
+}
+"""What each column IS, for the windows a cut PLAYS rather than offers.
+
+Unlike the candidate map above, these windows are PLACED: each row is
+the exact range the timeline plays, in timeline order, so there is no
+prefix rule and no slot to divide out. A B-roll overlay and the A-roll
+it covers are both rows; the `position` and `timeline_start` say which
+is over which.
+"""
+
+
+def build_review_block(directory: str, rows: list, missing: list = ()) -> str:
+    """The text the rough-cut review receives beside its prose.
+
+    `rows` are `{clip_id, position, timeline_start, video_in,
+    video_out, frames, file}`, in timeline order. A window that could
+    not be drawn is NAMED in `missing` rather than left out silently -
+    an unseen window is a window the review cannot judge, and the
+    review must know which ones those are.
+    """
+    out = [
+        "The cut you are reviewing has REAL PICTURES on disk. These are "
+        "frames of",
+        "the footage the timeline actually PLAYS - every A-roll segment "
+        "and every B-roll",
+        "overlay, in timeline order - not descriptions of it, and not "
+        "candidate windows",
+        "from some other step. The prose elsewhere in this context says "
+        "what HAPPENS",
+        "in a clip and cannot say what it LOOKS like.",
+        "",
+        f"  FRAMES: {directory}",
+        "",
+        "You have a shell and your own file tools. OPEN the strip for "
+        "any window you are",
+        "judging before you decide it - in particular before calling a "
+        "cut smooth or a",
+        "passage visually covered.",
+        "",
+        "A strip is ONE image: the frames of that window laid out left to "
+        "right. The leftmost",
+        "is the first frame the viewer sees and the rightmost is the last, "
+        "with the middle",
+        f"sampled so that no more than "
+        f"{SECONDS_UNSEEN_BETWEEN_SAMPLES:g} s of the window passes "
+        f"between two frames.",
+        "That sampling is the strip's resolution: a shot can still change "
+        "between two of them.",
+        "",
+        "An A-roll row and a B-roll row at the same `timeline_start` are "
+        "the same moment of",
+        "the cut: the B-roll is what the viewer SEES and the A-roll is "
+        "what they HEAR.",
+        "",
+    ]
+    for column, meaning in REVIEW_LEGEND.items():
+        out.append(f"  {column}: {meaning}")
+    out.append("")
+    out.append(f"[{len(rows)}]{{{','.join(REVIEW_HEADERS)}}}")
+    for row in rows:
+        out.append("\t".join(str(row.get(h, "")) for h in REVIEW_HEADERS))
+    if missing:
+        out.append("")
+        out.append(
+            f"{len(missing)} window(s) have no strip and are listed so the "
+            f"absence is not read as an absence of the window - judge "
+            f"those from the prose alone: "
+            + ", ".join(missing)
+        )
+    return "\n".join(out) + "\n"
+
+
 # ── Clause: a harness that cannot be shown a picture ──────────────────
 
-FRAME_INPUTS = ("broll_window_frames",)
+FRAME_INPUTS = ("broll_window_frames", "roughcut_window_frames")
 """Every step input that carries a reference to frames drawn here.
 
 `present_llm_step` walks this to WITHHOLD the block from a harness that

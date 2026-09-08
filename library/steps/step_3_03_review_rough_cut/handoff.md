@@ -92,6 +92,23 @@ No two clips on the same track should occupy the same timeline range.
 These checks require judgment. Run them ONLY after mechanical validation
 passes.
 
+### What you are shown
+
+`roughcut_window_frames` maps one frame strip per window the cut PLAYS -
+every A-roll segment and every B-roll overlay, in timeline order - to
+the directory holding them. The prose in this context says what HAPPENS
+in a clip; only the strips say what it LOOKS like.
+
+You have a shell and your own file tools. OPEN the strip for any window
+you are judging before you decide it - in particular before calling a
+cut smooth or a passage visually covered. An A-roll row and a B-roll
+row at the same `timeline_start` are the same moment of the cut: the
+B-roll is what the viewer SEES and the A-roll is what they HEAR.
+
+A window the map names as having no strip is one you cannot see: judge
+it from the prose and say so. If the map is absent entirely, no strips
+were drawn and the whole review proceeds from the prose.
+
 ### Check 5: Reconstruct the Actual Script
 
 For each A-roll assignment, determine what speech actually plays:
@@ -218,6 +235,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 | Reads | `speech_sequence` |
 | Reads | `temporal_index` |
 | Reads | `creative_direction` |
+| Reads | `roughcut_window_frames` (frame strips of the placed windows) |
 | Writes | `rough_cut_review` |
 
 ---

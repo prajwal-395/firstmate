@@ -18,6 +18,18 @@ Output: {
     "mechanical_checks": {...},
     "passed": bool
 }
+Output (when strips could be drawn): {
+    "roughcut_window_frames": "string"
+}
+
+The second key is the same routed sight step 3.02's bridge gives its
+model (`library/tools/window_frames.py`), but for PLACED windows: every
+A-roll video segment and every B-roll overlay this cut actually plays,
+in timeline order. The deterministic half draws them because drawing is
+measurement, not judgement; the narrative half (handoff.md) reads them.
+Sight here is routed but ADVISORY: a window whose strip could not be
+drawn is NAMED in the map and judged from the prose, and a run that
+draws nothing emits no key at all. A missing picture never fails a cut.
 """
 import json
 import os
@@ -25,7 +37,11 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from library.tools.project_layout import ProjectLayout
+from library.tools import window_frames as wf
+from library.tools.project_layout import Area, ProjectLayout
+
+
+OUTPUT_KEY = "roughcut_window_frames"
 
 
 DURATION_TOLERANCE = 0.15  # seconds
@@ -355,6 +371,138 @@ def run_mechanical_checks(data: dict) -> dict:
     return result
 
 
+def placed_windows(data: dict) -> list:
+    """Every source window the cut plays, in timeline order.
+
+    A-roll rows come from each assignment's `video_segments`; B-roll
+    rows from the assignments and the interjections' `assigned_clip`.
+    A row is `{clip_id, position, timeline_start, source_file,
+    video_in, video_out, fps, kind}`. Rows that name no range carry
+    `video_in`/`video_out` as None - the caller NAMES them, so the
+    absence is not read as an absence of the window.
+    """
+    rows = []
+    for ar in data.get("a_roll_assignments", []) or []:
+        position = ar.get("spine_block_position", "?")
+        try:
+            base = float(ar.get("timeline_start", 0.0))
+        except (TypeError, ValueError):
+            base = 0.0
+        offset = 0.0
+        for seg in ar.get("video_segments", []) or []:
+            try:
+                video_in = float(seg.get("video_in"))
+                video_out = float(seg.get("video_out"))
+            except (TypeError, ValueError):
+                video_in, video_out = None, None
+            rows.append({
+                "clip_id": seg.get("clip_id", "?"),
+                "position": position,
+                "timeline_start": round(base + offset, 3),
+                "source_file": seg.get("source_file") or "",
+                "video_in": video_in,
+                "video_out": video_out,
+                "fps": seg.get("frame_rate") or 0.0,
+                "kind": "a_roll",
+            })
+            if video_in is not None and video_out is not None:
+                offset += max(0.0, video_out - video_in)
+    for br in data.get("b_roll_assignments", []) or []:
+        rows.append({
+            "clip_id": br.get("clip_id", "?"),
+            "position": br.get("spine_block_position", "?"),
+            "timeline_start": br.get("timeline_start", 0.0),
+            "source_file": br.get("source_file") or "",
+            "video_in": br.get("video_in"),
+            "video_out": br.get("video_out"),
+            "fps": br.get("frame_rate") or 0.0,
+            "kind": "b_roll",
+        })
+    for interj in data.get("b_roll_interjections", []) or []:
+        clip = interj.get("assigned_clip", {}) or {}
+        rows.append({
+            "clip_id": clip.get("clip_id", "?"),
+            "position": interj.get("over_spine_block_position",
+                                  interj.get("spine_block_position", "?")),
+            "timeline_start": interj.get("timeline_start", 0.0),
+            "source_file": clip.get("source_file") or "",
+            "video_in": clip.get("video_in"),
+            "video_out": clip.get("video_out"),
+            "fps": clip.get("frame_rate") or 0.0,
+            "kind": "b_roll",
+        })
+    # Timeline order, and at one instant the HEARD window before the
+    # SEEN one: the map says which is which, and the order says it too.
+    rows.sort(key=lambda r: (
+        float(r.get("timeline_start") or 0.0),
+        0 if r["kind"] == "a_roll" else 1,
+    ))
+    return rows
+
+
+def build_review_frames(data: dict) -> str:
+    """Draw a strip per placed window, and map them for the prompt."""
+    project_folder = data.get("project_folder") or ""
+    if not project_folder:
+        print("  No project_folder: no review frames drawn",
+              file=sys.stderr)
+        return ""
+
+    layout = ProjectLayout(project_folder)
+    directory = layout.write_dir(Area.ROUGHCUT_FRAMES,
+                                 step="review_rough_cut")
+
+    rows, missing, drawn = [], [], 0
+    for window in placed_windows(data):
+        try:
+            video_in = float(window["video_in"])
+            video_out = float(window["video_out"])
+            bounds = (video_in, video_out)
+        except (TypeError, ValueError):
+            bounds = None
+        label = (f"{window['clip_id']}@{window['video_in']}s"
+                 if bounds is not None
+                 else f"{window['clip_id']}@unknown")
+        source = window.get("source_file") or ""
+        full = str(layout.resolve_project_relative(source)) if source else ""
+        if bounds is None or not full or not os.path.exists(full):
+            missing.append(label)
+            continue
+        video_in, video_out = bounds
+        try:
+            fps = float(window.get("fps") or 0.0)
+        except (TypeError, ValueError):
+            fps = 0.0
+        if drawn >= wf.MAX_STRIPS:
+            missing.append(f"{label} (past the {wf.MAX_STRIPS}-strip bound)")
+            continue
+        times = wf.sample_times(video_in, video_out, fps)
+        # The name carries what was DRAWN, so a strip drawn under an
+        # older sampling rule is a different file and is never read as
+        # this one. See library/tools/window_frames.py.
+        name = wf.strip_filename(window["clip_id"], video_in, times)
+        drawn += 1
+        if not wf.draw_strip(full, times, str(directory / name)):
+            missing.append(label)
+            continue
+        rows.append({
+            "clip_id": window["clip_id"],
+            "position": window["position"],
+            "timeline_start": window["timeline_start"],
+            "video_in": video_in,
+            "video_out": video_out,
+            "frames": len(times),
+            "file": name,
+        })
+
+    print(f"  {len(rows)} review frame strip(s) at {directory}"
+          + (f"; {len(missing)} not drawn" if missing else ""),
+          file=sys.stderr)
+    if not rows:
+        return ""
+    return wf.build_review_block(str(directory), rows, missing)
+
+
 def main():
     data = json.loads(sys.stdin.read())
 
@@ -381,7 +529,12 @@ def main():
 
     print(f"{'='*60}\n", file=sys.stderr)
 
-    json.dump({"rough_cut_review": result}, sys.stdout, indent=2)
+    out = {"rough_cut_review": result}
+    frames_block = build_review_frames(data)
+    if frames_block:
+        out[OUTPUT_KEY] = frames_block
+
+    json.dump(out, sys.stdout, indent=2)
 
     if not result["passed"]:
         sys.exit(1)

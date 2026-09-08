@@ -349,6 +349,7 @@ class Area(str, Enum):
     ACQUIRED_MEDIA = "acquired_media"
     MUSIC_ANALYSIS = "music_analysis"
     WINDOW_FRAMES = "window_frames"
+    ROUGHCUT_FRAMES = "roughcut_frames"
     SFX_CATALOGUE = "sfx_catalogue"
     FOOTAGE_ANALYSIS = "footage_analysis"
     SUBTITLE_SEGMENTS = "subtitle_segments"
@@ -487,6 +488,13 @@ AREAS: dict[Area, AreaSpec] = {
         "chooses a picture is shown one instead of only prose about it. "
         "See library/tools/window_frames.py.",
         step="select_broll"),
+    Area.ROUGHCUT_FRAMES: AreaSpec(
+        _step_path("review_rough_cut", "window_frames"), Kind.OUTPUT,
+        "One frame strip per PLACED window - every A-roll segment and "
+        "every B-roll overlay the cut plays - so the review judges the "
+        "cut it was routed, not prose about it. "
+        "See library/tools/window_frames.build_review_block.",
+        step="review_rough_cut"),
     Area.SFX_CATALOGUE: AreaSpec(
         _step_path("plan_sfx"), Kind.OUTPUT,
         "The SFX library written out as one document per run, so the "
