@@ -2069,12 +2069,21 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         print(render_unplaced(organised["unplaced"]), flush=True)
 
     if verify:
+        # Scoped to what THIS call placed: verifying the whole project
+        # here is what made one reel cost 49 gradings, and grading
+        # eighteen untouched timelines against the current plan is how
+        # a clean single-reel build failed on findings it never touched
+        # (data/vep-rebuild-verify/report.md 3.5). `None` is unreachable
+        # here - `built_reel_names` is a list, possibly empty - and an
+        # empty one is refused inside `verify_built_reels` rather than
+        # passing on nothing.
         verify_built_reels(
             project_folder=project_folder,
             resolve_project_name=resolve_name,
             master_timeline_name=master_timeline_name,
             plan_path=proposal_path,
-            transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")
+            transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
+            only_reels=list(built_reel_names),
         )
 
     return {
@@ -2103,13 +2112,26 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
 
 
-def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str) -> None:
+def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str, only_reels=None) -> None:
     """Run the reel conformance verifier as a quality gate after building reels.
-    
+
+    `only_reels` is the EXACT reel timeline names to grade - the build's
+    own `timelines_built`. `None` grades every `Reel *` timeline (the
+    deliberate sweep); a list grades only those, so a partial build
+    pays for what it placed. An EMPTY list is REFUSED: a verification
+    that grades nothing and passes is the gate that cannot fail
+    (AGENTS.md 10.4).
+
     If the verifier finds ANY errors, this raises a RuntimeError with the findings,
-    failing the build. The raw JSON and human-readable table are preserved in 
+    failing the build. The raw JSON and human-readable table are preserved in
     the project's pipeline_output/review directory.
     """
+    if only_reels is not None and not list(only_reels):
+        raise RuntimeError(
+            "verify_built_reels was asked to grade zero reel timelines - "
+            "the build placed nothing, so there is nothing to verify and "
+            "a pass would mean nothing. Refusing instead of reporting "
+            "success on an empty scope.")
     import os
     import json
     
@@ -2131,7 +2153,8 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
             master_name=master_timeline_name,
             plan_path=plan_path,
             transcript=transcript,
-            json_path=json_path
+            json_path=json_path,
+            only_reels=None if only_reels is None else list(only_reels),
         )
     except Exception as e:
         raise RuntimeError(f"Reel conformance verifier failed to run: {e}")

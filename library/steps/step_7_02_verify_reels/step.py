@@ -81,6 +81,19 @@ def verify_reels(data: dict) -> dict:
             f"must grade against. Re-run build_reels: the record is what "
             f"it writes.")
 
+    # Scoped to what the build PLACED, read off its own record. This
+    # node used to grade every `Reel *` timeline in the project, so a
+    # build of one reel paid for all fifty and failed on findings from
+    # timelines it never touched - while its own return record below
+    # claimed it had verified only `timelines_built`. The record was
+    # the promise; the code is now kept to it.
+    timelines_built = list(build.get("timelines_built") or ())
+    if not timelines_built:
+        raise ReelVerifyRefused(
+            "the reel_build record names no timelines_built, so there "
+            "is nothing this node may grade. Grading every reel timeline "
+            "instead would re-grade work this build never touched; "
+            "re-run build_reels.")
     verify_built_reels(
         project_folder=project_folder,
         resolve_project_name=resolve_project_name,
@@ -89,7 +102,8 @@ def verify_reels(data: dict) -> dict:
         # ONE spelling of where the transcript lives, owned by the module
         # that writes it (tests/test_operations.py pins that it is not
         # composed by hand outside reel_build.py).
-        transcript_path=str(transcript_path(project_folder)))
+        transcript_path=str(transcript_path(project_folder)),
+        only_reels=timelines_built)
 
     return {"reel_verification": {
         "passed": True,

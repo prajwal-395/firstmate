@@ -3879,8 +3879,22 @@ def run_verification(
     review_dir: str = "",
     project_folder: str = "",
     out=None,
+    only_reels: Optional[Sequence[str]] = None,
 ) -> int:
     """Connect to Resolve, read everything, verify, report.
+
+    `only_reels` names the EXACT reel timeline names to grade, and is
+    how a partial build avoids re-grading the whole project: building
+    one reel grades one reel, so N authorised rebuilds cost N
+    verifications rather than 50 + 51 + ... Grading reel 17's build
+    tells nothing new about reels 1 through 16, which were graded when
+    they were built. `None` grades every `Reel *` timeline, which is
+    the deliberate whole-project sweep - useful explicitly, wrong as
+    the incidental cost of building one reel.
+
+    A scoped name that matches no timeline is FATAL, never a smaller
+    pass: grading a subset that silently excludes a misspelled reel is
+    the gate-that-cannot-fail shape (AGENTS.md 10.4).
 
     Returns 0 on pass, 1 on findings, 2 on fatal error or read-only
     violation.
@@ -3966,10 +3980,36 @@ def run_verification(
               f"Found: {all_names}", file=err)
         return 2
 
+    # Grade what was asked for, not the whole project. The build's own
+    # record (`reel_build.timelines_built`) is what names the scope, so
+    # a rebuild of one reel verifies one timeline instead of all fifty.
+    # Matching is by EXACT name, never a prefix (AGENTS.md 5) - a
+    # suffixed rebuild ("Reel 03 - x (whole-take rebuild)") is a
+    # different container from the timeline it was rebuilt from.
+    if only_reels is not None:
+        wanted = list(only_reels)
+        present = {tl.GetName(): tl for tl in reel_timelines}
+        missing = [name for name in wanted if name not in present]
+        if missing:
+            print(f"FATAL: scoped to {len(wanted)} reel timeline(s) and "
+                  f"{len(missing)} match nothing in Resolve project "
+                  f"{project_name!r}: {missing}. "
+                  f"Found: {sorted(present)}", file=err)
+            return 2
+        reel_timelines = [present[name] for name in wanted]
+        if not reel_timelines:
+            print(f"FATAL: scoped to zero reel timelines - nothing to "
+                  f"grade, so there is nothing to pass.", file=err)
+            return 2
+
     reel_timelines.sort(key=lambda t: t.GetName())
     print(f"Project: {project_name}", file=err)
     print(f"Master:  {master_name}", file=err)
-    print(f"Reels:   {len(reel_timelines)}", file=err)
+    if only_reels is not None:
+        print(f"Reels:   {len(reel_timelines)} (scoped - the build placed "
+              f"these; the rest of the project is not re-graded)", file=err)
+    else:
+        print(f"Reels:   {len(reel_timelines)}", file=err)
 
     # A check that was never asked is not a check that passed.  Without a
     # transcript there is no speech to measure coverage or boundaries
@@ -4363,7 +4403,11 @@ def main(argv=None) -> int:
             --master "GEO Podcast - Synced" \\
             [--plan reel_proposal.json] \\
             [--transcript transcript.json] \\
-            [--json output.json]
+            [--json output.json] \\
+            [--reel "Reel 03 - slug"]
+
+    No `--reel` grades every reel timeline (the explicit sweep); each
+    `--reel` narrows the run to one exact timeline name.
     """
     import argparse
 
@@ -4398,6 +4442,13 @@ def main(argv=None) -> int:
         "--review-dir", default="",
         help="Path to the review directory containing plan provenance "
              "(defaults to the plan file's parent directory)")
+    parser.add_argument(
+        "--reel", dest="only_reels", action="append", default=None,
+        metavar="NAME",
+        help="Grade only this exact reel timeline name; repeatable. "
+             "Default (absent): grade every 'Reel *' timeline, which is "
+             "the deliberate whole-project sweep. A build passes the "
+             "names it placed so one reel costs one verification.")
     args = parser.parse_args(argv)
 
     transcript = None
@@ -4416,6 +4467,7 @@ def main(argv=None) -> int:
         transcript=transcript,
         json_path=args.json,
         review_dir=args.review_dir,
+        only_reels=args.only_reels,
     )
 
 
