@@ -51,3 +51,24 @@ def resolve_overlay_container(project_folder: Optional[str] = None) -> str:
             f"Known containers: {list(CONTAINERS)}. Declaring nothing "
             f"means {DEFAULT_CONTAINER!r}.")
     return declared
+
+
+def resolve_motion_graphics_geometry(
+        project_folder: Optional[str] = None) -> str:
+    """`pipeline.motion_graphics_overlay_geometry`: `full` unless `tight` is declared.
+
+    The motion-graphics half of the caption geometry above, and a
+    SEPARATE key on purpose: a project may want tight captions with
+    full-canvas graphics, and one key for both would take that choice
+    away. See `library/tools/mg_tight_box.py` for what tight bounds.
+    """
+    declared = (_pipeline_block(project_folder).get(
+        "motion_graphics_overlay_geometry") or "").strip()
+    if not declared:
+        return DEFAULT_GEOMETRY
+    if declared not in GEOMETRIES:
+        raise ValueError(
+            f"Unknown motion_graphics_overlay_geometry {declared!r}. "
+            f"Known geometries: {list(GEOMETRIES)}. Declaring nothing "
+            f"means {DEFAULT_GEOMETRY!r}.")
+    return declared

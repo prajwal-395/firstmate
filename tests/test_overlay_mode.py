@@ -33,6 +33,7 @@ import pytest
 from library.tools.overlay_mode import (  # noqa: E402
     CONTAINERS,
     GEOMETRIES,
+    resolve_motion_graphics_geometry,
     resolve_overlay_container,
     resolve_overlay_geometry,
 )
@@ -84,3 +85,28 @@ def test_unknown_values_raise(tmp_path):
 def test_vocabularies_are_complete():
     assert set(GEOMETRIES) == {"full", "tight"}
     assert set(CONTAINERS) == {"video", "frames"}
+
+
+def test_motion_graphics_geometry_defaults_to_today(tmp_path):
+    project = _project_with({}, tmp_path)
+    assert resolve_motion_graphics_geometry(project) == "full"
+    assert resolve_motion_graphics_geometry("") == "full"
+    assert resolve_motion_graphics_geometry(None) == "full"
+
+
+def test_motion_graphics_geometry_is_its_own_key(tmp_path):
+    project = _project_with({"motion_graphics_overlay_geometry": "tight"},
+                            tmp_path)
+    assert resolve_motion_graphics_geometry(project) == "tight"
+    # The caption key does not move it: the two are separate choices.
+    project = _project_with({"subtitle_overlay_geometry": "tight"},
+                            tmp_path)
+    assert resolve_motion_graphics_geometry(project) == "full"
+
+
+def test_motion_graphics_geometry_unknown_raises(tmp_path):
+    project = _project_with({"motion_graphics_overlay_geometry": "small"},
+                            tmp_path)
+    with pytest.raises(ValueError,
+                       match="motion_graphics_overlay_geometry"):
+        resolve_motion_graphics_geometry(project)

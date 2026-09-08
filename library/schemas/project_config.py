@@ -91,6 +91,12 @@ class PipelineConfig:
     # validates and round-trips the keys rather than dropping them.
     subtitle_overlay_geometry: str = "full"
     subtitle_overlay_container: str = "video"
+    # How motion-graphics overlays are carried: the delivery frame or
+    # only the drawn union (`motion_graphics_overlay_geometry`:
+    # full|tight). Undeclared means today's path, and the key is
+    # SEPARATE from the caption one on purpose - see
+    # library/tools/overlay_mode.py.
+    motion_graphics_overlay_geometry: str = "full"
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     # Whether that brief is ATTACHED to the planning prompts. Three
     # states, and None is not "false": an undeclared key means the PATH
@@ -258,6 +264,11 @@ class ProjectConfig:
                 f"pipeline.subtitle_overlay_container must be one of "
                 f"{list(CONTAINERS)}, got "
                 f"{self.pipeline.subtitle_overlay_container!r}.")
+        if self.pipeline.motion_graphics_overlay_geometry not in GEOMETRIES:
+            errors.append(
+                f"pipeline.motion_graphics_overlay_geometry must be one of "
+                f"{list(GEOMETRIES)}, got "
+                f"{self.pipeline.motion_graphics_overlay_geometry!r}.")
         if self.pipeline.subtitle_typography is not None:
             from library.tools.subtitle_style import TYPOGRAPHY_KEYS
             declared = self.pipeline.subtitle_typography
@@ -338,6 +349,9 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         subtitle_overlay_container=(
             pipeline_data.get("subtitle_overlay_container", "video")
             or "video"),
+        motion_graphics_overlay_geometry=(
+            pipeline_data.get("motion_graphics_overlay_geometry", "full")
+            or "full"),
         creative_brief=pipeline_data.get("creative_brief", ""),
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(
@@ -422,6 +436,9 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             **({} if config.pipeline.subtitle_overlay_container == "video"
                else {"subtitle_overlay_container":
                      config.pipeline.subtitle_overlay_container}),
+            **({} if config.pipeline.motion_graphics_overlay_geometry == "full"
+               else {"motion_graphics_overlay_geometry":
+                     config.pipeline.motion_graphics_overlay_geometry}),
             "creative_brief": config.pipeline.creative_brief,
             # Omitted when undeclared: an explicit null in every
             # project.yaml reads as a decision nobody made, and the

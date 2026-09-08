@@ -42,6 +42,10 @@ from generate_motion_props import PLAN_KEY, generate_motion_props
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+from library.tools.overlay_mode import (  # noqa: E402
+    GEOMETRIES,
+    resolve_motion_graphics_geometry,
+)
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 
@@ -124,7 +128,9 @@ def _remotion_dir() -> str:
 def render_one_segment(planned: dict, out_dir: str,
                        segment_name: str = "",
                        remotion_dir: str = "",
-                       progress: str = "") -> Optional[dict]:
+                       progress: str = "",
+                       overlay_geometry: str = None,
+                       project_folder: str = "") -> Optional[dict]:
     """Render ONE motion-graphics segment, and return what was placed.
 
     Lifted out of :func:`render_motion_graphics`'s loop unchanged - same
@@ -146,18 +152,50 @@ def render_one_segment(planned: dict, out_dir: str,
     `mg_000.mov` into one directory is one reel's graphic on another
     reel's timeline.
 
+    `overlay_geometry` chooses the carrying (`library/tools/overlay_mode.py`):
+    a tight canvas instead of the delivery frame. Explicit values win;
+    otherwise the project's declaration is read, and a project that
+    declares nothing renders exactly as before. The tight canvas is the
+    drawn union (`library/tools/mg_tight_box.py`); compositions whose
+    union is effectively the frame (corner accents, asset elements)
+    render full-canvas even when tight is asked, and say so.
+
     Returns None where the render failed or timed out - REPORTED on
     stderr and skipped, never substituted.
     """
     import sys
+    geometry = overlay_geometry or resolve_motion_graphics_geometry(
+        project_folder or None)
+    if geometry not in GEOMETRIES:
+        raise ValueError(
+            f"Unknown overlay_geometry {geometry!r}; "
+            f"known: {list(GEOMETRIES)}.")
     props = planned["props"]
+    # The tight canvas, where declared. Computed from the same props
+    # the full render draws from, so the box fits the layout the frame
+    # would have drawn - see library/tools/mg_tight_box.py.
+    tight = None
+    suffix = ""
+    render_props = props
+    if geometry == "tight":
+        from library.tools.mg_tight_box import tighten_motion_graphics_props
+        tight = tighten_motion_graphics_props(props, project_folder or "")
+        if tight is None:
+            print(f"  {progress} union covers the frame - full canvas",
+                   file=sys.stderr)
+        else:
+            render_props = tight.props
+            suffix = "_tight"
+            print(f"  {progress} tight {tight.width}x{tight.height} "
+                  f"(full {tight.full_width}x{tight.full_height})",
+                  file=sys.stderr)
     name = segment_name or f"mg_{planned['index']:03d}"
-    overlay_path = os.path.join(out_dir, f"{name}.mov")
-    props_path = os.path.join(out_dir, f"{name}_props.json")
+    overlay_path = os.path.join(out_dir, f"{name}{suffix}.mov")
+    props_path = os.path.join(out_dir, f"{name}{suffix}_props.json")
     remotion = remotion_dir or _remotion_dir()
 
     with open(props_path, "w", encoding="utf-8") as f:
-        json.dump(props, f, indent=2)
+        json.dump(render_props, f, indent=2)
 
     print(f"  {progress} {name} "
           f"({', '.join(planned['elements'])}, "
@@ -200,6 +238,17 @@ def render_one_segment(planned: dict, out_dir: str,
         "total_frames": planned["total_frames"],
         "element_count": planned["element_count"],
         "elements": planned["elements"],
+        # The carrying, so a reader knows what the file IS without
+        # re-deriving it: full-canvas video is today's path, and the
+        # tight canvas is the option.
+        "geometry": geometry,
+        # Where a tight clip lands. None for full-canvas, which needs
+        # no transform.
+        "tight_box": ({
+            "width": tight.width,
+            "height": tight.height,
+            "placement": tight.placement,
+        } if tight is not None else None),
     }
 
 
@@ -353,11 +402,19 @@ def render_motion_graphics(data: dict) -> dict:
     print(f"Rendering {len(segments_plan)} motion graphics segments "
           f"({basis['resolved']} elements)...", file=sys.stderr)
 
+    # Explicit values win; otherwise the project's declaration, and a
+    # project that declares nothing renders exactly as before.
+    geometry = resolve_motion_graphics_geometry(project_folder or None)
+    print(f"Motion-graphics carrying: {geometry} geometry",
+          file=sys.stderr)
+
     segments = []
     for i, planned in enumerate(segments_plan):
         rendered = render_one_segment(
             planned, mg_output_dir, remotion_dir=REMOTION_DIR,
-            progress=f"[{i+1}/{len(segments_plan)}]")
+            progress=f"[{i+1}/{len(segments_plan)}]",
+            overlay_geometry=geometry,
+            project_folder=project_folder)
         if rendered is not None:
             segments.append(rendered)
 
@@ -387,6 +444,9 @@ def render_motion_graphics(data: dict) -> dict:
             "fps": fps,
             "total_segments": len(segments),
             "planning_basis": basis,
+            # What this pass carried, so a reader knows without
+            # re-deriving it per segment.
+            "geometry": geometry,
         },
         "timed_text_overlay": timed_text_overlay,
     }

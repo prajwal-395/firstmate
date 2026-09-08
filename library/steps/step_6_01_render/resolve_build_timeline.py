@@ -1173,21 +1173,26 @@ def build_timeline(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
 
+            # A tight clip is placed small and moved into position;
+            # full-canvas needs no transform. See
+            # library/tools/overlay_placement.py.
+            placement = (seg.get('tight_box') or {}).get('placement')
             assert_current_timeline(project, timeline)
-            result = media_pool.AppendToTimeline([{
-                "mediaPoolItem": pool_item,
-                "startFrame": 0,
-                "endFrame": seg_frames,
-                "trackIndex": 4,
-                "recordFrame": tl_in_frame,
-                "mediaType": 1,  # video-only placement on V4
-            }])
-            if result:
+            placed, note = place_overlay_segment(
+                media_pool, timeline, pool_item,
+                track_index=4, record_frame=tl_in_frame,
+                source_in_frame=0, source_out_frame=seg_frames,
+                placement=placement, label=f"V4[{mi}] {seg_basename}")
+            if placed:
                 v4_count += 1
                 print(f"  ✓ [{mi}] {seg_basename} on V4 ({seg_frames}f @ TL {tl_in_frame})",
                       file=sys.stderr)
+                if note:
+                    results["warnings"].append(note)
+                    print(f"  ⚠ {note}", file=sys.stderr)
             else:
                 print(f"  ✗ [{mi}] {seg_basename}: placement failed", file=sys.stderr)
+                results["warnings"].append(f"V4[{mi}] placement failed: {seg_basename}")
 
         results["tracks"]["V4"] = v4_count
 
