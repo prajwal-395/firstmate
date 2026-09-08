@@ -132,6 +132,20 @@ def _compile(inputs):
         return compile_manifest("dummy")
 
 
+def _inputs_with_slot(media, slot_type):
+    """The same spine with the middle block re-typed.
+
+    The report's reproduction names `transition_slot or outro block`: a
+    pacing `outro` reaches V1 no more than a transition_slot does, so the
+    same compile path decides it - V2 when a cutaway covers it, a
+    recorded drop when nothing does.
+    """
+    inputs = _inputs(media)
+    inputs["b_roll_assignments"][0]["block_type"] = slot_type
+    inputs["audio_spine"]["structure"][1]["block_type"] = slot_type
+    return inputs
+
+
 def _vfx(position, timeline_start, timeline_end):
     return {
         "enhancement_spec": {
@@ -170,6 +184,39 @@ def test_an_effect_on_a_cutaway_block_reaches_the_v2_clip(media):
     assert len(manifest["vfx"]) == 1
     assert manifest["vfx_planning_basis"]["basis"] == "planned"
     assert manifest["vfx_planning_basis"]["dropped"] == []
+
+
+def test_an_effect_on_an_outro_block_reaches_the_v2_clip(media):
+    """The report's second reproducer: `transition_slot or outro block`.
+
+    A pacing `outro` puts no clip on V1 either, so an effect naming it
+    took the same fatal path. It now lands on the covering cutaway, and
+    the candidate table tells the planner that is where the picture is.
+    """
+    from library.steps.step_4_03_plan_vfx.bridge import build_vfx_candidates
+
+    inputs = _inputs_with_slot(media, "outro")
+    inputs.update(_vfx(2, 6.0, 9.0))
+
+    manifest = _compile(inputs)
+
+    per_clip = manifest["fusion_effects"]["per_clip"]
+    v2_labels = {c["label"] for c in manifest["tracks"]["V2"]["clips"]}
+    assert set(per_clip) & v2_labels, (
+        f"the effect reached no V2 clip: per_clip={per_clip}, V2={v2_labels}")
+    assert manifest["vfx_planning_basis"]["dropped"] == []
+
+    rows = build_vfx_candidates({
+        "timed_spine": inputs["audio_spine"],
+        "a_roll_assignments": inputs["a_roll_assignments"],
+        "b_roll_assignments": inputs["b_roll_assignments"],
+        "clip_catalog": inputs["clip_catalog"],
+        "semantic_analysis_documents":
+            inputs["semantic_analysis"]["semantic_analysis_documents"],
+    })
+    by_position = {r["segment_id"]: r for r in rows}
+    assert by_position[2]["picture_track"] == ON_V2
+    assert "clip_2" in by_position[2]["track_basis"]
 
 
 def test_the_renderer_really_visits_the_track_the_effect_landed_on(media):
