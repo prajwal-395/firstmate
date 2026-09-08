@@ -2815,6 +2815,19 @@ EOF
         # the captain's reserved quarter of rung 1 from depending on how long a
         # firstmate turn happens to run (bin/fm-agy-ladder-tick.sh owns why).
         printf 'ladder=%s\n' "$FM_ROOT/bin/fm-agy-ladder-tick.sh"
+        # The point-of-spend verdict this worker's own loop runs after every
+        # tool batch. It ends the turn the moment the worker's own rung is
+        # proven exhausted, which is the one thing the turn-end driver above
+        # cannot do for a worker inside a single long turn
+        # (bin/fm-agy-descent-lib.sh owns why only PostInvocation can carry
+        # this). Off while the captain's explicit override holds this worker
+        # past the ladder, exactly as the descent is.
+        printf 'gate=%s\n' "$FM_ROOT/bin/fm-agy-spend-gate.sh"
+        if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
+          printf 'spend_gate=%s\n' off
+        else
+          printf 'spend_gate=%s\n' on
+        fi
         printf 'home=%s\n' "$FM_HOME"
       } > "$auth_file"
       printf '%s\n' "${auth_file##*/}" > "$STATE/$ID.agy-turnend-token"
@@ -2858,6 +2871,25 @@ case "\$event" in
     case "\$busy" in /*) : ;; *) emit ;; esac
     "\$busy" apply "\$state" "\$id" busy --gen "\$gen" --source agy-hook --event pre-invocation >/dev/null 2>&1 || true
     ;;
+  PostInvocation)
+    # The point-of-spend gate: the worker's own loop asks, after every tool
+    # batch, whether its rung is proven exhausted, and ends the turn when it
+    # is. Synchronous, because the verdict has to land before the loop
+    # continues, and refused rather than guessed: anything but a terminate
+    # verdict, including a gate that cannot run, is an allow. An entry without
+    # a spend_gate line predates the gate and is passed through untouched.
+    gate=\$(field gate); spend=\$(field spend_gate)
+    case "\$spend/\$gate" in
+      on/?*) : ;;
+      *) emit ;;
+    esac
+    [ -x "\$gate" ] || emit
+    verdict=\$("\$gate" "\$state" "\$id" "\$spend" 2>/dev/null) || verdict=
+    case "\$verdict" in
+      '{"terminationBehavior":"terminate"'*) printf '%s\n' "\$verdict"; exit 0 ;;
+      *) emit ;;
+    esac
+    ;;
   Stop)
     case "\$turnend" in /*.turn-ended) touch "\$turnend" 2>/dev/null || true ;; esac
     case "\$busy" in /*) : ;; *) emit ;; esac
@@ -2898,8 +2930,14 @@ EOF
       printf '{"name":"fm-turn-end"}\n' > "$AGY_PLUGIN_DIR/plugin.json"
       agy_hook_command=$(json_escape "bash $(shell_quote "$AGY_PLUGIN_DIR/fm-turn-end.sh")")
       cat > "$AGY_PLUGIN_DIR/hooks.json" <<EOF
-{"fm-turn-end":{"SessionStart":[{"type":"command","command":"$agy_hook_command SessionStart","timeout":10}],"PreInvocation":[{"type":"command","command":"$agy_hook_command PreInvocation","timeout":10}],"Stop":[{"type":"command","command":"$agy_hook_command Stop","timeout":10}]}}
+{"fm-turn-end":{"SessionStart":[{"type":"command","command":"$agy_hook_command SessionStart","timeout":10}],"PreInvocation":[{"type":"command","command":"$agy_hook_command PreInvocation","timeout":10}],"PostInvocation":[{"type":"command","command":"$agy_hook_command PostInvocation","timeout":10}],"Stop":[{"type":"command","command":"$agy_hook_command Stop","timeout":10}]}}
 EOF
+      # Record the plugin enabled in agy's own config.json. Discovery alone
+      # does not run its hooks on agy 1.1.27 - an entry-less plugin never
+      # fires, which silently disables the Stop driver, the busy push, and
+      # the spend gate above alike (bin/fm-agy-lib.sh owns the merge and the
+      # evidence). A no-op without jq or on any write failure.
+      fm_agy_ensure_plugin_enabled
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-agy-turnend"
       exclude_path '.fm-agy-turnend'
       ;;

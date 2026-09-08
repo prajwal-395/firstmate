@@ -1292,6 +1292,114 @@ fm_agy_descent_turn_end() {  # <state-dir> [<now>]
   return "$status"
 }
 
+# --- the point-of-spend gate ------------------------------------------------
+#
+# THE WINDOW POLLING CANNOT CLOSE. The per-poll evaluation above detects a
+# crossed floor within about a minute, but it can only ACT on a provably idle
+# worker: driving a modal picker into a busy pane is refused by guard 1, and a
+# worker inside one long turn never goes idle at all. A worker already on its
+# rung when the floor is crossed therefore keeps spending with nothing in its
+# path - on 2026-08-20 one drove Claude Opus 4.6 (Thinking) from above its 25%
+# floor to remaining_fraction 0 in a single run, and on 2026-09-07 live probes
+# showed the whole hook surface it would have been caught by dark on agy 1.1.27
+# (docs/verification/agy-spend-gate.md). Shortening the interval only narrows
+# that window; it is still bounded below by nothing, because one turn's spend
+# has no bound. The close has to sit where the spend happens: in the worker's
+# own execution loop.
+#
+# THE PRIMITIVE IS PostInvocation, AND ONLY IT. agy's embedded hooks guide
+# (verified live, agy 1.1.27) gives each event exactly one power:
+# PreInvocation injects steps but cannot block; PreToolUse denies a single tool
+# call but the loop continues and the model keeps spending on retries, so a
+# deny gates the tool while the thinking that costs the reserve runs free - and
+# under --dangerously-skip-permissions a denial's effect on the loop is
+# unproven, which is not a thing to lean a reserve on; PostInvocation alone can
+# end the loop outright with terminationBehavior terminate, after which Stop
+# fires and the ordinary idle evaluation above moves the worker. A gate that
+# cannot stop the spend is worse than no gate, and one that breaks correct
+# output is the same defect from the other side, so both directions are proven:
+# the unit suite pins terminate-on-exhausted against passthrough-on-healthy,
+# and the opt-in live guard proves terminate stops a real loop while {} lets a
+# real task finish untouched.
+#
+# FAIL-OPEN IS THE ONLY SAFE FAILURE, and it is the ladder's own asymmetry:
+# the captain ruled missing evidence must never stall the fleet, so an unknown
+# reading allows, exactly as the launch gate allows rung 1 without one. Only
+# positive evidence of exhaustion terminates. An override-pinned worker is
+# never terminated either: the registry carries spend_gate=off for it, and the
+# reserve stays reachable only on that explicit request.
+#
+# WHAT IT DOES NOT COVER. A loop that calls no tools fires no PostInvocation,
+# so pure-reasoning spend is still polling-protected only; that residual is
+# stated rather than implied. It also terminates a turn mid-task: the worker
+# goes idle with unfinished work, Stop fires, the evaluation above moves it,
+# and ordinary supervision re-drives it on the new rung with its conversation
+# intact - the same shape as any turn that ends early.
+#
+# COST. The hook runs synchronously inside the worker's loop, so the fast path
+# is file reads only: a fresh-enough recorded reading decides in milliseconds
+# and nothing is polled. Only a stale or absent reading pays for one bounded
+# quota poll (FM_AGY_SPEND_GATE_POLL_TIMEOUT, well inside the hook's own
+# timeout), which costs latency and never quota - the poll runs no turn.
+
+# FM_AGY_SPEND_GATE_POLL_TIMEOUT: wall-clock ceiling on the ONE quota poll the
+# gate runs when its cached evidence is stale. Seconds, and deliberately
+# shorter than the PostInvocation hook timeout beside it, so a slow network
+# fails this batch open instead of wedging the worker's loop on its hook.
+FM_AGY_SPEND_GATE_POLL_TIMEOUT=${FM_AGY_SPEND_GATE_POLL_TIMEOUT:-8}
+
+# fm_agy_spend_gate_verdict: the PostInvocation verdict for one worker. Prints
+# exactly one JSON object line on stdout and always exits 0: a terminate
+# object when the worker's own rung is proven exhausted, {} on every other
+# path including every failure. Callers print {} unless the line starts with
+# the terminate prefix, so a malformed verdict can never inject steps.
+fm_agy_spend_gate_verdict() {  # <state-dir> <id> <spend-gate> [<now>]
+  local state_dir=$1 id=$2 gate=${3:-} now=${4:-}
+  local meta model rung floor display state
+  [ "$gate" = on ] || { printf '{}\n'; return 0; }
+  [ -n "$id" ] || { printf '{}\n'; return 0; }
+  meta="$state_dir/$id.meta"
+  [ -f "$meta" ] || { printf '{}\n'; return 0; }
+  model=$(fm_meta_get "$meta" model 2>/dev/null) || { printf '{}\n'; return 0; }
+  [ -n "$model" ] || { printf '{}\n'; return 0; }
+  rung=$(fm_agy_ladder_rung "$model" 2>/dev/null) || { printf '{}\n'; return 0; }
+  floor=$(fm_agy_ladder_floor "$rung" 2>/dev/null) || { printf '{}\n'; return 0; }
+  display=$(fm_agy_ladder_display "$rung" 2>/dev/null) || { printf '{}\n'; return 0; }
+  [ -n "$now" ] || now=$(date +%s)
+  state=$(fm_agy_ladder_state "$rung" "$state_dir" "$now" 2>/dev/null) || { printf '{}\n'; return 0; }
+  case "$state" in
+    exhausted*) fm_agy_spend_gate_terminate "$display" "$state" "$floor"; return 0 ;;
+    available*) printf '{}\n'; return 0 ;;
+  esac
+  [ "${FM_AGY_QUOTA_POLL:-on}" = off ] && { printf '{}\n'; return 0; }
+  FM_AGY_PROBE_TIMEOUT="$FM_AGY_SPEND_GATE_POLL_TIMEOUT" \
+    fm_agy_quota_poll "$state_dir" "$now" >/dev/null 2>&1 || { printf '{}\n'; return 0; }
+  state=$(fm_agy_ladder_state "$rung" "$state_dir" "$now" 2>/dev/null) || { printf '{}\n'; return 0; }
+  case "$state" in
+    exhausted*) fm_agy_spend_gate_terminate "$display" "$state" "$floor"; return 0 ;;
+    *) printf '{}\n'; return 0 ;;
+  esac
+}
+
+# fm_agy_spend_gate_terminate: the loop-ending verdict for <display>, whose
+# ladder state line proves exhaustion. The injected message is transient
+# context for the worker when supervision re-drives it after the move, not a
+# second enforcement: terminationBehavior alone ends the loop. Built with
+# printf rather than jq because the hook's hot path must not depend on it;
+# every interpolation is ladder-owned (a display name from the ladder table, a
+# validated reading, a floor), never worker-supplied text.
+fm_agy_spend_gate_terminate() {  # <display> <state> <floor>
+  local display=$1 state=$2 floor=$3 percent in_flight
+  percent=${state#* }
+  in_flight=${percent#* }
+  percent=${percent%% *}
+  fm_agy_is_number "$percent" || { printf '{}\n'; return 0; }
+  case "$floor" in ''|*[!0-9]*) printf '{}\n'; return 0 ;; esac
+  printf '{"terminationBehavior":"terminate","injectSteps":[{"ephemeralMessage":"Quota floor reached for %s: %s%% remaining, at or below the %s%% floor reserved for the captain. This turn is ending so the ladder can move this session to the next available rung; continue the task after the move."}]}\n' \
+    "$display" "$percent" "$floor"
+  return 0
+}
+
 # fm_agy_descent_escalate_once: 0 the first time a task needs escalating in this
 # below-the-floor episode, 1 afterwards. An episode ends when the worker stops
 # being below its floor, which clears the marker. Without this a refusal would

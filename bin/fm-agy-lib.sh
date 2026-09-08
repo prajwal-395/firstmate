@@ -200,6 +200,56 @@ fm_agy_catalog_has_model() {  # <model>
   return 1
 }
 
+# fm_agy_config_path: agy's global config.json beside the customization root.
+fm_agy_config_path() {
+  printf '%s/config.json' "$(fm_agy_config_home)"
+}
+
+# fm_agy_ensure_plugin_enabled: record the firstmate-owned global plugin as
+# enabled in agy's own config.json, creating that file when agy has not yet
+# written one. A no-op without jq, and a no-op on any write failure: a hook
+# channel that cannot be enabled is reported nowhere and changes nothing, and
+# the launch proceeds exactly as it would have without this call.
+#
+# WHY THIS EXISTS. The plugin's hooks.json is discovered but its hooks do not
+# run unless the plugin is recorded enabled (verified live, agy 1.1.27: an
+# entry-less plugin's PreInvocation, PostInvocation, and Stop never fired;
+# after `agy plugin enable` each fired exactly once per event -
+# docs/verification/agy-spend-gate.md). Without this call the Stop-driven
+# ladder evaluation, the semantic busy push, and the spend gate below all sit
+# behind a hook that never fires, while the watcher-side polling keeps working
+# and nothing says anything is missing.
+#
+# The merge preserves every existing key: only
+# .plugins["fm-turn-end"].enabled is set. A symlink is replaced with a real
+# file first, the same write semantics agy itself uses (atomic temp plus
+# rename), because on this fleet managed files can be symlinks into a
+# read-only store; see fm_agy_suppress_feedback_survey for the precedent.
+fm_agy_ensure_plugin_enabled() {
+  local config tmp merged
+  command -v jq >/dev/null 2>&1 || return 0
+  config=$(fm_agy_config_path) || return 0
+  [ -n "$config" ] || return 0
+  if [ -L "$config" ]; then
+    rm -f "$config" 2>/dev/null || return 0
+  fi
+  if [ -f "$config" ]; then
+    if ! jq -e . "$config" >/dev/null 2>&1; then
+      return 0
+    fi
+    merged=$(jq '.plugins["fm-turn-end"].enabled = true' "$config" 2>/dev/null) || return 0
+  else
+    merged='{"plugins":{"fm-turn-end":{"enabled":true}}}'
+  fi
+  tmp="$config.fm-tmp.$$"
+  if printf '%s\n' "$merged" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$config" 2>/dev/null || { rm -f "$tmp" 2>/dev/null; return 0; }
+  else
+    rm -f "$tmp" 2>/dev/null || true
+  fi
+  return 0
+}
+
 # fm_agy_catalog_same_model: do two model names denote the SAME model?
 #
 # agy accepts either spelling of every model, so firstmate's durable record can
