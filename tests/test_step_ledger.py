@@ -1040,3 +1040,86 @@ def test_preflight_shared_code_references_are_declared():
             f"declared-but-unreferenced {sorted(declared - required)} "
             f"would invalidate good cache on unrelated edits")
 
+
+# ── 6. The record's seven named steps stay covered ──
+# Pin for vep-preflight-cache-blind-to-shared-tool-changes: the task
+# record names seven steps importing from library.tools.  Five are wired
+# DAG-preflight steps and must keep a shared-implementation declaration;
+# the other two are correctly outside the check.  If a future change
+# rewires either one, the disposition test below fails and says where
+# the new declaration belongs.
+
+# Step directory basenames of the five record-named steps that are wired
+# DAG-preflight steps.
+_RECORD_WIRED_PREFLIGHT_DIRS = (
+    "step_1_01_scan_project",
+    "step_1_03_semantic_analysis",
+    "step_1_04_temporal_index",
+    "step_1_05_prosody_analysis",
+    "step_1_07_ocr_extraction",
+)
+
+
+def test_record_named_preflight_steps_declare_shared_implementation():
+    """Each record-named wired preflight step watches its shared tools.
+
+    For every step the record names, the declaration must exist AND must
+    move the hashed identity: a row nobody folds into the hash is the
+    output_contract failure mode (declared, unread).  Both expectations
+    are derived from the code's own expressions, not copied digests.
+    Against the pre-PR-629 module this fails - it has no declaration
+    map at all, so a shared-tool fix is invisible to the cache.
+    """
+    deps = getattr(code_identity, "STEP_IMPLEMENTATION_DEPS", None)
+    assert deps, (
+        "no step declares shared implementation files, so a fix to "
+        "shared measurement code is invisible to the preflight cache")
+
+    dag_dirs = {p.name for p in _dag_preflight_step_dirs().values()}
+    for dirname in _RECORD_WIRED_PREFLIGHT_DIRS:
+        assert dirname in dag_dirs, (
+            f"{dirname} is no longer a DAG-preflight step - update this "
+            f"pin to its new disposition instead of deleting it")
+        assert deps.get(dirname), (
+            f"{dirname} executes shared measurement code but declares "
+            f"none: a fix landing in library/tools/ would survive in "
+            f"cache for this step")
+        step_dir = str(STEPS_ROOT / dirname)
+        assert (code_identity.code_hashes_for({"probe": step_dir})["probe"]
+                != code_identity.step_code_hash(step_dir)), (
+            f"{dirname} declares shared files the hashed identity "
+            f"ignores: the declaration is unread")
+
+
+def test_record_remaining_steps_hold_their_disposition():
+    """The record's other two names stay correctly outside the check.
+
+    ``step_1_06_object_segmentation`` is unwired (no DAG node), so the
+    runner never hashes it and it must carry no declaration row - a
+    declaration nothing reads is refused.  ``step_0_01_validate_sfx_library``
+    stages as EDIT, so the preflight identity check never visits it.
+    Either half failing means the step changed shape and the map above
+    needs a new row, not a deleted assertion.
+    """
+    dag_refs = {
+        node.get("step_ref", "").split("/")[-1]
+        for node in json.loads(
+            (PILOT_ROOT / "library" / "processes" / "edit_video"
+             / "dag.json").read_text(encoding="utf-8")).get("nodes", [])
+    }
+    assert "step_1_06_object_segmentation" not in dag_refs, (
+        "object_segmentation is wired into the DAG now: declare its "
+        "shared implementation in STEP_IMPLEMENTATION_DEPS")
+    deps = getattr(code_identity, "STEP_IMPLEMENTATION_DEPS", {})
+    assert deps.get("step_1_06_object_segmentation", ()) == (), (
+        "object_segmentation is unwired but carries a declaration "
+        "nothing reads")
+
+    validate_manifest = json.loads(
+        (STEPS_ROOT / "step_0_01_validate_sfx_library"
+         / "manifest.json").read_text(encoding="utf-8"))
+    assert step_ledger.stage_of(
+        validate_manifest, "validate_sfx_library") != step_ledger.PREFLIGHT, (
+        "validate_sfx_library stages as preflight now: its shared "
+        "references belong in STEP_IMPLEMENTATION_DEPS")
+
