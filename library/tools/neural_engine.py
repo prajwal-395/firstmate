@@ -49,7 +49,11 @@ def apply_super_scale(clip, scale_factor=2, sharpness="Medium", noise_reduction=
     mode. Start with 2x.
     """
     try:
-        media_item = clip.GetMediaPoolItem() if hasattr(clip, "GetMediaPoolItem") else None
+        media_item = None
+        try:
+            media_item = clip.GetMediaPoolItem()
+        except Exception:
+            pass
         target = media_item or clip
         success = target.SetClipProperty("Super Scale", int(scale_factor))
         if success:

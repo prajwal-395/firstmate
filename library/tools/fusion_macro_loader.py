@@ -30,11 +30,9 @@ def apply_macro_to_transition(timeline_item, macro_data: dict, duration_ms: int)
         return False
         
     try:
-        if hasattr(timeline_item, "ImportFusionComp"):
-            result = timeline_item.ImportFusionComp(file_path)
-            # Result could be true or composition object depending on Resolve version/docs
-            return bool(result)
-        return False
+        result = timeline_item.ImportFusionComp(file_path)
+        # Result could be true or composition object depending on Resolve version/docs
+        return bool(result)
     except Exception:
         return False
 

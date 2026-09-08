@@ -35,6 +35,8 @@ def test_apply_fairlight_preset():
             self.properties = {}
         def SetProperty(self, key, value):
             self.properties[key] = value
+        def GetProperty(self):
+            return self.properties
 
     item = MockTimelineItem()
     preset = get_preset("podcast_master")

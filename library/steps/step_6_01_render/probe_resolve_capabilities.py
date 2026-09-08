@@ -755,8 +755,8 @@ def main():
 
     # InsertAudioToCurrentTrackAtPlayhead exists
     try:
-        has_method = hasattr(project, 'InsertAudioToCurrentTrackAtPlayhead')
-        results.ok("InsertAudioToCurrentTrackAtPlayhead exists", str(has_method))
+        result = project.InsertAudioToCurrentTrackAtPlayhead("")
+        results.ok("InsertAudioToCurrentTrackAtPlayhead exists", f"Returns: {result}")
     except Exception as e:
         results.fail("InsertAudioToCurrentTrackAtPlayhead", str(e))
 

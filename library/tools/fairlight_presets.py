@@ -83,7 +83,10 @@ def apply_fairlight_preset(timeline_item, preset: dict) -> bool:
     Apply EQ/compressor/limiter settings via Resolve scripting API 
     (using Fairlight page controls).
     """
-    if not hasattr(timeline_item, "SetProperty"):
+    try:
+        # Check if the object is valid by calling a method, not with hasattr
+        timeline_item.GetProperty()
+    except Exception:
         return False
         
     try:
