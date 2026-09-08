@@ -336,6 +336,79 @@ def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
     return groups
 
 
+#: Overlaps at or below this are float dust, not two cards on one instant.
+#: F6 (`reel_conformance_verifier.check_caption_overlaps`) flags anything
+#: over 0.001s, so this pass resolves everything that gate would flag and
+#: nothing it would not - the two can never disagree about whether two
+#: cards overlap.
+OVERLAP_EPSILON_SECONDS = 0.001
+
+
+def resolve_caption_overlaps(entries: list) -> dict:
+    """One track, one card at a time - across the whole plan, not per block.
+
+    Blocks can overlap in time: a reel spine keeps a real talk-over on
+    both mics by design (`reel_spine._drop_bleed` drops only same-word
+    bleed; different words at the same instant are two people talking
+    over each other, and what to draw is this step's decision).  The
+    per-block pass plans each block independently and clamps every card
+    to its own block, so the two sides of a talk-over come out covering
+    the same seconds - and two cards covering the same seconds cannot
+    coexist on one V3 track.  Resolve trims the later one's head,
+    shifting it off its planned start, which reads downstream as F14
+    "planned and never placed" beside F6's overlap (reel 15, 2026-09-08:
+    43 frames, segment 5 planned at 14.93s and never placed).
+
+    The earlier card yields: it ends where the next card's first word
+    starts.  That is this step's own model of a card's time on screen
+    (`split_into_groups`: "a card's time on screen is the gap to the
+    NEXT card's first word"), so the resolution is the grouping rule
+    applied across the boundary the grouping cannot see.  The later
+    card's timing never moves - its start is its first word, and pushing
+    it would detach speech from any card (F5).
+
+    A trim that would leave the earlier card flashing (under
+    `MIN_CAPTION_FLASH_SECONDS`, the floor P6 fails a build on - and a
+    trimmed card no longer ends with its block, so the exemption cannot
+    save it) merges it into the next card instead, words preserved: the
+    same merge the per-block pass already applies to a card clamped to
+    nothing.  The later card keeps its timing exactly and only gains
+    words, so one forward pass suffices - trimming shrinks an end and
+    merging never moves a start, and neither can open a new overlap
+    with a card already walked past.
+
+    Returns what it did, so a run says so rather than doing it
+    invisibly.  A no-op on any plan whose cards already abut - which is
+    every master and every reel without a talk-over.
+    """
+    ordered = sorted(entries,
+                     key=lambda e: (e["timeline_start"], e["timeline_end"]))
+    trimmed = 0
+    merged = 0
+    doomed: set = set()
+    for earlier, later in zip(ordered, ordered[1:]):
+        if id(earlier) in doomed:
+            continue
+        overlap = earlier["timeline_end"] - later["timeline_start"]
+        if overlap <= OVERLAP_EPSILON_SECONDS + 1e-9:
+            continue
+        earlier["timeline_end"] = round(later["timeline_start"], 3)
+        if (earlier["timeline_end"] - earlier["timeline_start"]
+                < MIN_CAPTION_FLASH_SECONDS):
+            later["text"] = f"{earlier['text']} {later['text']}".strip()
+            later["words"] = (list(earlier.get("words", []))
+                              + list(later.get("words", [])))
+            later["word_count"] = len(later["text"].split())
+            later["emphasis_words"] = identify_emphasis_words(later["text"])
+            doomed.add(id(earlier))
+            merged += 1
+        else:
+            trimmed += 1
+    if doomed:
+        entries[:] = [entry for entry in entries if id(entry) not in doomed]
+    return {"trimmed": trimmed, "merged": merged}
+
+
 def split_into_groups(
     words_with_times: list,
     fits_fn=None,
@@ -937,6 +1010,23 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 _merge_entry(entry, target)
                 subtitle_entries.remove(entry)
             block_groups[pos] = kept
+
+    # ── One track, one card at a time, ACROSS blocks ──
+    # The pass above plans each block independently; blocks that overlap
+    # in time (a reel's talk-over) leave cards covering the same seconds,
+    # which no single track can place.  The earlier card yields to the
+    # next card's first word, or joins it where the trim would flash -
+    # `resolve_caption_overlaps` is that rule.  Said on the run, like
+    # every other repair in this step.
+    overlap_fix = resolve_caption_overlaps(subtitle_entries)
+    if overlap_fix["trimmed"] or overlap_fix["merged"]:
+        print(
+            f"NOTE: resolved {overlap_fix['trimmed']} overlapping caption "
+            f"card(s) by ending them at the next card's first word and "
+            f"merged {overlap_fix['merged']} into the next card - two "
+            f"cards cannot cover the same seconds on one track",
+            file=sys.stderr,
+        )
 
     # ── Fit the cards a group split cannot fix ──
     # Grouping stops a caption being too WIDE, because a group can be
