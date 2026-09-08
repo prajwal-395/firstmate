@@ -64,11 +64,21 @@ Output: { "music_candidates": {
                              "integrated_lufs", "loudness_range_lu",
                              "true_peak_dbtp", "rms_spread_db",
                              "window_seconds", "window_spread_db",
-                             "window_envelope_dbfs", "track_sections",
-                             "speech_band_ratio_db",
-                             "duplicate_of", "duplicate_deltas",
-                             "source_url", "provenance" }],
+                              "window_envelope_dbfs", "track_sections",
+                              "speech_band_ratio_db",
+                              "tempo_bpm", "tempo_method",
+                              "tempo_beat_count", "tempo_downbeat_count",
+                              "tempo_stable", "tempo_note",
+                              "musical_key", "key_method", "key_strength",
+                              "key_note", "beat_grid",
+                              "duplicate_of", "duplicate_deltas",
+                              "source_url", "provenance" }],
         } }
+
+`beat_grid` ({beats, downbeats} in file seconds) is stored on the
+candidate for code to read and dropped from the model's prompt in this
+step's manifest - AGENTS.md 10.1 forbids raw value lists in prompts, and
+the tempo_* scalars are the choice-time reading of rhythm.
 """
 import json
 import os
@@ -89,6 +99,7 @@ if str(REPO_ROOT) not in sys.path:
 from library.tools.music_measurement import (  # noqa: E402
     MEASUREMENT_LEGEND,
     measure_candidates,
+    measure_rhythm_candidates,
 )
 from library.tools.music_duplicates import (  # noqa: E402
     duplicate_groups,
@@ -418,6 +429,40 @@ def run(inputs: dict) -> dict:
                 f"{entry.get('window_spread_db')} dB",
                 file=sys.stderr,
             )
+
+    # Rhythm and harmony, AT CHOICE TIME.  bpm and key are in the model's
+    # output schema, but step 2.06 measures them downstream of the choice,
+    # so until now the model correctly answered null for both and the
+    # track was chosen with no access to its rhythm or its harmony.
+    # Captain's decision 2026-09-07, option (a): run 2.06's own tempo and
+    # key measurement per candidate here, in the bridge.  Step 2.06 does
+    # not move - it still analyses the chosen track.  These are
+    # MEASUREMENTS, not preferences: no threshold, no BPM range, no key
+    # and no ranking on the new columns (AGENTS.md 10.5).  The full grids
+    # are stored on the candidates for code to read and dropped from the
+    # prompt in this step's manifest (AGENTS.md 10.1: no raw value list
+    # reaches one); the tempo_* scalars are what the model decides from.
+    rhythm_started = time.monotonic()
+    measured = measure_rhythm_candidates(measured)
+    rhythm_seconds = time.monotonic() - rhythm_started
+    rhythmed = [e for e in measured if e.get("measured")]
+    for entry in rhythmed:
+        grid = entry.get("beat_grid") or {}
+        print(
+            f"    rhythm {entry['title'][:48]}: "
+            f"{entry.get('tempo_bpm')} BPM "
+            f"({entry.get('tempo_method') or 'no tracker'}, "
+            f"{entry.get('tempo_beat_count')} beats), "
+            f"key {entry.get('musical_key') or 'unmeasured'}",
+            file=sys.stderr,
+        )
+    if rhythmed:
+        print(
+            f"  rhythm pass: {rhythm_seconds:.1f}s over "
+            f"{len(rhythmed)} track(s) "
+            f"({rhythm_seconds / len(rhythmed):.1f}s each)",
+            file=sys.stderr,
+        )
 
     # Two rows that are one recording is a third of 001's choice set. The
     # test is the measurements above, never the filename.

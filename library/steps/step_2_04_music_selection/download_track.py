@@ -33,12 +33,13 @@ def download_audio(url: str, output_dir: str, analyze: bool = True) -> dict:
     Returns metadata about the downloaded file.
 
     `analyze=False` skips the librosa BPM and key passes. Step 2.04's
-    bridge fetches searched candidates only to MEASURE them, and
-    `music_measurement.DECLINED_MEASUREMENTS` records why BPM does not
-    belong in that bridge: librosa costs ~5s a track, pulls the ML stack
-    into a step that needs only ffmpeg, and step 2.06 measures tempo
-    properly after the choice. The default is unchanged, so the
-    named-URL path this has always served behaves exactly as before.
+    bridge fetches searched candidates only to MEASURE them, and the
+    rhythm pass (`music_measurement.measure_rhythm_candidates`, running
+    2.06's own tempo and key measurement per candidate at choice time
+    since the captain's decision of 2026-09-07) is what supplies tempo,
+    key and beat-grid there - measuring twice would pay the librosa pass
+    twice. The default is unchanged, so the named-URL path this has
+    always served behaves exactly as before.
     """
     os.makedirs(output_dir, exist_ok=True)
 

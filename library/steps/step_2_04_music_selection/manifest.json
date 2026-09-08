@@ -101,6 +101,7 @@
   },
   "context_fields": [
     "creative_direction",
-    "music_candidates"
+    "music_candidates",
+    "-music_candidates.candidates.*.beat_grid"
   ]
 }

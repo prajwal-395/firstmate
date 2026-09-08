@@ -46,6 +46,18 @@ EMITTED_KEYS = {
     "track_sections", "track_sections_note",
 }
 
+# Every key `measure_rhythm_track` is allowed to emit: tempo, key and the
+# beat-grid, measured per candidate at choice time by 2.06's own code
+# (captain's decision 2026-09-07, option (a)).  The scalars are what the
+# model decides from; beat_grid is stored for code and dropped from the
+# prompt in step 2.04's manifest.
+RHYTHM_KEYS = {
+    "tempo_bpm", "tempo_method", "tempo_beat_count",
+    "tempo_downbeat_count", "tempo_stable", "tempo_note",
+    "musical_key", "key_method", "key_strength", "key_note",
+    "beat_grid",
+}
+
 # The two emitted keys that are not a number or a curve of numbers.
 SECTION_ROW_KEYS = {"start_seconds", "end_seconds", "mean_dbfs", "spread_db"}
 
@@ -195,9 +207,18 @@ def test_nothing_emitted_is_a_taste_label(tmp_path):
         else:
             assert isinstance(value, (int, float)), (key, value)
 
-    for declined in ("bpm", "key", "musical_key", "genre", "mood", "energy",
+    for declined in ("bpm", "key", "genre", "mood", "energy",
                      "instrumentation", "recommendation", "rank", "score"):
         assert declined not in measured
+
+    # The rhythm pass is held to the same bar: tempo, key and the grid
+    # are measurements, and "musical_key" is a label-shaped measurement
+    # ("C major" as detected), never a taste word.
+    rhythm = mm.measure_rhythm_track(str(track))
+    assert set(rhythm) <= RHYTHM_KEYS, set(rhythm) - RHYTHM_KEYS
+    for declined in ("genre", "mood", "energy", "instrumentation",
+                     "recommendation", "rank", "score", "preferred"):
+        assert declined not in rhythm
 
 
 def test_the_legend_defines_every_key_that_is_emitted(tmp_path):
@@ -212,11 +233,17 @@ def test_the_legend_defines_every_key_that_is_emitted(tmp_path):
 
     for key in measured:
         assert key in mm.MEASUREMENT_LEGEND, key
-    assert set(mm.MEASUREMENT_LEGEND) == EMITTED_KEYS
+    assert set(mm.MEASUREMENT_LEGEND) == EMITTED_KEYS | RHYTHM_KEYS
 
 
 def test_declined_measurements_records_why_each_one_is_out():
-    assert "bpm" in mm.DECLINED_MEASUREMENTS
+    # bpm and musical_key used to be declined here; the captain's decision
+    # of 2026-09-07 reversed that, so they are measured per candidate at
+    # choice time instead of being left out.
+    assert "bpm" not in mm.DECLINED_MEASUREMENTS
+    assert "musical_key" not in mm.DECLINED_MEASUREMENTS
+    assert "tempo_bpm" in mm.MEASUREMENT_LEGEND
+    assert "musical_key" in mm.MEASUREMENT_LEGEND
     for name, reason in mm.DECLINED_MEASUREMENTS.items():
         assert len(reason) > 40, name
 
@@ -296,7 +323,7 @@ def test_the_bridge_emits_the_measurements_and_the_legend(tmp_path,
     assert proc.returncode == 0, proc.stderr
     catalogue = json.loads(proc.stdout)["music_candidates"]
 
-    assert set(catalogue["measurement_legend"]) == EMITTED_KEYS
+    assert set(catalogue["measurement_legend"]) == EMITTED_KEYS | RHYTHM_KEYS
 
     by_title = {c["title"]: c for c in catalogue["candidates"]}
     assert by_title["steady bed"]["measured"] is True

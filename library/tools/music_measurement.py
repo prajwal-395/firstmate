@@ -132,7 +132,7 @@ and points here.
 `library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
 - **The measurements ship with `MEASUREMENT_LEGEND`**. It defines what a key IS; it never says what to conclude.
 - **A candidate the duration check already rejected is not opened**, and says so rather than leaving a blank column. That is mechanical - it cannot be selected either way.
-- `DECLINED_MEASUREMENTS` records what was left out and why (2.06 measures tempo after the choice). [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
+- `DECLINED_MEASUREMENTS` records what was left out and why. Tempo and key used to be declined there (2.06 measures them after the choice); the captain's decision of 2026-09-07 reversed that, so they are measured per candidate at choice time instead. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
 - The bed's own level is what decides whether a planned `music_behavior` offset lands - see §10.4.
 - The played window's envelope is the section starting at 0; `track_sections` is how every other span compares.
 - **Where the candidates come from**: [`docs/MUSIC_SOURCING.md`](docs/MUSIC_SOURCING.md) §5.
@@ -177,10 +177,25 @@ ANALYSIS_SAMPLE_RATE = 48000
 
 FFMPEG_TIMEOUT_SECONDS = 900
 
-# What each emitted key IS.  Shipped beside the numbers because step
+# Everything this module measures about one candidate, keyed the same way
+# whether it is read here or downstream.  Shipped beside the numbers because step
 # 2.04's handoff.md is under a captain freeze and cannot name them, and a
 # column whose units are unstated is not a measurement anyone can use.
 # Definitions only - what to conclude from a number is the model's call.
+#
+# Rhythm and harmony (the `tempo_*`, `musical_key`/`key_*` and `beat_grid`
+# keys) are measured per candidate by the SAME functions step 2.06 uses -
+# `analyze_tempo_beats` and `analyze_key` in
+# `library/tools/analysis/music_pipeline.py` - called from
+# :func:`measure_rhythm_candidates`, which the 2.04 bridge runs after the
+# ffmpeg pass.  Captain's decision 2026-09-07, option (a): the choice was
+# being made on loudness alone, with bpm and key correctly null because
+# 2.06 measures them downstream of the choice.  The measurement moved to
+# choice time; step 2.06 itself did not move - it still analyses the CHOSEN
+# track.  Measured cost on the captain's machine: ~2.7s per 60s track via
+# the librosa path (~5.3s per 90s), sequential, one whole-track decode
+# each.  Key is null with a stated note wherever essentia is not
+# installed - an absent measurement is stated, never defaulted.
 MEASUREMENT_LEGEND = {
     "integrated_lufs":
         "BS.1770 integrated loudness of the whole track, in LUFS "
@@ -226,25 +241,56 @@ MEASUREMENT_LEGEND = {
         "numbers above are absent, never that they are zero.",
     "measurement_note":
         "Why a candidate was not measured, when measured is false.",
+    "tempo_bpm":
+        "Detected tempo in beats per minute, from the same beat tracker "
+        "step 2.06 runs (madmom RNN+DBN where installed, librosa "
+        "otherwise). None when no usable grid was found.",
+    "tempo_method":
+        "Which tracker answered: madmom-rnn-dbn or librosa-beat-track. "
+        "The two disagree by up to a few BPM and librosa doubles or "
+        "halves the true tempo on some tracks.",
+    "tempo_beat_count":
+        "How many beats the tracker found across the whole track. Below "
+        "eight there is no grid to snap to, only noise.",
+    "tempo_downbeat_count":
+        "How many bar starts were found. A cut on a downbeat reads as "
+        "intentional where a cut on any beat can read as busy.",
+    "tempo_stable":
+        "Whether the instantaneous tempo holds steady across the track. "
+        "A drifting tempo has one BPM number and no single grid.",
+    "tempo_note":
+        "Why there is no usable tempo, when tempo_bpm is None.",
+    "musical_key":
+        "Detected key as a label such as 'C major', from the same key "
+        "extractor step 2.06 runs (essentia). None where essentia is "
+        "not installed - the note says so.",
+    "key_method":
+        "Which extractor answered.",
+    "key_strength":
+        "The extractor's own confidence, 0 to 1. What to conclude from "
+        "it is the model's call.",
+    "key_note":
+        "Why there is no key, when musical_key is None.",
+    "beat_grid":
+        "The tracker's own grid: {beats, downbeats} in file seconds, "
+        "ascending. The full arrays live here, on the candidate, for "
+        "code to read - they never reach a prompt (step 2.04's manifest "
+        "drops this key, the same way downstream manifests drop "
+        "music_analysis.tempo.beats). What the model decides from is "
+        "the tempo_* scalars above.",
 }
 
 # Measurements that were considered for this table and left out, with the
 # reason.  A record, so the next person weighing one of these is arguing
 # with a decision rather than rediscovering it.
+#
+# bpm and musical_key used to be declined here - librosa cost ~5s a track
+# against 0.2s for an ffmpeg pass, and no consumer of the selection read a
+# key.  Captain's decision 2026-09-07, option (a), reversed both: the
+# choice was being made with no access to rhythm or harmony, so tempo, key
+# and beat-grid are now measured per candidate at choice time by the same
+# code 2.06 uses.  What remains below is still out, for the reasons given.
 DECLINED_MEASUREMENTS = {
-    "bpm": (
-        "librosa beat tracking costs 5.1s per track here against 0.2s for "
-        "an ffmpeg pass, pulls the ML stack into a bridge that needs only "
-        "ffmpeg, and its own docstring in "
-        "library/tools/analysis/music_pipeline.py warns of +/-2-5 BPM and "
-        "frequent octave errors. Step 2.06 music_analysis measures tempo "
-        "properly with madmom AFTER the choice, and the documented use of "
-        "BPM is phase-4 beatmatching, which is downstream of it."
-    ),
-    "musical_key": (
-        "Same cost and dependency as bpm, and no consumer of the selection "
-        "reads a key. 2.06 is where it belongs."
-    ),
     "genre, mood, energy, instrumentation": (
         "Taste, not measurement. AGENTS.md 10.5: the pipeline never "
         "invents a creative judgement on the model's behalf. A computed "
@@ -289,6 +335,20 @@ SELECTION_MEASUREMENT_KEYS = (
     "window_seconds",
     "window_spread_db",
     "speech_band_ratio_db",
+    # Rhythm and harmony travel the same way: scalars describing the bed
+    # that will actually play, measured at choice time. The full grid
+    # stays behind in WITHHELD_FROM_THE_SELECTION - it is a raw list, and
+    # music_selection is declared whole by plan_transitions and mesh_spine.
+    "tempo_bpm",
+    "tempo_method",
+    "tempo_beat_count",
+    "tempo_downbeat_count",
+    "tempo_stable",
+    "tempo_note",
+    "musical_key",
+    "key_method",
+    "key_strength",
+    "key_note",
 )
 
 WITHHELD_FROM_THE_SELECTION = {
@@ -308,6 +368,14 @@ WITHHELD_FROM_THE_SELECTION = {
     "track_sections_note": (
         "Says why the section table is absent or short; it travels with "
         "the table it qualifies, or with neither."
+    ),
+    "beat_grid": (
+        "The full beats/downbeats arrays. Same raw-list hazard as the "
+        "envelope and the section table, larger: hundreds of timestamps "
+        "per candidate. Code reads it off the catalogue; prompts never "
+        "see it - step 2.04's own manifest drops it, and the model's "
+        "choice-time reading of rhythm is the tempo_* scalars, which do "
+        "travel."
     ),
 }
 
@@ -801,9 +869,9 @@ SECTION_ENVELOPE_LEGEND = {
         "It never means the span is silent.",
 }
 
-
 def measure_candidates(candidates: List[dict],
                        window_seconds: float) -> List[dict]:
+
     """Every candidate, measured where measuring it can change the answer.
 
     Returns new dicts; the input list is not mutated.  A candidate the
@@ -824,5 +892,150 @@ def measure_candidates(candidates: List[dict],
                 "and cannot be selected, so opening it would cost the run "
                 "time it cannot change the answer with"
             )
+        out.append(enriched)
+    return out
+
+
+# ── Rhythm and harmony, at choice time ───────────────────────────────
+#
+# Step 2.04 chose the bed on loudness alone: bpm and key are in the
+# model's output schema, but step 2.06 measures them DOWNSTREAM of the
+# choice, so the model correctly answered null for both.  Captain's
+# decision 2026-09-07, option (a): compute tempo, key and beat-grid PER
+# CANDIDATE in the 2.04 bridge, with the SAME functions 2.06 runs -
+# `analyze_tempo_beats` and `analyze_key` - so every candidate carries
+# rhythm and harmony when the model sees it.  Step 2.06 does not move; it
+# still analyses the CHOSEN track downstream.
+#
+# MEASUREMENTS, not preferences.  Nothing here thresholds, ranks or
+# prefers: no BPM range, no key, no "danceable".  The columns describe the
+# candidates; the model still decides (AGENTS.md 10.5).
+#
+# Cost is per candidate and paid in the bridge, after the ffmpeg pass:
+# ~2.7s per 60s track via librosa on the captain's machine, one
+# whole-track decode each.  Candidates the duration check already rejected
+# are not opened - same mechanical scoping as `should_measure`, and the
+# more so here, because a librosa pass over an hours-long compilation is
+# the run crawling for an answer it cannot change.
+
+
+def measure_rhythm_track(audio_path: str) -> Dict[str, object]:
+    """Tempo, key and beat-grid for one candidate, by 2.06's own code.
+
+    Calls `analyze_tempo_beats` and `analyze_key` from
+    `library/tools/analysis/music_pipeline.py` - the functions step 2.06
+    runs on the chosen track - and reduces them to scalar columns plus the
+    full grid.  The scalars are what the model decides from; the grid is
+    stored for code to read and never reaches a prompt (step 2.04's
+    manifest drops it, AGENTS.md 10.1).
+
+    Never raises: a tracker that cannot answer is a stated absence
+    (AGENTS.md 10.3), never a zero.  A grid under
+    `beat_grid.MIN_USABLE_BEATS` is noise rather than rhythm, so the tempo
+    reads as absent with the counts still stated.
+    """
+    from library.tools.analysis.music_pipeline import (
+        analyze_key,
+        analyze_tempo_beats,
+    )
+    from library.tools.beat_grid import MIN_USABLE_BEATS
+
+    out: Dict[str, object] = {}
+    try:
+        tempo = analyze_tempo_beats(audio_path or "")
+    except Exception as exc:
+        tempo = {"method": None, "bpm": None, "beats": [],
+                 "downbeats": [], "tempo_stable": None,
+                 "error": str(exc)}
+
+    beats = tempo.get("beats") if isinstance(tempo, dict) else None
+    downbeats = tempo.get("downbeats") if isinstance(tempo, dict) else None
+    beats = [float(b) for b in beats] if isinstance(beats, list) else []
+    downbeats = [float(d) for d in downbeats] \
+        if isinstance(downbeats, list) else []
+    method = (tempo or {}).get("method")
+    stable = (tempo or {}).get("tempo_stable")
+
+    out["tempo_method"] = method if isinstance(method, str) else None
+    out["tempo_beat_count"] = len(beats)
+    out["tempo_downbeat_count"] = len(downbeats)
+    out["tempo_stable"] = stable if isinstance(stable, bool) else None
+    out["beat_grid"] = {
+        "beats": [round(b, 3) for b in beats],
+        "downbeats": [round(d, 3) for d in downbeats],
+    }
+
+    raw_bpm = (tempo or {}).get("bpm")
+    bpm = None
+    try:
+        bpm = float(raw_bpm)
+    except (TypeError, ValueError):
+        bpm = None
+    if bpm is not None and not (bpm > 0):
+        bpm = None
+    if len(beats) < MIN_USABLE_BEATS:
+        out["tempo_bpm"] = None
+        cause = (tempo or {}).get("error") or (tempo or {}).get("note") or ""
+        out["tempo_note"] = (
+            f"no usable grid: {len(beats)} beats found, "
+            f"fewer than the {MIN_USABLE_BEATS} a rhythm needs"
+            + (f" ({cause})" if cause else "")
+            + (f"; tracker {method}" if method else
+               "; no tracker answered")
+        )
+    else:
+        out["tempo_bpm"] = round(bpm, 1) if bpm is not None else None
+        if bpm is None:
+            out["tempo_note"] = (
+                f"the tracker found {len(beats)} beats but no tempo; "
+                f"tracker {method or 'unknown'}"
+            )
+        else:
+            out["tempo_note"] = ""
+
+    try:
+        key = analyze_key(audio_path or "")
+    except Exception as exc:
+        key = {"method": None, "key": None, "scale": None,
+               "error": str(exc)}
+
+    label = (key or {}).get("key_label")
+    if not label and (key or {}).get("key"):
+        scale = (key or {}).get("scale") or ""
+        label = f"{(key or {}).get('key')}" \
+            f"{' ' + scale if scale else ''}".strip()
+    out["musical_key"] = label if isinstance(label, str) and label else None
+    key_method = (key or {}).get("method")
+    out["key_method"] = key_method if isinstance(key_method, str) else None
+    strength = (key or {}).get("strength")
+    try:
+        out["key_strength"] = round(float(strength), 3)
+    except (TypeError, ValueError):
+        out["key_strength"] = None
+    if out["musical_key"] is None:
+        cause = (key or {}).get("error") or (key or {}).get("note") or \
+            "the extractor did not answer"
+        out["key_note"] = f"no key detected: {cause}"
+    else:
+        out["key_note"] = ""
+
+    return out
+
+
+def measure_rhythm_candidates(candidates: List[dict]) -> List[dict]:
+    """Every measured candidate, carrying rhythm and harmony.
+
+    Runs after `measure_candidates`: only candidates the ffmpeg pass
+    measured are opened - a candidate already out on duration carries its
+    stated absence and no rhythm keys, the same way it carries no
+    loudness keys.  Returns new dicts; the input list is not mutated.
+    """
+    out = []
+    for candidate in candidates:
+        enriched = dict(candidate)
+        if candidate.get("measured") and \
+                (candidate.get("audio_path") or "").strip():
+            enriched.update(
+                measure_rhythm_track(candidate["audio_path"]))
         out.append(enriched)
     return out
