@@ -2728,6 +2728,7 @@ rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.meta" "$STATE/$ID.stopped" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.agy-turnend-token" "$STATE/$ID.agy-session" \
+  "$STATE/.agy-pin-$ID" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \
   "$STATE/$ID.control-relaunch.brief-prior" "$STATE/$ID.control-relaunch.note"
 fm_lock_release "$META_LOCK"

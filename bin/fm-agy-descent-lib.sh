@@ -175,7 +175,9 @@
 # THE OVERRIDE. FM_AGY_LADDER_OVERRIDE is the launch gate's deliberate escape
 # and it is honoured here too: a worker launched past the ladder on the
 # captain's explicit request is not dragged off its model behind their back.
-# Its use is printed, exactly as the launch gate prints it.
+# Its use is printed, exactly as the launch gate prints it. bin/fm-spawn.sh
+# records the override per task where this evaluation reads it back, because
+# the variable itself reaches neither driver.
 
 _FM_AGY_DESCENT_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || _FM_AGY_DESCENT_LIB_DIR="."
 if ! declare -f fm_agy_ladder_check >/dev/null 2>&1; then
@@ -575,8 +577,9 @@ fm_agy_descent_needed() {  # <rung> <state-dir> [<now>]
 # waits anyway: one rule with no exception is worth more than those minutes, and
 # the exception would apply exactly when the evidence is least settled.
 #
-# THE OVERRIDE IS SILENT ON THIS SIDE. A worker the captain pinned with
-# FM_AGY_LADDER_OVERRIDE is not climbed, exactly as it is not descended. The
+# THE OVERRIDE IS SILENT ON THIS SIDE. A worker the captain pinned, by
+# FM_AGY_LADDER_OVERRIDE or by its recorded pin, is not climbed, exactly as it
+# is not descended. The
 # descent SAYS so, because a pinned worker below its floor is spending the
 # reserve and the captain should hear about it. A pinned worker on a slower rung
 # than it could have is not a harm - it is what they asked for - so this side
@@ -592,6 +595,12 @@ fm_agy_descent_needed() {  # <rung> <state-dir> [<now>]
 # FM_AGY_CLIMB: `off` disables the climb half only, leaving the descent as the
 # whole of live enforcement. FM_AGY_DESCENT=off still disables the entire
 # evaluation, this half included, because it turns the tick itself off.
+# In production the off state is filed as <state-dir>/.agy-climb-off, which
+# both evaluation drivers read: the variable alone never reaches them, because
+# the watcher is a long-lived process that predates the instruction and the
+# turn-end driver is detached into the worker's own process tree with only
+# FM_HOME and FM_STATE_OVERRIDE passed through (bin/fm-spawn.sh). The variable
+# stays as an additional source for one-shot runs and the regression suite.
 FM_AGY_CLIMB=${FM_AGY_CLIMB:-on}
 
 # Percentage points a rung must stand clear of its own floor before a running
@@ -608,8 +617,58 @@ fm_agy_climb_mark() {  # <state-dir> <name>
   printf '%s' "$1/.agy-climb-$2"
 }
 
+# fm_agy_climb_off_path: the filed climb off-switch for <state-dir>. Existence
+# is the signal, exactly as with the escalated- markers below; see the
+# FM_AGY_CLIMB comment for why the production off state lives here rather
+# than in the environment.
+fm_agy_climb_off_path() {  # <state-dir>
+  printf '%s/.agy-climb-off' "$1"
+}
+
+# fm_agy_climb_off: 0 when the climb half is turned off for <state-dir>, by
+# the filed record either driver reads or by the variable only a manual run
+# inherits. Both callers below take <state-dir> already, so this costs one
+# file test on the decision path and no new plumbing.
+fm_agy_climb_off() {  # <state-dir>
+  [ "${FM_AGY_CLIMB:-on}" = off ] && return 0
+  [ -f "$(fm_agy_climb_off_path "$1")" ]
+}
+
 fm_agy_climb_clear_task() {  # <state-dir> <id>
   rm -f "$(fm_agy_climb_mark "$1" "failed-$2")" 2>/dev/null || true
+}
+
+# fm_agy_pin_mark: the recorded deliberate placement of <id>. The content is
+# the reason firstmate placed it there, mirroring the since- markers above
+# whose content is the instant the condition began.
+fm_agy_pin_mark() {  # <state-dir> <id>
+  printf '%s/.agy-pin-%s' "$1" "$2"
+}
+
+# fm_agy_pin_task: pin <id> where firstmate deliberately put it, for <reason>.
+# bin/fm-spawn.sh records this when FM_AGY_LADDER_OVERRIDE holds a launch past
+# the ladder; the tick reads it back instead of a variable it cannot see. A
+# pin is not drift, so the tick moves a pinned worker nowhere in either
+# direction.
+fm_agy_pin_task() {  # <state-dir> <id> <reason>
+  printf '%s' "$3" > "$(fm_agy_pin_mark "$1" "$2")" 2>/dev/null
+}
+
+# fm_agy_pin_clear: release <id>'s pin. A launch without the override calls
+# this, so a fresh placement under the ordinary rules is not frozen by an
+# earlier instruction; teardown calls it with the rest of the task's records.
+fm_agy_pin_clear() {  # <state-dir> <id>
+  rm -f "$(fm_agy_pin_mark "$1" "$2")" 2>/dev/null || true
+}
+
+# fm_agy_task_pin: print <id>'s recorded pin reason, or fail when unpinned.
+fm_agy_task_pin() {  # <state-dir> <id>
+  local path reason
+  path=$(fm_agy_pin_mark "$1" "$2")
+  [ -f "$path" ] || return 1
+  reason=$(cat "$path" 2>/dev/null || true)
+  [ -n "$reason" ] || return 1
+  printf '%s' "$reason"
 }
 
 # fm_agy_climb_clears_margin: 0 only when <rung> has a CURRENT reading putting it
@@ -694,7 +753,7 @@ fm_agy_climb_admits() {  # <candidate> <state-dir> <now>
 # not merely one step.
 fm_agy_climb_target() {  # <rung> <state-dir> [<now>]
   local rung=$1 state_dir=$2 now=${3:-} candidate=1
-  [ "$FM_AGY_CLIMB" != off ] || return 1
+  fm_agy_climb_off "$state_dir" && return 1
   [ -n "$now" ] || now=$(date +%s)
   while [ "$candidate" -lt "$rung" ]; do
     if fm_agy_climb_admits "$candidate" "$state_dir" "$now" \
@@ -716,7 +775,7 @@ fm_agy_climb_target() {  # <rung> <state-dir> [<now>]
 # is false and the wake is spurious, because the wait resolves on its own.
 fm_agy_climb_pending() {  # <rung> <state-dir> [<now>]
   local rung=$1 state_dir=$2 now=${3:-} candidate=1
-  [ "$FM_AGY_CLIMB" != off ] || return 1
+  fm_agy_climb_off "$state_dir" && return 1
   [ -n "$now" ] || now=$(date +%s)
   while [ "$candidate" -lt "$rung" ]; do
     if fm_agy_climb_admits "$candidate" "$state_dir" "$now" \
@@ -1036,6 +1095,7 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
   local label verdict text footer below stamp reason any=1 unrecorded
   local agrees unreconciled
   local direction spent climb_failed moved
+  local hold_reason
 
   # Cheap pre-filter: does this home run any agy worker on a rung at all? A home
   # with none must not pay for the quota subprocess, and must not start the
@@ -1135,15 +1195,20 @@ _fm_agy_descent_tick_locked() {  # <state-dir> <now>
 
     # The captain's own escape, honoured in BOTH directions: a worker they
     # deliberately put past the ladder is not quietly dragged off it either way.
-    # Only the downward case is printed, and for the reason the launch gate
-    # prints it - a pinned worker below its floor is spending the reserve. A
-    # pinned worker on a slower rung than it could have is what they asked for,
-    # so that case stays silent rather than waking them about it.
-    if [ -n "${FM_AGY_LADDER_OVERRIDE:-}" ]; then
+    # The hold is read from the task's recorded pin first and the environment
+    # second, because the tick runs where the variable cannot follow it; either
+    # source names the same authority and prints the same reason. Only the
+    # downward case is printed, and for the reason the launch gate prints it -
+    # a pinned worker below its floor is spending the reserve. A pinned worker
+    # on a slower rung than it could have is what they asked for, so that case
+    # stays silent rather than waking them about it.
+    hold_reason=${FM_AGY_LADDER_OVERRIDE:-}
+    [ -n "$hold_reason" ] || hold_reason=$(fm_agy_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
+    if [ -n "$hold_reason" ]; then
       if [ "$spent" = 1 ]; then
         fm_agy_descent_escalate_once "$state_dir" "$id" \
-          && printf 'override %s %s is below its floor but FM_AGY_LADDER_OVERRIDE=%s is holding it there\n' \
-            "$id" "$model" "$FM_AGY_LADDER_OVERRIDE"
+          && printf 'override %s %s is below its floor but the captain'"'"'s hold is keeping it there: %s\n' \
+            "$id" "$model" "$hold_reason"
       fi
       continue
     fi
