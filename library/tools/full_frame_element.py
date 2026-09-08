@@ -252,7 +252,8 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
               "The word the seven-back-to-back-cards build of "
               "docs/ANIMATED_REEL_CEILING.md was missing."),
         axes=("placement", "segments", "entrance", "exit", "copy",
-              "type_role", "colour_role", "image", "word_sync"),
+              "type_role", "colour_role", "image", "word_sync",
+              "emphasis_colour"),
         copy="required",
         reachable=REACHABLE_NOW,
         reachability_note=(
@@ -268,7 +269,12 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "entrance off the transcript's own word timings, measured "
             "per segment at plan time and proved by a render that fails "
             "without the cue-driven node "
-            "(tests/test_fullframe_word_cues.py)."),
+            "(tests/test_fullframe_word_cues.py). A segment may name "
+            "its own entrance - which character that keep range dances "
+            "to is declared per segment, never derived - and a span may "
+            "declare emphasis_colour, the colour the current word draws "
+            "in while it owns the clock (tests/"
+            "test_fullframe_cued_draw_emphasis.py)."),
         never=(
             "Never a card beside it: the span already covers the reel's "
             "whole body, so a head or tail card on the same reel is two "
@@ -754,6 +760,13 @@ def _normalise(raw: Any, index: int) -> dict:
             f"screen. A word-paced reveal lives on a full_frame_span, "
             f"whose segments play over their own speech - the same "
             f"reading that refuses `range_line` outside a span segment.")
+    if shared["emphasis_colour"] is not None:
+        raise FullFrameDeclarationError(
+            f"{label} sets emphasis_colour, and a card covers its own "
+            f"seconds, not speech seconds: with no word clock no word is "
+            f"ever current, so the field would have no reader. A "
+            f"current-word emphasis lives on a full_frame_span beside "
+            f"word_sync.")
     runs = raw.get("runs")
     if not isinstance(runs, (list, tuple)) or not runs:
         raise FullFrameDeclarationError(
@@ -855,6 +868,21 @@ def _shared_fields(raw: Any, index: int, label: str) -> dict:
             f"reveal off the spoken words is either on or off - omit it "
             f"and the reveal runs time-based, as before.")
 
+    # The colour the CURRENT word draws in while it owns the clock.
+    # Declared or absent, never defaulted: the engine ships no palette
+    # (AGENTS.md 10.5), so an undeclared emphasis simply does not
+    # emphasise. Read only beside a word clock - `_normalise` refuses it
+    # on a card and `_normalise_span` refuses it without `word_sync`,
+    # because a field no drawing reads is a declaration nothing owns.
+    emphasis_colour = raw.get("emphasis_colour")
+    if emphasis_colour is not None:
+        if (not isinstance(emphasis_colour, str)
+                or not emphasis_colour.strip()):
+            raise FullFrameDeclarationError(
+                f"{label} has emphasis_colour={raw.get('emphasis_colour')!r}; "
+                f"the current word's colour is a declared colour or it is "
+                f"absent - omit it and words keep their run's colour.")
+
     return {
         "background": background,
         "entrance": entrance,
@@ -864,6 +892,8 @@ def _shared_fields(raw: Any, index: int, label: str) -> dict:
         "y": float(y) if y is not None else None,
         **image_fields,
         "word_sync": word_sync,
+        "emphasis_colour": (emphasis_colour.strip()
+                            if emphasis_colour is not None else None),
         "separator": str(raw.get("separator") or ", "),
         "opening_seconds": (float(opening_seconds)
                             if opening_seconds is not None else None),
@@ -946,13 +976,41 @@ def _normalise_span(raw: dict, index: int, placement: str) -> dict:
             f"a word clock can pace {', '.join(WORD_CUED_ENTRANCES)} and "
             f"nothing else. Omit word_sync and the entrance runs "
             f"time-based, as before.")
+    if shared["emphasis_colour"] is not None and not shared["word_sync"]:
+        raise FullFrameDeclarationError(
+            f"{label} sets emphasis_colour without word_sync; with no "
+            f"word clock no word is ever current, so the field would "
+            f"have no reader. Omit it and words keep their run's "
+            f"colour.")
+    segments = [_normalise_segment(segment, index, position)
+                for position, segment in enumerate(segments, start=1)]
+    # Each segment's EFFECTIVE character - its own, or the span's - is
+    # what the clock must be able to pace and the emphasis must be able
+    # to land on. Checked here, where both halves are known, rather than
+    # in `_normalise_segment`, which sees neither the span's entrance
+    # nor its emphasis.
+    for position, segment in enumerate(segments, start=1):
+        effective = segment["entrance"] or shared["entrance"]
+        seg_label = f"{label}.segments[{position}]"
+        if shared["word_sync"] and effective not in WORD_CUED_ENTRANCES:
+            raise FullFrameDeclarationError(
+                f"{seg_label} reads entrance={effective!r} beside "
+                f"word_sync; a word clock can pace "
+                f"{', '.join(WORD_CUED_ENTRANCES)} and nothing else.")
+        if (shared["emphasis_colour"] is not None
+                and effective == "typewriter"):
+            raise FullFrameDeclarationError(
+                f"{seg_label} reads entrance='typewriter' beside "
+                f"emphasis_colour; a typewriter is a reveal, not a "
+                f"per-word drawing, so there is no current-word glyph "
+                f"to restyle - the field would have no reader on this "
+                f"segment.")
     return {
         "element": "full_frame_span",
         "placement": placement,
         "duration_seconds": None,
         **shared,
-        "segments": [_normalise_segment(segment, index, position)
-                     for position, segment in enumerate(segments, start=1)],
+        "segments": segments,
     }
 
 
@@ -963,8 +1021,16 @@ def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
     A segment is the unit that renders (one file per segment through
     the FullFrameCard composition), so it names its own `image` through
     the same slot a card's mark takes, resolved the same way at plan
-    time.  A segment naming no image carries no image key, which is
+    time.  A segment naming no image carries no `image` key, which is
     what keeps its props rendering byte-identically to a card's.
+
+    A segment may also name its own `entrance`: which word-paced
+    character THIS keep range dances to. Absent means the span's - the
+    choice of character per segment is declared by whoever writes the
+    plan, never derived by the engine (no parity, no cadence), because
+    any such derivation would be the engine holding taste (AGENTS.md
+    10.5). Whether the effective character paces beside `word_sync` is
+    checked in `_normalise_span`, where the span's halves are known.
     """
     label = f"full_frame_elements[{span_index}].segments[{position}]"
     if not isinstance(raw, dict):
@@ -976,9 +1042,18 @@ def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
             f"{label} declares no `runs`; a segment with no copy on it "
             f"draws a coloured rectangle, and an element that draws "
             f"nothing is not rendered (AGENTS.md 10.2)")
+    entrance = raw.get("entrance")
+    if entrance is not None:
+        entrance = str(entrance).strip().lower() if isinstance(
+            entrance, str) else entrance
+        if entrance not in MOTION_CHARACTERS:
+            raise FullFrameDeclarationError(
+                f"{label} has entrance={raw.get('entrance')!r}; the motion "
+                f"characters are {', '.join(MOTION_CHARACTERS)}")
     return {
+        "entrance": entrance,
         "runs": [_normalise_segment_run(run, span_index, position, number)
-                 for number, run in enumerate(runs, start=1)],
+                  for number, run in enumerate(runs, start=1)],
         **_normalise_image_fields(raw, label),
     }
 
@@ -1426,10 +1501,15 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             _resolve_run(run, declaration, facts, index,
                          span_context=context)
             for run in segment["runs"])
+        # The character THIS segment dances to: its own declaration, or
+        # the span's when it names none. `_normalise_span` already
+        # proved the effective character paces beside `word_sync`, so
+        # this is a lookup, never a second check.
+        effective_entrance = segment.get("entrance") or declaration["entrance"]
         props: dict = {
             "runs": [dict(run) for run in resolved],
             "background": declaration["background"],
-            "entrance": declaration["entrance"],
+            "entrance": effective_entrance,
             "exit": declaration["exit"],
             "fontFamily": declaration["font_family"],
             "fps": fps,
@@ -1438,6 +1518,13 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             "durationInFrames": duration_frames,
             "safeArea": safe_area.as_props(),
         }
+        # The declared emphasis colour, inherited by every segment.
+        # Absent unless declared, which is what keeps props written
+        # before this slot existed rendering byte-identically - and what
+        # keeps an undeclared emphasis drawing nothing rather than a
+        # fallback nobody chose.
+        if declaration.get("emphasis_colour") is not None:
+            props["emphasisColour"] = declaration["emphasis_colour"]
         if declaration["y"] is not None:
             props["y"] = declaration["y"]
         if declaration["font_file"]:

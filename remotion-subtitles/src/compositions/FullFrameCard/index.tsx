@@ -115,6 +115,15 @@ export type FullFrameCardProps = {
    * rendering byte-identically: no key, no change of path.
    */
   wordCues?: WordCue[];
+  /**
+   * The colour the CURRENT word draws in while it owns the clock.
+   * Declared or absent, never defaulted: the engine ships no palette,
+   * so an undeclared emphasis draws nothing in a second colour - every
+   * word keeps its run's colour. Read only beside `wordCues` on a
+   * per-word drawing (`mask`, `draw`); the plan refuses it wherever no
+   * drawing reads it.
+   */
+  emphasisColour?: string;
 };
 
 export const fullFrameCardSchema = {} as any;
@@ -257,6 +266,27 @@ export const cuedWordProgress = (
   return Easing.out(Easing.cubic)(clamped);
 };
 
+/** Which cue owns the clock at `frame`, or -1 when none does.
+ *
+ * The current word is the one whose measured speech window contains
+ * this frame - cue start inclusive, cue end exclusive. Between words,
+ * before the first and past the last, nothing is current: emphasis
+ * marks the word being spoken, not the last one that was.
+ */
+export const cuedEmphasisIndex = (
+  frame: number,
+  fps: number,
+  cues: WordCue[],
+): number => {
+  if (!cues || cues.length === 0 || !(fps > 0)) return -1;
+  const t = frame / fps;
+  const ordered = [...cues].sort((a, b) => a.start - b.start);
+  for (let i = 0; i < ordered.length; i += 1) {
+    if (t >= ordered[i].start && t < ordered[i].end) return i;
+  }
+  return -1;
+};
+
 /** How far below its rest line a word at progress `p` sits, in percent.
  *
  * 120 rather than 100: the mask wrapper carries descender clearance
@@ -269,12 +299,20 @@ export const cuedWordRisePercent = (progress: number): number =>
 
 /** The entrance transform at word progress `p`, 0..1, for `draw`.
  *
- * The same drawing `entranceTransform` in MotionGraphics gives, with
- * the word clock substituted for the ramp clock - one drawing of the
- * character, not two. `typewriter` needs none: it is a reveal, not a
- * transform, and the split below already reads the cues. `mask` needs
- * none either: a cued mask rises each word out of its own mask
- * (`cuedWordProgress`), which a block-level wipe cannot draw.
+ * The same drawing `entranceTransform` in MotionGraphics gives - the
+ * scale 0.85 to 1 and blur 4px to 0, not respelled - with a progress
+ * value substituted for the ramp clock: one drawing of the character,
+ * two clocks. Read once per WORD off that word's own speech window by
+ * the per-word path below, and once per CARD off the whole clock by
+ * the block-level fallback, which is what keeps a cue mismatch drawing
+ * the wipe rather than nothing. `typewriter` needs none: it is a
+ * reveal, not a transform, and the split below already reads the cues.
+ * `mask` needs none either: a cued mask rises each word out of its own
+ * mask (`cuedWordProgress`), which a block-level wipe cannot draw.
+ *
+ * A word this transform reads at progress 0 is unspoken: blur alone
+ * does not hide it, so the per-word path pairs this with zero opacity
+ * there. The numbers stay the character's; the hiding is the clock's.
  */
 export const wordCuedEntrance = (
   progress: number,
@@ -314,6 +352,7 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   image,
   imageWidth,
   wordCues,
+  emphasisColour,
 }) => {
   const frame = useCurrentFrame();
 
@@ -381,16 +420,24 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   }
   const { shown, cursorRun } = typewriterSplit(runLengths, reveal);
   const cursorOn = typewriterCursorOn(reveal);
-  // A cued `mask` rises each word out of its own mask instead of wiping
-  // the block: the SplitText line-masking look, paced by the word clock.
-  // Every other cued character keeps its block-level drawing, and a word
-  // list the cues do not match keeps the wipe - the mismatch means the
-  // plan's refusal did not run, and landing near words is not landing on
-  // them.
-  const cuedWords =
-    cued && entrance === "mask"
-      ? splitCuedWords(runs, wordCues as WordCue[])
-      : null;
+  // A cued `mask` rises each word out of its own mask, and a cued
+  // `draw` resolves each word out of its own blur: the SplitText
+  // line-masking look and the blur-resolve look, each paced by the word
+  // clock. Every other cued character keeps its block-level drawing,
+  // and a word list the cues do not match keeps the wipe - the
+  // mismatch means the plan's refusal did not run, and landing near
+  // words is not landing on them.
+  const perWord = cued && (entrance === "mask" || entrance === "draw");
+  const cuedWords = perWord
+    ? splitCuedWords(runs, wordCues as WordCue[])
+    : null;
+  // The current word, when the declaration states an emphasis colour.
+  // Absent beside absent: no key, no restyle, words keep their run's
+  // colour rather than a fallback nobody chose.
+  const emphasisIndex =
+    cuedWords && emphasisColour
+      ? cuedEmphasisIndex(frame, fps, wordCues as WordCue[])
+      : -1;
   const motion = {
     ...(cuedWords
       ? {}
@@ -487,9 +534,44 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
           >
             {cuedWords.map((word, index) => {
               const run = runs[word.runIndex] ?? runs[0];
-              const rise = cuedWordRisePercent(
-                cuedWordProgress(frame, fps, word),
-              );
+              const progress = cuedWordProgress(frame, fps, word);
+              // The current word draws in the declared emphasis colour;
+              // every other word keeps its run's. The clock paces the
+              // words and, when stated, restyles the one it owns - it
+              // never restyles what it does not own.
+              const colour =
+                index === emphasisIndex && emphasisColour
+                  ? emphasisColour
+                  : run.colour;
+              if (entrance === "draw") {
+                return (
+                  <React.Fragment key={index}>
+                    {index > 0 ? " " : null}
+                    {/*
+                      One resolving word per cue: the `draw` drawing at
+                      the word's own progress, invisible while unspoken.
+                      Blur alone does not hide, so progress 0 pairs the
+                      transform with zero opacity - the hiding is the
+                      clock's, the look is the character's.
+                    */}
+                    <span
+                      style={{
+                        display: "inline-block",
+                        verticalAlign: "bottom",
+                        color: colour,
+                        fontSize: `${run.font_size ?? TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting}px`,
+                        fontWeight:
+                          TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
+                        opacity: progress <= 0 ? 0 : progress,
+                        ...wordCuedEntrance(progress, "draw"),
+                      }}
+                    >
+                      {word.text}
+                    </span>
+                  </React.Fragment>
+                );
+              }
+              const rise = cuedWordRisePercent(progress);
               return (
                 <React.Fragment key={index}>
                   {index > 0 ? " " : null}
@@ -502,7 +584,9 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
                     descending glyph - and the rise clears the line box
                     plus that clearance, so unspoken is invisible.
                     Colour, weight and size stay the run's: the clock
-                    paces the words, it does not restyle them.
+                    paces the words, it does not restyle them - except
+                    the current word, which takes the declared emphasis
+                    colour above.
                   */}
                   <span
                     style={{
@@ -511,7 +595,7 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
                       verticalAlign: "bottom",
                       paddingBottom: "0.18em",
                       marginBottom: "-0.18em",
-                      color: run.colour,
+                      color: colour,
                       fontSize: `${run.font_size ?? TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting}px`,
                       fontWeight:
                         TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
