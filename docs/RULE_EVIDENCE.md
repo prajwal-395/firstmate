@@ -6021,10 +6021,7 @@ discipline reads the measurements WITH, and what is and is not that step's
 to decide - and it carries no preference about the answer, which
 `tests/test_no_creative_floors.py` reads the rendered text to hold.
 
-Nine of the eleven model-reaching steps still have no declared role, and
-each is recorded in `WITHOUT_A_DECLARED_ROLE` with what it is addressed as
-today. That is a gap made visible rather than closed: writing a role for a
-discipline nobody has studied would be the engine inventing an expertise,
+Steps with no declared role are recorded in `WITHOUT_A_DECLARED_ROLE` with what each is addressed as today - the live census is the two tables in `library/tools/craft_role.py`, whose prose counts `tests/test_craft_role.py` pins. That is a gap made visible rather than closed: writing a role for a discipline nobody has studied would be the engine inventing an expertise,
 which is the defect one level up.
 
 ## the-build-that-deleted-nineteen-timelines-to-write-one
