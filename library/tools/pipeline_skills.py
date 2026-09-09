@@ -211,6 +211,31 @@ SKILLS: Dict[str, Skill] = {
                  "Recorded into the retry context, never enforced."),
         pipeline_args=None,
     ),
+    "verify_treatment": Skill(
+        name="verify_treatment",
+        kind=GATE,
+        module="library.skills.verify_treatment",
+        when=("You are planning a visual treatment - drift, a switch "
+              "animation, any per-clip comp key - and the picture it "
+              "draws is your claim to check. Run this FIRST, on your own "
+              "params, before you answer. Never to judge a finished "
+              "file - that is verify_render - and never when the numbers "
+              "in front of you already answer."),
+        cost=("Free. Two comp builds plus a spline evaluation per "
+              "rendered frame - milliseconds per clip, no Resolve, no "
+              "model; the receipt records what your call cost. Stills "
+              "are cheap ffmpeg seeks. The Gemma pass runs only when "
+              "you ask for it, and its answer is recorded, never "
+              "enforced."),
+        returns=("A verdict that GATES: `passed` plus the before/after "
+                  "frames that changed, the declared window, and what "
+                  "the picture keeps. `passed: false` names the failure "
+                  "(`outside_window`, `drew_nothing`, `never_settles`) - "
+                  "say which and what it measured, and do not ship the "
+                  "treatment. Change or drop the entry instead: the "
+                  "applier undoes a failed treatment itself."),
+        pipeline_args=None,
+    ),
 }
 
 SKILLS_KEY = "skills"
@@ -359,6 +384,13 @@ def _invocation_lines(skill: Skill, full_auto: Optional[str]) -> str:
             f"pipeline runs `{skill.name}` for you: its verdict is fed "
             f"back into your context and still "
             f"{'gates' if skill.kind == GATE else 'reports'}.")
+    if skill.kind == GATE:
+        return (
+            f"- You have no shell and the pipeline has no route to run "
+            f"`{skill.name}` for you - it needs your answer's own effect "
+            f"params, which exist only once you answer. Say so and do "
+            f"not answer until the check runs: a declared gating skill "
+            f"that did not run fails the step.")
     return (
         "- You have no shell and this skill is ask-on-request: say what "
         "you need to see and the pipeline runs it for you, or decide "

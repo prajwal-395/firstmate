@@ -73,6 +73,13 @@ from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
 
+try:
+    from library.tools.treatment_verify import verify_and_undo
+    from library.tools import pipeline_skills as _skills
+except ImportError:  # pragma: no cover - script entry point
+    from treatment_verify import verify_and_undo
+    import pipeline_skills as _skills
+
 # Both entry points again: as a script the package path does not exist.
 try:
     from execution.fusion_tracks import fusion_comp_tracks
@@ -198,7 +205,8 @@ def _map_clips_to_items(clips, items):
 
 
 def apply_fusion_comps(manifest, project_folder,
-                       expected_project=None, expected_timeline=None):
+                       expected_project=None, expected_timeline=None,
+                       step_id="render"):
     resolve = dvr.scriptapp("Resolve")
     if not resolve:
         print("ERROR: Could not connect to Resolve.", file=sys.stderr)
@@ -275,6 +283,11 @@ def apply_fusion_comps(manifest, project_folder,
 
     has_any_effects = per_clip_effects or transition_by_clip
     comp_dir = None
+    # One aggregate record of what the treatment check saw, per clip.
+    # Written as a verify_treatment receipt at the end of the pass, so
+    # the look-before-you-ship evidence lives where the other skill
+    # receipts live - readable back from disk, never a self-report.
+    treatment_report = []
 
     # Imported at function scope, not inside the `has_any_effects` branch:
     # the generator-overlay pass at the bottom of this function reads
@@ -473,6 +486,35 @@ def apply_fusion_comps(manifest, project_folder,
             has_zoom = any(k in effects for k in ZOOM_KEYS)
             normalize_effects(effects, has_zoom)
 
+            # LOOK at what the treatment draws, where the damage happens.
+            # The timeline item knows how many frames really render -
+            # the source span can count more (pool fps vs timeline fps),
+            # and an end-anchored animation keyed past the end of what
+            # plays never draws. A failed treatment is undone here
+            # (dropped, rebuilt, recorded) rather than shipped blind or
+            # held for the captain to find by eye. A clip that will not
+            # state its duration is checked against the assumed horizon,
+            # and the receipt says so - an unread duration must not take
+            # the check down with it.
+            get_duration = getattr(tl_clip, "GetDuration", None)
+            try:
+                played = int(get_duration() or 0) or None
+            except (TypeError, ValueError):
+                played = None
+            effects, tv_rows = verify_and_undo(
+                effects, clip_dur, played, source_res=source_res)
+            for row in tv_rows:
+                treatment_report.append({"label": label, "where": where,
+                                         **row})
+                if row["undone"]:
+                    print(
+                        f"  ! [{where}] {label}: treatment "
+                        f"{row['treatment']} failed "
+                        f"({row['failure']}) - undone, the picture keeps "
+                        f"what the footage had",
+                        file=sys.stderr,
+                    )
+
             # 2. Check custom asset bank.
             # A generated comp bakes the clip's own frame count into its
             # keyframes (AGENTS.md section 5), so the key must cover
@@ -482,7 +524,8 @@ def apply_fusion_comps(manifest, project_folder,
             # runs, so a re-cut of the same block position would replay
             # the previous run's duration). Same key means same bytes.
             asset_key = clip_asset_key(label, effects, clip_dur,
-                                       source_res=source_res)
+                                       source_res=source_res,
+                                       played_frames=played)
             custom_asset = get_custom_asset(project_folder, asset_key)
             if custom_asset:
                 for cn in (tl_clip.GetFusionCompNameList() or []):
@@ -493,7 +536,8 @@ def apply_fusion_comps(manifest, project_folder,
                 continue
 
             # 3. Generate custom .comp via composable engine
-            comp_content = build_effect_comp(effects, clip_dur, source_res)
+            comp_content = build_effect_comp(effects, clip_dur, source_res,
+                                             played_frames=played)
 
             save_custom_asset(project_folder, asset_key, comp_content)
             
@@ -591,6 +635,20 @@ def apply_fusion_comps(manifest, project_folder,
 
     if comp_dir:
         shutil.rmtree(comp_dir, ignore_errors=True)
+
+    # The pass's own account of what the treatment check saw: one row
+    # per armed treatment, written by this code - never by a model's
+    # claim that it checked. A failed treatment was already undone
+    # above; this is the record, not a second enforcement.
+    if project_folder and treatment_report:
+        undone = sum(1 for r in treatment_report if r.get("undone"))
+        _skills.write_receipt(
+            project_folder, step_id, "verify_treatment",
+            {"skill": "verify_treatment",
+             "passed": undone == 0,
+             "clips_checked": len(treatment_report),
+             "treatments_undone": undone,
+             "rows": treatment_report})
     return True
 
 if __name__ == "__main__":
@@ -605,7 +663,11 @@ if __name__ == "__main__":
                              "find current. Mismatch refuses all mutations.")
     parser.add_argument("--expected-timeline", default=None,
                         help="Resolve timeline name the subprocess expects to "
-                             "find current. Mismatch refuses all mutations.")
+                        "find current. Mismatch refuses all mutations.")
+    parser.add_argument("--step-id", default="render",
+                        help="DAG node id the verify_treatment receipt is "
+                        "filed under (render on the master path, "
+                        "build_reels on the reels path).")
     args = parser.parse_args()
 
     with open(args.manifest) as f:
@@ -617,5 +679,6 @@ if __name__ == "__main__":
         manifest, project_folder,
         expected_project=args.expected_project,
         expected_timeline=args.expected_timeline,
+        step_id=args.step_id,
     )
     sys.exit(0 if success else 1)

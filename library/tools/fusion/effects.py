@@ -771,6 +771,7 @@ class fx:
         strike_gain: float = 2.2,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
+        played_frames: Optional[int] = None,
     ) -> EffectBlock:
         """Old-TV switch-ON at the head of the clip.
 
@@ -785,6 +786,18 @@ class fx:
         defaults here repeat that module's values so the block stays
         usable on its own, and ``comp_builder`` passes the resolved
         declaration through.  All-zero phases return an empty block.
+
+        ``played_frames`` is how many frames the timeline really renders
+        for this clip.  The source span ``played_range`` derives can be
+        longer - pool footage at 30 fps cut onto a 24000/1001 reel
+        timeline plays fewer frames than the source span counts - and an
+        animation keyed past the end of what plays is held flat over
+        everything that does (``played_window``).  Clamping ``last`` to
+        it keeps the hold key inside the rendered range.  A clip with no
+        room for the whole animation is REFUSED by name
+        (``TransitionLongerThanTheClip``), the same refusal a transition
+        half gets: a ramp longer than its clip never reaches neutral, so
+        drawing it holds the effect across the whole clip.
         """
         from library.tools.tv_power import COLLAPSE_CROP
 
@@ -793,6 +806,10 @@ class fx:
             return EffectBlock(nodes=[], input_name="", output_name="")
 
         first, last = played_range(clip_dur, source_in, source_out)
+        if played_frames is not None:
+            last = min(last, max(first, int(played_frames) - 1))
+        assert_ramp_fits(total, first, last,
+                         ttype="tv_power", half="head")
         line_end = first + line_frames
         expand_end = line_end + expand_frames
         settle_end = min(expand_end + bloom_frames, last)
@@ -854,6 +871,7 @@ class fx:
         dot_size: float = 0.05,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
+        played_frames: Optional[int] = None,
     ) -> EffectBlock:
         """Old-TV switch-OFF at the tail of the clip.
 
@@ -863,7 +881,9 @@ class fx:
         decays to black over ``decay_frames``.  ``Crop`` draws the
         collapse, a uniform ``Transform`` the dot (its animated peak is
         1.0, inside the 1.04 ceiling), ``BrightnessContrast`` the spike
-        and decay.  See ``tv_power_head`` for where the counts live.
+        and decay.  See ``tv_power_head`` for where the counts live,
+        for what ``played_frames`` clamps, and for the refusal when the
+        clip has no room for the animation.
         """
         from library.tools.tv_power import COLLAPSE_CROP
 
@@ -872,6 +892,10 @@ class fx:
             return EffectBlock(nodes=[], input_name="", output_name="")
 
         first, last = played_range(clip_dur, source_in, source_out)
+        if played_frames is not None:
+            last = min(last, max(first, int(played_frames) - 1))
+        assert_ramp_fits(total, first, last,
+                         ttype="tv_power", half="tail")
         start = max(first, last - total)
         line_at = start + collapse_frames
         dot_at = min(line_at + dot_frames, last)

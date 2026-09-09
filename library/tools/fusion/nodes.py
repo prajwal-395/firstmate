@@ -156,7 +156,10 @@ class BezierSpline:
             offset: Add this to the scaled value.
             reverse: If True, goes 1→0 instead of 0→1.
             hold_before: If set, add a keyframe at frame 0 with this value.
-            hold_after: If set, add a keyframe at end_frame+N with this value.
+            hold_after: If set, a FRAME NUMBER (not an offset): add a
+                keyframe at that frame carrying the spline's last sampled
+                value. Pass the clip's last played frame to hold the
+                settled value through the end of what renders.
             color: Spline color.
 
         Returns:

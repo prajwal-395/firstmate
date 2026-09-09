@@ -790,7 +790,8 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
 
 def apply_comps(manifest: dict, project_folder: str,
                 resolve_project_name: str, timeline_name: str,
-                python_executable: Optional[str] = None) -> bool:
+                python_executable: Optional[str] = None,
+                step_id: str = "build_reels") -> bool:
     """Run the Fusion pass over the reel's own timeline, in its own process.
 
     AGENTS.md 5: never create a timeline and use `ImportFusionComp` in
@@ -819,7 +820,8 @@ def apply_comps(manifest: dict, project_folder: str,
         [python_executable or sys.executable, module, manifest_path,
          "--project-folder", project_folder,
          "--expected-project", resolve_project_name,
-         "--expected-timeline", timeline_name],
+         "--expected-timeline", timeline_name,
+         "--step-id", step_id],
         capture_output=True, encoding="utf-8", check=False)
     if result.stdout:
         print(result.stdout, file=sys.stderr)

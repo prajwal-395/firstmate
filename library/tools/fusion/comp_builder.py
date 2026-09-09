@@ -65,7 +65,8 @@ DEFAULT_SOURCE_RES = (1080, 1920)
 
 
 def build_effect_comp(effects: dict, clip_dur: int,
-                      source_res: tuple = None) -> str:
+                       source_res: tuple = None,
+                       played_frames: int = None) -> str:
     """Turn one clip's effect parameters into a serialized Fusion comp.
 
     This function IS the contract between the planners and the picture:
@@ -89,6 +90,15 @@ def build_effect_comp(effects: dict, clip_dur: int,
     animated keyframe lands inside that range.  When absent the whole
     source is assumed, which is correct only when the placed segment
     uses all of it.
+
+    ``played_frames`` is how many frames the timeline really renders
+    for this clip (the timeline item's own duration).  The source span
+    can count more - pool footage at 30 fps cut onto a 24000/1001 reel
+    timeline plays fewer frames than the source span spans - and an
+    end-anchored animation keyed past the end of what plays never
+    draws: the spline extrapolates flat and the reel silently loses
+    its switch-off.  It reaches the power builders, which clamp their
+    horizon to it and refuse a ramp the clip has no room for.
     """
     res = tuple(source_res) if source_res else DEFAULT_SOURCE_RES
     engine = CompEngine(clip_dur=clip_dur, width=res[0], height=res[1])
@@ -208,6 +218,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             expand_frames=timing['expand_frames'],
             bloom_frames=timing['bloom_frames'],
             source_in=src_in, source_out=src_out,
+            played_frames=played_frames,
         ))
 
     if effects.get('tv_power_tail'):
@@ -220,6 +231,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             dot_frames=timing['dot_frames'],
             decay_frames=timing['decay_frames'],
             source_in=src_in, source_out=src_out,
+            played_frames=played_frames,
         ))
 
     tail_trans = effects.get('tail_transition')

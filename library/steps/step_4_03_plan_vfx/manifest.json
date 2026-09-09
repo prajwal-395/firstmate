@@ -149,5 +149,8 @@
     "view:stability",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename"
+  ],
+  "skills": [
+    "verify_treatment"
   ]
 }

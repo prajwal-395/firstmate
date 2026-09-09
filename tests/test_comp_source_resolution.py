@@ -128,4 +128,8 @@ def test_the_renderer_passes_the_source_frame_to_the_builder():
     """The band came back once because the fix sat on an uncalled path."""
     src = APPLY_FUSION_COMPS.read_text()
     assert "source_res = _source_resolution(mpi)" in src
-    assert "build_effect_comp(effects, clip_dur, source_res)" in src
+    assert "build_effect_comp(effects, clip_dur, source_res," in src
+    # The played horizon travels with it: an end-anchored animation
+    # keyed past everything rendered never draws, so the builder is
+    # told how many frames the timeline really renders for the clip.
+    assert "played_frames=played" in src

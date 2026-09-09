@@ -16,17 +16,24 @@ def get_asset_bank_dir(project_folder: str) -> str:
 
 
 def clip_asset_key(label: str, effects: dict, clip_dur,
-                   source_res=None) -> str:
+                   source_res=None, played_frames=None) -> str:
     """Bank key identifying exactly the comp these inputs generate.
 
     `source_res` is part of the key because the comp's Background nodes
     are built at that size: two clips with identical effects and duration
     but different source frames generate different bytes, and replaying
     one for the other reintroduces the wrong-sized rectangle.
+
+    `played_frames` is part of the key because end-anchored animations
+    are clamped to it: the same effects over the same source render
+    different keyframes for different played lengths, and replaying a
+    pre-clamp comp reintroduces the animation parked past everything
+    rendered. Same key means same bytes.
     """
     fingerprint = json.dumps(
         {"effects": effects, "clip_dur": clip_dur,
-         "source_res": list(source_res) if source_res else None},
+         "source_res": list(source_res) if source_res else None,
+         "played_frames": played_frames},
         sort_keys=True, default=str,
     )
     digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:12]

@@ -1917,6 +1917,10 @@ def build_timeline(
         current_project_name = project.GetName()
         cmd += ["--expected-project", current_project_name]
         cmd += ["--expected-timeline", timeline_name]
+        # The verify_treatment receipt the Fusion pass writes is filed
+        # under this DAG node, so the check that ran where the damage
+        # happens reads back from disk.
+        cmd += ["--step-id", "render"]
         print(f"\n── Launching subprocess for Fusion Comps ──", file=sys.stderr)
         print(f"  expected: project={current_project_name!r} "
               f"timeline={timeline_name!r}", file=sys.stderr)
