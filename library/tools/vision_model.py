@@ -1,5 +1,9 @@
+import json
+import os
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -14,6 +18,85 @@ except ImportError:
 
 
 MODEL_ID = "mlx-community/gemma-4-12b-it-4bit"
+
+# Resident mlx_vlm OpenAI-compatible server (see docs/GEMMA_SERVER.md).
+# When it is up, calls go over HTTP and skip the ~6s / ~7GB in-process
+# model load; when it is not reachable, every method falls back to the
+# in-process path below with a LOUD stderr line. Empty string disables
+# the server path entirely (in-process always).
+SERVER_URL = os.environ.get("GEMMA_SERVER_URL", "http://127.0.0.1:8080").rstrip("/")
+SERVER_MODEL = os.environ.get("GEMMA_SERVER_MODEL", MODEL_ID)
+try:
+    SERVER_TIMEOUT_SECONDS = float(os.environ.get("GEMMA_SERVER_TIMEOUT", "300"))
+except ValueError:
+    SERVER_TIMEOUT_SECONDS = 300.0
+
+
+class _ServerUnusable(RuntimeError):
+    """The resident server cannot answer; caller must fall back loudly."""
+
+
+def _server_chat(content_parts: list, max_tokens: int) -> str:
+    """POST one chat/completions request; raise _ServerUnusable to fall back.
+
+    HTTP 4xx (our payload is malformed) propagates - falling back would
+    mask a client bug. Connection errors, timeouts and 5xx fall back.
+    """
+    if not SERVER_URL:
+        raise _ServerUnusable("GEMMA_SERVER_URL is empty (server path disabled)")
+    url = f"{SERVER_URL}/v1/chat/completions"
+    body = json.dumps(
+        {
+            "model": SERVER_MODEL,
+            "messages": [{"role": "user", "content": content_parts}],
+            "max_tokens": max_tokens,
+            "temperature": 0.1,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=SERVER_TIMEOUT_SECONDS) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        if 500 <= exc.code < 600:
+            raise _ServerUnusable(f"server HTTP {exc.code}") from exc
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise _ServerUnusable(str(exc)) from exc
+    try:
+        return payload["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as exc:
+        raise _ServerUnusable(f"unexpected response shape: {payload!r:.200}") from exc
+
+
+def _via_server_or_fallback(content_parts: list, max_tokens: int, what: str):
+    """Return (text, True) from the server, or (None, False) to run in-process.
+
+    Both directions print to stderr, never stdout - a step's stdout is its
+    JSON result (see library/tools/step_stdout.py).
+    """
+    if not SERVER_URL:
+        print(
+            f"GEMMA SERVER path disabled (GEMMA_SERVER_URL is empty); "
+            f"using in-process {MODEL_ID}.",
+            file=sys.stderr,
+        )
+        return None, False
+    try:
+        text = _server_chat(content_parts, max_tokens)
+    except _ServerUnusable as exc:
+        print(
+            f"GEMMA SERVER unreachable at {SERVER_URL} ({exc}); "
+            f"falling back to in-process {MODEL_ID} "
+            f"(full model load, ~6s, ~7GB resident).",
+            file=sys.stderr,
+        )
+        return None, False
+    print(
+        f"GEMMA SERVER answered {what} at {SERVER_URL} (resident, no model load).",
+        file=sys.stderr,
+    )
+    return text, True
 
 
 class VisionModel:
@@ -44,6 +127,13 @@ class VisionModel:
 
     def analyze_image(self, image_path: str, prompt: str, max_tokens: int = 600) -> str:
         """Analyze a single image."""
+        parts = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": image_path}},
+        ]
+        text, via_server = _via_server_or_fallback(parts, max_tokens, "analyze_image")
+        if via_server:
+            return text
         self._ensure_loaded()
         
         formatted = apply_chat_template(
@@ -62,6 +152,13 @@ class VisionModel:
 
     def analyze_images(self, image_paths: List[str], prompt: str, max_tokens: int = 800) -> str:
         """Analyze multiple images."""
+        parts = [{"type": "text", "text": prompt}]
+        parts += [
+            {"type": "image_url", "image_url": {"url": p}} for p in image_paths
+        ]
+        text, via_server = _via_server_or_fallback(parts, max_tokens, "analyze_images")
+        if via_server:
+            return text
         self._ensure_loaded()
         
         formatted = apply_chat_template(
@@ -80,6 +177,13 @@ class VisionModel:
 
     def analyze_video(self, video_path: str, prompt: str, max_tokens: int = 800) -> str:
         """Analyze a video file natively."""
+        parts = [
+            {"type": "text", "text": prompt},
+            {"type": "video_url", "video_url": {"url": video_path}},
+        ]
+        text, via_server = _via_server_or_fallback(parts, max_tokens, "analyze_video")
+        if via_server:
+            return text
         self._ensure_loaded()
         
         prompt_with_video = f"<|video|>{prompt}"
