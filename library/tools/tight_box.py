@@ -47,6 +47,35 @@ Beyond the laid-out glyph boxes the render paints:
 `PAD_X` / `PAD_TOP` / `PAD_BOTTOM` clear the shadow plus a margin, and
 dominate the 2% edge margin `subtitle_qa` fails ink within.
 
+Why the box is MEASURED, not predicted
+--------------------------------------
+`tighten_subtitle_props` below predicts the union from PIL word widths.
+Measured on the field test (Reel 12, 2026-09-09) the prediction clips:
+10 of 12 pilot segments drew ink outside their predicted boxes, because
+the PIL fitter under-measures against the Chromium renderer - one card
+the box laid out as a single 840px line rendered as two lines 638px
+wide, with ink 25px above the box top across 33 frames. Asking one
+engine to predict another's glyph metrics is the defect; the render
+path therefore derives the box from a decoded probe render
+(`ink_union_of_frames` + `tighten_measured`) and `verify_frames` FAILS
+a tight output that does not match the probe, never warns past it. The
+predictor stays for planning-time estimates; nothing that reaches a
+timeline is sized by it.
+
+Why the placement is a CORRESPONDENCE, not pads arithmetic
+----------------------------------------------------------
+The composition lays cards out against the CANVAS (`width: 100%`,
+bottom-anchored at `safeArea.bottom`), so a narrower canvas re-centers
+the content: measured 2026-09-09, a 348px tight render of a 1080px
+probe drew the identical 300x94 card shifted a constant (-8, -5)px on
+every one of its 26 frames - same pixels, translated. Placing the
+canvas at union-minus-pads would land that card 8px off. The placement
+is therefore read off the two renders themselves
+(`resolve_placement_from_correspondence`): the tight union is
+translated onto the probe union, and the gate proves the translation
+holds on every frame. The canvas is still sized from the probe union
+plus pads - widened to `captionMaxWidth` where narrower, so the wrap
+the probe drew is the wrap the tight canvas draws.
 How the box lands in Resolve
 ----------------------------
 Measured on Resolve 21 against solid-colour clips, 2026-09-08, on a
@@ -70,13 +99,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Optional
 
 from library.steps.step_4_01_plan_subtitles.step import (
     EMPHASIS_SCALE,
     WORD_GAP_EM,
     CaptionFitter,
 )
+from library.tools.qa.subtitle_qa import ALPHA_INK_THRESHOLD
 from library.tools.render_fonts import measurable_font_path
 
 # Beyond the flex-box edge: shadow blur (~20px) plus margin. The
@@ -187,7 +216,7 @@ def placement_for_box(canvas_w: float, canvas_h: float,
 
 
 def tighten_subtitle_props(props: dict,
-                           project_folder: str = "") -> Optional[TightBox]:
+                           project_folder: str = "") -> TightBox | None:
     """The tight canvas for one segment's full-canvas props, or None.
 
     Returns None when the segment draws nothing (no subtitles), so the
@@ -293,3 +322,344 @@ def tighten_subtitle_props(props: dict,
         full_width=full_w,
         full_height=full_h,
     )
+
+
+# ─── Measured boxes: from the decoded probe, never predicted ──────────
+
+# Resolve holds Pan/Tilt to four times the timeline dimensions, and
+# refuses silently: setting beyond returns True and reads back the
+# clamp. Measured 2026-09-09 on Resolve 21, scratch timelines (never
+# the captain's): on 1920x1080 Pan stops at +-7680 and Tilt at +-4320;
+# on 1080x1920 Pan stops at +-4320 and Tilt at +-7680. A small canvas
+# needs large transforms - shifting a 146px-tall box 603px down the
+# frame takes Tilt -7929 - so the range is a real gate: a placement
+# Resolve cannot hold is refused exactly like a box that clips ink.
+PAN_TILT_RANGE_FACTOR = 4
+
+
+def placement_limits(timeline_w: int, timeline_h: int) -> tuple[float, float]:
+    """The largest |Pan| and |Tilt| Resolve holds, measured above."""
+    return (PAN_TILT_RANGE_FACTOR * timeline_w,
+            PAN_TILT_RANGE_FACTOR * timeline_h)
+
+class TightBoxClipsInk(ValueError):
+    """The measured union plus pads leaves the delivery frame.
+
+    Clamping would cut ink, so the box refuses instead. Full-canvas QA
+    keeps legit ink 2% inside the frame, so only a broken measurement
+    can trip this - which is exactly when refusing is correct.
+    """
+
+
+class TightBoxMismatch(ValueError):
+    """The tight output is not the probe crop: cut-off text on a
+    timeline. Raised, never warned past - see `verify_frames`."""
+
+
+@dataclass(frozen=True)
+class InkUnion:
+    """What the probe render actually drew, in full-frame pixels.
+
+    `x1`/`y1` are EXCLUSIVE, PIL `getbbox` convention. `inked_frames`
+    counts the frames that drew anything, so a caller can tell a
+    mostly-paused segment from a blank one.
+    """
+
+    x0: int
+    y0: int
+    x1: int
+    y1: int
+    inked_frames: int
+
+
+def ink_union_of_frames(frame_paths: list[str]) -> InkUnion | None:
+    """The union of drawn bounds across decoded probe frames, or None.
+
+    None means no frame drew anything: there is nothing to bound, so
+    the caller keeps the full-canvas path. An UNREADABLE frame raises
+    rather than reading as blank - absent evidence is not empty
+    evidence.
+    """
+    from PIL import Image
+
+    x0 = y0 = None
+    x1 = y1 = None
+    inked = 0
+    for path in frame_paths:
+        try:
+            with Image.open(path) as im:
+                bbox = im.convert("RGBA").getchannel("A").getbbox()
+        except OSError as exc:
+            raise TightBoxMismatch(
+                f"probe frame {path} cannot be decoded: {exc}") from exc
+        if bbox is None:
+            continue
+        inked += 1
+        left, top, right, bottom = bbox
+        x0 = left if x0 is None else min(x0, left)
+        y0 = top if y0 is None else min(y0, top)
+        x1 = right if x1 is None else max(x1, right)
+        y1 = bottom if y1 is None else max(y1, bottom)
+    if x0 is None:
+        return None
+    return InkUnion(x0=x0, y0=y0, x1=x1, y1=y1, inked_frames=inked)
+
+
+def extract_frames(mov_path: str, dest_dir: str) -> list[str]:
+    """Every frame of a probe mov as PNGs, in order. Raises loudly -
+    a probe that cannot be decoded fails the segment, never a box
+    measured off half its frames."""
+    import os
+    import subprocess
+
+    os.makedirs(dest_dir, exist_ok=True)
+    pattern = os.path.join(dest_dir, "probe-%04d.png")
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", mov_path, pattern],
+            capture_output=True, text=True, encoding="utf-8", timeout=600,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TightBoxMismatch(
+            f"cannot decode probe {mov_path}: {exc}") from exc
+    if result.returncode != 0:
+        raise TightBoxMismatch(
+            f"cannot decode probe {mov_path}: "
+            f"{(result.stderr or '').strip()[-300:]}")
+    paths = sorted(name for name in os.listdir(dest_dir)
+                   if name.endswith(".png"))
+    if not paths:
+        raise TightBoxMismatch(
+            f"probe {mov_path} decoded to no frames")
+    return [os.path.join(dest_dir, name) for name in paths]
+
+
+def tighten_measured(props: dict, union: InkUnion) -> TightBox:
+    """The tight canvas SIZE for a MEASURED ink union, with provisional
+    placement.
+
+    The canvas is the union expanded by the pads - widened to
+    `captionMaxWidth` where narrower, so the card wraps exactly as on
+    the probe (the flex container is `width: 100%`: a narrower canvas
+    would rewrap). The canvas that would leave the delivery frame
+    raises `TightBoxClipsInk` rather than clamping ink away.
+
+    The placement is PROVISIONAL: the composition re-centers content
+    in the narrower canvas, so the final origin is read off the two
+    renders (`resolve_placement_from_correspondence`) once the tight
+    output exists. `captionMaxWidth` passes through unchanged.
+    """
+    subtitles = props.get("subtitles") or []
+    if not subtitles:
+        return None
+
+    style = props.get("style") or {}
+    max_width = style.get("captionMaxWidth")
+    if not max_width:
+        raise ValueError(
+            "subtitle props carry no style.captionMaxWidth - the wrap "
+            "basis is unknown, so no measured box can claim the layout.")
+
+    full_w = int(props.get("width", 0))
+    full_h = int(props.get("height", 0))
+
+    union_w = float(union.x1 - union.x0)
+    union_h = float(union.y1 - union.y0)
+    canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
+    canvas_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
+    if canvas_w > full_w or canvas_h > full_h:
+        raise TightBoxClipsInk(
+            f"measured ink ({union.x0},{union.y0})-({union.x1},{union.y1}) "
+            f"needs {canvas_w}x{canvas_h} on a {full_w}x{full_h} frame: "
+            f"clamping would cut ink, so there is no tight box.")
+
+    # Provisional origin: union minus pads. Replaced by correspondence
+    # once the tight render exists - see the module docstring.
+    provisional = placement_for_box(
+        canvas_w, canvas_h,
+        union.x0 - PAD_X + canvas_w / 2.0,
+        union.y0 - PAD_TOP + canvas_h / 2.0,
+        full_w, full_h)
+
+    tight_style = dict(style)
+    tight_style["safeArea"] = {
+        "top": PAD_TOP, "right": PAD_X,
+        "bottom": PAD_BOTTOM, "left": PAD_X,
+    }
+    tight_props = dict(props)
+    tight_props["width"] = canvas_w
+    tight_props["height"] = canvas_h
+    tight_props["style"] = tight_style
+
+    return TightBox(
+        width=canvas_w,
+        height=canvas_h,
+        props=tight_props,
+        placement=provisional,
+        union_w=union_w,
+        union_h=union_h,
+        full_width=full_w,
+        full_height=full_h,
+    )
+
+
+def resolve_placement_from_correspondence(
+        probe_union: InkUnion, tight_union: InkUnion,
+        canvas_w: int, canvas_h: int,
+        full_w: int, full_h: int,
+        timeline_size: tuple[int, int] | None = None) -> dict:
+    """Where the tight canvas sits, read off the two renders.
+
+    The tight layout is the probe layout translated (measured constant
+    across all 26 frames of the pilot segment), so the canvas origin is
+    the probe union minus the tight union - no pads, no centring
+    assumption. An origin that leaves the delivery frame, or a
+    transform Resolve cannot hold (`timeline_size` bounds Pan/Tilt at
+    four times the timeline dimensions, measured 2026-09-09), raises
+    `TightBoxMismatch`: the renders disagree about the layout, or the
+    layout is unplaceable, and the segment is refused either way.
+    """
+    ox = probe_union.x0 - tight_union.x0
+    oy = probe_union.y0 - tight_union.y0
+    if ox < 0 or oy < 0 or ox + canvas_w > full_w \
+            or oy + canvas_h > full_h:
+        raise TightBoxMismatch(
+            f"correspondence puts a {canvas_w}x{canvas_h} canvas at "
+            f"({ox},{oy}) on a {full_w}x{full_h} frame: the tight "
+            f"render laid out differently from the probe, so there is "
+            f"no placement that lands it.")
+    placement = placement_for_box(
+        canvas_w, canvas_h,
+        ox + canvas_w / 2.0, oy + canvas_h / 2.0,
+        full_w, full_h)
+    if timeline_size is not None:
+        pan_limit, tilt_limit = placement_limits(*timeline_size)
+        if abs(placement["pan"]) > pan_limit \
+                or abs(placement["tilt"]) > tilt_limit:
+            raise TightBoxMismatch(
+                f"correspondence needs Pan {placement['pan']:.1f} / "
+                f"Tilt {placement['tilt']:.1f} on a "
+                f"{timeline_size[0]}x{timeline_size[1]} timeline, "
+                f"where Resolve holds Pan to +-{pan_limit:.0f} and "
+                f"Tilt to +-{tilt_limit:.0f} (measured 2026-09-09, "
+                f"refused silently past it): this caption cannot ride "
+                f"a small box, and stays full-canvas.")
+    return placement
+
+
+def finalize_box_placement(box: TightBox, probe_union: InkUnion,
+                           tight_union: InkUnion,
+                           timeline_size: tuple[int, int] | None = None
+                           ) -> TightBox:
+    """The same box with correspondence placement. `verify_frames`
+    proves the translation it records."""
+    import dataclasses
+
+    return dataclasses.replace(
+        box,
+        placement=resolve_placement_from_correspondence(
+            probe_union, tight_union,
+            box.width, box.height, box.full_width, box.full_height,
+            timeline_size),
+    )
+
+
+def canvas_offset(box: TightBox) -> tuple[int, int]:
+    """Where the tight canvas sits in full-frame pixels: the inverse of
+    `placement_for_box`, so the file reader and the Resolve placer agree
+    on one origin. Integer-exact: the placement floats round-trip."""
+    dx = box.placement["pan"] * (box.width / box.full_width)
+    dy = -box.placement["tilt"] * (box.height / box.full_height)
+    return (
+        int(round(box.full_width / 2.0 + dx - box.width / 2.0)),
+        int(round(box.full_height / 2.0 + dy - box.height / 2.0)),
+    )
+
+
+def verify_frames(full_paths: list[str], tight_paths: list[str],
+                  box: TightBox, max_diff: int = 4,
+                  min_iou: float = 0.99,
+                  max_centroid: float = 1.0) -> dict:
+    """The tight output IS the probe crop, frame by frame, or it raises.
+
+    Each tight frame is pasted onto a blank full-size canvas at
+    `canvas_offset` and compared against the probe frame: worst channel
+    difference, ink-maks IoU and ink centroid offset, in PR 725's
+    evidence shape. Any breach raises `TightBoxMismatch` - a box that
+    clips ink FAILS, never warns. NumPy throughout: a 1080x1920
+    per-pixel Python loop over hundreds of segments is hours.
+    """
+    import numpy as np
+    from PIL import Image
+
+    if len(full_paths) != len(tight_paths):
+        raise TightBoxMismatch(
+            f"frame count differs: {len(full_paths)} probe frames vs "
+            f"{len(tight_paths)} tight frames - nothing lines up.")
+    ox, oy = canvas_offset(box)
+    worst_diff = 0
+    worst_iou = 1.0
+    worst_centroid = 0.0
+    for full_path, tight_path in zip(full_paths, tight_paths):
+        with Image.open(full_path) as im:
+            full = np.asarray(im.convert("RGBA")).astype(np.int16)
+        with Image.open(tight_path) as im:
+            tight = np.asarray(im.convert("RGBA")).astype(np.int16)
+        if (full.shape[1], full.shape[0]) != (box.full_width,
+                                              box.full_height):
+            raise TightBoxMismatch(
+                f"probe frame {full_path} is "
+                f"{full.shape[1]}x{full.shape[0]}, not the "
+                f"{box.full_width}x{box.full_height} the box was "
+                f"measured on.")
+        if (tight.shape[1], tight.shape[0]) != (box.width, box.height):
+            raise TightBoxMismatch(
+                f"tight frame {tight_path} is "
+                f"{tight.shape[1]}x{tight.shape[0]}, not the "
+                f"{box.width}x{box.height} box.")
+        canvas = np.zeros_like(full)
+        canvas[oy:oy + box.height, ox:ox + box.width] = tight
+        diff = np.abs(full - canvas).max()
+        worst_diff = max(worst_diff, int(diff))
+        full_ink = full[:, :, 3] >= ALPHA_INK_THRESHOLD
+        tight_ink = canvas[:, :, 3] >= ALPHA_INK_THRESHOLD
+        inter = np.logical_and(full_ink, tight_ink).sum()
+        union = np.logical_or(full_ink, tight_ink).sum()
+        iou = float(inter) / float(union) if union else 1.0
+        worst_iou = min(worst_iou, iou)
+        if full_ink.any() and tight_ink.any():
+            full_c = np.argwhere(full_ink).mean(axis=0)
+            tight_c = np.argwhere(tight_ink).mean(axis=0)
+            off = float(np.sqrt(((full_c - tight_c) ** 2).sum()))
+            worst_centroid = max(worst_centroid, off)
+        if worst_diff > max_diff or worst_iou < min_iou \
+                or worst_centroid > max_centroid:
+            raise TightBoxMismatch(
+                f"tight output is not the probe crop at {full_path}: "
+                f"max channel diff {worst_diff} (allows {max_diff}), "
+                f"ink IoU {worst_iou:.4f} (needs {min_iou}), ink "
+                f"centroid offset {worst_centroid:.2f}px (allows "
+                f"{max_centroid}) - cut-off text stays off the timeline.")
+    return {
+        "frames": len(full_paths),
+        "max_diff": worst_diff,
+        "min_iou": worst_iou,
+        "max_centroid": worst_centroid,
+    }
+
+
+def verify_movs(full_mov: str, tight_mov: str, box: TightBox,
+                work_dir: str) -> dict:
+    """Decode both movs and `verify_frames` them. Extraction failures
+    raise: an unverifiable pair is not a passing pair."""
+    import os
+
+    full_dir = os.path.join(work_dir, "verify_full")
+    tight_dir = os.path.join(work_dir, "verify_tight")
+    return verify_frames(
+        extract_frames(full_mov, full_dir),
+        extract_frames(tight_mov, tight_dir),
+        box,
+    )
+

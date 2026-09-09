@@ -60,7 +60,6 @@ from pathlib import Path
 from generate_remotion_props import generate_subtitle_props_per_block
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from library.tools.step_stdout import claim_stdout, emit
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.remotion_batch import (
     PersistentRenderer,
@@ -77,9 +76,13 @@ from library.tools.qa.subtitle_qa import (
     ALPHA_INK_THRESHOLD,
     check_caption_geometry,
 )
+from library.tools.step_stdout import claim_stdout, emit
 from library.tools.subtitle_segment_id import (
-    assert_named_timeline, assert_unique_segment_names, segment_binding,
-    segment_identifier, timeline_scope,
+    assert_named_timeline,
+    assert_unique_segment_names,
+    segment_binding,
+    segment_identifier,
+    timeline_scope,
 )
 
 # Where the Remotion project lives, repo-relative.  A module constant so
@@ -202,6 +205,102 @@ def _tally(segments) -> dict:
                 f"of {PROVENANCES} happened to it.")
         counts[provenance] += 1
     return counts
+
+
+class _TightFailed(Exception):
+    """The tight path cannot deliver this segment, with the reason.
+
+    Raised inside the probe/measure gate and converted to a FAILED
+    entry at the one place that owns entries - never warned past, so a
+    box that clips ink refuses the step through the existing
+    availability rule instead of landing cut-off text on a timeline.
+    """
+
+    def __init__(self, reason: str):
+        self.reason = reason
+        super().__init__(reason)
+
+
+def _box_sidecar_path(out_dir: str, segment_name: str, suffix: str) -> str:
+    return os.path.join(out_dir, f"{segment_name}{suffix}_box.json")
+
+
+def _probe_tight_box(props: dict, out_dir: str, engine,
+                     remotion_dir: str, container: str,
+                     probe_mov: str | None, progress: str):
+    """Measure this segment's box off a decoded probe render.
+
+    Returns `(box_or_None, probe_tmpdir, probe_frames, union_or_None)`:
+    None where the probe draws nothing (the caller keeps the
+    full-canvas path), else the measured `TightBox` with the frames it
+    was measured from. The caller owns `probe_tmpdir` - render, verify,
+    then delete it. Raises `_TightFailed` where no exact box exists.
+    """
+    import shutil
+    import tempfile
+
+    from library.tools.overlay_placement import (
+        sequence_frame_paths as _sequence_paths,
+    )
+    from library.tools.tight_box import (
+        TightBoxClipsInk,
+        TightBoxMismatch,
+        extract_frames,
+        ink_union_of_frames,
+        tighten_measured,
+    )
+
+    probe_tmpdir = tempfile.mkdtemp(prefix="probe_", dir=out_dir)
+    try:
+        if probe_mov:
+            probe_frames = extract_frames(probe_mov, probe_tmpdir)
+        elif container == "frames":
+            probe_props_path = os.path.join(probe_tmpdir,
+                                            "probe_props.json")
+            with open(probe_props_path, "w") as handle:
+                json.dump(props, handle, indent=2)
+            ok, error = engine.render(probe_props_path, probe_tmpdir,
+                                      sequence=True)
+            if not ok:
+                raise _TightFailed(
+                    f"probe render failed: "
+                    f"{(error or '').strip()[:300] or 'render failed'}")
+            probe_frames = _sequence_paths(probe_tmpdir)
+            if not probe_frames:
+                raise _TightFailed(
+                    "probe render reported success but holds no frames")
+        else:
+            probe_mov_path = os.path.join(probe_tmpdir, "probe.mov")
+            probe_props_path = os.path.join(probe_tmpdir,
+                                            "probe_props.json")
+            with open(probe_props_path, "w") as handle:
+                json.dump(props, handle, indent=2)
+            ok, error = engine.render(probe_props_path, probe_mov_path,
+                                      sequence=False)
+            if not ok:
+                raise _TightFailed(
+                    f"probe render failed: "
+                    f"{(error or '').strip()[:300] or 'render failed'}")
+            probe_frames = extract_frames(probe_mov_path, probe_tmpdir)
+        try:
+            union = ink_union_of_frames(probe_frames)
+        except TightBoxMismatch as exc:
+            raise _TightFailed(str(exc)) from exc
+        if union is None:
+            print(f"  {progress} probe draws nothing - full canvas",
+                  file=sys.stderr)
+            return None, probe_tmpdir, probe_frames, None
+        try:
+            box = tighten_measured(props, union)
+        except (TightBoxClipsInk, ValueError) as exc:
+            raise _TightFailed(str(exc)) from exc
+        print(f"  {progress} measured {box.width}x{box.height} "
+              f"(full {box.full_width}x{box.full_height}, "
+              f"{union.inked_frames} inked frames)", file=sys.stderr)
+        return box, probe_tmpdir, probe_frames, union
+    except Exception:
+        shutil.rmtree(probe_tmpdir, ignore_errors=True)
+        raise
 
 
 class SubprocessRenderer:
@@ -358,7 +457,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        renderer=None,
                        overlay_geometry: str = None,
                        overlay_container: str = None,
-                       project_folder: str = "") -> dict:
+                       project_folder: str = "",
+                       probe_mov: str | None = None) -> dict:
     """Render ONE subtitle segment.  ALWAYS returns an entry.
 
     The per-segment unit, split out from the orchestrator's loop because
@@ -393,6 +493,15 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     of the delivery frame, a PNG sequence instead of a stitched mov.
     Explicit values win; otherwise the project's declaration is read,
     and a project that declares nothing renders exactly as before.
+
+    Where the geometry is tight the box is MEASURED off a decoded
+    probe render, never predicted: a full-canvas probe is rendered to
+    a temp dir (or `probe_mov` is measured directly where the caller
+    hands one over - a migration whose full renders already exist),
+    the ink union across its frames sizes the canvas, and the tight
+    output is verified frame-by-frame against the probe before it is
+    kept. A probe that draws nothing keeps the full-canvas path;
+    anything else that cannot deliver exactly FAILS the segment.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
 
@@ -416,24 +525,14 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     total_frames = props["durationInFrames"]
     num_subs = len(props.get("subtitles", []))
 
-    # The tight canvas, where declared. Computed from the same props
-    # the full render draws from, so the box fits the layout the frame
-    # would have drawn - see library/tools/tight_box.py.
+    # The tight canvas, where declared, is MEASURED off a decoded
+    # probe further down - never predicted (the PIL predictor
+    # under-measures against Chromium and clips ink). The suffix is
+    # known up front; a probe that draws nothing resets it to the
+    # full-canvas name when it falls back.
     tight = None
-    suffix = ""
+    suffix = "_tight" if geometry == "tight" else ""
     render_props = props
-    if geometry == "tight":
-        from library.tools.tight_box import tighten_subtitle_props
-        tight = tighten_subtitle_props(props, project_folder or "")
-        if tight is None:
-            print(f"  {progress} no subtitles to bound - full canvas",
-                  file=sys.stderr)
-        else:
-            render_props = tight.props
-            suffix = "_tight"
-            print(f"  {progress} tight {tight.width}x{tight.height} "
-                  f"(full {tight.full_width}x{tight.full_height})",
-                  file=sys.stderr)
 
     # Generate output path.
     #
@@ -549,10 +648,13 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             rendered_frames=total_frames,
         )
 
-    # The reuse key digests what DRAWS - the tight props where the box
-    # is tight, so a geometry change never serves the other geometry's
-    # file.
-    key = _reuse_key(render_props, remotion_dir)
+    # The reuse key digests what DRAWS - the full props, plus the
+    # renderer fingerprint. The tight output is a deterministic
+    # function of those two (same props through the same renderer
+    # measure the same box), so one key covers both geometries and a
+    # reuse hit needs no probe render. Placement itself is restored
+    # from the box sidecar below, never re-derived.
+    key = _reuse_key(props, remotion_dir)
 
     # ── Skip only on proven-identical CONTENT ──
     if reuse:
@@ -562,15 +664,82 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         except OSError:
             recorded = ""
         if key and recorded == key and _overlay_on_disk():
-            print(f"  {progress} {segment_name}{suffix} reused "
-                  f"(tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
-            return measured(REUSED)
+            if geometry == "tight":
+                # Placement lives in the box sidecar, not in the
+                # filename: restore it without a probe render. A
+                # missing or unreadable sidecar (e.g. a predictor-era
+                # file) falls through to a fresh measured render -
+                # never an assumed placement.
+                try:
+                    with open(_box_sidecar_path(out_dir, segment_name,
+                                                suffix)) as handle:
+                        sidecar = json.load(handle)
+                    from library.tools.tight_box import TightBox
+                    union = sidecar["union"]
+                    tight = TightBox(
+                        width=int(sidecar["width"]),
+                        height=int(sidecar["height"]),
+                        props={},
+                        placement=sidecar["placement"],
+                        union_w=float(union["x1"] - union["x0"]),
+                        union_h=float(union["y1"] - union["y0"]),
+                        full_width=int(props.get("width", 0)),
+                        full_height=int(props.get("height", 0)),
+                    )
+                    render_props = props
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    print(f"    note: {segment_name} reuses its key but "
+                          f"its box sidecar is unreadable ({exc}); "
+                          f"re-rendering measured rather than assuming",
+                          file=sys.stderr)
+                else:
+                    print(f"  {progress} {segment_name}{suffix} reused "
+                          f"(tl:{tl_start:.1f}-{tl_end:.1f}s)",
+                          file=sys.stderr)
+                    return measured(REUSED)
+            else:
+                print(f"  {progress} {segment_name}{suffix} reused "
+                      f"(tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
+                return measured(REUSED)
         if not key:
             print(f"    note: renderer fingerprint unavailable, rendering "
                   f"{segment_name} rather than reusing", file=sys.stderr)
         elif recorded and recorded != key:
             print(f"    note: {segment_name} changed since it was rendered "
                   f"- re-rendering", file=sys.stderr)
+
+    # ── Measure the tight box off a decoded probe ──
+    #
+    # The predictor is retired from this path: it under-measures
+    # against Chromium. The probe is a full-canvas render to a temp
+    # dir (or `probe_mov` measured directly), the union across its
+    # frames sizes the canvas, and the tight output is verified
+    # against the probe after rendering. Temp dir is owned here and
+    # deleted once the segment is kept or refused.
+    probe_tmpdir = None
+    probe_frames = None
+    probe_union = None
+    if geometry == "tight":
+        probe_engine = renderer or SubprocessRenderer(remotion_dir)
+        try:
+            tight, probe_tmpdir, probe_frames, probe_union = \
+                _probe_tight_box(
+                    props, out_dir, probe_engine, remotion_dir,
+                    container, probe_mov, progress)
+        except _TightFailed as exc:
+            return entry(FAILED, failure=str(exc.reason)[:500].strip()
+                         or "tight probe failed")
+        if tight is None:
+            suffix = ""
+            overlay_path = os.path.join(out_dir, f"{segment_name}.mov") \
+                if not is_frames else os.path.join(
+                    out_dir, f"{segment_name}_frames")
+            props_path = os.path.join(out_dir, f"{segment_name}_props.json")
+            key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
+            print(f"  {progress} no subtitles to bound - full canvas",
+                  file=sys.stderr)
+        else:
+            render_props = tight.props
 
     # Write props file
     with open(props_path, "w") as f:
@@ -583,17 +752,93 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # Render.  WHICH cards render and what comes back is this function's
     # business; HOW one card is turned into pixels is the renderer's, and
     # the two are deliberately separable - see `SubprocessRenderer`.
+    import shutil as _shutil_probe
+
+    def _drop_probe():
+        if probe_tmpdir:
+            _shutil_probe.rmtree(probe_tmpdir, ignore_errors=True)
+
     engine = renderer or SubprocessRenderer(remotion_dir)
     ok, error = engine.render(props_path, overlay_path,
                               sequence=is_frames)
     if not ok:
+        _drop_probe()
         print(f"    WARN: Render failed: {error[:200]}", file=sys.stderr)
         return entry(FAILED, failure=error[:500].strip() or "render failed")
     if is_frames and not _frames_on_disk():
+        _drop_probe()
         print(f"    WARN: Render reported success but {overlay_path} "
               f"holds no complete sequence", file=sys.stderr)
         return entry(FAILED, failure="sequence incomplete on disk")
-    print(f"    OK: {overlay_path}", file=sys.stderr)
+    if tight is not None:
+        # The gate: the tight output IS the probe crop, or the
+        # segment is refused. Placement is read off the two renders
+        # (the composition re-centers in the narrower canvas), then
+        # proven frame by frame. Cut-off text never reaches a
+        # timeline on a warning.
+        from library.tools.overlay_placement import (
+            sequence_frame_paths as _sequence_paths,
+        )
+        from library.tools.tight_box import (
+            TightBoxMismatch,
+            extract_frames,
+            finalize_box_placement,
+            ink_union_of_frames,
+            verify_frames,
+        )
+        try:
+            if is_frames:
+                tight_frames = _sequence_paths(overlay_path)
+            else:
+                tight_frames = extract_frames(
+                    overlay_path,
+                    os.path.join(probe_tmpdir, "verify_tight"))
+            tight_union = ink_union_of_frames(tight_frames)
+            if tight_union is None:
+                raise TightBoxMismatch(
+                    "tight render draws nothing the probe drew: "
+                    "no correspondence exists.")
+            from library.tools.delivery_format import (
+                resolve_delivery_format,
+            )
+            timeline_size = tuple(resolve_delivery_format(
+                project_folder or None))
+            tight = finalize_box_placement(tight, probe_union,
+                                           tight_union, timeline_size)
+            report = verify_frames(probe_frames, tight_frames, tight)
+        except TightBoxMismatch as exc:
+            _drop_probe()
+            print(f"    WARN: Tight output mismatch: {str(exc)[:200]}",
+                  file=sys.stderr)
+            return entry(FAILED, failure=str(exc)[:500].strip()
+                         or "tight output mismatch")
+        print(f"    OK: {overlay_path} "
+              f"(verified {report['frames']} frames, "
+              f"maxdiff {report['max_diff']}, "
+              f"IoU {report['min_iou']:.4f})", file=sys.stderr)
+        union_path = _box_sidecar_path(out_dir, segment_name, suffix)
+        try:
+            with open(union_path, "w") as handle:
+                json.dump({
+                    "width": tight.width,
+                    "height": tight.height,
+                    "placement": tight.placement,
+                    "union": {
+                        "x0": probe_union.x0,
+                        "y0": probe_union.y0,
+                        "x1": probe_union.x1,
+                        "y1": probe_union.y1,
+                    },
+                    "verify": report,
+                }, handle, indent=2)
+        except OSError as exc:
+            _drop_probe()
+            print(f"    WARN: could not record the box sidecar for "
+                  f"{segment_name} ({exc})", file=sys.stderr)
+            return entry(FAILED, failure="box sidecar unwritable")
+    else:
+        print(f"    OK: {overlay_path}", file=sys.stderr)
+    _drop_probe()
 
     # Recorded only after a render that SUCCEEDED, so a failed or
     # interrupted render leaves no key claiming the file is current.
@@ -888,7 +1133,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                 from tools.qa.subtitle_qa import run_subtitle_qa
                 run_subtitle_qa(usable[0]["overlay_path"], project_folder)
         except Exception as e:
-            error_msg = f"Subtitle QA Validation Failed: {str(e)}"
+            error_msg = f"Subtitle QA Validation Failed: {e!s}"
             print(f"ERROR: {error_msg}", file=sys.stderr)
             # Don't fail the step if it's just QA that failed, unless it's a critical error
             raise SubtitleRenderRefused({
