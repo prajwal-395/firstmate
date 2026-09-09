@@ -282,7 +282,7 @@ def apply_fusion_comps(manifest, project_folder,
     # per-clip VFX and no drawn transitions never entered that branch, so
     # the name was unbound and the whole subprocess died with a NameError.
     # resolve_build_timeline only records that as a warning, so the
-    # generators silently never reached V5.
+    # generators silently never reached their carriers.
     #
     # import_customized_effect is deliberately NOT imported - see the
     # built-in branch below.
@@ -534,23 +534,30 @@ def apply_fusion_comps(manifest, project_folder,
                 print(f"  ✗ [{where}] {label}: ImportFusionComp failed", file=sys.stderr)
 
 
-    # ── Generator overlays on V5 ──
+    # ── Generator overlays ──
     # Generator presets (.setting files) produce content from nothing and
-    # are placed on V5 carrier clips by resolve_build_timeline. Here we
-    # import the .setting file onto each V5 clip.
+    # are placed on carrier clips by resolve_build_timeline. Here we
+    # import the .setting file onto each carrier clip. The row is read
+    # off each overlay's `timeline_row` (stamped by the builder from the
+    # track plan); V5 is the fallback for overlays placed before the
+    # plan existed, not the address.
     gen_overlays = fusion_effects.get('generator_overlays', [])
     if gen_overlays and import_effect_to_clip:
-        v5_items = timeline.GetItemListInTrack("video", 5) or []
+        _gen_rows = {int(g.get("timeline_row", 5)) for g in gen_overlays}
+        _gen_items = []
+        for _row in sorted(_gen_rows):
+            _gen_items.extend(timeline.GetItemListInTrack("video", _row) or [])
+        v5_items = _gen_items
         if v5_items:
             print(
-                f"\n-- V5 Generator Imports: "
+                f"\n-- Generator Imports (rows {sorted(_gen_rows)}): "
                 f"{len(gen_overlays)} overlays, {len(v5_items)} clips --",
                 file=sys.stderr,
             )
             for gi, gen in enumerate(gen_overlays):
                 if gi >= len(v5_items):
                     print(
-                        f"  X [{gi}] {gen['effect_name']}: no V5 clip",
+                        f"  X [{gi}] {gen['effect_name']}: no carrier clip",
                         file=sys.stderr,
                     )
                     continue
@@ -578,7 +585,7 @@ def apply_fusion_comps(manifest, project_folder,
                     )
         else:
             print(
-                "  WARNING: generator_overlays present but no V5 clips",
+                "  WARNING: generator_overlays present but no carrier clips",
                 file=sys.stderr,
             )
 

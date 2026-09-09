@@ -23,10 +23,113 @@ import sys
 from datetime import datetime
 
 
-def extract_metadata(filepath: str) -> dict:
+class ProgramStreamRefused(ValueError):
+    """No stream reaches the timeline by default.
+
+    Which stream of a multi-stream source is the program mix is a
+    project declaration, never a heuristic and never stream 0. When the
+    metadata cannot supply the answer and no declaration names it, the
+    catalog refuses - naming the source and everything ffprobe saw - so
+    a non-program stream can never leak onto a timeline unchosen.
+    """
+
+
+def describe_audio_streams(probe: dict) -> list:
+    """Every audio stream ffprobe reports, with whatever tells them
+    apart: ffprobe index, 1-based channel ordinal among audio streams,
+    codec, channel count and layout, sample rate, language, stream
+    title, handler name, and disposition flags."""
+    streams = []
+    channel = 0
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") != "audio":
+            continue
+        channel += 1
+        tags = stream.get("tags") or {}
+        disposition = stream.get("disposition") or {}
+        streams.append({
+            "index": stream.get("index"),
+            "channel": channel,
+            "codec": stream.get("codec_name", "unknown"),
+            "channels": stream.get("channels"),
+            "channel_layout": stream.get("channel_layout"),
+            "sample_rate": (
+                int(stream["sample_rate"])
+                if stream.get("sample_rate") not in (None, "")
+                else None
+            ),
+            "language": tags.get("language"),
+            "title": tags.get("title"),
+            "handler": stream.get("codec_tag_string"),
+            "disposition_default": disposition.get("default"),
+        })
+    return streams
+
+
+def _stream_signature(stream: dict) -> str:
+    """One line saying what ffprobe saw for one stream, for refusals."""
+    return (
+        f"audio stream {stream.get('index')} (CH{stream.get('channel')}): "
+        f"{stream.get('codec')}, channels={stream.get('channels')}, "
+        f"layout={stream.get('channel_layout')}, "
+        f"lang={stream.get('language')}, title={stream.get('title')}, "
+        f"handler={stream.get('handler')}, "
+        f"default={stream.get('disposition_default')}"
+    )
+
+
+def select_program_stream(audio_streams: list, declaration=None,
+                          source: str = "") -> dict:
+    """Which recorded stream reaches the timeline.
+
+    - No streams: returns None (the source is silent).
+    - One stream: it is the program, basis "single".
+    - More than one: `declaration` - the 1-based channel ordinal the
+      project declares - names it, basis "declared". Anything else is
+      a ProgramStreamRefused naming the source and every stream seen.
+      Even distinguishable metadata does not choose: the mix is
+      declared, not inferred.
+    """
+    if not audio_streams:
+        return None
+    if len(audio_streams) == 1:
+        chosen = dict(audio_streams[0])
+        chosen["basis"] = "single"
+        return chosen
+    if declaration is not None:
+        for stream in audio_streams:
+            if stream.get("channel") == declaration:
+                chosen = dict(stream)
+                chosen["basis"] = "declared"
+                return chosen
+        raise ProgramStreamRefused(
+            f"Refusal: project declares program stream CH{declaration} "
+            f"for {source!r}, but it carries {len(audio_streams)} audio "
+            f"streams and none is CH{declaration}: "
+            + "; ".join(_stream_signature(s) for s in audio_streams)
+        )
+    return _refuse_program_stream(audio_streams, source)
+
+
+def _refuse_program_stream(audio_streams: list, source: str) -> dict:
+    """The refusal both selection paths share: say the source and what
+    was seen, rather than defaulting to stream 0 and calling it the mix."""
+    raise ProgramStreamRefused(
+        f"Refusal: {source!r} carries {len(audio_streams)} audio streams "
+        f"with no declared program stream, so none is selected: "
+        + "; ".join(_stream_signature(s) for s in audio_streams)
+    )
+
+
+def extract_metadata(filepath: str, program_stream=None) -> dict:
     """
     Extract technical metadata from a video file using ffprobe.
     Returns a dict of metadata fields, or a dict with an 'error' key if extraction fails.
+
+    `program_stream` is the project's declaration of which audio stream
+    is the program mix (1-based channel ordinal, e.g. 1 for CH1). A
+    multi-stream source without one is RECORDED as refused, never
+    defaulted: see `select_program_stream`.
     """
     try:
         result = subprocess.run(
@@ -63,14 +166,19 @@ def extract_metadata(filepath: str) -> dict:
         print(f"WARNING: {err_msg} for {filepath}", file=sys.stderr)
         return {"error": err_msg}
 
-    # Find video and audio streams
+    # Find the video stream and EVERY audio stream. The catalog used to
+    # take the first audio stream it found and discard the rest, so a
+    # four-stream MXF arrived downstream as one stream and nothing ever
+    # decided which of the four reaches the timeline - the root of the
+    # non-program leak. Every stream is recorded now; the program-stream
+    # selection below decides, or refuses.
     video_stream = None
-    audio_stream = None
+    audio_streams = []
     for stream in probe.get("streams", []):
         if stream.get("codec_type") == "video" and video_stream is None:
             video_stream = stream
-        elif stream.get("codec_type") == "audio" and audio_stream is None:
-            audio_stream = stream
+        elif stream.get("codec_type") == "audio":
+            audio_streams.append(stream)
 
     if not video_stream:
         err_msg = "No video stream found"
@@ -127,27 +235,49 @@ def extract_metadata(filepath: str) -> dict:
         except ValueError:
             rotation = 0
 
+    # The program-stream decision, recorded, never defaulted. A
+    # refusal is data on the entry - not an exception - so one
+    # undeclared source cannot fail the whole catalog; the entry says
+    # which source and what ffprobe saw, and downstream must not place
+    # its audio until the project declares.
+    described_streams = describe_audio_streams(probe)
+    _program_selection = None
+    _program_refusal = None
+    try:
+        _program_selection = select_program_stream(
+            described_streams, declaration=program_stream,
+            source=os.path.basename(filepath))
+    except ProgramStreamRefused as exc:
+        _program_refusal = str(exc)
+
     return {
         "duration_seconds": round(float(fmt.get("duration", 0)), 3),
         "width": int(video_stream.get("width", 0)),
         "height": int(video_stream.get("height", 0)),
         "frame_rate": frame_rate,
         "video_codec": video_stream.get("codec_name", "unknown"),
-        "audio_codec": audio_stream.get("codec_name") if audio_stream else None,
+        # Every stream the source carries, with whatever tells them
+        # apart. Downstream places exactly one of them; the choice is
+        # recorded in `program_stream`, or refused in its place.
+        "audio_streams": describe_audio_streams(probe),
+        "program_stream": _program_selection,
+        "program_stream_refusal": _program_refusal,
+        # Legacy singular fields describe the SELECTED program stream,
+        # so existing readers keep working. Refused means unselected:
+        # None, never stream 0 dressed as the mix.
+        "audio_codec": _program_selection.get("codec") if _program_selection else None,
         "audio_channels": (
-            int(audio_stream["channels"])
-            if audio_stream and "channels" in audio_stream
-            else None
+            _program_selection.get("channels")
+            if _program_selection else None
         ),
         "audio_sample_rate": (
-            int(audio_stream["sample_rate"])
-            if audio_stream and "sample_rate" in audio_stream
-            else None
+            _program_selection.get("sample_rate")
+            if _program_selection else None
         ),
         "creation_time": creation_time,
         "rotation": rotation,
         "pixel_format": video_stream.get("pix_fmt", "unknown"),
-        "has_audio": audio_stream is not None,
+        "has_audio": bool(described_streams),
     }
 
 
@@ -172,10 +302,18 @@ def parse_creation_time(ct_str: str | None) -> datetime | None:
     return None
 
 
-def catalog_footage(raw_footage_files: list) -> dict:
+def catalog_footage(raw_footage_files: list, program_stream=None,
+                    project_config: dict | None = None) -> dict:
     """
     Extract metadata for each file, sort chronologically, assign ordering.
+
+    `program_stream` (or `project_config["audio"]["program_stream"]`)
+    declares which audio stream is the program mix. See
+    `select_program_stream`.
     """
+    if program_stream is None and project_config:
+        program_stream = (project_config.get("audio") or {}).get(
+            "program_stream")
     entries = []
     skipped = []
 
@@ -193,7 +331,7 @@ def catalog_footage(raw_footage_files: list) -> dict:
             )
             continue
 
-        metadata = extract_metadata(filepath)
+        metadata = extract_metadata(filepath, program_stream=program_stream)
         if metadata is None or "error" in metadata:
             err = metadata.get("error", "metadata extraction failed") if metadata else "metadata extraction failed"
             skipped.append({
@@ -312,7 +450,11 @@ def main():
         sys.exit(1)
 
     try:
-        result = catalog_footage(raw_footage_files)
+        result = catalog_footage(
+            raw_footage_files,
+            program_stream=input_data.get("program_stream"),
+            project_config=input_data.get("project_config"),
+        )
     except (ValueError, RuntimeError) as e:
         print(json.dumps({
             "error": str(e),

@@ -6,8 +6,8 @@ Builds a complete DaVinci Resolve timeline entirely via the Resolve scripting
 API. This gives us:
   - Exact track targeting (trackIndex parameter)
   - Animated Fusion VFX via .comp file import (BezierSpline keyframes)
-  - Clean track layout: V1=A-Roll, V2=B-Roll, V3=Subtitles, V4=MotionGraphics,
-    V5=GeneratorEffects, A1=Speech(auto), A2=Music, A3+=SFX
+  - Track layout from ONE owner (library/tools/timeline_layout.py):
+    the plan decides every track index and name from the material.
   - Fairlight preset application for audio effects
 
 Reads an assembly_manifest.json and optional Remotion overlay paths.
@@ -37,7 +37,7 @@ keeps the headline and points here.
 - For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the **in-memory** manifest before `build_timeline` and leave the file on disk carrying it.
 
 - **Prefix overlay filenames with their context**, such as `sub_craig_seg_000.mov`.
-- **Place V1 clips while only track A1 exists**, or the timeline floods with empty tracks: iPhone MOVs contain multiple audio streams. Add A2 and later tracks afterward, and place music or SFX with `mediaType: 2`.
+- **Place each angle's clips while only its own speech row exists**, or the timeline floods with empty tracks: multi-stream sources auto-link audio onto every existing audio track. Add the angle's speech row just before its audio, music and SFX rows after all speech is placed, and place every audio item with an explicit `mediaType: 2` and `trackIndex` - then READ BACK what landed and delete anything that is not the recorded program stream.
 - **Resolve audio pool items report 24fps regardless of the timeline.** `AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase, so compute audio in/out with the pool item's own FPS.
 - **Renders are silent unless you say otherwise.** `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly; `resolve_render.py` also probes the output for an audio stream before reporting success.
 """
@@ -87,6 +87,10 @@ from library.tools.resolve_locale import (  # noqa: E402
 )
 from library.tools.timeline_ingest import resolve_project_exactly  # noqa: E402
 from library.tools.resolve_lock import assert_current_timeline  # noqa: E402
+from library.tools.timeline_layout import (  # noqa: E402
+    allocate_non_overlapping_rows,
+    plan_layout,
+)
 
 # One try per group, so a failure costs only its own group. Each records
 # WHY, because "not loaded" without a reason is what let this sit.
@@ -166,52 +170,26 @@ def _read_file_duration(filepath):
 
 
 # ─── SFX Overlap-Aware Track Allocator ───────────────────────
+# Moved to library/tools/timeline_layout.py, the single owner of layout.
+# The name stays here so existing importers keep working.
 
 def _allocate_audio_tracks(clips, base_track_index=3, fps=30.0):
     """Allocate audio clips across tracks so none overlaps another.
 
-    Returns list of (clip, track_index) tuples.
-    Clips that overlap in time get placed on separate tracks.
-
-    Used for SFX, and for the MUSIC BED, which overlaps itself wherever a
-    splice declared a crossfade: two clips cannot share one Resolve audio
-    track, so a crossfade needs the second piece on a lane of its own
-    (library/tools/music_bed.py). A bed with no crossfade never overlaps
-    and stays on A2 alone, which is every run before this one.
+    Returns list of (clip, track_index) tuples. See
+    `library.tools.timeline_layout.allocate_non_overlapping_rows`.
     """
-    if not clips:
-        return []
-    sfx_clips = clips
-
-    # Sort by timeline start
-    sorted_clips = sorted(sfx_clips, key=lambda c: c.get('timeline_in_frame', 0))
-
-    # Track end times: track_index → last frame end on that track
-    track_ends = {}
-    allocations = []
-
-    for clip in sorted_clips:
-        tl_start = clip.get('timeline_in_frame', 0)
-        tl_end = clip.get('timeline_out_frame', tl_start + round(fps))
-
-        # Find first available track (no overlap)
-        assigned_track = None
-        for track_idx in sorted(track_ends.keys()):
-            if track_ends[track_idx] <= tl_start:
-                assigned_track = track_idx
-                break
-
-        if assigned_track is None:
-            # All existing tracks are busy — allocate a new one
-            if track_ends:
-                assigned_track = max(track_ends.keys()) + 1
-            else:
-                assigned_track = base_track_index
-
-        track_ends[assigned_track] = tl_end
-        allocations.append((clip, assigned_track))
-
-    return allocations
+    spans = []
+    for clip in clips or []:
+        start = clip.get('timeline_in_frame', 0)
+        end = clip.get('timeline_out_frame', start + round(fps))
+        spans.append((start, end))
+    allocations = allocate_non_overlapping_rows(
+        spans, base_index=base_track_index)
+    out = [(clip, row) for clip, (_, row) in zip(clips or [], allocations)]
+    # Keep time order, as the old implementation returned.
+    out.sort(key=lambda pair: pair[0].get('timeline_in_frame', 0))
+    return out
 
 
 # ─── Pre-flight Validation ───────────────────────────────────
@@ -576,8 +554,47 @@ def build_timeline(
     # Note: We import media BEFORE creating timeline to detect actual FPS.
     root_folder = media_pool.GetRootFolder()
 
+    # What the pool already holds, BEFORE this build adds anything.
+    # Judged defensively: on fakes and older proxies these calls can
+    # answer anything, and a scan that raises must read as "nothing
+    # pooled", never as a failed build.
+    _pooled_paths = set()
+    try:
+        _stack = [root_folder]
+        while _stack:
+            _folder = _stack.pop()
+            try:
+                _clips = list(_folder.GetClipList() or [])
+            except (Exception, TypeError):
+                _clips = []
+            for _c in _clips:
+                try:
+                    _fp = _c.GetClipProperty("File Path") or ""
+                except Exception:
+                    _fp = ""
+                if _fp:
+                    _pooled_paths.add(_fp)
+            try:
+                _stack.extend(list(_folder.GetSubFolderList() or []))
+            except (Exception, TypeError):
+                pass
+    except Exception:
+        _pooled_paths = set()
+
     def _import_to_folder(folder_name, paths):
-        paths = list(set(p for p in paths if p and os.path.exists(p)))
+        # The pool is not a scratch dir: media that is already pooled is
+        # NOT imported again. ImportMedia never dedupes (measured
+        # 2026-09-09: re-importing one pooled MXF grew the pool 221 to
+        # 222), so importing blindly litters a shared project with a
+        # duplicate per source per build. Exact-path match only: a mere
+        # basename match could be a different file with the same name.
+        wanted = [p for p in paths if p and os.path.exists(p)]
+        skipped = [p for p in wanted if p in _pooled_paths]
+        if skipped:
+            results.setdefault("pool_dedupe_skipped", []).extend(skipped)
+            print(f"  Pool already holds {len(skipped)} file(s) for "
+                  f"{folder_name}, not re-importing", file=sys.stderr)
+        paths = [p for p in wanted if p not in _pooled_paths]
         if not paths:
             return 0
         
@@ -684,6 +701,86 @@ def build_timeline(
         if 'source_in_frame' not in s:
             s['total_frames'] = round(
                 (s.get('timeline_end', 0) - s.get('timeline_start', 0)) * fps)
+
+    # ── The track plan: the material asks, timeline_layout answers ──
+    # Every track index and name below comes from this plan. Counts are
+    # derived from what WILL be placed (angles present, overlay spans,
+    # music/SFX overlap), never from what might be - which is what makes
+    # "two speakers, one row" and "blank rows with nothing on them"
+    # structurally impossible instead of fixed once.
+    def _span_seconds(start_s, end_s):
+        return [round((start_s or 0) * fps), round((end_s or 0) * fps)]
+
+    _declared_angles = [a for a in (manifest.get("angles") or [])
+                        if a.get("key")]
+    _declared_by_key = {a["key"]: a for a in _declared_angles}
+    _marked_keys = []
+    for _c in v1_clips:
+        _k = _c.get("angle")
+        if _k and _k not in _marked_keys:
+            _marked_keys.append(_k)
+    if _marked_keys:
+        # Clips that name no angle join the first materialised one (a
+        # declared silent card lands on the first picture row, not on a
+        # row of its own).
+        _default_angle = _marked_keys[0]
+        _angle_keys = list(_marked_keys)
+    elif _declared_angles:
+        _default_angle = _declared_angles[0]["key"]
+        _angle_keys = [a["key"] for a in _declared_angles]
+    else:
+        _default_angle = "main"
+        _angle_keys = ["main"]
+    for _c in v1_clips:
+        _c.setdefault("angle", _default_angle)
+    # No declared angles and no marked clips: pass none and let the
+    # layout fall back to its legacy single-camera pair (A-Roll/Speech).
+    # Anything materialised is named from the declaration or the key.
+    _material_angles = []
+    for _k in _angle_keys:
+        if not _marked_keys and not _declared_angles:
+            break
+        _decl = _declared_by_key.get(_k, {})
+        _label = _decl.get("label") or _k
+        _channel = int(_decl.get("program_channel", 1))
+        _material_angles.append({
+            "key": _k,
+            "label": _label,
+            "speech_name": _decl.get("speech_name") or f"{_label} CH{_channel}",
+            "program_channel": _channel,
+        })
+
+    _material = {
+        "angles": _material_angles,
+        "has_broll": bool(v2_clips),
+        "caption_spans": [_span_seconds(s.get("timeline_start"),
+                                        s.get("timeline_end"))
+                          for s in sub_segments],
+        "mg_spans": [_span_seconds(s.get("timeline_start"),
+                                   s.get("timeline_end"))
+                     for s in mg_segments],
+        "has_generators": bool(manifest.get("generator_overlays", [])),
+        "timed_text_spans": [_span_seconds(s.get("timeline_start"),
+                                           s.get("timeline_end"))
+                             for s in tt_segments],
+        "music_spans": [_span_seconds(c.get("timeline_in"),
+                                      c.get("timeline_out", total_duration))
+                        for c in a2_clips],
+        "sfx_spans": [_span_seconds(c.get("timeline_in", 0),
+                                    c.get("timeline_out",
+                                          c.get("timeline_in", 0)))
+                      for c in a3_clips],
+    }
+    track_plan = plan_layout(_material)
+    results["track_plan"] = track_plan.serializable()
+    results["stream_enforcement"] = {"checked": 0, "deleted": []}
+    results["link_groups"] = []
+    results["caption_links"] = []
+    results["deleted_empty_tracks"] = []
+    print(f"  Track plan: "
+          f"{[(t.index, t.name) for t in track_plan.video_tracks]} / "
+          f"{[(t.index, t.name) for t in track_plan.audio_tracks]}",
+          file=sys.stderr)
 
     # ── Auto-increment timeline name to accumulate drafts ──
     # The project declares a base name (like Pipeline_Edit).
@@ -826,8 +923,13 @@ def build_timeline(
           f"{timeline_fps_str}fps, read back from Resolve)",
           file=sys.stderr)
 
-    # ── Set up tracks ──
-    # V1 exists by default. Need V2, V3, V4 for video and extra audio tracks.
+    # ── Set up tracks: the plan's rows, and only those ──
+    # Video rows are created up front. Speech audio rows are added one
+    # angle at a time during placement below, so an angle's audio never
+    # lands while a later row exists to catch a spill; music and SFX
+    # rows come after all speech is placed. A row exists because the
+    # plan put something on it: nothing here is sized from what MIGHT
+    # be placed.
     has_v2 = bool(v2_clips)
     has_subtitles = bool(sub_segments)
     has_mg = bool(mg_segments)
@@ -835,54 +937,105 @@ def build_timeline(
     generator_overlays = manifest.get('generator_overlays', [])
     has_generators = bool(generator_overlays)
 
-    # Calculate how many SFX tracks we need
     # The bed is allocated FIRST, because a crossfade puts two music
     # clips on the timeline at once and the SFX bucket has to start above
-    # whatever the bed used. With no crossfade the bed is one lane, A2,
-    # and SFX start at A3 exactly as they always have.
-    music_allocations = _allocate_audio_tracks(a2_clips, base_track_index=2,
+    # whatever the bed used. Bases come from the plan: speech rows first,
+    # then the bed, then SFX - so with two speech rows the bed starts at
+    # A3, exactly as the SOP's fixed order says.
+    n_speech_rows = len(track_plan.speech_rows())
+    music_allocations = _allocate_audio_tracks(a2_clips,
+                                               base_track_index=n_speech_rows + 1,
                                                fps=fps)
-    max_music_track = max((t for _, t in music_allocations), default=2)
+    max_music_track = max((t for _, t in music_allocations),
+                          default=n_speech_rows)
     sfx_allocations = _allocate_audio_tracks(
         a3_clips, base_track_index=max_music_track + 1, fps=fps)
-    max_sfx_track = max((t for _, t in sfx_allocations), default=max_music_track)
-    num_audio_tracks_needed = max(max_sfx_track, 2)  # at least A1(speech) + A2(music)
 
-    # Add video tracks (V1 exists, add V2+)
-    target_video_tracks = 1
-    if has_v2:
-        target_video_tracks = max(target_video_tracks, 2)
-    if has_subtitles:
-        target_video_tracks = max(target_video_tracks, 3)
-    if has_mg:
-        target_video_tracks = max(target_video_tracks, 4)
-    if has_generators:
-        target_video_tracks = max(target_video_tracks, 5)
-    if has_timed_text:
-        target_video_tracks = max(target_video_tracks, 6)
+    # The packing must land on the plan's rows, exactly. A packing that
+    # disagrees with the plan is a builder bug, and placing against it
+    # anyway is how rows appear that the plan never named.
+    _planned_audio_rows = {t.index for t in track_plan.audio_tracks}
+    _off_plan = sorted({r for _, r in music_allocations + sfx_allocations}
+                       - _planned_audio_rows)
+    if _off_plan:
+        results["errors"].append(
+            f"Audio packing disagrees with the track plan on rows "
+            f"{_off_plan}; refusing to place against an unnamed layout.")
+        return results
+    num_audio_tracks_needed = max(
+        [t.index for t in track_plan.audio_tracks] or [1])
 
-    while timeline.GetTrackCount("video") < target_video_tracks:
+    # Add video rows (V1 exists, add V2+). Every row added here is on
+    # the plan; occupancy is enforced after placement, so a row whose
+    # placements all fail is DELETED, never kept blank.
+    while timeline.GetTrackCount("video") < len(track_plan.video_tracks):
         timeline.AddTrack("video")
 
-    # NOTE: The order of operations is CRITICAL for correct audio layout.
-    # iPhone MOV files contain multiple audio streams (stereo + 4-channel).
-    # When placed with default behavior, Resolve auto-links audio to ALL
-    # existing audio tracks. So we MUST:
-    #   1. Place V1 clips while ONLY A1 exists → audio goes to A1 only
-    #   2. THEN add A2, A3, A4 → they start clean
-    #   3. THEN place music/SFX on A2+ with mediaType=2
-
     vt = timeline.GetTrackCount("video")
-    print(f"✓ Video tracks: V={vt}", file=sys.stderr)
-    print(f"  (Audio tracks deferred until after V1 placement)", file=sys.stderr)
+    print(f"✓ Video tracks: V={vt} (plan: "
+          f"{[(t.index, t.name) for t in track_plan.video_tracks]})",
+          file=sys.stderr)
+    print(f"  (Speech audio rows are added one angle at a time, "
+          f"music/SFX rows after speech placement)", file=sys.stderr)
+
+    _program_channel = {a["key"]: a["program_channel"]
+                        for a in _material_angles} or {"main": 1}
+
+    def _enforce_program_stream(angle_key, placed_items, label):
+        """Only the recorded program stream stays on a speech row.
+
+        Every audio AppendToTimeline return is read back: items whose
+        channel mapping is not the angle's recorded program channel are
+        deleted from the timeline on the spot and recorded. An item
+        whose mapping cannot be read is KEPT and reported - an
+        unreadable check must not delete picture, and it must not read
+        as a passing one either.
+        """
+        expected = _program_channel.get(angle_key, 1)
+        kept = []
+        for item in placed_items or []:
+            results["stream_enforcement"]["checked"] += 1
+            try:
+                mapping = json.loads(item.GetSourceAudioChannelMapping())
+                channels = (mapping.get("track_mapping", {})
+                            .get("1", {}).get("channel_idx", []))
+            except Exception as exc:
+                results["warnings"].append(
+                    f"{label}: placed audio mapping unreadable ({exc}) - "
+                    f"kept, UNVERIFIED")
+                kept.append(item)
+                continue
+            if list(channels or []) == [expected]:
+                kept.append(item)
+            else:
+                try:
+                    timeline.DeleteClips([item], False)
+                except Exception as exc:
+                    results["errors"].append(
+                        f"{label}: stray CH{channels} item could not be "
+                        f"removed: {exc}")
+                    continue
+                results["stream_enforcement"]["deleted"].append(
+                    {"label": label, "expected_channel": expected,
+                     "placed_channels": list(channels or [])})
+                print(f"  ✗ {label}: placed CH{channels}, program is "
+                      f"CH{expected} - removed", file=sys.stderr)
+        return kept
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V1: A-Roll clips (DEFAULT — audio auto-links to A1 only)
+    # PLACE A-ROLL, one angle per picture row, each with its speech row
     # ══════════════════════════════════════════════════════════
-    # At this point only A1 exists, so default placement puts audio on A1
-    print(f"\n── V1 A-Roll + A1 Speech: {len(v1_clips)} clips ──", file=sys.stderr)
+    # Each camera angle is its own row: picture on the plan's a-roll row
+    # for the angle, speech on the plan's speech row for the same angle.
+    # The angle's speech row is added just before its first audio item,
+    # so no audio is ever placed while a later row exists to catch a
+    # spill. Linking happens AFTER the mix round trip, in one span-based
+    # pass (the import rebuilds the timeline and rebinds every handle).
+    print(f"\n── A-Roll + Speech by angle: {len(v1_clips)} clips ──",
+          file=sys.stderr)
     v1_timeline_items = []
     v1_placed_labels = []
+    placed_by_row = {}
 
     # Compute per-clip source frame ranges for video and audio placement.
     for ci, clip in enumerate(v1_clips):
@@ -896,123 +1049,154 @@ def build_timeline(
         clip['audio_src_in'] = round(clip.get('audio_src_in', src_in) * fps)
         clip['audio_src_out'] = round(clip.get('audio_src_out', src_out) * fps)
 
+    _clips_by_angle = {}
+    for clip in v1_clips:
+        _clips_by_angle.setdefault(clip.get("angle", "main"), []).append(clip)
 
-    for ci, clip in enumerate(v1_clips):
-        current_video_frame = clip.get('timeline_in_frame', 0)
-        # BUG FIX C7: Handle clips with missing source_file gracefully
-        src = clip.get('source_file', '')
-        if not src:
-            results["warnings"].append(
-                f"V1[{ci}] ({clip.get('label', '?')}) missing source_file - skipped")
-            print(f"  ⚠ [{ci}] {clip.get('label', '?')}: missing source_file", file=sys.stderr)
+    for _angle in track_plan.aroll_rows():
+        _angle_key = _angle.occupant
+        _vrow = _angle.index
+        _speech = track_plan.speech_row_for_angle(_angle_key)
+        if _speech is None:
+            results["errors"].append(
+                f"Track plan has a picture row for angle {_angle_key!r} "
+                f"with no speech row; refusing to place it unlinked.")
             continue
-        basename = os.path.basename(src)
-        pool_item = _find_pool_clip(src)
-        if not pool_item:
-            results["errors"].append(f"V1[{ci}] {basename} not in media pool")
-            continue
+        _arow = _speech.index
+        while timeline.GetTrackCount("audio") < _arow:
+            timeline.AddTrack("audio")
+        _placed_here = []
+        for ci, clip in enumerate(_clips_by_angle.get(_angle_key, [])):
+            current_video_frame = clip.get('timeline_in_frame', 0)
+            # BUG FIX C7: Handle clips with missing source_file gracefully
+            src = clip.get('source_file', '')
+            if not src:
+                results["warnings"].append(
+                    f"V{_vrow}[{ci}] ({clip.get('label', '?')}) missing source_file - skipped")
+                print(f"  ⚠ [{ci}] {clip.get('label', '?')}: missing source_file", file=sys.stderr)
+                continue
+            basename = os.path.basename(src)
+            pool_item = _find_pool_clip(src)
+            if not pool_item:
+                results["errors"].append(f"V{_vrow}[{ci}] {basename} not in media pool")
+                continue
 
-        v_in = clip['video_src_in']
-        v_out = clip['video_src_out']
-        a_in = clip['audio_src_in']
-        a_out = clip['audio_src_out']
-        tl_in_f = clip.get('timeline_in_frame', 0)
+            v_in = clip['video_src_in']
+            v_out = clip['video_src_out']
+            a_in = clip['audio_src_in']
+            a_out = clip['audio_src_out']
+            tl_in_f = clip.get('timeline_in_frame', 0)
 
-        # Place Video (V1)
-        assert_current_timeline(project, timeline)
-        v_res = media_pool.AppendToTimeline([{
-            "mediaPoolItem": pool_item,
-            "startFrame": v_in,
-            "endFrame": v_out,
-            "trackIndex": 1,
-            "recordFrame": tl_in_f,
-            "mediaType": 1
-        }])
-        
-        # Calculate Audio Record Frame to maintain sync
-        a_rec = tl_in_f + (a_in - v_in)
-
-        # Place Audio (A1). A clip marked video_only has no audio to
-        # place - a declared intro / outro / end card is a silent card
-        # unless its template said otherwise - and asking Resolve for an
-        # audio item from a file with no audio stream returns nothing
-        # while looking like a failed placement in the log.
-        if clip.get("video_only"):
-            a_res = None
-        else:
+            # Place Video (plan row, video-only)
             assert_current_timeline(project, timeline)
-            a_res = media_pool.AppendToTimeline([{
+            v_res = media_pool.AppendToTimeline([{
                 "mediaPoolItem": pool_item,
-                "startFrame": a_in,
-                "endFrame": a_out,
-                "trackIndex": 1,
-                "recordFrame": a_rec,
-                "mediaType": 2
+                "startFrame": v_in,
+                "endFrame": v_out,
+                "trackIndex": _vrow,
+                "recordFrame": tl_in_f,
+                "mediaType": 1
             }])
 
-        if v_res:
-            placed = v_res[0] if isinstance(v_res, list) else v_res
-            a_placed = a_res[0] if (a_res and isinstance(a_res, list)) else (a_res if a_res else None)
-            
-            if a_placed:
-                timeline.SetClipsLinked([placed, a_placed], True)
-                
-            _apply_conform(placed, clip, results)
-            v1_timeline_items.append(placed)
-            v1_placed_labels.append(clip.get('label', basename))
-            
-            placed_dur = placed.GetDuration()
-            clip['timeline_in_frame'] = tl_in_f
-            clip['timeline_out_frame'] = tl_in_f + placed_dur
-            clip['timeline_in'] = tl_in_f / fps
-            clip['timeline_out'] = (tl_in_f + placed_dur) / fps
-            
-            audio_note = ("A1 silent (video_only)" if clip.get("video_only")
-                          else f"A1 {a_in}-{a_out} at {a_rec}")
-            print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
-                  f"V1 {v_in}-{v_out} at {tl_in_f}, {audio_note}", file=sys.stderr)
-                  
-            # Apply Fairlight preset to this dialogue track item
-            fairlight_preset_name = manifest.get('audio', {}).get('fairlight_preset', '')
-            if fairlight_preset_name and get_preset and apply_fairlight_preset and a_placed:
-                preset = get_preset(fairlight_preset_name)
-                success = apply_fairlight_preset(a_placed, preset)
-                if success:
-                    print(f"    ✓ Applied Fairlight preset: {fairlight_preset_name}", file=sys.stderr)
-                else:
-                    results["warnings"].append(f"Fairlight preset {fairlight_preset_name} could not be applied to {basename}")
+            # Calculate Audio Record Frame to maintain sync
+            a_rec = tl_in_f + (a_in - v_in)
 
-        else:
-            results["errors"].append(f"V1[{ci}] AppendToTimeline failed for {basename}")
-            print(f"  ✗ [{ci}] {basename}: AppendToTimeline returned None", file=sys.stderr)
+            # Place Audio (plan row, audio-only, explicit). A clip marked
+            # video_only has no audio to place - a declared intro / outro /
+            # end card is a silent card unless its template said otherwise -
+            # and asking Resolve for an audio item from a file with no
+            # audio stream returns nothing while looking like a failed
+            # placement in the log.
+            if clip.get("video_only"):
+                a_res = None
+            else:
+                assert_current_timeline(project, timeline)
+                a_res = media_pool.AppendToTimeline([{
+                    "mediaPoolItem": pool_item,
+                    "startFrame": a_in,
+                    "endFrame": a_out,
+                    "trackIndex": _arow,
+                    "recordFrame": a_rec,
+                    "mediaType": 2
+                }])
 
-    results["tracks"]["V1"] = len(v1_timeline_items)
-    results["tracks"]["A1"] = len(v1_timeline_items)  # auto-linked
-    
+            if v_res:
+                placed = v_res[0] if isinstance(v_res, list) else v_res
+                a_list = (a_res if isinstance(a_res, list)
+                          else ([a_res] if a_res else []))
+                a_label = f"A{_arow}[{ci}] {clip.get('label', basename)}"
+                kept = _enforce_program_stream(_angle_key, a_list, a_label)
+                a_placed = kept[0] if kept else None
+
+                _apply_conform(placed, clip, results)
+                v1_timeline_items.append(placed)
+                _placed_here.append((placed, clip))
+                v1_placed_labels.append(clip.get('label', basename))
+
+                placed_dur = placed.GetDuration()
+                clip['timeline_in_frame'] = tl_in_f
+                clip['timeline_out_frame'] = tl_in_f + placed_dur
+                clip['timeline_in'] = tl_in_f / fps
+                clip['timeline_out'] = (tl_in_f + placed_dur) / fps
+
+                audio_note = ("silent (video_only)" if clip.get("video_only")
+                              else (f"A{_arow} {a_in}-{a_out} at {a_rec}"
+                                    if a_placed else
+                                    f"A{_arow} non-program audio removed"))
+                print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
+                      f"V{_vrow} {v_in}-{v_out} at {tl_in_f}, {audio_note}", file=sys.stderr)
+
+                # Apply Fairlight preset to this dialogue track item
+                fairlight_preset_name = manifest.get('audio', {}).get('fairlight_preset', '')
+                if fairlight_preset_name and get_preset and apply_fairlight_preset and a_placed:
+                    preset = get_preset(fairlight_preset_name)
+                    success = apply_fairlight_preset(a_placed, preset)
+                    if success:
+                        print(f"    ✓ Applied Fairlight preset: {fairlight_preset_name}", file=sys.stderr)
+                    else:
+                        results["warnings"].append(f"Fairlight preset {fairlight_preset_name} could not be applied to {basename}")
+
+            else:
+                results["errors"].append(f"V{_vrow}[{ci}] AppendToTimeline failed for {basename}")
+                print(f"  ✗ [{ci}] {basename}: AppendToTimeline returned None", file=sys.stderr)
+
+        results["tracks"][f"V{_vrow}"] = len(_placed_here)
+        results["tracks"][f"A{_arow}"] = sum(
+            1 for _, c in _placed_here if not c.get("video_only"))
+        placed_by_row[f"V{_vrow}"] = ([p for p, _ in _placed_here],
+                                      [c for _, c in _placed_here])
+
     if verify_clip_placement:
-        _run_qa(verify_clip_placement(timeline, {"V1": v1_timeline_items}, {"V1": v1_clips}))
+        for _row, (_items, _clips) in placed_by_row.items():
+            _run_qa(verify_clip_placement(timeline, {_row: _items}, {_row: _clips}))
 
     # ══════════════════════════════════════════════════════════
-    # NOW create extra audio tracks (AFTER V1 — so they start clean)
+    # NOW create music and SFX audio rows (AFTER speech — so they start clean)
     # ══════════════════════════════════════════════════════════
     while timeline.GetTrackCount("audio") < num_audio_tracks_needed:
         timeline.AddTrack("audio")
 
     at = timeline.GetTrackCount("audio")
-    print(f"✓ Audio tracks added: A={at} (A1=speech, A2+=clean)", file=sys.stderr)
+    print(f"✓ Audio tracks added: A={at} (speech rows, then bed, then SFX)", file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V2: B-Roll clips
+    # PLACE B-ROLL (plan row, video-only)
     # ══════════════════════════════════════════════════════════
+    _broll_row = next((t.index for t in track_plan.video_tracks
+                       if t.role == "b_roll"), None)
     if v2_clips:
-        print(f"\n── V2 B-Roll: {len(v2_clips)} clips ──", file=sys.stderr)
+        if _broll_row is None:
+            results["errors"].append(
+                "B-roll clips planned with no b-roll row; refusing.")
+            return results
+        print(f"\n── V{_broll_row} B-Roll: {len(v2_clips)} clips ──", file=sys.stderr)
         v2_count = 0
         v2_placed_labels = []
         for ci, clip in enumerate(v2_clips):
             basename = os.path.basename(clip['source_file'])
             pool_item = _find_pool_clip(clip['source_file'])
             if not pool_item:
-                results["warnings"].append(f"V2[{ci}] {basename} not in pool")
+                results["warnings"].append(f"V{_broll_row}[{ci}] {basename} not in pool")
                 continue
 
             src_in = clip.get('source_in', 0)
@@ -1029,9 +1213,9 @@ def build_timeline(
                 "mediaPoolItem": pool_item,
                 "startFrame": src_in_f,
                 "endFrame": src_out_f,
-                "trackIndex": 2,
+                "trackIndex": _broll_row,
                 "recordFrame": tl_in_f,
-                "mediaType": 1,  # video-only placement on V2
+                "mediaType": 1,  # video-only placement on the b-roll row
             }])
 
             if result:
@@ -1043,13 +1227,19 @@ def build_timeline(
             else:
                 print(f"  ✗ [{ci}] {basename}: failed", file=sys.stderr)
 
-        results["tracks"]["V2"] = v2_count
+        results["tracks"][f"V{_broll_row}"] = v2_count
         
     # ══════════════════════════════════════════════════════════
-    # PLACE V3: Subtitle Overlay Segments (Remotion)
+    # PLACE CAPTIONS (plan row, video-only overlays)
     # ══════════════════════════════════════════════════════════
+    _caption_row = (track_plan.caption_row().index
+                    if track_plan.caption_row() is not None else None)
     if has_subtitles:
-        print(f"\n── V3 Subtitle Overlay: {len(sub_segments)} segments ──", file=sys.stderr)
+        if _caption_row is None:
+            results["errors"].append(
+                "Subtitle segments planned with no caption row; refusing.")
+            return results
+        print(f"\n── V{_caption_row} Subtitle Overlay: {len(sub_segments)} segments ──", file=sys.stderr)
         
         # Build mapping from spine block position -> actual V1 timeline position offset
         block_offsets = {}
@@ -1103,7 +1293,7 @@ def build_timeline(
             else:
                 pool_item = _find_pool_clip(seg_path)
             if not pool_item:
-                results["warnings"].append(f"V3[{si}] {seg_basename} not in pool")
+                results["warnings"].append(f"V{_caption_row}[{si}] {seg_basename} not in pool")
                 print(f"  ✗ [{si}] {seg_basename} not in media pool", file=sys.stderr)
                 continue
 
@@ -1135,34 +1325,53 @@ def build_timeline(
             assert_current_timeline(project, timeline)
             placed, note = place_overlay_segment(
                 media_pool, timeline, pool_item,
-                track_index=3, record_frame=tl_in_frame,
+                track_index=_caption_row, record_frame=tl_in_frame,
                 source_in_frame=src_in_f, source_out_frame=src_out_f,
-                placement=placement, label=f"V3[{si}] {seg_basename}")
+                placement=placement, label=f"V{_caption_row}[{si}] {seg_basename}")
             if placed:
                 v3_count += 1
-                print(f"  ✓ [{si}] {seg_basename} on V3 ({seg_frames}f @ TL {tl_in_frame})",
+                print(f"  ✓ [{si}] {seg_basename} on V{_caption_row} ({seg_frames}f @ TL {tl_in_frame})",
                       file=sys.stderr)
                 if note:
                     results["warnings"].append(note)
                     print(f"  ⚠ {note}", file=sys.stderr)
             else:
                 print(f"  ✗ [{si}] {seg_basename}: placement failed", file=sys.stderr)
-                results["warnings"].append(f"V3[{si}] placement failed: {seg_basename}")
+                results["warnings"].append(f"V{_caption_row}[{si}] placement failed: {seg_basename}")
 
-        results["tracks"]["V3"] = v3_count
+        results["tracks"][f"V{_caption_row}"] = v3_count
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V4: Motion Graphics Overlay Segments (Remotion)
+    # PLACE MOTION GRAPHICS (plan rows, one row per overlapping layer)
     # ══════════════════════════════════════════════════════════
+    _mg_rows = [t.index for t in track_plan.video_tracks
+                if t.role == "motion_graphics"]
     if has_mg:
-        print(f"\n── V4 Motion Graphics: {len(mg_segments)} segments ──", file=sys.stderr)
+        if not _mg_rows:
+            results["errors"].append(
+                "Motion-graphics segments planned with no MG row; refusing.")
+            return results
+        print(f"\n── Motion Graphics ({','.join(f'V{r}' for r in _mg_rows)}): "
+              f"{len(mg_segments)} segments ──", file=sys.stderr)
+        _mg_allocations = allocate_non_overlapping_rows(
+            [(round(s.get("timeline_start", 0) * fps),
+              round(s.get("timeline_end", 0) * fps)) for s in mg_segments],
+            base_index=_mg_rows[0])
+        _mg_off_plan = sorted({r for _, r in _mg_allocations} - set(_mg_rows))
+        if _mg_off_plan:
+            results["errors"].append(
+                f"Motion-graphics packing disagrees with the track plan on "
+                f"rows {_mg_off_plan}; refusing.")
+            return results
         v4_count = 0
+        _mg_counts = {}
         for mi, seg in enumerate(mg_segments):
             seg_path = seg.get('overlay_path', '')
             seg_basename = os.path.basename(seg_path)
             pool_item = _find_pool_clip(seg_path)
+            _mg_row = _mg_allocations[mi][1]
             if not pool_item:
-                results["warnings"].append(f"V4[{mi}] {seg_basename} not in pool")
+                results["warnings"].append(f"V{_mg_row}[{mi}] {seg_basename} not in pool")
                 print(f"  ✗ [{mi}] {seg_basename} not in media pool", file=sys.stderr)
                 continue
 
@@ -1180,32 +1389,41 @@ def build_timeline(
             assert_current_timeline(project, timeline)
             placed, note = place_overlay_segment(
                 media_pool, timeline, pool_item,
-                track_index=4, record_frame=tl_in_frame,
+                track_index=_mg_row, record_frame=tl_in_frame,
                 source_in_frame=0, source_out_frame=seg_frames,
-                placement=placement, label=f"V4[{mi}] {seg_basename}")
+                placement=placement, label=f"V{_mg_row}[{mi}] {seg_basename}")
             if placed:
                 v4_count += 1
-                print(f"  ✓ [{mi}] {seg_basename} on V4 ({seg_frames}f @ TL {tl_in_frame})",
+                _mg_counts[_mg_row] = _mg_counts.get(_mg_row, 0) + 1
+                print(f"  ✓ [{mi}] {seg_basename} on V{_mg_row} ({seg_frames}f @ TL {tl_in_frame})",
                       file=sys.stderr)
                 if note:
                     results["warnings"].append(note)
                     print(f"  ⚠ {note}", file=sys.stderr)
             else:
                 print(f"  ✗ [{mi}] {seg_basename}: placement failed", file=sys.stderr)
-                results["warnings"].append(f"V4[{mi}] placement failed: {seg_basename}")
+                results["warnings"].append(f"V{_mg_row}[{mi}] placement failed: {seg_basename}")
 
-        results["tracks"]["V4"] = v4_count
+        for _r in _mg_rows:
+            results["tracks"][f"V{_r}"] = _mg_counts.get(_r, 0)
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V5: Generator Effect Overlays (Fusion Presets)
+    # PLACE GENERATOR EFFECTS (plan row, transparent carriers)
     # ══════════════════════════════════════════════════════════
     # Generator presets produce content from nothing (no image input).
-    # They are placed on V5 as transparent carrier clips; the Fusion
-    # comp import subprocess imports the .setting file onto each clip.
+    # They are placed on the plan's generator row as transparent carrier
+    # clips; the Fusion comp import subprocess imports the .setting file
+    # onto each clip.
     # Composite mode is set per-entry (default: Screen) so the generated
-    # content blends over the picture on V1/V2 below.
+    # content blends over the picture below.
+    _gen_row = next((t.index for t in track_plan.video_tracks
+                     if t.role == "generators"), None)
     if has_generators:
-        print(f"\n-- V5 Generator Effects: {len(generator_overlays)} overlays --", file=sys.stderr)
+        if _gen_row is None:
+            results["errors"].append(
+                "Generator overlays planned with no generator row; refusing.")
+            return results
+        print(f"\n-- V{_gen_row} Generator Effects: {len(generator_overlays)} overlays --", file=sys.stderr)
         v5_count = 0
 
         # Create and import the transparent carrier clip. This call
@@ -1223,9 +1441,13 @@ def build_timeline(
         )
 
         # Store generator overlay metadata for apply_fusion_comps
-        # to pick up and import the .setting files.
+        # to pick up and import the .setting files. Each entry carries
+        # the plan row it was placed on: the Fusion pass must read the
+        # carriers off THAT row, never off a hardcoded V5.
         manifest.setdefault('fusion_effects', {})
         manifest['fusion_effects']['generator_overlays'] = generator_overlays
+        for gen in generator_overlays:
+            gen.setdefault("timeline_row", _gen_row)
 
         COMPOSITE_MODES = {
             "normal": 0, "screen": 5, "add": 1, "multiply": 3,
@@ -1241,7 +1463,7 @@ def build_timeline(
                 "mediaPoolItem": transparent_carrier,
                 "startFrame": 0,
                 "endFrame": dur_frames,
-                "trackIndex": 5,
+                "trackIndex": _gen_row,
                 "recordFrame": tl_in_frame,
                 "mediaType": 1,
             }])
@@ -1255,7 +1477,7 @@ def build_timeline(
                 v5_count += 1
                 print(
                     f"  V [{gi}] {gen['effect_name']}: "
-                    f"V5 {dur_frames}f @ TL {tl_in_frame} "
+                    f"V{_gen_row} {dur_frames}f @ TL {tl_in_frame} "
                     f"(composite: {mode_name})",
                     file=sys.stderr,
                 )
@@ -1266,25 +1488,45 @@ def build_timeline(
                     file=sys.stderr,
                 )
 
-        results["tracks"]["V5"] = v5_count
+        results["tracks"][f"V{_gen_row}"] = v5_count
 
     # ══════════════════════════════════════════════════════════
-    # PLACE V6: Timed Text Overlay Segments (Remotion)
+    # PLACE TIMED TEXT (plan rows, one row per overlapping layer)
     # ══════════════════════════════════════════════════════════
     # The moments a brand template declared in effect.timed_text_overlay,
     # rendered by 4.06 into one ProRes 4444 alpha file per cluster of
     # moments whose spans touch. Timeline frames throughout - the segment
     # already knows where it goes, so there is no block offset to apply.
+    _tt_rows = [t.index for t in track_plan.video_tracks
+                if t.role == "timed_text"]
     if has_timed_text:
-        print(f"\n-- V6 Timed Text: {len(tt_segments)} segments --",
+        if not _tt_rows:
+            results["errors"].append(
+                "Timed-text segments planned with no timed-text row; "
+                "refusing.")
+            return results
+        print(f"\n-- Timed Text ({','.join(f'V{r}' for r in _tt_rows)}): "
+              f"{len(tt_segments)} segments --",
               file=sys.stderr)
+        _tt_allocations = allocate_non_overlapping_rows(
+            [(round(s.get("timeline_start", 0) * fps),
+              round(s.get("timeline_end", 0) * fps)) for s in tt_segments],
+            base_index=_tt_rows[0])
+        _tt_off_plan = sorted({r for _, r in _tt_allocations} - set(_tt_rows))
+        if _tt_off_plan:
+            results["errors"].append(
+                f"Timed-text packing disagrees with the track plan on rows "
+                f"{_tt_off_plan}; refusing.")
+            return results
         v6_count = 0
+        _tt_counts = {}
         for ti, seg in enumerate(tt_segments):
             seg_path = seg.get('overlay_path', '')
             seg_basename = os.path.basename(seg_path)
             pool_item = _find_pool_clip(seg_path)
+            _tt_row = _tt_allocations[ti][1]
             if not pool_item:
-                results["warnings"].append(f"V6[{ti}] {seg_basename} not in pool")
+                results["warnings"].append(f"V{_tt_row}[{ti}] {seg_basename} not in pool")
                 print(f"  X [{ti}] {seg_basename} not in media pool",
                       file=sys.stderr)
                 continue
@@ -1301,21 +1543,23 @@ def build_timeline(
                 "mediaPoolItem": pool_item,
                 "startFrame": 0,
                 "endFrame": seg_frames,
-                "trackIndex": 6,
+                "trackIndex": _tt_row,
                 "recordFrame": tl_in_frame,
-                "mediaType": 1,  # video-only placement on V6
+                "mediaType": 1,  # video-only placement
             }])
             if result:
                 v6_count += 1
-                print(f"  V [{ti}] {seg_basename} on V6 "
+                _tt_counts[_tt_row] = _tt_counts.get(_tt_row, 0) + 1
+                print(f"  V [{ti}] {seg_basename} on V{_tt_row} "
                       f"({seg_frames}f @ TL {tl_in_frame})", file=sys.stderr)
             else:
                 print(f"  X [{ti}] {seg_basename}: placement failed",
                       file=sys.stderr)
                 results["warnings"].append(
-                    f"V6[{ti}] placement failed: {seg_basename}")
+                    f"V{_tt_row}[{ti}] placement failed: {seg_basename}")
 
-        results["tracks"]["V6"] = v6_count
+        for _r in _tt_rows:
+            results["tracks"][f"V{_r}"] = _tt_counts.get(_r, 0)
         if v6_count != len(tt_segments):
             # A declared moment that did not land is invisible everywhere
             # downstream: the picture underneath is intact, so render QA
@@ -1323,12 +1567,12 @@ def build_timeline(
             results["qa_failures"].append({
                 "station": "timed_text",
                 "check": "declared_segments_placed",
-                "expected": f"{len(tt_segments)} segments on V6",
+                "expected": f"{len(tt_segments)} segments on timed-text rows",
                 "actual": f"{v6_count} placed",
                 "detail": (
                     f"QA [timed_text] Failed declared_segments_placed: "
                     f"{v6_count}/{len(tt_segments)} declared timed text "
-                    f"segments reached V6"),
+                    f"segments reached the timeline"),
             })
 
     # ══════════════════════════════════════════════════════════
@@ -1628,6 +1872,12 @@ def build_timeline(
     
     script_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'tools', 'execution', 'apply_fusion_comps.py')
     if os.path.exists(script_path):
+        # The Fusion pass walks the timeline the plan laid out. It still
+        # reads per-clip comps off manifest tracks V1/V2 (its own
+        # conformance is a filed follow-up); the plan travels with the
+        # manifest so that lane has the row mapping without another
+        # builder change.
+        manifest.setdefault("track_plan", track_plan.serializable())
         with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as tf:
             json.dump(manifest, tf)
             temp_manifest = tf.name
@@ -1707,10 +1957,16 @@ def build_timeline(
     fusion_effects = manifest.get("fusion_effects", {})
     per_clip_fx = fusion_effects.get("per_clip", {})
     if per_clip_fx:
-        placed_by_track = {
-            1: set(v1_placed_labels),
-            2: set(v2_placed_labels) if 'v2_placed_labels' in locals() else set(),
-        }
+        # Labels this run really placed, per plan row. A-roll labels are
+        # recorded per angle row (not lumped on V1), so a second angle's
+        # clips are reachable rather than permanent drops.
+        placed_by_track = {}
+        for _rowkey, (_items, _clips) in placed_by_row.items():
+            placed_by_track[int(_rowkey[1:])] = {
+                c.get("label", "") for c in _clips}
+        if 'v2_placed_labels' in locals() and _broll_row is not None:
+            placed_by_track.setdefault(_broll_row, set()).update(
+                v2_placed_labels)
 
         dropped = detect_unreachable_fusion_effects(per_clip_fx, placed_by_track)
         if dropped:
@@ -1722,13 +1978,16 @@ def build_timeline(
         # verify_fusion_comps reads per_clip - that is fusion_effects, not
         # the flat vfx LIST, which has no .get(). per_clip is keyed by clip
         # LABEL, so the station needs the labels this run actually placed,
-        # in timeline order, per track.
+        # in timeline order, per plan row.
+        _fusion_labels = {}
+        for _rowkey, (_items, _clips) in placed_by_row.items():
+            _fusion_labels[int(_rowkey[1:])] = [
+                c.get("label", "") for c in _clips]
+        if 'v2_placed_labels' in locals() and _broll_row is not None:
+            _fusion_labels.setdefault(_broll_row, []).extend(v2_placed_labels)
         _run_qa(verify_fusion_comps(
             timeline,
-            {
-                1: v1_placed_labels,
-                2: v2_placed_labels if 'v2_placed_labels' in locals() else [],
-            },
+            _fusion_labels,
             manifest.get("fusion_effects", {})))
 
     # Transitions are drawn by the Fusion pass above, so the station that
@@ -1904,22 +2163,206 @@ def build_timeline(
         _run_qa(verify_color_grades(timeline, None, manifest.get("color_grade", {})))
 
     # ══════════════════════════════════════════════════════════
-    print(f"\n── Track Labels ──", file=sys.stderr)
-    video_labels = {1: "A-Roll", 2: "B-Roll", 3: "Subtitles", 4: "Motion Graphics", 5: "Generator Effects"}
-    audio_labels = {1: "Speech", 2: "Music"}
+    # LINK PASS: picture to speech, captions into the group
+    # ══════════════════════════════════════════════════════════
+    # Span-based, on the timeline as it stands AFTER the mix round trip
+    # above rebound it: no handle from before that point is held here.
+    # Every a-roll picture item links to the speech item starting on the
+    # same frame of its angle's speech row. Every caption item whose
+    # span falls inside a speech item joins that item's group - picture,
+    # speech and caption in ONE SetClipsLinked call, because linking is
+    # exclusive, not additive: a second pair-call breaks the first group
+    # (measured 2026-09-09). The call's result is read back, not trusted.
+    print(f"\n── Link Pass ──", file=sys.stderr)
+    _speech_index = []  # (start, end, item, angle_key)
+    for _srow in track_plan.speech_rows():
+        try:
+            _sitems = timeline.GetItemListInTrack("audio", _srow.index) or []
+        except Exception:
+            _sitems = []
+        for _s in _sitems:
+            try:
+                _speech_index.append((_s.GetStart(), _s.GetEnd(), _s,
+                                      _srow.occupant))
+            except Exception:
+                continue
 
+    def _picture_at(angle_key, start):
+        _vrow = track_plan.video_row_for_angle(angle_key)
+        if _vrow is None:
+            return None
+        try:
+            _pitems = timeline.GetItemListInTrack("video", _vrow.index) or []
+        except Exception:
+            return None
+        _exact = [p for p in _pitems
+                  if _safe_span(p) is not None and _safe_span(p)[0] == start]
+        if _exact:
+            return _exact[0]
+        try:
+            _same = [p for p in _pitems if p.GetStart() == start]
+        except Exception:
+            return None
+        return _same[0] if _same else None
+
+    def _safe_span(item):
+        try:
+            return (item.GetStart(), item.GetEnd())
+        except Exception:
+            return None
+
+    def _linked_ids(item):
+        try:
+            return {i.GetUniqueId() for i in (item.GetLinkedItems() or [])}
+        except Exception:
+            return set()
+
+    def _item_uid(item):
+        try:
+            return item.GetUniqueId()
+        except Exception:
+            return None
+
+    for _start, _end, _s, _angle_key in _speech_index:
+        _pic = _picture_at(_angle_key, _start)
+        if _pic is None or _pic is _s:
+            continue
+        try:
+            ok = timeline.SetClipsLinked([_pic, _s], True)
+        except Exception as exc:
+            results["warnings"].append(
+                f"Link A-roll to speech at frame {_start} raised {exc!r}")
+            continue
+        if not ok:
+            results["warnings"].append(
+                f"Link A-roll to speech at frame {_start} declined")
+            continue
+        _have = _linked_ids(_s)
+        if _item_uid(_pic) in _have:
+            results["link_groups"].append(
+                {"picture_start": _start, "speech_row_occupant": _angle_key,
+                 "members": 2})
+        else:
+            results["warnings"].append(
+                f"Link A-roll to speech at frame {_start} read back "
+                f"unlinked")
+
+    _cap_row = (track_plan.caption_row().index
+                if track_plan.caption_row() is not None else None)
+    if _cap_row is not None:
+        try:
+            _cap_items = timeline.GetItemListInTrack("video", _cap_row) or []
+        except Exception:
+            _cap_items = []
+        for _cap in _cap_items:
+            _span = _safe_span(_cap)
+            if _span is None:
+                continue
+            _cs, _ce = _span
+            _hosts = [(s, e, item, key) for (s, e, item, key) in _speech_index
+                      if s <= _cs and _ce <= e]
+            if not _hosts:
+                results["warnings"].append(
+                    f"Caption at {_cs}-{_ce} falls inside no speech span; "
+                    f"left unlinked")
+                continue
+            _ss, _se, _host, _hkey = _hosts[0]
+            _pic = _picture_at(_hkey, _ss)
+            _group = ([_pic] if _pic is not None and _pic is not _host
+                      else []) + [_host, _cap]
+            try:
+                ok = timeline.SetClipsLinked(_group, True)
+            except Exception as exc:
+                results["warnings"].append(
+                    f"Caption link at {_cs} raised {exc!r}")
+                continue
+            if not ok:
+                results["warnings"].append(
+                    f"Caption link at {_cs} declined")
+                continue
+            _have = _linked_ids(_cap)
+            _want = {_item_uid(m) for m in _group if m is not _cap}
+            _want.discard(None)
+            if _want and _want <= _have:
+                results["caption_links"].append(
+                    {"caption_start": _cs, "caption_end": _ce,
+                     "speech_start": _ss, "members": len(_group)})
+                print(f"  ✓ Caption {_cs}-{_ce} joins speech {_ss} "
+                      f"({len(_group)}-group)", file=sys.stderr)
+            else:
+                results["warnings"].append(
+                    f"Caption link at {_cs} read back unlinked")
+
+    # ══════════════════════════════════════════════════════════
+    print(f"\n── Track Labels ──", file=sys.stderr)
+    # Names come from the plan, which named them from the material, and
+    # they are applied BEFORE empty rows are deleted below: deleting a
+    # middle row shifts every row above it down, so naming afterwards
+    # would hang the wrong names on the survivors. Nothing here invents
+    # a name: a row the plan did not name is an error, not a fallback.
+    _plan_names = {(t.media_type, t.index): t.name
+                   for t in track_plan.video_tracks + track_plan.audio_tracks}
     for i in range(1, timeline.GetTrackCount("video") + 1):
-        label = video_labels.get(i, f"V{i}")
+        label = _plan_names.get(("video", i))
+        if label is None:
+            results["errors"].append(
+                f"Video row {i} is not on the track plan; refusing to name it.")
+            continue
         timeline.SetTrackName("video", i, label)
         print(f"  V{i}: {label}", file=sys.stderr)
 
     for i in range(1, timeline.GetTrackCount("audio") + 1):
-        if i <= 2:
-            label = audio_labels.get(i, f"A{i}")
-        else:
-            label = f"SFX-{i - 2}"
+        label = _plan_names.get(("audio", i))
+        if label is None:
+            results["errors"].append(
+                f"Audio row {i} is not on the track plan; refusing to name it.")
+            continue
         timeline.SetTrackName("audio", i, label)
         print(f"  A{i}: {label}", file=sys.stderr)
+
+    # ══════════════════════════════════════════════════════════
+    # OCCUPANCY: a row with nothing on it leaves the timeline
+    # ══════════════════════════════════════════════════════════
+    # The plan creates a row because something goes on it. When every
+    # placement for a row failed, keeping the blank row is exactly the
+    # defect being fixed - the row is deleted, and the deletion is on
+    # the record. Rows Resolve created on its own that the plan never
+    # asked for go the same way when empty, and are errors when
+    # occupied. Delete from the top down so indices below hold still.
+    for _mt in ("video", "audio"):
+        try:
+            _count = timeline.GetTrackCount(_mt) or 0
+        except Exception:
+            continue
+        for _idx in range(_count, 0, -1):
+            _spec = _plan_names.get((_mt, _idx))
+            try:
+                _items = timeline.GetItemListInTrack(_mt, _idx) or []
+            except Exception:
+                continue
+            if _items:
+                if _spec is None:
+                    results["errors"].append(
+                        f"Unplanned {_mt} row {_idx} carries "
+                        f"{len(_items)} item(s); refusing to keep it.")
+                continue
+            try:
+                _gone = timeline.DeleteTrack(_mt, _idx)
+            except Exception as exc:
+                results["errors"].append(
+                    f"Empty {_mt.upper()}{_idx} "
+                    f"({_spec or 'unplanned'}) could not be removed: {exc}")
+                continue
+            if _gone:
+                results["deleted_empty_tracks"].append(
+                    {"media_type": _mt, "index": _idx,
+                     "name": _spec or "unplanned"})
+                print(f"  ✗ Empty row {_mt.upper()}{_idx} "
+                      f"({_spec or 'unplanned'}) removed", file=sys.stderr)
+            else:
+                results["errors"].append(
+                    f"Empty {_mt.upper()}{_idx} "
+                    f"({_spec or 'unplanned'}) declined deletion")
 
     # The DRP transition-surgery pass used to sit here. It exported the
     # project to a temp .drp, edited it, and printed "RELOAD REQUIRED /

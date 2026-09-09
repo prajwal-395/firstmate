@@ -360,12 +360,17 @@ def test_audio_markers_are_the_fallback_not_the_mix(mock_resolve, sample_manifes
     )
 
 
-def test_generator_overlay_lands_on_v5(mock_resolve, sample_manifest):
-    """Test that a generator overlay is placed on V5 via a transparent carrier.
+def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
+    """Test that a generator overlay is placed on the plan's generator row
+    via a transparent carrier.
 
     This is the acceptance test for generator routing: it proves the builder
-    creates the carrier, imports it, and calls AppendToTimeline with
-    trackIndex=5 and the correct frame math. No live Resolve needed.
+    creates the carrier, imports it, and calls AppendToTimeline with the
+    plan row and the correct frame math. No live Resolve needed.
+
+    The row is plan-derived, not V5: this manifest has an a-roll and
+    nothing else, so the SOP's fixed order puts generators on V2. A
+    hardcoded V5 here was defect 4's shape (rows from constants).
     """
     # Add a generator overlay to the manifest
     sample_manifest["generator_overlays"] = [
@@ -421,7 +426,7 @@ def test_generator_overlay_lands_on_v5(mock_resolve, sample_manifest):
     def append_side_effect(items):
         info = items[0]
         append_calls.append(info)
-        if info.get("trackIndex") == 5:
+        if info.get("trackIndex") == 2:
             return [placed_v5_item]
         return [placed_v1_item]
     media_pool.AppendToTimeline.side_effect = append_side_effect
@@ -439,21 +444,21 @@ def test_generator_overlay_lands_on_v5(mock_resolve, sample_manifest):
         mock_ffmpeg.return_value = MagicMock(returncode=0, stderr="", stdout="")
         build_timeline(sample_manifest, project_folder="/tmp/test_project")
 
-    # ── Verify V5 track was created ──
-    # The builder should have requested at least 5 video tracks
+    # ── Verify the generator row was created ──
+    # The builder should have requested the plan's rows: V1 exists by
+    # default, so reaching the generator row V2 needs 1 more video track.
     track_counts = {}
     for call in timeline.AddTrack.call_args_list:
         t = call[0][0]
         track_counts[t] = track_counts.get(t, 0) + 1
-    # V1 exists by default (1), so to reach 5 we need 4 more video tracks
-    assert track_counts.get("video", 0) >= 4, (
-        f"Expected >= 4 AddTrack('video') calls to reach V5, got {track_counts}"
+    assert track_counts.get("video", 0) >= 1, (
+        f"Expected >= 1 AddTrack('video') call to reach the generator row, got {track_counts}"
     )
 
-    # ── Verify AppendToTimeline was called with trackIndex=5 ──
-    v5_appends = [c for c in append_calls if c.get("trackIndex") == 5]
+    # ── Verify AppendToTimeline was called with the plan row (V2 here) ──
+    v5_appends = [c for c in append_calls if c.get("trackIndex") == 2]
     assert len(v5_appends) == 1, (
-        f"Expected 1 V5 append, got {len(v5_appends)}. "
+        f"Expected 1 generator-row append, got {len(v5_appends)}. "
         f"All appends: {[c.get('trackIndex') for c in append_calls]}"
     )
 
@@ -462,15 +467,16 @@ def test_generator_overlay_lands_on_v5(mock_resolve, sample_manifest):
     assert v5_call["endFrame"] == 90, f"Expected 90 frames, got {v5_call['endFrame']}"
     # Timeline position: 2.0s * 30fps = 60
     assert v5_call["recordFrame"] == 60, f"Expected recordFrame=60, got {v5_call['recordFrame']}"
-    assert v5_call["mediaType"] == 1, "V5 must be video-only (mediaType=1)"
-    assert v5_call["mediaPoolItem"] is carrier_pool_item, "V5 must use the transparent carrier"
+    assert v5_call["mediaType"] == 1, "generator row must be video-only (mediaType=1)"
+    assert v5_call["mediaPoolItem"] is carrier_pool_item, "generator row must use the transparent carrier"
 
     # ── Verify composite mode was set ──
     placed_v5_item.SetProperty.assert_any_call('CompositeMode', 5)  # 5 = Screen
 
 
-def test_multiple_generators_all_land_on_v5(mock_resolve, sample_manifest):
-    """Multiple generators each get their own carrier clip on V5."""
+def test_multiple_generators_all_land_on_plan_row(mock_resolve, sample_manifest):
+    """Multiple generators each get their own carrier clip on the plan's
+    generator row (V2 for this a-roll-only manifest)."""
     sample_manifest["generator_overlays"] = [
         {
             "overlay_id": "gen_001",
@@ -515,7 +521,7 @@ def test_multiple_generators_all_land_on_v5(mock_resolve, sample_manifest):
     def append_side_effect(items):
         info = items[0]
         append_calls.append(info)
-        if info.get("trackIndex") == 5:
+        if info.get("trackIndex") == 2:
             item = placed_v5_items[min(v5_idx[0], len(placed_v5_items) - 1)]
             v5_idx[0] += 1
             return [item]
@@ -530,8 +536,8 @@ def test_multiple_generators_all_land_on_v5(mock_resolve, sample_manifest):
          patch('subprocess.run', return_value=MagicMock(returncode=0, stderr="")):
         build_timeline(sample_manifest, project_folder="/tmp/test_project")
 
-    v5_appends = [c for c in append_calls if c.get("trackIndex") == 5]
-    assert len(v5_appends) == 2, f"Expected 2 V5 appends, got {len(v5_appends)}"
+    v5_appends = [c for c in append_calls if c.get("trackIndex") == 2]
+    assert len(v5_appends) == 2, f"Expected 2 generator-row appends, got {len(v5_appends)}"
 
     # First generator: 0-3s = 90 frames at frame 0
     assert v5_appends[0]["endFrame"] == 90
