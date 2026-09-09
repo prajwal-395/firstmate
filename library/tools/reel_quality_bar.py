@@ -614,7 +614,8 @@ def normalise(text) -> str:
     return " ".join(_words(text))
 
 
-def playable_ranges(moment, transcript: dict) -> Tuple[list, str]:
+def playable_ranges(moment, transcript: dict,
+                      extra_cuts=()) -> Tuple[list, str]:
     """`(ranges, refusal)` - what the reel plays, or why it plays nothing.
 
     `reel_build.reel_ranges` RAISES for a plan that cannot be laid out:
@@ -623,11 +624,17 @@ def playable_ranges(moment, transcript: dict) -> Tuple[list, str]:
     things the bar exists to report - so the exception is turned into a
     refusal here rather than being allowed to take the whole batch's
     report with it.  A reel that cannot be built has not passed anything.
+
+    `extra_cuts` are the captain's recorded strikes for this moment
+    (`transcript_corrections.exclusion_cuts_for_span`). Empty (every
+    existing caller) reads exactly what it read before; a caller proving
+    what a BUILT reel plays passes the same cuts the builder cut.
     """
     from library.tools.reel_build import ReelBuildError, reel_ranges
 
     try:
-        return list(reel_ranges(moment, transcript)), ""
+        return list(reel_ranges(moment, transcript,
+                                extra_cuts=extra_cuts)), ""
     except ReelBuildError as refused:
         return [], str(refused)
     except (KeyError, TypeError, ValueError) as broken:
@@ -635,7 +642,8 @@ def playable_ranges(moment, transcript: dict) -> Tuple[list, str]:
 
 
 def played_speech(moment, transcript: dict,
-                  with_words: bool = False) -> List[dict]:
+                  with_words: bool = False,
+                  extra_cuts=()) -> List[dict]:
     """Every line a viewer HEARS, in the order the reel plays it.
 
     Built over `reel_build.reel_ranges`, so it is the body with its bad
@@ -662,13 +670,18 @@ def played_speech(moment, transcript: dict,
     an explainer is anchored to the word its quote begins on, and a
     stage anchored to the START of a twenty-word line can be four
     seconds early.
+
+    `extra_cuts` is the same parameter `playable_ranges` carries: the
+    captain's recorded strikes, so a caller proving what a built reel
+    plays reads the struck seconds as absent.
     """
     segments = sorted((transcript.get("segments") or []),
                       key=lambda s: float(s.get("timeline_start") or 0.0))
     out: List[dict] = []
     offset = 0.0
     for index, (range_start, range_end) in enumerate(
-            playable_ranges(moment, transcript)[0]):
+            playable_ranges(moment, transcript,
+                            extra_cuts=extra_cuts)[0]):
         for segment in segments:
             start = float(segment.get("timeline_start") or 0.0)
             end = float(segment.get("timeline_end") or 0.0)

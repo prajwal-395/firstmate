@@ -1272,6 +1272,189 @@ def keep_ranges(start: float, end: float,
     return [(a, b) for a, b in ranges if b - a > MIN_RANGE_SECONDS]
 
 
+def subtract_interval_cuts(
+        ranges: Sequence[Tuple[float, float]],
+        intervals: Sequence[tuple]) -> List[Tuple[float, float]]:
+    """Tuple-interval subtraction with `keep_ranges`' own sliver rule.
+
+    The captain's keep exclusions arrive as plain `(start, end[, id])`
+    intervals - deliberately NOT `Cut`s, because a `Cut` claims a kept
+    take in place of the dropped one and a strike keeps no take. The
+    arithmetic is the same shape, so it reads the same way, including
+    the sliver rule: a remnant under `MIN_RANGE_SECONDS` is dropped
+    rather than placed as a one-frame chirp, which is the defect class
+    the captain's "random tiny audio bite" belongs to.
+    """
+    out = [(float(a), float(b)) for a, b in ranges]
+    for interval in intervals or []:
+        s, e = float(interval[0]), float(interval[1])
+        if not e > s:
+            continue
+        nxt: List[Tuple[float, float]] = []
+        for a, b in out:
+            if e <= a or s >= b:
+                nxt.append((a, b))
+                continue
+            if a < s:
+                nxt.append((a, s))
+            if e < b:
+                nxt.append((e, b))
+        out = nxt
+    return [(a, b) for a, b in out if b - a > MIN_RANGE_SECONDS]
+
+
+#: A kept remnant under this long, left behind by a strike's own edge,
+#: cannot be placed: the F7 readability floor refuses picture and audio
+#: items under 0.5s (12 frames), so building it is building a refusal.
+ABSORB_REMNANT_SECONDS = 0.5
+
+
+def _remnant_has_timed_words(start: float, end: float,
+                             transcript: dict) -> object:
+    """The first timed word sounding inside `[start, end)`, or None.
+
+    Any timed word - bound or straddling: where something was really
+    said the remnant carries speech, whatever the segment's source
+    status. Silence, breath and room tone time nothing.
+    """
+    for segment in transcript.get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start and word_start < end and word_end > start:
+                return str(word.get("word", ""))
+    return None
+
+
+def absorb_wordless_remnants(
+        ranges: Sequence[Tuple[float, float]],
+        intervals: Sequence[tuple],
+        transcript: dict) -> tuple:
+    """Fold a strike's own edge-dust back into the strike.
+
+    Cutting at exact word boundaries can strand a sub-floor nub where
+    the master clip starts just before the first word - Reel 09's
+    LCATL0013 clip starts 0.28s before Craig's 'so', so striking from
+    the word left a 6-frame picture+audio item the F7 floor refuses.
+    A remnant under `ABSORB_REMNANT_SECONDS` that touches the cut that
+    made it and carries NO timed words is absorbed: the cut extends
+    over silence nobody can hear. One that carries speech REFUSES,
+    naming the exclusion - extending over words would delete speech
+    the captain never struck, and shrinking past them invents the
+    boundary instead. Returns `(ranges, intervals)` with the intervals
+    extended to what was actually cut, so the mid-word check and the
+    operator both read the true edges.
+    """
+    out = [(float(a), float(b)) for a, b in ranges]
+    grown = [(float(c[0]), float(c[1]),
+              (str(c[2]) if len(c) > 2 else "")) for c in (intervals or [])]
+    for index, (s, e, ident) in enumerate(grown):
+        # Remnants this cut left BEHIND it (kept range ending where the
+        # cut starts) and AHEAD of it (kept range starting where the
+        # cut ends) - identified by the exact edge float the
+        # subtraction wrote, so a short range from any other cause is
+        # never swept up here.
+        for side in ("behind", "ahead"):
+            edge = s if side == "behind" else e
+            span = None
+            for a, b in out:
+                if side == "behind" and b == edge and a < edge:
+                    span = (a, b)
+                elif side == "ahead" and a == edge and b > edge:
+                    span = (a, b)
+            if span is None:
+                continue
+            a, b = span
+            if b - a >= ABSORB_REMNANT_SECONDS:
+                continue
+            spoken = _remnant_has_timed_words(a, b, transcript)
+            if spoken is None:
+                out = [(x, y) for x, y in out if (x, y) != span]
+                s, e = (a, e) if side == "behind" else (s, b)
+                grown[index] = (s, e, ident)
+            else:
+                raise ReelBuildError(
+                    f"REFUSING to build: keep exclusion {ident!r} "
+                    f"strands a {(b - a):.2f}s fragment "
+                    f"({a:.2f}-{b:.2f}s) carrying the word "
+                    f"{spoken!r} - placing it fails the readability "
+                    f"floor, and cutting it would delete speech the "
+                    f"captain never struck. Re-record the strike to "
+                    f"include the fragment or start past it.")
+    out = [(a, b) for a, b in out if b - a > MIN_RANGE_SECONDS]
+    return out, grown
+
+
+class ExclusionWipesBody(ReelBuildError):
+    """A recorded strike covers this reel's whole body.
+
+    Raised rather than building a closer-only timeline: a reel whose
+    body the captain struck entirely is dropped WITH this reason, and
+    the loop turns it into a skip rather than a batch-killing refusal.
+    That is the build-time shape of the no-split rule - one reel in,
+    zero or one out, never two, never an empty container.
+    """
+
+
+def exclusion_midword_edges(start: float, end: float,
+                             intervals: Sequence[tuple],
+                             transcript: dict) -> List[dict]:
+    """Recorded-strike edges landing inside a timed word.
+
+    The same question `midword_keep_edges` asks of take cuts, with one
+    precedence the take lane never needs. An edge exactly ON a BOUND
+    word's edge is clean even where a STRADDLING row spans it: a bound
+    row anchors a real source clip, so its edge is ground truth about
+    audible sound, while a straddling row has no source at all and is
+    usually WhisperX bridging silence (`reel_proposal.bound_segments`
+    - on this episode a single 'well' claims 34 seconds). Letting the
+    phantom testify would refuse a cut at a real word boundary, which
+    is the REAL defect wearing the check's clothes. Anything else
+    strictly inside any timed word is refused like a take edge: each
+    entry names the exclusion id, so the fix is re-recording that
+    strike at word boundaries rather than redrawing any span.
+    """
+    words: List[Tuple[float, float, str]] = []
+    bound_edges: List[float] = []
+    for segment in transcript.get("segments") or ():
+        bound = bool(segment.get("resolve_item_id"))
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                words.append((word_start, word_end, str(word.get("word", ""))))
+                if bound:
+                    bound_edges.extend((word_start, word_end))
+    found = []
+    for interval in intervals or []:
+        s, e = float(interval[0]), float(interval[1])
+        ident = str(interval[2]) if len(interval) > 2 else ""
+        for edge in (s, e):
+            if edge <= start or edge >= end:
+                continue
+            if any(abs(edge - known) <= 0.005 for known in bound_edges):
+                continue
+            for word_start, word_end, text in words:
+                if word_start < edge < word_end:
+                    found.append({
+                        "edge": round(edge, 3),
+                        "exclusion": ident,
+                        "word": text,
+                        "word_start": round(word_start, 2),
+                        "word_end": round(word_end, 2),
+                    })
+                    break
+    return found
+
+
 def midword_keep_edges(start: float, end: float, transcript: dict,
                        cuts: Optional[Sequence[Cut]] = None) -> List[dict]:
     """Interior keep-range edges landing strictly inside a timed word.
@@ -1435,7 +1618,8 @@ def closer_repeats(moment, transcript: dict) -> List[dict]:
     return out
 
 
-def reel_ranges(moment, transcript: dict) -> List[Tuple[float, float]]:
+def reel_ranges(moment, transcript: dict,
+                extra_cuts: Sequence[tuple] = ()) -> List[Tuple[float, float]]:
     """Every master range this reel plays, IN THE ORDER IT PLAYS THEM.
 
     The body first, with its bad takes cut out of it, and then the
@@ -1445,15 +1629,64 @@ def reel_ranges(moment, transcript: dict) -> List[Tuple[float, float]]:
     This is the ONE place that order is spelled.  `build_reel_timeline`,
     the caption pass and the conformance verifier all call it, so a reel
     cannot be built to one order and checked against another.
+
+    `extra_cuts` are the captain's recorded keep exclusions overlapping
+    this moment's body, as `(start, end[, id])` intervals
+    (`transcript_corrections.exclusion_cuts_for_span` - which is where
+    the reason approval does not block them is written down). They cut
+    the body exactly like take cuts do: one reel in, one reel out,
+    fewer seconds, never two reels. Empty (the default) builds exactly
+    what this built before, so every caller without a project in hand
+    is untouched. A sub-floor nub the cut strands off a clip's lead-in
+    is absorbed where it carries no timed words and refused where it
+    carries speech (`absorb_wordless_remnants`). A strike covering the
+    whole body raises `ExclusionWipesBody` - the loop drops that reel
+    WITH the reason rather than building an empty timeline. A strike
+    edge through a word refuses like a take edge, naming the exclusion
+    to re-record. The closer is always placed whole: a strike
+    overlapping it is not applied here, and the captain picks another
+    closer.
     """
     cuts = redundant_takes(moment.timeline_start, moment.timeline_end,
                            transcript)
     # The cut list is checked against the transcript's own runs before it
     # becomes the reel's shape, so a producer that bypassed
-    # `redundant_takes` cannot strand a fragment silently.
+    # `redundant_takes` cannot strand a fragment silently.  Take cuts
+    # ONLY: a recorded strike is not a take, has no kept take, and must
+    # never be judged by take-wholeness.
     assert_takes_are_whole(cuts, moment.timeline_start, moment.timeline_end,
                            transcript)
     ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
+    intervals = [(float(c[0]), float(c[1]),
+                  (str(c[2]) if len(c) > 2 else ""))
+                 for c in (extra_cuts or [])]
+    if intervals:
+        ranges = subtract_interval_cuts(
+            ranges, [(s, e) for s, e, _ in intervals])
+        ranges, intervals = absorb_wordless_remnants(
+            ranges, intervals, transcript)
+        if not ranges:
+            ident = next((i for _, _, i in intervals if i), "")
+            raise ExclusionWipesBody(
+                f"keep exclusion {ident} covers this reel's whole body "
+                f"({moment.timeline_start:.2f}-"
+                f"{moment.timeline_end:.2f}s): nothing would play, so "
+                f"this reel is dropped with the reason rather than "
+                f"built as an empty timeline.")
+        bad_strike = exclusion_midword_edges(
+            moment.timeline_start, moment.timeline_end,
+            [(s, e, i) for s, e, i in intervals], transcript)
+        if bad_strike:
+            first = bad_strike[0]
+            raise ReelBuildError(
+                f"REFUSING to build: keep exclusion "
+                f"{first['exclusion']!r} ends at {first['edge']:.2f}s "
+                f"inside the word {first['word']!r} "
+                f"({first['word_start']:.2f}-{first['word_end']:.2f}s), so "
+                f"the reel would play that word cut in half and then "
+                f"jump. Re-record the strike at word boundaries - the "
+                f"span itself is approved and stays as the captain drew "
+                f"it.")
     # A cut edge that lands inside a word plays half a word and then
     # jumps - R07's "Your we-", R02's 125ms chirp. The snap owns the
     # OUTER span edges only, so an interior edge through a word reaches
@@ -2264,7 +2497,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             print(f"  {name}: {note}", file=sys.stderr)
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = ()):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -2329,7 +2562,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # The reel's shape is computed BEFORE anything is created, so a
     # refusal - a mid-word keep edge, an unresolvable program stream -
     # fires before a timeline exists rather than leaving half of one.
-    ranges = reel_ranges(moment, transcript)
+    # `extra_cuts` are the captain's recorded strikes for this moment:
+    # the placer reads the SAME ranges the caption pass planned from,
+    # so picture and captions cannot disagree about what plays.
+    ranges = reel_ranges(moment, transcript, extra_cuts=extra_cuts)
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
@@ -3585,6 +3821,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   file=sys.stderr)
         repaired.append(fixed)
     moments = repaired
+
+    # The captain's recorded strikes, read ONCE for the batch: the same
+    # store `select_reels` enforces on new proposals, applied here to
+    # APPROVED moments as cuts inside their own ranges. Selection never
+    # rewrites an approved range and the build never re-decides one -
+    # applying a strike is obedience, not re-decision, and the full
+    # reasoning lives in `transcript_corrections.exclusion_cuts_for_span`.
+    # A strike the store cannot supply must REFUSE, never build silently
+    # past it: quiet non-application is the defect this exists to end.
+    from library.tools import transcript_corrections as _tc
+    keep_exclusions = _tc.keep_exclusions(project_folder)
         
     timeline = None
     for i in range(1, project.GetTimelineCount() + 1):
@@ -3668,6 +3915,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     footage_binding_hashes = {}
     overlay_records = {}
     track_plans = {}
+    skipped_by_exclusion: list = []
     # Read ONCE, before the loop: a malformed declaration must stop the
     # whole build, not the twelfth reel of nineteen.
     card_declarations = declared_cards(project_folder)
@@ -3706,6 +3954,23 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             name = staged_to_final[final]
             current_staging = name
             print(f"Building {name}", flush=True)
+            # This approved moment's own strikes, cut from its ranges
+            # below. Said on the run that honours them: a cut the
+            # operator cannot see is a silent content change. Grown
+            # over wordless clip lead-in first (`grow_cuts...`), so a
+            # strike at a word's start does not strand 6 frames of
+            # room tone the readability floor then refuses.
+            moment_cuts = _tc.grow_cuts_over_wordless_leadin(
+                _tc.exclusion_cuts_for_span(
+                    moment.timeline_start, moment.timeline_end,
+                    keep_exclusions),
+                transcript)
+            for cut_start, cut_end, cut_id in moment_cuts:
+                print(f"  keep exclusion {cut_id} cuts "
+                      f"{cut_start:.2f}-{cut_end:.2f}s from this reel - "
+                      f"recorded by the captain, applied at build so an "
+                      f"approved range is honoured rather than re-decided",
+                      flush=True)
             # A repetition this build is LEAVING IN, and why, said where the
             # operator is already looking. Silence here is what let reel 03
             # be rebuilt worse at the open than the timeline it replaced.
@@ -3746,7 +4011,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"{echo['kept_end']:.2f}s "
                           f"({echo['speaker']}) - the closer is placed "
                           f"whole", flush=True)
-            ranges = reel_ranges(moment, transcript)
+            try:
+                ranges = reel_ranges(moment, transcript,
+                                     extra_cuts=moment_cuts)
+            except ExclusionWipesBody as wiped:
+                # Dropped WITH the reason, never split and never emptied:
+                # the strike covers the whole body, so there is no reel
+                # left to build and no second reel to invent. The
+                # approved timeline already in Resolve is left exactly
+                # as it is, like a reel this call did not name.
+                reason = str(wiped)
+                print(f"  SKIPPING {name}: {reason}", flush=True)
+                skipped_by_exclusion.append({"reel": name,
+                                             "number": moment.number,
+                                             "reason": reason})
+                current_staging = None
+                continue
 
             # Full-frame elements FIRST, because a head card decides where
             # every other thing on this reel starts. Planned and rendered
@@ -3861,7 +4141,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             if reel_look_decl is not None:
                 from library.tools import reel_look as _look
                 spine = _look.motion_spine(
-                    placements(reel_ranges(moment, transcript), master_clips,
+                    placements(reel_ranges(moment, transcript,
+                                           extra_cuts=moment_cuts),
+                               master_clips,
                                24000/1001, lead_frames=lead_frames(cards, 24000/1001)),
                     24000/1001)
                 _look.write_motion_request(
@@ -3903,6 +4185,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # The live master is how the program stream resolves
                 # on projects whose catalog predates stream recording.
                 master_timeline=timeline,
+                extra_cuts=moment_cuts,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
@@ -3927,7 +4210,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 from library.tools import reel_look as _look
                 manifest = _look.fusion_manifest(
                     placements(
-                        reel_ranges(moment, transcript), master_clips,
+                        reel_ranges(moment, transcript,
+                                    extra_cuts=moment_cuts), master_clips,
                         24000/1001,
                         lead_frames=lead_frames(cards, 24000/1001)),
                     reel_look_decl, reel_motion, 24000/1001)
@@ -4060,6 +4344,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     return {
         "timelines_built": built_reel_names,
+        # Reels this call deliberately did NOT build: a recorded strike
+        # covers the whole body, so the reel is dropped WITH the reason
+        # (the build-time shape of the no-split rule) and whatever the
+        # captain approved stays exactly as it is. A reader that wants
+        # to know what was held back reads this, never silence.
+        "skipped_by_exclusion": skipped_by_exclusion,
         # Final -> staging while anything is staged, `{}` once
         # promotion renamed them. The `verify_reels` node grades
         # `timelines_built` and promotes off this mapping; absent on

@@ -4309,6 +4309,27 @@ def _derive_plan_from_master(
         cuts_list = redundant_takes(span_start, span_end, transcript)
         cuts = tuple(cuts_list)
         kr = compute_keep_ranges(span_start, span_end, cuts_list)
+        # The captain's recorded strikes, cut the same way the builder
+        # cuts them (`reel_build.reel_ranges(extra_cuts=...)`): a reel
+        # cannot be built to one rule and checked against another, and
+        # without this every honoured strike reads as "planned N items,
+        # found N+k". Plain intervals here - the take-wholeness guard
+        # is about takes, and a strike keeps no take.
+        if project_folder:
+            from library.tools import transcript_corrections as _tc
+            from library.tools.reel_build import (
+                absorb_wordless_remnants as _absorb,
+                subtract_interval_cuts as _subtract,
+            )
+            struck = _tc.grow_cuts_over_wordless_leadin(
+                _tc.exclusion_cuts_for_span(
+                    span_start, span_end,
+                    _tc.keep_exclusions(project_folder)),
+                transcript or {})
+            if struck:
+                kr, _ = _absorb(
+                    _subtract(kr, [(s, e) for s, e, _ in struck]),
+                    struck, transcript or {})
 
     # The closer, whole and last - the same order `reel_build.reel_ranges`
     # builds it in, and the reason a reel cannot be built to one order and

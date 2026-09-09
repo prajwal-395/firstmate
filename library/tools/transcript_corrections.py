@@ -42,14 +42,20 @@ Keep-range corrections
 ----------------------
 The same store, a second shape. A keep exclusion names timeline
 seconds the captain struck ("so what do they ... feels like a
-mistake") and is enforced deterministically in step 3.04's
+mistake") and is enforced TWICE, at the two layers that each own
+their half. At SELECTION time, deterministically in step 3.04's
 post-bridge: an exclusion at a moment's edge TRIMS it, an exclusion
 in its middle DROPS the moment with the reason - splitting one reel
 into two would be a new editorial decision, not an enforcement, and
-this module never invents taste (AGENTS.md 10.5). Enforcement lives
-in the post-bridge so every regenerated proposal carries it; moments
-approved BEFORE the exclusion was recorded are re-decided by
-re-running selection, not rewritten under their approval.
+this module never invents taste (AGENTS.md 10.5). At BUILD time, as
+cuts inside the approved moment's own keep ranges
+(`exclusion_cuts_for_span`, applied by `reel_build.reel_ranges`):
+selection never rewrites an approved range under its approval, and
+the build never re-decides one - it only stops playing seconds the
+captain struck, which is obedience rather than re-decision. A strike
+the build cannot honour (the whole body gone) skips the reel with
+the reason rather than building an empty timeline, and the no-split
+rule holds at both layers: one reel in, one reel out, fewer seconds.
 
 `tests/test_transcript_corrections.py`.
 """
@@ -389,3 +395,111 @@ def apply_keep_exclusions(moments: list, exclusions: list,
         else:
             kept.append(dict(moment))
     return kept, dropped
+
+
+def exclusion_cuts_for_span(start: float, end: float,
+                             exclusions: list) -> list:
+    """Struck seconds inside one span, as `(start, end)` cuts.
+
+    The BUILD-time half of keep enforcement, and deliberately NOT a
+    trim-or-drop. `apply_keep_exclusions` above draws proposal windows:
+    there an interior exclusion drops the moment, because selection can
+    only offer ONE window and two windows would be a new reel. The
+    builder does not offer windows - it lays keep ranges end to end
+    (`reel_build.reel_ranges`), and a take cut already removes middle
+    seconds the same way. A recorded exclusion reaching an APPROVED
+    moment's build is cut out of its ranges exactly like one, so the
+    reel stays one reel and plays fewer seconds. Nothing is split, so
+    the no-split rule this module states above is kept, not bent.
+
+    Why approval does not block this is the distinction the guard
+    exists to draw. Approval stops the ENGINE re-deciding a range under
+    the captain - re-running selection, re-ranking, re-drawing a span
+    on its own judgement. A keep exclusion IS the captain's judgement,
+    recorded with their reason and their id: applying it is obedience,
+    not re-decision, and a guard that reads obedience as re-decision
+    makes their edits do nothing on exactly the reels they annotated -
+    an unapproved reel is one they have not looked at yet, and an
+    approved one is one they HAVE looked at and left notes on. The
+    mechanism was backwards relative to how it gets used, and this is
+    what turns it round: selection still never rewrites an approved
+    range, and the build still never re-decides one - it only stops
+    playing seconds the captain struck.
+
+    Returns the overlaps clipped to `[start, end]`, in order, as
+    `(start, end, id)` triples - the id so the build can SAY which
+    recorded strike removed which seconds, because a cut the operator
+    cannot see is a silent content change. Empty where nothing recorded
+    touches the span - the common case, and the caller then builds
+    exactly what it built before.
+    """
+    cuts = []
+    for exclusion in exclusions or []:
+        try:
+            ex_start = float(exclusion["start"])
+            ex_end = float(exclusion["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not ex_end > ex_start:
+            continue
+        cut_start = max(float(start), ex_start)
+        cut_end = min(float(end), ex_end)
+        if cut_end > cut_start:
+            cuts.append((cut_start, cut_end,
+                         str(exclusion.get("id", ""))))
+    cuts.sort()
+    return cuts
+
+
+#: How far back a strike's start may reach for the previous word's end.
+#: Past this the extension stops being edge-dust and becomes editorial
+#: scope, and the operator re-records it explicitly instead.
+LEADIN_GROWTH_LIMIT = 2.0
+
+
+def grow_cuts_over_wordless_leadin(intervals: list,
+                                   transcript: dict) -> list:
+    """Extend each cut's start back over a short wordless lead-in.
+
+    A strike is recorded at word boundaries - 'so' starts at 653.421s -
+    but the master clip starts earlier (653.137s here: every edit
+    leaves lead-in handles). Cutting at the word strands the lead-in
+    as a sub-floor nub the F7 readability check refuses, so the build
+    that honours the strike fails on 6 frames of room tone. Where the
+    previous timed word ends within `LEADIN_GROWTH_LIMIT` and nothing
+    was timed between it and the cut, the cut starts there instead:
+    only silence moves, no word is touched, and nothing placeable is
+    left behind. Past the limit, or where a word starts inside the
+    gap, the interval stands as recorded - a nub that really forms
+    refuses loudly at the gate instead of being silently eaten.
+
+    Returns new `(start, end, id)` triples; the input is untouched.
+    Empty transcript (or None) grows nothing.
+    """
+    words = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                words.append((word_start, word_end))
+    if not words:
+        return list(intervals or [])
+    grown = []
+    for interval in intervals or []:
+        s, e = float(interval[0]), float(interval[1])
+        ident = str(interval[2]) if len(interval) > 2 else ""
+        earlier = [we for _, we in words if we <= s + 1e-9]
+        if earlier:
+            prev_end = max(earlier)
+            if (prev_end < s
+                    and s - prev_end <= LEADIN_GROWTH_LIMIT
+                    and not any(s > ws > prev_end for ws, _ in words)):
+                s = prev_end
+        grown.append((s, e, ident))
+    return grown
