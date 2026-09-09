@@ -77,7 +77,12 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from library.tools.tight_box import TightBox, placement_for_box
+from library.tools.tight_box import (
+    TightBox,
+    TightBoxMismatch,
+    placement_for_box,
+    placement_holds,
+)
 
 # Beyond the estimated ink on every side: the slide entrance travels
 # 40px, text shadows blur 12px, the glitch jitter moves ~6px carrying a
@@ -327,7 +332,9 @@ def _horizontal(anchor: str) -> str:
 
 
 def tighten_motion_graphics_props(props: dict,
-                                  project_folder: str = "") -> Optional[TightBox]:
+                                   project_folder: str = "",
+                                   timeline_size: tuple[int, int] | None = None,
+                                   ) -> Optional[TightBox]:
     """The tight canvas for one segment's full-canvas MG props, or None.
 
     Returns None when the segment draws nothing, when its union is
@@ -336,6 +343,17 @@ def tighten_motion_graphics_props(props: dict,
     caller keeps the full-canvas path. Raises where the props carry no
     safe area, exactly as the composition refuses to place by a
     literal.
+
+    A placement Resolve cannot hold is ALSO None, not a clamped
+    graphic: the small canvas needs large Pan/Tilt (frame size over
+    box size), and past four times the timeline dimensions Resolve
+    pins the value while reporting success - the captain's captions
+    at -7680 and the motion graphics on huge X. `timeline_size`
+    defaults to the props' own delivery frame (the timeline is built
+    at it); the caller passes it explicitly where it knows better.
+    The cost is stated where it belongs: that one segment renders
+    full-canvas, at full-canvas bytes. An overlay the captain cannot
+    see is worth more disk.
     """
     elements = props.get("elements") or []
     if not elements:
@@ -468,6 +486,21 @@ def tighten_motion_graphics_props(props: dict,
     canvas_cy = union[1] - MG_PAD + canvas_h / 2.0
     placement = placement_for_box(
         canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h)
+
+    # The clamp gate the caption path already has
+    # (`resolve_placement_from_correspondence`): a transform Resolve
+    # cannot hold is refused here, at render time, where the
+    # full-canvas fallback still exists - never at placement time,
+    # where the file is already small and the only options are a
+    # clamped graphic or a loud report.
+    held_against = timeline_size or (full_w, full_h)
+    reason = placement_holds(placement, *held_against)
+    if reason:
+        raise TightBoxMismatch(
+            f"tight motion-graphics box needs Pan "
+            f"{placement['pan']:.1f} / Tilt {placement['tilt']:.1f}: "
+            f"{reason} - this graphic cannot ride a small box, and "
+            f"stays full-canvas.")
 
     tight_props = dict(props)
     tight_props["width"] = canvas_w

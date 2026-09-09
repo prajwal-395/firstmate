@@ -111,9 +111,13 @@ def test_unknown_elements_draw_nothing_so_no_box():
 
 
 def test_unknown_elements_are_ignored_beside_real_ones():
-    title = _el("title_lockup")
+    # Mid-frame, so the box the test compares is one Resolve can
+    # hold: a bottom-anchored box this small needs Tilt past the
+    # clamp and is refused (see below), which would leave nothing
+    # to compare.
+    title = _el("title_lockup", anchor="middle_centre")
     with_unknown = tighten_motion_graphics_props(
-        _props([title, _el("tracked_label")]))
+        _props([title, _el("tracked_label", anchor="middle_centre")]))
     without = tighten_motion_graphics_props(_props([title]))
     assert with_unknown is not None and without is not None
     assert (with_unknown.width, with_unknown.height) == \
@@ -133,27 +137,30 @@ def test_accents_plus_progress_bar_cover_the_frame():
     assert tighten_motion_graphics_props(props) is None
 
 
-def test_progress_bar_alone_is_a_thin_full_width_strip():
-    box = tighten_motion_graphics_props(
-        _props([_el("progress_bar", anchor="bottom_centre")]))
-    assert box is not None
-    usable = FULL_W - SAFE["left"] - SAFE["right"]
-    assert box.width >= usable
-    assert box.width < FULL_W
-    assert box.height < 300
+def test_progress_bar_alone_cannot_ride_a_small_box():
+    """A bottom progress bar is a thin strip far from the frame
+    centre: placing it needs Tilt past what Resolve holds (+-7680
+    on 1080x1920), so the box is refused and the bar renders full
+    canvas. The strip geometry below still describes what the bar
+    draws - only the carrying changed."""
+    from library.tools.tight_box import TightBoxMismatch
+    with pytest.raises(TightBoxMismatch, match="cannot ride"):
+        tighten_motion_graphics_props(
+            _props([_el("progress_bar", anchor="bottom_centre")]))
 
 
-def test_top_anchored_bar_sits_at_the_top():
-    box = tighten_motion_graphics_props(
-        _props([_el("progress_bar", anchor="top_centre")]))
-    assert box is not None
-    # The strip is at the top inset: its centre is far above the frame
-    # centre, so Tilt (which carries a flipped sign) is positive.
-    assert box.placement["tilt"] > 0
+def test_top_anchored_bar_cannot_ride_a_small_box():
+    """The top case of the same gate: a thin strip at the top
+    inset needs Tilt +11433 where Resolve holds +-7680."""
+    from library.tools.tight_box import TightBoxMismatch
+    with pytest.raises(TightBoxMismatch, match="cannot ride"):
+        tighten_motion_graphics_props(
+            _props([_el("progress_bar", anchor="top_centre")]))
 
 
 def test_single_title_is_much_smaller_than_full_frame():
-    box = tighten_motion_graphics_props(_props([_el("title_lockup")]))
+    box = tighten_motion_graphics_props(
+        _props([_el("title_lockup", anchor="middle_centre")]))
     assert box is not None
     assert 0 < box.width < FULL_W
     assert 0 < box.height < FULL_H
@@ -161,13 +168,15 @@ def test_single_title_is_much_smaller_than_full_frame():
 
 
 def test_canvas_dimensions_are_even():
-    box = tighten_motion_graphics_props(_props([_el("title_lockup")]))
+    box = tighten_motion_graphics_props(
+        _props([_el("title_lockup", anchor="middle_centre")]))
     assert box.width % 2 == 0
     assert box.height % 2 == 0
 
 
 def test_tight_safe_area_is_padding_not_platform_insets():
-    box = tighten_motion_graphics_props(_props([_el("title_lockup")]))
+    box = tighten_motion_graphics_props(
+        _props([_el("title_lockup", anchor="middle_centre")]))
     assert box.props["safeArea"] == {
         "top": MG_PAD, "right": MG_PAD,
         "bottom": MG_PAD, "left": MG_PAD,
@@ -229,13 +238,26 @@ def test_top_and_bottom_mix_stays_tight():
     assert 0 < box.height < FULL_H
 
 
-def test_bottom_anchored_title_sits_low():
-    box = tighten_motion_graphics_props(_props([_el("title_lockup")]))
-    # The union hangs near the bottom inset: its centre is below the
-    # frame centre, so Tilt is negative and Pan is zero (centred).
-    assert box.placement["scaling"] == 1
-    assert box.placement["pan"] == 0
-    assert box.placement["tilt"] < 0
+def test_bottom_anchored_title_is_refused_not_clamped():
+    """The captain's case at its simplest: an ordinary
+    bottom-anchored title needs Tilt -8758 where Resolve holds
+    +-7680 on 1080x1920. Refused here, at render time, where the
+    full-canvas fallback still exists - never placed and silently
+    pinned to -7680 off its band."""
+    from library.tools.tight_box import TightBoxMismatch
+    with pytest.raises(TightBoxMismatch, match="cannot ride"):
+        tighten_motion_graphics_props(_props([_el("title_lockup")]))
+
+
+def test_small_box_far_from_centre_refuses_on_pan_too():
+    """The captain's motion graphics on huge X: a small box far
+    from the frame centre overflows Pan the same way captions
+    overflow Tilt. The gate watches both axes."""
+    from library.tools.tight_box import TightBoxMismatch
+    with pytest.raises(TightBoxMismatch, match="cannot ride"):
+        tighten_motion_graphics_props(
+            _props([_el("pointer_annotation", anchor="top_left",
+                        footprint=0.5)]))
 
 
 def test_left_anchored_element_needs_negative_pan():
@@ -265,10 +287,13 @@ def test_comparison_bars_span_the_width_but_stay_short():
 
 
 def test_footprint_scales_the_estimate():
+    # Mid-frame, so both boxes are ones Resolve can hold: at the
+    # bottom band the small box already needs Tilt past the clamp
+    # (see above) and there would be nothing to compare.
     small = tighten_motion_graphics_props(_props(
-        [_el("title_lockup", footprint=0.5)]))
+        [_el("title_lockup", anchor="middle_centre", footprint=0.5)]))
     big = tighten_motion_graphics_props(_props(
-        [_el("title_lockup", footprint=2.0)]))
+        [_el("title_lockup", anchor="middle_centre", footprint=2.0)]))
     assert small is not None and big is not None
     assert big.width > small.width
     assert big.height > small.height

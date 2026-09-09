@@ -342,6 +342,77 @@ def placement_limits(timeline_w: int, timeline_h: int) -> tuple[float, float]:
     return (PAN_TILT_RANGE_FACTOR * timeline_w,
             PAN_TILT_RANGE_FACTOR * timeline_h)
 
+
+def placement_holds(placement: dict | None,
+                    timeline_w: int, timeline_h: int) -> str:
+    """Whether Resolve can HOLD a computed placement, as a reason or "".
+
+    Returns "" when the placement holds (None is a full-canvas clip:
+    no transform, nothing to refuse), else the reason it does not -
+    the Pan/Tilt Resolve would silently clamp, named with the limit.
+    One predicate for every path that ships a placement: the fresh
+    caption render below, the motion-graphics box
+    (`library/tools/mg_tight_box.py`, which computed placements with
+    no gate at all), and the caption reuse cache
+    (`render_one_segment` restores sidecar placements verbatim, so a
+    pre-gate or foreign-format sidecar otherwise ships unchecked).
+    """
+    if not placement:
+        return ""
+    pan_limit, tilt_limit = placement_limits(timeline_w, timeline_h)
+    pan = placement.get("pan")
+    tilt = placement.get("tilt")
+    if pan is not None and abs(pan) > pan_limit:
+        return (f"Pan {pan:.1f} exceeds +- {pan_limit:.0f} on a "
+                f"{timeline_w}x{timeline_h} timeline (measured "
+                f"2026-09-09, refused silently past it)")
+    if tilt is not None and abs(tilt) > tilt_limit:
+        return (f"Tilt {tilt:.1f} exceeds +- {tilt_limit:.0f} on a "
+                f"{timeline_w}x{timeline_h} timeline (measured "
+                f"2026-09-09, refused silently past it)")
+    return ""
+
+
+def restore_reused_placement(sidecar: dict, props: dict,
+                             timeline_size: tuple[int, int] | None) -> TightBox:
+    """A reuse-cache sidecar as a TightBox, re-gated, or refused.
+
+    The reuse hit restores the placement the fresh render measured -
+    but the gate the fresh render passed is not the gate this run
+    passes: the sidecar may predate it (predictor-era files), or the
+    delivery format may have changed since. So the restored placement
+    is checked against TODAY's timeline before it ships, exactly as
+    `resolve_placement_from_correspondence` checks a fresh one.
+    Raises `TightBoxMismatch` where it no longer holds: the caller
+    falls through to a fresh measured render, which carries the card
+    full canvas instead. A missing or malformed sidecar raises the
+    same way - never an assumed placement.
+    """
+    try:
+        union = sidecar["union"]
+        box = TightBox(
+            width=int(sidecar["width"]),
+            height=int(sidecar["height"]),
+            props={},
+            placement=sidecar["placement"],
+            union_w=float(union["x1"] - union["x0"]),
+            union_h=float(union["y1"] - union["y0"]),
+            full_width=int(props.get("width", 0)),
+            full_height=int(props.get("height", 0)),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise TightBoxMismatch(
+            f"box sidecar is unreadable ({exc}); re-rendering measured "
+            f"rather than assuming") from exc
+    if timeline_size is not None:
+        reason = placement_holds(box.placement, *timeline_size)
+        if reason:
+            raise TightBoxMismatch(
+                f"reused placement no longer holds: {reason} - "
+                f"re-rendering measured rather than shipping a "
+                f"clamped one.")
+    return box
+
 class TightBoxClipsInk(ValueError):
     """The measured union plus pads leaves the delivery frame.
 
@@ -534,17 +605,13 @@ def resolve_placement_from_correspondence(
         ox + canvas_w / 2.0, oy + canvas_h / 2.0,
         full_w, full_h)
     if timeline_size is not None:
-        pan_limit, tilt_limit = placement_limits(*timeline_size)
-        if abs(placement["pan"]) > pan_limit \
-                or abs(placement["tilt"]) > tilt_limit:
+        reason = placement_holds(placement, *timeline_size)
+        if reason:
             raise TightBoxMismatch(
                 f"correspondence needs Pan {placement['pan']:.1f} / "
-                f"Tilt {placement['tilt']:.1f} on a "
-                f"{timeline_size[0]}x{timeline_size[1]} timeline, "
-                f"where Resolve holds Pan to +-{pan_limit:.0f} and "
-                f"Tilt to +-{tilt_limit:.0f} (measured 2026-09-09, "
-                f"refused silently past it): this caption cannot ride "
-                f"a small box, and stays full-canvas.")
+                f"Tilt {placement['tilt']:.1f}: {reason} - this "
+                f"caption cannot ride a small box, and stays "
+                f"full-canvas.")
     return placement
 
 

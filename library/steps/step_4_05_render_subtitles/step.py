@@ -747,27 +747,33 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                 # filename: restore it without a probe render. A
                 # missing or unreadable sidecar (e.g. a predictor-era
                 # file) falls through to a fresh measured render -
-                # never an assumed placement.
+                # never an assumed placement. And a READABLE one is
+                # re-gated against today's timeline before it ships:
+                # the sidecar may predate the clamp gate, or the
+                # delivery format may have changed since, and either
+                # leaves a placement Resolve silently pins to
+                # +-7680/+-4320 - the captain's off-frame captions.
+                # A refused restore re-renders measured below, which
+                # carries the card full canvas instead.
                 try:
                     with open(_box_sidecar_path(out_dir, segment_name,
                                                 suffix)) as handle:
                         sidecar = json.load(handle)
-                    from library.tools.tight_box import TightBox
-                    union = sidecar["union"]
-                    tight = TightBox(
-                        width=int(sidecar["width"]),
-                        height=int(sidecar["height"]),
-                        props={},
-                        placement=sidecar["placement"],
-                        union_w=float(union["x1"] - union["x0"]),
-                        union_h=float(union["y1"] - union["y0"]),
-                        full_width=int(props.get("width", 0)),
-                        full_height=int(props.get("height", 0)),
+                    from library.tools.delivery_format import (
+                        resolve_delivery_format as _resolve_format,
                     )
+                    from library.tools.tight_box import (
+                        TightBoxMismatch,
+                        restore_reused_placement,
+                    )
+                    tight = restore_reused_placement(
+                        sidecar, props,
+                        tuple(_resolve_format(project_folder or None)))
                     render_props = props
-                except (OSError, ValueError, KeyError, TypeError) as exc:
+                except (OSError, ValueError, KeyError, TypeError,
+                        TightBoxMismatch) as exc:
                     print(f"    note: {segment_name} reuses its key but "
-                          f"its box sidecar is unreadable ({exc}); "
+                          f"{exc}; "
                           f"re-rendering measured rather than assuming",
                           file=sys.stderr)
                 else:

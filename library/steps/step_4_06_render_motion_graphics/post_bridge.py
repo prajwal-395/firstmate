@@ -177,13 +177,33 @@ def render_one_segment(planned: dict, out_dir: str,
     tight = None
     suffix = ""
     render_props = props
+    tight_fallback = ""
     if geometry == "tight":
         from library.tools.mg_tight_box import tighten_motion_graphics_props
-        tight = tighten_motion_graphics_props(props, project_folder or "")
-        if tight is None:
+        from library.tools.tight_box import TightBoxMismatch
+        # The timeline this graphic lands on: the delivery format, the
+        # same size the props render at. Resolved here rather than
+        # trusted from the props so a stale or foreign prop cannot
+        # gate itself against the wrong frame.
+        timeline_size = tuple(resolve_delivery_format(
+            project_folder or None))
+        try:
+            tight = tighten_motion_graphics_props(
+                props, project_folder or "",
+                timeline_size=timeline_size)
+        except TightBoxMismatch as exc:
+            # The clamp gate: this graphic cannot ride a small box on
+            # this timeline, so it renders full canvas. SAID, not
+            # silent - the caption path records the same fallback as
+            # `tight_fallback`.
+            tight = None
+            tight_fallback = str(exc)[:500]
+            print(f"  {progress} union unplaceable as tight - full "
+                  f"canvas: {tight_fallback[:300]}", file=sys.stderr)
+        if tight is None and not tight_fallback:
             print(f"  {progress} union covers the frame - full canvas",
                    file=sys.stderr)
-        else:
+        elif tight is not None:
             render_props = tight.props
             suffix = "_tight"
             print(f"  {progress} tight {tight.width}x{tight.height} "
@@ -240,8 +260,15 @@ def render_one_segment(planned: dict, out_dir: str,
         "elements": planned["elements"],
         # The carrying, so a reader knows what the file IS without
         # re-deriving it: full-canvas video is today's path, and the
-        # tight canvas is the option.
-        "geometry": geometry,
+        # tight canvas is the option. A clamp refusal resets the
+        # record to full - the file IS full canvas - exactly as the
+        # caption path does when its tight output does not verify.
+        "geometry": "full" if (geometry == "tight" and tight is None
+                               and tight_fallback) else geometry,
+        # Why this graphic is full canvas although tight was asked,
+        # or "" when that did not happen. The caption record carries
+        # the same field under the same name.
+        "tight_fallback": tight_fallback,
         # Where a tight clip lands. None for full-canvas, which needs
         # no transform.
         "tight_box": ({

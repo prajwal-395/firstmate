@@ -28,7 +28,9 @@ from library.tools.tight_box import (
     canvas_offset,
     finalize_box_placement,
     ink_union_of_frames,
+    placement_holds,
     resolve_placement_from_correspondence,
+    restore_reused_placement,
     tighten_measured,
     verify_frames,
 )
@@ -314,3 +316,49 @@ def test_verify_fails_frame_count_mismatch(tmp_path):
     box = tighten_measured(_props(), union)
     with pytest.raises(TightBoxMismatch, match="frame count"):
         verify_frames(full, full[:1], box)
+
+
+def test_placement_holds_names_the_clamped_axis():
+    """One predicate for every path that ships a placement: the
+    fresh render, the motion-graphics box and the reuse cache."""
+    assert placement_holds({"pan": 0.0, "tilt": -100.0}, 1080, 1920) == ""
+    assert placement_holds(None, 1080, 1920) == ""
+    assert "Tilt -7929.0" in placement_holds(
+        {"pan": 0.0, "tilt": -7929.0}, 1080, 1920)
+    assert "Pan 9188.0" in placement_holds(
+        {"pan": 9188.0, "tilt": 0.0}, 1080, 1920)
+
+
+def test_reused_placement_restores_when_it_holds():
+    """A sidecar whose placement Resolve can hold re-gates clean:
+    reuse keeps its win."""
+    sidecar = {
+        "width": 840,
+        "height": 146,
+        "placement": {"scaling": 1, "pan": 0.0, "tilt": -100.0},
+        "union": {"x0": 100, "y0": 1200, "x1": 400, "y1": 1294},
+    }
+    restored = restore_reused_placement(sidecar, _props(), (1080, 1920))
+    assert restored.placement == {"scaling": 1, "pan": 0.0, "tilt": -100.0}
+    assert (restored.width, restored.height) == (840, 146)
+    assert (restored.union_w, restored.union_h) == (300.0, 94.0)
+
+
+def test_reused_placement_is_refused_when_clamped():
+    """The captain's captions: a sidecar whose placement Resolve
+    would pin (predictor-era, or a changed delivery format) does
+    not ship - the caller falls through to a fresh measured render,
+    which carries the card full canvas instead."""
+    sidecar = {
+        "width": 348,
+        "height": 146,
+        "placement": {"scaling": 1, "pan": 0.0, "tilt": -7929.0},
+        "union": {"x0": 382, "y0": 1501, "x1": 682, "y1": 1595},
+    }
+    with pytest.raises(TightBoxMismatch, match="no longer holds"):
+        restore_reused_placement(sidecar, _props(), (1080, 1920))
+
+
+def test_reused_placement_malformed_sidecar_is_refused():
+    with pytest.raises(TightBoxMismatch):
+        restore_reused_placement({"width": 348}, _props(), (1080, 1920))

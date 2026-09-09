@@ -13,18 +13,50 @@ one frame off - the comment at the reels caption loop says exactly
 that about spans - so the transform half lives here, once, and both
 loops call it.
 
-Every `SetProperty` is judged by its RETURN VALUE, the same rule the
-conform applies in step 6.01: Resolve does not raise on a property it
-declines, it returns False (or None) and carries on. A refused
-transform is REPORTED in the returned note - never raised - because
-the clip IS on the timeline; failing the build over a movable caption
-would trade a misplaced caption for a missing one.
+Every `SetProperty` is judged by what it RETURNS and then READ BACK,
+because Resolve lies about Pan/Tilt past four times the timeline
+dimensions: setting beyond returns True and reads back the clamp
+(measured 2026-09-09 on Resolve 21 - a 146px-tall caption box needing
+Tilt -7929 reads back -7680). A return judged alone reports the
+overlay placed while it sits off-screen - the captain's captions -
+so a value Resolve does not hold is REPORTED in the returned note,
+never raised: the clip IS on the timeline, and failing the build
+over a movable caption would trade a misplaced caption for a
+missing one.
 """
 
 from __future__ import annotations
 
 import os
 from typing import Optional
+
+#: A held Pan/Tilt within this of the requested value counts as
+#: placed. Resolve stores floats; float rounding at these magnitudes
+#: is ~1e-3, while a clamp misses by hundreds - so this tolerates
+#: representation noise and nothing else.
+READBACK_TOLERANCE = 0.5
+
+
+def _read_back(placed_item, prop: str):
+    """What Resolve actually holds for one property, or None.
+
+    None means the read-back itself is unavailable (a proxy that
+    does not serve `GetProperty`, an exception, a null read) - the
+    caller then falls back to judging the `SetProperty` return, the
+    old behaviour, rather than refusing a placement it cannot see.
+    No `hasattr`: always True on Resolve's proxies, invented names
+    included (AGENTS.md 5).
+    """
+    try:
+        read = placed_item.GetProperty(prop)
+    except Exception:  # noqa: BLE001 - judged below, not raised
+        return None
+    if read is None:
+        return None
+    try:
+        return float(read)
+    except (TypeError, ValueError):
+        return None
 
 
 def sequence_frame_paths(frame_dir: str) -> list[str]:
@@ -90,6 +122,16 @@ def apply_placement_transform(timeline, track_index: int,
             ok = False
         if not ok:
             refused.append(f"{prop}={value}")
+            continue
+        # The return is a lie past the clamp: setting Tilt -7929
+        # returns True and holds -7680. The only honest judgement is
+        # to read the value back - a held value that is not the
+        # requested one is a REFUSED placement, never a success.
+        held = _read_back(placed_item, prop)
+        if held is not None and abs(held - float(value)) > READBACK_TOLERANCE:
+            refused.append(
+                f"{prop}={value} (Resolve holds {held:g} - "
+                f"clamped, the overlay is not where the box says)")
     if refused:
         return (f"{name}: placed, but Resolve refused "
                 f"{', '.join(refused)}")

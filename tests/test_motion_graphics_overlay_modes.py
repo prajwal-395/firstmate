@@ -22,7 +22,7 @@ from library.steps.step_4_06_render_motion_graphics.post_bridge import (  # noqa
 SAFE = {"top": 120, "right": 120, "bottom": 320, "left": 90}
 
 
-def _el(element, anchor="bottom_centre", duration=60):
+def _el(element, anchor="middle_centre", duration=60):
     return {
         "element": element,
         "anchor": anchor,
