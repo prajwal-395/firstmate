@@ -219,6 +219,23 @@ def test_exports_are_not_touched(messy):
     assert (messy / "exports" / "Pipeline_Edit.mp4").exists()
 
 
+def test_the_captains_subtitle_dirs_are_left_in_place(tmp_path):
+    """`subtitle_plans/` and `subtitle_overlays/` are INPUT areas the
+    layout names, so `organize` reports them as known rather than
+    sweeping them into `unsorted/misc/`."""
+    (tmp_path / "project.yaml").write_text("slug: test\n", encoding="utf-8")
+    for name in ("subtitle_plans", "subtitle_overlays"):
+        d = tmp_path / name / "akshita"
+        d.mkdir(parents=True)
+        (d / "manifest.json").write_text("{}", encoding="utf-8")
+    m = organize_project(tmp_path, apply=True)
+    stayed = {e["path"] for e in m["left_in_place"]}
+    assert "subtitle_plans/" in stayed
+    assert "subtitle_overlays/" in stayed
+    assert (tmp_path / "subtitle_plans" / "akshita" / "manifest.json").exists()
+    assert (tmp_path / "subtitle_overlays" / "akshita" / "manifest.json").exists()
+
+
 # ── The manifest ────────────────────────────────────────────────────
 
 def test_planning_changes_nothing(messy):

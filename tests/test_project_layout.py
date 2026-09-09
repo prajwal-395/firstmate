@@ -437,7 +437,7 @@ def test_the_input_areas_are_the_captains_material():
     assert inputs == {
         "project_root", "raw", "music", "assets",
         "brand_assets", "compositions", "external_state", "run_profiles",
-        "context",
+        "context", "subtitle_plans", "subtitle_overlays",
     }
 
 
@@ -644,3 +644,75 @@ def test_read_paths_survive_a_project_with_no_directories(tmp_path):
         p = layout.read_dir(area)
         assert isinstance(p, Path)
         # None of these should exist, and that is the point.
+
+
+# ── The captain's own working directories (geo-podcast, 2026-09-09) ────
+
+def test_the_captains_subtitle_working_dirs_are_input_areas():
+    """`subtitle_plans/` and `subtitle_overlays/` at the project root are
+    written by the captain's own standalone scripts
+    (`generate_podcast_subtitles.py`, `place_subtitles.py`,
+    `render_subtitle_segments.py` join `SCRIPT_DIR`, never the layout),
+    not by any pipeline step - step 4.05 renders into
+    `steps/4_05_render_subtitles/`. They are genuine Areas the table was
+    missing: INPUT, so the pipeline can never write there, `organize`
+    leaves them in place, and the README explains them."""
+    for value in ("subtitle_plans", "subtitle_overlays"):
+        spec = AREAS[Area(value)]
+        assert spec.relpath == value
+        assert spec.kind is Kind.INPUT
+
+
+def test_vox_test_renders_are_captured_not_scratch():
+    """`pipeline_output/vox_test_renders/` holds mp4s exported off Resolve
+    "(vox test)" timelines. SCRATCH is safe to discard at any moment,
+    including mid-run; these have a reader (the captain refers back to
+    them) and the timeline that made them is destroyed by a rebuild, so
+    they are CAPTURED like `marker_feedback/`: a re-run must never
+    delete them."""
+    spec = AREAS[Area("vox_test_renders")]
+    assert spec.relpath == f"pipeline_output/vox_test_renders"
+    assert spec.kind is Kind.CAPTURED
+
+
+def test_no_library_code_names_the_captains_stray_directories():
+    """The three reconciled directories are captain-side names. Nothing
+    under `library/` may compose them: the subtitle directories are
+    written by the captain's own scripts via `SCRIPT_DIR`, and the vox
+    test renders are hand exports off Resolve. A path-composing reference
+    here would be a second writer the layout does not reconcile.
+
+    Delimited so `render_subtitle_overlays` (the step 4.05 function) does
+    not match: only a quoted or path-joined directory name counts. The
+    owner itself is excluded: naming the row IS the reconciliation."""
+    pattern = re.compile(
+        r"""['"/]subtitle_plans['"/]|['"/]subtitle_overlays['"/]|"""
+        r"""['"/]vox_test_renders['"/]"""
+    )
+    offenders = []
+    for py in (REPO_ROOT / "library").rglob("*.py"):
+        if "__pycache__" in py.parts:
+            continue
+        if py.name == "project_layout.py":
+            continue  # the owner names every row; that is the fix
+        for n, line in enumerate(
+                py.read_text(encoding="utf-8").splitlines(), 1):
+            if pattern.search(line):
+                offenders.append(
+                    f"{py.relative_to(REPO_ROOT)}:{n}: {line.strip()}")
+    assert not offenders, (
+        "library code names a captain-side directory again:\n  "
+        + "\n  ".join(offenders)
+    )
+
+
+def test_the_layout_refuses_a_write_into_the_captains_subtitle_dirs(tmp_path):
+    """INPUT means INPUT: a step asking for these areas raises, and
+    `assert_writable` refuses paths underneath them."""
+    layout = ProjectLayout(tmp_path)
+    for value in ("subtitle_plans", "subtitle_overlays"):
+        area = Area(value)
+        with pytest.raises(ProjectLayoutViolation):
+            layout.write_dir(area)
+        with pytest.raises(ProjectLayoutViolation):
+            layout.assert_writable(layout.read_dir(area) / "x.json")

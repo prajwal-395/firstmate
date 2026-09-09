@@ -334,6 +334,8 @@ class Area(str, Enum):
     RUN_PROFILES = "run_profiles"
     CONTEXT = "context"
     LEARNED_CONTEXT = "learned_context"
+    SUBTITLE_PLANS = "subtitle_plans"
+    SUBTITLE_OVERLAYS = "subtitle_overlays"
 
     # The output root, and the steps/ directory that is most of it.
     OUTPUT_ROOT = "output_root"
@@ -386,6 +388,8 @@ class Area(str, Enum):
     QUARANTINE = "quarantine"
 
     MARKER_FEEDBACK = "marker_feedback"
+
+    VOX_TEST_RENDERS = "vox_test_renders"
 
 
 AREAS: dict[Area, AreaSpec] = {
@@ -442,6 +446,19 @@ AREAS: dict[Area, AreaSpec] = {
         "the run, never deleted by a re-run: it is irreproducible "
         "judgement, the way marker_feedback/ is irreproducible notes.",
         produced_by=(RUNNER,)),
+    Area.SUBTITLE_PLANS: AreaSpec(
+        "subtitle_plans", Kind.INPUT,
+        "Segment props the captain's own standalone scripts wrote - "
+        "generate_podcast_subtitles.py joins SCRIPT_DIR, never the "
+        "layout. Read-only to the pipeline; the pipeline's own subtitle "
+        "plan is step 4.01's decision, and its own overlays render under "
+        "steps/4_05_render_subtitles/."),
+    Area.SUBTITLE_OVERLAYS: AreaSpec(
+        "subtitle_overlays", Kind.INPUT,
+        "Subtitle overlay renders from the captain's own standalone "
+        "scripts - place_subtitles.py and render_subtitle_segments.py. "
+        "Read-only to the pipeline, which renders its own overlays "
+        "under steps/4_05_render_subtitles/."),
 
     Area.OUTPUT_ROOT: AreaSpec(
         _OUT, Kind.OUTPUT,
@@ -669,6 +686,13 @@ AREAS: dict[Area, AreaSpec] = {
         "(library/tools/marker_capture.py) writes the frame the captain "
         "was looking at into stills/.",
         produced_by=(MARKER_PULL, MARKER_CAPTURE)),
+    Area.VOX_TEST_RENDERS: AreaSpec(
+        f"{_OUT}/vox_test_renders", Kind.CAPTURED,
+        "Test renders exported off Resolve \"(vox test)\" timelines for "
+        "the captain to refer back to. The timeline that made one is "
+        "destroyed by a rebuild, so like marker_feedback/ a re-run must "
+        "never delete these. Placed by hand; nothing in the pipeline "
+        "writes here."),
 }
 
 # The areas a given step owns, in table order.
