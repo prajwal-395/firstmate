@@ -30,6 +30,13 @@ class StyleSlots:
     # this slot reaches only step 2.01's brand constraints text.
     energy_profile: str = ""
     framing_intent: Optional[float] = None  # 0.0=letterbox, 1.0=fill, None=auto
+    # The punched-in TV-frame look (2026-09-09, captain's Reel 20 marker).
+    # A mapping with `asset` (the frame PNG, absolute or project-relative
+    # path), `punch_in` (the V1 zoom under it, default 2.30) and `power`
+    # (the switch-on/off timings) - or None for no look.  The asset is a
+    # REFERENCE, not artwork: the file lives with the project, never in
+    # the engine (§14).  Shape and readers: library/tools/tv_frame.py.
+    tv_frame: Optional[Dict[str, Any]] = None
 
 @dataclass
 class EffectSlots:
@@ -130,6 +137,10 @@ class BrandTemplate:
                             "minimum": 0.0,
                             "maximum": 1.0,
                             "description": "Default clip framing: 0.0=full letterbox, 1.0=complete fill. Omit for auto."
+                        },
+                        "tv_frame": {
+                            "type": ["object", "null"],
+                            "description": "The punched-in TV-frame look. Omit for no look. Shape: {asset, punch_in, power} - see library/tools/tv_frame.py."
                         }
                     }
                 },

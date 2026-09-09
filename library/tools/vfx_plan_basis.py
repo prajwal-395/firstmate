@@ -144,6 +144,13 @@ DROP_REASONS = {
         "reason gets no motion), so an entry with a missing or blank "
         "`rationale` gets no motion rather than a default one"
     ),
+    "ken_burns_without_direction": (
+        "the entry asks for `ken_burns` but its params state no direction: "
+        "`zoom_end` above `zoom_start` is a push in, below is a pull out, "
+        "and equal (or missing) names neither.  The direction is read off "
+        "the values the plan chose, never defaulted - answering \"in\" on "
+        "the planner's behalf would be the engine inventing taste"
+    ),
 }
 
 

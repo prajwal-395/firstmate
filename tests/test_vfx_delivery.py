@@ -55,8 +55,30 @@ def _handoff_effect_types() -> set:
 
 def test_the_handoff_offers_exactly_the_toolkit():
     """A type in the table with no row here would take a planner's answer
-    into a branch that drops it; a row with no table line is unreachable."""
-    assert _handoff_effect_types() == set(TOOLKIT_PARAMETERS)
+    into a branch that drops it; a row with no table line is unreachable.
+
+    `ken_burns` is the one spelling allowed beside the toolkit: the
+    captain's name for the drift move, resolved to the `slow_zoom_in` /
+    `slow_zoom_out` its own params describe (2026-09-09).  It is held to
+    the same bar below - it must reach the renderer, not just the bridge.
+    """
+    assert _handoff_effect_types() == set(TOOLKIT_PARAMETERS) | {"ken_burns"}
+
+
+def test_the_ken_burns_spelling_reaches_the_renderer():
+    """The extension must draw, not just resolve: a reasoned `ken_burns`
+    entry becomes a drift entry whose params change the comp."""
+    resolved = resolve_vfx(
+        [{"target_block_position": 1, "effect_type": "ken_burns",
+          "params": {"zoom_start": 1.0, "zoom_end": 1.03},
+          "rationale": "a locked hold that goes dead under the point"}],
+        _spine(1, 2),
+    )
+    assert len(resolved) == 1
+    neutral = build_effect_comp({"vignette": False}, CLIP_DUR)
+    drawn = build_effect_comp(
+        dict(resolved[0]["params"], vignette=False), CLIP_DUR)
+    assert drawn != neutral
 
 
 def test_the_handoff_names_the_parameters_the_renderer_reads():
@@ -217,12 +239,14 @@ def test_an_aliased_effect_type_resolves():
 
 
 def test_an_alias_that_chose_a_direction_is_withdrawn(capsys):
-    """`slow_zoom` and `ken_burns` name no direction.
+    """`slow_zoom` names no direction.
 
-    They used to resolve to `slow_zoom_in`, which answers "which way?" on
+    It used to resolve to `slow_zoom_in`, which answers "which way?" on
     the planner's behalf. A plan naming one is dropped with the toolkit
-    listed, so the editor says which they meant.
-    """
+    listed, so the editor says which they meant.  (`ken_burns` used to
+    sit beside it and no longer does: since 2026-09-09 it is the
+    captain's name for the drift move, with the direction read off its
+    own params - see tests/test_ken_burns_direction.py.)"""
     for alias in WITHDRAWN_ALIASES:
         resolved = resolve_vfx(
             [{"target_block_position": 1, "effect_type": alias,

@@ -117,6 +117,10 @@ from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
                                   delivered_framing_intent,
                                   resolve_framing_intent, source_covers_frame,
                                   resolve_crop_factor, DEFAULT_CROP_FACTOR)
+from tools.tv_frame import (
+    LAYER_TRACKS, TV_FRAME_LAYERS, resolve_tv_frame, v1_zoom_for_look,
+)
+from tools.tv_power import switch_off_frames, switch_on_frames
 from tools.delivery_format import resolve_delivery_format
 from library.tools.subject_grade import apply_subject_grades
 from tools.project_layout import (
@@ -944,6 +948,34 @@ def _resolve_v2_overlaps(v2_clips: list, fps: float, kinds: dict) -> list:
     return dropped
 
 
+def _content_runs(v1_clips: list) -> list:
+    """Contiguous runs of non-bookend V1 clips, in timeline order.
+
+    The TV frame dresses the show, not the logo cards: one frame clip
+    spans each run of content between (or around) declared cards, so no
+    V2 frame clip ever overlaps a card and
+    `_assert_nothing_covers_a_bookend` keeps reading true.  A reel with
+    no cards yields a single run.
+    """
+    runs = []
+    current = None
+    for clip in sorted(v1_clips, key=lambda c: c["timeline_in"]):
+        if clip.get("bookend"):
+            current = None
+            continue
+        if current is None:
+            current = {
+                "index": len(runs),
+                "timeline_in": clip["timeline_in"],
+                "timeline_out": clip["timeline_out"],
+            }
+            runs.append(current)
+        else:
+            current["timeline_out"] = max(
+                current["timeline_out"], clip["timeline_out"])
+    return runs
+
+
 def _conform_fields(clip_metadata: dict, clip_id, proj_res,
                     framing_intent: float = None,
                     framing_pan_x: float = None,
@@ -1648,6 +1680,62 @@ def compile_manifest(out_dir: str) -> dict:
     broll_dropped_by_overlap = _resolve_v2_overlaps(v2_clips, fps, v2_kinds)
     _assert_nothing_covers_a_bookend(v1_clips, v2_clips)
 
+    # ── The TV-frame look (2026-09-09, captain's Reel 20 marker) ──
+    # The shot punched in on V1, the frame asset at native 1:1 on V2,
+    # captions above on V3.  The declaration (asset, factor, power
+    # timings) is library/tools/tv_frame.py; this is where it lands.
+    # Not wrapped in try/except: like the framing template read above,
+    # a malformed declaration raises rather than degrading to a look
+    # the editor believes shipped.
+    tv_look = resolve_tv_frame(_project_root, _template)
+    tv_power_clips = {}
+    if tv_look is not None:
+        if broll_assignments or broll_interjections:
+            raise ValueError(
+                "tv_frame is declared but the plan also carries B-roll "
+                f"({len(broll_assignments)} assignments, "
+                f"{len(broll_interjections)} interjections): the frame "
+                "spans the reel on V2, which is the track B-roll plays "
+                "on, so the two cannot share a reel.  A reel under this "
+                "look carries no B-roll cutaways - the window is the "
+                "variety."
+            )
+        punch = tv_look["punch_in"]
+        content_clips = [c for c in v1_clips if not c.get("bookend")]
+        for clip in content_clips:
+            # ABSOLUTE, not over the conform: under the frame the bezel
+            # is the framing (tv_frame.v1_zoom_for_look).  The conform
+            # pan/tilt still apply, so subject tracking survives.
+            clip["fill_zoom"] = v1_zoom_for_look(punch)
+            clip["needs_conform"] = True
+            clip["tv_punch_in"] = punch
+        # One frame clip per contiguous run of content: the set dresses
+        # the show, not the logo cards, and a V2 clip over a card would
+        # trip _assert_nothing_covers_a_bookend above.
+        for run in _content_runs(v1_clips):
+            frame_clip = {
+                "source_file": tv_look["asset"],
+                "source_in": 0.0,
+                "source_out": run["timeline_out"] - run["timeline_in"],
+                "timeline_in": run["timeline_in"],
+                "timeline_out": run["timeline_out"],
+                "video_only": True,
+                "label": f"tv_frame_{run['index']}",
+                # No conform fields and no subject fields: the asset
+                # plays at native 1:1, exactly as the reference (V2 Zoom
+                # 1.00), so there is no zoom for the P8 subject check to
+                # read and no crop to judge.
+            }
+            convert_clip_to_frames(frame_clip, fps)
+            v2_clips.append(frame_clip)
+        # The power animation runs on the picture, not the set: switch
+        # on over the first content clip, switch off over the last.
+        if content_clips:
+            tv_power_clips = {
+                content_clips[0]["label"]: "head",
+                content_clips[-1]["label"]: "tail",
+            }
+
     # ── A2: Music ──
     ms = music_data.get("music_selection", {})
     # WHICH PARTS of WHICH TRACKS play, and WHERE, is the plan's decision
@@ -1991,6 +2079,27 @@ def compile_manifest(out_dir: str) -> dict:
         effect["backdrop_scale"] = backdrop["backdrop_scale"]
         effect["backdrop_center_x"] = backdrop["backdrop_center_x"]
 
+    # ── The TV power animation (§tv_power) ──
+    # Switch on over the first content clip, switch off over the last.
+    # The keys ride the same per-clip effects the comp builder reads,
+    # so the animation is a comp on the picture, not a second system -
+    # and the timings travel with them, resolved from the declaration
+    # (project over template over the module defaults).
+    for label, half in tv_power_clips.items():
+        effect = per_clip_effects.setdefault(label, {})
+        if half == "head":
+            timing = dict(switch_on_frames())
+            timing.update((tv_look or {}).get("power", {}).get(
+                "switch_on", {}) or {})
+            effect["tv_power_head"] = True
+            effect["tv_power_head_timing"] = timing
+        else:
+            timing = dict(switch_off_frames())
+            timing.update((tv_look or {}).get("power", {}).get(
+                "switch_off", {}) or {})
+            effect["tv_power_tail"] = True
+            effect["tv_power_tail_timing"] = timing
+
     # An entry over a stretch of timeline with no clip on V1 OR V2 cannot
     # be drawn - there is no picture to put a comp on.  It used to RAISE,
     # and that refusal killed a run over effects the planner was invited
@@ -2206,6 +2315,11 @@ def compile_manifest(out_dir: str) -> dict:
         # what library/tools/timed_text_overlay.py is about.
         "timed_text_overlay": motion_graphics_overlay_data.get(
             "timed_text_overlay", {}),
+        # The TV-frame look this reel renders under (or None): the
+        # asset, the punch-in factor, the power timings and where the
+        # declaration came from.  The V1 punch, the V2 frame clips and
+        # the per-clip power keys above are this record made picture.
+        "tv_frame": tv_look,
     }
 
     _apply_manifest_qa_checks(manifest)

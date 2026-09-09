@@ -89,12 +89,26 @@ EFFECT_ALIASES = {
 # way, and answering "in" on the planner's behalf is taste. A plan naming
 # one of these now gets dropped with the toolkit listed, which tells the
 # editor to say which they meant.
+#
+# `ken_burns` used to sit here for the same reason, and no longer does:
+# the captain asks for Ken Burns BY NAME (2026-09-09, "a lot of ken burns
+# to emphasize points"), so the spelling is accepted with the direction
+# read off the params the plan chose - `zoom_end` above `zoom_start` is a
+# push in, below is a pull out.  An entry whose params state neither is
+# still dropped, as `ken_burns_without_direction`: the direction is
+# DERIVED, never defaulted.  This EXTENDS the 2026-09-08 drift ruling
+# rather than sitting beside it - the renderer, the toolkit params and
+# the rationale refusal are all unchanged; only the spelling is new.
 WITHDRAWN_ALIASES = {
     "slow_zoom": "names no direction; `slow_zoom_in` and `slow_zoom_out` "
                  "are different effects and the pipeline may not pick",
-    "ken_burns": "same: a Ken Burns move has a direction and this alias "
-                 "did not carry it",
 }
+
+# The captain's name for the drift move.  Not a second motion system:
+# a `ken_burns` entry resolves to the `slow_zoom_in` / `slow_zoom_out`
+# its own params describe, and travels the rest of the path - rationale
+# refusal included - as that effect.
+KEN_BURNS = "ken_burns"
 
 # The drift moves: gradual motion that puts life on a STATIC hold.  A
 # push that arrives because every static shot gets a push is exactly
@@ -158,6 +172,29 @@ def _stated_reason(vfx: dict) -> bool:
     """
     rationale = vfx.get("rationale")
     return isinstance(rationale, str) and bool(rationale.strip())
+
+
+def _derive_ken_burns_direction(params: dict):
+    """The drift direction a `ken_burns` entry's own params describe.
+
+    `zoom_end` above `zoom_start` is a push in, below is a pull out;
+    equal, non-numeric or missing names neither and answers None.  The
+    direction is READ, never defaulted: a Ken Burns move without one is
+    dropped as `ken_burns_without_direction`.
+    """
+    if not isinstance(params, dict):
+        return None
+    start = params.get("zoom_start")
+    end = params.get("zoom_end")
+    if (isinstance(start, bool) or isinstance(end, bool)
+            or not isinstance(start, (int, float))
+            or not isinstance(end, (int, float))):
+        return None
+    if end > start:
+        return "slow_zoom_in"
+    if end < start:
+        return "slow_zoom_out"
+    return None
 
 
 def resolve_vfx(
@@ -236,6 +273,25 @@ def resolve_vfx(
         params = vfx.get("params") or {}
         if not isinstance(params, dict):
             params = {}
+
+        # Ken Burns is the captain's name for the drift move, not a
+        # second motion system: the entry resolves to the
+        # `slow_zoom_in` / `slow_zoom_out` its own params describe and
+        # travels the rest of this path - rationale refusal included -
+        # as that effect, so the renderer reads it unchanged.
+        if raw_type == KEN_BURNS:
+            derived = _derive_ken_burns_direction(params)
+            if derived is None:
+                _drop(
+                    pos, raw_type, "ken_burns_without_direction",
+                    f"Dropped VFX {raw_type!r} on block {pos!r}: its params "
+                    f"state no direction (`zoom_end` above `zoom_start` is "
+                    f"a push in, below is a pull out). The direction is "
+                    f"read off the values, never defaulted.",
+                )
+                covered_positions.discard(str(pos))
+                continue
+            effect_type = derived
 
         if effect_type in _builtin_effect_names():
             # A built-in Fusion clip effect, imported whole by the renderer.

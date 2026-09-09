@@ -762,6 +762,158 @@ class fx:
         )
 
     @staticmethod
+    def tv_power_head(
+        clip_dur: int,
+        *,
+        line_frames: int = 4,
+        expand_frames: int = 6,
+        bloom_frames: int = 8,
+        strike_gain: float = 2.2,
+        source_in: Optional[int] = None,
+        source_out: Optional[int] = None,
+    ) -> EffectBlock:
+        """Old-TV switch-ON at the head of the clip.
+
+        From black: a bright line strikes at centre (held ``line_frames``),
+        opens to full height over ``expand_frames``, and a white overshoot
+        decays over ``bloom_frames``.  A ``Crop`` node animates the
+        vertical open (uniform Transform ``Size`` can only shrink to a
+        dot, never to a line); a ``BrightnessContrast`` node carries the
+        strike spike and its decay.
+
+        Every count is declared in ``library/tools/tv_power.py`` - the
+        defaults here repeat that module's values so the block stays
+        usable on its own, and ``comp_builder`` passes the resolved
+        declaration through.  All-zero phases return an empty block.
+        """
+        from library.tools.tv_power import COLLAPSE_CROP
+
+        total = line_frames + expand_frames + bloom_frames
+        if total <= 0:
+            return EffectBlock(nodes=[], input_name="", output_name="")
+
+        first, last = played_range(clip_dur, source_in, source_out)
+        line_end = first + line_frames
+        expand_end = line_end + expand_frames
+        settle_end = min(expand_end + bloom_frames, last)
+
+        crop_name = _next_name("PowerCrop")
+        crop = FusionNode(crop_name, "Crop")
+        crop_splines = []
+        for edge in ("CropTop", "CropBottom"):
+            spline = BezierSpline.sampled(
+                f"{crop_name}{edge[-3:]}",
+                start_frame=line_end, end_frame=expand_end,
+                easing="Linear", reverse=True,
+                scale=COLLAPSE_CROP, offset=0.0,
+                hold_before=COLLAPSE_CROP, hold_after=last,
+                color=(255, 255, 255),
+            )
+            crop.set_input(edge, spline)
+            # sampled() bakes Linear flags; serialize() linearizes them
+            # into explicit handles (Resolve ignores the flags).
+            crop_splines.append(spline)
+        crop.pos = (110, 0)
+
+        bc_name = _next_name("PowerBloom")
+        bc = FusionNode(bc_name, "BrightnessContrast")
+        gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
+        gain.add_key(first, strike_gain, flags={"Linear": True})
+        gain.add_key(line_end, strike_gain, flags={"Linear": True})
+        gain.add_key(expand_end, 1.3, flags={"Linear": True})
+        gain.add_key(settle_end, 1.0, flags={"Linear": True})
+        if settle_end < last:
+            gain.add_key(last, 1.0, flags={"Linear": True})
+        bc.set_input("Gain", gain)
+        bc.pos = (220, 0)
+
+        nodes = [crop] + crop_splines + [bc, gain]
+        return EffectBlock(
+            nodes=nodes,
+            input_name=crop_name,
+            input_key="Input",
+            output_name=bc_name,
+        )
+
+    @staticmethod
+    def tv_power_tail(
+        clip_dur: int,
+        *,
+        collapse_frames: int = 6,
+        dot_frames: int = 3,
+        decay_frames: int = 9,
+        dot_gain: float = 2.5,
+        dot_size: float = 0.05,
+        source_in: Optional[int] = None,
+        source_out: Optional[int] = None,
+    ) -> EffectBlock:
+        """Old-TV switch-OFF at the tail of the clip.
+
+        From picture: full height collapses to a line over
+        ``collapse_frames``, the line contracts to a dot over
+        ``dot_frames`` while the spot spikes bright, and the afterglow
+        decays to black over ``decay_frames``.  ``Crop`` draws the
+        collapse, a uniform ``Transform`` the dot (its animated peak is
+        1.0, inside the 1.04 ceiling), ``BrightnessContrast`` the spike
+        and decay.  See ``tv_power_head`` for where the counts live.
+        """
+        from library.tools.tv_power import COLLAPSE_CROP
+
+        total = collapse_frames + dot_frames + decay_frames
+        if total <= 0:
+            return EffectBlock(nodes=[], input_name="", output_name="")
+
+        first, last = played_range(clip_dur, source_in, source_out)
+        start = max(first, last - total)
+        line_at = start + collapse_frames
+        dot_at = min(line_at + dot_frames, last)
+
+        crop_name = _next_name("PowerCrop")
+        crop = FusionNode(crop_name, "Crop")
+        crop_splines = []
+        for edge in ("CropTop", "CropBottom"):
+            spline = BezierSpline.sampled(
+                f"{crop_name}{edge[-3:]}",
+                start_frame=start, end_frame=line_at,
+                easing="Linear",
+                scale=COLLAPSE_CROP, offset=0.0,
+                hold_before=0.0, hold_after=last,
+                color=(255, 255, 255),
+            )
+            crop.set_input(edge, spline)
+            crop_splines.append(spline)
+        crop.pos = (110, 0)
+
+        tf_name = _next_name("PowerDot")
+        tf = FusionNode(tf_name, "Transform")
+        tf.set_attr("CtrlWZoom", False)
+        size = BezierSpline(f"{tf_name}Size", color=(255, 200, 50))
+        size.add_key(first, 1.0, flags={"Linear": True})
+        size.add_key(line_at, 1.0, flags={"Linear": True})
+        size.add_key(dot_at, dot_size, flags={"Linear": True})
+        size.add_key(last, dot_size, flags={"Linear": True})
+        tf.set_input("Size", size)
+        tf.pos = (220, 0)
+
+        bc_name = _next_name("PowerDecay")
+        bc = FusionNode(bc_name, "BrightnessContrast")
+        gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
+        gain.add_key(first, 1.0, flags={"Linear": True})
+        gain.add_key(start, 1.0, flags={"Linear": True})
+        gain.add_key(line_at, 1.6, flags={"Linear": True})
+        gain.add_key(dot_at, dot_gain, flags={"Linear": True})
+        gain.add_key(last, 0.0, flags={"Linear": True})
+        bc.set_input("Gain", gain)
+        bc.pos = (330, 0)
+
+        return EffectBlock(
+            nodes=[crop] + crop_splines + [tf, size, bc, gain],
+            input_name=crop_name,
+            input_key="Input",
+            output_name=bc_name,
+        )
+
+    @staticmethod
     def shake(
         clip_dur: int,
         *,

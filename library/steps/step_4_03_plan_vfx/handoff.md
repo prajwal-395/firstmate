@@ -41,6 +41,7 @@ reason, rather than passed on to draw nothing.
 |------|------------|-----------------|
 | `slow_zoom_in` | Gradual drift inward - adds life to static holds | `zoom_start`, `zoom_end`, optional `pan_end` |
 | `slow_zoom_out` | Gradual drift outward - the reverse, alternate for variety | `zoom_start`, `zoom_end`, optional `pan_end` |
+| `ken_burns` | The drift move under its common name - the DIRECTION is read off your `zoom_start`/`zoom_end` (`zoom_end` above `zoom_start` pushes in, below pulls out), never defaulted | `zoom_start`, `zoom_end` (must differ), optional `pan_end` |
 | `zoom_emphasis` | Key words/moments — punches in and settles back | `zoom_start`, `zoom_mid`, `zoom_end` (the mid point is the punch) |
 | `screen_shake` | Emphasis moments - an impact that settles | `shake_x`, `shake_y` (a FRACTION of frame width), `shake_decay_frames` (modifies the shake; draws nothing alone) |
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |

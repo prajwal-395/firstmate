@@ -192,6 +192,36 @@ def build_effect_comp(effects: dict, clip_dur: int,
         engine.add(fx.fade(clip_dur, fade_in=fade_in, fade_out=fade_out,
                            res=res, source_in=src_in, source_out=src_out))
 
+    # The old-TV power animation (library/tools/tv_power.py).  Two keys,
+    # one per half: `tv_power_head` switches on at the clip head,
+    # `tv_power_tail` switches off at the tail.  Each is truthy to arm,
+    # with an optional `<key>_timing` mapping overriding individual
+    # frame counts - the same declared-timings-travel-as-params shape
+    # the zoom keys use.  Absent keys draw nothing.
+    if effects.get('tv_power_head'):
+        from library.tools.tv_power import switch_on_frames
+        timing = dict(switch_on_frames())
+        timing.update(effects.get('tv_power_head_timing') or {})
+        engine.add(fx.tv_power_head(
+            clip_dur,
+            line_frames=timing['line_frames'],
+            expand_frames=timing['expand_frames'],
+            bloom_frames=timing['bloom_frames'],
+            source_in=src_in, source_out=src_out,
+        ))
+
+    if effects.get('tv_power_tail'):
+        from library.tools.tv_power import switch_off_frames
+        timing = dict(switch_off_frames())
+        timing.update(effects.get('tv_power_tail_timing') or {})
+        engine.add(fx.tv_power_tail(
+            clip_dur,
+            collapse_frames=timing['collapse_frames'],
+            dot_frames=timing['dot_frames'],
+            decay_frames=timing['decay_frames'],
+            source_in=src_in, source_out=src_out,
+        ))
+
     tail_trans = effects.get('tail_transition')
     if tail_trans:
         engine.add(fx.transition_tail(

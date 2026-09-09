@@ -82,6 +82,10 @@ ABSENT_SLOT_READINGS = {
     "style.framing_intent": (
         "the frame fills, from the one enumeration "
         "(library/tools/framing_intent.py)"),
+    "style.tv_frame": (
+        "no TV-frame look: V1 plays at its conformed zoom with no "
+        "punch-in, no frame asset is placed on V2, and no power "
+        "animation is drawn (library/tools/tv_frame.py)"),
     "style.typography": (
         "the `default_subtitles` shape, 160/800 - PARKED with the rest of "
         "the style layer, inventoried and deliberately unchanged "
@@ -437,6 +441,13 @@ def validate_template(template: BrandTemplate) -> list[str]:
     if template.style.framing_intent is not None:
         if not (0.0 <= template.style.framing_intent <= 1.0):
             errors.append(f"Invalid framing_intent: {template.style.framing_intent} must be between 0.0 and 1.0")
+    if template.style.tv_frame is not None:
+        if not isinstance(template.style.tv_frame, dict):
+            errors.append(
+                f"Invalid tv_frame: must be a mapping with "
+                f"'asset', 'punch_in' and 'power' (library/tools/tv_frame.py), "
+                f"got {type(template.style.tv_frame).__name__}"
+            )
     if template.effect.sfx_density not in ["", "sparse", "moderate", "dense"]:
         errors.append(f"Invalid sfx_density: {template.effect.sfx_density}")
     return errors
