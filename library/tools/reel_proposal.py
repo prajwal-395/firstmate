@@ -383,6 +383,70 @@ def held_back(moments: Sequence[ReelMoment]) -> Dict[str, List[ReelMoment]]:
     return out
 
 
+_REEL_LABEL_RE = re.compile(r"^reel\s+(\d+)\b", re.IGNORECASE)
+"""A render's timeline label naming a reel: `Reel 09 - slug (staging)`."""
+
+
+def refuse_rejected_reel_timeline(timeline_label, project_folder) -> None:
+    """Raise `NotApproved` when the label names a REJECTED reel, else return.
+
+    The gate `assert_approved` with a live reading: the reel NUMBER is
+    parsed off the render's own timeline label (`Reel 09 - ...`) and the
+    verdict is read off `reel_proposals_v2.json` ON THIS CALL, never
+    cached - the captain rules on reels while renders are in flight,
+    and a gate holding yesterday's rejection is the same defect
+    pointing the other way.
+
+    Only REJECTED refuses. PROPOSED proceeds: staging builds (`rebuild
+    staging` timelines) are how the captain REVIEWS a moment before
+    approving it, so refusing unreviewed moments would refuse the
+    review itself. A label naming no reel (the master timeline, an
+    unnamed spine) proceeds, as does anything unreadable - a missing
+    proposals file, an unparseable one, a number it does not list.
+    A gate that fails correct output is worse than no gate (AGENTS.md
+    10.4), so every one of those proceeds with its reason SAID on
+    stderr rather than refusing work it cannot judge.
+    """
+    import sys  # noqa: PLC0415 - stderr notes only, no dependency
+
+    label = str(timeline_label or "")
+    match = _REEL_LABEL_RE.match(label.strip())
+    if not match:
+        return
+    number = int(match.group(1))
+    try:
+        path = proposal_path(project_folder)
+    except Exception as exc:  # noqa: BLE001 - default open, said aloud
+        print(f"  approval gate: cannot locate the proposals file "
+              f"({exc}) - proceeding without a verdict",
+              file=sys.stderr)
+        return
+    if not path.is_file():
+        print(f"  approval gate: no {PROPOSAL_FILENAME} for this "
+              f"project - proceeding without a verdict",
+              file=sys.stderr)
+        return
+    try:
+        moments = read_proposal(path)
+    except Exception as exc:  # noqa: BLE001 - default open, said aloud
+        print(f"  approval gate: {path} cannot be read ({exc}) - "
+              f"proceeding without a verdict", file=sys.stderr)
+        return
+    for moment in moments:
+        if int(moment.number) == number:
+            if moment.approval is Approval.REJECTED:
+                raise NotApproved(
+                    f"reel {moment.number} ({moment.slug!r}) was REJECTED"
+                    + (f": {moment.approval_note}"
+                       if moment.approval_note else "")
+                    + ". Rendering its captions anyway would overrule "
+                    + "the captain.")
+            return
+    print(f"  approval gate: reel {number} is not among the "
+          f"{len(moments)} proposed moment(s) - proceeding without "
+          f"a verdict", file=sys.stderr)
+
+
 # ── Checking a proposal is real ──────────────────────────────────────
 
 def _speech_within(transcript_segments: Sequence[dict],

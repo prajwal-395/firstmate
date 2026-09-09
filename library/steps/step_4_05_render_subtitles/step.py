@@ -89,6 +89,7 @@ from library.tools.caption_asset_gc import (
     card_key,
     record_rendered_segments,
 )
+from library.tools.reel_proposal import refuse_rejected_reel_timeline
 
 # Where the Remotion project lives, repo-relative.  A module constant so
 # a caller can point the render somewhere else without reconstructing
@@ -548,7 +549,14 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     ledger cannot be written; the pass converts that to a refusal, and
     a direct caller sees the exception itself. See
     `library/tools/caption_asset_gc.py`.
+
+    A timeline label naming a REJECTED reel is refused FIRST - before
+    reuse, before the probe, before any render - by reading that
+    reel's LIVE verdict off `reel_proposals_v2.json`
+    (`library/tools/reel_proposal.py`). The master timeline names no
+    reel and passes through untouched.
     """
+    refuse_rejected_reel_timeline(timeline_label, project_folder)
     remotion_dir = remotion_dir or REMOTION_DIR
 
     geometry = overlay_geometry or resolve_overlay_geometry(

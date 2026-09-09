@@ -249,3 +249,71 @@ def test_contract_shaped_words_collect_onto_the_timeline():
     assert len(resolved.moments) == 1
     assert resolved.moments[0]["timing_basis"] == "word_window:lots of money"
     assert resolved.moments[0]["timeline_start"] == 100.0
+
+
+# ── The project reaches the renderer ─────────────────────────────────
+#
+# `build_for_reel` drove `motion_graphics.render_segment` without the
+# project, so `render_one_segment` resolved the geometry against
+# nothing and every reel graphic rendered full canvas even on a
+# project declaring `motion_graphics_overlay_geometry: tight` - while
+# the master pass beside it rendered tight. The project is forwarded
+# so the declaration is read live, per render.
+
+
+class _CapturedRender:
+    """The render operation, recording what the build handed it."""
+
+    def __init__(self):
+        self.calls = []
+
+    def run(self, planned, out_dir, **kwargs):
+        self.calls.append((planned, out_dir, kwargs))
+        return {
+            "overlay_path": f"{kwargs.get('segment_name')}.mov",
+            "timeline_start": 0.0,
+            "timeline_end": 1.0,
+            "total_frames": 24,
+            "elements": ["title_lockup"],
+        }
+
+
+class _Resolved:
+    def __init__(self):
+        self.moments = [{"element": "title_lockup"}]
+        self.proposed = 1
+        self.dropped = []
+
+
+def test_build_for_reel_forwards_the_project_to_the_render(
+        tmp_path, monkeypatch):
+    import library.tools.motion_graphics_plan as mg
+    import library.tools.operations as operations
+    import library.tools.reel_spine as reel_spine
+
+    project = tmp_path / "proj"
+    (project / "pipeline_output" / "review").mkdir(parents=True)
+    (project / "pipeline_output" / "llm_responses").mkdir(parents=True)
+    (project / "pipeline_output" / "llm_responses"
+     / "reel_semantic_09.json").write_text(
+        json.dumps({"motion_graphics_plan": [{"element": "title_lockup"}]}),
+        encoding="utf-8")
+    captured = _CapturedRender()
+    monkeypatch.setattr(
+        reel_spine, "spine_for_reel", lambda *a, **k: {"structure": []})
+    monkeypatch.setattr(
+        mg, "resolve_plan", lambda *a, **k: _Resolved())
+    monkeypatch.setattr(
+        mg, "plan_segments",
+        lambda *a, **k: [{"index": 0, "props": {}}])
+    monkeypatch.setattr(
+        operations, "get", lambda name: captured)
+
+    segments, _record = sem.build_for_reel(
+        _Moment(), {"structure": []}, _ranges(), str(project),
+        fps=FPS, width=1080, height=1920)
+
+    assert len(segments) == 1
+    assert len(captured.calls) == 1
+    _planned, _out_dir, kwargs = captured.calls[0]
+    assert kwargs.get("project_folder") == str(project)

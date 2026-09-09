@@ -376,10 +376,18 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
     render = operations.get("motion_graphics.render_segment")
     segments = []
     for index, planned in enumerate(segments_plan):
+        # The project travels so the renderer reads the project's OWN
+        # `motion_graphics_overlay_geometry` declaration
+        # (`library/tools/overlay_mode.py`) - a project declaring tight
+        # gets tight boxes here exactly as the master pass does, and a
+        # project declaring nothing renders full canvas as before. The
+        # geometry itself stays unresolved (None) so an explicit value
+        # still wins and the declaration is read live, per render.
         rendered = render.run(
             planned, out_dir,
             segment_name=segment_name(name, index),
-            progress=f"[{index + 1}/{len(segments_plan)}]")
+            progress=f"[{index + 1}/{len(segments_plan)}]",
+            project_folder=project_folder)
         if rendered is None:
             continue
         segments.append(rendered)
