@@ -26,6 +26,11 @@ import {
   brandMotionSchema,
   type BrandMotionProps,
 } from "./compositions/BrandMotion";
+import {
+  StagedScene,
+  stagedSceneSchema,
+  type StagedSceneProps,
+} from "./compositions/StagedScene";
 // The studio has no pipeline behind it, so its preview defaults need the
 // safe area written down somewhere TypeScript can import. This file is
 // GENERATED from library/tools/safe_area.py by
@@ -72,6 +77,16 @@ const calculateTimedTextMetadata: CalculateMetadataFunction<TimedTextOverlayProp
   };
 
 const calculateFullFrameMetadata: CalculateMetadataFunction<FullFrameCardProps> =
+  async ({ props }) => {
+    return {
+      durationInFrames: props.durationInFrames,
+      fps: props.fps,
+      width: props.width,
+      height: props.height,
+    };
+  };
+
+const calculateStagedSceneMetadata: CalculateMetadataFunction<StagedSceneProps> =
   async ({ props }) => {
     return {
       durationInFrames: props.durationInFrames,
@@ -255,6 +270,31 @@ export const RemotionRoot: React.FC = () => {
           safeArea: SAFE_AREA,
         }}
         calculateMetadata={calculateFullFrameMetadata}
+      />
+      <Composition
+        id="StagedScene"
+        component={StagedScene}
+        schema={stagedSceneSchema}
+        durationInFrames={150}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={{
+          // No layers, and BLACK for the ground, for the same reason
+          // FullFrameCard defaults that way: a studio default carrying a
+          // surface, a grain and a move would be a look nobody chose
+          // sitting in the repository. Black is the absence of a ground,
+          // not a choice of one (AGENTS.md 10.5), and the empty layer
+          // list draws nothing over it.
+          ground: { colour: "#000000" },
+          layers: [],
+          fontFamily: "Montserrat",
+          fps: 30,
+          width: 1080,
+          height: 1920,
+          durationInFrames: 150,
+        }}
+        calculateMetadata={calculateStagedSceneMetadata}
       />
       <Composition
         id="BrandMotion"

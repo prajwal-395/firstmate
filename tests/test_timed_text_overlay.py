@@ -317,6 +317,20 @@ def test_root_tsx_registers_only_general_compositions():
     (`library/tools/brand_motion.py`, AGENTS.md 14).  PR 704 registered
     it without writing this paragraph down; `test_brand_motion.py`
     pins the registration itself, so removing it here is not the fix.
+
+    `StagedScene` is listed for the same reason, and it is the one that
+    most needed the paragraph: it draws a whole animated PICTURE rather
+    than an overlay, which is exactly where a house look would hide.  It
+    states no ground colour, no texture, no vignette, no palette, no
+    typeface, no size, no camera move and no duration - all of them
+    arrive in props from a declaration, and the studio default is a
+    black ground with no layers, which draws nothing.  The three values
+    it does supply are the neutral camera (no move), an absent frame
+    hold (every frame drawn) and what its four ease NAMES look like -
+    each the absence of a choice or the drawing of a word, in the
+    reading AGENTS.md 10.5 gives `CUT_TYPES` and `RAMP_FRAMES`.
+    `docs/ANIMATION_FIRST_REFERENCE.md` is the measurement it answers
+    and `tests/test_staged_scene.py` pins the registration itself.
     """
     with open(ROOT_TSX, encoding="utf-8") as f:
         src = f.read()
@@ -325,7 +339,7 @@ def test_root_tsx_registers_only_general_compositions():
         for line in src.splitlines() if 'id="' in line
     )
     assert ids == {"SubtitleOverlay", "MotionGraphics", "TimedTextOverlay",
-                   "FullFrameCard", "BrandMotion"}, (
+                   "FullFrameCard", "BrandMotion", "StagedScene"}, (
         f"Root.tsx registers {sorted(ids)}. A composition named after one "
         f"series is a project asset - declare it with content.bookends "
         f"and a project-owned `source:` instead.")
