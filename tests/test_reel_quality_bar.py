@@ -211,6 +211,58 @@ def test_the_duration_measured_is_what_plays_not_the_body_window():
     assert reading["delivered_seconds"] == 66.0
 
 
+def test_the_duration_ruling_records_the_captains_words_and_date():
+    """The 2026-09-09 ruling, kept in the COHERENCE_DOES_NOT_GATE shape:
+    why the band does not gate, on whose words, and what replaces it."""
+    record = qb.DURATION_DOES_NOT_GATE
+    assert record["ruled"] == "2026-09-09"
+    assert "rule of thumb" in record["captain"]
+    assert "render them" in record["captain"]
+    # The ten duration-outside reels of the harvest batch are named.
+    assert "0.3" in record["why"]
+    # The judged number is the delivered one, not the stale body-only
+    # field old proposal files carry beside the notes.
+    assert record["judged_number"] == "delivered_seconds"
+    # No replacement gate was invented: approval is the mechanism.
+    assert "assert_approved" in record["ruling"]
+    assert "10.5" in record["ruling"]
+
+
+def test_the_duration_warning_points_at_its_ruling():
+    """A reel outside the band is told LOUDLY, the way the coherence
+    warning points at COHERENCE_DOES_NOT_GATE - the record, not silence."""
+    transcript = _transcript(SEGMENTS)
+    moment = _moment(end=40.0)
+    findings = [f for f in qb.exact_findings(moment, transcript, {})
+                if f.code == qb.QB_DURATION]
+    assert len(findings) == 1
+    assert "DURATION_DOES_NOT_GATE" in findings[0].message
+
+
+def test_a_reel_outside_only_the_band_passes_and_says_so():
+    """Duration guides, it does not gate: a reel whose ONLY finding is
+    the band still passes, and its record says duration did not decide."""
+    transcript = _transcript(SEGMENTS)
+    # 30s body plus the 6s declared closer: 36s delivered, under the
+    # band, with a closer so nothing else errors.
+    moment = _moment(end=40.0, cta=CLOSER)
+    report = qb.judge([moment], transcript,
+                      {"readings": [{
+                          "reel": 1,
+                          "claim_quote": "so what actually changed",
+                          "opening_quote": "so what actually changed",
+                          "closing_quote": "run the free check",
+                          "closing_asks_for": "run the free check",
+                          "takeaway_quote": "people ask a full sentence now",
+                          "assumes_known": [],
+                          "stops_developing_at": 10.0,
+                          "rank": 1, "basis": "x",
+                      }]})
+    verdict = report.verdicts[0]
+    assert verdict.verdict == qb.PASS
+    assert verdict.as_dict()["duration_gates"] is False
+
+
 # ── EXACT: the call to action, all three sources ─────────────────────
 
 def test_a_declared_closer_reads_as_declared_and_raises_nothing():

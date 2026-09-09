@@ -69,7 +69,11 @@ So NO NUMBER HERE CHANGED.  `duration_reading` measures exactly what it
 measured before and `within_guidance` still reads False for the same ten
 reels; what changed is that QB-DURATION is a WARNING.  Widening the band
 would have been tuning the measure to improve the result, which is the
-one move that would make it worthless.
+one move that would make it worthless.  The captain confirmed the
+reading on 2026-09-09 - "the time amount is a rule of thumb, there can
+be exceptions if the video is good still" - and that ruling is kept in
+code as `DURATION_DOES_NOT_GATE`, the same shape
+`COHERENCE_DOES_NOT_GATE` takes.
 
 The ERROR that remains is `reel_exchange.ABSURD_SECONDS`, imported and
 not restated: past five minutes a "reel" is most of the episode.  That
@@ -230,6 +234,7 @@ from library.tools.reel_exchange import ABSURD_SECONDS, LENGTH_GUIDANCE
 __all__ = [
     "BODY",
     "COHERENCE_DOES_NOT_GATE",
+    "DURATION_DOES_NOT_GATE",
     "EXACT",
     "FORBIDDEN_IN_THE_ASK",
     "IN_CALL_TO_ACTION",
@@ -379,6 +384,50 @@ COHERENCE_DOES_NOT_GATE = {
 
 Kept beside `FIRST_MEASUREMENT` and for the same reason: a design
 argument that has never met the material is a design argument.
+"""
+
+
+DURATION_DOES_NOT_GATE = {
+    "ruled": "2026-09-09",
+    "batch": "lucie/geo-podcast, the 31 proposals of the harvest run",
+    "captain": (
+        '"thats fine, render them" (of reels 26 and 31); "the time '
+        'amount is a rule of thumb, there can be exceptions if the '
+        'video is good still"'),
+    "why": (
+        "The brief already said the 45-90s band is a preference - "
+        '"no fixed target", "preferably", "No hard cap" - and a '
+        "47-second reel inside the band can still be wrong, so length "
+        "was never the thing that disqualifies. Ten of the harvest "
+        "batch's eleven rejections were duration and nothing else "
+        "(delivered 39.5, 44.7, 18.1, 43.1, 40.3, 40.4, 29.6, 43.8, "
+        "39.6 and 93.1s against the band; reel 03 missed by 0.3s), "
+        "and the captain ruled the band guides rather than gates."),
+    # What the bar judges is DELIVERED seconds - the body minus the bad
+    # takes the build cuts, plus the closer - and that is also what the
+    # approval notes print, so the two agree. The `duration_seconds`
+    # beside them in old proposal files is the BODY window only: it does
+    # not include the closer and does not subtract the cuts, so reel 31
+    # reads 83.7s there (inside the band) while delivering 93.1s (over
+    # it). That field is stale by construction - removed from
+    # `ReelMoment.as_dict`, which nothing reads back - and reading it as
+    # the judged number is the unauditable gate this record refuses.
+    "judged_number": "delivered_seconds",
+    "ruling": (
+        "Duration RECORDS and does not gate. QB-DURATION is a WARNING "
+        "carrying `duration_reading` - which is exact - and the reading "
+        "stays as evidence. No replacement gate, score or tolerance was "
+        "invented: judging whether a video is good still is taste, not "
+        "the engine's to compute (AGENTS.md 10.5). What replaces the "
+        "gate is the captain's approval, which is already the mechanism: "
+        "a reel is BUILT only once they approve it "
+        "(`reel_proposal.assert_approved`), and PROPOSED fails that gate "
+        "exactly as REJECTED does."),
+}
+"""Why the duration band does not decide pass or fail.
+
+The same shape as `COHERENCE_DOES_NOT_GATE`: the reading is MEASURED
+and RECORDED on every reel, and it does not by itself reject.
 """
 
 
@@ -900,7 +949,8 @@ def exact_findings(moment, transcript: dict,
                 f"{duration['outside_by_seconds']:.1f}s {side} the "
                 f"{low:.0f}-{high:.0f}s the brief PREFERS. The brief says "
                 f"\"no fixed target\" and \"No hard cap\", so this is "
-                f"reported and does not decide anything"),
+                f"reported and does not decide anything: see "
+                f"reel_quality_bar.DURATION_DOES_NOT_GATE"),
             detail=duration))
 
     return out
@@ -1486,6 +1536,7 @@ class ReelVerdict:
             "call_to_action": self.cta,
             "coherence": self.coherence,
             "coherence_gates": False,
+            "duration_gates": False,
             "dependencies": list(self.dependencies),
             "value": self.value,
             "rank": self.rank,
