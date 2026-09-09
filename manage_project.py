@@ -512,6 +512,7 @@ def cmd_resolve_organize(args):
         revert,
         survey_project,
     )
+    from library.tools.execution import retire_empty_bins as retire
 
     project_folder = _reel_project_folder(args.project)
     project, master = open_project(project_folder)
@@ -521,7 +522,8 @@ def cmd_resolve_organize(args):
             # No guessing which apply to undo: an operator three days
             # later is shown what there is and picks one.
             found = journals(project_folder)
-            if not found:
+            found_retire = retire.journals(project_folder)
+            if not found and not found_retire:
                 print("  No journal in this project - nothing has been "
                       "filed here.")
                 return
@@ -533,6 +535,18 @@ def cmd_resolve_organize(args):
                       f"      {entry['moves']} move(s), "
                       f"{entry['stamps']} stamp(s), applied "
                       f"{entry['organised_at']} - {state}")
+            for entry in found_retire:
+                state = (f"already reverted at {entry['reverted_at']}"
+                         if entry["reverted_at"] else "not yet reverted")
+                print(f"    {entry['path']}\n"
+                      f"      {entry['retired']} retired bin(s), applied "
+                      f"{entry['retired_at']} - {state}")
+            return
+        if "resolve_retirements" in args.revert:
+            undone = retire.revert(project, args.revert)
+            print(f"  Re-created {len(undone['recreated'])} retired bin(s):")
+            for bin_path in undone["recreated"]:
+                print(f"    {bin_path}")
             return
         undone = revert(project, args.revert)
         print(f"  Moved back: {len(undone['moved_back'])} item(s)")
@@ -552,6 +566,8 @@ def cmd_resolve_organize(args):
             print(f"  [{finding['kind']}] {finding['detail']}")
         print(f"\n{len(found)} finding(s) on "
               f"{project.GetName()!r}.")
+        print()
+        print(survey["census"])
         # Reported, never a finding: see check_project's docstring.
         print(render_unplaced(survey["unplaced"]))
         sys.exit(1 if found else 0)
@@ -562,13 +578,26 @@ def cmd_resolve_organize(args):
     for duplicate in result["duplicate_bins"]:
         print(f"  DUPLICATE BIN: {duplicate} - Resolve allows two bins of "
               f"one name and AddSubFolder makes one on every call")
+    print()
+    print(result["census"])
     if result["applied"]:
         journal = result["journal"]
         print(f"\n  Moved {len(journal['moves'])} item(s), stamped "
               f"{len(journal['stamps'])} reel timeline(s).")
         print(f"  Journal: {journal['journal_path']}")
         print(f"  Undo it with: --revert {journal['journal_path']}")
+        retired = result.get("retirement", {})
+        if retired.get("retired"):
+            print(f"  Retired {len(retired['retired'])} empty legacy "
+                  f"bin(s):")
+            for bin_path in retired["retired"]:
+                print(f"    {bin_path}")
+            print(f"  Retirement journal: {retired['journal_path']}")
+            print(f"  Undo it with: --revert {retired['journal_path']}")
     else:
+        if result["retirements"]:
+            print(f"\n{len(result['retirements'])} empty legacy bin(s) "
+                  f"would retire on --apply.")
         print("\nNothing was changed. Pass --apply to perform this.")
     print()
     print(render_unplaced(result["unplaced"]))

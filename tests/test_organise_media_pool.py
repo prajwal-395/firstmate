@@ -106,6 +106,29 @@ class FakePool:
             folder.clips.append(clip)
         return True
 
+    def DeleteFolders(self, folders):
+        # The guard the executor proves before calling: only an empty
+        # bin is ever passed, so a non-empty one refuses here.
+        for folder in folders:
+            if folder.GetClipList() or folder.GetSubFolderList():
+                return False
+            parent = self._parent(folder)
+            if parent is None:
+                return False
+            parent.subs.remove(folder)
+        return True
+
+    def _parent(self, folder):
+        def walk(node):
+            for sub in node.subs:
+                if sub is folder:
+                    return node
+                found = walk(sub)
+                if found is not None:
+                    return found
+            return None
+        return walk(self.root)
+
 
 class FakeTimeline:
     def __init__(self, name, items): self._name, self.items = name, items
@@ -455,3 +478,80 @@ def test_the_unplaced_report_separates_a_file_a_placed_item_also_uses(
     assert cost["shared_with_placed"] == (str(shared),)
     assert cost["bytes_shared"] == 8192
     assert "PLACED item ALSO uses" in ex.render_unplaced(cost)
+
+
+# --------------------------------------- retiring the migration's shells
+
+
+def _shell_pool(project):
+    """The captain's complaint in miniature: the migration emptied the
+    legacy shells and left them standing beside the numbered bins."""
+    proj, _folder = project
+    pool = proj.GetMediaPool()
+    root = pool.GetRootFolder()
+    shells = FakeFolder("Reels", "legacy-reels")
+    shells.subs.append(FakeFolder("Unrecorded", "legacy-unrec"))
+    root.subs.append(shells)
+    root.subs.append(FakeFolder("Reel subtitles", "legacy-subs"))
+    root.subs.append(FakeFolder("My selects", "captain"))
+    return proj
+
+
+def _tree_names(proj):
+    out = []
+
+    def walk(folder, path):
+        for sub in folder.GetSubFolderList():
+            out.append("/".join(path + (sub.GetName(),)))
+            walk(sub, path + (sub.GetName(),))
+    walk(proj.GetMediaPool().GetRootFolder(), ())
+    return sorted(out)
+
+
+def test_the_check_flags_an_empty_legacy_shell(project):
+    proj = _shell_pool(project)
+    kinds = [f["kind"] for f in ex.check_project(proj, project[1], MASTER)]
+    assert "empty_legacy_bin" in kinds
+
+
+def test_apply_retires_the_shells_and_the_check_passes_after(project):
+    """The migration's two-pass shape: read-only plan first, then act,
+    then re-read and reconcile."""
+    proj = _shell_pool(project)
+    _, folder = project
+    planned = ex.organise_project(proj, folder, MASTER, apply=False)
+    assert not planned["applied"]
+    assert "Reels" in planned["census"] and "RETIRE" in planned["census"]
+    assert "My selects" in planned["census"]
+    assert "Reels" in _tree_names(proj), "planning must change nothing"
+
+    applied = ex.organise_project(proj, folder, MASTER, apply=True)
+    assert applied["applied"]
+    assert applied["retirement"]["retired"] == [
+        "Reels/Unrecorded", "Reel subtitles", "Reels"]
+    remaining = _tree_names(proj)
+    assert "Reels" not in remaining
+    assert "Reels" not in remaining
+    assert "Reel subtitles" not in remaining
+    assert "My selects" in remaining
+    assert ex.check_project(proj, folder, MASTER) == []
+
+
+def test_a_shell_holding_the_captains_tier_is_left_where_it_is(project):
+    """`Reels/Fully approved` is the captain's organisation: the tier
+    stays, and `Reels` above it stays too - retiring the parent would
+    take the captain's bin with it."""
+    proj = _shell_pool(project)
+    _, folder = project
+    pool = proj.GetMediaPool()
+    shells = next(s for s in pool.GetRootFolder().GetSubFolderList()
+                  if s.GetName() == "Reels")
+    tier = FakeFolder("Fully approved", "captain-tier")
+    tier.clips.append(FakeClip("t-tier", "Reel 01 - mine", "timeline"))
+    shells.subs.append(tier)
+    result = ex.organise_project(proj, folder, MASTER, apply=True)
+    assert result["retirement"]["retired"] == [
+        "Reels/Unrecorded", "Reel subtitles"]
+    remaining = _tree_names(proj)
+    assert "Reels" in remaining
+    assert "Reels/Fully approved" in remaining

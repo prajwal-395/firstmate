@@ -541,34 +541,84 @@ def survey_project(project, project_folder: str,
     burden, and reading the pool twice to get them would be two answers
     that can disagree about the same project.
     """
-    from library.tools.resolve_organization import findings
+    from library.tools.execution import retire_empty_bins as retire
+    from library.tools.resolve_organization import (
+        findings,
+        plan_retirements,
+        render_bin_census,
+    )
 
     plan, artefacts, duplicates, recorded = plan_for_project(
         project, project_folder, master_timeline_name)
+    tree = retire.read_bin_tree(project)
+    retirements = plan_retirements(artefacts, list(tree))
+    found = findings(artefacts, plan, duplicates, recorded)
+    for entry in retirements:
+        found.append({
+            "kind": "empty_legacy_bin",
+            "name": "/".join(entry["path"]),
+            "detail": f"legacy bin {'/'.join(entry['path'])!r} stands "
+                      f"empty beside the numbered scheme - {entry['why']}",
+        })
     return {
-        "findings": findings(artefacts, plan, duplicates, recorded),
+        "findings": found,
         "unplaced": unplaced_cost(unplaced_report(artefacts, project_folder)),
+        "retirements": [dict(path=list(e["path"]), why=e["why"])
+                        for e in retirements],
+        "census": render_bin_census(artefacts, list(tree), retirements),
     }
 
 
 def organise_project(project, project_folder: str,
                      master_timeline_name: str,
                      apply: bool = False,
-                     journal_path: str | None = None) -> dict:
-    """Plan, and apply only when asked. Returns both halves of the record."""
+                     journal_path: str | None = None,
+                     retire_empty_shells: bool = True) -> dict:
+    """Plan, and apply only when asked. Returns both halves of the record.
+
+    Applying files the pool first and retires the emptied legacy shells
+    second: the moves are what empty them, so the retirement is planned
+    off a FRESH read taken after the moves land, never off the plan a
+    moment ago. The retirement has its own journal and its own revert -
+    `resolve-organize --revert` reads either.
+    """
+    from library.tools.execution import retire_empty_bins as retire
+    from library.tools.resolve_organization import (
+        plan_retirements,
+        render_bin_census,
+    )
+
     plan, artefacts, duplicates, _recorded = plan_for_project(
         project, project_folder, master_timeline_name)
+    tree = retire.read_bin_tree(project)
+    retirements = plan_retirements(artefacts, list(tree))
     result = {"plan": plan.as_dict(), "duplicate_bins": duplicates,
               "applied": False,
               # Read from the same pass as the plan, so the filing and
               # the count of what is unplaced cannot disagree.
               "unplaced": unplaced_cost(
-                  unplaced_report(artefacts, project_folder))}
+                  unplaced_report(artefacts, project_folder)),
+              "retirements": [dict(path=list(e["path"]), why=e["why"])
+                              for e in retirements],
+              "census": render_bin_census(artefacts, list(tree),
+                                          retirements)}
     if apply:
         result["journal"] = apply_plan(
             project, plan, artefacts,
             journal_path or journal_path_for(project_folder))
         result["applied"] = True
+        if retire_empty_shells:
+            fresh, _, _, _ = read_pool(project)
+            fresh_tree = retire.read_bin_tree(project)
+            fresh_plan = plan_retirements(fresh, list(fresh_tree))
+            result["retirements"] = [
+                dict(path=list(e["path"]), why=e["why"])
+                for e in fresh_plan]
+            result["census"] = render_bin_census(
+                fresh, list(fresh_tree), fresh_plan)
+            result["retirement"] = retire.retire_bins(
+                project, fresh_plan,
+                retire.journal_path_for(project_folder))
     return result
 
 

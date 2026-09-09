@@ -621,6 +621,168 @@ def state_from_keywords(keywords: str) -> str | None:
     return None
 
 
+RETIRABLE_TOP_BINS = frozenset(
+    [top for (top,) in bins.LEGACY_SUCCESSORS]
+    + list(STATE_BINS.values()))
+"""Top-level bins the pipeline's own superseded scheme stood up, plus the
+old state leaves standing alone at the top level (`Unrecorded`, ...).
+A top-level bin with any other name is the captain's - they may be about
+to put something in it - and stays even when empty."""
+
+STATE_LEAVES = frozenset(STATE_BINS.values())
+"""Leaf names of the old scheme's state bins. Kept so the per-reel state
+survives the move in `resolve_bin_layout.REEL_STATE_BINS`."""
+
+
+def _is_pipeline_component(name: str, timeline_names: frozenset) -> bool:
+    """Is this one path component old-scheme vocabulary?
+
+    A legacy top, a state leaf, the unplaced leaf, a nested legacy top
+    (the duplicate `AddSubFolder` forks), or a per-reel leaf named for a
+    timeline the pool actually holds - the old scheme filed per-timeline
+    bins under its clip tops, and the migration emptied them. Anything
+    else (`Fully approved`, `my picks`) is organisation the pipeline did
+    not make, and from the pool alone it is indistinguishable from the
+    captain's - so it is read as the captain's and stays.
+
+    Residual unknown, said plainly: a captain's bin named EXACTLY like a
+    timeline under a legacy top reads as pipeline-made. Every retirement
+    is journalled by name, so a wrong one reverts by re-creating it.
+    """
+    return (
+        name in LEGACY_CLIP_BINS
+        or name == LEGACY_REELS_BIN
+        or name in STATE_LEAVES
+        or name == BIN_UNPLACED
+        or name in timeline_names
+    )
+
+
+def is_retired_scheme_bin(path: Sequence[str],
+                           timeline_names: frozenset = frozenset()) -> bool:
+    """May this bin be retired once empty? Scheme membership only -
+    emptiness is `plan_retirements`' half, proven off the artefacts."""
+    path = tuple(path)
+    if not path or path[0] not in RETIRABLE_TOP_BINS:
+        return False
+    if path[0] in STATE_LEAVES and len(path) > 1:
+        return False
+    return all(_is_pipeline_component(name, timeline_names)
+               for name in path[1:])
+
+
+def _successor_of(top: str) -> str:
+    """The canonical bin that superseded this legacy top, for the record."""
+    successor = bins.LEGACY_SUCCESSORS.get((top,))
+    if successor is not None:
+        return "/".join(successor)
+    if top in STATE_LEAVES:
+        return BIN_REELS
+    return BIN_REELS
+
+
+def plan_retirements(
+        artefacts: Sequence[Artefact],
+        bin_paths: Sequence[Sequence[str]],
+        timeline_names: Iterable[str] | None = None) -> list[dict]:
+    """The legacy shells that are provably empty, deepest first.
+
+    Pure: takes the artefacts off `read_pool` and the full bin tree, and
+    returns `[{"path": (...), "why": ...}]` ordered so a child is always
+    retired before its parent. Calls nothing, writes nothing.
+
+    Empty means NO ITEM in the whole subtree - a shell with an empty
+    sub-bin under it is still empty, and the sub-bin retires with it.
+    A bin stays when anything at all is inside it, when it is not part
+    of either scheme (the captain's, even when empty), or when a kept
+    sub-bin stands under it - retiring the parent would take the
+    captain's bin with it, so the parent stays too.
+    """
+    if timeline_names is None:
+        timeline_names = frozenset(
+            a.name for a in artefacts if a.kind == "timeline")
+    else:
+        timeline_names = frozenset(timeline_names)
+
+    occupancy: dict[tuple[str, ...], int] = {}
+    for artefact in artefacts:
+        folder = tuple(artefact.folder_path)
+        for depth in range(1, len(folder) + 1):
+            prefix = folder[:depth]
+            occupancy[prefix] = occupancy.get(prefix, 0) + 1
+
+    known: set[tuple[str, ...]] = {tuple(p) for p in bin_paths}
+    for artefact in artefacts:
+        folder = tuple(artefact.folder_path)
+        for depth in range(1, len(folder) + 1):
+            known.add(folder[:depth])
+    known.discard(())
+
+    retired: list[dict] = []
+    retired_paths: set[tuple[str, ...]] = set()
+    for path in sorted(known, key=lambda p: (-len(p), list(p))):
+        if not is_retired_scheme_bin(path, timeline_names):
+            continue
+        if occupancy.get(path, 0):
+            continue
+        descendants = [b for b in known
+                       if len(b) > len(path) and b[:len(path)] == path]
+        if any(d not in retired_paths for d in descendants):
+            continue
+        if len(path) == 1:
+            why = (f"legacy bin superseded by "
+                   f"'{_successor_of(path[0])}'; empty including sub-bins")
+        else:
+            why = (f"emptied legacy leaf under "
+                   f"'{'/'.join(path[:-1])}', superseded by "
+                   f"'{_successor_of(path[0])}'; empty including sub-bins")
+        retired.append({"path": path, "why": why})
+        retired_paths.add(path)
+    return retired
+
+
+def render_bin_census(artefacts: Sequence[Artefact],
+                      bin_paths: Sequence[Sequence[str]],
+                      retirements: Sequence[dict],
+                      timeline_names: Iterable[str] | None = None) -> str:
+    """Every bin with its recursive item count and the retire/keep
+    decision for each - the read-only plan, reported before acting and
+    reconciled after."""
+    if timeline_names is None:
+        timeline_names = frozenset(
+            a.name for a in artefacts if a.kind == "timeline")
+    else:
+        timeline_names = frozenset(timeline_names)
+    retiring = {tuple(r["path"]): r["why"] for r in retirements}
+    occupancy: dict[tuple[str, ...], int] = {}
+    for artefact in artefacts:
+        folder = tuple(artefact.folder_path)
+        for depth in range(1, len(folder) + 1):
+            prefix = folder[:depth]
+            occupancy[prefix] = occupancy.get(prefix, 0) + 1
+
+    known = sorted({tuple(p) for p in bin_paths if tuple(p)},
+                   key=lambda p: (len(p), list(p)))
+    lines = ["Media-pool bins, with recursive item counts:"]
+    for path in known:
+        name = "/".join(path)
+        count = occupancy.get(path, 0)
+        if path in retiring:
+            lines.append(f"  {name} ({count} item(s)) - "
+                         f"RETIRE: {retiring[path]}")
+        elif is_retired_scheme_bin(path, timeline_names):
+            lines.append(f"  {name} ({count} item(s)) - "
+                         f"keep: legacy but not empty, or a kept bin "
+                         f"stands under it")
+        else:
+            lines.append(f"  {name} ({count} item(s)) - "
+                         f"keep: not part of either scheme - the "
+                         f"captain's, and it stays even when empty")
+    if not known:
+        lines.append("  (no sub-bins)")
+    return "\n".join(lines)
+
+
 def render_plan(plan: Plan) -> str:
     """The plan, as the operator reads it before deciding to apply it."""
     lines = [f"Media pool: {plan.root_bin}", ""]
