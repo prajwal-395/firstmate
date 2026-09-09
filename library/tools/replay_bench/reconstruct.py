@@ -297,8 +297,34 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
             # swallowed.  A further appender in the runner needs a block
             # here.
             #
-            # `craft_role` is the fourth contribution and the only one
-            # that PREPENDS: it is the role the rest of the prompt is
+            # Recallable skills are appended to the handoff BEFORE the
+            # role is prepended - the runner's first contribution, so
+            # the bench's is too. The invocation lines are harnessed
+            # and the bench cannot know which harness answered the
+            # archived run, so it reconstructs the hand-answered
+            # wording and SAYS so rather than guessing.
+            try:
+                from library.tools import pipeline_skills as _bench_skills
+            except ImportError:
+                notes.append("this tree has no "
+                             "library.tools.pipeline_skills: the prompt "
+                             "is reconstructed with no skill block")
+            else:
+                try:
+                    _bench_block = _bench_skills.prompt_block(
+                        node_id, manifest)
+                except Exception as exc:  # noqa: BLE001 - wording only
+                    notes.append(f"skill block did not reconstruct: {exc}")
+                else:
+                    if _bench_block:
+                        prompt += _bench_block
+                        notes.append(
+                            "skill block reconstructed hand-answered: "
+                            "the invocation lines assume no harness, "
+                            "which may differ from the archived run's "
+                            "wording")
+            #
+            # `craft_role` is the contribution that PREPENDS: it is the role the rest of the prompt is
             # read in, not an extra field, so it carries no schema entry.
             try:
                 from library.tools import craft_role

@@ -314,6 +314,29 @@ def get_step_implementation(step_dir: Path) -> dict:
     if has_manifest:
         with open(step_dir / "manifest.json") as f:
             manifest = json.load(f)
+
+    # A gating skill is read back from its receipt in `run_hybrid_step`,
+    # which is the only runner path with a bounded retry to carry the
+    # violation on. A gating skill declared anywhere else would render
+    # in the prompt and never be read back - refused here, at plan
+    # time, rather than silently unenforced. See
+    # library/tools/pipeline_skills.GATING_COVERED_TYPES.
+    from library.tools import pipeline_skills as _skills_check
+    _gating = _skills_check.gating_skills(
+        manifest, manifest.get("id", step_dir.name))
+    if _gating:
+        _runtime = manifest.get("implementation", {}).get(
+            "default", {}).get("runtime", "")
+        _has_bridge = has_bridge_py or (step_dir / "post_bridge.py").exists()
+        _covered = (_runtime == "llm" and _has_bridge) or (
+            _runtime != "llm" and _has_bridge and has_handoff_md)
+        if not _covered:
+            raise RuntimeError(
+                f"{manifest.get('id', step_dir.name)}: gating skill(s) "
+                f"{', '.join(_gating)} declared on a non-hybrid step. "
+                f"The must-check read-back only covers hybrid answers; "
+                f"declare gating skills on hybrid steps or report-only "
+                f"skills here.")
     
     determinism = manifest.get("determinism", "unknown")
     
@@ -1773,6 +1796,20 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             llm_manifest["interface"] = dict(manifest["interface"])
             llm_manifest["interface"]["outputs"] = llm_outputs
 
+        # Recallable skills: what this step may call, and what it must.
+        # Rendered from the manifest's top-level `skills` declaration -
+        # empty for a step that declares none, so this is one
+        # unconditional block and a step that gains a skill needs no
+        # change here. The reach is asserted on the same run: a
+        # declared skill the prompt never carries fails rather than
+        # reading as a step that declares none.
+        # See library/tools/pipeline_skills.py.
+        from library.tools import pipeline_skills
+        prompt += pipeline_skills.prompt_block(
+            node_id, manifest, full_auto)
+        pipeline_skills.assert_declared_skills_reach_prompt(
+            node_id, manifest, prompt)
+
         # The declaration is asked for in the RENDERED schema and is NOT
         # added to `llm_manifest`: it is not one of the step's outputs,
         # `validate_step_output` would then demand it, and the answer is
@@ -2182,6 +2219,17 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
     retry_feedback = ""
     passes_made = 1
     for attempt in range(1, post_bridge_retry.MAX_ATTEMPTS + 1):
+        # The pipeline-runs-it route for recallable skills: a declared
+        # gating skill no receipt covers yet is run HERE when the
+        # answering harness has no shell to invoke it with, and its
+        # verdict seeds the same retry context a contract rejection
+        # travels on. A harness with a shell invokes the skill itself -
+        # its prompt says so - so nothing runs for it. Skipped under
+        # mock: a replayed answer has no model to correct. See
+        # library/tools/pipeline_skills.py.
+        from library.tools import pipeline_skills as _skills_rt
+        retry_feedback += _skills_rt.ensure_gating_receipts(
+            node_id, manifest, compressed, full_auto)
         # LLM creative decision on compressed context
         try:
             llm_output = present_llm_step(
@@ -2194,6 +2242,33 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
 
         if isinstance(llm_output, dict) and llm_output.get("__status") == "awaiting_llm":
             return llm_output
+
+        # The must-check rule: a declared gating skill RAN, read back
+        # from its receipt on disk - never from the answer's claim that
+        # it checked. A missing receipt travels the post-bridge retry
+        # path like any other contract violation: bounded retries
+        # carrying the reason, and at the bound the step FAILS with it
+        # named rather than proceeding on an unchecked answer.
+        if normalize_full_auto(full_auto) != "mock":
+            try:
+                _skills_rt.assert_gating_skills_ran(
+                    node_id, manifest,
+                    compressed.get("project_folder", ""))
+            except _skills_rt.GatingSkillSkipped as e:
+                violation = str(e)
+                if attempt >= post_bridge_retry.MAX_ATTEMPTS:
+                    raise PostBridgeError(
+                        f"Post-bridge failed after "
+                        f"{post_bridge_retry.MAX_ATTEMPTS} attempts "
+                        f"(a declared gating skill never ran): "
+                        f"{violation}")
+                print(f"  Gating skill unrun on attempt {attempt} "
+                      f"for {node_id}, carrying the violation back to "
+                      f"the model: {violation.splitlines()[0][:200]}",
+                      file=sys.stderr)
+                retry_feedback += post_bridge_retry.feedback_block(
+                    violation, attempt)
+                continue
 
         if not post_bridge.exists():
             result = dict(pre_output)

@@ -148,5 +148,8 @@
     "-speech_sequence.body_sequence.*.word_timestamps",
     "-speech_sequence.alignment_report",
     "view:alignment"
+  ],
+  "skills": [
+    "ask_the_footage"
   ]
 }

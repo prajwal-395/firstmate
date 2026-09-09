@@ -74,5 +74,8 @@
   },
   "context_fields": [
     "-assembly_manifest.subtitles.*.words"
+  ],
+  "skills": [
+    "verify_render"
   ]
 }
