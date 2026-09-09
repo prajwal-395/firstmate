@@ -332,6 +332,8 @@ class Area(str, Enum):
     COMPOSITIONS = "compositions"
     EXTERNAL_STATE = "external_state"
     RUN_PROFILES = "run_profiles"
+    CONTEXT = "context"
+    LEARNED_CONTEXT = "learned_context"
 
     # The output root, and the steps/ directory that is most of it.
     OUTPUT_ROOT = "output_root"
@@ -422,6 +424,24 @@ AREAS: dict[Area, AreaSpec] = {
         "the profile. A profile here SHADOWS an engine one of the same "
         "name; see library/tools/run_profile.py. Written by hand, never "
         "by a step."),
+    Area.CONTEXT: AreaSpec(
+        "context", Kind.INPUT,
+        "The captain's context folder - documents, references, notes, "
+        "links, images, anything that tells the model what kind of video "
+        "to make. Read by every planning step that declares "
+        "`project_context`, as a MAP with bodies fetched on demand; see "
+        "library/tools/project_context.py. Written by the captain (and by "
+        "the grillme skill as their scribe), never by a step."),
+    Area.LEARNED_CONTEXT: AreaSpec(
+        "learned_context", Kind.CAPTURED,
+        "What the pipeline learned about this project and wrote back - "
+        "captain corrections, fixed mistakes, settled decisions. Read "
+        "alongside context/ on every later run, clearly attributed so "
+        "the captain can tell what they said from what the pipeline "
+        "concluded; see library/tools/learned_context.py. Recorded by "
+        "the run, never deleted by a re-run: it is irreproducible "
+        "judgement, the way marker_feedback/ is irreproducible notes.",
+        produced_by=(RUNNER,)),
 
     Area.OUTPUT_ROOT: AreaSpec(
         _OUT, Kind.OUTPUT,

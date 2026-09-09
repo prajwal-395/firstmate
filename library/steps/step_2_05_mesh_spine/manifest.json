@@ -71,6 +71,12 @@
         "type": "string",
         "required": false,
         "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none. This step sets every gap length and every music_behavior and was the only planning step of the seven with no brief (audit round 2 F7, round 3 B9/R9). Its handoff.md is under the captain's freeze and does not name a brief, so the declaration is what asks for it; the runner restores the value around the projection BY NAME, so context_fields neither has to list it nor can drop it (AGENTS.md 10.1)."
+      },
+      {
+        "name": "project_context",
+        "type": "string",
+        "required": false,
+        "description": "The project's context folder plus the learnings routed to this step, as a MAP the model follows with its shell (never a copy). Injected by the runner from the project's context/ folder and learned_context/ store when this step declares it; a stated absence when the project has neither. See library/tools/project_context.py."
       }
     ],
     "outputs": [

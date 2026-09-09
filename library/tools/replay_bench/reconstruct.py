@@ -127,7 +127,8 @@ def _brand_constraints(project_folder: str, node_id: str) -> str:
 def _restore_globals(projected: dict, saved: dict) -> dict:
     """`present_llm_step` puts these back after projection.  So does this."""
     projected["project_folder"] = saved.get("project_folder", "")
-    for key in ("project_fps", "brand_template", "creative_brief"):
+    for key in ("project_fps", "brand_template", "creative_brief",
+                "project_context"):
         if saved.get(key) is not None:
             projected[key] = saved[key]
     return projected
@@ -240,7 +241,8 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                 inputs, manifest, bridge_supplied)
         else:
             saved = {k: inputs.get(k) for k in
-                     ("project_fps", "brand_template", "creative_brief")}
+                     ("project_fps", "brand_template", "creative_brief",
+                      "project_context")}
             saved["project_folder"] = inputs.get("project_folder", "")
             inputs = _restore_globals(
                 api["project_fields"](inputs, projected_paths), saved)

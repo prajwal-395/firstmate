@@ -176,7 +176,17 @@ DAG_PATH = LIBRARY_ROOT / "processes/edit_video/dag.json"
 # Values that belong to the RUN rather than to any upstream step, injected
 # into state by load_pipeline_state.  A step gets one only by declaring it
 # in its own manifest's interface.inputs - see gather_step_inputs.
-PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief")
+#
+# `project_context` is the captain's context folder plus the learnings
+# routed to the step, as a MAP (library/tools/project_context.py).  It
+# joins this tuple rather than growing a second routing mechanism: the
+# step declares it, `gather_step_inputs` builds it, and it is restored
+# BY NAME around projection like `creative_brief`, so an allow-list
+# neither has to list it nor can drop it.  Unlike the brief it needs no
+# attachment choice and never raises: an empty folder is a stated
+# absence, and learnings simply scope to nothing.
+PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief",
+                        "project_context")
 
 # The one input carrying the LAST render's QA findings.  It is not a
 # process-level input and it is not DAG-routable - see the block in
@@ -1214,6 +1224,21 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                     series_identity=project_series_identity(
                         project_folder))
 
+        # The captain's context folder plus the learnings routed to this
+        # step, as a MAP the model follows with its shell - never a copy
+        # (library/tools/project_context.py).  Declared like the brief,
+        # routed the same way, but with no attachment choice and no
+        # refusal: an empty folder is a stated absence and learnings
+        # simply scope to nothing, so there is no missing-file case to
+        # raise on.
+        if "project_context" in step_inputs:
+            project_folder = (inputs.get("project_folder", "")
+                              or state.get("project_folder", ""))
+            from library.tools.project_context import (
+                project_context_for_step)
+            inputs["project_context"] = project_context_for_step(
+                project_folder, node_id)
+
         # The captain's own notes off the built timeline, routed to the
         # step that owns the decision each one is about.  This is the ONE
         # place a routed note enters a step's context, and it is the one
@@ -1243,6 +1268,10 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
         saved_fps = inputs.get("project_fps")
         saved_brand_template = inputs.get("brand_template")
         saved_creative_brief = inputs.get("creative_brief")
+        # Restored BY NAME like the brief: the folder map plus the
+        # learnings routed to this step.  A step's allow-list neither
+        # has to list the captain's context nor can drop it.
+        saved_project_context = inputs.get("project_context")
         saved_timeline_notes = inputs.get("timeline_notes")
         
         from library.tools.context_projector import project_fields
@@ -1255,6 +1284,8 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
             inputs["brand_template"] = saved_brand_template
         if saved_creative_brief is not None:
             inputs["creative_brief"] = saved_creative_brief
+        if saved_project_context is not None:
+            inputs["project_context"] = saved_project_context
         if saved_timeline_notes is not None:
             inputs["timeline_notes"] = saved_timeline_notes
 
@@ -1474,6 +1505,10 @@ def project_step_context(inputs: dict, manifest: dict = None,
     saved_brand_template = inputs.get("brand_template")
     saved_creative_brief = inputs.get("creative_brief")
     # Restored BY NAME for the same reason `creative_brief` is: a step's
+    # allow-list neither has to list the captain's context nor can drop
+    # it. AGENTS.md 10.1.
+    saved_project_context = inputs.get("project_context")
+    # Restored BY NAME for the same reason `creative_brief` is: a step's
     # allow-list neither has to list the captain's notes nor can drop
     # them. AGENTS.md 10.1.
     saved_timeline_notes = inputs.get("timeline_notes")
@@ -1508,6 +1543,8 @@ def project_step_context(inputs: dict, manifest: dict = None,
         inputs["brand_template"] = saved_brand_template
     if saved_creative_brief is not None:
         inputs["creative_brief"] = saved_creative_brief
+    if saved_project_context is not None:
+        inputs["project_context"] = saved_project_context
     if saved_timeline_notes is not None:
         inputs["timeline_notes"] = saved_timeline_notes
     return inputs

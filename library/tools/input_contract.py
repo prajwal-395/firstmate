@@ -285,7 +285,8 @@ on a project that has never rendered, and never raising."""
 ROUTE_NONE = "unrouted"
 """Nothing supplies it. A declaration the runner can never meet."""
 
-_PROCESS_LEVEL = ("sfx_library", "music_library", "creative_brief")
+_PROCESS_LEVEL = ("sfx_library", "music_library", "creative_brief",
+                  "project_context")
 _GLOBALS = ("project_folder", "project_config")
 _BRAND = ("brand_template", "brand_style", "brand_effect", "brand_content")
 _LAST_RENDER = ("render_qa_findings",)
@@ -804,9 +805,11 @@ def _route(name: str, node_id: str, routed: Mapping[str, Set[str]],
 # `run_pipeline.project_step_context` restores it BY NAME around the
 # projection, so a step's allow-list neither has to list the captain's
 # notes nor can drop them.  See library/tools/marker_routing.py.
+# `project_context` is on it for the same reason: the folder map plus
+# the routed learnings (library/tools/project_context.py).
 _RESTORED_AROUND_PROJECTION = ("project_folder", "project_fps",
                                "brand_template", "creative_brief",
-                               "timeline_notes")
+                               "project_context", "timeline_notes")
 
 
 class _Recorder(dict):

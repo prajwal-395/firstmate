@@ -428,11 +428,16 @@ def test_the_input_areas_are_the_captains_material():
     """`external_state` is here for the same reason `raw` is: the
     captain made it and no step may write it. It carries state produced
     outside the pipeline and offered to a step that would otherwise need
-    the step that makes it - see library/tools/external_inputs.py."""
+    the step that makes it - see library/tools/external_inputs.py.
+    `context` is here for the same reason: the captain's context folder,
+    read as a map and never written to - see
+    library/tools/project_context.py. (`learned_context` is NOT here:
+    it is pipeline-owned, the write-back half.)"""
     inputs = {a.value for a, s in AREAS.items() if s.kind is Kind.INPUT}
     assert inputs == {
         "project_root", "raw", "music", "assets",
         "brand_assets", "compositions", "external_state", "run_profiles",
+        "context",
     }
 
 
