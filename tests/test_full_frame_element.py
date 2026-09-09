@@ -374,33 +374,44 @@ def test_a_card_carries_no_file_until_it_has_been_rendered():
 # ── Rendering ────────────────────────────────────────────────────────
 
 
-def test_the_render_is_opaque_and_never_asks_for_transparency(monkeypatch,
-                                                              tmp_path):
-    """The one command-line difference between this layer and the overlay
-    layer, asserted rather than described."""
+def _fake_batch_success(seen):
+    """A stand-in for the shared batch renderer that draws every job."""
+    def fake_batch(jobs, **kwargs):
+        seen["calls"] = seen.get("calls", 0) + 1
+        seen["composition"] = kwargs.get("composition")
+        seen["job_count"] = len(jobs)
+        results = []
+        for job in jobs:
+            with open(job.out_path, "wb") as handle:
+                handle.write(b"not empty")
+            results.append({"ok": True, "out": job.out_path})
+        return results
+    return fake_batch
+
+
+def test_the_render_batches_opaque_through_the_shared_renderer(
+        monkeypatch, tmp_path):
+    """One batch for every card, on the card's own declared ground.
+
+    The one command-line difference between this layer and the overlay
+    layer used to be asserted off the argv (no ``--transparent``); now
+    that every card goes through the shared batch renderer, what is
+    asserted is the route itself - one ``render_batch`` call carrying
+    every card under the FullFrameCard composition - and the opacity
+    half is the props: the card carries its own background ground
+    rather than relying on black showing through an alpha channel that
+    nothing is beneath.
+    """
     seen = {}
-
-    class _Result:
-        returncode = 0
-        stderr = ""
-
-    def fake_run(command, **kwargs):
-        seen["command"] = command
-        out = command[4]
-        with open(out, "wb") as handle:
-            handle.write(b"not empty")
-        return _Result()
-
-    monkeypatch.setattr(ffe.subprocess, "run", fake_run)
+    monkeypatch.setattr(ffe, "render_batch", _fake_batch_success(seen))
     cards = ffe.plan_reel_cards(
         ffe.declared_elements(declare()), _facts(), 960, FPS)
     rendered = ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 
-    assert "--transparent" not in seen["command"], (
-        "a full-frame element IS the picture; rendering it with an alpha "
-        "channel means relying on black showing through nothing")
-    assert ffe.FULL_FRAME_COMPOSITION in seen["command"]
-    assert "4444" in seen["command"]
+    assert seen["calls"] == 1, (
+        "every card in one batch: one bundle-and-launch, not one per card")
+    assert seen["composition"] == ffe.FULL_FRAME_COMPOSITION
+    assert seen["job_count"] == len(cards)
     assert rendered[0].rendered_path.endswith(".mov")
     # The props really reached disk beside the render.
     props = json.loads(
@@ -409,12 +420,10 @@ def test_the_render_is_opaque_and_never_asks_for_transparency(monkeypatch,
 
 
 def test_a_render_that_produces_no_file_raises(monkeypatch, tmp_path):
-    class _Result:
-        returncode = 0
-        stderr = ""
+    def fake_batch(jobs, **kwargs):
+        return [{"ok": True, "out": job.out_path} for job in jobs]
 
-    monkeypatch.setattr(ffe.subprocess, "run",
-                        lambda command, **kwargs: _Result())
+    monkeypatch.setattr(ffe, "render_batch", fake_batch)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements(declare()), _facts(), 960, FPS)
     with pytest.raises(ffe.FullFrameRenderError, match="missing or empty"):
@@ -423,15 +432,28 @@ def test_a_render_that_produces_no_file_raises(monkeypatch, tmp_path):
 
 def test_a_failed_render_raises_rather_than_leaving_a_reel_without_it(
         monkeypatch, tmp_path):
-    class _Result:
-        returncode = 1
-        stderr = "chromium exploded"
+    def fake_batch(jobs, **kwargs):
+        return [{"ok": False, "out": job.out_path,
+                 "error": "chromium exploded"} for job in jobs]
 
-    monkeypatch.setattr(ffe.subprocess, "run",
-                        lambda command, **kwargs: _Result())
+    monkeypatch.setattr(ffe, "render_batch", fake_batch)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements(declare()), _facts(), 960, FPS)
     with pytest.raises(ffe.FullFrameRenderError, match="chromium exploded"):
+        ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
+
+
+def test_a_batch_that_cannot_start_raises(monkeypatch, tmp_path):
+    """No renderer is not a card failure: it still refuses, by name."""
+    from library.tools.remotion_batch import RemotionBatchError
+
+    def fake_batch(jobs, **kwargs):
+        raise RemotionBatchError("no node on PATH")
+
+    monkeypatch.setattr(ffe, "render_batch", fake_batch)
+    cards = ffe.plan_reel_cards(
+        ffe.declared_elements(declare()), _facts(), 960, FPS)
+    with pytest.raises(ffe.FullFrameRenderError, match="no node on PATH"):
         ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 
 

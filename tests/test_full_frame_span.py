@@ -811,27 +811,28 @@ def test_f12_grades_a_span_segment_against_the_whole_frame():
     assert findings == [], [str(f) for f in findings]
 
 
-def test_the_render_is_opaque_and_names_spans(monkeypatch, tmp_path):
-    """Span segments render through the card composition, opaque."""
+def test_the_render_batches_opaque_and_names_spans(monkeypatch, tmp_path):
+    """Span segments render through the card composition, in one batch."""
     seen = {}
 
-    class _Result:
-        returncode = 0
-        stderr = ""
+    def fake_batch(jobs, **kwargs):
+        seen["calls"] = seen.get("calls", 0) + 1
+        seen["composition"] = kwargs.get("composition")
+        seen.setdefault("job_count", 0)
+        seen["job_count"] += len(jobs)
+        results = []
+        for job in jobs:
+            with open(job.out_path, "wb") as handle:
+                handle.write(b"not empty")
+            results.append({"ok": True, "out": job.out_path})
+        return results
 
-    def fake_run(command, **kwargs):
-        seen.setdefault("commands", []).append(command)
-        out = command[4]
-        with open(out, "wb") as handle:
-            handle.write(b"not empty")
-        return _Result()
-
-    monkeypatch.setattr(ffe.subprocess, "run", fake_run)
+    monkeypatch.setattr(ffe, "render_batch", fake_batch)
     planned = _plan()
     rendered = ffe.render_reel_cards(planned, str(tmp_path), str(tmp_path))
-    for command in seen["commands"]:
-        assert "--transparent" not in command
-        assert ffe.FULL_FRAME_COMPOSITION in command
+    assert seen["calls"] == 1
+    assert seen["composition"] == ffe.FULL_FRAME_COMPOSITION
+    assert seen["job_count"] == len(planned)
     assert [c.rendered_path for c in rendered] != ["", ""]
     props = json.loads(
         (tmp_path / "reel_03_span_01_props.json").read_text())

@@ -727,3 +727,125 @@ def test_insert_places_head_and_tail_around_the_spine():
     blocks = insert_bookend_blocks([{"block_type": "speech"}], resolved)
     assert [b["block_type"] for b in blocks] == [
         "intro_card", "speech", "end_card"]
+
+
+# ─────────────────────────────────────────────────────────
+# Render route: engine compositions batch, project ones stay CLI
+# ─────────────────────────────────────────────────────────
+
+from library.tools import bookend_render as br
+
+
+ENGINE_DECLARATION = {
+    "bookends": {
+        "intro": {
+            "composition": "TimedTextOverlay",
+            "duration_seconds": 0.5,
+            "props": {"moments": [], "fontFamily": "Montserrat"},
+        },
+        "outro": {
+            "composition": "TimedTextOverlay",
+            "duration_seconds": 0.5,
+            "props": {"moments": [], "fontFamily": "Montserrat"},
+        },
+    }
+}
+
+
+def _engine_structure(tmp_path):
+    resolved = [resolve_bookend(d, str(tmp_path))
+                for d in declared_bookends(ENGINE_DECLARATION)]
+    assert all(r["source_path"] == "" for r in resolved)
+    return [bookend_spine_block(r) for r in resolved]
+
+
+def _fake_batch_success(seen):
+    def fake_batch(jobs, **kwargs):
+        seen["calls"] = seen.get("calls", 0) + 1
+        seen["composition"] = kwargs.get("composition")
+        seen.setdefault("jobs", []).extend(jobs)
+        results = []
+        for job in jobs:
+            with open(job.out_path, "wb") as handle:
+                handle.write(b"not empty")
+            results.append({"ok": True, "out": job.out_path})
+        return results
+    return fake_batch
+
+
+def test_engine_bookends_share_one_batch(monkeypatch, tmp_path):
+    """Two engine cards, one bundle-and-launch, results in spine order."""
+    seen = {}
+    monkeypatch.setattr(br, "render_batch", _fake_batch_success(seen))
+    structure = _engine_structure(tmp_path)
+    records = br.render_declared_bookends(
+        structure, str(tmp_path), fps=30, width=320, height=568)
+    assert seen["calls"] == 1, (
+        "engine bookends batch: one bundle for the composition, "
+        "not one per card")
+    assert seen["composition"] == "TimedTextOverlay"
+    assert len(seen["jobs"]) == 2
+    assert [r["slot"] for r in records] == ["intro", "outro"]
+    assert all(r["bytes"] > 0 for r in records)
+    for slot in ("intro", "outro"):
+        props = json.loads(
+            (tmp_path / "pipeline_output" / "bookends"
+             / f"{slot}_props.json").read_text())
+        assert props["durationInFrames"] == 15
+
+
+def test_a_failed_engine_bookend_raises_by_slot(monkeypatch, tmp_path):
+    """A card that fails is named, not warned past: a hole in the picture."""
+    def fake_batch(jobs, **kwargs):
+        return [{"ok": False, "out": jobs[0].out_path,
+                 "error": "chromium exploded"}
+                for job in jobs]
+
+    monkeypatch.setattr(br, "render_batch", fake_batch)
+    with pytest.raises(br.BookendRenderError, match="intro"):
+        br.render_declared_bookends(
+            _engine_structure(tmp_path), str(tmp_path),
+            fps=30, width=320, height=568)
+
+
+def test_a_project_composition_stays_on_the_cli(monkeypatch, tmp_path):
+    """A staged project composition is a different bundle root, so it
+    cannot join the batch - and stays on `npx remotion render` openly
+    rather than silently keeping the slow path."""
+    source_dir = tmp_path / "compositions"
+    source_dir.mkdir()
+    (source_dir / "LucieLogoAnimation.tsx").write_text(
+        "export const LucieLogoAnimation = () => null;\n")
+    (decl,) = declared_bookends(COMPOSITION_DECLARATION)
+    resolved = resolve_bookend(decl, str(tmp_path))
+    assert resolved["source_path"] != ""
+    structure = [bookend_spine_block(resolved)]
+
+    seen = {}
+
+    class _Result:
+        returncode = 0
+        stderr = ""
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        # [..., <composition>, <out>, "--props", ...]: the file follows
+        # the composition and precedes the flags.
+        out = command[command.index("--props") - 1]
+        with open(out, "wb") as handle:
+            handle.write(b"not empty")
+        return _Result()
+
+    monkeypatch.setattr(br.subprocess, "run", fake_run)
+
+    def no_batch(*args, **kwargs):
+        raise AssertionError("a project composition must not reach the batch")
+
+    monkeypatch.setattr(br, "render_batch", no_batch)
+    (record,) = br.render_declared_bookends(
+        structure, str(tmp_path), fps=30, width=320, height=568)
+    assert seen["command"][:3] == ["npx", "remotion", "render"]
+    assert "staged" in seen["command"][3], (
+        "the CLI remainder renders through the generated staged entry "
+        "point, which is why it cannot join the shared bundle")
+    assert record["bytes"] > 0

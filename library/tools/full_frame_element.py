@@ -115,10 +115,11 @@ How a declaration reaches the picture, in order
    keep range for a ``full_frame_span`` - the props, the reel seconds
    it occupies, and the file it will be rendered to - using facts
    measured off the reel itself (:class:`ReelFacts`).
-3. :func:`render_reel_cards` renders each one through Remotion, OPAQUE
-   (no ``--transparent``): a full-frame element is the picture, so it
-   carries its own ground rather than relying on black showing through an
-   alpha channel that nothing is beneath.
+3. :func:`render_reel_cards` renders them all in ONE batch through the
+   shared Remotion renderer (``library/tools/remotion_batch.py``), OPAQUE:
+   a full-frame element is the picture, so it carries its own ground
+   rather than relying on black showing through an alpha channel that
+   nothing is beneath.
 4. ``reel_build.build_reel_timeline`` places each card on **V1**, and
    ``reel_build.lead_seconds`` shifts every other placement and every
    caption by the head cards' total, so one clock moves together.
@@ -133,12 +134,16 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Sequence
 
 from library.tools import motion_graphics_vocabulary as _mg
+from library.tools.remotion_batch import (
+    RemotionBatchError,
+    RenderJob,
+    render_batch,
+)
 from library.tools.render_fonts import font_is_deliverable, static_font_path
 from library.tools.safe_area import resolve_safe_area
 
@@ -1809,12 +1814,16 @@ def render_reel_cards(cards: Sequence[PlannedCard],
     rather than a second record of it that could disagree.
 
     Opaque, and this is the one place the difference between this layer
-    and the overlay layer is visible in a command line: ``4.05`` and
-    ``timed_text_render`` both pass ``--transparent`` because they are
-    composited over picture.  A full-frame element IS the picture, so it
-    renders on its declared ground.  ProRes 4444 for the same reason
-    every other render here uses it - it is what the reels media pool
-    already carries.
+    and the overlay layer is visible in what is rendered: ``4.05`` and
+    ``timed_text_render`` composite over picture, while a full-frame
+    element IS the picture, so it renders on its declared ground.
+    ProRes 4444 for the same reason every other render here uses it - it
+    is what the reels media pool already carries.
+
+    One batch, not one process per card: every card goes through the
+    shared renderer (``library/tools/remotion_batch.py``), which bundles
+    once and draws every card through one browser, instead of paying a
+    bundle-and-launch per card.
 
     A failed render RAISES.  Nothing downstream would notice a missing
     card: the reel would simply start on speech, which is what every reel
@@ -1823,7 +1832,7 @@ def render_reel_cards(cards: Sequence[PlannedCard],
     if not cards:
         return []
     os.makedirs(output_dir, exist_ok=True)
-    rendered: list[PlannedCard] = []
+    jobs: list[RenderJob] = []
     for card in cards:
         out_path = os.path.join(output_dir, f"{card.render_name}.mov")
         props_path = os.path.join(output_dir, f"{card.render_name}_props.json")
@@ -1835,45 +1844,41 @@ def render_reel_cards(cards: Sequence[PlannedCard],
               f"{card.reel_end(fps):.2f}s "
               f"(frames {card.reel_start_frame}..{card.reel_end_frame})",
               file=stream)
-        _render_one(out_path, props_path, remotion_dir)
-        rendered.append(replace(card, rendered_path=out_path))
-        print(f"      OK: {out_path} ({os.path.getsize(out_path)} bytes)",
+        jobs.append(RenderJob(props=card.props, out_path=out_path))
+    try:
+        results = render_batch(
+            jobs, composition=FULL_FRAME_COMPOSITION,
+            work_dir=output_dir,
+            # The per-card budget, kept: a batch of N cards may take N
+            # times what one card may, mechanically, with no new number.
+            timeout=RENDER_TIMEOUT_SECONDS * max(1, len(jobs)),
+            # The batch derives the Remotion directory from the repo
+            # root; the caller handed the directory itself, so go up one
+            # - the same step 4.05 takes (its `PersistentRenderer` seam).
+            repo_root=os.path.dirname(os.path.abspath(remotion_dir)))
+    except RemotionBatchError as exc:
+        raise FullFrameRenderError(
+            f"could not render {len(jobs)} full-frame card(s) through "
+            f"{FULL_FRAME_COMPOSITION}: {exc}") from exc
+    by_out = {res.get("out"): res for res in results}
+    rendered: list[PlannedCard] = []
+    for card, job in zip(cards, jobs):
+        res = by_out.get(job.out_path) or {}
+        if not res.get("ok"):
+            raise FullFrameRenderError(
+                f"render of {card.render_name} "
+                f"({FULL_FRAME_COMPOSITION}) failed: "
+                f"{res.get('error', 'no result for this card')[:500]}")
+        if not os.path.isfile(job.out_path) or os.path.getsize(
+                job.out_path) == 0:
+            raise FullFrameRenderError(
+                f"render reported success but {job.out_path} is missing "
+                f"or empty")
+        rendered.append(replace(card, rendered_path=job.out_path))
+        print(f"      OK: {job.out_path} "
+              f"({os.path.getsize(job.out_path)} bytes)",
               file=stream)
     return rendered
-
-
-def _render_one(out_path: str, props_path: str, remotion_dir: str) -> None:
-    """One ``npx remotion render`` of FullFrameCard, judged by its result."""
-    command = [
-        "npx", "remotion", "render",
-        FULL_FRAME_COMPOSITION, out_path,
-        "--props", props_path,
-        "--codec", "prores",
-        "--prores-profile", "4444",
-        "--image-format", "png",
-        # Deliberately NOT --transparent. See render_reel_cards.
-    ]
-    try:
-        result = subprocess.run(
-            command, cwd=remotion_dir, capture_output=True, text=True,
-            # `encoding` explicitly: `text=True` alone decodes with the
-            # locale codec, and this repository writes UTF-8 status
-            # glyphs (AGENTS.md 9).
-            encoding="utf-8", timeout=RENDER_TIMEOUT_SECONDS, check=False)
-    except FileNotFoundError as exc:
-        raise FullFrameRenderError(
-            f"cannot run `npx` in {remotion_dir}: {exc}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise FullFrameRenderError(
-            f"the render of {out_path} did not finish in "
-            f"{RENDER_TIMEOUT_SECONDS}s") from exc
-    if result.returncode != 0:
-        raise FullFrameRenderError(
-            f"remotion render of {FULL_FRAME_COMPOSITION} failed "
-            f"({result.returncode}):\n{result.stderr[-2000:]}")
-    if not os.path.isfile(out_path) or os.path.getsize(out_path) == 0:
-        raise FullFrameRenderError(
-            f"remotion reported success but {out_path} is missing or empty")
 
 
 # ── Reading the roster ───────────────────────────────────────────────

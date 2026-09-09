@@ -40,6 +40,11 @@ import subprocess
 import sys
 
 from library.tools.bookends import block_bookend, bookend_blocks
+from library.tools.remotion_batch import (
+    RemotionBatchError,
+    RenderJob,
+    render_batch,
+)
 
 # Where staged project compositions and their generated entry points go.
 STAGED_DIRNAME = os.path.join("src", "staged")
@@ -143,7 +148,22 @@ def bookend_props(bookend: dict, fps: int, width: int, height: int) -> dict:
 
 def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
                    width: int = 1080, height: int = 1920) -> dict:
-    """Render one composition-mode bookend to the path the spine named."""
+    """Render one composition-mode bookend to the path the spine named.
+
+    An ENGINE composition - one registered in the committed
+    ``remotion-subtitles/src/Root.tsx`` - goes through the shared batch
+    renderer (``library/tools/remotion_batch.py``): one bundle for the
+    batch instead of one bundle-and-launch per card.
+
+    A PROJECT composition - a ``.tsx`` the project owns, staged into a
+    generated entry point that registers just that one composition -
+    stays on ``npx remotion render``, deliberately.  The batch bundles
+    the committed entry point (``src/index.ts``); a staged composition
+    lives behind a different bundle root, so it cannot join a batch
+    without a protocol the batch does not have.  That is the
+    different-composition-root case: a single render that legitimately
+    stays on the CLI, stated rather than silently left.
+    """
     composition = bookend.get("composition")
     if not composition:
         raise BookendRenderError(
@@ -158,10 +178,30 @@ def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
     with open(props_path, "w", encoding="utf-8") as f:
         json.dump(props, f, indent=2, sort_keys=True)
 
-    command = ["npx", "remotion", "render"]
     if bookend.get("source_path"):
-        command.append(stage_project_composition(
-            bookend["source_path"], composition, remotion_dir))
+        _render_one_cli(bookend, composition, remotion_dir, out_path,
+                        props_path)
+    else:
+        _render_engine_batch([(bookend, props, out_path)], remotion_dir)
+
+    return {
+        "slot": bookend["slot"],
+        "composition": composition,
+        "asset_path": out_path,
+        "props_path": props_path,
+        "bytes": os.path.getsize(out_path),
+    }
+
+
+def _render_one_cli(bookend: dict, composition: str, remotion_dir: str,
+                    out_path: str, props_path: str) -> None:
+    """One ``npx remotion render`` of a project-owned staged composition.
+
+    This is the deliberate CLI remainder: see :func:`render_bookend`.
+    """
+    command = ["npx", "remotion", "render"]
+    command.append(stage_project_composition(
+        bookend["source_path"], composition, remotion_dir))
     command += [
         composition, out_path,
         "--props", props_path,
@@ -193,13 +233,47 @@ def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
             f"bookend '{bookend['slot']}' ({composition}) reported success "
             f"but wrote no file at {out_path}")
 
-    return {
-        "slot": bookend["slot"],
-        "composition": composition,
-        "asset_path": out_path,
-        "props_path": props_path,
-        "bytes": os.path.getsize(out_path),
-    }
+
+def _render_engine_batch(pending: list, remotion_dir: str) -> None:
+    """Render engine-composition bookends in ONE batch per composition.
+
+    ``pending`` carries ``(bookend, props, out_path)`` triples.  The
+    batch takes one composition per call, so triples are grouped by
+    composition first - one bundle each, still one per composition
+    rather than one per card.  A failed card raises
+    :class:`BookendRenderError` naming the slot, the way the CLI path
+    always has: a missing card is a hole in the picture, never a warning.
+    """
+    by_composition: dict[str, list] = {}
+    for triple in pending:
+        by_composition.setdefault(triple[0]["composition"], []).append(triple)
+    repo_root = os.path.dirname(os.path.abspath(remotion_dir))
+    for composition, triples in by_composition.items():
+        jobs = [RenderJob(props=props, out_path=out_path)
+                for _, props, out_path in triples]
+        work_dir = os.path.dirname(os.path.abspath(triples[0][2]))
+        try:
+            results = render_batch(
+                jobs, composition=composition, work_dir=work_dir,
+                timeout=RENDER_TIMEOUT_SECONDS * max(1, len(jobs)),
+                repo_root=repo_root)
+        except RemotionBatchError as exc:
+            slots = ", ".join(t[0]["slot"] for t in triples)
+            raise BookendRenderError(
+                f"could not render bookend(s) {slots} ({composition}): "
+                f"{exc}") from exc
+        by_out = {res.get("out"): res for res in results}
+        for bookend, _, out_path in triples:
+            res = by_out.get(out_path) or {}
+            if not res.get("ok"):
+                raise BookendRenderError(
+                    f"bookend '{bookend['slot']}' ({composition}) render "
+                    f"failed: "
+                    f"{res.get('error', 'no result for this card')[:500]}")
+            if not os.path.exists(out_path):
+                raise BookendRenderError(
+                    f"bookend '{bookend['slot']}' ({composition}) reported "
+                    f"success but wrote no file at {out_path}")
 
 
 def render_declared_bookends(structure: list, remotion_dir: str,
@@ -211,8 +285,15 @@ def render_declared_bookends(structure: list, remotion_dir: str,
     is a hole in the picture, and the two gates that would catch it later
     - the coverage assertion in ``compile_manifest`` and the black-frame
     probe in step 6.02 - both cost a full compile or a full render first.
+
+    Engine compositions render in ONE batch per composition (see
+    :func:`render_bookend` for which path each bookend takes); results
+    come back in spine order either way.
     """
-    results = []
+    engine_pending: list = []
+    engine_props: dict[str, dict] = {}
+    project_results: dict[str, dict] = {}
+    order: list[str] = []
     for block in bookend_blocks(structure):
         bookend = block_bookend(block)
         if bookend["mode"] == "asset":
@@ -222,20 +303,53 @@ def render_declared_bookends(structure: list, remotion_dir: str,
                     f"asset {bookend['asset_path']}, which does not exist")
             print(f"  Bookend [{bookend['slot']}]: premade asset "
                   f"{os.path.basename(bookend['asset_path'])}", file=stream)
-            results.append({
+            project_results[bookend["slot"]] = {
                 "slot": bookend["slot"],
                 "composition": "",
                 "asset_path": bookend["asset_path"],
                 "props_path": "",
                 "bytes": os.path.getsize(bookend["asset_path"]),
-            })
+            }
+            order.append(bookend["slot"])
             continue
 
         print(f"  Bookend [{bookend['slot']}]: rendering "
               f"{bookend['composition']} "
               f"({bookend['duration_seconds']}s)", file=stream)
-        record = render_bookend(bookend, remotion_dir, fps, width, height)
-        print(f"    OK: {record['asset_path']} ({record['bytes']} bytes)",
-              file=stream)
-        results.append(record)
-    return results
+        if bookend.get("source_path"):
+            record = render_bookend(bookend, remotion_dir, fps, width,
+                                    height)
+            print(f"    OK: {record['asset_path']} ({record['bytes']} bytes)",
+                  file=stream)
+            project_results[bookend["slot"]] = record
+            order.append(bookend["slot"])
+            continue
+        out_path = bookend["asset_path"]
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        props = bookend_props(bookend, fps, width, height)
+        props_path = os.path.join(
+            os.path.dirname(out_path), f"{bookend['slot']}_props.json")
+        with open(props_path, "w", encoding="utf-8") as f:
+            json.dump(props, f, indent=2, sort_keys=True)
+        engine_pending.append((bookend, props, out_path))
+        engine_props[bookend["slot"]] = {
+            "composition": bookend["composition"],
+            "asset_path": out_path,
+            "props_path": props_path,
+        }
+        order.append(bookend["slot"])
+
+    if engine_pending:
+        _render_engine_batch(engine_pending, remotion_dir)
+        for bookend, _, out_path in engine_pending:
+            meta = engine_props[bookend["slot"]]
+            print(f"    OK: {out_path} ({os.path.getsize(out_path)} bytes)",
+                  file=stream)
+            project_results[bookend["slot"]] = {
+                "slot": bookend["slot"],
+                "composition": meta["composition"],
+                "asset_path": out_path,
+                "props_path": meta["props_path"],
+                "bytes": os.path.getsize(out_path),
+            }
+    return [project_results[slot] for slot in order]
