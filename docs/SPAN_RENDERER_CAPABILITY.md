@@ -115,7 +115,9 @@ to change. Ordered by how much of the reference it blocks.
    payload word at 3.3x beside a grey lead-in, or any composed
    lead-in/payload optical unit cannot be cued - and the component lays
    runs out as a centred single-style column anyway (§2 above).
-6. **The image slot is a still, not a subject.** One static centred
+6. **The image slot is a still, not a subject.** (What a subject would
+   have to BE, and where one could come from, is
+   `docs/VISUAL_COMPONENT_ANATOMY.md` §2 and §4.) One static centred
    picture above the type; no transform over time, no full-bleed
    placement, no second image, no object that splits, moves, or is
    replaced through defocus. There is no camera, no world coordinates,

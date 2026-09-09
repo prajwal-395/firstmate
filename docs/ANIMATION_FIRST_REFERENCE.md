@@ -383,6 +383,13 @@ picture out of that alone. Whatever plans a staged scene has to be asked for a
 NUMBER of pictures over a passage, not one scene per passage, or it will keep
 producing a single gesture however good the camera is.
 
+`docs/VISUAL_COMPONENT_ANATOMY.md` takes 13.1 and 13.2 further: it pulls the
+three components above apart into what each thing IS, what it is made of, how it
+enters, what it does, how it leaves and what the next one does with the space -
+and answers the supply question with an inventory of what is on this machine
+today. `library/tools/visual_component_plan.py` is the per-component plan of
+action that follows from it.
+
 **Where this is NOT fixed.** Not in `StagedScene`, and not by giving it a
 transition vocabulary - the reference's shot changes are two hard cuts and a
 defocus, all three of which it already draws (§9 gaps 1 and 3, both built). It is
