@@ -18,6 +18,12 @@ decorative picture (motion-graphics rows, generator effects, timed
 text); then speech rows (one per angle), then the music bed, then SFX.
 Role names are vocabulary from that standard, not taste.
 
+Picture rows follow angles under every look, the way speech rows
+already do (captain's ruling on Reel 09, 2026-09-09): one row per
+speaker, named for them. There is no collapse of two angles onto one
+row - the TV-frame row sits above the picture rows it dresses rather
+than taking one's place.
+
 Every COUNT comes from the material, never a constant: a row exists
 because something goes on it. Two angles mean two a-roll rows and two
 speech rows; no b-roll asked for means no b-roll row; SFX stacking is
@@ -213,14 +219,18 @@ def plan_layout(material: dict) -> TrackPlan:
 
     - angles: [{key, label, speech_name, program_channel}] in row order.
       Empty means the manifest declares none: one legacy-shaped row pair.
-    - collapse_picture: bool. The reel TV-frame look collapses every
-      angle's picture onto ONE row (the frame spans the second), so the
-      plan mints a single a-roll row carrying the legacy single-row
-      name. Speech rows stay per angle - the collapse is picture only.
+      Two angles mean two a-roll rows under every look, including the
+      reel TV-frame look - the frame row sits above them (captain's
+      ruling on Reel 09, 2026-09-09; the `collapse_picture` rule that
+      used to sit here was removed with it, and a stale
+      `collapse_picture` key in the material is ignored rather than
+      honoured).
     - has_broll: bool.
     - has_frame: bool. The TV-frame look's set row, directly above the
-      picture it dresses (`tv_frame.LAYER_TRACKS`: footage, frame,
-      captions).
+      picture rows it dresses. (`tv_frame.LAYER_TRACKS` reads footage
+      V1, frame V2, captions V3 - that is the MASTER path's shape,
+      which never collapsed; the reel's frame row follows its own
+      picture rows.)
     - caption_spans / mg_spans / timed_text_spans: [(start, end)] in
       frames. A row exists per overlapping layer, not per segment.
     - has_transitions / has_explainer / has_semantic: bool. The reel's
@@ -245,15 +255,10 @@ def plan_layout(material: dict) -> TrackPlan:
     video = []
     audio = []
 
-    if material.get("collapse_picture") and len(angles) > 1:
+    for angle in angles:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
-                               role=A_ROLL, name=DEFAULT_ANGLE_LABEL,
-                               occupant=""))
-    else:
-        for angle in angles:
-            video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
-                                   role=A_ROLL, name=angle.label,
-                                   occupant=angle.key))
+                               role=A_ROLL, name=angle.label,
+                               occupant=angle.key))
     if material.get("has_broll"):
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
                                role=B_ROLL, name="B-Roll",

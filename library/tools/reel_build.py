@@ -212,6 +212,18 @@ def reel_angles(master_clips) -> List[dict]:
     return out
 
 
+def _angle_key(clip) -> str:
+    """The reel-angle key of a master clip: its track index as a string.
+
+    One spelling for the placement loop and the punch-in pass - two
+    different readings of one track index are two chances to aim a
+    punch-in at another speaker's shot."""
+    try:
+        return str(int(getattr(clip, "track_index", "")))
+    except (TypeError, ValueError):
+        return ""
+
+
 def _is_layer_row(track_name: str) -> bool:
     """Whether a master row name is a LAYER, not a camera angle.
 
@@ -467,7 +479,6 @@ def reel_track_material(master_clips,
                         has_transitions: bool = False,
                         has_explainer: bool = False,
                         has_semantic: bool = False,
-                        collapse_picture: bool = False,
                         has_frame: bool = False) -> dict:
     """The material `timeline_layout.plan_layout` answers with a plan.
 
@@ -484,7 +495,7 @@ def reel_track_material(master_clips,
         # legacy single-camera pair, exactly as a manifest declaring
         # no angles does.
         return {
-            "angles": [], "collapse_picture": False, "has_broll": False,
+            "angles": [], "has_broll": False,
             "has_frame": False, "caption_spans": [tuple(s) for s in
                                                   (caption_spans or [])],
             "has_transitions": bool(has_transitions),
@@ -506,7 +517,6 @@ def reel_track_material(master_clips,
         })
     return {
         "angles": described,
-        "collapse_picture": bool(collapse_picture),
         "has_broll": False,
         "has_frame": bool(has_frame),
         "caption_spans": [tuple(s) for s in (caption_spans or [])],
@@ -1995,10 +2005,19 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
     render = operations.get("motion_graphics.render_segment")
     segments = []
     for index, planned in enumerate(segments_plan):
+        # The project travels so the renderer reads the project's OWN
+        # `motion_graphics_overlay_geometry` declaration
+        # (`library/tools/overlay_mode.py`) - a project declaring tight
+        # gets tight boxes here exactly as the master pass and the
+        # semantic-visual half do, and a project declaring nothing
+        # renders full canvas as before. The geometry itself stays
+        # unresolved (None) so an explicit value still wins and the
+        # declaration is read live, per render.
         rendered = render.run(
             planned, out_dir,
             segment_name=ex.segment_name(name, index),
-            progress=f"[{index + 1}/{len(segments_plan)}]")
+            progress=f"[{index + 1}/{len(segments_plan)}]",
+            project_folder=project_folder)
         if rendered is None:
             continue
         # LOOK AT WHAT WAS DRAWN. A graphic too big for its band is not
@@ -2182,7 +2201,17 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     at must live somewhere a cleaner may not throw away, and scratch/
     is exactly what a cleaner throws away. Pass `project_folder` and
     the check runs; without it there is nothing to check against.
+
+    A tight segment carries its own `tight_box.placement` (Scaling=1,
+    then Pan/Tilt - `library/tools/overlay_placement.py`), applied to
+    the placed item through the same helper the caption loop uses; a
+    full-canvas segment (`tight_box` None) needs no transform. A tight
+    canvas without its transform is a small clip Resolve centres on
+    the delivery frame, nowhere near the union it was computed from.
     """
+    import sys
+
+    from library.tools.overlay_placement import apply_placement_transform
     from library.tools.reel_placed_assets import assert_placeable
 
     for segment in segments or []:
@@ -2223,6 +2252,16 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                     raise ReelBuildError(
                         f"{name}: Resolve refused {key}={value} on the "
                         f"{kind} at {segment['timeline_start']:.2f}s")
+        # Where a tight clip lands. REPORTED, never raised - the clip
+        # IS on the timeline, and failing the build over a movable
+        # graphic would trade a misplaced one for a missing one (the
+        # same discipline `overlay_placement` keeps for captions).
+        note = apply_placement_transform(
+            timeline, track_index, record_frame,
+            (segment.get("tight_box") or {}).get("placement"),
+            label=f"{kind} at {segment['timeline_start']:.2f}s")
+        if note:
+            print(f"  {name}: {note}", file=sys.stderr)
 
 
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None):
@@ -2257,15 +2296,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     nothing and get nothing" shape every other effect slot has.
 
     `look` is the project's resolved TV-frame declaration
-    (`library/tools/reel_look.py`) or None.  Under it the picture
-    collapses to one row and plays at the declared punch-in, the frame
-    asset spans each run of picture on the row above it, and the switch
-    animation and any planned drift are applied afterwards as Fusion
-    comps - by the caller, in its own process (AGENTS.md 5).  `motion`
-    is the reel's RESOLVED drift plan, carried here only so the manifest
-    that pass reads can be built from the placements this function
-    really made.  None for either is the timeline this function built
-    before they existed.
+    (`library/tools/reel_look.py`) or None.  Under it each angle's
+    picture keeps its own row - one row per speaker, the way the speech
+    rows already are (captain's ruling on Reel 09, 2026-09-09) - and
+    plays at the declared punch-in, the frame asset spans each run of
+    picture on the frame row above them, and the switch animation and
+    any planned drift are applied afterwards as Fusion comps - by the
+    caller, in its own process (AGENTS.md 5).  `motion` is the reel's
+    RESOLVED drift plan, carried here only so the manifest that pass
+    reads can be built from the placements this function really made.
+    None for either is the timeline this function built before they
+    existed.
 
     `master_timeline` is the live master this reel is cut from, and is
     how the builder reaches the recorded program stream on projects
@@ -2292,24 +2333,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
-    # The TV-frame look, if this project declares one.  The picture
-    # collapses onto one row so the next is free for the frame -
-    # `reel_look` states why, and REFUSES rather than collapsing where
-    # two placements really overlap.  Everything above the picture is
-    # untouched: captions, transitions, the explainer and the semantic
-    # visuals sit on the same rows with or without the set around them.
-    if look is not None:
-        from library.tools import reel_look as _look
-        _look.assert_one_picture_at_a_time(placements_list, fps)
-        placements_list = _look.collapse_to_v1(placements_list)
-
     # ── The track plan: the material asks, timeline_layout answers ──
     # Every track index and name below comes from this plan. A-roll
     # gets one video row per master picture row and speech one audio
-    # row per angle, named from the master's own rows; the reel's own
-    # additive rows (transitions, explainer, semantic, and the frame
-    # under the look) arrive as roles, not hardcoded indices - so
-    # there is exactly one thing that decides a track index.
+    # row per angle, named from the master's own rows - under the
+    # TV-frame look too, where the frame row sits above the picture
+    # rows it dresses (captain's ruling on Reel 09, 2026-09-09); the
+    # reel's own additive rows (transitions, explainer, semantic, and
+    # the frame under the look) arrive as roles, not hardcoded indices
+    # - so there is exactly one thing that decides a track index.
     angles = reel_angles(master_clips)
     resolved_channels = resolve_reel_program_channels(
         angles, master_clips, project_folder,
@@ -2325,19 +2357,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         has_transitions=bool(overlay_placements),
         has_explainer=bool(explainer_segments),
         has_semantic=bool(semantic_segments),
-        collapse_picture=look is not None,
         has_frame=look is not None)
     track_plan = plan_layout(material)
     video_row_by_angle = {}
-    if (len(track_plan.aroll_rows()) == 1 and len(angles) > 1):
-        for angle in angles:
-            video_row_by_angle[angle["key"]] = (
-                track_plan.aroll_rows()[0].index)
-    else:
-        for angle in angles:
-            row = track_plan.video_row_for_angle(angle["key"])
-            if row is not None:
-                video_row_by_angle[angle["key"]] = row.index
+    for angle in angles:
+        row = track_plan.video_row_for_angle(angle["key"])
+        if row is not None:
+            video_row_by_angle[angle["key"]] = row.index
     speech_row_by_angle = {
         angle["key"]: track_plan.speech_row_for_angle(angle["key"]).index
         for angle in angles
@@ -2462,10 +2488,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         c = p["clip"]
         if span_present and c.track_type == "video":
             continue
-        try:
-            angle_key = str(int(c.track_index))
-        except (TypeError, ValueError):
-            angle_key = ""
+        angle_key = _angle_key(c)
         if c.track_type == "video":
             dest_row = video_row_by_angle.get(angle_key)
             kind = "picture"
@@ -2546,58 +2569,66 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # one is what left black bands inside the screen.
         from library.tools.tv_frame import screen_window_rect
         screen_window = screen_window_rect(look, width, height)
-        # The plan's (single, under the look) picture row - never a
-        # hardcoded V1 beside the plan.
-        picture_items = (timeline.GetItemListInTrack(
-            "video", track_plan.aroll_rows()[0].index) or [])
-        picture_places = [p for p in placements_list
-                          if getattr(p["clip"], "track_type", "video")
-                          == "video"]
-        picture_places.sort(key=lambda p: p["snapped_record"])
+        # The plan's picture rows - one per angle, never a hardcoded
+        # V1 beside the plan. Each row's items zip with the placements
+        # that landed on it (matched by the angle mapping above), so a
+        # punch-in is aimed per speaker, per shot.
         aimed = 0
-        for index, item in enumerate(picture_items):
-            if index >= len(picture_places):
-                break
-            place = picture_places[index]
-            source_file = place["clip"].source_file
-            subject = measure_subject_in_window(
-                source_file, place["source_in"], place["source_out"])
-            source_size = _source_frame_size(item)
-            if source_size is None:
-                raise ReelBuildError(
-                    f"{name}: Resolve reports no resolution for "
-                    f"{os.path.basename(source_file)}, so the punch-in "
-                    f"cannot be aimed and must not be guessed at.")
-            properties = _look.punch_in_properties(
-                look, subject, source_size[0], source_size[1],
-                width, height, window=screen_window)
-            if properties is None:
-                print(f"  {name}: NO PUNCH-IN on "
-                      f"{os.path.basename(source_file)} "
-                      f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
-                      f"- {_look.PUNCH_IN_REFUSED_NO_SUBJECT if subject is None else _look.PUNCH_IN_REFUSED_NOT_A_CLOSE_UP}"
-                      f": an unaimed crop is a guess about where the "
-                      f"speaker is. The shot plays uncropped.",
-                      file=sys.stderr)
-                continue
-            for key, value in properties.items():
-                # Judged by what it RETURNS (AGENTS.md 5).
-                if not item.SetProperty(key, value):
+        placed_shots = sum(
+            1 for p in placements_list
+            if getattr(p["clip"], "track_type", "video") == "video")
+        for aroll_row in track_plan.aroll_rows():
+            row_items = (timeline.GetItemListInTrack(
+                "video", aroll_row.index) or [])
+            row_places = [
+                p for p in placements_list
+                if getattr(p["clip"], "track_type", "video") == "video"
+                and video_row_by_angle.get(_angle_key(p["clip"]))
+                == aroll_row.index]
+            row_places.sort(key=lambda p: p["snapped_record"])
+            for index, item in enumerate(row_items):
+                if index >= len(row_places):
+                    break
+                place = row_places[index]
+                source_file = place["clip"].source_file
+                subject = measure_subject_in_window(
+                    source_file, place["source_in"], place["source_out"])
+                source_size = _source_frame_size(item)
+                if source_size is None:
                     raise ReelBuildError(
-                        f"{name}: Resolve refused {key}={value} on "
-                        f"{item.GetName()!r}. The look declares a punch-in "
-                        f"and a clip that did not take it plays at a "
-                        f"different size to the ones beside it.")
-            aimed += 1
-            print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
-                  f"(declared {look['punch_in']}, screen window needs "
-                  f"{_look.window_zoom_for(look, source_size, width, height):.4f}) "
-                  f"aimed at "
-                  f"subject x={subject.center_x} y={subject.center_y} "
-                  f"({subject.detected}/{subject.samples} frames) on "
-                  f"{os.path.basename(source_file)} -> Pan "
-                  f"{properties['Pan']}, Tilt {properties['Tilt']}",
-                  file=sys.stderr)
+                        f"{name}: Resolve reports no resolution for "
+                        f"{os.path.basename(source_file)}, so the punch-in "
+                        f"cannot be aimed and must not be guessed at.")
+                properties = _look.punch_in_properties(
+                    look, subject, source_size[0], source_size[1],
+                    width, height, window=screen_window)
+                if properties is None:
+                    print(f"  {name}: NO PUNCH-IN on "
+                          f"{os.path.basename(source_file)} "
+                          f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
+                          f"- {_look.PUNCH_IN_REFUSED_NO_SUBJECT if subject is None else _look.PUNCH_IN_REFUSED_NOT_A_CLOSE_UP}"
+                          f": an unaimed crop is a guess about where the "
+                          f"speaker is. The shot plays uncropped.",
+                          file=sys.stderr)
+                    continue
+                for key, value in properties.items():
+                    # Judged by what it RETURNS (AGENTS.md 5).
+                    if not item.SetProperty(key, value):
+                        raise ReelBuildError(
+                            f"{name}: Resolve refused {key}={value} on "
+                            f"{item.GetName()!r}. The look declares a punch-in "
+                            f"and a clip that did not take it plays at a "
+                            f"different size to the ones beside it.")
+                aimed += 1
+                print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
+                      f"(declared {look['punch_in']}, screen window needs "
+                      f"{_look.window_zoom_for(look, source_size, width, height):.4f}) "
+                      f"aimed at "
+                      f"subject x={subject.center_x} y={subject.center_y} "
+                      f"({subject.detected}/{subject.samples} frames) on "
+                      f"{os.path.basename(source_file)} -> Pan "
+                      f"{properties['Pan']}, Tilt {properties['Tilt']}",
+                      file=sys.stderr)
 
         runs = _look.frame_runs(placements_list, fps)
         # The frame goes on as a RENDERED overlay, through the same
@@ -2632,7 +2663,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
-              f"punch-in aimed on {aimed}/{len(picture_places)} shot(s) "
+              f"punch-in aimed on {aimed}/{placed_shots} shot(s) "
               f"({look['origin']})", file=sys.stderr)
 
     # Captions are PLACED here and RENDERED by step 4.05, which is the
@@ -2704,11 +2735,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # keep ranges - nothing is recomputed here, because a placer and a
     # planner that both do the arithmetic are two chances to land one
     # frame off the cut the element exists to hide. The planner stamps
-    # its own slot; the plan's row wins, because exactly one thing
-    # decides a track index.
+    # a default slot; the plan's row wins, because exactly one thing
+    # decides a track index - so the placements are re-stamped here
+    # and the re-stamped rows are what the build record carries (what
+    # the verifier grades against) rather than the planner's default.
+    import dataclasses as _dataclasses
+
     transitions_row = track_plan.row_for_role(TRANSITIONS)
     transitions_row = transitions_row.index if transitions_row else None
-    for placement in (overlay_placements or []):
+    stamped_placements = [
+        _dataclasses.replace(placement, track_index=transitions_row)
+        if getattr(placement, "track_index", None) != transitions_row
+        else placement
+        for placement in (overlay_placements or [])]
+    for placement in stamped_placements:
         if transitions_row is None:
             raise ReelBuildError(
                 f"{name}: transition elements were planned with no "
@@ -2834,6 +2874,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                  "name": spec_name or "unplanned"})
             print(f"  ✗ Empty row {media_type.upper()}{index} "
                   f"({spec_name or 'unplanned'}) removed", file=sys.stderr)
+
+    build_record["transition_placements"] = [
+        p.as_dict() if hasattr(p, "as_dict") else dict(p)
+        for p in stamped_placements]
 
     return build_record
 
@@ -3865,6 +3909,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # never a re-derivation, and promotion renames it with the
             # timeline it describes.
             track_plans[name] = build_result["track_plan"]
+            if name in overlay_records and build_result.get(
+                    "transition_placements") is not None:
+                # The placer re-stamps transition elements onto the
+                # plan's row; the record the verifier grades against
+                # carries the stamped rows, not the planner's default.
+                overlay_records[name]["placements"] = list(
+                    build_result["transition_placements"])
             # The switch animation and the drift are Fusion comps, and a
             # comp cannot be imported by the process that created the
             # timeline (AGENTS.md 5).  So they go in here, in a
@@ -3875,10 +3926,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             if reel_look_decl is not None:
                 from library.tools import reel_look as _look
                 manifest = _look.fusion_manifest(
-                    _look.collapse_to_v1(placements(
+                    placements(
                         reel_ranges(moment, transcript), master_clips,
                         24000/1001,
-                        lead_frames=lead_frames(cards, 24000/1001))),
+                        lead_frames=lead_frames(cards, 24000/1001)),
                     reel_look_decl, reel_motion, 24000/1001)
                 if not _look.apply_comps(manifest, project_folder,
                                          resolve_name, name):

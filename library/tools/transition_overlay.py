@@ -219,13 +219,17 @@ and there is no default, because which one it is IS the gesture.
 """
 
 OVERLAY_TRACK = 4
-"""The reel video track an overlay element is placed on.
+"""The reel video track an overlay element is placed on - in the layout
+without the TV-frame look (V1/V2 picture, V3 captions).
 
-A built reel is V1/V2 picture and V3 captions
-(``reel_build.build_reel_timeline``). An element that hides a cut hides
-everything on that frame, captions included - which is what a bumper
-over a cut does - so it goes above them, and :func:`captions_covered`
-reports what it covered rather than leaving it to be discovered.
+Rows pack and the plan owns the indices
+(``reel_build.build_reel_timeline`` re-stamps placements onto the
+plan's transitions row, which is V5 on a two-angle reel wearing the
+look). This stays as the planner's default and the legacy fallback.
+An element that hides a cut hides everything on that frame, captions
+included - which is what a bumper over a cut does - so it goes above
+them, and :func:`captions_covered` reports what it covered rather than
+leaving it to be discovered.
 """
 
 # Kinds of seam a reel has. A seam is a FACT about the built reel, not a
@@ -1363,7 +1367,9 @@ def main(argv=None) -> int:
         print(ALPHA_IS_REQUIRED_NOT_KEYED)
         print()
         print(f"anchors: {', '.join(ANCHORS)}")
-        print(f"overlay track on a reel: V{OVERLAY_TRACK}")
+        print(f"overlay track on a reel without the look: V{OVERLAY_TRACK} "
+              f"(the plan owns the index - V5 on a two-angle reel "
+              f"wearing the TV-frame look)")
         print(f"timing is additive: {TIMING_IS_ADDITIVE}")
         return 0
 

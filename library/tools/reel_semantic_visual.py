@@ -28,11 +28,16 @@ same way an undeclared explainer builds without one. The model's
 `subject` travels as provenance and is never read
 (`semantic_visual.entry_subject`).
 
-Placement: `SEMANTIC_TRACK` (V6), named once here so the placer
-(`reel_build.build_reel_timeline`) and the check (F22) cannot disagree
-about it. On the reels path V1/V2 carry picture, V3 captions, V4
-transitions and V5 the explainer; the master's own V4 mapping is
-recorded rather than followed because V4 is taken here.
+Placement: the plan's semantic row, whose index `SEMANTIC_TRACK` only
+names for the full layout (V6 where picture is V1/V2, captions V3,
+transitions V4 and the explainer V5). The placer
+(`reel_build.build_reel_timeline`) reads the row off the track plan,
+and the check (F22) reads the row's NAME - rows pack, so a reel with
+no transitions row and no explainer row carries its semantic visuals
+on V5, above the Subtitles row with or without the look.
+`SEMANTIC_TRACK` stays as the legacy fallback for timelines built
+before rows were named. The master's own V4 mapping is recorded rather
+than followed because V4 is taken here.
 """
 
 from __future__ import annotations
@@ -48,7 +53,10 @@ from dataclasses import field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 SEMANTIC_TRACK = 6
-"""The reel video track semantic-visual segments are placed on."""
+"""The reel video track semantic-visual segments are placed on - in
+the FULL layout. Rows pack, so the plan's semantic row is what the
+placer reads; this stays as the legacy fallback and the message
+default where no placed item names a row."""
 
 SEMANTIC_TRACK_NAME = "Semantic"
 """What Resolve calls the track, the way V3 is already named "Captions"."""
@@ -487,7 +495,10 @@ def rename_record_reels(project_folder: str, mapping: dict) -> None:
     The staging half of promotion, mirroring `explainer_plan` and the
     transition-overlay records: the verifier graded the staging against
     this file, and after promotion the same placements live under the
-    final name.
+    final name. A record the previous build left under the final name
+    is REPLACED, not kept beside the renamed one: two records for one
+    reel leave `record_for_reel` reading the stale first, so the next
+    verifier grades the promoted timeline against the absence.
     """
     if not mapping:
         return
@@ -496,9 +507,12 @@ def rename_record_reels(project_folder: str, mapping: dict) -> None:
         return
     with open(path, "r", encoding="utf-8") as handle:
         stored = json.load(handle) or {}
-    for record in (stored.get("plans") or []):
+    finals = set(mapping.values())
+    stored["plans"] = [record for record in (stored.get("plans") or [])
+                       if record.get("reel") not in finals]
+    for record in stored["plans"]:
         if record.get("reel") in mapping:
-            record["reel"] = mapping[record["reel"]]
+            record["reel"] = mapping[record.get("reel")]
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(stored, handle, indent=2)
 

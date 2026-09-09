@@ -89,6 +89,37 @@ def test_an_item_with_no_record_at_all_fails():
     assert findings and findings[0].finding_class == FindingClass.F22
 
 
+def test_promotion_replaces_the_previous_final_record(tmp_path):
+    """A rebuild records under the staging name and promotion renames
+    it to the final one - but the previous build's record is already
+    there under the final name. Renaming beside it leaves TWO records
+    for one reel (live catch on Reel 09: a stale `awaiting_model_answer`
+    beside the new `planned`), and `record_for_reel` reads the first,
+    so the next verifier grades the promoted timeline against the
+    absence. Promotion replaces; it does not shelve beside."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    project = tmp_path / "proj"
+    review = project / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    final = "Reel 09 - your-website-is-only-20-percent"
+    staging = final + " (rebuild staging)"
+    (review / sem.PLAN_FILENAME).write_text(
+        json.dumps({"format": "semantic_visual_plans/1", "plans": [
+            {"reel": final, "basis": sem.AWAITING_MODEL_ANSWER,
+             "entries": [], "dropped": [], "segments": []},
+            {"reel": staging, "basis": sem.PLANNED,
+             "entries": [{"element": "subject_emblem"}], "dropped": [],
+             "segments": []}]}),
+        encoding="utf-8")
+    sem.rename_record_reels(str(project), {staging: final})
+    stored = json.loads(
+        (review / sem.PLAN_FILENAME).read_text(encoding="utf-8"))
+    kept = [p for p in stored["plans"] if p["reel"] == final]
+    assert len(kept) == 1
+    assert kept[0]["basis"] == sem.PLANNED
+
+
 def test_a_visual_of_the_wrong_length_fails():
     start = int(round(4.901 * FPS))
     findings = check_semantic_visuals(

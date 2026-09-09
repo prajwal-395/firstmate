@@ -440,6 +440,15 @@ class ReelTimeline:
     `library/tools/reel_semantic_visual.SEMANTIC_TRACK` is which track
     that is, named there once so the placement and the check cannot
     disagree about it."""
+    frame_items: Tuple[TimelineItem, ...] = ()
+    """Items on the TV-frame set row, in order.
+
+    The set the picture plays inside - one rendered overlay per run of
+    picture - never picture itself and never a caption. Under the
+    captain's Reel 09 ruling the frame sits above two picture rows (V3
+    on a two-angle reel); on a single-angle reel or a timeline built
+    before rows were named it is V2. Filed by row NAME, never by slot,
+    so the caption checks cannot read the bezel as a card."""
     width: int = 0
     """Timeline resolution width, read from Resolve."""
     height: int = 0
@@ -762,13 +771,15 @@ def check_item_count(reel_name: str,
     # frame, in both directions - dropping it here is not a hole.
     card_by_item = {id(i): n for n, i in
                     card_items(actual_video_items, cards).items()}
-    # The TV frame is on V2 and is not a picture item: it is the SET the
-    # picture plays inside, one rendered overlay per run of picture, and
-    # no `placements` entry describes it - the same reason a full-frame
-    # card is excluded above.  `library/tools/reel_look.py` decides
-    # which items those are, so the placer and this check cannot
-    # disagree; a frame-shaped overlay the declaration does not account
-    # for is held below rather than let through here.
+    # The TV frame is the SET the picture plays inside, one rendered
+    # overlay per run of picture, and no `placements` entry describes
+    # it - the same reason a full-frame card is excluded above. It
+    # reaches here on the frame row the plan named for it (V3 above two
+    # picture rows, V2 on a single-angle reel), and
+    # `library/tools/reel_look.py` decides which items those are, so
+    # the placer and this check cannot disagree; a frame-shaped overlay
+    # the declaration does not account for is held below rather than
+    # let through here.
     from library.tools import reel_look as _look
     frame_by_item = _look.frame_overlay_items(actual_video_items, look)
     actual_picture = [i for i in actual_video_items
@@ -777,13 +788,12 @@ def check_item_count(reel_name: str,
                       and id(i) not in frame_by_item]
     actual_count = len(actual_picture)
 
-    # Under the look the picture collapses onto V1 so V2 is free for the
-    # frame (`reel_look` states why), and a speaker can no longer be
-    # identified by the track they were placed on: both speakers are on
-    # V1, so a track-to-speaker mapping attributes the whole reel to
-    # whichever the plan listed last.  The SOURCE FILE identifies them
-    # instead, which is what the plan and the timeline both carry and
-    # what the master's own track index was standing in for.
+    # Under the look each speaker keeps their own picture row
+    # (captain's ruling on Reel 09 - no collapse), so a track-to-speaker
+    # mapping reads the row the plan put each speaker on.  The SOURCE
+    # FILE identifies them as well, which is what the plan and the
+    # timeline both carry; it stays the tiebreaker wherever the track
+    # mapping cannot answer.
     by_source: Dict[str, str] = {}
     if look is not None:
         for p in planned_placements:
@@ -2483,10 +2493,10 @@ def check_unclassified_video(reel_name: str,
             reel=reel_name,
             message=(
                 f"V{track} carries {len(items)} video item(s) and this "
-                f"verifier has no check for that track - picture is V1-V2, "
-                f"captions V3, transition elements V"
-                f"{OVERLAY_TRACK}, the explainer V{EXPLAINER_TRACK}, "
-                f"semantic visuals V{SEMANTIC_TRACK}. An item nothing "
+                f"verifier has no check for that track - picture rows "
+                f"are per angle, then the Frame row, the Subtitles row, "
+                f"Transitions, the Explainer and the Semantic row, in "
+                f"the track plan's order. An item nothing "
                 f"grades is not an item nothing is wrong with."),
             severity="error",
             detail={"track": track, "count": len(items),
@@ -2846,13 +2856,17 @@ def check_explainer(reel_name: str,
     """
     findings: List[Finding] = []
     items = sorted(explainer_items or [], key=lambda i: i.start_frame)
+    # The row the items are actually on - the plan owns the index, so
+    # the message reads it off the timeline rather than a constant
+    # (V6 on a two-angle reel without the look, V7 under it).
+    track = items[0].track_index if items else EXPLAINER_TRACK
     if planned is None:
         if items:
             findings.append(Finding(
                 finding_class=FindingClass.F21, reel=reel_name,
                 message=(
                     f"{len(items)} item(s) on the explainer track (V"
-                    f"{EXPLAINER_TRACK}) and this reel has no recorded "
+                    f"{track}) and this reel has no recorded "
                     f"explainer plan at all, so nothing accounts for them"),
                 detail={"items": len(items), "planned": None}))
         return findings
@@ -2865,7 +2879,7 @@ def check_explainer(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F21, reel=reel_name,
                 message=(
-                    f"{len(items)} item(s) on V{EXPLAINER_TRACK} but the "
+                    f"{len(items)} item(s) on V{track} but the "
                     f"build recorded no explainer for this reel "
                     f"({planned.get('basis')})"),
                 detail={"items": len(items),
@@ -2888,7 +2902,7 @@ def check_explainer(reel_name: str,
                 message=(
                     f"explainer planned at reel frame {want_start} "
                     f"({float(segment['timeline_start']):.2f}s) and no item "
-                    f"on V{EXPLAINER_TRACK} starts there"
+                    f"on the explainer track (V{track}) starts there"
                     + (f"; nearest is frame {near[1].start_frame}"
                        if near else "; the track is empty")),
                 detail={"planned_start_frame": want_start,
@@ -2912,7 +2926,7 @@ def check_explainer(reel_name: str,
         findings.append(Finding(
             finding_class=FindingClass.F21, reel=reel_name,
             message=(
-                f"an item on V{EXPLAINER_TRACK} at reel frame "
+                f"an item on V{track} at reel frame "
                 f"{item.start_frame} ({item.name or 'unnamed'}) that no "
                 f"recorded explainer accounts for"),
             detail={"start_frame": item.start_frame,
@@ -2924,7 +2938,7 @@ def check_explainer(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F21, reel=reel_name,
                 message=(
-                    f"two explainer items overlap on V{EXPLAINER_TRACK}: "
+                    f"two explainer items overlap on V{track}: "
                     f"[{earlier.start_frame}..{earlier.end_frame}) and "
                     f"[{later.start_frame}..{later.end_frame})"),
                 detail={"first": [earlier.start_frame, earlier.end_frame],
@@ -2962,13 +2976,17 @@ def check_semantic_visuals(reel_name: str,
     """
     findings: List[Finding] = []
     items = sorted(semantic_items or [], key=lambda i: i.start_frame)
+    # The row the items are actually on - the plan owns the index, so
+    # the message reads it off the timeline rather than a constant
+    # (V6 on a two-angle reel without the look, V7 under it).
+    track = items[0].track_index if items else SEMANTIC_TRACK
     if planned is None:
         if items:
             findings.append(Finding(
                 finding_class=FindingClass.F22, reel=reel_name,
                 message=(
                     f"{len(items)} item(s) on the semantic track (V"
-                    f"{SEMANTIC_TRACK}) and this reel has no recorded "
+                    f"{track}) and this reel has no recorded "
                     f"semantic-visual plan at all, so nothing accounts "
                     f"for them"),
                 detail={"items": len(items), "planned": None}))
@@ -2982,7 +3000,7 @@ def check_semantic_visuals(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F22, reel=reel_name,
                 message=(
-                    f"{len(items)} item(s) on V{SEMANTIC_TRACK} but the "
+                    f"{len(items)} item(s) on V{track} but the "
                     f"build recorded no semantic visual for this reel "
                     f"({planned.get('basis')})"),
                 detail={"items": len(items),
@@ -3005,7 +3023,7 @@ def check_semantic_visuals(reel_name: str,
                 message=(
                     f"semantic visual planned at reel frame {want_start} "
                     f"({float(segment['timeline_start']):.2f}s) and no item "
-                    f"on V{SEMANTIC_TRACK} starts there"
+                    f"on the semantic track (V{track}) starts there"
                     + (f"; nearest is frame {near[1].start_frame}"
                        if near else "; the track is empty")),
                 detail={"planned_start_frame": want_start,
@@ -3029,7 +3047,7 @@ def check_semantic_visuals(reel_name: str,
         findings.append(Finding(
             finding_class=FindingClass.F22, reel=reel_name,
             message=(
-                f"an item on V{SEMANTIC_TRACK} at reel frame "
+                f"an item on V{track} at reel frame "
                 f"{item.start_frame} ({item.name or 'unnamed'}) that no "
                 f"recorded semantic visual accounts for"),
             detail={"start_frame": item.start_frame,
@@ -3041,7 +3059,7 @@ def check_semantic_visuals(reel_name: str,
             findings.append(Finding(
                 finding_class=FindingClass.F22, reel=reel_name,
                 message=(
-                    f"two semantic items overlap on V{SEMANTIC_TRACK}: "
+                    f"two semantic items overlap on V{track}: "
                     f"[{earlier.start_frame}..{earlier.end_frame}) and "
                     f"[{later.start_frame}..{later.end_frame})"),
                 detail={"first": [earlier.start_frame, earlier.end_frame],
@@ -4154,6 +4172,7 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
     unclassified_items = []
     explainer_items = []
     semantic_items = []
+    frame_items = []
     for clip in snapshot.clips:
         item = TimelineItem(
             track_type=clip.track_type,
@@ -4177,8 +4196,13 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         # an index fallback consulted role-by-role would file a row
         # named "Semantic" as a transition element before its name is
         # ever read. Indices answer only for rows nobody named, which
-        # is every timeline built before rows were named.
-        if is_video and clip.track_index <= 2:
+        # is every timeline built before rows were named. The frame
+        # row is named first of all: under the Reel 09 ruling it sits
+        # on V3 above two picture rows, where the old `== 3` fallback
+        # would file the set as a caption card.
+        if is_video and row == "Frame":
+            frame_items.append(item)
+        elif is_video and clip.track_index <= 2:
             video_items.append(item)
         elif is_video and row in ("Subtitles", "Captions"):
             caption_items.append(item)
@@ -4210,12 +4234,12 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         total_frames=snapshot.end_frame - snapshot.start_frame,
         # The picture extent from the timeline origin, for the
         # picture-scoped length gate in `verify_reel`. `video_items` here
-        # is V1/V2 only (footage and full-frame cards - the classifier
-        # above put V3 captions, V4 overlays and the explainer track
-        # elsewhere), so a caption tail past the last picture frame does
-        # not read as a longer reel. Empty when the timeline carries no
-        # picture at all, which is itself a refusal unless the plan is
-        # empty too.
+        # is picture only (footage and full-frame cards - the classifier
+        # above files captions, overlays, the explainer and semantic
+        # rows, and the Frame set row, into their own buckets), so a
+        # caption tail past the last picture frame does not read as a
+        # longer reel. Empty when the timeline carries no picture at
+        # all, which is itself a refusal unless the plan is empty too.
         picture_frames=(
             max((i.end_frame for i in video_items
                  if i.track_index in (1, 2)),
@@ -4235,6 +4259,8 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
                                      key=lambda i: i.start_frame)),
         semantic_items=tuple(sorted(semantic_items,
                                     key=lambda i: i.start_frame)),
+        frame_items=tuple(sorted(frame_items,
+                                 key=lambda i: i.start_frame)),
         width=snapshot.width,
         height=snapshot.height,
     )

@@ -3,8 +3,9 @@
 `library/tools/reel_look.py` is the reels path's route to the declared
 TV-frame look.  These cover the two things that cost real time on
 2026-09-09: a frame asset whose aspect cannot frame the delivery
-reaching a render, and picture placements collapsing onto V1 without
-anyone checking whether two of them overlap.
+reaching a render, and the frame's own track under per-speaker picture
+rows (captain's ruling on Reel 09: two picture rows, the set above
+them, no collapse).
 """
 from __future__ import annotations
 
@@ -133,31 +134,24 @@ def test_the_frame_overlay_is_rendered_at_its_cover_size():
     assert drawn[0] % 2 == 0 and drawn[1] % 2 == 0
 
 
-def test_overlapping_picture_placements_refuse_the_collapse():
-    fps = 24.0
-    placements = [
-        _placement("/a.mxf", 0, 10.0, fps),
-        # Starts before the first one ends: collapsing both onto V1
-        # would leave Resolve to trim one, which is the placer choosing
-        # a camera.
-        _placement("/b.mxf", 120, 10.0, fps),
-    ]
-    with pytest.raises(reel_look.ReelLookRefused) as excinfo:
-        reel_look.assert_one_picture_at_a_time(placements, fps)
-    assert "choosing a camera" in str(excinfo.value)
+def test_picture_placements_keep_their_own_rows():
+    """Captain's ruling on Reel 09: no collapse. Each angle's picture
+    stays on its own row under the look, and the frame runs are read
+    off the placements as they are - there is no
+    `assert_one_picture_at_a_time` or `collapse_to_v1` left to call."""
+    assert not hasattr(reel_look, "assert_one_picture_at_a_time")
+    assert not hasattr(reel_look, "collapse_to_v1")
 
 
-def test_sequential_placements_collapse_onto_v1():
+def test_sequential_placements_frame_as_one_run():
     fps = 24.0
     placements = [
         _placement("/a.mxf", 0, 5.0, fps),
         _placement("/b.mxf", 120, 5.0, fps),
     ]
-    reel_look.assert_one_picture_at_a_time(placements, fps)
-    collapsed = reel_look.collapse_to_v1(placements)
-    assert [p["track_index"] for p in collapsed] == [1, 1]
-    # One contiguous run, because the two abut exactly.
-    assert reel_look.frame_runs(collapsed, fps) == [(0, 240)]
+    # One contiguous run, because the two abut exactly - read off the
+    # placements as placed, with no collapse onto one row first.
+    assert reel_look.frame_runs(placements, fps) == [(0, 240)]
 
 
 def test_frame_runs_break_where_the_picture_does():

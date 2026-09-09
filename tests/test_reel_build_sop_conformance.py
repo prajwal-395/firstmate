@@ -491,38 +491,48 @@ def test_verifier_flags_the_old_shape():
     assert "program_stream" in by_check
 
 
-# ── The collapsed look keeps one picture row and per-angle speech ──
+# ── The look keeps one picture row per speaker ──
 
-def test_collapse_mints_one_picture_row_and_keeps_two_speech_rows():
-    """Known unknown, answered: under the TV-frame look the reel is a
-    single-picture-row edit (the frame spans the second), so the plan
-    carries one A-Roll row - while speech stays one row per angle,
-    because the collapse is picture only."""
-    plan = plan_layout({
-        "angles": [{"key": "1", "label": "Akshita",
-                    "speech_name": "Akshita CH1", "program_channel": 1},
-                   {"key": "2", "label": "Craig",
-                    "speech_name": "Craig CH1", "program_channel": 1}],
-        "collapse_picture": True, "has_broll": False, "has_frame": True,
-        "caption_spans": [(0, 200)],
-        "has_transitions": True, "has_explainer": False,
-        "has_semantic": True,
-        "mg_spans": [], "has_generators": False, "timed_text_spans": [],
-        "music_spans": [], "sfx_spans": [],
-    })
+def test_reel_track_material_has_no_collapse_rule():
+    """The captain overruled the collapse: `reel_track_material` takes
+    no `collapse_picture` argument at all, so no caller can ask for
+    one row and no later TV-frame declaration can re-fire it."""
+    import inspect
+
+    from library.tools.reel_build import reel_track_material
+    assert "collapse_picture" not in inspect.signature(
+        reel_track_material).parameters
+
+
+def test_look_mints_two_picture_rows_named_for_their_speakers():
+    """Captain's ruling on Reel 09: under the TV-frame look the reel is
+    a two-picture-row edit - one row per speaker, named for them,
+    matching the two speech rows - with the frame row above the
+    picture and the captions above that."""
+    from library.tools.reel_build import reel_track_material
+
+    material = reel_track_material(
+        _master_clips(),
+        {"1": 1, "2": 1},
+        caption_spans=[(0, 200)],
+        has_transitions=True, has_explainer=False, has_semantic=True,
+        has_frame=True)
+    assert "collapse_picture" not in material
+    plan = plan_layout(material)
     assert [(t.index, t.role, t.name) for t in plan.video_tracks] == [
-        (1, "a_roll", "A-Roll"), (2, "frame", "Frame"),
-        (3, "captions", "Subtitles"), (4, "transitions", "Transitions"),
-        (5, "semantic", "Semantic")]
+        (1, "a_roll", "Akshita"), (2, "a_roll", "Craig"),
+        (3, "frame", "Frame"), (4, "captions", "Subtitles"),
+        (5, "transitions", "Transitions"), (6, "semantic", "Semantic")]
     assert [(t.index, t.role, t.name) for t in plan.audio_tracks] == [
         (1, "speech", "Akshita CH1"), (2, "speech", "Craig CH1")]
 
 
-def test_two_speeches_sharing_one_collapsed_picture_link_once():
-    """Live catch: under the collapsed look two speeches can start on
-    the same frame against one picture row. Two pair-calls would let
-    the second steal the picture out of the first group - linking is
-    exclusive - so one start is one call with everything on it."""
+def test_two_speeches_sharing_one_start_link_once():
+    """Live catch, kept across the un-collapse: two speeches starting
+    on the same frame link in ONE call with the picture on it. Two
+    pair-calls would let the second steal the picture out of the first
+    group - linking is exclusive - so one start is one call with
+    everything on it."""
     FakeTimeline._registry = {}
     tl = FakeTimeline()
     plan = plan_layout({
@@ -530,32 +540,33 @@ def test_two_speeches_sharing_one_collapsed_picture_link_once():
                     "speech_name": "Akshita CH1", "program_channel": 1},
                    {"key": "2", "label": "Craig",
                     "speech_name": "Craig CH1", "program_channel": 1}],
-        "collapse_picture": True, "has_broll": False, "has_frame": False,
+        "has_broll": False, "has_frame": False,
         "caption_spans": [],
         "mg_spans": [], "has_generators": False, "timed_text_spans": [],
         "music_spans": [], "sfx_spans": [],
     })
-    pic = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
+    pic1 = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
+    pic2 = FakeItem("c.MXF", 0, 100, pool_path="/m/c.MXF")
     sp1 = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
     sp2 = FakeItem("c.MXF", 0, 100, pool_path="/m/c.MXF")
-    for it in (pic, sp1, sp2):
+    for it in (pic1, pic2, sp1, sp2):
         FakeTimeline._registry[it.GetUniqueId()] = it
-    tl.tracks = {("video", 1): [pic],
+    tl.tracks = {("video", 1): [pic1], ("video", 2): [pic2],
                  ("audio", 1): [sp1], ("audio", 2): [sp2]}
     record = link_reel_groups(tl, plan)
     assert len(tl.link_calls) == 1
-    assert len(tl.link_calls[0][0]) == 3
+    assert len(tl.link_calls[0][0]) == 4
     assert len(record["link_groups"]) == 1
     assert not record["warnings"]
-    for it in (pic, sp1, sp2):
-        assert len(it.GetLinkedItems()) == 2, \
-            "one group of three, unbroken by a second call"
+    for it in (pic1, pic2, sp1, sp2):
+        assert len(it.GetLinkedItems()) == 3, \
+            "one group of four, unbroken by a second call"
 
 
-def test_link_pass_matches_picture_across_the_collapsed_row():
-    """On a collapsed reel every speech item still finds its picture -
-    the match runs across all a-roll rows by start frame, not down one
-    angle's row."""
+def test_link_pass_matches_each_speech_to_its_own_picture_row():
+    """On a two-row reel every speech item finds the picture on its own
+    angle's row - the match runs across all a-roll rows by start frame,
+    not down one angle's row."""
     FakeTimeline._registry = {}
     tl = FakeTimeline()
     plan = plan_layout({
@@ -563,7 +574,7 @@ def test_link_pass_matches_picture_across_the_collapsed_row():
                     "speech_name": "Akshita CH1", "program_channel": 1},
                    {"key": "2", "label": "Craig",
                     "speech_name": "Craig CH1", "program_channel": 1}],
-        "collapse_picture": True, "has_broll": False, "has_frame": False,
+        "has_broll": False, "has_frame": False,
         "caption_spans": [],
         "mg_spans": [], "has_generators": False, "timed_text_spans": [],
         "music_spans": [], "sfx_spans": [],
@@ -574,7 +585,7 @@ def test_link_pass_matches_picture_across_the_collapsed_row():
     sp2 = FakeItem("c.MXF", 100, 200, pool_path="/m/c.MXF")
     for it in (pic1, pic2, sp1, sp2):
         FakeTimeline._registry[it.GetUniqueId()] = it
-    tl.tracks = {("video", 1): [pic1, pic2],
+    tl.tracks = {("video", 1): [pic1], ("video", 2): [pic2],
                  ("audio", 1): [sp1], ("audio", 2): [sp2]}
     record = link_reel_groups(tl, plan)
     assert len(record["link_groups"]) == 2

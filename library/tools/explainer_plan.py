@@ -1161,16 +1161,14 @@ def author_explainer(reel_name: str, reel_number: int, reel_seconds: float,
 # ── Where a rendered explainer goes ──────────────────────────────────
 
 EXPLAINER_TRACK = 5
-"""The reel video track an explainer segment is placed on.
+"""The reel video track an explainer segment is placed on - in the FULL
+layout (V1/V2 picture, V3 captions, V4 transitions).
 
-**Stated as an assumption to be reconciled.**  On the reels path today
-V1/V2 carry picture and V3 carries captions; nothing else exists.  Two
-lanes were in flight when this was written and both add a track:
-`docs/FULL_FRAME_ELEMENTS.md` places full-frame cards on **V1** (they
-replace picture rather than overlay it) and
-`docs/CHROMA_KEY_TRANSITIONS_MEASURED.md` places transition elements on
-**V4**.  V4 was claimed first, so an explainer takes V5 and the two
-capabilities can be on one reel at once.
+Rows pack, so the plan's explainer row is what the placer reads; this
+stays as the legacy fallback and the message default where no placed
+item names a row. Under the captain's Reel 09 ruling the picture rows
+are per angle with the frame row above them, so a reel wearing the
+look and carrying transitions places its explainer on V6.
 
 The master's own allocation is the thing that would otherwise apply -
 `timeline_decisions` maps `motion_graphics_overlay` to V4 there - and it
@@ -1213,17 +1211,34 @@ assumption already produced 42 confident meaningless errors on this path.
 
 
 def write_plans(project_folder: str, plans: Sequence[ExplainerPlan]) -> str:
-    """Record every reel's explainer plan, including the empty ones."""
+    """Record every reel this build touched, including the empty ones.
+
+    Merged, not overwritten: every reel THIS build touched is replaced
+    by what it placed - or by its empty basis, when it placed none -
+    and every other reel's record stands. Overwriting would delete the
+    baselines a partial (`only`) build did not touch, and F21 would
+    then grade those timelines against an absence - which returns
+    nothing, a silent coverage loss. The same merge
+    `reel_semantic_visual.write_records` keeps for the semantic layer.
+    """
     import os
     from library.tools.project_layout import Area, ProjectLayout
     out_dir = ProjectLayout(project_folder).write_dir(Area.REVIEW)
     path = os.path.join(str(out_dir), PLAN_FILENAME)
-    payload = {
-        "format": "explainer_plans/1",
-        "plans": [plan.as_dict() for plan in plans],
-    }
+    stored: dict = {"format": "explainer_plans/1", "plans": []}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                stored = json.load(handle) or stored
+        except (OSError, ValueError):
+            stored = {"format": "explainer_plans/1", "plans": []}
+    touched = {plan.reel_name for plan in (plans or ())}
+    kept = [p for p in (stored.get("plans") or [])
+            if str(p.get("reel")) not in touched]
+    kept.extend(plan.as_dict() for plan in (plans or ()))
+    stored["plans"] = kept
     with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+        json.dump(stored, handle, indent=2)
     return path
 
 
@@ -1258,9 +1273,12 @@ def rename_plan_reels(project_folder: str, mapping: dict) -> None:
 
     The staging half of promotion: a staged build records its explainer
     plans under the staging container so F21 grades the staging, and
-    promotion renames the claim to the final timeline name. Plans for
-    reels outside `mapping` are untouched. No file yet is a no-op -
-    a build that drew nothing for any reel recorded nothing.
+    promotion renames the claim to the final timeline name. A plan the
+    previous build left under the final name is REPLACED, not kept
+    beside the renamed one - two plans for one reel leave
+    `plan_for_reel` reading the stale first. Plans for reels outside
+    `mapping` are untouched. No file yet is a no-op - a build that drew
+    nothing for any reel recorded nothing.
     """
     import os
 
@@ -1274,7 +1292,10 @@ def rename_plan_reels(project_folder: str, mapping: dict) -> None:
         return
     with open(path, "r", encoding="utf-8") as handle:
         payload = json.load(handle)
-    for plan in (payload.get("plans") or []):
+    finals = set(mapping.values())
+    payload["plans"] = [plan for plan in (payload.get("plans") or [])
+                        if plan.get("reel") not in finals]
+    for plan in payload["plans"]:
         if plan.get("reel") in mapping:
             plan["reel"] = mapping[plan["reel"]]
     with open(path, "w", encoding="utf-8") as handle:

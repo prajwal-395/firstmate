@@ -776,3 +776,123 @@ def test_a_refused_import_is_raised_not_skipped():
 
     with pytest.raises(ReelBuildError, match="would not import"):
         _placer(pool=_NoImport())
+
+
+# ── The explainer render reads the project's geometry ────────────────
+
+def test_explainer_render_forwards_the_project_folder(tmp_path, monkeypatch):
+    """The semantic-visual half forwards `project_folder` so a project
+    declaring `motion_graphics_overlay_geometry: tight` renders tight
+    boxes; the explainer half drove the same operation without it, so
+    `render_one_segment` resolved the geometry against nothing and
+    every explainer rendered full canvas beside a tight master."""
+    from types import SimpleNamespace
+
+    import library.tools.explainer_plan as ex
+    import library.tools.motion_graphics_plan as mg
+    import library.tools.operations as operations
+    import library.tools.reel_quality_bar as quality_bar
+    from library.tools.reel_build import reel_explainer_segments
+
+    captured = {}
+
+    class _Render:
+        def run(self, planned, out_dir, **kwargs):
+            captured.update(kwargs)
+            return {"overlay_path": "/renders/exp_test_00.mov",
+                    "timeline_start": 0.0, "timeline_end": 1.0,
+                    "total_frames": 24, "elements": ["title_lockup"]}
+
+    monkeypatch.setattr(
+        ex, "resolve_declaration", lambda *a, **k: {"kind": "explainer"})
+    monkeypatch.setattr(
+        ex, "author_explainer",
+        lambda *a, **k: SimpleNamespace(
+            entries=[{"element": "title_lockup"}], anchored=None,
+            band=None, basis="planned"))
+    monkeypatch.setattr(
+        quality_bar, "played_speech", lambda *a, **k: [])
+    monkeypatch.setattr(
+        mg, "resolve_plan",
+        lambda *a, **k: SimpleNamespace(
+            moments=[{"element": "title_lockup"}], proposed=1, dropped=[]))
+    monkeypatch.setattr(
+        mg, "plan_segments",
+        lambda *a, **k: [{"index": 0, "props": {}}])
+    monkeypatch.setattr(operations, "get", lambda name: _Render())
+    monkeypatch.setattr(ex, "measure_render", lambda *a, **k: None)
+
+    moment = SimpleNamespace(number=9, timeline_name="Reel 09")
+    segments, _plan = reel_explainer_segments(
+        moment, {"segments": []}, [(0.0, 10.0)], str(tmp_path),
+        fps=24000 / 1001, width=1080, height=1920,
+        judgement=None, brand_effect={}, timeline_name="Reel 09")
+
+    assert len(segments) == 1
+    assert captured.get("project_folder") == str(tmp_path)
+
+
+# ── Tight motion graphics land positioned, not centred ───────────────
+
+class _PlacedItem:
+    """A timeline item the transform can be aimed at."""
+
+    def __init__(self, start):
+        self._start = start
+        self.set_calls = {}
+
+    def GetStart(self):
+        return self._start
+
+    def SetProperty(self, prop, value):
+        self.set_calls[prop] = value
+        return True
+
+
+class _TrackTimeline(_FakeTimeline):
+    def __init__(self, items):
+        self._items = items
+
+    def GetItemListInTrack(self, kind, index):
+        assert kind == "video"
+        return self._items
+
+
+def _tight_segment(path="/renders/vox_test_00_tight.mov"):
+    seg = _segment(path=path)
+    seg["geometry"] = "tight"
+    seg["tight_box"] = {
+        "width": 800, "height": 400,
+        "placement": {"scaling": 1, "pan": 12.5, "tilt": -300.0},
+    }
+    return seg
+
+
+def _tight_placer(segments, track=7):
+    placed = [_PlacedItem(218)]
+    timeline = _TrackTimeline(placed)
+    project = _FakeProject(timeline)
+    pool = _FakePool()
+    place_overlay_segments(
+        pool, project, timeline, "fake reel", 24000 / 1001,
+        segments, track, kind="semantic visual", check="F22",
+        project_folder="/proj")
+    return pool, placed
+
+
+def test_a_tight_segment_is_placed_small_and_moved_into_position():
+    """A tight canvas without its Pan/Tilt is a small clip Resolve
+    centres on the delivery frame - the graphic lands nowhere near the
+    union it was computed from. The placer applies the segment's own
+    `tight_box.placement` (Scaling=1, then Pan/Tilt), the same three
+    moves `overlay_placement` makes for a tight caption."""
+    _, placed = _tight_placer([_tight_segment()])
+    assert placed[0].set_calls == {
+        "Scaling": 1, "Pan": 12.5, "Tilt": -300.0}
+
+
+def test_a_full_canvas_segment_takes_no_transform():
+    """`tight_box` None is full canvas, which needs no transform - and
+    a segment whose box the module declined must not inherit one."""
+    _, placed = _tight_placer([_segment()])
+    assert placed[0].set_calls == {}

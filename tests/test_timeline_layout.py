@@ -116,6 +116,38 @@ def test_names_come_from_the_material_never_a_constant():
     assert plan.video_row_for_angle("nobody") is None
 
 
+def test_two_picture_rows_survive_the_tv_frame_look():
+    """Captain's ruling on Reel 09 (marker at frame 1674): the a-roll
+    row must be two rows, one per speaker, the way the two speech rows
+    already are. The frame row dresses the picture above the captions -
+    it does not collapse the picture to make room for itself."""
+    plan = plan_layout(_two_angle_material(
+        has_frame=True,
+        caption_spans=[(0, 200)],
+        has_transitions=True,
+        has_explainer=True,
+        has_semantic=True,
+    ))
+    assert [(t.index, t.role, t.name) for t in plan.video_tracks] == [
+        (1, "a_roll", "Akshita"), (2, "a_roll", "Craig"),
+        (3, "frame", "Frame"), (4, "captions", "Subtitles"),
+        (5, "transitions", "Transitions"), (6, "explainer", "Explainer"),
+        (7, "semantic", "Semantic")]
+    assert [(t.index, t.role, t.name) for t in plan.audio_tracks] == [
+        (1, "speech", "Akshita CH1"), (2, "speech", "Craig CH1")]
+
+
+def test_collapse_picture_is_gone_and_cannot_refire():
+    """`collapse_picture` was the TV-frame rule PR 830 reasoned into the
+    plan; the captain overruled it. The key is deleted, and a stale
+    caller still passing it gets two picture rows anyway - no rule may
+    quietly re-collapse the rows the next time a TV-frame look is
+    declared."""
+    plan = plan_layout(_two_angle_material(
+        has_frame=True, collapse_picture=True))
+    assert [t.name for t in plan.aroll_rows()] == ["Akshita", "Craig"]
+
+
 def test_the_builders_hardcoded_layout_is_gone():
     """Defects 1/4/6, structurally: the track-index and track-name dicts
     that lived at the end of the old build decided every row as a

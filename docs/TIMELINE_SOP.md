@@ -28,13 +28,15 @@ hardcoded indices beside the plan.
 
 Picture rows first, top to bottom, then sound rows:
 
-1. A-roll, one row per camera angle, in first-seen order.
+1. A-roll, one row per camera angle, in first-seen order - under the
+   TV-frame look too (captain's ruling on Reel 09, 2026-09-09: one row
+   per speaker, the way the two speech rows already are; the earlier
+   rule that collapsed the picture to one row under the look is
+   withdrawn).
 2. B-roll, one row.
 3. Frame, one row - the reel TV-frame look's set, dressing the
-   picture directly below it. Under the look the picture collapses
-   to ONE row (the frame spans the second), so a reel wearing it
-   reads footage, frame, captions; speech stays one row per angle,
-   because the collapse is picture only.
+   picture rows directly below it. A reel wearing it reads footage
+   rows, frame, captions.
 4. Subtitles (the caption row), one row.
 5. Transitions, Explainer, Semantic - the reel's own additive rows,
    one row each, only when the reel places something on it. A row

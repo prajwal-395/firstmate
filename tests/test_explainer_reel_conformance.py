@@ -42,6 +42,67 @@ def _plan(*segments, basis=ex.PLANNED):
                          for s, f in segments]}
 
 
+# ── The record survives partial builds and rebuilds ──────────────────
+
+def _stored_plans(project, plans):
+    import json
+
+    from library.tools.project_layout import Area, ProjectLayout
+    review = project / "pipeline_output" / "review"
+    review.mkdir(parents=True, exist_ok=True)
+    (review / ex.PLAN_FILENAME).write_text(
+        json.dumps({"format": "explainer_plans/1", "plans": plans}),
+        encoding="utf-8")
+    return review
+
+
+def _read_plans(project):
+    import json
+
+    from library.tools.project_layout import Area, ProjectLayout
+    path = (project / "pipeline_output" / "review" / ex.PLAN_FILENAME)
+    return json.loads(path.read_text(encoding="utf-8"))["plans"]
+
+
+def _explainer(reel, basis=ex.PLANNED):
+    return ex.ExplainerPlan(reel_name=reel, declared=True, basis=basis)
+
+
+def test_a_partial_build_keeps_the_reels_it_did_not_touch(tmp_path):
+    """`write_plans` overwrote the whole file with only this build's
+    reels, so a single-reel rebuild deleted every other reel's
+    explainer baseline and F21 graded those timelines against an
+    absence (which returns nothing - silent coverage loss). The write
+    merges: reels this build touched are replaced, the rest stand."""
+    project = tmp_path / "proj"
+    _stored_plans(project, [{"reel": "Reel 07", "declared": True,
+                             "basis": ex.PLANNED, "entries": [],
+                             "anchored": None, "band": None,
+                             "segments": []}])
+    ex.write_plans(str(project), [_explainer("Reel 09")])
+    by_reel = {p["reel"]: p for p in _read_plans(project)}
+    assert set(by_reel) == {"Reel 07", "Reel 09"}
+    assert by_reel["Reel 09"]["basis"] == ex.PLANNED
+
+
+def test_promotion_replaces_the_previous_final_plan(tmp_path):
+    """The staging/rename half of the same defect the semantic-visual
+    records had: renaming beside the previous final leaves two plans
+    for one reel and `plan_for_reel` reads the stale first."""
+    project = tmp_path / "proj"
+    final = "Reel 09"
+    staging = final + " (rebuild staging)"
+    _stored_plans(project, [
+        {"reel": final, "declared": True, "basis": ex.NOT_DECLARED,
+         "entries": [], "anchored": None, "band": None, "segments": []},
+        {"reel": staging, "declared": True, "basis": ex.PLANNED,
+         "entries": [], "anchored": None, "band": None, "segments": []}])
+    ex.rename_plan_reels(str(project), {staging: final})
+    kept = [p for p in _read_plans(project) if p["reel"] == final]
+    assert len(kept) == 1
+    assert kept[0]["basis"] == ex.PLANNED
+
+
 # ── It passes what is right ──────────────────────────────────────────
 
 def test_a_placed_explainer_matching_its_plan_passes():

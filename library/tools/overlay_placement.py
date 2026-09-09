@@ -44,6 +44,58 @@ def sequence_frame_paths(frame_dir: str) -> list[str]:
             if name.endswith(".png")]
 
 
+def apply_placement_transform(timeline, track_index: int,
+                              record_frame: int,
+                              placement: Optional[dict],
+                              label: str = "") -> str:
+    """Move an already-placed overlay clip onto its tight box.
+
+    `placement` is None for a full-canvas clip (nothing to do), else
+    the `{"scaling", "pan", "tilt"}` mapping `tight_box` computed.
+    Returns the warning note, `""` when everything landed: a refused
+    transform still leaves the clip placed, so it is REPORTED here and
+    never raised - the clip IS on the timeline.
+
+    One spelling for both placers: the caption loop below and the
+    reel explainer/semantic-visual placer in `reel_build` used to do
+    this lookup separately, and two lookups for "the item just placed"
+    are two chances to transform a neighbour.
+    """
+    name = label or "overlay"
+    if not placement:
+        return ""
+    items = timeline.GetItemListInTrack("video", track_index) or []
+    placed_item = None
+    for item in items:
+        try:
+            if item.GetStart() == record_frame:
+                placed_item = item
+                break
+        except Exception:  # noqa: BLE001 - a stale handle, keep looking
+            continue
+    if placed_item is None:
+        placed_item = items[-1] if items else None
+    if placed_item is None:
+        return (f"{name}: placed but no timeline item found on "
+                f"V{track_index} for the transform")
+    refused = []
+    for prop, key in (("Scaling", "scaling"), ("Pan", "pan"),
+                      ("Tilt", "tilt")):
+        value = placement.get(key)
+        if value is None:
+            continue
+        try:
+            ok = placed_item.SetProperty(prop, value)
+        except Exception:  # noqa: BLE001 - judged below, not raised
+            ok = False
+        if not ok:
+            refused.append(f"{prop}={value}")
+    if refused:
+        return (f"{name}: placed, but Resolve refused "
+                f"{', '.join(refused)}")
+    return ""
+
+
 def place_overlay_segment(media_pool, timeline, pool_item,
                           track_index: int,
                           record_frame: int,
@@ -74,37 +126,5 @@ def place_overlay_segment(media_pool, timeline, pool_item,
     if not result:
         return False, f"{name}: AppendToTimeline returned nothing"
 
-    if not placement:
-        return True, ""
-
-    items = timeline.GetItemListInTrack("video", track_index) or []
-    placed_item = None
-    for item in items:
-        try:
-            if item.GetStart() == record_frame:
-                placed_item = item
-                break
-        except Exception:  # noqa: BLE001 - a stale handle, keep looking
-            continue
-    if placed_item is None:
-        placed_item = items[-1] if items else None
-    if placed_item is None:
-        return True, (f"{name}: placed but no timeline item found on "
-                      f"V{track_index} for the transform")
-
-    refused = []
-    for prop, key in (("Scaling", "scaling"), ("Pan", "pan"),
-                      ("Tilt", "tilt")):
-        value = placement.get(key)
-        if value is None:
-            continue
-        try:
-            ok = placed_item.SetProperty(prop, value)
-        except Exception as exc:  # noqa: BLE001 - judged below, not raised
-            ok = False
-        if not ok:
-            refused.append(f"{prop}={value}")
-    if refused:
-        return True, (f"{name}: placed, but Resolve refused "
-                      f"{', '.join(refused)}")
-    return True, ""
+    return True, apply_placement_transform(
+        timeline, track_index, record_frame, placement, label)

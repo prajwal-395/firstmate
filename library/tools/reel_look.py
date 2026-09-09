@@ -34,17 +34,18 @@ This module is that route, and it adds no look of its own:
   isolation (AGENTS.md 5) is why it runs as a subprocess: the timeline
   was created in the calling process.
 
-Under the look the reel's footage collapses to V1
--------------------------------------------------
-`tv_frame.LAYER_TRACKS` is footage V1, frame V2, captions V3, and
-`tv_frame` already reasons that a reel under this look carries no B-roll
-on V2 because the frame spans it.  A reel's picture normally inherits
-the MASTER's track index, so a two-camera master puts one speaker on V1
-and the other on V2 - sequentially, never at once.  Under the look those
-placements collapse onto V1 so V2 is free for the frame, and
-`assert_one_picture_at_a_time` REFUSES rather than collapsing when two
-of them really do overlap: two pictures on one track is not a composite,
-and silently dropping one would be the placer choosing a camera.
+Under the look each speaker keeps their own picture row
+------------------------------------------------------
+A reel's picture inherits the MASTER's track index, so a two-camera
+master puts one speaker on V1 and the other on V2 - sequentially, never
+at once - and it stays there under the look (captain's ruling on Reel
+09, 2026-09-09: two picture rows, one per speaker, the way the two
+speech rows already are). The frame asset goes on the plan's frame row
+above the picture, and the captions above that; the track plan
+(`library/tools/timeline_layout.py`) owns those indices, never a
+constant here. (`tv_frame.LAYER_TRACKS` still reads footage V1, frame
+V2, captions V3 - that is the MASTER path's shape in
+`step_5_04_compile_manifest`, which never collapsed.)
 """
 
 from __future__ import annotations
@@ -56,14 +57,18 @@ import sys
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 FRAME_TRACK = 2
-"""The reel video track the frame asset is placed on.
+"""The reel video track the frame asset is placed on - for a
+SINGLE-angle reel, where the plan reads V1 picture, V2 frame.
 
-Named once, here, for the same reason `reel_semantic_visual.SEMANTIC_TRACK`
-is named once: the placer and anything reading the built timeline back
-must not disagree about it.  It is V2 because that is what
-`tv_frame.LAYER_TRACKS` declares and what the captain's own reference
-capture shows (`reel20-standard-zoom.json`: V1 footage at 2.30, V2
-`TV 4k.png` at 1.00, V3 captions at 1.00).
+Kept as the legacy fallback, not the rule: the placer puts the frame
+on the plan's frame row (`track_plan.row_for_role(FRAME)`), which is V3
+on a two-angle reel under the captain's Reel 09 ruling (two picture
+rows, the set above them). Readers match the frame by row NAME (see
+`frame_overlay_items`), never by this number alone. It is V2 here
+because that is what `tv_frame.LAYER_TRACKS` declares for the master
+path and what the captain's own reference capture showed before the
+ruling (`reel20-standard-zoom.json`: V1 footage at 2.30, V2 `TV 4k.png`
+at 1.00, V3 captions at 1.00).
 """
 
 MOTION_PLAN_KEY = "reel_motion_plan"
@@ -128,48 +133,6 @@ def _picture(placements: Sequence[dict]) -> List[dict]:
     return out
 
 
-def assert_one_picture_at_a_time(placements: Sequence[dict],
-                                 fps: float) -> None:
-    """Refuse a reel whose picture placements overlap in time.
-
-    Collapsing overlapping placements onto V1 would put two pictures on
-    one track, which Resolve resolves by trimming one - so the placer
-    would be choosing a camera.  That is a decision this module has no
-    business taking, and the refusal names the seconds.
-    """
-    previous = None
-    for p in _picture(placements):
-        start = int(p["snapped_record"])
-        end = start + int(round((p["source_out"] - p["source_in"]) * fps))
-        if previous is not None and start < previous[1]:
-            raise ReelLookRefused(
-                f"the TV-frame look collapses this reel's picture onto V1, "
-                f"but two placements overlap: {previous[2]} runs to frame "
-                f"{previous[1]} and {p['clip'].source_file} starts at frame "
-                f"{start}. Two pictures on one track is not a composite, and "
-                f"dropping one here would be the placer choosing a camera. "
-                f"Redraw the keep range or build this reel without the look.")
-        previous = (start, end, p["clip"].source_file)
-
-
-def collapse_to_v1(placements: Sequence[dict]) -> List[dict]:
-    """Every VIDEO placement moved to V1; audio untouched.
-
-    Returns new dicts - the caller's list is left alone, because the
-    record it writes to provenance must say where the master had the
-    clip, not where the look put it.
-    """
-    out = []
-    for p in placements:
-        if getattr(p["clip"], "track_type", "video") == "video":
-            moved = dict(p)
-            moved["track_index"] = 1
-            out.append(moved)
-        else:
-            out.append(p)
-    return out
-
-
 def frame_runs(placements: Sequence[dict], fps: float) -> List[Tuple[int, int]]:
     """Contiguous (start_frame, end_frame) runs of picture on the reel.
 
@@ -209,8 +172,11 @@ def frame_overlay_items(video_items, look) -> set:
 
     `look` None returns the empty set, so a project that declares no
     look excludes nothing and the verifier reads exactly what it read
-    before.  Matching is on the frame TRACK and the render name shape
-    together.
+    before.  Matching is on the frame ROW's name and the render name
+    shape together: under the captain's Reel 09 ruling the frame sits
+    on the plan's frame row (V3 on a two-angle reel), so a track
+    number alone cannot identify it. The legacy V2 match stays for
+    timelines built before rows were named.
     """
     import re
 
@@ -219,11 +185,14 @@ def frame_overlay_items(video_items, look) -> set:
     shape = re.compile(FRAME_OVERLAY_NAME_SHAPE)
     out = set()
     for item in video_items or ():
-        if getattr(item, "track_index", 0) != FRAME_TRACK:
-            continue
         stem = (getattr(item, "source_file", "") or "").rsplit(
             "/", 1)[-1].rsplit(".", 1)[0]
-        if shape.match(stem):
+        if not shape.match(stem):
+            continue
+        track_name = (getattr(item, "track_name", "") or "").strip()
+        if track_name == "Frame":
+            out.add(id(item))
+        elif getattr(item, "track_index", 0) == FRAME_TRACK:
             out.add(id(item))
     return out
 

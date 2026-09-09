@@ -2433,6 +2433,41 @@ def test_f20_reports_the_caption_seconds_an_element_covers():
     assert findings[0].detail["covered_frames"] == 15
 
 
+def test_a_frame_row_is_read_by_name_never_as_captions():
+    """Two picture rows under the TV-frame look push the set to V3 -
+    the captain's Reel 09 ruling. A row named "Frame" is the set the
+    picture plays inside, not a caption card and not ungraded video:
+    without the name check it falls into `track_index == 3` and the
+    caption checks grade the bezel as a card."""
+    from library.tools.reel_conformance_verifier import (
+        _snapshot_to_reel_timeline)
+
+    class _Clip:
+        def __init__(self, track_index, track_name, track_type="video"):
+            self.track_type = track_type
+            self.track_index = track_index
+            self.track_name = track_name
+            self.timeline_start, self.timeline_end = 0.0, 2.0
+            self.duration = 2.0
+            self.source_in_frame, self.source_out_frame = 0, 48
+            self.source_file, self.speaker = "/x.mov", None
+            self.name, self.resolve_item_id = f"v{track_index}", ""
+
+    class _Snapshot:
+        fps = FPS
+        timeline_name = "Reel 09"
+        start_frame, end_frame = 0, 48
+        width, height = 1080, 1920
+        clips = [_Clip(1, "Akshita"), _Clip(2, "Craig"),
+                 _Clip(3, "Frame"), _Clip(4, "Subtitles")]
+
+    timeline = _snapshot_to_reel_timeline(_Snapshot())
+    assert len(timeline.video_items) == 2
+    assert len(timeline.frame_items) == 1
+    assert len(timeline.caption_items) == 1
+    assert timeline.unclassified_items == ()
+
+
 def test_f20_says_nothing_when_the_element_clears_every_caption():
     assert check_overlay_caption_coverage(
         "Reel 01", [_overlay_item(100, 30)],
