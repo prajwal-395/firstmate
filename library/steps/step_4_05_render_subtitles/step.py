@@ -84,7 +84,11 @@ from library.tools.subtitle_segment_id import (
     segment_identifier,
     timeline_scope,
 )
-from library.tools.caption_asset_gc import card_key
+from library.tools.caption_asset_gc import (
+    LedgerError,
+    card_key,
+    record_rendered_segments,
+)
 
 # Where the Remotion project lives, repo-relative.  A module constant so
 # a caller can point the render somewhere else without reconstructing
@@ -536,6 +540,14 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     output is verified frame-by-frame against the probe before it is
     kept. A probe that draws nothing keeps the full-canvas path;
     anything else that cannot deliver exactly FAILS the segment.
+
+    A produced segment (RENDERED or REUSED) is merged into the step's
+    render ledger before it is returned, so the pipeline's own
+    `pipeline:render_subtitles` root resolves it even when the render
+    happened outside any pipeline run. Raises `LedgerError` where the
+    ledger cannot be written; the pass converts that to a refusal, and
+    a direct caller sees the exception itself. See
+    `library/tools/caption_asset_gc.py`.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
 
@@ -670,7 +682,13 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         return record
 
     def measured(provenance: str, superseded=None) -> dict:
-        return entry(
+        # Recorded before returning, so a killed pass still vouches for
+        # every card it drew and a caller rendering one card outside any
+        # run leaves the same record a full pass would. Raises
+        # LedgerError (the pass converts it to a refusal): producing
+        # pixels no root can resolve is the hole this closes, so it is
+        # loud rather than warned past. FAILED entries never reach here.
+        built = entry(
             provenance,
             reuse_key=key,
             # The generations this render replaced, named at once so
@@ -688,6 +706,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             total_frames=props["_source_out_frame"] - props["_source_in_frame"],
             rendered_frames=total_frames,
         )
+        record_rendered_segments(out_dir, [built])
+        return built
 
     # The reuse key digests what DRAWS - the full props, plus the
     # renderer fingerprint. The tight output is a deterministic
@@ -1022,6 +1042,16 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
 
     if not props_list:
         print("WARNING: No subtitle blocks to render", file=sys.stderr)
+        # A run that produced no assets records an empty set - a valid
+        # ledger with no segments, which the pipeline root reads as an
+        # `ok` root with no paths rather than as unreadable. Warn-only:
+        # nothing was produced, so there is nothing to protect and no
+        # reason to refuse the run over its record.
+        try:
+            record_rendered_segments(sub_output_dir, [])
+        except LedgerError as exc:
+            print(f"WARNING: the caption render ledger cannot be "
+                  f"written ({exc})", file=sys.stderr)
         return {
             "subtitle_overlay": {
                 "available": False,
@@ -1222,6 +1252,22 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                 "error": (f"the caption renderer died after "
                           f"{len(segments)} of {len(props_list)} segments: "
                           f"{exc}"),
+                "segments": segments,
+            }
+        }) from exc
+    except LedgerError as exc:
+        # The RECORD died - not a card. Cards already returned are in
+        # the ledger (each records itself before returning); the pass
+        # stops rather than producing further pixels no root can
+        # resolve. Refusing is the safe direction: the alternative is
+        # exactly the unprotected-asset hole this ledger closes.
+        raise SubtitleRenderRefused({
+            "subtitle_overlay": {
+                "available": False,
+                "error": (f"the caption render ledger cannot be written "
+                          f"({exc}): refusing after {len(segments)} of "
+                          f"{len(props_list)} segments rather than "
+                          f"leaving new assets no root can resolve"),
                 "segments": segments,
             }
         }) from exc

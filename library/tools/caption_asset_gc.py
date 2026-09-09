@@ -41,6 +41,14 @@ Three parts:
    once (`render_one_segment`), so it becomes an orphan candidate
    without waiting for a sweep. Reachability still rules the mark - a
    superseded file a timeline still places stays LIVE.
+4. The recording half lives there too: every produced segment is
+   merged into `render_ledger.json` beside the assets
+   (`record_rendered_segments`), which the `pipeline:render_subtitles`
+   root reads through the same harvester as the step output. Captions
+   rendered before the ledger existed are adopted once by
+   `reconcile_render_ledger`, which records only files carrying the
+   render path's own props-sibling signature and embeds the
+   pre-reconcile mark beside the entries, so the adoption is auditable.
 
 Where things live is `library/tools/project_layout.py`'s decision: the
 assets are `Area.SUBTITLE_SEGMENTS`, and quarantine plus the mark/sweep
@@ -75,8 +83,14 @@ UNREADABLE = "unreadable"
 
 STEP_NODE_ID = "render_subtitles"
 
+# The step's render ledger: every overlay the caption step produced,
+# recorded where the `pipeline:render_subtitles` root reads it.
+RENDER_LEDGER_NAME = "render_ledger.json"
+
+LEDGER_VERSION = 1
+
 # Step records live beside the assets but are never assets themselves.
-STEP_RECORD_NAMES = ("output.json", "summary.md")
+STEP_RECORD_NAMES = ("output.json", "summary.md", RENDER_LEDGER_NAME)
 
 _DIGEST_RE = re.compile(r"_([0-9a-f]{8})$")
 
@@ -275,6 +289,354 @@ def _read_json_paths(path: str) -> tuple[set[str], str]:
     return found, ""
 
 
+class LedgerError(Exception):
+    """The render ledger could not be written. Nothing was recorded."""
+
+
+class LedgerUnreadable(LedgerError):
+    """The ledger exists but cannot be parsed, so it was left untouched.
+
+    Overwriting it would convert an UNREADABLE root (which refuses every
+    sweep) into a freshly valid one naming only the latest pass - exactly
+    the failure direction that turns this collector into a data-loss
+    event. The step refuses loudly instead, and the sweep keeps refusing
+    until someone reads the file.
+    """
+
+
+# Provenances the ledger records. The authority is the caption step's
+# own `PROVENANCES`; these literals repeat it so this module does not
+# import step code (the step imports this module). A FAILED entry names a
+# path whose pixels were never rendered - recording it would pin a file
+# the mark must be free to orphan.
+_RECORDED_PROVENANCES = ("rendered", "reused")
+
+# Ledger entry keys carried over from a step segment entry. The binding
+# rides along when the step recorded one; reconciled entries (below) have
+# none, because the filename's slug is lossy and an invented binding is
+# worse than an absent one.
+_LEDGER_ENTRY_KEYS = (
+    "segment_id",
+    "overlay_path",
+    "binding",
+    "timeline_start",
+    "timeline_end",
+    "block_position",
+    "provenance",
+    "reuse_key",
+    "superseded",
+    "geometry",
+    "container",
+    "tight_box",
+    "frames",
+    "source_in_frame",
+    "source_out_frame",
+    "total_frames",
+    "rendered_frames",
+    "reconciled",
+    "reconciled_at",
+)
+
+
+def ledger_path_for(asset_dir: str) -> str:
+    """The ledger beside the assets it vouches for. Never an asset."""
+    return os.path.join(asset_dir, RENDER_LEDGER_NAME)
+
+
+def _ledger_entry_path(entry: dict) -> str:
+    overlay = entry.get("overlay_path") or ""
+    if overlay:
+        return str(overlay)
+    frames = entry.get("frames") or {}
+    return str(frames.get("dir") or "")
+
+
+def _anchor_to_dir(asset_dir: str, path: str) -> str:
+    """A recorded path, anchored where the ledger lives.
+
+    The step records absolute paths and they pass through unchanged. A
+    relative one is anchored to the asset dir rather than left to
+    resolve against whatever working directory a later mark runs from -
+    a silently unprotected asset under a different cwd.
+    """
+    if not path or os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(asset_dir, path))
+
+
+def _lock(handle) -> None:
+    try:
+        import fcntl  # noqa: PLC0415 - platform seam, not a dependency
+    except ImportError:
+        return
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+
+
+def _unlock(handle) -> None:
+    try:
+        import fcntl  # noqa: PLC0415 - platform seam, not a dependency
+    except ImportError:
+        return
+    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def record_rendered_segments(asset_dir: str, segments: list[dict],
+                             only_new: bool = False,
+                             extra_top_level: dict | None = None) -> str:
+    """Merge produced caption segments into the step's render ledger.
+
+    The ledger is the file the `pipeline:render_subtitles` root reads
+    (`collect_pipeline_roots`), in the shape its harvester already
+    understands - `subtitle_overlay.segments` carrying `overlay_path`
+    (and `frames.dir` for sequences). No new contract: the same keys,
+    the same empty-vs-unreadable distinction. An empty `segments` writes
+    a valid empty set (an `ok` root with no paths); a ledger that cannot
+    be written raises, and a ledger that exists but cannot be parsed
+    raises `LedgerUnreadable` WITHOUT being overwritten, so the root
+    keeps reading UNREADABLE and the sweep keeps refusing.
+
+    Merge, never replace, keyed by `segment_id`: one step directory
+    holds several timelines' batches, and a pass covers one plan, so a
+    replace would unprotect every batch the pass did not render. Entries
+    whose path a new entry names as `superseded` ARE dropped - that is
+    the re-render retention rule, and reachability still has the last
+    word. Entries whose file is gone from disk are pruned: an absent
+    path protects nothing. With `only_new`, segment ids already present
+    keep their genuinely-recorded entries (the reconcile path below).
+    """
+    path = ledger_path_for(asset_dir)
+    try:
+        os.makedirs(asset_dir, exist_ok=True)
+    except OSError as exc:
+        raise LedgerError(
+            f"the render ledger at {path} cannot be written ({exc}): "
+            f"{len(segments)} produced segment(s) would be left with no "
+            f"root that resolves them.") from exc
+    fresh = []
+    for segment in segments:
+        if not isinstance(segment, dict):
+            continue
+        if segment.get("provenance") not in _RECORDED_PROVENANCES:
+            continue
+        if not segment.get("segment_id"):
+            print(f"warning: a produced caption segment with no "
+                  f"segment_id is not ledgerable and is skipped "
+                  f"({segment.get('overlay_path', '?')})")
+            continue
+        trimmed = {k: segment[k] for k in _LEDGER_ENTRY_KEYS
+                   if k in segment}
+        trimmed["overlay_path"] = _anchor_to_dir(
+            asset_dir, str(trimmed.get("overlay_path") or ""))
+        frames = trimmed.get("frames")
+        if isinstance(frames, dict) and frames.get("dir"):
+            frames = dict(frames)
+            frames["dir"] = _anchor_to_dir(asset_dir, str(frames["dir"]))
+            trimmed["frames"] = frames
+        trimmed["superseded"] = [
+            _anchor_to_dir(asset_dir, str(p))
+            for p in (trimmed.get("superseded") or [])
+            if isinstance(p, str) and p]
+        fresh.append(trimmed)
+    superseded = {str(p) for entry in fresh
+                  for p in (entry.get("superseded") or [])
+                  if isinstance(p, str) and p}
+    try:
+        handle = open(path, "a+", encoding="utf-8")
+    except OSError as exc:
+        raise LedgerError(
+            f"the render ledger at {path} cannot be written ({exc}): "
+            f"{len(fresh)} produced segment(s) would be left with no "
+            f"root that resolves them.") from exc
+    with handle:
+        _lock(handle)
+        try:
+            handle.seek(0)
+            raw = handle.read()
+            if raw.strip():
+                try:
+                    data = json.loads(raw)
+                except ValueError as exc:
+                    raise LedgerUnreadable(
+                        f"the render ledger at {path} exists but cannot "
+                        f"be parsed ({exc}): left untouched, so the "
+                        f"pipeline root keeps reading UNREADABLE and "
+                        f"the sweep keeps refusing.") from exc
+                if not isinstance(data, dict):
+                    raise LedgerUnreadable(
+                        f"the render ledger at {path} holds "
+                        f"{type(data).__name__}, not an object: left "
+                        f"untouched, so the sweep keeps refusing.")
+            else:
+                data = {}
+            overlay = data.get("subtitle_overlay")
+            if overlay is None:
+                overlay = {}
+                data["subtitle_overlay"] = overlay
+            if not isinstance(overlay, dict):
+                raise LedgerUnreadable(
+                    f"the render ledger at {path} holds a non-object "
+                    f"subtitle_overlay: left untouched, so the sweep "
+                    f"keeps refusing.")
+            existing = overlay.get("segments")
+            if existing is None:
+                existing = []
+            if not isinstance(existing, list):
+                raise LedgerUnreadable(
+                    f"the render ledger at {path} holds a non-list "
+                    f"segments: left untouched, so the sweep keeps "
+                    f"refusing.")
+            by_id = {}
+            for entry in existing:
+                if isinstance(entry, dict) and entry.get("segment_id"):
+                    by_id[str(entry["segment_id"])] = entry
+            for entry in fresh:
+                sid = str(entry["segment_id"])
+                if only_new and sid in by_id:
+                    continue
+                by_id[sid] = entry
+            for sid in [sid for sid, entry in by_id.items()
+                        if _ledger_entry_path(entry) in superseded]:
+                del by_id[sid]
+            kept = {}
+            for sid, entry in by_id.items():
+                at = _ledger_entry_path(entry)
+                if at and os.path.exists(at):
+                    kept[sid] = entry
+            overlay["segments"] = [kept[sid] for sid in sorted(kept)]
+            data["ledger_updated_at"] = datetime.now(timezone.utc).isoformat()
+            data["ledger_version"] = LEDGER_VERSION
+            if extra_top_level:
+                data.update(extra_top_level)
+            handle.seek(0)
+            handle.truncate()
+            json.dump(data, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        finally:
+            _unlock(handle)
+    return path
+
+
+def _props_signature(props_path: str) -> bool:
+    """The render path's own write signature: props beside the pixels.
+
+    The step writes the props file before rendering and the mov (or
+    frames) after succeeding, so a mov with a parseable props sibling
+    is the step's output. A mov without one is not provably produced by
+    any run and is left for the other roots to judge.
+    """
+    try:
+        with open(props_path, encoding="utf-8") as handle:
+            return isinstance(json.load(handle), dict)
+    except (OSError, ValueError):
+        return False
+
+
+def _reconcile_entries(asset_dir: str) -> list[dict]:
+    """Ledger entries for the step-signature outputs on disk, or [].
+
+    One entry per `.mov` (or frames-dir) whose props sibling parses -
+    the files the render path demonstrably wrote. No binding: the
+    filename's slug is lossy and an invented binding is worse than an
+    absent one. No `superseded`: unknowable without the producing run's
+    record. A later genuine render of the same card upserts the entry
+    wholesale by `segment_id`, promoting it from reconciled to recorded.
+    """
+    entries = []
+    for record in enumerate_assets(asset_dir):
+        if record["kind"] == "mov":
+            stem = os.path.basename(record["path"])[:-4]
+            props = os.path.join(asset_dir, stem + "_props.json")
+            if not _props_signature(props):
+                continue
+            segment_id = (stem[:-6] if stem.endswith("_tight") else stem)
+            entry: dict = {
+                "segment_id": segment_id,
+                "overlay_path": record["path"],
+                "provenance": "rendered",
+                "superseded": [],
+                "reconciled": True,
+            }
+            key_path = os.path.join(asset_dir, stem + "_reuse_key.txt")
+            try:
+                key = Path(key_path).read_text(encoding="utf-8").strip()
+            except OSError:
+                key = ""
+            if key:
+                entry["reuse_key"] = key
+            entries.append(entry)
+        elif record["kind"] == "frames-dir":
+            dirname = os.path.basename(record["path"])
+            if not dirname.endswith("_frames"):
+                continue
+            base = dirname[:-len("_frames")]
+            props = os.path.join(asset_dir, base + "_props.json")
+            if not _props_signature(props):
+                continue
+            segment_id = (base[:-6] if base.endswith("_tight") else base)
+            try:
+                count = sum(1 for name in os.listdir(record["path"])
+                            if name.endswith(".png"))
+            except OSError:
+                count = 0
+            entries.append({
+                "segment_id": segment_id,
+                "overlay_path": "",
+                "provenance": "rendered",
+                "superseded": [],
+                "frames": {"dir": record["path"],
+                           "pattern": "", "count": count},
+                "reconciled": True,
+            })
+    return entries
+
+
+def reconcile_render_ledger(project_folder: str,
+                            db_paths: list[str] | None = None) -> dict:
+    """Adopt the step's on-disk outputs into the render ledger, once.
+
+    For projects whose captions were rendered before the ledger existed:
+    every `.mov` (or frames-dir) carrying the render path's own write
+    signature is recorded, with `reconciled: true` saying how the entry
+    got there. Entries the ledger already holds are kept (`only_new`) -
+    genuinely recorded evidence is never overwritten by reconstructed
+    evidence. Files already swept to quarantine are not in the directory
+    and so are never adopted: the captain's unreviewed quarantine is
+    untouched by construction.
+
+    The pre-reconcile mark is embedded in the ledger beside the entries,
+    so a later reader sees what the adoption pinned and what every root
+    said at the time. Read-only except for the one ledger file: no
+    asset is created, moved or deleted, and nothing is swept.
+    """
+    layout = ProjectLayout(project_folder)
+    asset_dir = str(layout.read_dir(Area.SUBTITLE_SEGMENTS))
+    roots = collect_resolve_roots(list(db_paths or [])) \
+        + collect_pipeline_roots(project_folder)
+    pre = mark(project_folder, asset_dir, roots)
+    entries = _reconcile_entries(asset_dir)
+    stamped = datetime.now(timezone.utc).isoformat()
+    for entry in entries:
+        entry["reconciled_at"] = stamped
+    path = record_rendered_segments(
+        asset_dir, entries, only_new=True,
+        extra_top_level={
+            "reconciled_at": stamped,
+            "reconciled_from": "on-disk step outputs carrying the "
+            "render path's props-sibling signature",
+            "pre_reconcile_mark": {
+                "created_at": pre.created_at,
+                "live": len(pre.live),
+                "orphans": len(pre.orphans),
+                "roots": {r.name: {"status": r.status,
+                                   "paths": len(r.paths),
+                                   "detail": r.detail}
+                          for r in pre.roots},
+            },
+        })
+    return {"ledger": path, "recorded": len(entries), "mark": pre}
+
+
 def collect_pipeline_roots(project_folder: str) -> list[RootResult]:
     """The pipeline's own records as roots: step output and manifest.
 
@@ -289,7 +651,8 @@ def collect_pipeline_roots(project_folder: str) -> list[RootResult]:
     candidates = [
         ("pipeline:render_subtitles",
          [layout.pipeline_data_path,
-          layout.step_dir(STEP_NODE_ID) / "output.json"]),
+          layout.step_dir(STEP_NODE_ID) / "output.json",
+          layout.step_dir(STEP_NODE_ID) / RENDER_LEDGER_NAME]),
         ("pipeline:assembly-manifest",
          [layout.step_dir("compile_manifest") / "assembly_manifest.json",
           layout.step_dir("compile_manifest") / "output.json"]),
@@ -477,6 +840,8 @@ def root_versions(project_folder: str,
             ("pipeline_data.json", str(layout.pipeline_data_path)),
             ("render_subtitles/output.json",
              str(layout.step_dir(STEP_NODE_ID) / "output.json")),
+            ("render_subtitles/render_ledger.json",
+             str(layout.step_dir(STEP_NODE_ID) / RENDER_LEDGER_NAME)),
             ("compile_manifest/assembly_manifest.json",
              str(layout.step_dir("compile_manifest")
                  / "assembly_manifest.json"))):
@@ -489,33 +854,36 @@ def _superseded_map(project_folder: str) -> dict[str, str]:
 
     Step 4.05 names the generation each render superseded on the new
     entry (`render_one_segment`), so the mark can say not just that a
-    file is orphaned but what replaced it. Read-only; absent/unreadable
-    records contribute nothing rather than refusing, because this is
-    attribution, not reachability.
+    file is orphaned but what replaced it. Read from the step output
+    and the render ledger alike, so renders recorded outside a pipeline
+    run attribute the same as ones inside it. Read-only;
+    absent/unreadable records contribute nothing rather than refusing,
+    because this is attribution, not reachability.
     """
     mapping: dict[str, str] = {}
     try:
         layout = ProjectLayout(project_folder)
     except Exception:  # noqa: BLE001 - attribution only, never refuses
         return mapping
-    path = layout.step_dir(STEP_NODE_ID) / "output.json"
-    try:
-        with open(path, encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return mapping
-    segments = []
-    if isinstance(data, dict):
-        overlay = data.get("subtitle_overlay") or {}
-        segments = overlay.get("segments") or []
-    for segment in segments:
-        if not isinstance(segment, dict):
+    for path in (layout.step_dir(STEP_NODE_ID) / "output.json",
+                 layout.step_dir(STEP_NODE_ID) / RENDER_LEDGER_NAME):
+        try:
+            with open(path, encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
             continue
-        newer = segment.get("overlay_path") or ""
-        for older in segment.get("superseded") or []:
-            if isinstance(older, str) and older:
-                mapping[str(layout.resolve_project_relative(older))] = \
-                    str(newer)
+        segments = []
+        if isinstance(data, dict):
+            overlay = data.get("subtitle_overlay") or {}
+            segments = overlay.get("segments") or []
+        for segment in segments:
+            if not isinstance(segment, dict):
+                continue
+            newer = segment.get("overlay_path") or ""
+            for older in segment.get("superseded") or []:
+                if isinstance(older, str) and older:
+                    mapping[str(layout.resolve_project_relative(older))] = \
+                        str(newer)
     return mapping
 
 
@@ -875,6 +1243,13 @@ def main(argv=None) -> int:
     sweep_p.add_argument("--mark", required=True)
     sweep_p.add_argument("--project", default="")
     sweep_p.add_argument("--db", action="append", default=None)
+    rec_p = sub.add_parser(
+        "reconcile",
+        help="adopt the step's on-disk outputs into its render ledger")
+    rec_p.add_argument("--project", required=True)
+    rec_p.add_argument("--db", action="append", default=[],
+                       help="Resolve Project.db path (repeatable); "
+                       "read through a copy, for the embedded pre-image")
     args = parser.parse_args(argv)
     if args.command == "mark":
         layout = ProjectLayout(args.project)
@@ -886,6 +1261,14 @@ def main(argv=None) -> int:
         print(render_mark_report(result))
         print(f"mark written to {written['json']}")
         print(f"report written to {written['markdown']}")
+        return 0
+    if args.command == "reconcile":
+        adopted = reconcile_render_ledger(args.project,
+                                          db_paths=args.db)
+        pre = adopted["mark"]
+        print(render_mark_report(pre))
+        print(f"ledger: {adopted['ledger']} "
+              f"({adopted['recorded']} adopted segment(s))")
         return 0
     record = sweep(args.mark, project_folder=args.project,
                    db_paths=args.db)

@@ -35,11 +35,16 @@ if PROJECT_ROOT not in sys.path:
 from library.tools.caption_asset_gc import (  # noqa: E402
     LIVE,
     ORPHAN,
+    RENDER_LEDGER_NAME,
+    LedgerUnreadable,
     SweepRefused,
     collect_pipeline_roots,
     collect_resolve_roots,
     enumerate_assets,
+    ledger_path_for,
     mark,
+    reconcile_render_ledger,
+    record_rendered_segments,
     sweep,
 )
 
@@ -369,3 +374,251 @@ def test_superseded_generation_orphaned_at_rerender_time(tmp_path):
     assert second["superseded"] == [first["overlay_path"]]
     # The old file is still on disk: orphaned, not deleted.
     assert os.path.isfile(first["overlay_path"])
+
+
+# --------------------------------------------- the render ledger
+
+
+def _recorded_ids(asset_dir):
+    with open(ledger_path_for(asset_dir), encoding="utf-8") as handle:
+        data = json.load(handle)
+    return [s["segment_id"]
+            for s in data["subtitle_overlay"]["segments"]]
+
+
+def test_render_one_segment_records_the_ledger(tmp_path):
+    """A render outside any pipeline run still vouches for its pixels.
+
+    The whole chain in one test: render one card straight into a
+    project's step directory, and the pipeline root resolves it with no
+    Resolve anywhere near it.
+    """
+    from library.steps.step_4_05_render_subtitles.step import (
+        RENDERED,
+        render_one_segment,
+    )
+    from tests.test_subtitle_overlay_modes import _props, _StubRenderer
+
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    os.makedirs(asset_dir, exist_ok=True)
+    produced = render_one_segment(_props(), asset_dir, "tl",
+                                  remotion_dir="/none",
+                                  renderer=_StubRenderer())
+    assert produced["provenance"] == RENDERED
+    ledger = ledger_path_for(asset_dir)
+    assert os.path.isfile(ledger)
+    assert produced["segment_id"] in _recorded_ids(asset_dir)
+    roots = collect_pipeline_roots(project)
+    render_root = next(r for r in roots
+                       if r.name == "pipeline:render_subtitles")
+    assert render_root.status == "ok"
+    assert produced["overlay_path"] in render_root.paths
+    result = mark(project, asset_dir, roots)
+    by_path = {a.path: a for a in result.assets}
+    assert by_path[produced["overlay_path"]].status == LIVE
+    assert by_path[produced["overlay_path"]].saved_by == \
+        "pipeline:render_subtitles"
+
+
+def test_ledger_merge_never_narrows(tmp_path):
+    """One step directory holds several timelines' batches, and a pass
+    covers one plan: recording batch B must not unprotect batch A."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    first = os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov")
+    second = os.path.join(asset_dir, "sub_tl_b_1_1-2_bbbbbbbb.mov")
+    _write(first)
+    _write(second)
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
+        "overlay_path": first, "provenance": "rendered",
+        "superseded": []}])
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_b_1_1-2_bbbbbbbb",
+        "overlay_path": second, "provenance": "rendered",
+        "superseded": []}])
+    assert sorted(_recorded_ids(asset_dir)) == sorted(
+        ["sub_tl_a_1_1-2_aaaaaaaa", "sub_tl_b_1_1-2_bbbbbbbb"])
+
+
+def test_ledger_drops_superseded_generation(tmp_path):
+    """A re-render unpins the generation it replaced: the old file
+    becomes an orphan candidate naming its replacement, while a
+    timeline-placed file would still read LIVE by reachability."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    old = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
+    new = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb.mov"))
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
+        "overlay_path": old, "provenance": "rendered",
+        "superseded": []}])
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_bbbbbbbb",
+        "overlay_path": new, "provenance": "rendered",
+        "superseded": [old]}])
+    assert _recorded_ids(asset_dir) == ["sub_tl_a_1_1-2_bbbbbbbb"]
+    roots = collect_pipeline_roots(project)
+    result = mark(project, asset_dir, roots)
+    by_path = {a.path: a for a in result.assets}
+    assert by_path[new].status == LIVE
+    assert by_path[old].status == ORPHAN
+    assert by_path[old].superseded_by == new
+
+
+def test_empty_run_records_an_empty_set(tmp_path):
+    """No assets produced is a valid empty record - `ok` with no paths,
+    never an unreadable root."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    record_rendered_segments(asset_dir, [])
+    roots = collect_pipeline_roots(project)
+    render_root = next(r for r in roots
+                       if r.name == "pipeline:render_subtitles")
+    assert render_root.status == "ok"
+    assert render_root.paths == set()
+
+
+def test_corrupt_ledger_reads_unreadable_and_refuses_sweep(tmp_path):
+    """The failure direction: a record that could not be written (here
+    a torn write, simulated as garbage bytes) reads UNREADABLE - never
+    as an empty root - and the sweep moves nothing."""
+    project = str(tmp_path)
+    asset_dir = _populate(_asset_dir(project))
+    ledger = ledger_path_for(asset_dir)
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
+        "overlay_path": os.path.join(asset_dir, _mov_names()[0]),
+        "provenance": "rendered", "superseded": []}])
+    with open(ledger, "wb") as handle:
+        handle.write(b"{torn write, not json")
+    roots = collect_pipeline_roots(project)
+    render_root = next(r for r in roots
+                       if r.name == "pipeline:render_subtitles")
+    assert render_root.status == "unreadable"
+    assert render_root.paths == set()
+    result = mark(project, asset_dir, roots)
+    mark_path = os.path.join(project, "mark.json")
+    result.write_json(mark_path)
+    with pytest.raises(SweepRefused) as refused:
+        sweep(mark_path, project_folder=project, fresh_roots=roots)
+    assert "unreadable" in str(refused.value).lower()
+    assert sorted(os.listdir(asset_dir)) == sorted(
+        _mov_names()
+        + [n[:-4] + "_props.json" for n in _mov_names()]
+        + [n[:-4] + "_reuse_key.txt" for n in _mov_names()]
+        + ["sub_tl_akshita_9_90000-92000_dddddddd_props.json",
+            RENDER_LEDGER_NAME])
+
+
+def test_ledger_refuses_to_overwrite_itself_corrupt(tmp_path):
+    """Recording onto a corrupt ledger raises instead of converting an
+    UNREADABLE root into a freshly valid one naming only the latest
+    pass - the overwrite that would silently unprotect everything the
+    old record vouched for."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    os.makedirs(asset_dir, exist_ok=True)
+    ledger = ledger_path_for(asset_dir)
+    with open(ledger, "w", encoding="utf-8") as handle:
+        handle.write("{torn write, not json")
+    with pytest.raises(LedgerUnreadable):
+        record_rendered_segments(asset_dir, [{
+            "segment_id": "sub_tl_a_1_1-2_bbbbbbbb",
+            "overlay_path": os.path.join(asset_dir, "sub_tl_new.mov"),
+            "provenance": "rendered", "superseded": []}])
+    assert open(ledger, encoding="utf-8").read() == \
+        "{torn write, not json"
+
+
+def test_ledger_prunes_files_gone_from_disk(tmp_path):
+    """An entry whose file is gone protects nothing, so the next record
+    drops it rather than pinning a path that can never match."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    gone = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
+    kept = _write(os.path.join(asset_dir, "sub_tl_b_1_1-2_bbbbbbbb.mov"))
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
+        "overlay_path": gone, "provenance": "rendered",
+        "superseded": []}])
+    os.unlink(gone)
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_b_1_1-2_bbbbbbbb",
+        "overlay_path": kept, "provenance": "rendered",
+        "superseded": []}])
+    assert _recorded_ids(asset_dir) == ["sub_tl_b_1_1-2_bbbbbbbb"]
+
+
+def test_reconcile_adopts_step_signature_outputs(tmp_path):
+    """Pre-ledger renders are adopted from the render path's own write
+    signature - a mov with a parseable props sibling. A mov without one
+    is left for the other roots to judge, and the pre-reconcile mark is
+    embedded beside the entries so the adoption is auditable."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    signed = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
+    with open(signed[:-4] + "_props.json", "w", encoding="utf-8") as handle:
+        json.dump({"subtitles": []}, handle)
+    unsigned = _write(os.path.join(
+        asset_dir, "hand_placed_1_1-2_bbbbbbbb.mov"))
+    adopted = reconcile_render_ledger(project)
+    assert adopted["recorded"] == 1
+    with open(adopted["ledger"], encoding="utf-8") as handle:
+        data = json.load(handle)
+    entries = data["subtitle_overlay"]["segments"]
+    assert [e["overlay_path"] for e in entries] == [signed]
+    assert entries[0]["reconciled"] is True
+    assert entries[0]["segment_id"] == "sub_tl_a_1_1-2_aaaaaaaa"
+    assert data["pre_reconcile_mark"]["roots"][
+        "pipeline:render_subtitles"]["paths"] == 0
+    roots = collect_pipeline_roots(project)
+    result = mark(project, asset_dir, roots)
+    by_path = {a.path: a for a in result.assets}
+    assert by_path[signed].status == LIVE
+    assert by_path[signed].saved_by == "pipeline:render_subtitles"
+    assert by_path[unsigned].status == ORPHAN
+
+
+def test_reconcile_never_overwrites_recorded_entries(tmp_path):
+    """Genuinely recorded evidence (with its binding) is never replaced
+    by reconstructed evidence for the same segment."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    mov = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
+    with open(mov[:-4] + "_props.json", "w", encoding="utf-8") as handle:
+        json.dump({"subtitles": []}, handle)
+    binding = {"timeline": "tl", "speaker": "akshita",
+               "block_position": 1, "source_clip_id": "clip_001",
+               "source_start": 10.0, "source_end": 12.0}
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa", "overlay_path": mov,
+        "provenance": "rendered", "superseded": [], "binding": binding}])
+    reconcile_render_ledger(project)
+    with open(ledger_path_for(asset_dir), encoding="utf-8") as handle:
+        data = json.load(handle)
+    entries = data["subtitle_overlay"]["segments"]
+    assert len(entries) == 1
+    assert entries[0].get("binding") == binding
+    assert "reconciled" not in entries[0]
+
+
+def test_empty_plan_stamps_an_empty_ledger(tmp_path):
+    """The full pass over a caption-less plan records the empty set it
+    produced: the root reads `ok` with no paths."""
+    from library.steps.step_4_05_render_subtitles.step import (
+        render_subtitle_overlays,
+    )
+    project = str(tmp_path)
+    remotion = str(tmp_path / "remotion")
+    os.makedirs(remotion, exist_ok=True)
+    out = render_subtitle_overlays(
+        {"subtitle_entries": []}, {"structure": []},
+        project_folder=project, remotion_dir=remotion)
+    assert out["subtitle_overlay"]["available"] is False
+    roots = collect_pipeline_roots(project)
+    render_root = next(r for r in roots
+                       if r.name == "pipeline:render_subtitles")
+    assert render_root.status == "ok"
+    assert render_root.paths == set()
