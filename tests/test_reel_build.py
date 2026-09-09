@@ -724,6 +724,25 @@ class _FakePool:
         self.append_result = (
             append_result if append_result is not None else [{"placed": True}])
 
+    class _EmptyFolder:
+        """A pool with nothing in it yet.
+
+        `place_overlay_segments` asks the pool for the file BEFORE
+        importing it (`reel_build.pool_item_for`), because re-importing
+        what is already there is how the field-test project's unplaced
+        bin reached 1,210 items. An empty pool means every segment here
+        still takes the import path these tests are about.
+        """
+
+        def GetClipList(self):
+            return []
+
+        def GetSubFolderList(self):
+            return []
+
+    def GetRootFolder(self):
+        return self._EmptyFolder()
+
     def ImportMedia(self, paths):
         return [_FakeItem()]
 

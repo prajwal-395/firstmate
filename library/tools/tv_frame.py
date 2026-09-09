@@ -210,6 +210,131 @@ def v1_zoom_for_look(punch_in: float) -> float:
     return float(punch_in)
 
 
+def cover_zoom(asset_size, frame_width: int, frame_height: int) -> float:
+    """The zoom that makes a frame asset COVER the delivery frame.
+
+    Resolve conforms a mismatched still by fitting it inside the frame
+    (`timelineInputResMismatchBehavior = scaleToFit`), so a landscape
+    bezel in a portrait reel lands as a band across the middle.  The
+    zoom that turns that band back into a full-frame cover is the ratio
+    of the two conform scales::
+
+        fit   = min(frame_w / asset_w, frame_h / asset_h)
+        cover = max(frame_w / asset_w, frame_h / asset_h)
+        zoom  = cover / fit
+
+    For the captain's ``TV 4k.png`` (3840x2160) in a 1080x1920 reel that
+    is 0.8889 / 0.28125 = **3.1605**, which is the value they set by hand
+    on the timeline on 2026-09-09 after rejecting the fitted band.  Their
+    own statement of it - ``(frame_h/frame_w) / (asset_h/asset_w)`` -
+    gives the same number for an asset wider than the frame; this form
+    is written the way it is because it also answers the other direction,
+    where the fit is by height and the cover is by width.
+
+    The number is DERIVED here and nowhere else.  Nothing in the engine
+    holds 3.16.
+    """
+    asset_width, asset_height = int(asset_size[0]), int(asset_size[1])
+    if asset_width <= 0 or asset_height <= 0:
+        raise ValueError(
+            f"a frame asset cannot be {asset_width}x{asset_height}")
+    if frame_width <= 0 or frame_height <= 0:
+        raise ValueError(
+            f"the delivery frame cannot be {frame_width}x{frame_height}")
+    by_width = frame_width / asset_width
+    by_height = frame_height / asset_height
+    return max(by_width, by_height) / min(by_width, by_height)
+
+
+def cover_size(asset_size, frame_width: int, frame_height: int) -> tuple:
+    """The pixel size a frame asset is DRAWN at when it covers the frame.
+
+    What the overlay should be rendered at, so the picture Resolve shows
+    is the asset's own pixels rather than a resample of a smaller
+    render.  Both dimensions are made even, because ffmpeg's encoders
+    reject an odd one.
+    """
+    asset_width, asset_height = int(asset_size[0]), int(asset_size[1])
+    cover = max(frame_width / asset_width, frame_height / asset_height)
+    width = int(round(asset_width * cover)) // 2 * 2
+    height = int(round(asset_height * cover)) // 2 * 2
+    return (max(width, 2), max(height, 2))
+
+
+def assert_frameable(look, frame_width: int, frame_height: int,
+                     asset_size=None) -> None:
+    """Refuse a declared frame that genuinely cannot frame this delivery.
+
+    A frame whose ASPECT is not the delivery's is not one of those cases,
+    and an earlier version of this function said it was.  The captain
+    disproved that by hand on 2026-09-09: they took the same 3840x2160
+    asset in the same 1080x1920 reel, set its zoom to 3.16, and it
+    framed.  A mismatched aspect is COVER-SCALED (:func:`cover_zoom`),
+    not unframeable, and refusing it refused a working configuration.
+
+    Two things really do stop a frame, and both are measured:
+
+    1. **No transparent window.**  A frame with no transparent region is
+       a full-cover slate: put over the picture it hides it entirely.
+       Measured off the alpha channel, not assumed from the filename.
+    2. **A cover that would UPSCALE the asset.**  Covering draws the
+       asset at ``max(frame_w/asset_w, frame_h/asset_h)`` of its native
+       size; above 1.0 that is a resample larger than the pixels that
+       exist, and a bezel is hard geometry whose thin highlights are
+       exactly what upscaling softens.  The captain's asset is 3840
+       across a 1080 frame, so covering DOWNSCALES it to 0.889 and this
+       does not fire.
+
+    `look` None returns without looking at anything.
+    """
+    if look is None:
+        return
+    if not frame_width or not frame_height:
+        raise ValueError(
+            "assert_frameable needs the delivery frame it is checking "
+            f"against, got {frame_width!r}x{frame_height!r}")
+
+    asset = look["asset"]
+    if asset_size is None:
+        from PIL import Image
+        with Image.open(asset) as im:
+            asset_size = im.size
+    asset_width, asset_height = int(asset_size[0]), int(asset_size[1])
+    if not asset_width or not asset_height:
+        raise ValueError(
+            f"tv_frame asset {asset!r} reports a zero dimension "
+            f"({asset_width}x{asset_height}); it cannot be a frame.")
+
+    # 1. A window, or it is a slate.  `screen_window` raises with its own
+    #    message for an asset with no alpha and for one with no
+    #    transparent pixel; both are the same refusal from here.
+    try:
+        window = screen_window(asset)
+    except ValueError as exc:
+        raise ValueError(
+            f"tv_frame asset {os.path.basename(asset)} cannot frame "
+            f"anything: {exc}. A frame is a window with a border around "
+            f"it; one with no window is a slate, and putting a slate "
+            f"over the picture hides it. Declared by {look['origin']}."
+        ) from exc
+
+    # 2. Covering must not upscale.
+    cover = max(frame_width / asset_width, frame_height / asset_height)
+    if cover > 1.0:
+        drawn_w = int(round(asset_width * cover))
+        drawn_h = int(round(asset_height * cover))
+        raise ValueError(
+            f"tv_frame asset {os.path.basename(asset)} is "
+            f"{asset_width}x{asset_height} and covering a "
+            f"{frame_width}x{frame_height} frame would draw it at "
+            f"{drawn_w}x{drawn_h} - an upscale of {cover:.2f}x beyond "
+            f"the pixels that exist. A bezel is hard geometry with thin "
+            f"highlights and upscaling softens exactly the edges that "
+            f"make it read as a set. Declared by {look['origin']}; "
+            f"supply the asset at {frame_width}x{frame_height} or "
+            f"larger. (Its window measures {window}.)")
+
+
 def screen_window(asset_path: str, threshold: int = 8) -> tuple:
     """The transparent window of a frame asset as (x0, y0, x1, y1).
 

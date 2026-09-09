@@ -578,6 +578,12 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # full-canvas name when it falls back.
     tight = None
     suffix = "_tight" if geometry == "tight" else ""
+    # Set when a tight box was measured and its output did not verify, so
+    # the card is carried full canvas instead. Initialised HERE, above
+    # every `entry()` return including the reuse path, because `entry`
+    # closes over it - a later assignment left the reuse path raising
+    # NameError on a free variable.
+    tight_fallback = ""
     render_props = props
 
     # Generate output path.
@@ -675,6 +681,9 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             # Where a tight clip lands. None for full-canvas, which
             # needs no transform.
             "tight_box": _placement_record(),
+            # Why this card is full canvas although the project declared
+            # tight, or "" when that did not happen.
+            "tight_fallback": tight_fallback,
             # Where a sequence lives. None for stitched video.
             "frames": _frames_record(),
         }
@@ -868,11 +877,59 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                                            tight_union, timeline_size)
             report = verify_frames(probe_frames, tight_frames, tight)
         except TightBoxMismatch as exc:
-            _drop_probe()
-            print(f"    WARN: Tight output mismatch: {str(exc)[:200]}",
-                  file=sys.stderr)
-            return entry(FAILED, failure=str(exc)[:500].strip()
-                         or "tight output mismatch")
+            # The GATE HOLDS: this tight output is not the probe crop and
+            # it does not reach a timeline. What changes is what happens
+            # NEXT. Returning FAILED here refused the whole reel over one
+            # card of eighteen, and the card was not wrong - the ink
+            # measured IoU 0.9999 at centroid offset 0.00px, and only one
+            # frame's colour differed. A tight box is a statement about
+            # CARRIAGE, not about the picture: the same props drawn on
+            # the full canvas are the same pixels on screen, which is the
+            # path a segment with nothing to bound already takes a few
+            # lines above.
+            #
+            # So the segment falls back to full canvas, the tight file is
+            # discarded, and the run SAYS which card lost its tight
+            # carriage and why. Nothing here widens `verify_frames` - its
+            # tolerances are untouched and its verdict is still final for
+            # the tight output.
+            print(f"    WARN: Tight output mismatch, carrying this card "
+                  f"FULL CANVAS instead: {str(exc)[:300]}", file=sys.stderr)
+            try:
+                if os.path.isfile(overlay_path):
+                    os.remove(overlay_path)
+                elif os.path.isdir(overlay_path):
+                    _shutil_probe.rmtree(overlay_path, ignore_errors=True)
+                for stale in (props_path, key_path):
+                    if os.path.isfile(stale):
+                        os.remove(stale)
+            except OSError:
+                pass
+            tight = None
+            tight_fallback = str(exc)[:500].strip() or "tight output mismatch"
+            geometry = "full"
+            suffix = ""
+            render_props = props
+            overlay_path = (
+                os.path.join(out_dir, f"{segment_name}_frames") if is_frames
+                else os.path.join(out_dir, f"{segment_name}.mov"))
+            props_path = os.path.join(out_dir, f"{segment_name}_props.json")
+            key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
+            with open(props_path, "w") as handle:
+                json.dump(render_props, handle, indent=2)
+            ok, error = engine.render(props_path, overlay_path,
+                                      sequence=is_frames)
+            if not ok:
+                _drop_probe()
+                return entry(FAILED, failure=(
+                    f"tight refused ({tight_fallback}) and the full-canvas "
+                    f"fallback also failed: "
+                    f"{(error or '').strip()[:200] or 'render failed'}"))
+    # The verified-tight tail. `tight` is None where the box could not be
+    # measured OR where its output did not verify and the card fell back
+    # to full canvas above; neither has a `report` and neither writes a
+    # box sidecar, because there is no box to record.
+    if tight is not None:
         print(f"    OK: {overlay_path} "
               f"(verified {report['frames']} frames, "
               f"maxdiff {report['max_diff']}, "

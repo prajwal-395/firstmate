@@ -817,6 +817,14 @@ class fx:
 
         bc_name = _next_name("PowerBloom")
         bc = FusionNode(bc_name, "BrightnessContrast")
+        # WIRED to the crop above it. `EffectBlock` wires its own
+        # `input_name` to whatever precedes the block and reads its
+        # `output_name`; the links INSIDE a block are the block's to
+        # make. Without this the BrightnessContrast has no image input,
+        # the crop's output goes nowhere, and Resolve renders the clip
+        # as "The Fusion composition at 00:00:00:00 could not be
+        # processed successfully" - a comp that imports and cannot draw.
+        bc.set_input("Input", crop_name)
         gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
         gain.add_key(first, strike_gain, flags={"Linear": True})
         gain.add_key(line_end, strike_gain, flags={"Linear": True})
@@ -893,10 +901,14 @@ class fx:
         size.add_key(dot_at, dot_size, flags={"Linear": True})
         size.add_key(last, dot_size, flags={"Linear": True})
         tf.set_input("Size", size)
+        # WIRED to the crop above it - see `tv_power_head` for what an
+        # unwired internal link does to the render.
+        tf.set_input("Input", crop_name)
         tf.pos = (220, 0)
 
         bc_name = _next_name("PowerDecay")
         bc = FusionNode(bc_name, "BrightnessContrast")
+        bc.set_input("Input", tf_name)
         gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
         gain.add_key(first, 1.0, flags={"Linear": True})
         gain.add_key(start, 1.0, flags={"Linear": True})

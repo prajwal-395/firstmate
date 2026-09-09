@@ -118,7 +118,8 @@ from tools.framing_intent import (DEFAULT_FRAMING_INTENT, FILL,
                                   resolve_framing_intent, source_covers_frame,
                                   resolve_crop_factor, DEFAULT_CROP_FACTOR)
 from tools.tv_frame import (
-    LAYER_TRACKS, TV_FRAME_LAYERS, resolve_tv_frame, v1_zoom_for_look,
+    LAYER_TRACKS, TV_FRAME_LAYERS, assert_frameable,
+    resolve_tv_frame, v1_zoom_for_look,
 )
 from tools.tv_power import switch_off_frames, switch_on_frames
 from tools.delivery_format import resolve_delivery_format
@@ -1690,6 +1691,14 @@ def compile_manifest(out_dir: str) -> dict:
     tv_look = resolve_tv_frame(_project_root, _template)
     tv_power_clips = {}
     if tv_look is not None:
+        # CHECKED against the frame this product ships in, before a
+        # single clip carries the look: a frame with no transparent
+        # window is a slate over the picture, and one that covering
+        # would upscale is a bezel drawn softer than its own pixels.
+        # A mismatched ASPECT is not refused - it is cover-scaled
+        # (tv_frame.cover_zoom), which is what the captain set by hand
+        # on 2026-09-09.
+        assert_frameable(tv_look, proj_res[0], proj_res[1])
         if broll_assignments or broll_interjections:
             raise ValueError(
                 "tv_frame is declared but the plan also carries B-roll "

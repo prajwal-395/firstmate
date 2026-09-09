@@ -471,3 +471,145 @@ def subject_box(
         center_x=round(_median(centers), 4),
         width=round(_percentile(measured, SUBJECT_WIDTH_PERCENTILE), 4),
     )
+
+
+# ── Measuring the subject in a window this pipeline never indexed ────
+#
+# `subject_center_x` and `subject_box` read a clip's TEMPORAL INDEX, and
+# a project that was ingested from an existing Resolve timeline has no
+# preflight and therefore no index - which is every project the reels
+# path serves.  So the reels punch-in had nothing to aim with, and a
+# centred 2.3x zoom put the speaker out of shot (captain, 2026-09-09:
+# "cropping into the bottom-left of the raw frame with Craig entirely
+# out of shot").
+#
+# This measures the SAME thing off the frames the reel actually plays,
+# with the same cascade, the same medians and the same thresholds, so
+# there is one reading of where the subject is and not two.
+
+SUBJECT_PROBE_SAMPLES = 12
+"""How many frames of a played window are sampled.
+
+Enough that `MIN_SAMPLES` (4) and `MIN_DETECTION_RATIO` (0.34) can both
+be met by a shot where the speaker turns away for part of it, and few
+enough that a three-shot reel decodes 36 frames rather than thousands.
+"""
+
+
+@dataclass(frozen=True)
+class SubjectPoint:
+    """Where the subject sits in the SOURCE frame, both axes, 0..1.
+
+    `center_y` is here and is NOT in `SubjectBox`: the temporal index
+    records `face_center_x` and `face_width` and no vertical term at
+    all, so a reading taken from the index can only ever answer one
+    axis.  A reading taken from the frames can answer both, and a
+    punch-in that can only pan is a punch-in that cannot rescue a
+    speaker sitting low in frame.
+    """
+    center_x: float
+    center_y: float
+    width: float
+    samples: int
+    detected: int
+    others: int = 0
+    """How many OTHER faces are consistently in this window.
+
+    Above zero the shot is not a single-speaker close-up, and "the
+    largest face" stops meaning "the speaker": in a two-shot the nearest
+    person wins the size comparison whoever is talking, so a crop aimed
+    that way can put the actual speaker outside the frame. The caller
+    refuses the punch-in rather than aiming at a guess.
+    """
+
+
+def measure_subject_in_window(video_path: str, source_in: float,
+                              source_out: float,
+                              samples: int = SUBJECT_PROBE_SAMPLES,
+                              cascade=None) -> Optional["SubjectPoint"]:
+    """The subject's position over one played window, or None.
+
+    None means the footage does not support an answer - no detector on
+    this machine, no decodable frames, or too few detections - and a
+    caller that gets None must NOT punch in.  That is the whole contract:
+    an unaimed punch-in is a guess about where the person is, and the
+    captain's ruling is to refuse rather than guess.
+
+    Frames are decoded with ffmpeg at evenly spaced points inside the
+    window rather than read from a cached index, because the index is
+    what a reels project does not have.
+    """
+    import subprocess
+    import tempfile
+
+    if source_out <= source_in:
+        return None
+    cascade = load_face_cascade() if cascade is None else cascade
+    if cascade is None:
+        return None
+    try:
+        import cv2
+    except ImportError:
+        return None
+
+    span = source_out - source_in
+    # Inside the window, never on its edges: the first and last frames of
+    # a cut are the ones most likely to be a dissolve or a head turn.
+    points = [source_in + span * (i + 0.5) / samples for i in range(samples)]
+
+    centers_x: List[float] = []
+    centers_y: List[float] = []
+    widths: List[float] = []
+    multi = 0
+    with tempfile.TemporaryDirectory(prefix="subject_probe_") as tmp:
+        for index, at in enumerate(points):
+            frame_path = os.path.join(tmp, f"f{index:03d}.png")
+            result = subprocess.run(
+                ["ffmpeg", "-y", "-ss", f"{at:.3f}", "-i", video_path,
+                 "-frames:v", "1", "-vf", "scale=640:-2", frame_path],
+                capture_output=True, encoding="utf-8", check=False)
+            if result.returncode != 0 or not os.path.isfile(frame_path):
+                continue
+            image = cv2.imread(frame_path)
+            if image is None:
+                continue
+            height, width = image.shape[:2]
+            grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            faces = cascade.detectMultiScale(grey, 1.1, 5)
+            if faces is None or len(faces) == 0:
+                continue
+            # How many faces this frame really holds, counted before one
+            # is chosen: a second person is the difference between "the
+            # largest face is the speaker" and "the largest face is
+            # whoever sits nearest the camera".
+            plausible = [f for f in faces
+                         if MIN_PLAUSIBLE_CX
+                         <= (int(f[0]) + int(f[2]) / 2.0) / width
+                         <= MAX_PLAUSIBLE_CX]
+            if len(plausible) > 1:
+                multi += 1
+            x, y, w, h = max(faces, key=lambda f: int(f[2]) * int(f[3]))
+            cx = (x + w / 2.0) / width
+            cy = (y + h / 2.0) / height
+            if not (MIN_PLAUSIBLE_CX <= cx <= MAX_PLAUSIBLE_CX):
+                continue
+            centers_x.append(cx)
+            centers_y.append(cy)
+            widths.append(w / float(width))
+
+    if len(centers_x) < MIN_SAMPLES:
+        return None
+    if len(centers_x) / float(samples) < MIN_DETECTION_RATIO:
+        return None
+    # A single frame with two detections is a false positive on a bright
+    # rectangle; a shot that shows two people shows them throughout. The
+    # same ratio that decides whether ONE face was seen often enough
+    # decides whether a SECOND was.
+    others = 1 if (multi / float(samples)) >= MIN_DETECTION_RATIO else 0
+    return SubjectPoint(
+        center_x=round(_median(centers_x), 4),
+        center_y=round(_median(centers_y), 4),
+        width=round(_median(widths), 4),
+        samples=samples,
+        detected=len(centers_x),
+        others=others)

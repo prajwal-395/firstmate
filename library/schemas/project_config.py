@@ -97,6 +97,15 @@ class PipelineConfig:
     # SEPARATE from the caption one on purpose - see
     # library/tools/overlay_mode.py.
     motion_graphics_overlay_geometry: str = "full"
+    # The punched-in TV-frame look, in the {asset, punch_in, power}
+    # shape a brand template's `style.tv_frame` uses and taking
+    # precedence over it. None means "take the template's", which in
+    # turn means no look unless the template declares one. The field
+    # exists so manage_project.py validates and round-trips the key
+    # rather than dropping it - `tv_frame.resolve_tv_frame` reads the
+    # raw pipeline block, so a dropped key here is a look the editor
+    # declared, the run honoured and the schema denied.
+    tv_frame: Optional[dict] = None
     creative_brief: str = ""  # path to markdown creative brief (relative to project root)
     # Whether that brief is ATTACHED to the planning prompts. Three
     # states, and None is not "false": an undeclared key means the PATH
@@ -352,6 +361,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         motion_graphics_overlay_geometry=(
             pipeline_data.get("motion_graphics_overlay_geometry", "full")
             or "full"),
+        tv_frame=pipeline_data.get("tv_frame"),
         creative_brief=pipeline_data.get("creative_brief", ""),
         attach_creative_brief=pipeline_data.get("attach_creative_brief"),
         creative_brief_inline=list(

@@ -65,6 +65,7 @@ does not coordinate with it.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -733,6 +734,7 @@ def check_item_count(reel_name: str,
                      actual_video_items: Sequence[TimelineItem],
                      fps: float,
                      cards: Sequence["PlannedCard"] = (),
+                     look=None,
                      ) -> List[Finding]:
     """F4: Compare planned item count vs placed, and per-speaker duration.
 
@@ -751,10 +753,33 @@ def check_item_count(reel_name: str,
     # frame, in both directions - dropping it here is not a hole.
     card_by_item = {id(i): n for n, i in
                     card_items(actual_video_items, cards).items()}
+    # The TV frame is on V2 and is not a picture item: it is the SET the
+    # picture plays inside, one rendered overlay per run of picture, and
+    # no `placements` entry describes it - the same reason a full-frame
+    # card is excluded above.  `library/tools/reel_look.py` decides
+    # which items those are, so the placer and this check cannot
+    # disagree; a frame-shaped overlay the declaration does not account
+    # for is held below rather than let through here.
+    from library.tools import reel_look as _look
+    frame_by_item = _look.frame_overlay_items(actual_video_items, look)
     actual_picture = [i for i in actual_video_items
                       if i.track_index in (1, 2)
-                      and id(i) not in card_by_item]
+                      and id(i) not in card_by_item
+                      and id(i) not in frame_by_item]
     actual_count = len(actual_picture)
+
+    # Under the look the picture collapses onto V1 so V2 is free for the
+    # frame (`reel_look` states why), and a speaker can no longer be
+    # identified by the track they were placed on: both speakers are on
+    # V1, so a track-to-speaker mapping attributes the whole reel to
+    # whichever the plan listed last.  The SOURCE FILE identifies them
+    # instead, which is what the plan and the timeline both carry and
+    # what the master's own track index was standing in for.
+    by_source: Dict[str, str] = {}
+    if look is not None:
+        for p in planned_placements:
+            if p.speaker and p.source_file:
+                by_source[p.source_file] = p.speaker
 
     if actual_count != expected_count:
         findings.append(Finding(
@@ -788,8 +813,10 @@ def check_item_count(reel_name: str,
     for item in actual_picture:
         if item.speaker:
             track_names[item.track_index] = item.speaker
-            
-        speaker = track_to_speaker.get(item.track_index)
+
+        speaker = (by_source.get(item.source_file)
+                   if by_source else None) or track_to_speaker.get(
+                       item.track_index)
         if not speaker:
             # Fall back to timeline's track names if they match a planned speaker
             if item.speaker and item.speaker in planned_by_speaker:
@@ -2575,6 +2602,7 @@ def check_delivered_framing(reel_name: str,
                             declared_intent: Optional[float] = None,
                             declared_crop_factor: float = 1.0,
                             cards: Sequence["PlannedCard"] = (),
+                            look=None,
                             ) -> List[Finding]:
     """F12: Verify the picture on the frame is the picture declared.
 
@@ -2627,7 +2655,19 @@ def check_delivered_framing(reel_name: str,
         if id(item) in card_by_item:
             sizes[item.source_file] = {"width": width, "height": height,
                                        "rotation": 0}
-    footage = [i for i in video_items if i.track_index in (1, 2)]
+    # Under a declared TV frame the shot plays at the project's own
+    # framing MULTIPLIED by the declared punch-in - that is what
+    # `tv_frame.v1_zoom_for_look` puts on V1 - so the declaration this
+    # check grades against is the multiplied one.  Without it every shot
+    # under the look reads as a framing violation, which is a gate
+    # failing correct output (AGENTS.md 10.4).  The frame overlay itself
+    # is the SET rather than footage and is excluded, by the same
+    # enumeration the placer and F4 use.
+    from library.tools import reel_look as _look
+    declared_crop_factor = _look.declared_zoom_over(declared_crop_factor, look)
+    frame_by_item = _look.frame_overlay_items(video_items, look)
+    footage = [i for i in video_items
+               if i.track_index in (1, 2) and id(i) not in frame_by_item]
     unreadable: List[str] = []
     # One finding per distinct disagreement, not per item: 34 clips of one
     # source all conform the same way, and 34 copies of one sentence is a
@@ -2660,6 +2700,38 @@ def check_delivered_framing(reel_name: str,
             if name not in unreadable:
                 unreadable.append(f"{name} ({exc})")
             continue
+        # Under the look a punch-in is AIMED at the measured subject, so
+        # the delivered picture is the declared SIZE at an offset
+        # position. The offset is not re-derived here - that would mean
+        # re-running the face measurement - it is checked against the
+        # bound the placer clamps to: an aim may move the picture only
+        # as far as it can without uncovering an edge it was covering.
+        # An aim past that bound is a real defect and is reported; an
+        # aim inside it is the declared picture, moved on purpose.
+        if look is not None and not is_card:
+            pan = float((item.transform or {}).get("Pan") or 0.0)
+            tilt = float((item.transform or {}).get("Tilt") or 0.0)
+            pan_room, tilt_room = _look.aim_room(delivered, width, height)
+            if abs(pan) > pan_room + 1 or abs(tilt) > tilt_room + 1:
+                findings.append(Finding(
+                    finding_class=FindingClass.F12, reel=reel_name,
+                    message=(
+                        f"{item.source_file.rsplit('/', 1)[-1]} is aimed "
+                        f"Pan {pan:.1f}, Tilt {tilt:.1f} where the picture "
+                        f"allows {pan_room:.1f}, {tilt_room:.1f} - the aim "
+                        f"has moved the picture off an edge it was "
+                        f"covering, leaving blank frame"),
+                    severity="error",
+                    detail={"pan": pan, "tilt": tilt,
+                            "pan_room": pan_room, "tilt_room": tilt_room}))
+                continue
+            declared = dataclasses.replace(
+                declared,
+                left=declared.left + int(round(pan)),
+                right=declared.right + int(round(pan)),
+                top=declared.top + int(round(tilt)),
+                bottom=declared.bottom + int(round(tilt)))
+
         why = disagreement(delivered, declared)
         if why is None:
             continue
@@ -3682,6 +3754,7 @@ def verify_reel(plan: ReelPlan,
                 source_sizes: Optional[dict] = None,
                 declared_intent: Optional[float] = None,
                 declared_crop_factor: float = 1.0,
+                look=None,
                 planned_overlays: Optional[Sequence[dict]] = None,
                 explainer_plan: Optional[dict] = None,
                 semantic_plan: Optional[dict] = None,
@@ -3737,7 +3810,7 @@ def verify_reel(plan: ReelPlan,
     if not not_this_plan:
         findings.extend(check_item_count(
             plan.reel_name, plan.placements, timeline.video_items, fps,
-            cards=plan.cards))
+            cards=plan.cards, look=look))
 
     # F13: the full-frame elements themselves, in both directions.
     # Runs unconditionally: "the plan declares none and the timeline
@@ -3787,7 +3860,7 @@ def verify_reel(plan: ReelPlan,
             source_sizes=source_sizes,
             declared_intent=declared_intent,
             declared_crop_factor=declared_crop_factor,
-            cards=plan.cards))
+            cards=plan.cards, look=look))
 
     # F11: Subtitle styling - reads the OUTPUT cards, not the config
     findings.extend(check_subtitle_styling(
@@ -4894,6 +4967,14 @@ def run_verification(
     # default nobody declared.
     source_sizes = _catalog_source_sizes(project_folder)
     declared_intent, declared_crop_factor = _declared_framing(project_folder)
+    # The declared TV-frame look, resolved ONCE from the same module the
+    # build read it from, for the same reason the framing above is: a
+    # reel and the check that grades it must not read two declarations.
+    # None is a project that declares no look, and then every check
+    # below reads exactly what it read before `reel_look` existed.
+    from library.tools import reel_look as _reel_look
+    declared_look = (_reel_look.resolve_look(project_folder)
+                     if project_folder else None)
     # What the build recorded about each reel's explainer. Read ONCE and
     # read from the BUILD's own record; `{}` when no build ever wrote
     # one, which makes F21 silent rather than confident.
@@ -4981,6 +5062,7 @@ def run_verification(
                 source_sizes=source_sizes,
                 declared_intent=declared_intent,
                 declared_crop_factor=declared_crop_factor,
+                look=declared_look,
                 planned_overlays=overlay_plans.get(name),
                 explainer_plan=plan_for_reel(explainer_plans, name),
                 semantic_plan=semantic_record_for_reel(

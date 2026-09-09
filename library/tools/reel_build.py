@@ -1245,8 +1245,21 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
                               overlay_geometry=overlay_geometry,
                               overlay_container=overlay_container,
                               project_folder=project_folder)
-        if rendered is not None:
-            segments.append(rendered)
+        if rendered is None:
+            continue
+        # A FAILED render is a record of what went wrong, not a segment:
+        # it carries no `source_in_frame`, so appending it reached the
+        # placer and died there with a KeyError three functions away
+        # from the cause. REFUSED by name and with the renderer's own
+        # reason, at the point of knowledge - a reel missing a caption
+        # card is a defective reel, and F2/NO-REFERENCE would only say
+        # so later and with less pointing at it.
+        if rendered.get("provenance") == "failed":
+            raise ReelBuildError(
+                f"{name}: caption segment "
+                f"{rendered.get('segment_id', '?')!r} did not render: "
+                f"{rendered.get('failure') or 'no reason recorded'}")
+        segments.append(rendered)
     return segments
 
 
@@ -1544,9 +1557,75 @@ def _reel_source_size(project_folder: str):
     return sizes.pop()
 
 
+def _source_frame_size(item):
+    """(width, height) of a placed item's source, or None.
+
+    Read off the media pool item's own `Resolution` property rather than
+    the catalog: the reels path serves projects that were ingested from
+    a Resolve timeline and have no catalog entry for their footage.
+    None means Resolve could not say, and a caller that needs a size to
+    aim a crop must refuse rather than assume one.
+    """
+    pool_item = item.GetMediaPoolItem() if hasattr(
+        item, "GetMediaPoolItem") else None
+    if pool_item is None:
+        return None
+    raw = pool_item.GetClipProperty("Resolution") or ""
+    if "x" not in str(raw):
+        return None
+    try:
+        parts = str(raw).lower().split("x")
+        return (int(parts[0]), int(parts[1]))
+    except (TypeError, ValueError):
+        return None
+
+
+def pool_item_for(pool, filepath: str):
+    """The media pool item for *filepath*, or None if it is not there yet.
+
+    Searched by FULL PATH through every folder, which is the identity
+    `apply_fusion_comps._map_clips_to_items` matches on too - a basename
+    match would pair a reel's overlay with another reel's file of the
+    same name.
+
+    Every import in this module goes through :func:`import_pool_item`
+    below, which asks this FIRST.  It did not, and the cost was
+    measured on 2026-09-09: the media pool's "not placed on any
+    timeline" bin held 96 copies of 12 motion-graphic files - eight of
+    each, one per build attempt - because every build re-imported files
+    that were already there.  A rebuild is the normal way to work on a
+    reel, so the pool grew by the whole overlay set every time; the bin
+    held 1,210 items before the project was reset.
+    """
+    def _search(folder):
+        for item in folder.GetClipList() or ():
+            if item.GetClipProperty("File Path") == filepath:
+                return item
+        for sub in folder.GetSubFolderList() or ():
+            found = _search(sub)
+            if found:
+                return found
+        return None
+
+    return _search(pool.GetRootFolder())
+
+
+def import_pool_item(pool, filepath: str):
+    """The pool item for *filepath*, imported only if it is not there.
+
+    Returns None when the import itself failed, so every caller keeps
+    judging the call by what it RETURNS (AGENTS.md 5).
+    """
+    existing = pool_item_for(pool, filepath)
+    if existing is not None:
+        return existing
+    items = pool.ImportMedia([filepath])
+    return items[0] if items else None
+
+
 def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            segments, track_index: int, kind: str,
-                           check: str) -> None:
+                           check: str, properties: dict = None) -> None:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -1566,15 +1645,15 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     with less pointing at the cause.
     """
     for segment in segments or []:
-        items = pool.ImportMedia([segment["overlay_path"]])
-        if not items:
+        item = import_pool_item(pool, segment["overlay_path"])
+        if item is None:
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered {kind} "
                 f"{segment['overlay_path']!r}")
         assert_current_timeline(project, timeline)
         record_frame = int(round(segment["timeline_start"] * fps))
         placed = pool.AppendToTimeline([{
-            "mediaPoolItem": items[0],
+            "mediaPoolItem": item,
             "startFrame": 0,
             # EXCLUSIVE, the same reading every other placement here
             # uses. An inclusive endFrame leaves a one-frame gap, which
@@ -1590,9 +1669,20 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                 f"{segment['overlay_path']!r} on V{track_index} - "
                 f"AppendToTimeline returned nothing, and an unplaced "
                 f"segment the record claims is a build {check} refuses")
+        # A transform the caller declares for this whole track - today
+        # only the TV frame's cover zoom. Judged by what SetProperty
+        # RETURNS, because a frame that silently kept zoom 1.0 is the
+        # letterboxed band all over again.
+        for key, value in (properties or {}).items():
+            for item in (placed if isinstance(placed, list) else []):
+                if hasattr(item, "SetProperty") and not item.SetProperty(
+                        key, value):
+                    raise ReelBuildError(
+                        f"{name}: Resolve refused {key}={value} on the "
+                        f"{kind} at {segment['timeline_start']:.2f}s")
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -1622,6 +1712,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     places nothing AND adds no track, so a project that declares no
     element gets a timeline byte-for-byte identical to the one it got
     before this parameter existed.
+
+    `look` is the project's resolved TV-frame declaration
+    (`library/tools/reel_look.py`) or None.  Under it the picture
+    collapses to V1 and plays at the declared punch-in, the frame asset
+    spans each run of picture on V2, and the switch animation and any
+    planned drift are applied afterwards as Fusion comps - by the
+    caller, in its own process (AGENTS.md 5).  `motion` is the reel's
+    RESOLVED drift plan, carried here only so the manifest that pass
+    reads can be built from the placements this function really made.
+    None for either is the timeline this function built before they
+    existed.
     """
     import sys, os
     name = timeline_name or moment.timeline_name
@@ -1682,6 +1783,18 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
+    # The TV-frame look, if this project declares one.  The picture
+    # collapses onto V1 so V2 is free for the frame - `reel_look` states
+    # why, and REFUSES rather than collapsing where two placements really
+    # overlap.  Everything above V2 is untouched: captions stay on V3,
+    # transitions on V4, the explainer on V5 and the semantic visuals on
+    # V6, so a reel wearing the look is the same reel with a set around
+    # it.
+    if look is not None:
+        from library.tools import reel_look as _look
+        _look.assert_one_picture_at_a_time(placements_list, fps)
+        placements_list = _look.collapse_to_v1(placements_list)
+
     # A span IS the picture for the whole body, so the footage video it
     # replaces is not placed: two pictures on V1 would be an overlap, not
     # a composite, and an overlay hiding the footage would leave its
@@ -1708,14 +1821,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"does not reach the timeline leaves the reel starting on "
                 f"speech, which is exactly what it looks like when nothing "
                 f"was declared at all.")
-        items = pool.ImportMedia([path])
-        if not items:
+        card_item = import_pool_item(pool, path)
+        if card_item is None:
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered card "
                 f"{path!r}")
         assert_current_timeline(project, timeline)
         pool.AppendToTimeline([{
-            "mediaPoolItem": items[0],
+            "mediaPoolItem": card_item,
             "startFrame": 0,
             # EXCLUSIVE, and this is MEASURED rather than assumed
             # (AGENTS.md 5: judge a Resolve call by what it RETURNS).
@@ -1732,15 +1845,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "recordFrame": card.reel_start_frame,
         }])
     
-    root_folder = pool.GetRootFolder()
-    def _find_pool_item(folder, filepath):
-        for item in folder.GetClipList():
-            if item.GetClipProperty("File Path") == filepath:
-                return item
-        for sub in folder.GetSubFolderList():
-            found = _find_pool_item(sub, filepath)
-            if found: return found
-        return None
+    # The footage lookup is `pool_item_for` now, module level, because
+    # every import in this module has to ask the same question and a
+    # nested copy could only ever answer it for footage.
         
 
 
@@ -1749,7 +1856,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         c = p["clip"]
         if span_present and c.track_type == "video":
             continue
-        pool_item = _find_pool_item(root_folder, c.source_file)
+        pool_item = pool_item_for(pool, c.source_file)
         if not pool_item:
             print(f"Source file {c.source_file} not in media pool", file=sys.stderr)
             continue
@@ -1768,6 +1875,85 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "recordFrame": p["snapped_record"]
         }])
 
+    # ── The declared look: punch-in on the picture, the frame over it ──
+    # The punch-in is the Edit-page transform, which is what the
+    # captain's own reference capture measured. It is AIMED at the
+    # speaker, per shot, and a shot with no subject measurement is left
+    # unpunched rather than punched at a guess (captain, 2026-09-09:
+    # a centred 2.30 put Craig out of shot entirely).
+    if look is not None:
+        from library.tools import reel_look as _look
+        from library.tools.subject_framing import measure_subject_in_window
+
+        picture_items = timeline.GetItemListInTrack("video", 1) or []
+        picture_places = [p for p in placements_list
+                          if getattr(p["clip"], "track_type", "video")
+                          == "video"]
+        picture_places.sort(key=lambda p: p["snapped_record"])
+        aimed = 0
+        for index, item in enumerate(picture_items):
+            if index >= len(picture_places):
+                break
+            place = picture_places[index]
+            source_file = place["clip"].source_file
+            subject = measure_subject_in_window(
+                source_file, place["source_in"], place["source_out"])
+            source_size = _source_frame_size(item)
+            if source_size is None:
+                raise ReelBuildError(
+                    f"{name}: Resolve reports no resolution for "
+                    f"{os.path.basename(source_file)}, so the punch-in "
+                    f"cannot be aimed and must not be guessed at.")
+            properties = _look.punch_in_properties(
+                look, subject, source_size[0], source_size[1],
+                width, height)
+            if properties is None:
+                print(f"  {name}: NO PUNCH-IN on "
+                      f"{os.path.basename(source_file)} "
+                      f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
+                      f"- {_look.PUNCH_IN_REFUSED_NO_SUBJECT if subject is None else _look.PUNCH_IN_REFUSED_NOT_A_CLOSE_UP}"
+                      f": an unaimed crop is a guess about where the "
+                      f"speaker is. The shot plays uncropped.",
+                      file=sys.stderr)
+                continue
+            for key, value in properties.items():
+                # Judged by what it RETURNS (AGENTS.md 5).
+                if not item.SetProperty(key, value):
+                    raise ReelBuildError(
+                        f"{name}: Resolve refused {key}={value} on "
+                        f"{item.GetName()!r}. The look declares a punch-in "
+                        f"and a clip that did not take it plays at a "
+                        f"different size to the ones beside it.")
+            aimed += 1
+            print(f"  {name}: punch-in {properties['ZoomX']} aimed at "
+                  f"subject x={subject.center_x} y={subject.center_y} "
+                  f"({subject.detected}/{subject.samples} frames) on "
+                  f"{os.path.basename(source_file)} -> Pan "
+                  f"{properties['Pan']}, Tilt {properties['Tilt']}",
+                  file=sys.stderr)
+
+        runs = _look.frame_runs(placements_list, fps)
+        # The frame goes on as a RENDERED overlay, through the same
+        # placer the explainer and the semantic visuals use: a still
+        # cannot be placed for an arbitrary length through Resolve's
+        # API, and one placed as a still came out at the project's
+        # standard five seconds over a sixty-one second run.
+        #
+        # It carries the COVER zoom (`tv_frame.cover_zoom`), which is
+        # what turns a landscape bezel conformed into a portrait frame
+        # from a band across the middle into a frame around the picture.
+        place_overlay_segments(
+            pool, project, timeline, name, fps,
+            _look.frame_overlay_segments(look, runs, fps, width, height,
+                                         project_folder),
+            _look.FRAME_TRACK, kind="TV frame", check="F4",
+            properties=_look.frame_properties(look, width, height))
+        print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
+              f"V{_look.FRAME_TRACK} at cover zoom "
+              f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
+              f"punch-in aimed on {aimed}/{len(picture_places)} shot(s) "
+              f"({look['origin']})", file=sys.stderr)
+
     # Captions are PLACED here and RENDERED by step 4.05, which is the
     # pipeline's renderer. This used to carry its own `npx remotion
     # render` loop - a third implementation of the same call - and it is
@@ -1781,9 +1967,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         frame_dir = frames_info.get("dir", "") if segment.get(
             "container") == "frames" else ""
         if frame_dir:
-            items = pool.ImportMedia(sequence_frame_paths(frame_dir))
+            paths = sequence_frame_paths(frame_dir)
+            existing = pool_item_for(pool, paths[0]) if paths else None
+            items = ([existing] if existing is not None
+                     else pool.ImportMedia(paths))
         else:
-            items = pool.ImportMedia([segment["overlay_path"]])
+            found = import_pool_item(pool, segment["overlay_path"])
+            items = [found] if found is not None else []
         if not items:
             print(f"Failed to import {segment.get('overlay_path') or frame_dir}",
                   file=sys.stderr)
@@ -1827,7 +2017,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # planner that both do the arithmetic are two chances to land one
     # frame off the cut the element exists to hide.
     for placement in (overlay_placements or []):
-        items = pool.ImportMedia([placement.element_path])
+        element_item = import_pool_item(pool, placement.element_path)
+        items = [element_item] if element_item is not None else []
         if not items:
             raise ValueError(
                 f"transition element {placement.element_path} could not be "
@@ -2675,6 +2866,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     card_declarations = declared_cards(project_folder)
     explainer_plans = []
     semantic_records = []
+    # The project's TV-frame declaration, read ONCE for the same reason
+    # the cards are: a malformed declaration must stop the whole build
+    # rather than the twelfth reel of nineteen. None is a project that
+    # declares no look, and then every reel below is placed exactly as
+    # it was before `library/tools/reel_look.py` existed.
+    from library.tools import reel_look as _reel_look
+    # CHECKED against the frame the reels are built at, before a
+    # timeline exists: a frame asset whose aspect is not the delivery's
+    # cannot surround the picture, and one smaller than the delivery
+    # would be drawn upscaled. Both refuse here with both numbers named.
+    reel_look_decl = _reel_look.resolve_look(project_folder, 1080, 1920)
+    motion_records = []
+    if reel_look_decl is not None:
+        print(f"TV-frame look declared by {reel_look_decl['origin']}: "
+              f"punch-in {reel_look_decl['punch_in']}, frame "
+              f"{os.path.basename(reel_look_decl['asset'])}", file=sys.stderr)
     # What the model read of each reel, and what the project declares.
     # Both are read ONCE for the batch: the judgement is one file and the
     # declaration is one project, and re-reading either per reel would be
@@ -2837,6 +3044,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     print(f"  no transition element placed: "
                           f"{overlay_plan.reason_empty}", flush=True)
 
+            # The declared look, and the drift a model planned under it.
+            # Both are resolved BEFORE the timeline is created so a
+            # malformed declaration refuses the build rather than
+            # leaving half a reel behind; both are None where the
+            # project declares nothing, and then this is the call it
+            # was before `reel_look` existed.
+            reel_motion = []
+            if reel_look_decl is not None:
+                from library.tools import reel_look as _look
+                spine = _look.motion_spine(
+                    placements(reel_ranges(moment, transcript), master_clips,
+                               24000/1001, lead_frames=lead_frames(cards, 24000/1001)),
+                    24000/1001)
+                _look.write_motion_request(
+                    moment.number, name, spine,
+                    transcript.get("segments") or [], project_folder)
+                reel_motion, motion_record = _look.resolve_motion(
+                    _look.read_motion_answer(project_folder, moment.number),
+                    spine, 24000/1001)
+                motion_record["reel"] = name
+                motion_records.append(motion_record)
+                if motion_record["basis"] == _look.MOTION_AWAITING_ANSWER:
+                    print(f"  {name}: NO PICTURE MOTION - no model answer on "
+                          f"file ({_look.motion_request_stem(moment.number)}"
+                          f".json), every shot plays still", file=sys.stderr)
+                for drop in motion_record["dropped"]:
+                    print(f"  {name}: motion dropped on shot "
+                          f"{drop['target_block_position']} "
+                          f"({drop['effect_type']}): {drop['reason']}",
+                          file=sys.stderr)
+
             build_reel_timeline(
                 project=project,
                 moment=moment,
@@ -2853,7 +3091,31 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                                     if overlay_plan else None),
                 explainer_segments=explainer_segments,
                 semantic_segments=semantic_segments,
+                look=reel_look_decl,
+                motion=reel_motion,
             )
+            # The switch animation and the drift are Fusion comps, and a
+            # comp cannot be imported by the process that created the
+            # timeline (AGENTS.md 5).  So they go in here, in a
+            # subprocess handed the destination it must find current -
+            # after the picture is placed and before the gate reads it,
+            # because a reel whose comps failed is not the reel that was
+            # planned.
+            if reel_look_decl is not None:
+                from library.tools import reel_look as _look
+                manifest = _look.fusion_manifest(
+                    _look.collapse_to_v1(placements(
+                        reel_ranges(moment, transcript), master_clips,
+                        24000/1001,
+                        lead_frames=lead_frames(cards, 24000/1001))),
+                    reel_look_decl, reel_motion, 24000/1001)
+                if not _look.apply_comps(manifest, project_folder,
+                                         resolve_name, name):
+                    raise ReelBuildError(
+                        f"{name}: the Fusion pass refused or failed. The "
+                        f"switch animation and every planned drift are "
+                        f"comps, so a reel that lost them is a reel with a "
+                        f"different picture from the one that was planned.")
             # Placed: only now is this staging a container the gate may
             # grade and promotion may move. An exception above leaves the
             # name off this list and the except below removes whatever
@@ -3000,6 +3262,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # reel present with no placements means it declares one and this
         # reel had no cut of the kind it asked for.
         "transition_overlays": overlay_records,
+        # The declared look, and what each reel's picture motion came
+        # to. `look` is None where the project declares none; `motion`
+        # carries one record per reel INCLUDING the reels where every
+        # entry was dropped and why, because a plan whose entries were
+        # all refused must not read like a plan the model deliberately
+        # left empty (`library/tools/reel_look.py`, MOTION_BASES).
+        "look": reel_look_decl,
+        "picture_motion": motion_records,
     }
 
 

@@ -125,3 +125,42 @@ def test_animated_size_peak_stays_inside_the_ceiling():
     dot shrinks FROM 1.0, so the peak is exactly 1.0."""
     comp = build_effect_comp({"tv_power_tail": True}, 300)
     assert "PowerDot1Size" in comp
+
+
+def test_power_blocks_wire_their_own_internal_links():
+    """Every node inside a power block reads the one before it.
+
+    `EffectBlock` wires its `input_name` to whatever precedes the block
+    and reads its `output_name`; the links INSIDE a block are the
+    block's own to make.  Neither power block made them, so the
+    BrightnessContrast that carries the strike had no image input: the
+    comp imported, Resolve accepted it, and the render died with "The
+    Fusion composition at 00:00:00:00 could not be processed
+    successfully" (reel 12, 2026-09-09).  Asserted on the nodes rather
+    than on the serialized text so a rename cannot make it pass.
+    """
+    import os
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from library.tools.fusion.effects import fx
+    from library.tools.fusion.nodes import FusionNode
+
+    for block in (fx.tv_power_head(600, source_in=0, source_out=600),
+                  fx.tv_power_tail(600, source_in=0, source_out=600)):
+        tools = [n for n in block.nodes if isinstance(n, FusionNode)]
+        assert len(tools) > 1, "both blocks are multi-node"
+        names = [n.name for n in tools]
+        # Every tool except the block's declared input must read another
+        # tool of the same block on its image Input.
+        for node in tools:
+            if node.name == block.input_name:
+                continue
+            wired = node.inputs.get("Input")
+            upstream = (wired.get("SourceOp")
+                        if isinstance(wired, dict) else wired)
+            assert upstream in names, (
+                f"{node.name} ({node.tool_type}) has no image input inside "
+                f"the block; it reads {wired!r}. A tool with no Input "
+                f"cannot draw and the whole comp fails to process.")
+        # And the block's output is reachable from its input.
+        assert block.output_name in names

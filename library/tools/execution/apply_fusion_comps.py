@@ -57,6 +57,18 @@ except ImportError as e:
 _TOOLS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _TOOLS_DIR not in sys.path:
     sys.path.insert(0, _TOOLS_DIR)
+# And the REPOSITORY ROOT, because the comp builder this pass calls
+# imports its neighbours by their package name
+# (`library.tools.tv_power`, `library.tools.subject_grade`). Run as a
+# script, `sys.path[0]` is this file's directory and the repository root
+# is on the path only if the launcher happened to put it there - so the
+# switch animation and the subject-scoped grade raised
+# ModuleNotFoundError inside the subprocess, which the caller sees only
+# as "the Fusion pass failed". Added here rather than made defensive at
+# each import: there is one entry point and three importers.
+_REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
 from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
