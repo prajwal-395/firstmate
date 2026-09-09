@@ -353,7 +353,8 @@ def to_source_time(clip, timeline_time: float) -> float:
 # ── Transcribing ─────────────────────────────────────────────────────
 
 def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
-                     beam_size: int = 5) -> dict:
+                     beam_size: int = 5, initial_prompt: str | None = None,
+                     hotwords: str | None = None) -> dict:
     """One speaker's rebuilt timeline audio, transcribed and aligned.
 
     TRANSCRIPTION goes through `faster_whisper` directly, and ALIGNMENT
@@ -404,9 +405,20 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
     print(f"  transcribing with faster-whisper ({model_size}, int8, cpu)...",
           file=sys.stderr)
     model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    # Decode-time bias toward the project's recorded corrections
+    # (`library/tools/transcript_corrections.py`). Both are HINTS the
+    # decoder may honour, not guarantees - the deterministic
+    # post-transcription pass in `build_and_transcribe` is the
+    # guarantee, and it runs whether or not biasing held. An empty
+    # prompt is never sent: a call with nothing to ask is not made.
+    transcribe_kwargs = {"beam_size": beam_size, "vad_filter": True,
+                         "word_timestamps": False}
+    if initial_prompt:
+        transcribe_kwargs["initial_prompt"] = initial_prompt
+    if hotwords:
+        transcribe_kwargs["hotwords"] = hotwords
     raw_segments, info = model.transcribe(
-        str(audio_path), beam_size=beam_size, vad_filter=True,
-        word_timestamps=False)
+        str(audio_path), **transcribe_kwargs)
     # `avg_logprob` is the transcriber's own confidence in the words it
     # just wrote, and it was being thrown away HERE - rebuilt out of
     # three keys and handed to the aligner without it. It cost a reel 15
@@ -599,7 +611,8 @@ def read_from_words(speaker, text: str, words: Sequence[dict],
     return out
 
 
-def rebind_document(document: dict, snapshot) -> dict:
+def rebind_document(document: dict, snapshot,
+                    project_folder: str | None = None) -> dict:
     """Re-ask the clip question of a transcript ALREADY ON DISK.
 
     The words are not re-heard.  Every word timing in the returned
@@ -656,6 +669,12 @@ def rebind_document(document: dict, snapshot) -> dict:
         "the timeline's own clip list without re-hearing the audio "
         "(`timeline_transcript.rebind_document`); every word timing is "
         "the one the transcribe pass produced.")
+    # A transcript already on disk gets the same guarantee a fresh one
+    # gets: corrections recorded since it was written apply here, so a
+    # rebind - not a re-transcription - is enough to carry them.
+    if project_folder:
+        from library.tools import transcript_corrections
+        transcript_corrections.apply_to_document(rebound, project_folder)
     return rebound
 
 
@@ -777,6 +796,13 @@ def build_and_transcribe(project_folder: str, snapshot,
     wanted = set(only_speakers) if only_speakers else None
     per_speaker: Dict[Optional[str], List[SpokenSegment]] = {}
 
+    # Corrections recorded against this project bias the decoder AND
+    # are enforced after it (`library/tools/transcript_corrections.py`:
+    # biasing is a hint, the post pass is the guarantee).
+    from library.tools import transcript_corrections
+    initial_prompt, hotwords = transcript_corrections.bias_strings(
+        project_folder)
+
     for speaker, clips in by_speaker.items():
         if wanted and speaker not in wanted:
             continue
@@ -790,12 +816,26 @@ def build_and_transcribe(project_folder: str, snapshot,
                 print(f"    {_label}: {done}/{total} spans", file=sys.stderr)
 
         build_speaker_audio(clips, audio_path, cache_dir, progress=_progress)
-        aligned = transcribe_audio(audio_path, model_size=model_size)
+        aligned = transcribe_audio(audio_path, model_size=model_size,
+                                   initial_prompt=initial_prompt or None,
+                                   hotwords=hotwords or None)
         segments = segments_for_speaker(aligned, speaker, clips)
         print(f"[{speaker}] {len(segments)} spoken segments", file=sys.stderr)
         per_speaker[speaker] = segments
 
-    return transcript_document(snapshot, merge_speakers(per_speaker))
+    document = transcript_document(snapshot, merge_speakers(per_speaker))
+    # The guarantee half: respell at the root, before anything
+    # downstream reads it. Downstream consumers need no changes - they
+    # read corrected words because corrected words are what is here.
+    correction_report = transcript_corrections.apply_to_document(
+        document, project_folder)
+    if correction_report["replacements"]:
+        print(f"  transcript corrections applied: "
+              f"{correction_report['replacements']} replacement(s) in "
+              f"{correction_report['segments_touched']} segment(s) "
+              f"{[a['id'] for a in correction_report['applied'] if a['replacements']]}",
+              file=sys.stderr)
+    return document
 
 
 def main(argv=None) -> int:
@@ -833,7 +873,8 @@ def main(argv=None) -> int:
         before = json.loads(existing.read_text(encoding="utf-8"))
         print(f"re-binding {before.get('segment_count')} segments from "
               f"{existing} - no audio is read", file=sys.stderr)
-        document = rebind_document(before, snapshot)
+        document = rebind_document(before, snapshot,
+                                   project_folder=args.project_folder)
         print(f"  straddling a cut: "
               f"{before.get('segments_straddling_a_cut')} -> "
               f"{document['segments_straddling_a_cut']}", file=sys.stderr)

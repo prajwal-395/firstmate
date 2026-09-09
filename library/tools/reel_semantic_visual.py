@@ -151,6 +151,19 @@ def bridge_context(reel_spine: dict, project_folder: str, fps: float) -> dict:
     safe = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
     brand_style, brand_effect = _brand_slots(project_folder)
+    # Recorded transcript corrections, as the model reads them: the
+    # `says` column above already carries the corrected words (the
+    # deterministic pass runs at the transcript root), and this names
+    # the verdict behind them so MODEL-AUTHORED copy - `copy.display`,
+    # `subject` - spells them the same way. Empty where the project
+    # recorded none: an absence stated, not hidden.
+    corrections_note = ""
+    if project_folder:
+        try:
+            from library.tools import transcript_corrections as _tc
+            corrections_note = _tc.render_for_model(project_folder)
+        except Exception:
+            corrections_note = ""
     return {
         "motion_elements_toon": bridge.format_toon(
             list(vocabulary.ROSTER_LEGEND),
@@ -184,6 +197,7 @@ def bridge_context(reel_spine: dict, project_folder: str, fps: float) -> dict:
         },
         "brand_refinement": bridge.brand_refinement(brand_style,
                                                     brand_effect),
+        "transcript_corrections": corrections_note,
     }
 
 

@@ -1144,6 +1144,21 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
                     import json as _json
                     inputs[TIMELINE_TRANSCRIPT_INPUT] = _json.loads(
                         transcript_path.read_text(encoding="utf-8"))
+                    # Corrections recorded since this transcript was
+                    # written apply at READ time, so a stale on-disk
+                    # file never reaches a step uncorrected - and a
+                    # re-transcription is never required to carry them
+                    # (`library/tools/transcript_corrections.py`).
+                    try:
+                        from library.tools import transcript_corrections as _tc
+                        _tc.apply_to_document(
+                            inputs[TIMELINE_TRANSCRIPT_INPUT],
+                            project_folder)
+                    except Exception as _exc:  # noqa: BLE001 - a correction
+                        # pass must never refuse a step its transcript.
+                        print(f"Warning: transcript corrections could not "
+                              f"apply ({_exc}); continuing uncorrected.",
+                              file=sys.stderr)
                 else:
                     # Check whether the input is required.
                     _required = True

@@ -41,6 +41,12 @@
         "type": "number",
         "required": true,
         "description": "Timebase from the catalog. Every consumer used to read its own 30.0 default because no edge carried it."
+      },
+      {
+        "name": "project_context",
+        "type": "string",
+        "required": false,
+        "description": "The project's context folder plus the learnings routed to this step, as a MAP the model follows with its shell (never a copy). Injected by the runner from the project's context/ folder and learned_context/ store when this step declares it; a stated absence when the project has neither. Declared here so recorded transcript corrections (read_by *) reach the model that authors motion-graphics copy - measured text arrives corrected through the spine, authored copy only through this. See library/tools/project_context.py."
       }
     ],
     "outputs": [

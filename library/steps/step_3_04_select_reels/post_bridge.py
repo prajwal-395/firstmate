@@ -82,6 +82,21 @@ def resolve(llm_output: dict, data: dict) -> dict:
     transcript = data.get("timeline_transcript") or {}
     duration = float((transcript.get("derived_from") or {})
                      .get("duration_seconds") or 0.0)
+    # Keep exclusions the captain recorded
+    # (`library/tools/transcript_corrections.py`) are enforced HERE, on
+    # every regenerated proposal, so a struck fragment stays out of the
+    # reel no matter how often selection re-runs. An exclusion at a
+    # moment's edge trims it; one in its middle drops the moment with
+    # the reason - splitting one reel into two would be a new editorial
+    # decision, and this step never makes one.
+    project_folder = data.get("project_folder") or ""
+    keep_exclusions: list = []
+    if project_folder:
+        try:
+            from library.tools import transcript_corrections as _tc
+            keep_exclusions = _tc.keep_exclusions(project_folder)
+        except Exception:  # noqa: BLE001 - exclusions never break selection
+            keep_exclusions = []
     chosen = (
         llm_output.get("moments")
         or llm_output.get("reels")
@@ -105,6 +120,23 @@ def resolve(llm_output: dict, data: dict) -> dict:
         # arithmetic entirely - while their WORDS still constrain the
         # boundary (`reel_proposal.snap_to_speech`).
         start, end = snap_to_speech(start, end, transcript)
+        if keep_exclusions:
+            from library.tools import transcript_corrections as _tc
+            from library.tools.reel_proposal import bound_segments
+            grid = [(float(s.get("timeline_start") or 0.0),
+                     float(s.get("timeline_end") or 0.0))
+                    for s in bound_segments(transcript)]
+            kept, struck = _tc.apply_keep_exclusions(
+                [{"start": start, "end": end, "entry": entry}],
+                keep_exclusions, segments=grid)
+            if struck:
+                dropped.append({"entry": entry,
+                                "reason": struck[0]["reason"]})
+                continue
+            start, end = kept[0]["start"], kept[0]["end"]
+            entry = dict(entry, start=start, end=end,
+                         trimmed_by=kept[0].get("trimmed_by", [])) \
+                if kept[0].get("trimmed_by") else entry
         cta, cta_dropped = _call_to_action(entry, start, end, transcript)
         if cta_dropped:
             dropped.append({"entry": entry, "reason": cta_dropped})
