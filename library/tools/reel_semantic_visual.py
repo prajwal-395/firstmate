@@ -37,12 +37,14 @@ recorded rather than followed because V4 is taken here.
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import importlib.util
 import json
 import os
 import re
 import sys
+from dataclasses import field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 SEMANTIC_TRACK = 6
@@ -232,7 +234,6 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
     try:
         spine = spine_for_reel(moment, transcript, list(ranges))
     except ReelSpineError as why:
-        import sys
         name = getattr(moment, "timeline_name", f"reel {reel_number}")
         print(f"  {name}: NO SEMANTIC REQUEST - {why}", file=sys.stderr)
         return ""
@@ -310,8 +311,6 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
     `awaiting_model_answer` - a reel the model never planned is not a
     reel that failed to render.
     """
-    import sys
-
     from library.tools import motion_graphics_plan as mg
     from library.tools import operations
     from library.tools.caption_band import captioned_spans, occupied_bands
@@ -515,3 +514,588 @@ def drop_record_reels(project_folder: str, names) -> None:
                        if str(p.get("reel")) not in drop]
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(stored, handle, indent=2)
+
+
+# ── The span's own ask: a picture reasoned from its speech ──────────
+#
+# Blocker 1 (`docs/SPAN_RENDERER_CAPABILITY.md` §3.1): no model plans a
+# span. The request/answer/resolver above plans the V6 overlay layer;
+# what follows plans the span's per-beat picture in the SAME three-part
+# shape - a request built from measured evidence, a schema the answer
+# must satisfy, and a resolver that refuses an answer it cannot bind to
+# real word timings - because that is the shape this module already
+# proves, not because the overlay machinery generalises. It does not:
+# `motion_graphics_plan.resolve_plan` resolves element keys, anchors,
+# colours and copy against the overlay roster, and a span beat is none
+# of those. A beat is a NOUN illustrated, cued to words, leading them
+# (`docs/ANIMATION_FIRST_REFERENCE.md` §1: every picture event
+# illustrates a noun from the spoken line, arriving 67-839 ms before
+# it). So the span gets the pattern, not the resolver, and its own
+# reasons.
+#
+# Three known unknowns, answered where the code can answer them:
+#
+# - Measured word windows ARE reachable where a span is planned. The
+#   request takes the same two inputs `_plan_span` already reads at plan
+#   time (`ranges` and `transcript` in
+#   `library/tools/full_frame_element.py`) and buckets the transcript's
+#   timed words through `reel_build.reel_time`, the same arithmetic the
+#   word-clock cues use. Nothing here needs a pipeline stage that runs
+#   later.
+# - Segments coincide with keep ranges today (one segment per range, by
+#   index), so the evidence is one word list per range and the resolver
+#   derives each segment's bounds from the ranges. If a sibling lane
+#   makes segments subdividable, the evidence gains rows and the bounds
+#   follow the subdivision; the anchor search and every refusal below
+#   read per-segment words and bounds, so they are unchanged.
+# - The resolved moments have no consumer yet: no renderer reads span
+#   beats and no verifier grades them, so this section writes no record
+#   file. A declared output with no reader is refused by
+#   `library/tools/output_contract.py`, and a record nobody grades would
+#   be exactly that. The moments carry reel seconds, so the placer that
+#   arrives can read them directly.
+#
+# What the planner decides is WHAT IS SHOWN, never the look: `shows`
+# names the noun illustrated, in free text, and the schema carries no
+# colour, no size, no font and no motion value. An entry carrying any
+# key that names one is refused as `look_value_in_picture_plan` rather
+# than read past. Taste stays with the model reasoning per project, per
+# the captain's standing rule of 2026-09-08.
+#
+# What is NOT bounded here, on purpose: the lead. The reference
+# measures 67-839 ms, but `ANIMATION_FIRST_REFERENCE.md` §11 says every
+# magnitude there belongs to that piece and none may become a default.
+# Bounding `lead_seconds` above by 839 ms would bake one piece into a
+# gate that rejects correct output. The structural bounds are all that
+# hold: a lead is a number at or above zero, and the beat it puts down
+# lands inside its own segment.
+#
+# `tests/test_reel_span_visual.py`.
+
+#: What the span answer is called. One spelling, here, the way
+#: `motion_graphics_plan.PLAN_KEY` spells the overlay's.
+SPAN_PLAN_KEY = "span_visual_plan"
+
+SPAN_NOT_PLANNED = "span_not_planned"
+SPAN_NO_EVENTS_PLANNED = "span_no_events_planned"
+SPAN_EVERY_EVENT_DROPPED = "span_every_event_dropped"
+SPAN_EVENTS_PLANNED = "span_events_planned"
+
+SPAN_BASES = (SPAN_NOT_PLANNED, SPAN_NO_EVENTS_PLANNED,
+              SPAN_EVERY_EVENT_DROPPED, SPAN_EVENTS_PLANNED)
+
+SPAN_DROP_REASONS: Dict[str, str] = {
+    "entry_is_not_a_mapping": (
+        "The beat is not a mapping, so it names no segment, no noun "
+        "and no anchor. Nothing is read off it."
+    ),
+    "unknown_segment": (
+        "The beat names no segment of this span. Segments are the "
+        "reel's keep ranges one by one, numbered from 1, and a beat "
+        "for any other number has no seconds to land on."
+    ),
+    "look_value_in_picture_plan": (
+        "The beat carries a key that names a look dimension - a "
+        "colour, a size, a typeface, a motion character, an artwork "
+        "file. The span planner decides what is SHOWN, never the "
+        "look, so the entry is refused rather than read past."
+    ),
+    "no_subject_declared": (
+        "The beat names no `shows`: a picture event with no noun to "
+        "illustrate shows nothing, and an overlay that draws nothing "
+        "is not rendered (AGENTS.md 10.2)."
+    ),
+    "no_anchor_declared": (
+        "The beat names no `anchor_phrase`. A span beat is cued to "
+        "its own words by SEARCH (AGENTS.md 6); explicit seconds "
+        "alone would land near words instead of on them, so they are "
+        "not a second timing - they are no timing."
+    ),
+    "conflicting_timing": (
+        "The beat names both an anchor phrase and explicit timeline "
+        "seconds - two timings. The engine does not pick one, "
+        "because choosing would be choosing when the picture lands."
+    ),
+    "anchor_phrase_not_found": (
+        "The beat's anchor phrase occurs nowhere in its own "
+        "segment's measured words. The picture lands on its words "
+        "or not at all."
+    ),
+    "anchor_word_untimed": (
+        "The anchor phrase is said but its measured window is "
+        "missing. A picture cued to an unmeasured word is cued to a "
+        "guess."
+    ),
+    "no_word_timings_to_anchor_against": (
+        "The beat anchors to words and its segment carries no "
+        "measured word timings. Without a measurement there is no "
+        "window to land on."
+    ),
+    "no_timing_declared": (
+        "The beat's `lead_seconds` is not a number at or above "
+        "zero. A lead is how far before its noun the picture "
+        "arrives; a lag (below zero) or a non-number declares no "
+        "timing."
+    ),
+    "beat_outside_segment": (
+        "The beat lands outside its own segment: the anchor's start "
+        "minus the lead is before the segment starts or past its "
+        "end. Not clamped: moving a beat is choosing when the "
+        "picture plays."
+    ),
+    "more_events_than_speech_supports": (
+        "The segment's measured words are spent: it speaks fewer "
+        "words than beats planned for it, or the beat re-claims a "
+        "word occurrence an earlier beat already claimed. One "
+        "picture event per spoken word at most - a beat with no word "
+        "of its own decorates across the speech."
+    ),
+}
+
+#: Keys that name a look dimension. A span beat carrying any of them is
+#: refused as `look_value_in_picture_plan`: the planner decides what is
+#: shown, and colour, size, typeface, motion and artwork stay with the
+#: declaration and the renderer. Read from the key, never the value.
+LOOK_KEYS = frozenset({
+    "color", "colour", "font_size", "fontsize", "font_family",
+    "fontfile", "font_file", "typeface", "type_role",
+    "background", "entrance", "exit", "motion",
+    "emphasis", "emphasis_colour", "emphasis_color",
+    "hold_frames", "asset", "image", "image_width",
+    "vignette", "texture",
+})
+
+
+class SpanPlanError(ValueError):
+    """A span plan this section refuses outright, like `MotionPlanError`
+    for the overlay layer: the plan is not a list of beats."""
+
+
+def span_request_stem(reel_number: int) -> str:
+    """The file stem this reel's span ask and answer share."""
+    return f"reel_span_{int(reel_number):02d}"
+
+
+def span_segment_words(ranges, transcript: dict) -> List[List[dict]]:
+    """Each keep range's timed words, in REEL seconds.
+
+    The same bucketing `_word_cues` in
+    `library/tools/full_frame_element.py` paces the reveal off: the
+    transcript's `timed` words mapped through `reel_build.reel_time`
+    and filed under the range whose reel span contains them. One list
+    per range, so segment `i` (1-based) reads `span_segment_words[i -
+    1]`; each word is `{word, start, end}` in reel seconds, the shape
+    `semantic_visual.find_phrase_window` searches.
+    """
+    from library.tools.reel_build import reel_time
+
+    ranges = list(ranges or [])
+    starts: List[float] = []
+    cursor = 0.0
+    for start, end in ranges:
+        starts.append(cursor)
+        cursor += max(0.0, float(end) - float(start))
+    per: List[List[dict]] = [[] for _ in ranges]
+    for segment in ((transcript or {}).get("segments") or []):
+        for word in (segment.get("words") or []):
+            if not word.get("timed"):
+                continue
+            text = str(word.get("word") or "")
+            if not text:
+                continue
+            try:
+                at = reel_time(float(word["start"]), ranges)
+            except (TypeError, ValueError):
+                continue
+            if at is None:
+                continue
+            try:
+                end_at = reel_time(float(word["end"]), ranges, at_end=True)
+            except (TypeError, ValueError):
+                continue
+            if end_at is None:
+                continue
+            for index, (start, end) in enumerate(ranges):
+                low, high = starts[index], starts[index] + max(
+                    0.0, float(end) - float(start))
+                if low - 1e-9 <= at < high - 1e-9:
+                    per[index].append({
+                        "word": text, "start": at, "end": end_at})
+                    break
+    for words in per:
+        words.sort(key=lambda w: (w["start"], w["end"]))
+    return per
+
+
+SPAN_HANDOFF = """Plan this reel's full-frame span picture from its speech.
+
+You are planning WHAT EACH BEAT SHOWS - the picture track of an
+animation-first reel - not styling it. The reference this answers
+(`docs/ANIMATION_FIRST_REFERENCE.md`) measures one rule: every picture
+event illustrates a NOUN from the spoken line, and the picture arrives
+BEFORE its noun is spoken.
+
+For each keep range (one span segment each), read the segment's measured
+words and decide what its beats SHOW: one beat per noun worth
+illustrating, at most one beat per spoken word. Each beat names:
+
+- `segment`: the 1-based segment this beat plays in.
+- `shows`: free text naming the noun illustrated - "a mind", "an eye",
+  "the entire field". This is the whole of the decision.
+- `anchor_phrase`: words quoted EXACTLY from this segment's measured
+  words - the noun's own window, never a neighbouring segment's.
+- `lead_seconds`: how far BEFORE the anchor's start the picture lands.
+  A number at or above zero. The beat lands inside its own segment.
+- `why`: one line saying which spoken noun this illustrates.
+
+Carry NO look values: no colour, no size, no font, no motion character,
+no artwork file. An entry carrying any of those is refused outright -
+taste is reasoned per project, never smuggled inside a picture plan.
+An empty list plans no pictures."""
+
+SPAN_EXPECTED_SCHEMA = (
+    '{"span_visual_plan": ['
+    '{"segment": 1, '
+    '"shows": "free text naming the noun illustrated", '
+    '"anchor_phrase": "words from THIS segment\'s measured words", '
+    '"lead_seconds": 0.2, '
+    '"why": "..."}]}. '
+    'An empty list plans no pictures. Quote anchor_phrase ONLY from '
+    'words the segment table shows, and plan at most one beat per '
+    'spoken word. Carry no colour, size, font, motion or artwork key.')
+
+
+def write_span_request(moment, transcript: dict, ranges, project_folder: str,
+                       fps: float) -> str:
+    """Ask the model to plan this reel's span picture. Pure: no Resolve.
+
+    The V6 `write_request` shape scoped to the span: the reel's keep
+    ranges and transcript become one measured word list per segment,
+    and the request file carries the ask, that evidence, and the schema
+    the answer must satisfy. Returns the request path, or `""` where
+    the reel speaks no timed words: a reel with no word clock is
+    REPORTED and planned without span pictures, the way a reel with no
+    spine is built without V6 visuals.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    reel_number = int(moment.number)
+    words = span_segment_words(ranges, transcript)
+    if not any(words):
+        name = getattr(moment, "timeline_name", f"reel {reel_number}")
+        print(f"  {name}: NO SPAN REQUEST - no timed words in "
+              f"{len(list(ranges or []))} keep range(s), so no beat has "
+              f"a window to land on", file=sys.stderr)
+        return ""
+    bridge = _step_4_06_bridge()
+    rows = []
+    cursor = 0.0
+    for position, ((start, end), segment_words) in enumerate(
+            zip(list(ranges or []), words), start=1):
+        reel_start = cursor
+        cursor += max(0.0, float(end) - float(start))
+        says = " ".join(
+            f"{w['word']}[{w['start']:.3f}-{w['end']:.3f}]"
+            for w in segment_words)
+        rows.append({"segment": position,
+                     "reel_start": round(reel_start, 3),
+                     "reel_end": round(cursor, 3),
+                     "says": _cell(says) or "(no timed words)"})
+    context = {
+        "span_frame": {
+            "reel_number": reel_number,
+            "reel_name": getattr(moment, "timeline_name", ""),
+            "fps": fps,
+            "rule": ("one picture event per noun, landing before it; "
+                     "at most one beat per spoken word; the beat lands "
+                     "inside its own segment"),
+        },
+        "span_segments_toon": bridge.format_toon(
+            ["segment", "reel_start", "reel_end", "says"],
+            [{k: _cell(v) for k, v in row.items()} for row in rows]),
+    }
+    try:
+        from library.tools.toon_serializer import json_to_toon
+        context_text = json_to_toon(context)
+    except Exception:
+        context_text = json.dumps(context, indent=1, default=str)
+    request = {
+        "step_id": "reel_span_visual",
+        "reel_number": reel_number,
+        "reel_name": getattr(moment, "timeline_name", ""),
+        "prompt": SPAN_HANDOFF,
+        "context": context_text,
+        "expected_schema": SPAN_EXPECTED_SCHEMA,
+        "project_folder": project_folder,
+        "timestamp": datetime.datetime.now(
+            datetime.timezone.utc).isoformat(),
+    }
+    out_dir = ProjectLayout(project_folder).write_dir(Area.LLM_REQUESTS)
+    path = os.path.join(str(out_dir), span_request_stem(reel_number) + ".json")
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(request, handle, indent=2)
+    return path
+
+
+def read_span_answer(project_folder: str, reel_number: int) -> Optional[list]:
+    """The model's span answer for this reel, or None when unanswered.
+
+    The V6 `read_answer` discipline exactly: `{"span_visual_plan":
+    [...]}` or a bare list. Anything else - including a file that will
+    not parse - reads as unanswered rather than as an empty plan: a
+    malformed answer is not a decision for no pictures.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+    path = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.LLM_RESPONSES)),
+        span_request_stem(reel_number) + ".json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict) and isinstance(
+            payload.get(SPAN_PLAN_KEY), list):
+        return payload[SPAN_PLAN_KEY]
+    return None
+
+
+@dataclasses.dataclass
+class SpanDropped:
+    """One span beat the resolver discarded, and why."""
+
+    element: str
+    reason: str
+    detail: str = ""
+    entry: Dict[str, Any] = field(default_factory=dict)
+
+    def as_record(self) -> dict:
+        if self.reason not in SPAN_DROP_REASONS:
+            raise SpanPlanError(
+                f"{self.reason!r} is not a reason a beat may be dropped "
+                f"for. SPAN_DROP_REASONS is the whole of it: "
+                f"{sorted(SPAN_DROP_REASONS)}.")
+        row = {"element": self.element, "reason": self.reason,
+               "what_the_reason_means": SPAN_DROP_REASONS[self.reason]}
+        if self.detail:
+            row["detail"] = self.detail
+        return row
+
+
+@dataclasses.dataclass
+class ResolvedSpanPlan:
+    """What `resolve_span_plan` returns: the bindable beats and the basis."""
+
+    moments: List[dict] = field(default_factory=list)
+    basis: str = SPAN_NOT_PLANNED
+    proposed: int = 0
+    dropped: List["SpanDropped"] = field(default_factory=list)
+
+    def basis_record(self) -> dict:
+        """The account that travels onto the span plan's own output.
+
+        Every casualty is named. An empty picture track that SAYS
+        which absence it is cannot be misread as a clean one - the
+        V6 `basis_record` shape exactly.
+        """
+        return {
+            "basis": self.basis,
+            "what_the_basis_means": {
+                SPAN_NOT_PLANNED: "no span plan was asked for on this run",
+                SPAN_NO_EVENTS_PLANNED: (
+                    "the model was asked and planned no beat - a "
+                    "decision, not an absence"),
+                SPAN_EVERY_EVENT_DROPPED: (
+                    "the model planned beats and every one of them "
+                    "was refused - the absence of a decision "
+                    "surviving, not a decision to show nothing"),
+                SPAN_EVENTS_PLANNED: (
+                    "the model planned beats bound to real word timings"),
+            }[self.basis],
+            "proposed": self.proposed,
+            "resolved": len(self.moments),
+            "dropped": [d.as_record() for d in self.dropped],
+        }
+
+
+def _span_number(raw) -> Optional[float]:
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(raw.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _span_text(raw) -> str:
+    return str(raw).strip() if isinstance(raw, (str, int, float)) else ""
+
+
+def resolve_span_plan(plan: Any, *, segment_words: Sequence[Sequence[dict]],
+                      ranges, asked: bool = True) -> ResolvedSpanPlan:
+    """Turn the model's span plan into beats bound to word timings.
+
+    `segment_words` is `span_segment_words` output - one measured word
+    list per segment, in reel seconds - and `ranges` are the keep
+    ranges those lists were bucketed from, read here only for each
+    segment's reel bounds. Every beat is searched against its OWN
+    segment's words through `semantic_visual.find_phrase_window`
+    (AGENTS.md 6: anchored by SEARCH, never asserted), and whatever
+    cannot be bound is dropped under a reason from
+    `SPAN_DROP_REASONS` - never guessed, never moved, never clamped.
+    """
+    from library.tools import semantic_visual
+
+    resolved = ResolvedSpanPlan()
+    if not asked:
+        return resolved
+    if plan is None:
+        resolved.basis = SPAN_NO_EVENTS_PLANNED
+        return resolved
+    if isinstance(plan, dict):
+        plan = plan.get(SPAN_PLAN_KEY, [])
+    if not isinstance(plan, list):
+        raise SpanPlanError(
+            f"{SPAN_PLAN_KEY} must be a list of beats, got "
+            f"{type(plan).__name__}.")
+
+    resolved.proposed = len(plan)
+    bounds: List[Tuple[float, float]] = []
+    cursor = 0.0
+    for start, end in list(ranges or []):
+        low = cursor
+        cursor += max(0.0, float(end) - float(start))
+        bounds.append((low, cursor))
+
+    def drop(entry, key, reason, detail=""):
+        if reason not in SPAN_DROP_REASONS:
+            raise SpanPlanError(
+                f"{reason!r} is not a reason a beat may be dropped for. "
+                f"SPAN_DROP_REASONS is the whole of it: "
+                f"{sorted(SPAN_DROP_REASONS)}.")
+        resolved.dropped.append(
+            SpanDropped(element=key or "(unnamed)", reason=reason,
+                        detail=detail,
+                        entry=entry if isinstance(entry, dict) else {}))
+
+    claimed: Dict[int, set] = {}
+    counts: Dict[int, int] = {}
+
+    for raw in plan:
+        entry = raw if isinstance(raw, dict) else {}
+        if not isinstance(raw, dict):
+            drop(entry, "", "entry_is_not_a_mapping",
+                 f"got {type(raw).__name__}")
+            continue
+        seg_number = _span_number(entry.get("segment"))
+        seg_index = (int(seg_number) - 1 if seg_number is not None
+                     and float(seg_number).is_integer() else None)
+        if (seg_index is None or seg_index < 0
+                or seg_index >= len(bounds)):
+            drop(entry, _span_text(entry.get("shows")),
+                 "unknown_segment",
+                 f"segment={entry.get('segment')!r} names no segment of "
+                 f"a {len(bounds)}-segment span")
+            continue
+        label = f"segment {seg_index + 1} beat"
+        found_look = sorted(
+            {k for k in entry if str(k).strip() in LOOK_KEYS})
+        if found_look:
+            drop(entry, _span_text(entry.get("shows")) or label,
+                 "look_value_in_picture_plan",
+                 f"carries look keys {found_look}; the span planner "
+                 f"decides what is shown, never the look")
+            continue
+        shows = _span_text(entry.get("shows"))
+        if not shows:
+            drop(entry, label, "no_subject_declared",
+                 "a beat with no `shows` illustrates nothing")
+            continue
+        phrase = _span_text(entry.get("anchor_phrase"))
+        has_seconds = (entry.get("start_seconds") is not None
+                       or entry.get("duration_seconds") is not None)
+        if phrase and has_seconds:
+            drop(entry, shows, "conflicting_timing",
+                 f"anchor_phrase={phrase!r} beside "
+                 f"start_seconds={entry.get('start_seconds')!r} "
+                 f"duration_seconds={entry.get('duration_seconds')!r}")
+            continue
+        if not phrase:
+            drop(entry, shows, "no_anchor_declared",
+                 "explicit seconds alone land near words instead of on "
+                 "them; a beat is cued to its own words or not at all")
+            continue
+        words = list((segment_words or [[]])[seg_index]
+                     if seg_index < len(list(segment_words or [])) else [])
+        try:
+            anchor_start, anchor_end = semantic_visual.find_phrase_window(
+                words, phrase)
+        except semantic_visual.SemanticVisualError as anchor_err:
+            drop(entry, shows, anchor_err.reason, anchor_err.detail)
+            continue
+        lead = _span_number(entry.get("lead_seconds", 0.0))
+        if lead is None or lead < 0:
+            drop(entry, shows, "no_timing_declared",
+                 f"lead_seconds={entry.get('lead_seconds')!r} is not a "
+                 f"number at or above zero")
+            continue
+        event = anchor_start - lead
+        low, high = bounds[seg_index]
+        if not (low - 1e-9 <= event <= high + 1e-9):
+            drop(entry, shows, "beat_outside_segment",
+                 f"beat {event:.3f}s sits outside segment {seg_index + 1} "
+                 f"({low:.3f}-{high:.3f}s)")
+            continue
+        first_token = next(
+            (t for t in (semantic_visual.normalize_word(p)
+                         for p in phrase.split()) if t), "")
+        occurrence = next(
+            (i for i, w in enumerate(words)
+             if w.get("start") == anchor_start
+             and semantic_visual.normalize_word(w.get("word")) == first_token),
+            None)
+        if occurrence is None:
+            occurrence = next(
+                (i for i, w in enumerate(words)
+                 if semantic_visual.normalize_word(w.get("word")) == first_token),
+                None)
+        seen = claimed.setdefault(seg_index, set())
+        if counts.get(seg_index, 0) >= len(words) or (
+                occurrence is not None and occurrence in seen):
+            drop(entry, shows, "more_events_than_speech_supports",
+                 f"segment {seg_index + 1} speaks {len(words)} word(s) "
+                 f"and {'its beats already claim them all' if occurrence is None or occurrence not in seen else 'this word is already claimed by an earlier beat'}")
+            continue
+        if occurrence is not None:
+            seen.add(occurrence)
+        counts[seg_index] = counts.get(seg_index, 0) + 1
+        resolved.moments.append({
+            "segment": seg_index + 1,
+            "shows": shows,
+            "anchor_phrase": phrase,
+            "lead_seconds": lead,
+            "anchor_start": round(anchor_start, 3),
+            "anchor_end": round(anchor_end, 3),
+            "event_start": round(event, 3),
+            # How this beat was timed: the measured word window an
+            # anchor phrase searched for - the V6 `timing_basis`
+            # spelling, because it is the same fact.
+            "timing_basis": f"word_window:{phrase}",
+            "why": _span_text(entry.get("why")),
+        })
+
+    if resolved.moments:
+        resolved.basis = SPAN_EVENTS_PLANNED
+    elif resolved.proposed:
+        resolved.basis = SPAN_EVERY_EVENT_DROPPED
+    else:
+        resolved.basis = SPAN_NO_EVENTS_PLANNED
+    return resolved
