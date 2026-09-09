@@ -14,12 +14,10 @@ import pytest
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
-STEP_DIR = os.path.join(PROJECT_ROOT, "library", "steps",
-                        "step_4_06_render_motion_graphics")
-if STEP_DIR not in sys.path:
-    sys.path.insert(0, STEP_DIR)
 
-from post_bridge import render_one_segment  # noqa: E402
+from library.steps.step_4_06_render_motion_graphics.post_bridge import (  # noqa: E402
+    render_one_segment,
+)
 
 SAFE = {"top": 120, "right": 120, "bottom": 320, "left": 90}
 
@@ -87,7 +85,10 @@ class _StubRun:
 
 def _render(monkeypatch, planned, out_dir, **kwargs):
     stub = _StubRun()
-    monkeypatch.setattr("post_bridge.subprocess.run", stub)
+    monkeypatch.setattr(
+        "library.steps.step_4_06_render_motion_graphics.post_bridge.subprocess.run",
+        stub,
+    )
     return render_one_segment(planned, out_dir, **kwargs), stub
 
 

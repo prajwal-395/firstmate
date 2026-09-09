@@ -65,6 +65,10 @@ _NON_ROOT_ENTRIES = (
     # `from generate_remotion_props import ...`.
     os.path.join(PROJECT_ROOT, "library", "steps",
                  "step_4_05_render_subtitles"),
+    # step_4_06_render_motion_graphics/post_bridge.py:40
+    # `from generate_motion_props import ...`.
+    os.path.join(PROJECT_ROOT, "library", "steps",
+                 "step_4_06_render_motion_graphics"),
     # execution/apply_fusion_comps.py:60 `from transition_vocabulary
     # import ...` and :62 `from fusion.comp_builder import ...`.
     os.path.join(PROJECT_ROOT, "library", "tools", "execution"),
