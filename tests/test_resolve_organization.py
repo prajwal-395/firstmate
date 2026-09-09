@@ -349,6 +349,83 @@ def test_a_finding_names_the_item_and_says_what_is_wrong():
         assert f["name"] and f["detail"] and f["kind"]
 
 
+# --------------------------------------- bins the captain owns
+
+# Measured 2026-09-08 on `Podcast (field test)`: the captain tiered 47
+# reels into `Reels/Fully approved`, `Reels/50-50` and
+# `Reels/Didn't make the cut`, and a build with the default organise
+# filed every one back into Current/Earlier/Unrecorded - the same 49
+# items, byte-identical, the captain's folders left empty.  The
+# erasing build's own journal (`resolve_placements_20260908T232439Z`)
+# records all 47 moves, which is what makes the membership below exact
+# rather than reconstructed.
+
+
+def test_a_reel_in_a_bin_the_pipeline_does_not_manage_stays_there():
+    """The captain's tiers survive a build: no verdict, no move, no
+    stamp - hands off means hands off, including the metadata write."""
+    artefacts = [
+        timeline("t-master", MASTER),
+        timeline("t-a1", "Reel 01 - seo-ranks-geo-understands",
+                 folder=(BIN_REELS, "Fully approved")),
+        timeline("t-b1", "Reel 05 - the-audit-that-was-eye-opening",
+                 folder=(BIN_REELS, "50-50")),
+        timeline("t-c1", "Reel 01 - geo-is-comprehension-not-position (harvest)",
+                 folder=(BIN_REELS, "Didn't make the cut")),
+        timeline("t-vox", "Reel 09 - your-website-is-only-20-percent (vox test)",
+                 folder=("VOX test",)),
+    ]
+    plan = a_plan(artefacts, built_reels=["Reel 01 - seo-ranks-geo-understands"],
+                  archived_plan_names=["Reel 05 - the-audit-that-was-eye-opening"])
+    assert plan.verdicts == []
+    assert plan.moves == []
+    assert plan.stamps == []
+    left = {name for name, _ in plan.left_alone}
+    assert {"Reel 01 - seo-ranks-geo-understands",
+            "Reel 05 - the-audit-that-was-eye-opening",
+            "Reel 01 - geo-is-comprehension-not-position (harvest)",
+            "Reel 09 - your-website-is-only-20-percent (vox test)"} <= left
+    # A project the captain organised reads as organised: the gate must
+    # not fail correct output (AGENTS.md 10.4).
+    assert findings(artefacts, a_plan(artefacts,
+                    built_reels=["Reel 01 - seo-ranks-geo-understands"],
+                    archived_plan_names=["Reel 05 - the-audit-that-was-eye-opening"])) == []
+
+
+def test_a_reel_in_the_pipelines_own_bin_is_still_filed():
+    """The other half of the contract: a CURRENT reel sitting in
+    `Earlier plans` is the pipeline's own lag, and the next build
+    re-files it.  This is not turning organising off."""
+    artefacts = [
+        timeline("t-master", MASTER),
+        timeline("t-cur", "Reel 01 - live (harvest)",
+                 folder=(BIN_REELS, STATE_BINS[EARLIER])),
+        timeline("t-old", "Reel 01 - superseded",
+                 folder=(BIN_REELS, STATE_BINS[CURRENT])),
+    ]
+    plan = a_plan(artefacts)
+    moves = {v.name: v.destination for v in plan.moves}
+    assert moves == {
+        "Reel 01 - live (harvest)": (BIN_REELS, STATE_BINS[CURRENT]),
+        "Reel 01 - superseded": (BIN_REELS, STATE_BINS[EARLIER]),
+    }
+    stamped = {s["name"] for s in plan.stamps}
+    assert {"Reel 01 - live (harvest)", "Reel 01 - superseded"} <= stamped
+
+
+def test_a_reel_in_the_flat_reels_bin_is_the_captains_not_the_pipelines():
+    """The captain made the flat `Reels` bin by hand and put 28 reels in
+    it; the pipeline only ever reused the name.  It is not a verdict
+    destination, so a reel sitting directly in it stays."""
+    artefacts = [
+        timeline("t-master", MASTER),
+        timeline("t-flat", "Reel 01 - superseded", folder=(BIN_REELS,)),
+    ]
+    plan = a_plan(artefacts)
+    assert plan.moves == []
+    assert "Reel 01 - superseded" in [n for n, _ in plan.left_alone]
+
+
 # ------------------------------------------------------- non-destructive
 
 

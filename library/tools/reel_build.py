@@ -2476,7 +2476,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     TIDIES UP rather than accumulating: the reels this call placed
     land in `Reels/Current plan`, and a reel the live plan no longer
     names moves to `Reels/Earlier plans` - moved and relabelled, never
-    deleted. Without it, `CreateEmptyTimeline` and `ImportMedia` put
+    deleted. A reel sitting in a bin outside that layout is where the
+    captain put it and stays there (`resolve_organization.TIMELINE_BINS`). Without it, `CreateEmptyTimeline` and `ImportMedia` put
     what they make into whatever bin was CURRENT, which is wherever
     the operator last clicked; measured on the field test, that
     scattered 49 timelines and 2,573 renders across three bins with

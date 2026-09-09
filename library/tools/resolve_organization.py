@@ -32,8 +32,10 @@ The rule has one dimension, and it is a MEASUREMENT
 Every artefact is filed by facts read off the project, never by parsing
 its name:
 
-1. A **timeline** goes to `Reels/<state>` (below).  The project's own
-   declared master timeline is NEVER moved - AGENTS.md 5.
+1. A **timeline** goes to `Reels/<state>` (below) - but only out of
+   root or out of one of those same three bins.  A timeline sitting in
+   any other bin is where a human put it and stays there (`TIMELINE_BINS`).
+   The project's own declared master timeline is NEVER moved - AGENTS.md 5.
 2. A clip whose file lives **under the project's own directory** is
    something this pipeline generated.  It files under the timeline that
    PLACES it, or under `Not placed on any timeline` when nothing does.
@@ -127,6 +129,21 @@ STATE_BINS = {
     EARLIER: "Earlier plans",
     UNRECORDED: "Unrecorded",
 }
+
+TIMELINE_BINS = frozenset(
+    (BIN_REELS, STATE_BINS[state]) for state in STATES)
+"""The only bins a reel timeline is ever filed OUT of: root (unfiled)
+and the pipeline's own three state bins.
+
+A timeline sitting anywhere else - `Reels/Fully approved`, a review
+bin, an archive - is where a HUMAN put it, and the plan emits no
+verdict and no stamp for it: no move, no metadata write, no colour
+change.  The pipeline's canonical layout is the pipeline's opinion;
+the captain's organisation wins wherever the two conflict, because
+taste and organisation are theirs.  Measured 2026-09-08: a build with
+the default organise filed all 47 tiered reels back into these three
+bins and left the captain's folders empty - the same items,
+byte-identical, re-filed by a layout that had no word for them."""
 
 STATE_CLIP_COLOURS = {
     CURRENT: "Green",
@@ -289,7 +306,15 @@ def plan_organization(artefacts: Sequence[Artefact],
                      "the master timeline is never moved (AGENTS.md 5)"))
                 continue
             state, why = states[a.name]
-            dest = want((BIN_REELS, STATE_BINS[state]))
+            dest = (BIN_REELS, STATE_BINS[state])
+            if tuple(a.folder_path) and tuple(a.folder_path) not in TIMELINE_BINS:
+                where = "/".join(a.folder_path)
+                why_left = (
+                    f"in {where} - a bin this pipeline does not manage, "
+                    "so a human put it there and it stays (`TIMELINE_BINS`)")
+                plan.left_alone.append((a.name, why_left))
+                continue
+            dest = want(dest)
             plan.verdicts.append(Verdict(
                 a.item_id, a.name, a.kind, dest, why, state))
             plan.stamps.append(_stamp(a, state, plan_hash, built_at))
