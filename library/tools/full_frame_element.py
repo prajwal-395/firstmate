@@ -111,10 +111,10 @@ How a declaration reaches the picture, in order
    the brand template's ``effect`` slot) and :func:`declared_elements`
    normalises it, raising on anything malformed.
 2. :func:`plan_reel_cards` turns each declaration into planned picture -
-   a CARD per declaration, or one SEGMENT per keep range for a
-   ``full_frame_span`` - the props, the reel seconds it occupies, and
-   the file it will be rendered to - using facts measured off the reel
-   itself (:class:`ReelFacts`).
+   a CARD per declaration, or one SEGMENT per declared window inside a
+   keep range for a ``full_frame_span`` - the props, the reel seconds
+   it occupies, and the file it will be rendered to - using facts
+   measured off the reel itself (:class:`ReelFacts`).
 3. :func:`render_reel_cards` renders each one through Remotion, OPAQUE
    (no ``--transparent``): a full-frame element is the picture, so it
    carries its own ground rather than relying on black showing through an
@@ -246,9 +246,9 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
     FullFrameElementKind(
         key="full_frame_span",
         what=("The reel's whole body as one animated element: a segment "
-              "per keep range, each a full frame of type on the declared "
-              "ground, abutting so the segments cover the body's own "
-              "seconds exactly, in place of picture rather than over it. "
+              "per declared window inside a keep range, each a full frame "
+              "of type on its own ground, tiling the body's own seconds "
+              "exactly, in place of picture rather than over it. "
               "The word the seven-back-to-back-cards build of "
               "docs/ANIMATED_REEL_CEILING.md was missing."),
         axes=("placement", "segments", "entrance", "exit", "copy",
@@ -274,7 +274,13 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "to is declared per segment, never derived - and a span may "
             "declare emphasis_colour, the colour the current word draws "
             "in while it owns the clock (tests/"
-            "test_fullframe_cued_draw_emphasis.py)."),
+            "test_fullframe_cued_draw_emphasis.py). A span may subdivide "
+            "a keep range into windowed segments paced to speech beats "
+            "inside continuous speech, and a segment may declare its own "
+            "background over the span's, so a mid-piece value inversion "
+            "is a declaration rather than decoration "
+            "(tests/test_full_frame_span.py)."
+        ),
         never=(
             "Never a card beside it: the span already covers the reel's "
             "whole body, so a head or tail card on the same reel is two "
@@ -288,10 +294,15 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "body it covers, measured off the keep ranges at plan time. "
             "A second number is a second source of truth, so "
             "`duration_seconds` on a span is refused, not read.",
-            "Never a merged or split sentence: segments anchor to keep "
-            "ranges one by one, and a segment count that is not the "
-            "range count refuses rather than joining or cutting speech "
-            "(which would be an edit, and edits are not this layer's).",
+            "Never a silent desynchronisation: every segment's window "
+            "must fall inside exactly one keep range, windows must not "
+            "overlap, and they must tile every range - an overlapping "
+            "pair, a window outside every range, or a beat no segment "
+            "covers refuses by name (which is what stops invented "
+            "round-number ranges reaching the timeline). A declared "
+            "`allow_gaps` leaves beats uncovered on purpose, and the "
+            "hole stays a hole in reel positions for the placer and the "
+            "verifier to grade.",
             "Never artwork the engine supplies: the ground, the typeface "
             "and every word are the declaration's (AGENTS.md 14), the "
             "same as a card's.",
@@ -391,6 +402,14 @@ carries is untouched by it: ``_normalise`` refuses ``span`` on a card
 and anything but ``span`` on a span, each by name.
 """
 
+WINDOW_EPS = 1e-9
+"""Float dust for window checks, in seconds - never editorial time.
+
+A planner shares the exact boundary float between neighbours, so
+abutment is exact; this only absorbs arithmetic dust. The same
+magnitude ``range_line`` and ``_word_cues`` already use for the same
+reason."""
+
 MOTION_CHARACTERS = tuple(_mg.AXES_BY_NAME["entrance"].positions)
 """How a card arrives and leaves.
 
@@ -445,10 +464,11 @@ COPY_BINDINGS: dict[str, str] = {
     ),
     "range_line": (
         "Inside a span segment only: the words spoken in that segment's "
-        "own keep range, verbatim, in reel-time order. A quotation of "
+        "own window - its declared `window`, or its whole keep range when "
+        "it names none - verbatim, in reel-time order. A quotation of "
         "the reel's own speech, the binding the animated-reel build of "
         "docs/ANIMATED_REEL_CEILING.md laid per card by hand. Refused "
-        "outside a span segment, where 'that range' names nothing."
+        "outside a span segment, where 'that window' names nothing."
     ),
 }
 
@@ -535,21 +555,28 @@ class ReelFacts:
     @staticmethod
     def range_line(range_index: int,
                    ranges: Sequence[tuple[float, float]],
-                   transcript: dict) -> str:
-        """The words spoken in one keep range, verbatim, in reel-time order.
+                   transcript: dict,
+                   window: Optional[Sequence[float]] = None) -> str:
+        """The words spoken in one span segment's window, verbatim.
 
         The quotation a span segment binds when it names ``range_line``:
-        what the reel itself plays during that segment's own seconds.  Read
-        off the PLAYED ranges through ``reel_build.reel_time`` - the same
-        arithmetic ``reel_opening.opening_words`` goes through, so the
-        segment quotes the reel that exists rather than the span the plan
-        asked for.
+        what the reel itself plays during that segment's own seconds.
+        Read off the PLAYED ranges through ``reel_build.reel_time`` - the
+        same arithmetic ``reel_opening.opening_words`` goes through, so
+        the segment quotes the reel that exists rather than the span the
+        plan asked for.
+
+        ``window`` is the segment's own ``[start, end]`` in master
+        seconds; omitted means the whole of keep range ``range_index``,
+        which is what a segment with no declared window covers. Either
+        way the membership test is in master seconds and the ordering in
+        reel time, so the line reads in play order.
 
         Untimed words are skipped rather than guessed at, for the reason
-        ``opening_words`` states.  Unlike that function there is no
-        first-speaker filter: a range is a kept sentence, not an opening
+        ``opening_words`` states. Unlike that function there is no
+        first-speaker filter: a window is a kept beat, not an opening
         line, and dropping a speaker's words from inside it would be an
-        edit.  ``""`` when the range holds no timed words - the caller
+        edit.  ``""`` when the window holds no timed words - the caller
         refuses the segment by name rather than drawing it empty.
         """
         from library.tools.reel_build import reel_time
@@ -560,20 +587,22 @@ class ReelFacts:
                 f"range_line asks for keep range {range_index!r} and the "
                 f"reel plays {len(ranges)}; a segment quotes its own range "
                 f"by index, never another one.")
+        ws, we = (tuple(window) if window is not None
+                  else ranges[range_index])
         found: list[tuple[float, str]] = []
         for segment in ((transcript or {}).get("segments") or []):
             for word in (segment.get("words") or []):
                 if not word.get("timed"):
                     continue
-                at = reel_time(float(word["start"]), ranges)
+                master = float(word["start"])
+                if not (ws - WINDOW_EPS <= master < we - WINDOW_EPS):
+                    continue
+                at = reel_time(master, ranges)
                 if at is None:
                     continue
                 found.append((at, str(word.get("word", ""))))
-        lo = sum(r[1] - r[0] for r in ranges[:range_index])
-        hi = lo + (ranges[range_index][1] - ranges[range_index][0])
         return " ".join(
-            text for at, text in sorted(found)
-            if lo - 1e-9 <= at < hi - 1e-9 and text).strip()
+            text for at, text in sorted(found) if text).strip()
 
 
 def required_opening_window(declarations: Sequence[dict]) -> float:
@@ -942,8 +971,13 @@ def _normalise_span(raw: dict, index: int, placement: str) -> dict:
     one declaration whose segments cover the reel's whole body.  Its
     duration is MEASURED off the keep ranges at plan time, never stated -
     ``duration_seconds`` here is refused rather than read - and each
-    segment anchors to one keep range by index, so the boundaries sit on
-    the reel's own edit points the way that build's did.
+    segment paces its picture to a ``window`` of master seconds inside
+    one keep range, so the boundaries sit on the reel's own speech beats
+    the way that build's sat on its edit points.
+
+    ``allow_gaps`` is the one explicit way to leave beats uncovered: a
+    window the plan lays as a hole in reel positions, for the placer and
+    the verifier to grade rather than a stretch the engine invents.
     """
     label = f"full_frame_elements[{index}]"
     if raw.get("duration_seconds") is not None:
@@ -1005,18 +1039,60 @@ def _normalise_span(raw: dict, index: int, placement: str) -> dict:
                 f"per-word drawing, so there is no current-word glyph "
                 f"to restyle - the field would have no reader on this "
                 f"segment.")
+    # Beats may go uncovered only when the span says so. Off by default,
+    # and either on or off - the same shape `word_sync` takes - because
+    # a half-covered range with no such declaration is the silent
+    # desynchronisation the window check exists to refuse.
+    allow_gaps = raw.get("allow_gaps", False)
+    if not isinstance(allow_gaps, bool):
+        raise FullFrameDeclarationError(
+            f"{label} has allow_gaps={raw.get('allow_gaps')!r}; leaving "
+            f"beats of a keep range uncovered is either on or off - omit "
+            f"it and every keep range is tiled edge to edge.")
     return {
         "element": "full_frame_span",
         "placement": placement,
         "duration_seconds": None,
         **shared,
+        "allow_gaps": allow_gaps,
         "segments": segments,
     }
 
 
+def _normalise_window(raw: Any, label: str) -> Optional[tuple[float, float]]:
+    """A segment's speech beat in master seconds, or None (positional).
+
+    Shape-checked here; containment in a keep range is a plan-time check
+    in `_span_windows`, where the ranges are known. A window is
+    `[start, end]` - one field, so half a window cannot be declared -
+    with both ends finite numbers and the start strictly before the end.
+    No look, no cadence, no default: the beat is the declaration's.
+    """
+    import math
+
+    if raw is None:
+        return None
+    if (not isinstance(raw, (list, tuple)) or len(raw) != 2
+            or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                   or not math.isfinite(v) for v in raw)):
+        raise FullFrameDeclarationError(
+            f"{label} has window={raw!r}; a window is "
+            f"[start_seconds, end_seconds] in the reel's own master "
+            f"seconds, naming the speech beat this segment paces its "
+            f"picture to. Omit it and the segment covers its positional "
+            f"keep range, as before.")
+    ws, we = float(raw[0]), float(raw[1])
+    if not ws < we:
+        raise FullFrameDeclarationError(
+            f"{label} has window=[{ws!r}, {we!r}]; a window starts "
+            f"before it ends - the beat it paces its picture to, in the "
+            f"reel's own master seconds.")
+    return (ws, we)
+
+
 def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
-    """One span segment: the copy - and optionally the mark - one keep
-    range's seconds show.
+    """One span segment: the copy - and optionally the mark, the ground
+    and the beat - one window of a keep range's seconds shows.
 
     A segment is the unit that renders (one file per segment through
     the FullFrameCard composition), so it names its own `image` through
@@ -1025,12 +1101,23 @@ def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
     what keeps its props rendering byte-identically to a card's.
 
     A segment may also name its own `entrance`: which word-paced
-    character THIS keep range dances to. Absent means the span's - the
+    character THIS beat dances to. Absent means the span's - the
     choice of character per segment is declared by whoever writes the
     plan, never derived by the engine (no parity, no cadence), because
     any such derivation would be the engine holding taste (AGENTS.md
     10.5). Whether the effective character paces beside `word_sync` is
     checked in `_normalise_span`, where the span's halves are known.
+
+    A segment may name its own `background` the same way: which ground
+    THIS beat inverts or holds to. Absent means the span's, which stays
+    required and stays the default - a value inversion between beats is
+    a declaration, and the engine states no colour of its own
+    (AGENTS.md 10.5).
+
+    A segment may name its own `window`: which master seconds THIS
+    picture paces itself to. Absent means its positional keep range -
+    segment i covers range i, the old reading - so a declaration that
+    never subdivides plans exactly as before.
     """
     label = f"full_frame_elements[{span_index}].segments[{position}]"
     if not isinstance(raw, dict):
@@ -1050,8 +1137,18 @@ def _normalise_segment(raw: Any, span_index: int, position: int) -> dict:
             raise FullFrameDeclarationError(
                 f"{label} has entrance={raw.get('entrance')!r}; the motion "
                 f"characters are {', '.join(MOTION_CHARACTERS)}")
+    background = raw.get("background")
+    if background is not None:
+        if not isinstance(background, str) or not background.strip():
+            raise FullFrameDeclarationError(
+                f"{label} has background={raw.get('background')!r}; a "
+                f"segment's ground is a declared colour or it is absent "
+                f"- omit it and the segment draws on the span's.")
+        background = background.strip()
     return {
         "entrance": entrance,
+        "window": _normalise_window(raw.get("window"), label),
+        "background": background,
         "runs": [_normalise_segment_run(run, span_index, position, number)
                   for number, run in enumerate(runs, start=1)],
         **_normalise_image_fields(raw, label),
@@ -1194,8 +1291,8 @@ def plan_reel_cards(declarations: Sequence[dict],
     ``reel_build.lead_frames`` shifts everything else by.
 
     ``ranges`` and ``transcript`` are what a SPAN is planned from: its
-    segments anchor to the reel's own keep ranges one by one, so the
-    boundaries sit on the reel's own edit points.  Cards never read them -
+    segments bind to windows inside the reel's own keep ranges, so the
+    boundaries sit on the reel's own speech beats.  Cards never read them -
     a card's duration is declared, not measured - so callers planning
     cards alone pass neither.
 
@@ -1322,10 +1419,11 @@ def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
                  span_context: Optional[dict] = None) -> dict:
     """One run with its words settled, or a refusal naming what was empty.
 
-    ``span_context`` carries a span segment's own range
-    (``{"range_index": i, "ranges": [...], "transcript": {...}}``) and is
-    how a run binding to ``range_line`` quotes it.  Without one that
-    binding refuses: outside a span segment 'that range' names nothing.
+    ``span_context`` carries a span segment's own window
+    (``{"range_index": i, "ranges": [...], "transcript": {...},
+    "window": (start, end)}``) and is how a run binding to
+    ``range_line`` quotes it.  Without one that binding refuses: outside
+    a span segment 'that window' names nothing.
     """
     if run["bind"]:
         if run["bind"] == "speakers":
@@ -1336,11 +1434,12 @@ def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
                 raise FullFrameDeclarationError(
                     f"full_frame_elements[{index}] binds a run to "
                     f"'range_line' outside a span segment. That binding "
-                    f"quotes the segment's own keep range, so on a card - "
-                    f"which covers no range - it names nothing.")
+                    f"quotes the segment's own window, so on a card - "
+                    f"which covers no window - it names nothing.")
             text = ReelFacts.range_line(
                 span_context["range_index"], span_context["ranges"],
-                span_context["transcript"])
+                span_context["transcript"],
+                window=span_context.get("window"))
         else:
             text = facts.binding(run["bind"],
                                  declaration.get("opening_seconds"))
@@ -1360,9 +1459,9 @@ def _resolve_run(run: dict, declaration: dict, facts: ReelFacts,
     return out
 
 
-def _word_cues(label: str, position: int, range_index: int,
-               ranges: Sequence[tuple[float, float]], transcript: dict,
-               fps: float, seg_start_frame: int, duration_frames: int,
+def _word_cues(label: str, position: int, window: tuple[float, float],
+               owner: int, ranges: Sequence[tuple[float, float]],
+               transcript: dict, fps: float, duration_frames: int,
                resolved: tuple[dict, ...]) -> list[dict]:
     """One segment's word clock: what the reveal lands on, and when.
 
@@ -1374,21 +1473,28 @@ def _word_cues(label: str, position: int, range_index: int,
     time-to-progress mapping and never aligns text itself; it just shows
     ``chars`` of the last cue whose ``start`` has passed.
 
-    Two refusals, both by name.  A range with no timed words has no clock
-    (the same rule that refuses an empty ``range_line``).  And the clock
-    only exists where the segment quotes its range and nothing else: the
-    resolved words must read exactly the range's spoken words, so a cue
-    boundary always coincides with a word boundary on screen.  A segment
-    carrying an eyebrow beside its quotation, or literal text that merely
-    resembles the speech, would pace the reveal to words the viewer
-    cannot match to glyphs - so it refuses rather than landing near
-    words instead of on them.
+    The clock runs on the segment's own ``window`` - its declared beat,
+    or its whole keep range when it names none - so a subdivided beat's
+    first word reads frame 0 rather than the range offset it plays at.
+    Membership is in master seconds, ordering in reel time, the same
+    split ``range_line`` makes.
+
+    Two refusals, both by name.  A window with no timed words has no
+    clock (the same rule that refuses an empty ``range_line``).  And the
+    clock only exists where the segment quotes its window and nothing
+    else: the resolved words must read exactly the window's spoken
+    words, so a cue boundary always coincides with a word boundary on
+    screen.  A segment carrying an eyebrow beside its quotation, or
+    literal text that merely resembles the speech, would pace the
+    reveal to words the viewer cannot match to glyphs - so it refuses
+    rather than landing near words instead of on them.
     """
     from library.tools.reel_build import reel_time
 
     seg_label = f"{label}.segments[{position}]"
-    lo = sum(r[1] - r[0] for r in ranges[:range_index])
-    hi = lo + (ranges[range_index][1] - ranges[range_index][0])
+    ws, we = window
+    rs, _ = ranges[owner]
+    lo = sum(r[1] - r[0] for r in ranges[:owner]) + (ws - rs)
     spoken: list[tuple[str, float, float]] = []
     for segment in ((transcript or {}).get("segments") or []):
         for word in (segment.get("words") or []):
@@ -1397,8 +1503,11 @@ def _word_cues(label: str, position: int, range_index: int,
             text = str(word.get("word", ""))
             if not text:
                 continue
-            at = reel_time(float(word["start"]), ranges)
-            if at is None or not (lo - 1e-9 <= at < hi - 1e-9):
+            master = float(word["start"])
+            if not (ws - WINDOW_EPS <= master < we - WINDOW_EPS):
+                continue
+            at = reel_time(master, ranges)
+            if at is None:
                 continue
             end_at = reel_time(float(word["end"]), ranges, at_end=True)
             if end_at is None:
@@ -1406,15 +1515,16 @@ def _word_cues(label: str, position: int, range_index: int,
             spoken.append((text, at - lo, end_at - lo))
     if not spoken:
         raise FullFrameDeclarationError(
-            f"{seg_label} sets word_sync and keep range {range_index} "
-            f"holds no timed words. There is no clock to pace the reveal "
-            f"off - the same reading that refuses an empty `range_line`.")
+            f"{seg_label} sets word_sync and its window [{ws:.3f}, "
+            f"{we:.3f}] holds no timed words. There is no clock to pace "
+            f"the reveal off - the same reading that refuses an empty "
+            f"`range_line`.")
     drawn = "".join(run["text"] for run in resolved)
     if [w.lower() for w in drawn.split()] != [w.lower() for w, _, _ in spoken]:
         raise FullFrameDeclarationError(
             f"{seg_label} sets word_sync and its runs do not read exactly "
-            f"the range's spoken words ({len(spoken)} word(s) there). A "
-            f"word clock paces a quotation of the range - bind the "
+            f"the window's spoken words ({len(spoken)} word(s) there). A "
+            f"word clock paces a quotation of the window - bind the "
             f"segment's run(s) to `range_line` - never an eyebrow beside "
             f"it or literal text about it.")
     cues: list[dict] = []
@@ -1425,8 +1535,8 @@ def _word_cues(label: str, position: int, range_index: int,
         if drawn[cursor:cursor + len(text)].lower() != text.lower():
             raise FullFrameDeclarationError(
                 f"{seg_label} sets word_sync and its runs do not read exactly "
-                f"the range's spoken words ({len(spoken)} word(s) there). A "
-                f"word clock paces a quotation of the range - bind the "
+                f"the window's spoken words ({len(spoken)} word(s) there). A "
+                f"word clock paces a quotation of the window - bind the "
                 f"segment's run(s) to `range_line` - never an eyebrow beside "
                 f"it or literal text about it.")
         cursor += len(text)
@@ -1442,20 +1552,123 @@ def _word_cues(label: str, position: int, range_index: int,
     return cues
 
 
+def _span_windows(label: str, segments: Sequence[dict],
+                  ranges: Sequence[tuple[float, float]],
+                  allow_gaps: bool
+                  ) -> tuple[list[tuple[float, float]], list[int]]:
+    """Every segment's effective window and its owning keep range.
+
+    The check that REPLACED the segment-count refusal, and refuses
+    everything it refused: a segment with no window covers its
+    positional range, so more windowless segments than ranges, or a
+    range no segment covers, still refuse - by window now, not by
+    count. On top of that a declared window must fall inside exactly
+    one keep range (never across the cut between two), windows must not
+    overlap, segments run in play order, and the windows must tile
+    every range unless ``allow_gaps`` explicitly leaves beats
+    uncovered. Nothing here is a warning: each violation RAISES by
+    name, because a span that silently desynchronises from the edit
+    reaches the timeline as invented picture over real speech.
+
+    Returns ``(windows, owners)`` in declaration order, which the
+    caller lays in that same play order - enforced here, never sorted
+    into it.
+    """
+    windows: list[tuple[float, float]] = []
+    for position, segment in enumerate(segments, start=1):
+        declared = segment.get("window")
+        if declared is not None:
+            windows.append((float(declared[0]), float(declared[1])))
+        elif position - 1 < len(ranges):
+            windows.append((float(ranges[position - 1][0]),
+                            float(ranges[position - 1][1])))
+        else:
+            raise FullFrameDeclarationError(
+                f"{label}.segments[{position}] names no `window`, so it "
+                f"covers keep range {position - 1} by position - and the "
+                f"reel plays only {len(ranges)} keep range(s). Give it a "
+                f"`window` inside one keep range to subdivide it.")
+    owners: list[int] = []
+    for position, (ws, we) in enumerate(windows, start=1):
+        hits = [k for k, (rs, re) in enumerate(ranges)
+                if rs - WINDOW_EPS <= ws and we <= re + WINDOW_EPS]
+        if not hits:
+            played = ", ".join(f"({rs:.3f}, {re:.3f})" for rs, re in ranges)
+            raise FullFrameDeclarationError(
+                f"{label}.segments[{position}] declares window "
+                f"[{ws:.3f}, {we:.3f}] and no keep range contains it. A "
+                f"segment subdivides ONE keep range - its window must "
+                f"fall inside exactly one keep range, never across the "
+                f"cut between two. The reel plays {len(ranges)} keep "
+                f"range(s): {played}.")
+        if len(hits) > 1:
+            raise FullFrameDeclarationError(
+                f"{label}.segments[{position}] declares window "
+                f"[{ws:.3f}, {we:.3f}] and it sits inside "
+                f"{len(hits)} keep ranges at once; a window must fall "
+                f"inside exactly one keep range. The reel's keep ranges "
+                f"overlap, so redraw them before a span is planned over "
+                f"them.")
+        owners.append(hits[0])
+    for position in range(2, len(windows) + 1):
+        ws, _ = windows[position - 1]
+        prev_we = windows[position - 2][1]
+        owner, prev_owner = owners[position - 1], owners[position - 2]
+        if owner < prev_owner:
+            raise FullFrameDeclarationError(
+                f"{label}.segments[{position}] covers keep range {owner} "
+                f"after {label}.segments[{position - 1}] covered range "
+                f"{prev_owner}. Declare segments in play order - range "
+                f"by range, window by window inside each.")
+        if owner == prev_owner and ws < prev_we - WINDOW_EPS:
+            raise FullFrameDeclarationError(
+                f"{label}.segments[{position}] opens at {ws:.3f} and "
+                f"{label}.segments[{position - 1}] does not end until "
+                f"{prev_we:.3f}. Two segments may not claim one second "
+                f"of speech - declare segments in play order with each "
+                f"window starting where the last ended.")
+    for k, (rs, re) in enumerate(ranges):
+        owned = [(ws, we) for (ws, we), o in zip(windows, owners) if o == k]
+        holes: list[tuple[float, float]] = []
+        if not owned:
+            holes.append((rs, re))
+        else:
+            if owned[0][0] > rs + WINDOW_EPS:
+                holes.append((rs, owned[0][0]))
+            for (_, prev_we), (ws, _) in zip(owned, owned[1:]):
+                if ws > prev_we + WINDOW_EPS:
+                    holes.append((prev_we, ws))
+            if owned[-1][1] < re - WINDOW_EPS:
+                holes.append((owned[-1][1], re))
+        if holes and not allow_gaps:
+            start, end = holes[0]
+            raise FullFrameDeclarationError(
+                f"keep range ({rs:.3f}, {re:.3f}) plays {start:.3f}-"
+                f"{end:.3f}s that no segment covers. Windows must tile "
+                f"every keep range - share the exact boundary second "
+                f"between neighbours, or declare `allow_gaps: true` on "
+                f"the span to leave beats uncovered on purpose.")
+    return windows, owners
+
+
 def _plan_span(declaration: dict, index: int, facts: ReelFacts,
                ranges: Optional[Sequence[tuple[float, float]]],
                transcript: Optional[dict],
                fps: float, width: int, height: int,
                project_folder: Optional[str],
                resolve_asset=None) -> list[PlannedCard]:
-    """One span declaration into one abutting segment per keep range.
+    """One span declaration into one segment per declared window.
 
-    Segment ``i`` covers range ``i`` and nothing else: its frames are the
-    range's own per-edge rounding - ``int(round(end * fps)) -
+    Each segment covers its window and nothing else: its frames are the
+    window's own per-edge rounding - ``int(round(end * fps)) -
     int(round(start * fps))``, the same arithmetic
-    ``reel_build.placements`` lays footage down in - so the segments abut
-    exactly and together cover the body's own seconds, the way the seven
-    back-to-back cards of docs/ANIMATED_REEL_CEILING.md did by hand.
+    ``reel_build.placements`` lays footage down in - laid at the
+    window's own offset inside the body, so tiling windows abut exactly
+    and together cover the body's own seconds, the way the seven
+    back-to-back cards of docs/ANIMATED_REEL_CEILING.md did by hand. A
+    declared gap lays as a hole in reel positions: the plan lays what
+    was declared, and the placer and the verifier grade the hole rather
+    than a stretch the engine invented.
 
     Each segment renders through the FullFrameCard composition, opaque,
     like a card: the span is a word the planner can choose, not a second
@@ -1471,32 +1684,39 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
             f"there is nothing to anchor to. reel_build.plan_cards passes "
             f"the ranges the build is about to place.")
     segments = declaration["segments"]
-    if len(segments) != len(ranges):
-        raise FullFrameDeclarationError(
-            f"{label} declares {len(segments)} segment(s) and the reel "
-            f"plays {len(ranges)} keep range(s). One segment covers one "
-            f"range - joining two ranges into one segment would merge two "
-            f"kept sentences, and splitting one would cut one in half. "
-            f"Say what each kept sentence looks like.")
+    ranges = list(ranges)
+    windows, owners = _span_windows(
+        label, segments, ranges, bool(declaration.get("allow_gaps", False)))
     if transcript is None:
         transcript = {}
 
     safe_area = resolve_safe_area(project_folder, width=width, height=height)
-    planned: list[PlannedCard] = []
+    # The body frame each keep range starts at: ranges play end to end
+    # in list order, so a window's reel position is its range's offset
+    # plus its distance into that range. A windowless span resolves to
+    # one window per range in order, which is exactly the cursor the
+    # old count check accumulated - same numbers, no special case.
+    body_offsets: list[int] = []
     cursor = 0
-    for position, (segment, (range_start, range_end)) in enumerate(
-            zip(segments, ranges), start=1):
-        start_f = int(round(range_start * fps))
-        end_f = int(round(range_end * fps))
-        duration_frames = end_f - start_f
+    for range_start, range_end in ranges:
+        body_offsets.append(cursor)
+        cursor += int(round(range_end * fps)) - int(round(range_start * fps))
+    planned: list[PlannedCard] = []
+    for position, (segment, (ws, we), owner) in enumerate(
+            zip(segments, windows, owners), start=1):
+        range_start, _ = ranges[owner]
+        reel_start_frame = (body_offsets[owner]
+                            + int(round(ws * fps))
+                            - int(round(range_start * fps)))
+        duration_frames = int(round(we * fps)) - int(round(ws * fps))
         if duration_frames <= 0:
             raise FullFrameDeclarationError(
-                f"{label}.segments[{position}] covers keep range "
-                f"({range_start:.3f}, {range_end:.3f}), which rounds to "
+                f"{label}.segments[{position}] declares window "
+                f"[{ws:.3f}, {we:.3f}], which rounds to "
                 f"{duration_frames} frames at {fps:.3f}fps; a segment "
                 f"must occupy at least one")
-        context = {"range_index": position - 1, "ranges": list(ranges),
-                   "transcript": transcript}
+        context = {"range_index": owner, "ranges": ranges,
+                   "transcript": transcript, "window": (ws, we)}
         resolved = tuple(
             _resolve_run(run, declaration, facts, index,
                          span_context=context)
@@ -1506,9 +1726,13 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
         # proved the effective character paces beside `word_sync`, so
         # this is a lookup, never a second check.
         effective_entrance = segment.get("entrance") or declaration["entrance"]
+        # The ground THIS segment draws on: its own declaration, or
+        # the span's when it names none. The span's stays required, so
+        # there is always a default - just never one the engine chose.
+        background = segment.get("background") or declaration["background"]
         props: dict = {
             "runs": [dict(run) for run in resolved],
-            "background": declaration["background"],
+            "background": background,
             "entrance": effective_entrance,
             "exit": declaration["exit"],
             "fontFamily": declaration["font_family"],
@@ -1555,20 +1779,19 @@ def _plan_span(declaration: dict, index: int, facts: ReelFacts,
         # this slot existed rendering byte-identically.
         if declaration.get("word_sync"):
             props["wordCues"] = _word_cues(
-                label, position, position - 1, list(ranges), transcript,
-                fps, cursor, duration_frames, resolved)
+                label, position, (ws, we), owner, ranges, transcript,
+                fps, duration_frames, resolved)
         planned.append(PlannedCard(
             index=position,
             element="full_frame_span",
             placement=SPAN_PLACEMENT,
-            reel_start_frame=cursor,
+            reel_start_frame=reel_start_frame,
             duration_seconds=duration_frames / fps,
             duration_frames=duration_frames,
             props=props,
             render_name=f"reel_{facts.reel_number:02d}_span_{position:02d}",
             resolved_runs=resolved,
         ))
-        cursor += duration_frames
     return planned
 
 

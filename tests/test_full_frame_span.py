@@ -263,15 +263,10 @@ def test_a_span_contributes_no_lead():
     assert lead_frames(_plan(), FPS) == 0
 
 
-def test_a_segment_count_that_is_not_the_range_count_refuses():
-    declarations = ffe.declared_elements(declare())
-    with pytest.raises(ffe.FullFrameDeclarationError, match="One segment"):
-        ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            ranges=[RANGES[0]], transcript=_transcript())
-    with pytest.raises(ffe.FullFrameDeclarationError, match="One segment"):
-        ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            ranges=RANGES + [(30.0, 32.0)],
-                            transcript=_transcript())
+# The count check this replaced lives on as two window refusals:
+# `test_a_windowless_segment_past_the_last_range_refuses` (more
+# segments than ranges) and `test_a_range_no_segment_covers_refuses`
+# (fewer) in the windows section below.
 
 
 def test_a_span_with_no_ranges_to_anchor_to_refuses():
@@ -390,6 +385,342 @@ def test_a_segment_image_with_no_lookup_refuses_the_span():
     with pytest.raises(ffe.FullFrameDeclarationError,
                        match="no way to look a project asset up"):
         _plan(declarations)
+
+
+# ── Subdividing a range: windows ───────────────────────────────────
+#
+# Blocker 3 of docs/SPAN_RENDERER_CAPABILITY.md: segments coincided with
+# keep ranges, and only those, so a one-range reel got a one-segment
+# span - a card, not an animated reel. A segment may now declare a
+# `window` - [start, end] in the reel's own master seconds - naming the
+# speech beat inside its range that it paces its picture to. The count
+# check is REPLACED, not removed: every window must fall inside exactly
+# one keep range, windows must not overlap, and they must tile every
+# range unless the span declares `allow_gaps`.
+
+ONE_RANGE = [(10.0, 16.0)]
+
+ONE_RANGE_WORDS = (
+    "So ranking number one on Google but invisible to AI systems now here"
+).split()
+
+
+def _one_range_transcript():
+    return {"segments": [
+        {"speaker": "Akshita", "timeline_start": 10.0, "timeline_end": 16.0,
+         "text": " ".join(ONE_RANGE_WORDS),
+         "words": [
+             {"word": w, "start": 10.0 + i * 0.4, "end": 10.35 + i * 0.4,
+              "timed": True}
+             for i, w in enumerate(ONE_RANGE_WORDS)
+         ]},
+    ]}
+
+
+def _one_range_facts():
+    return ffe.ReelFacts.from_moment(
+        _Moment(), ONE_RANGE, _one_range_transcript(), opening_seconds=3.0)
+
+
+def _windowed_runs(text=None):
+    if text is None:
+        return [{"bind": "range_line", "type_role": "display",
+                 "colour": "#FFFFFF"}]
+    return [{"text": text, "type_role": "display", "colour": "#FFFFFF"}]
+
+
+def _subdivided(background="#101014", extra=None, segments=None):
+    entry = {
+        "element": "full_frame_span",
+        "placement": "span",
+        "background": background,
+        "font_family": "Montserrat",
+        "segments": segments if segments is not None else [
+            {"window": [10.0, 12.0], "runs": _windowed_runs()},
+            {"window": [12.0, 14.0], "runs": _windowed_runs()},
+            {"window": [14.0, 16.0], "runs": _windowed_runs()},
+        ],
+    }
+    if extra:
+        entry.update(extra)
+    return {"full_frame_elements": [entry]}
+
+
+def _plan_one(declarations=None, ranges=ONE_RANGE, transcript=None):
+    declarations = (ffe.declared_elements(_subdivided())
+                    if declarations is None else declarations)
+    body = sum(int(round(e * FPS)) - int(round(s * FPS))
+               for s, e in ranges)
+    return ffe.plan_reel_cards(
+        declarations, _one_range_facts(), body, FPS,
+        ranges=list(ranges),
+        transcript=(_one_range_transcript()
+                    if transcript is None else transcript))
+
+
+def test_three_windows_tile_one_range():
+    """The capability blocker 3 refused: one range, three beats."""
+    planned = _plan_one()
+    body = int(round(16.0 * FPS)) - int(round(10.0 * FPS))
+    assert len(planned) == 3
+    assert planned[0].reel_start_frame == 0
+    for first, second in zip(planned, planned[1:]):
+        assert second.reel_start_frame == first.reel_end_frame
+    assert sum(c.duration_frames for c in planned) == body
+    assert [c.render_name for c in planned] == [
+        "reel_03_span_01", "reel_03_span_02", "reel_03_span_03"]
+    assert [c.duration_frames for c in planned] == [
+        int(round(e * FPS)) - int(round(s * FPS))
+        for s, e in ((10.0, 12.0), (12.0, 14.0), (14.0, 16.0))]
+
+
+def test_each_window_quotes_its_own_words():
+    """`range_line` is the window's line, not the range's."""
+    planned = _plan_one()
+    assert planned[0].props["runs"][0]["text"] == "So ranking number one on"
+    assert planned[1].props["runs"][0]["text"] == "Google but invisible to AI"
+    assert planned[2].props["runs"][0]["text"] == "systems now here"
+
+
+def test_a_windowless_segment_past_the_last_range_refuses():
+    """The old count check's first half: more segments than ranges."""
+    declarations = ffe.declared_elements(declare())
+    with pytest.raises(ffe.FullFrameDeclarationError, match="by position"):
+        ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
+                            ranges=[RANGES[0]], transcript=_transcript())
+
+
+def test_a_range_no_segment_covers_refuses():
+    """The old count check's second half: fewer segments than ranges."""
+    declarations = ffe.declared_elements(declare())
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="no segment covers"):
+        ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
+                            ranges=RANGES + [(30.0, 32.0)],
+                            transcript=_transcript())
+
+
+def test_a_window_outside_every_range_refuses():
+    segments = [
+        {"window": [10.0, 12.0], "runs": _windowed_runs()},
+        {"window": [30.0, 32.0], "runs": _windowed_runs()},
+    ]
+    declarations = ffe.declared_elements(_subdivided(segments=segments))
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="exactly one keep range"):
+        _plan_one(declarations)
+
+
+def test_a_window_spanning_the_cut_between_ranges_refuses():
+    """A window across two ranges sits inside neither one."""
+    entry = copy.deepcopy(VALID)
+    entry["segments"] = [
+        {"window": [10.0, 16.0],
+         "runs": [dict(VALID["segments"][0]["runs"][0])]},
+        {"window": [15.0, 21.0],
+         "runs": [dict(VALID["segments"][1]["runs"][0])]},
+    ]
+    declarations = ffe.declared_elements({"full_frame_elements": [entry]})
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="exactly one keep range"):
+        _plan(declarations)
+
+
+def test_a_window_inside_two_overlapping_ranges_refuses():
+    """Exactly one means one: a window inside two ranges names neither."""
+    declarations = ffe.declared_elements(_subdivided())
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="exactly one keep range"):
+        _plan_one(declarations,
+                  ranges=[(10.0, 16.0), (12.0, 20.0)],
+                  transcript=_one_range_transcript())
+
+
+def test_overlapping_windows_refuse():
+    segments = [
+        {"window": [10.0, 13.0], "runs": _windowed_runs("alpha")},
+        {"window": [12.0, 14.0], "runs": _windowed_runs("beta")},
+        {"window": [14.0, 16.0], "runs": _windowed_runs("gamma")},
+    ]
+    declarations = ffe.declared_elements(_subdivided(segments=segments))
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="may not claim one second"):
+        _plan_one(declarations)
+
+
+def test_an_undeclared_gap_refuses():
+    segments = [
+        {"window": [10.0, 12.0], "runs": _windowed_runs("alpha")},
+        {"window": [14.0, 16.0], "runs": _windowed_runs("beta")},
+    ]
+    declarations = ffe.declared_elements(_subdivided(segments=segments))
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="no segment covers"):
+        _plan_one(declarations)
+
+
+def test_a_declared_gap_lays_as_a_hole_in_reel_positions():
+    """`allow_gaps` is the explicit declaration a gap needs. The plan
+    lays what was declared - the hole stays a hole in reel positions,
+    so the placer and the verifier grade what the span chose rather
+    than a stretch the engine invented."""
+    segments = [
+        {"window": [10.0, 12.0], "runs": _windowed_runs("alpha")},
+        {"window": [14.0, 16.0], "runs": _windowed_runs("beta")},
+    ]
+    declarations = ffe.declared_elements(
+        _subdivided(extra={"allow_gaps": True}, segments=segments))
+    planned = _plan_one(declarations)
+    assert len(planned) == 2
+    assert planned[1].reel_start_frame == (
+        int(round(14.0 * FPS)) - int(round(10.0 * FPS)))
+    assert planned[1].reel_start_frame > planned[0].reel_end_frame
+
+
+def test_segments_out_of_play_order_refuse():
+    entry = copy.deepcopy(VALID)
+    entry["segments"] = [
+        {"window": [20.0, 24.0],
+         "runs": [dict(VALID["segments"][0]["runs"][0])]},
+        {"window": [10.0, 16.0],
+         "runs": [dict(VALID["segments"][1]["runs"][0])]},
+    ]
+    declarations = ffe.declared_elements({"full_frame_elements": [entry]})
+    with pytest.raises(ffe.FullFrameDeclarationError, match="in play order"):
+        _plan(declarations)
+
+
+def test_a_windowless_segment_keeps_its_positional_range():
+    """No window means the old reading: segment i covers range i. A
+    span may mix that with windows subdividing a later range."""
+    entry = copy.deepcopy(VALID)
+    entry["segments"] = [
+        {"runs": [{"bind": "range_line", "type_role": "display",
+                   "colour": "#FFFFFF"}]},
+        {"window": [20.0, 22.0],
+         "runs": _windowed_runs("second beat")},
+        {"window": [22.0, 24.0],
+         "runs": _windowed_runs("third beat")},
+    ]
+    declarations = ffe.declared_elements({"full_frame_elements": [entry]})
+    planned = _plan(declarations)
+    body = sum(int(round(e * FPS)) - int(round(s * FPS)) for s, e in RANGES)
+    assert len(planned) == 3
+    assert sum(c.duration_frames for c in planned) == body
+    assert planned[0].props["runs"][0]["text"] == (
+        "So ranking number one on Google but invisible to AI")
+    assert planned[1].props["runs"][0]["text"] == "second beat"
+
+
+@pytest.mark.parametrize("window,expect", [
+    ("nope", "a window is"),
+    ([10.0], "a window is"),
+    ([10.0, 12.0, 14.0], "a window is"),
+    (["a", "b"], "a window is"),
+    ([True, 12.0], "a window is"),
+    ([12.0, 10.0], "starts before it ends"),
+    ([12.0, 12.0], "starts before it ends"),
+])
+def test_a_malformed_window_is_refused_by_name(window, expect):
+    segments = [
+        {"window": window, "runs": _windowed_runs("alpha")},
+        {"window": [14.0, 16.0], "runs": _windowed_runs("beta")},
+    ]
+    with pytest.raises(ffe.FullFrameDeclarationError, match=expect):
+        ffe.declared_elements(_subdivided(segments=segments))
+
+
+def test_allow_gaps_must_be_a_bool():
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="either on or off"):
+        ffe.declared_elements(_subdivided(extra={"allow_gaps": "yes"}))
+
+
+# ── A segment may declare its own ground ───────────────────────────
+#
+# Blocker 2 of docs/SPAN_RENDERER_CAPABILITY.md: one `background` for
+# the whole span, so the reference's mid-piece value inversion had no
+# declaration. A segment may now declare its own `background`; absent
+# means the span's, which stays required and stays the default.
+
+def _grounded_segments():
+    return [
+        {"window": [10.0, 12.0], "runs": _windowed_runs("alpha")},
+        {"window": [12.0, 14.0], "background": "#000000",
+         "runs": _windowed_runs("beta")},
+        {"window": [14.0, 16.0], "runs": _windowed_runs("gamma")},
+    ]
+
+
+def test_a_segment_may_declare_its_own_background():
+    """The other half of the refusal below."""
+    normalised = ffe.declared_elements(
+        _subdivided(segments=_grounded_segments()))
+    assert normalised[0]["segments"][1]["background"] == "#000000"
+    assert normalised[0]["segments"][0]["background"] is None
+    planned = _plan_one(ffe.declared_elements(
+        _subdivided(segments=_grounded_segments())))
+    assert [c.props["background"] for c in planned] == [
+        "#101014", "#000000", "#101014"]
+
+
+@pytest.mark.parametrize("background", ["", "   "])
+def test_an_empty_segment_background_is_refused(background):
+    segments = [
+        {"window": [10.0, 12.0], "background": background,
+         "runs": _windowed_runs("alpha")},
+        {"window": [12.0, 16.0], "runs": _windowed_runs("beta")},
+    ]
+    with pytest.raises(ffe.FullFrameDeclarationError, match="the span's"):
+        ffe.declared_elements(_subdivided(segments=segments))
+
+
+def test_word_sync_clocks_each_window_not_its_range():
+    """The word clock paces the segment's own beat: the second window's
+    first cue reads frame 0, where a range clock would read 2.0s."""
+    entry = {
+        "element": "full_frame_span",
+        "placement": "span",
+        "background": "#101014",
+        "font_family": "Montserrat",
+        "entrance": "typewriter",
+        "word_sync": True,
+        "segments": [
+            {"window": [10.0, 12.0], "runs": _windowed_runs()},
+            {"window": [12.0, 14.0], "runs": _windowed_runs()},
+            {"window": [14.0, 16.0], "runs": _windowed_runs()},
+        ],
+    }
+    planned = _plan_one(
+        ffe.declared_elements({"full_frame_elements": [entry]}))
+    first, second, third = (c.props["wordCues"] for c in planned)
+    assert [len(first), len(second), len(third)] == [5, 5, 3]
+    assert first[0]["start"] == 0.0
+    assert second[0]["start"] == 0.0
+    assert third[0]["start"] == 0.0
+
+
+def test_word_sync_beside_full_range_copy_refuses_on_a_subdivided_segment():
+    """A subdivided clock paces the window's words, so quoting the
+    whole range beside it lands near words instead of on them."""
+    entry = {
+        "element": "full_frame_span",
+        "placement": "span",
+        "background": "#101014",
+        "font_family": "Montserrat",
+        "entrance": "typewriter",
+        "word_sync": True,
+        "segments": [
+            {"window": [10.0, 12.0], "runs": _windowed_runs(
+                "So ranking number one on Google but invisible to AI "
+                "systems now here")},
+            {"window": [12.0, 16.0], "runs": _windowed_runs("beta")},
+        ],
+    }
+    declarations = ffe.declared_elements({"full_frame_elements": [entry]})
+    with pytest.raises(ffe.FullFrameDeclarationError,
+                       match="do not read exactly"):
+        _plan_one(declarations)
 
 
 # ── The verifier reads spans ─────────────────────────────────────
