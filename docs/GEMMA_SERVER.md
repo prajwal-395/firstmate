@@ -130,5 +130,129 @@ server path.
   long as the server runs, on the project's render bottleneck.
 
 Always-on versus start-on-demand is the captain's call. The supported
-on-demand shape: start the server before pipeline steps that need
-vision (`ask_the_footage`, perceptual QA), stop it before a render.
+on-demand shape is §6: the shim below, not manual start/stop.
+
+## 6. On-demand: the shim, the `gemma` command, and the pipeline scope
+
+`library/tools/gemma_shim.py` (stdlib only) answers the FIXED provider
+URL on :8080 with a ~40 MB shim. The real backend runs on 127.0.0.1:8081
+(`GEMMA_BACKEND_PORT`) and exists only while needed:
+
+- first model request -> shim spawns the backend, waits for `/health`
+  (bounded by `GEMMA_STARTUP_TIMEOUT`, default 120 s), then
+  reverse-proxies - streaming (SSE) included, so opencode chat works;
+- no in-flight requests, no holds, and no traffic for `GEMMA_IDLE_TIMEOUT`
+  (default 600 s) -> the backend PROCESS is stopped, returning the ~7 GB.
+  Idle means all three: a teardown can never kill live work;
+- backend fails to start -> HTTP 503 with a JSON `error.message` naming
+  the cause and the fix (`gemma up --prewarm`, `gemma status`). A failure
+  is a clear message, never a hang or an empty reply;
+- `GET /health` on a cold shim answers `{"status":"idle",...}` WITHOUT
+  loading the model; once warm it proxies the backend's `/health`
+  verbatim, so the §1 checks keep working.
+
+```
+gemma up [--prewarm]   ensure the shim is listening (provider URL unchanged)
+gemma down [--all]     stop the backend now (--all also stops the shim;
+                       refused with 409 while requests or holds are live)
+gemma status           shim + backend state and the backend's resident RSS
+```
+
+`scripts/gemma` is the same entry point (`python3 -m
+library.tools.gemma_shim ...`). Pipeline bursts hold the backend across
+gaps longer than the idle timeout instead of racing the reaper:
+
+```python
+from library.tools.gemma_shim import server_scope
+with server_scope("http://127.0.0.1:8080"):
+    ...  # vision batch; backend cannot be reaped inside
+```
+
+### 6.1 Why this shape (options evaluated 2026-09-09)
+
+Cold start measured that day, model already in the HF cache: ~12 s
+process spawn to `/health` healthy, ~4 s more to the first chat answer
+(~13 s end-to-end through the shim on a second run). That number sets the
+600 s idle default: a 60 s timeout would bill the captain ~13 s after
+every minute idle; 600 s holds the 7 GB only across a working session,
+and every proxied request resets the clock.
+
+- **Shim (chosen).** Fixed URL keeps working for both consumers, memory
+  is held only while in use. Cost: the first request after idle pays the
+  ~13 s load. Live proof: cold `POST /v1/chat/completions` answered
+  `SHIM_COLD_OK`; backend `top` MEM 7578M while serving; reaped after the
+  idle window (free pages 2850 -> 69017) with the shim still answering.
+- **launchd socket activation (rejected).** `mlx_vlm server --help`
+  offers only `--host/--port` - no inherited-fd option, so there is no
+  socket to activate. KeepAlive without it is just always-on under
+  another name. launchd remains the right owner for the *shim* - see the
+  proposed plist in §6.2.
+- **opencode plugin (rejected).** The installed `@opencode-ai/plugin`
+  1.18.29 exposes `chat.message`, `tool.execute.before/after`,
+  `command.execute.before`, `shell.env`, session-compacting hooks - NO
+  session-start/end lifecycle, so a plugin can neither warm the model
+  before first use nor tear it down after, and it does nothing for the
+  pipeline. The shim covers chat with zero opencode config.
+- **Short command alone (adopted as the primitive).** `gemma up/down/
+  status` is honest and the right layer UNDER the shim, but manual-only
+  does not answer "automatically when needed".
+- **`POST /unload` (rejected, again).** Frees ~145 MB; the process keeps
+  the ~7 GB. Nothing here calls it.
+
+Known unknown, still open: whether repeated load/unload cycles leak
+memory on this stack (two cold starts measured at 7502M / 7578M - same
+band, but that is two samples, not a soak test).
+
+### 6.2 Captain's machine (PROPOSED - captain applies this)
+
+The repo never writes here. Two steps, both opt-in:
+
+1. Start the shim (survives the terminal; the provider URL answers
+   from here on):
+
+   ```sh
+   cd <this-repo> && ./scripts/gemma up
+   ```
+
+2. Keep the *shim* (not the model) across reboots - `~/Library/
+   LaunchAgents/dev.video-editing-pilot.gemma-shim.plist` with EXACTLY
+   this content (`<this-repo>` replaced with the checkout path):
+
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+   <plist version="1.0">
+     <dict>
+       <key>Label</key>
+       <string>dev.video-editing-pilot.gemma-shim</string>
+       <key>ProgramArguments</key>
+       <array>
+         <string>/opt/homebrew/bin/python3</string>
+         <string>-m</string>
+         <string>library.tools.gemma_shim</string>
+         <string>run</string>
+       </array>
+       <key>WorkingDirectory</key>
+       <string>&lt;this-repo&gt;</string>
+       <key>RunAtLoad</key>
+       <true/>
+       <key>KeepAlive</key>
+       <true/>
+       <key>StandardOutPath</key>
+       <string>/tmp/gemma-shim.stdout.log</string>
+       <key>StandardErrorPath</key>
+       <string>/tmp/gemma-shim.stderr.log</string>
+     </dict>
+   </plist>
+   ```
+
+   Apply with:
+
+   ```sh
+   launchctl load -w ~/Library/LaunchAgents/dev.video-editing-pilot.gemma-shim.plist
+   ```
+
+Tests: `tests/test_gemma_shim.py` (fake stdlib backend; no model load)
+covers cold-proxy, idle reap, in-flight protection, hold/release scope,
+503-on-failure, and 409-on-busy-stop.
