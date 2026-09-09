@@ -381,6 +381,7 @@ class Area(str, Enum):
     BACKUPS = "backups"
     SCRATCH = "scratch"
     UNSORTED = "unsorted"
+    QUARANTINE = "quarantine"
 
     MARKER_FEEDBACK = "marker_feedback"
 
@@ -628,6 +629,14 @@ AREAS: dict[Area, AreaSpec] = {
         "Files whose purpose could not be established. Nothing writes here at "
         "run time. An admitted unknown, never a guess and never a deletion.",
         produced_by=(ORGANIZE,)),
+    Area.QUARANTINE: AreaSpec(
+        f"{_OUT}/quarantine", Kind.OUTPUT,
+        "Orphaned assets a sweep moved aside, plus the mark and sweep "
+        "records that authorise them. The captain reviews quarantine "
+        "before anything is deleted: unlike scratch/, nothing here is "
+        "discarded automatically or mid-run. See "
+        "library/tools/caption_asset_gc.py.",
+        produced_by=(RUNNER,)),
     Area.MARKER_FEEDBACK: AreaSpec(
         "marker_feedback", Kind.CAPTURED,
         "Notes the captain typed onto a Resolve timeline, pulled off it by "

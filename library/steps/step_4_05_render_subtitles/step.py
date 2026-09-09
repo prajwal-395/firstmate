@@ -84,6 +84,7 @@ from library.tools.subtitle_segment_id import (
     segment_identifier,
     timeline_scope,
 )
+from library.tools.caption_asset_gc import card_key
 
 # Where the Remotion project lives, repo-relative.  A module constant so
 # a caller can point the render somewhere else without reconstructing
@@ -450,6 +451,33 @@ class PersistentCaptionRenderer:
         return False        # never swallow the exception that got us here
 
 
+def _superseded_generations(out_dir: str, overlay_path: str) -> list:
+    """Older generations of the card just rendered, still on disk.
+
+    Same card (stem minus digest, same tightness), different digest -
+    e.g. a source span that shifted within the millisecond the
+    filename carries, so the new render wrote a new file instead of
+    overwriting. Listed, never touched: the mark decides what they are
+    by reachability, and the sweep moves them only on instruction.
+    """
+    base = os.path.basename(overlay_path)
+    if not base.endswith(".mov"):
+        return []
+    mine, my_tight = card_key(base[:-4])
+    older = []
+    try:
+        names = os.listdir(out_dir)
+    except OSError:
+        return []
+    for name in names:
+        if not name.endswith(".mov") or name == base:
+            continue
+        card, tight = card_key(name[:-4])
+        if card == mine and tight == my_tight:
+            older.append(os.path.join(out_dir, name))
+    return sorted(older)
+
+
 def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        remotion_dir: str = None,
                        progress: str = "",
@@ -635,10 +663,17 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         record.update(extra)
         return record
 
-    def measured(provenance: str) -> dict:
+    def measured(provenance: str, superseded=None) -> dict:
         return entry(
             provenance,
             reuse_key=key,
+            # The generations this render replaced, named at once so
+            # they become orphan candidates without waiting for a
+            # sweep. The old files stay on disk - orphaned, not
+            # deleted - and reachability still rules the mark: a
+            # superseded file a timeline still places stays LIVE. See
+            # library/tools/caption_asset_gc.py.
+            superseded=sorted(superseded or []),
             # The rendered clip carries animation handles either side of
             # the content; these trim them off at placement time so blocks
             # sit on their true bounds and never overlap.
@@ -850,7 +885,9 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                   f"{segment_name} ({exc}); it will re-render next time",
                   file=sys.stderr)
 
-    return measured(RENDERED)
+    return measured(RENDERED,
+                    superseded=_superseded_generations(
+                        out_dir, overlay_path))
 
 
 def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
@@ -1122,6 +1159,18 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     print(f"\nrendered {tally[RENDERED]}, reused {tally[REUSED]}, "
           f"failed {tally[FAILED]}  ({len(props_list)} planned)",
           file=sys.stderr)
+    # Every older generation a render in this pass replaced, named at
+    # once. The files stay on disk; the mark reads this list to say
+    # WHAT replaced them, and reachability still decides their fate.
+    superseded_generations = sorted({
+        older
+        for segment in segments
+        for older in segment.get("superseded", [])
+    })
+    if superseded_generations:
+        print(f"superseded {len(superseded_generations)} older "
+              f"generation(s) - orphan candidates, still on disk",
+              file=sys.stderr)
 
     usable = [s for s in segments if s["provenance"] != FAILED]
     if usable:
@@ -1185,6 +1234,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             "reused": tally[REUSED],
             "failed": tally[FAILED],
             "planned": len(props_list),
+            "superseded_generations": superseded_generations,
         }
     }
 
