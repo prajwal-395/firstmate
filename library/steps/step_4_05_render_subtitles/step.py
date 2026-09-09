@@ -62,6 +62,10 @@ from generate_remotion_props import generate_subtitle_props_per_block
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.step_stdout import claim_stdout, emit
 from library.tools.delivery_format import resolve_delivery_format
+from library.tools.remotion_batch import (
+    PersistentRenderer,
+    RendererUnavailable,
+)
 from library.tools.overlay_mode import (
     CONTAINERS,
     GEOMETRIES,
@@ -267,6 +271,84 @@ class SubprocessRenderer:
 
     def close(self):
         """Nothing to release - a subprocess owns nothing between cards."""
+
+
+CAPTION_RENDERERS = ("subprocess", "persistent")
+"""The renderers the caption step can use. Complete, and required."""
+
+DEFAULT_CAPTION_RENDERER = "subprocess"
+"""Today's mechanism stays the default until the persistent path is
+proven. The captain's ruling, 2026-09-09: retain the version within the
+pipeline as is until the other version is known to work as wanted. A
+change that silently switches the renderer under approved reels is the
+one outcome to avoid, so this default moves only on their word."""
+
+
+class PersistentCaptionRenderer:
+    """The bundle-once renderer behind the same two-method seam.
+
+    `SubprocessRenderer` above is unchanged: one `npx remotion render`
+    per card. This class holds ONE `PersistentRenderer`
+    (`library/tools/remotion_batch.py`) - one node process, one bundle,
+    many cards - and answers the same contract:
+
+        render(props_path, overlay_path, sequence=False) -> (ok, error)
+        close()                                          -> None
+
+    so `render_one_segment` needs no touch: selection, provenance and
+    reporting cannot tell which renderer drew the card.
+
+    LAZY, as the seam requires. Construction starts nothing - the
+    bundle is paid on the first card that actually renders, and a pass
+    that draws nothing pays nothing. `close()` on a renderer that never
+    started is a no-op.
+
+    The two failure kinds stay distinct. A card that fails to draw
+    returns `(False, error)` and the renderer stays up; a dead renderer
+    RAISES `RendererUnavailable`, and the orchestrator stops the pass
+    rather than marching every remaining card into a closed pipe.
+
+    The codec path carries: the serve script this holds renders
+    `codec: "prores"` with `proResProfile: "4444"` - the same options
+    the subprocess call passes as `--codec prores --prores-profile
+    4444` - because both go through the same `renderOne` in
+    `render-batch.mjs`.
+    """
+
+    def __init__(self, remotion_dir: str,
+                 composition: str = "SubtitleOverlay"):
+        # The persistent renderer takes a repo root, not a Remotion
+        # dir; the parent of `remotion-subtitles/` IS the root. Derived
+        # rather than imported, so an overridden remotion_dir (tests,
+        # alternate checkouts) still resolves against itself.
+        repo_root = os.path.dirname(os.path.abspath(remotion_dir))
+        self._inner = PersistentRenderer(composition=composition,
+                                         repo_root=repo_root)
+
+    def render(self, props_path: str, overlay_path: str,
+               sequence: bool = False):
+        """Draw one card. `(ok, error)` - the step's seam, unchanged.
+
+        `sequence=True` refuses loudly: this renderer stitches video
+        and cannot draw a frame sequence, and a sequence reported as
+        drawn would be success reported while the work did not happen.
+        """
+        return self._inner.render(props_path, overlay_path,
+                                  sequence=sequence)
+
+    def close(self):
+        """Idempotent, like the renderer it holds."""
+        self._inner.close()
+
+    def __enter__(self):
+        # Deliberately does NOT start, like the renderer it holds: the
+        # bundle is paid on the first card that actually renders, so a
+        # `with` block that draws nothing pays nothing.
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False        # never swallow the exception that got us here
 
 
 def render_one_segment(props: dict, out_dir: str, timeline_label: str,
@@ -532,6 +614,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              reuse: bool = False,
                              scope=None,
                              renderer=None,
+                             renderer_kind: str = DEFAULT_CAPTION_RENDERER,
                              require_named_timeline: bool = False,
                              overlay_geometry: str = None,
                              overlay_container: str = None) -> dict:
@@ -541,13 +624,28 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
 
     Returns the `subtitle_overlay` payload.  Raises
     `SubtitleRenderRefused` where the step cannot deliver: no Remotion
-    project, subtitle QA failed, or more than
-    `MAX_RENDER_FAILURE_RATE` of the segments failed to render.
+    project, subtitle QA failed, more than
+    `MAX_RENDER_FAILURE_RATE` of the segments failed to render - or the
+    renderer itself died mid-pass, which is ONE fault, not one failure
+    per remaining card.
+
+    `renderer_kind` chooses HOW one card becomes pixels - `"subprocess"`
+    (today's one-`npx`-per-card mechanism, the default) or `"persistent"`
+    (one bundle for the whole pass). An explicit `renderer` still wins
+    over either. An unknown kind raises rather than falling back,
+    because a fallback would run a renderer the caller did not ask for
+    while reporting success.
 
     An empty plan is NOT a refusal - it returns `available: False` with
     the reason, which is what the step has always done.
     """
     remotion_dir = remotion_dir or REMOTION_DIR
+
+    if renderer_kind not in CAPTION_RENDERERS:
+        raise ValueError(
+            f"Unknown renderer_kind {renderer_kind!r}; "
+            f"known: {list(CAPTION_RENDERERS)}. A renderer the caller "
+            f"did not ask for is never substituted silently.")
 
     # Explicit values win; otherwise the project's declaration, and a
     # project that declares nothing renders exactly as before.
@@ -565,6 +663,18 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             f"known: {list(CONTAINERS)}.")
     print(f"Overlay carrying: {geometry} geometry, {container} container",
           file=sys.stderr)
+
+    # The persistent renderer stitches video through one bundle; a PNG
+    # sequence is a carrying it cannot draw. Refuse BEFORE anything
+    # renders rather than failing card by card, or - worse - reporting
+    # a sequence as drawn that was never drawn.
+    if renderer is None and renderer_kind == "persistent" \
+            and container == "frames":
+        raise ValueError(
+            "renderer_kind='persistent' cannot render a 'frames' "
+            "container: the persistent renderer stitches video and "
+            "refuses sequences. Use the default subprocess renderer "
+            "for frame sequences.")
 
     if not os.path.isdir(remotion_dir):
         print(f"ERROR: Remotion project not found at {remotion_dir}",
@@ -695,6 +805,16 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # or a browser builds it once rather than per card.  See
     # `SubprocessRenderer` for the contract and for why it should be lazy.
     #
+    # `renderer_kind="persistent"` builds the bundle-once renderer
+    # beside the default instead of in place of it - the default stays
+    # today's subprocess mechanism until the new path is proven. An
+    # explicit `renderer` still wins over either kind.
+    #
+    # Constructing the persistent renderer starts NOTHING: the bundle is
+    # paid on the first card that actually renders, so a pass that draws
+    # nothing (a region covering no captioned block returns above; reuse
+    # skipping every card) pays nothing.
+    #
     # CLOSED IN A `finally`, and only if WE built it.  A renderer holding
     # a Remotion bundle or a browser owns an OS resource, and a pass that
     # raises - a QA refusal, a failed segment - would otherwise leak it;
@@ -702,8 +822,15 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # closes: a caller who passed one in may be reusing it across several
     # passes, and closing someone else's renderer is how the second pass
     # fails for a reason the first pass caused.
-    engine = renderer or SubprocessRenderer(remotion_dir)
-    owns_engine = renderer is None
+    if renderer is not None:
+        engine = renderer
+        owns_engine = False
+    elif renderer_kind == "persistent":
+        engine = PersistentCaptionRenderer(remotion_dir)
+        owns_engine = True
+    else:
+        engine = SubprocessRenderer(remotion_dir)
+        owns_engine = True
 
     segments = []
     try:
@@ -721,6 +848,20 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             # then refuses the compile citing a missing block rather than
             # the render that actually failed.
             segments.append(segment)
+    except RendererUnavailable as exc:
+        # The RENDERER died - not a card. Every remaining card would fail
+        # the same way, so the pass stops here and reports ONE fault
+        # carrying the cards rendered so far, rather than one FAILED
+        # segment per card that never had a chance.
+        raise SubtitleRenderRefused({
+            "subtitle_overlay": {
+                "available": False,
+                "error": (f"the caption renderer died after "
+                          f"{len(segments)} of {len(props_list)} segments: "
+                          f"{exc}"),
+                "segments": segments,
+            }
+        }) from exc
     finally:
         if owns_engine:
             closer = getattr(engine, "close", None)
@@ -871,6 +1012,11 @@ def main():
             audio_spine=data.get("audio_spine", {}),
             project_folder=data.get("project_folder", ""),
             fps=data.get("project_fps", 30),
+            # Optional, and absent means today's mechanism: the default
+            # stays the subprocess renderer until the persistent path is
+            # proven (see DEFAULT_CAPTION_RENDERER).
+            renderer_kind=data.get("caption_renderer",
+                                   DEFAULT_CAPTION_RENDERER),
         )
     except SubtitleRenderRefused as refusal:
         emit(refusal.payload)
