@@ -96,6 +96,18 @@ WITHDRAWN_ALIASES = {
                  "did not carry it",
 }
 
+# The drift moves: gradual motion that puts life on a STATIC hold.  A
+# push that arrives because every static shot gets a push is exactly
+# what the captain's ruling of 2026-09-08 refuses - motion on a static
+# shot is allowed only where the plan states, per shot, why that shot
+# wants it, and a shot with no reason gets no motion.  So an entry
+# naming one of these with a missing or blank `rationale` is dropped
+# with `no_stated_reason` (library/tools/vfx_plan_basis.py) rather than
+# given motion.  Emphasis effects (`zoom_emphasis`, `screen_shake`,
+# `cut_in`) are a different decision with their own grounds and their
+# path is unchanged by this.
+DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
+
 # There is no default zoom, and there must not be one again. A
 # `inject_default_ken_burns` here used to add `slow_zoom_in`/`slow_zoom_out`
 # to every speech block over three seconds that the plan had deliberately
@@ -136,6 +148,16 @@ def _generator_effect_names() -> set:
         return set(list_generator_effects() or {})
     except Exception:  # pragma: no cover
         return set()
+
+
+def _stated_reason(vfx: dict) -> bool:
+    """Whether the entry states a per-shot reason for the motion.
+
+    A missing key, a non-string, and a blank string are all no reason:
+    a rationale of whitespace states nothing about the shot.
+    """
+    rationale = vfx.get("rationale")
+    return isinstance(rationale, str) and bool(rationale.strip())
 
 
 def resolve_vfx(
@@ -234,6 +256,22 @@ def resolve_vfx(
             covered_positions.discard(str(pos))
             continue
         elif effect_type in TOOLKIT_PARAMETERS:
+            # Kinetic motion is allowed only where the plan states, per
+            # shot, why that shot wants it (captain's ruling 2026-09-08).
+            # A drift entry with no stated reason gets no motion - it is
+            # dropped, never given a default move. This is checked before
+            # the parameter names because whether motion applies at all
+            # comes before how it is drawn.
+            if effect_type in DRIFT_EFFECTS and not _stated_reason(vfx):
+                _drop(
+                    pos, raw_type, "no_stated_reason",
+                    f"Dropped VFX {raw_type!r} on block {pos!r}: it states "
+                    f"no reason. Motion on a static shot needs a per-shot "
+                    f"rationale saying why that shot wants it; a shot with "
+                    f"no reason gets no motion.",
+                )
+                covered_positions.discard(str(pos))
+                continue
             # The plan supplies the values; this checks only that the
             # NAMES reach a reader. A name the renderer does not dispatch
             # on draws nothing and says nothing (AGENTS.md §10.2), so an

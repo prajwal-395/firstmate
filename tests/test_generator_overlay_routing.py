@@ -259,7 +259,8 @@ class TestManifestIntegration:
         creative = [
             {"target_block_position": 1, "effect_type": "fireworks"},
             {"target_block_position": 2, "effect_type": "slow_zoom_in",
-             "params": {"zoom_start": 1.0, "zoom_end": 1.04}},
+             "params": {"zoom_start": 1.0, "zoom_end": 1.04},
+             "rationale": "a static hold that wants a drift"},
         ]
         spine = _spine(1, 2, 3)
         vfx = resolve_vfx(creative, spine)

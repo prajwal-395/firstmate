@@ -88,7 +88,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, params, rationale"
+        "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, params, rationale. Drift motion on a static hold (`slow_zoom_in` / `slow_zoom_out`) applies ONLY where the entry states a per-shot rationale saying why that shot wants it - an entry with a missing or blank rationale gets no motion and is dropped as `no_stated_reason` (captain's ruling 2026-09-08; motion is never a blanket rule or a default)."
       }
     ],
     "requirements": [

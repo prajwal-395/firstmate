@@ -138,7 +138,8 @@ def test_only_the_unreadable_names_are_dropped_from_a_usable_entry():
     """An entry that reaches a reader survives, carrying only what does."""
     resolved = resolve_vfx(
         [{"target_block_position": 1, "effect_type": "slow_zoom_in",
-          "params": {"zoom_start": 1.0, "zoom_end": 1.4, "bogus": 9}}],
+          "params": {"zoom_start": 1.0, "zoom_end": 1.4, "bogus": 9},
+          "rationale": "a static hold that wants a drift"}],
         _spine(1, 2),
     )
     assert len(resolved) == 1
@@ -250,7 +251,8 @@ def test_dropping_an_effect_frees_its_block_for_another():
             {"target_block_position": 1, "effect_type": "sparkle_blast",
              "params": {"zoom_start": 1.0, "zoom_end": 1.04}},
             {"target_block_position": 1, "effect_type": "slow_zoom_in",
-             "params": {"zoom_start": 1.0, "zoom_end": 1.04}},
+             "params": {"zoom_start": 1.0, "zoom_end": 1.04},
+             "rationale": "a static hold that wants a drift"},
         ],
         _spine(1, 2),
     )

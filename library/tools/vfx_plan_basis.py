@@ -137,6 +137,13 @@ DROP_REASONS = {
         "picture and is routed to the overlay track instead - so this is "
         "a drop from the CLIP-EFFECT path, not from the plan"
     ),
+    "no_stated_reason": (
+        "the entry asks for drift motion on a static hold but states no "
+        "per-shot reason.  Motion applies only where the plan states why "
+        "that shot wants it (captain's ruling 2026-09-08: a shot with no "
+        "reason gets no motion), so an entry with a missing or blank "
+        "`rationale` gets no motion rather than a default one"
+    ),
 }
 
 

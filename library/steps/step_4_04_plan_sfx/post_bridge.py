@@ -91,6 +91,51 @@ from library.tools.spine_contract import (
 # say `bass_impact: 0.5` while the file behind that name was a 5.317s
 # riser, so the manifest asserted a length the audio did not have.
 
+# What an entry IS in the mix: `literal` is a sound tied to a visible
+# event, placed at it; `layer` is the atmospheric layer (captain's
+# ruling 2026-09-08) - a riser, drone or crackle that plays UNDER the
+# picture as a bed rather than marking a moment.  A layer is NOT shifted
+# off speech the way a literal sound is: `_avoid_speech_collision`
+# moves a literal sound into a word gap, and a bed moved into a gap
+# stops being a bed.  The word is the plan's to declare and there is no
+# default: an entry naming no role is literal, and a role outside this
+# pair is dropped rather than read as one of them.
+SFX_ROLES = ("literal", "layer")
+
+
+def _stated_reason(sfx: dict) -> bool:
+    """Whether the entry states why this sound earns its place.
+
+    A missing key, a non-string, and a blank string are all no reason.
+    A layer is not tied to a visible event, so its rationale is the
+    only thing holding it to the moment.
+    """
+    rationale = sfx.get("rationale")
+    return isinstance(rationale, str) and bool(rationale.strip())
+
+
+def _previous_cut(block: dict, spine_blocks: list) -> float:
+    """The cut before this block's own timeline start.
+
+    The greatest `timeline_start` strictly earlier than the block's, or
+    0.0 when there is none - the first block has no previous cut, so
+    the top of the reel is its only boundary.  This is what a J-cut
+    lead is measured against: the lead start must not be earlier.
+    """
+    try:
+        start = float(block.get("timeline_start", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    earlier = []
+    for other in spine_blocks:
+        try:
+            moment = float(other.get("timeline_start", 0.0))
+        except (TypeError, ValueError):
+            continue
+        if moment < start - 1e-9:
+            earlier.append(moment)
+    return max(earlier) if earlier else 0.0
+
 
 def _find_nearest(target: float, candidates: list, max_dist: float = None) -> float:
     """Find the nearest value in candidates to target.
@@ -499,6 +544,55 @@ def resolve_sfx(
                 file=sys.stderr,
             )
             continue
+        # The atmospheric layer (captain's ruling 2026-09-08): a riser,
+        # drone or crackle that plays UNDER the picture rather than
+        # marking a visible event.  Whatever reasons a literal choice -
+        # a real `sfx_id` (checked above) and the plan's own `volume_db`
+        # (checked just above) - reasons a layer too, plus a stated
+        # reason, because nothing else holds it to the moment.  A layer
+        # with no rationale is sprinkling, and it goes.
+        role = sfx.get("role") or "literal"
+        if role not in SFX_ROLES:
+            print(
+                f"  Dropped SFX {entry['sfx_id']!r} on block "
+                f"{block.get('position')!r}: unknown role {role!r} - the "
+                f"roles are {', '.join(SFX_ROLES)}. A role nothing reads "
+                f"would ship a literal placement for a behaviour the plan "
+                f"asked for.",
+                file=sys.stderr,
+            )
+            continue
+        is_layer = (role == "layer")
+        if is_layer and not _stated_reason(sfx):
+            print(
+                f"  Dropped SFX {entry['sfx_id']!r} on block "
+                f"{block.get('position')!r}: role 'layer' states no "
+                f"reason. A layer is not tied to a visible event, so it "
+                f"needs a rationale naming what in the library entry made "
+                f"it right for this moment.",
+                file=sys.stderr,
+            )
+            continue
+        # A J-cut lead (captain's ruling 2026-09-08): sound may arrive
+        # BEFORE the cut it belongs to.  The whole sound starts this
+        # many seconds earlier at the same duration.  This is purely a
+        # placement offset - `compile_manifest` reads `timeline_in` /
+        # `timeline_out` whatever produced them, so the mix needs to
+        # know nothing.
+        lead = sfx.get("lead_seconds")
+        if lead is None:
+            lead = 0.0
+        if (isinstance(lead, bool) or not isinstance(lead, (int, float))
+                or lead < 0):
+            print(
+                f"  Dropped SFX {entry['sfx_id']!r} on block "
+                f"{block.get('position')!r}: lead_seconds {lead!r} is not "
+                f"a positive number of seconds - a lead that states no "
+                f"timing states nothing.",
+                file=sys.stderr,
+            )
+            continue
+        lead = float(lead)
         source_in = _entry_source_in(entry)
         # How long it plays is the PLAN's decision, bounded by the
         # sound's measured length. A request past that is refused by
@@ -517,10 +611,39 @@ def resolve_sfx(
         tl_end = block["timeline_end"]
         tl_block_start = block["timeline_start"]
 
-        refined_start = _avoid_speech_collision(
-            refined_start, duration, word_times_tl,
-            tl_block_start, tl_end,
-        )
+        if not is_layer:
+            refined_start = _avoid_speech_collision(
+                refined_start, duration, word_times_tl,
+                tl_block_start, tl_end,
+            )
+        # else: a layer plays UNDER speech by design. Shifting it into
+        # a word gap would stop it being a layer.
+
+        if lead > 0:
+            # The lead wins over the avoidance above: the plan timed
+            # this sound explicitly, and re-shifting it would eat the
+            # J-cut. The boundary is what keeps it honest - the lead
+            # start must neither run past the previous cut nor off the
+            # top of the reel.
+            lead_start = refined_start - lead
+            prev_cut = _previous_cut(block, spine_blocks)
+            if lead_start < prev_cut - 1e-9:
+                if prev_cut <= 0.0:
+                    where = (f"starts at {round(lead_start, 3)}s, off the "
+                             f"top of the reel")
+                else:
+                    where = (f"starts at {round(lead_start, 3)}s, past the "
+                             f"previous cut at {round(prev_cut, 3)}s")
+                print(
+                    f"  Dropped SFX {entry['sfx_id']!r} on block "
+                    f"{block.get('position')!r}: lead_seconds {lead}s "
+                    f"from {round(refined_start, 3)}s {where} - a J-cut "
+                    f"lead must not run past the previous cut or off the "
+                    f"top of the reel.",
+                    file=sys.stderr,
+                )
+                continue
+            refined_start = lead_start
 
         shift = abs(refined_start - tl_start)
         tl_in_sec = round(refined_start, 3)
@@ -533,6 +656,15 @@ def resolve_sfx(
         tl_in_frame = int(round(tl_in_sec * frame_rate))
         tl_out_frame = int(round(tl_out_sec * frame_rate))
 
+        placement_method = _describe_placement(entry.get("envelope") or "")
+        if is_layer:
+            placement_method += (
+                "; placed as an atmospheric layer under the picture, not "
+                "shifted into a word gap")
+        if lead > 0:
+            placement_method += (
+                f"; arrives {lead}s before the cut (J-cut lead)")
+
         resolved.append({
             "label": f"sfx_{len(resolved)+1:03d}",
             "sfx_id": entry["sfx_id"],
@@ -540,6 +672,7 @@ def resolve_sfx(
             "source_in": round(source_in, 3),
             "sfx_category": entry.get("category", ""),
             "sfx_envelope": entry.get("envelope") or "unmeasured",
+            "role": role,
             "timeline_in": tl_in_sec,
             "timeline_out": tl_out_sec,
             "timeline_in_frame": tl_in_frame,
@@ -551,10 +684,12 @@ def resolve_sfx(
             "fade_out_seconds": round(fade_out, 4),
             "volume_db": volume_db,
             "rationale": sfx.get("rationale", ""),
-            "placement_method": _describe_placement(entry.get("envelope") or ""),
+            "placement_method": placement_method,
             "shift_from_original": round(shift, 3),
             "spine_block_position": block["position"],
         })
+        if lead > 0:
+            resolved[-1]["lead_seconds"] = lead
 
     _assert_sfx_distributed(resolved)
 
