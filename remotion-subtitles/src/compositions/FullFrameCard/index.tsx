@@ -50,16 +50,30 @@ import {
  * through the end of that word, counted over the resolved runs in the
  * order they reveal. The composition owns the time-to-progress mapping
  * and never aligns text itself: it shows `chars` of the last cue whose
- * `start` has passed, so a cue boundary always coincides with a word
- * boundary on screen. Planned by
+ * EFFECTIVE start (`start` minus `lead`) has passed, so a cue boundary
+ * always coincides with a word boundary on screen. Planned by
  * `library/tools/full_frame_element.py` (`word_sync`), which refuses
  * the segment rather than emitting cues its runs cannot match.
+ *
+ * `lead` is the seconds the cue's REVEAL leads its spoken onset -
+ * blockers 4 of docs/SPAN_RENDERER_CAPABILITY.md, measured in
+ * docs/ANIMATION_FIRST_REFERENCE.md section 1 (each word fades up
+ * starting ~100 ms before its onset so it reaches full opacity ON the
+ * syllable). Absent means 0, which is the absence of anticipation
+ * rather than a chosen timing: the reveal steps on the onset, as
+ * before. Declared per cue because the reference's own leads span a
+ * wide range (67-839 ms) - one number for the whole card cannot state
+ * them. The speech window itself never moves: emphasis still reads the
+ * measured [start, end), so leading the reveal cannot move the
+ * highlight onto a word nobody is speaking.
  */
 export type WordCue = {
   word: string;
   start: number;
   end: number;
   chars: number;
+  /** Seconds this cue's reveal leads its onset. Absent means 0. */
+  lead?: number;
 };
 
 export type CardRun = {
@@ -124,6 +138,21 @@ export type FullFrameCardProps = {
    * drawing reads it.
    */
   emphasisColour?: string;
+  /**
+   * Render every Nth frame twice - motion on twos, threes, and so on.
+   *
+   * Blocker 8 of docs/SPAN_RENDERER_CAPABILITY.md, measured in
+   * docs/ANIMATION_FIRST_REFERENCE.md section 5 (51% of the
+   * reference's consecutive frame pairs identical: 15 fps inside a 30
+   * fps container). The same function shape StagedScene already draws
+   * (`heldFrame` there). Absent or 1 draws every frame, which is the
+   * absence of stylisation rather than a chosen cadence - and what
+   * keeps props written before this slot existed rendering
+   * byte-identically: no key, no change of path. The card carries no
+   * audio (a span keeps spine audio on its own clock), so holding the
+   * picture holds nothing else.
+   */
+  holdFrames?: number;
 };
 
 export const fullFrameCardSchema = {} as any;
@@ -157,13 +186,93 @@ const TYPE_WEIGHT: Record<string, number> = {
  */
 export const WORD_CUED_ENTRANCES = ["typewriter", "mask", "draw"];
 
+/** The frame a quantised card draws.
+ *
+ * `holdFrames` of 2 renders every second frame twice - motion on twos,
+ * which is 51% of the reference's frame pairs
+ * (docs/ANIMATION_FIRST_REFERENCE.md section 5). Absent or 1 draws
+ * every frame. Exported because the card's behaviour over time is the
+ * thing worth asserting in a test without rendering a frame.
+ *
+ * A hold that is not a positive integer is malformed, not a softer
+ * hold: 0, a negative, or a fraction REFUSES rather than being
+ * clamped to the nearest thing that draws.
+ */
+export const heldFrame = (frame: number, holdFrames?: number): number => {
+  if (holdFrames === undefined || holdFrames === null) return frame;
+  if (
+    typeof holdFrames !== "number" ||
+    !Number.isInteger(holdFrames) ||
+    holdFrames < 1
+  ) {
+    throw new Error(
+      `FullFrameCard holdFrames=${String(holdFrames)} is not a positive ` +
+        `integer. A frame hold quantises the clock to whole held frames; ` +
+        `omit it and every frame is drawn.`,
+    );
+  }
+  return holdFrames > 1
+    ? Math.floor(frame / holdFrames) * holdFrames
+    : frame;
+};
+
+/** The declared lead of one cue, in seconds. Absent means 0. */
+export const cueLead = (cue: WordCue): number =>
+  cue.lead === undefined || cue.lead === null ? 0 : cue.lead;
+
+/** The second one cue's reveal lands on: its onset, led by its lead. */
+export const cueEffectiveStart = (cue: WordCue): number =>
+  cue.start - cueLead(cue);
+
+/** Refuse a lead that moves a cue off its own word, naming the cue.
+ *
+ * The reveal step must land in the gap between the previous word's end
+ * and this word's onset (or between zero and the onset for the first
+ * word). A lead large enough to push the step onto the previous word
+ * would silently mistime the caption, so it throws rather than
+ * clamping - the plan side states the lead and the renderer refuses
+ * the one it cannot place. A negative lead is a delay, not a lead,
+ * and is refused for the same reason in the other direction.
+ *
+ * The 1e-9 tolerance is floating-point hygiene (both ends are
+ * int/fps quotients), not a widened gate: it is three orders of
+ * magnitude below a frame at any delivery rate.
+ */
+export const validateCueLeads = (cues: WordCue[]): void => {
+  if (!cues || cues.length === 0) return;
+  const ordered = [...cues].sort((a, b) => a.start - b.start);
+  for (let i = 0; i < ordered.length; i += 1) {
+    const lead = cueLead(ordered[i]);
+    if (typeof lead !== "number" || !Number.isFinite(lead) || lead < 0) {
+      throw new Error(
+        `FullFrameCard cue ${i} (${ordered[i].word}) carries lead=${String(
+          ordered[i].lead,
+        )}. A lead is a non-negative number of seconds the reveal ` +
+          `anticipates its onset; omit it and the reveal lands on the onset.`,
+      );
+    }
+    const floor = i === 0 ? 0 : ordered[i - 1].end;
+    const effective = ordered[i].start - lead;
+    if (effective < floor - 1e-9) {
+      throw new Error(
+        `FullFrameCard cue ${i} (${ordered[i].word}) leads by ${lead}s ` +
+          `to ${effective.toFixed(3)}s, inside the previous word's window ` +
+          `(floor ${floor.toFixed(3)}s). A lead that pushes a cue off its ` +
+          `own word mistimes the caption; declare a shorter lead.`,
+      );
+    }
+  }
+};
+
 /** Characters shown at `frame` off the word clock.
  *
- * The last cue whose `start` has passed owns the frame - karaoke
- * reading, not interpolation, so the reveal steps exactly on word
- * starts and holds between them. Clamped to `totalChars`: cues count
- * over the resolved runs, so anything past the end is a plan defect
- * contained here rather than drawn past the text.
+ * The last cue whose EFFECTIVE start has passed owns the frame -
+ * karaoke reading, not interpolation, so the reveal steps exactly on
+ * (led) word starts and holds between them. A cue with no lead reads
+ * its onset, which is the path above unchanged. Clamped to
+ * `totalChars`: cues count over the resolved runs, so anything past
+ * the end is a plan defect contained here rather than drawn past the
+ * text.
  */
 export const wordCuedChars = (
   frame: number,
@@ -173,10 +282,13 @@ export const wordCuedChars = (
 ): number => {
   if (!cues || cues.length === 0 || totalChars <= 0) return 0;
   const t = fps > 0 ? frame / fps : 0;
-  const ordered = [...cues].sort((a, b) => a.start - b.start);
+  const ordered = [...cues].sort(
+    (a, b) => cueEffectiveStart(a) - cueEffectiveStart(b),
+  );
   let shown = 0;
   for (const cue of ordered) {
-    if (t >= cue.start) shown = Math.min(cue.chars, totalChars);
+    if (t >= cueEffectiveStart(cue))
+      shown = Math.min(cue.chars, totalChars);
   }
   return Math.max(0, shown);
 };
@@ -193,6 +305,8 @@ export type CuedWord = {
   runIndex: number;
   start: number;
   end: number;
+  /** The cue's declared lead, resolved (absent means 0). */
+  lead: number;
 };
 
 /** Split the runs' concatenation into the words the cues pace, in order.
@@ -236,6 +350,7 @@ export const splitCuedWords = (
       runIndex,
       start: ordered[i].start,
       end: ordered[i].end,
+      lead: cueLead(ordered[i]),
     });
   }
   return out;
@@ -244,9 +359,11 @@ export const splitCuedWords = (
 /** How far a word has risen at `frame`, 0 (hidden in its mask) to 1.
  *
  * The window is the word's own measured speech - cue start to cue end -
- * so the rise is choreographed to the voice rather than to the card's
- * seconds. A cue with no measured duration still owns its frame: with
- * nothing to ramp across, the word lands instead of never arriving.
+ * LED by the cue's lead, so the rise keeps its choreographed shape and
+ * lands earlier by exactly the lead rather than starting there. A lead
+ * of 0 reads the measured window unchanged. A cue with no measured
+ * duration still owns its frame: with nothing to ramp across, the word
+ * lands instead of never arriving.
  * The easing is the reference catalogue's, not a chosen curve:
  * remotion-bits `AnimatedText` paces its per-word y/blur/opacity stagger
  * with `easeOutCubic` (the captain's reference link, Blur In and Word by
@@ -258,8 +375,9 @@ export const cuedWordProgress = (
   fps: number,
   word: CuedWord,
 ): number => {
-  const startF = word.start * fps;
-  const endF = word.end * fps;
+  const lead = word.lead === undefined || word.lead === null ? 0 : word.lead;
+  const startF = (word.start - lead) * fps;
+  const endF = (word.end - lead) * fps;
   if (!(endF > startF)) return frame >= startF ? 1 : 0;
   const p = (frame - startF) / (endF - startF);
   const clamped = Math.min(1, Math.max(0, p));
@@ -271,7 +389,10 @@ export const cuedWordProgress = (
  * The current word is the one whose measured speech window contains
  * this frame - cue start inclusive, cue end exclusive. Between words,
  * before the first and past the last, nothing is current: emphasis
- * marks the word being spoken, not the last one that was.
+ * marks the word being spoken, not the last one that was. Deliberately
+ * unled: a cue's `lead` anticipates the REVEAL, while the highlight
+ * answers "who is speaking now" - leading it would restyle a word
+ * nobody is speaking.
  */
 export const cuedEmphasisIndex = (
   frame: number,
@@ -353,8 +474,15 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
   imageWidth,
   wordCues,
   emphasisColour,
+  holdFrames,
 }) => {
-  const frame = useCurrentFrame();
+  // The card's whole clock goes through the hold: entrances, exits,
+  // the word clock and emphasis all read `frame`, so motion on twos
+  // steps everything together - the way StagedScene derives its `t`
+  // from its held frame. Absent or 1 is the identity, so props
+  // written before this slot existed draw exactly as before; anything
+  // else that is not a positive integer refuses inside `heldFrame`.
+  const frame = heldFrame(useCurrentFrame(), holdFrames);
 
   // No default, and no substitution. Same refusal as TimedTextOverlay:
   // library/tools/safe_area.py owns the insets and inventing one here is
@@ -398,6 +526,12 @@ export const FullFrameCard: React.FC<FullFrameCardProps> = ({
     !!wordCues &&
     wordCues.length > 0 &&
     WORD_CUED_ENTRANCES.includes(entrance);
+  // Refused where read, never clamped: a lead that pushes a cue off
+  // its own word and onto the previous one would silently mistime the
+  // caption. Cues beside an uncued entrance are not read at all, so
+  // they are not validated either - props that ignore their cues draw
+  // exactly as before.
+  if (cued) validateCueLeads(wordCues as WordCue[]);
   let reveal: number;
   let wordProgress = 1;
   if (cued) {
