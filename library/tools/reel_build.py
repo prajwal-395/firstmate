@@ -2157,7 +2157,8 @@ def import_pool_item(pool, filepath: str):
 
 def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            segments, track_index: int, kind: str,
-                           check: str, properties: dict = None) -> None:
+                           check: str, properties: dict = None,
+                           project_folder: str = "") -> None:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -2175,8 +2176,18 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     segment the record claims is a build the conformance gate
     (`check`, F21/F22) refuses, so carrying on would only fail later
     with less pointing at the cause.
+
+    A segment under scratch/ is refused before anything is imported
+    (`reel_placed_assets.assert_placeable`): a file a timeline points
+    at must live somewhere a cleaner may not throw away, and scratch/
+    is exactly what a cleaner throws away. Pass `project_folder` and
+    the check runs; without it there is nothing to check against.
     """
+    from library.tools.reel_placed_assets import assert_placeable
+
     for segment in segments or []:
+        if project_folder:
+            assert_placeable(segment["overlay_path"], project_folder)
         item = import_pool_item(pool, segment["overlay_path"])
         if item is None:
             raise ReelBuildError(
@@ -2390,6 +2401,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
               f"suppressed, spine audio kept", file=sys.stderr)
 
     # The cards FIRST, so the timeline reads in play order, and on V1.
+    # Rendered into scratch as the renderer's own cache, so promoted
+    # into the durable REEL_CARDS area before anything is imported: a
+    # timeline that points under scratch/ points at files a cleaner may
+    # throw away (library/tools/reel_placed_assets.py).
+    from library.tools.reel_placed_assets import (
+        assert_placeable, promote_cards,
+    )
+    cards = promote_cards(cards, project_folder)
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
         if not path or not os.path.isfile(path):
@@ -2399,6 +2418,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"does not reach the timeline leaves the reel starting on "
                 f"speech, which is exactly what it looks like when nothing "
                 f"was declared at all.")
+        assert_placeable(path, project_folder)
         card_item = import_pool_item(pool, path)
         if card_item is None:
             raise ReelBuildError(
@@ -2592,13 +2612,23 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # It carries the COVER zoom (`tv_frame.cover_zoom`), which is
         # what turns a landscape bezel conformed into a portrait frame
         # from a band across the middle into a frame around the picture.
+        #
+        # Promoted out of scratch BEFORE placement: the renderer drafts
+        # these under scratch/reel_look/ and a timeline that points
+        # there points at files a cleaner may throw away
+        # (library/tools/reel_placed_assets.py). The placer re-proves
+        # it through project_folder.
+        from library.tools.reel_placed_assets import promote_frame_overlays
         place_overlay_segments(
             pool, project, timeline, name, fps,
-            _look.frame_overlay_segments(look, runs, fps, width, height,
-                                         project_folder),
+            promote_frame_overlays(
+                _look.frame_overlay_segments(look, runs, fps, width, height,
+                                             project_folder),
+                project_folder),
             track_plan.row_for_role(FRAME).index,
             kind="TV frame", check="F4",
-            properties=_look.frame_properties(look, width, height))
+            properties=_look.frame_properties(look, width, height),
+            project_folder=project_folder)
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -2617,6 +2647,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         frames_info = segment.get("frames") or {}
         frame_dir = frames_info.get("dir", "") if segment.get(
             "container") == "frames" else ""
+        # Captions render durable already (Area.SUBTITLE_SEGMENTS); the
+        # assert pins it, so a future caller that reaches into scratch
+        # fails here rather than on the captain's timeline.
+        assert_placeable(segment.get("overlay_path") or "", project_folder)
+        if frame_dir:
+            assert_placeable(frame_dir, project_folder)
         if frame_dir:
             paths = sequence_frame_paths(frame_dir)
             existing = pool_item_for(pool, paths[0]) if paths else None
@@ -2722,7 +2758,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         place_overlay_segments(
             pool, project, timeline, name, fps, explainer_segments,
             track_plan.row_for_role(EXPLAINER).index,
-            kind="explainer", check="F21")
+            kind="explainer", check="F21",
+            project_folder=project_folder)
 
 
 
@@ -2734,7 +2771,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         place_overlay_segments(
             pool, project, timeline, name, fps, semantic_segments,
             track_plan.row_for_role(SEMANTIC).index,
-            kind="semantic visual", check="F22")
+            kind="semantic visual", check="F22",
+            project_folder=project_folder)
 
     # ── Link pass: picture to speech, captions into the group ──
     # Span-based, in ONE call per speech item (see `link_reel_groups`

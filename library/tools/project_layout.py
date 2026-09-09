@@ -391,6 +391,9 @@ class Area(str, Enum):
 
     VOX_TEST_RENDERS = "vox_test_renders"
 
+    REEL_FRAME_OVERLAYS = "reel_frame_overlays"
+    REEL_CARDS = "reel_cards"
+
 
 AREAS: dict[Area, AreaSpec] = {
     Area.PROJECT_ROOT: AreaSpec(
@@ -660,7 +663,11 @@ AREAS: dict[Area, AreaSpec] = {
     Area.SCRATCH: AreaSpec(
         f"{_OUT}/scratch", Kind.SCRATCH,
         "Working files with no reader after the step that wrote them. Safe to "
-        "delete at any moment, including during a run."),
+        "delete at any moment, including during a run. MUST NEVER hold a file "
+        "a timeline places: reel frame overlays live in REEL_FRAME_OVERLAYS "
+        "and reel cards in REEL_CARDS, both OUTPUT of build_reels. A placement "
+        "that names a path under scratch/ is refused - see "
+        "library/tools/reel_placed_assets.py."),
     Area.UNSORTED: AreaSpec(
         f"{_OUT}/unsorted", Kind.UNSORTED,
         "Files whose purpose could not be established. Nothing writes here at "
@@ -693,6 +700,24 @@ AREAS: dict[Area, AreaSpec] = {
         "destroyed by a rebuild, so like marker_feedback/ a re-run must "
         "never delete these. Placed by hand; nothing in the pipeline "
         "writes here."),
+    Area.REEL_FRAME_OVERLAYS: AreaSpec(
+        _step_path("build_reels", "frame_overlays"), Kind.OUTPUT,
+        "TV-frame overlays placed on reel timelines' frame track. A timeline "
+        "places these, so they are OUTPUT of the step that builds reels, not "
+        "scratch: the renderer drafts them under scratch/reel_look/ and "
+        "reel_placed_assets promotes the placed copy here before anything is "
+        "imported. Anything that trusts the SCRATCH declaration must never be "
+        "able to remove them.",
+        step="build_reels"),
+    Area.REEL_CARDS: AreaSpec(
+        _step_path("build_reels", "reel_cards"), Kind.OUTPUT,
+        "Full-frame cards placed on reel timelines' picture track. A timeline "
+        "places these, so they are OUTPUT of the step that builds reels, not "
+        "scratch: the renderer drafts them under scratch/reel_cards/ and "
+        "reel_placed_assets promotes the placed copy here before anything is "
+        "imported. Anything that trusts the SCRATCH declaration must never be "
+        "able to remove them.",
+        step="build_reels"),
 }
 
 # The areas a given step owns, in table order.
