@@ -467,6 +467,34 @@ def test_ledger_drops_superseded_generation(tmp_path):
     assert by_path[old].superseded_by == new
 
 
+def test_ledger_carries_tight_fallback(tmp_path):
+    """A verify-gate fallback keeps its reason in the only record a
+    staging render leaves.
+
+    The step records WHY a card is full canvas on a tight project on
+    the entry (`tight_fallback`), and a staging render merges straight
+    into the ledger with no step output beside it. Dropping the key at
+    the merge reads exactly like a render that never tried tight, which
+    is what made three full-canvas 09-09 renders on a tight project
+    unexplorable."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    full = _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_aaaaaaaa.mov"))
+    record_rendered_segments(asset_dir, [{
+        "segment_id": "sub_tl_a_1_1-2_aaaaaaaa",
+        "overlay_path": full, "provenance": "rendered",
+        "superseded": [], "geometry": "full", "container": "video",
+        "tight_box": None,
+        "tight_fallback": "tight output is not the probe crop: "
+        "max channel diff 255 (allows 4)"}])
+    with open(ledger_path_for(asset_dir), encoding="utf-8") as handle:
+        data = json.load(handle)
+    entries = data["subtitle_overlay"]["segments"]
+    assert len(entries) == 1
+    assert entries[0]["geometry"] == "full"
+    assert "probe crop" in entries[0]["tight_fallback"]
+
+
 def test_empty_run_records_an_empty_set(tmp_path):
     """No assets produced is a valid empty record - `ok` with no paths,
     never an unreadable root."""

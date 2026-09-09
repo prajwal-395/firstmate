@@ -806,6 +806,11 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     out_dir, f"{segment_name}_frames")
             props_path = os.path.join(out_dir, f"{segment_name}_props.json")
             key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
+            # The file IS full canvas, so the record says so: leaving
+            # `geometry` at "tight" would pin a full-canvas file as a
+            # tight one in the only record a staging render leaves.
+            tight_fallback = "probe draws nothing - full canvas"
+            geometry = "full"
             print(f"  {progress} no subtitles to bound - full canvas",
                   file=sys.stderr)
         else:

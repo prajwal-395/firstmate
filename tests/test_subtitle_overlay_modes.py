@@ -192,7 +192,7 @@ def test_default_path_is_unchanged(tmp_path):
                              renderer=_StubRenderer())
     assert out["provenance"] == RENDERED
     assert out["overlay_path"].endswith(".mov")
-    assert "_tight" not in out["overlay_path"]
+    assert "_tight" not in os.path.basename(out["overlay_path"])
     assert out["geometry"] == "full"
     assert out["container"] == "video"
     assert out["tight_box"] is None
@@ -244,8 +244,15 @@ def test_tight_video_renders_beside_not_over(tmp_path):
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_video_mismatch_is_failed_not_placed(tmp_path):
-    """Cut-off text FAILS the segment - no file is kept on a warning."""
+def test_tight_video_mismatch_falls_back_to_full_canvas(tmp_path):
+    """A tight output that is not the probe crop is carried full canvas.
+
+    The gate still holds - the mistightened file is discarded and never
+    reaches a timeline - but the segment is not failed: the same props
+    drawn on the full canvas are the same pixels on screen, so the card
+    is re-rendered full with the reason recorded on it (ratified in
+    project.yaml: carried full canvas instead, by name, gate not
+    widened)."""
     props = _props_frames(_props(), N_FRAMES)
     full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
     _, box = _measure_full_mov(full_mov, props)
@@ -263,8 +270,51 @@ def test_tight_video_mismatch_is_failed_not_placed(tmp_path):
                              remotion_dir="/none",
                              renderer=stub,
                              overlay_geometry="tight")
-    assert out["provenance"] == FAILED
-    assert "probe crop" in out["failure"]
+    assert out["provenance"] == RENDERED
+    assert out["geometry"] == "full"
+    assert out["tight_box"] is None
+    assert "probe crop" in out["tight_fallback"]
+    assert out["overlay_path"].endswith(".mov")
+    assert "_tight" not in os.path.basename(out["overlay_path"])
+    assert os.path.isfile(out["overlay_path"])
+    assert not os.path.exists(
+        out["overlay_path"].replace(".mov", "_tight.mov"))
+    assert _probe_leftovers(str(tmp_path)) == []
+
+
+def _blank_mov(path, frames=N_FRAMES):
+    """A fully transparent full-canvas probe: nothing to bound."""
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+         "-i", "color=c=black@0:s=1080x1920:d=1:r=30,format=rgba",
+         "-frames:v", str(frames), "-c:v", "prores_ks",
+         "-profile:v", "4444", "-pix_fmt", "yuva444p10le", path],
+        check=True,
+    )
+    return path
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_tight_probe_drawing_nothing_records_full_geometry(tmp_path):
+    """A card with nothing to bound is full canvas IN THE RECORD too.
+
+    The file was always full canvas; the entry used to keep saying
+    "tight" with no box, pinning a full-canvas file as a tight one in
+    the only record a staging render leaves."""
+    props = _props_frames(_props(), N_FRAMES)
+    blank = _blank_mov(os.path.join(str(tmp_path), "blank.mov"))
+    stub = _ServingRenderer(blank, blank)
+    out = render_one_segment(props, str(tmp_path), "tl",
+                             remotion_dir="/none",
+                             renderer=stub,
+                             overlay_geometry="tight")
+    assert out["provenance"] == RENDERED
+    assert out["geometry"] == "full"
+    assert out["tight_box"] is None
+    assert "draws nothing" in out["tight_fallback"]
+    assert out["overlay_path"].endswith(".mov")
+    assert "_tight" not in os.path.basename(out["overlay_path"])
+    assert os.path.isfile(out["overlay_path"])
     assert _probe_leftovers(str(tmp_path)) == []
 
 

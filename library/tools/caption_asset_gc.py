@@ -328,6 +328,12 @@ _LEDGER_ENTRY_KEYS = (
     "geometry",
     "container",
     "tight_box",
+    # Why this card is full canvas although the project declared
+    # tight, or "" when that did not happen. Carried because the
+    # ledger is the only record a staging render leaves (no step
+    # output), and without it a verify-gate fallback reads exactly
+    # like a render that never tried tight.
+    "tight_fallback",
     "frames",
     "source_in_frame",
     "source_out_frame",
