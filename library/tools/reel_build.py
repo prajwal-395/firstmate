@@ -2584,7 +2584,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # placer the explainer and the semantic visuals use: a still
         # cannot be placed for an arbitrary length through Resolve's
         # API, and one placed as a still came out at the project's
-        # standard five seconds over a sixty-one second run.
+        # standard five seconds over a sixty-one second run.  The
+        # render is ONE file at the longest run, shared however many
+        # lengths use it - shorter runs trim it here via endFrame, so
+        # one still is one artefact, not one per length.
         #
         # It carries the COVER zoom (`tv_frame.cover_zoom`), which is
         # what turns a landscape bezel conformed into a portrait frame

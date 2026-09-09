@@ -188,13 +188,19 @@ def frame_runs(placements: Sequence[dict], fps: float) -> List[Tuple[int, int]]:
     return [(a, b) for a, b in runs]
 
 
-FRAME_OVERLAY_NAME_SHAPE = r"^tv_frame_[0-9a-f]{10}_\d+f$"
+FRAME_OVERLAY_NAME_SHAPE = r"^tv_frame_[0-9a-f]{10}(_\d+f)?$"
 """What a rendered frame overlay is called, as a pattern.
 
 Read by the conformance verifier the same way `CARD_NAME_SHAPE` is: an
 item on the frame track shaped like this and accounted for by the
 declaration is the set, and one that is NOT accounted for is an overlay
 appended out of band.
+
+The duration suffix is OPTIONAL, not absent: renders written before
+2026-09-09 carry `_<frames>f` (one file per length), and live timelines
+still place those files until the captain re-points them.  A shape that
+dropped either half would misread the set - the old files as out-of-band
+overlays, or the new shared file as one.
 """
 
 
@@ -272,6 +278,45 @@ def uncovered_window_edges(delivered, window, tolerance: float = 1.0) -> list:
     return edges
 
 
+def _rendered_frame_count(path: str) -> int:
+    """How many frames the render on disk holds, or 0 when it is unusable.
+
+    A missing, corrupt or unreadable file reads as 0, which renders it
+    again - the caller treats "shorter than needed" and "absent" as one
+    case, and a probe that raised instead would turn a stale render into
+    a refusal.  `nb_frames` is what the render was asked for, so it is
+    what is read back; a container that does not report it falls back to
+    its duration times the requested rate.
+    """
+    import subprocess as _subprocess
+
+    if not os.path.isfile(path):
+        return 0
+    try:
+        probe = _subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=nb_frames,r_frame_rate,duration",
+             "-of", "default=noprint_wrappers=1", path],
+            capture_output=True, encoding="utf-8", check=False)
+    except OSError:
+        return 0
+    if probe.returncode != 0:
+        return 0
+    fields = {}
+    for line in (probe.stdout or "").splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            fields[key.strip()] = value.strip()
+    try:
+        if fields.get("nb_frames", "").isdigit():
+            return int(fields["nb_frames"])
+        num, den = fields.get("r_frame_rate", "0/1").split("/")
+        return int(float(fields.get("duration", 0)) * float(num)
+                   / float(den or 1))
+    except (ValueError, ZeroDivisionError):
+        return 0
+
+
 def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
                            fps: float, width: int, height: int,
                            project_folder: str) -> List[dict]:
@@ -282,7 +327,21 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
     PNG reports one frame and Resolve gives it the project's standard
     still duration, so a sixty-one second run came out five seconds long
     and the conformance check read the difference as a speaker losing
-    thirty-one seconds of picture.
+    thirty-one seconds of picture.  Stretching the placed still
+    afterwards would mean duration surgery through the same API whose
+    still handling already proved untrustworthy here, so the movie stays:
+    what changed is its IDENTITY, not its carriage.
+
+    ONE artefact per still, however many lengths use it - the captain's
+    model, measured against on 2026-09-09 when six renders of one frame
+    at six lengths held 2.8 GB.  The duration used to be part of the
+    filename, so the existence check missed on every new length and
+    re-rendered the whole thing.  Now the file is rendered ONCE at the
+    longest run and shorter runs trim it at placement (`startFrame: 0`,
+    `endFrame: total_frames` in `place_overlay_segments`), which needs
+    no re-encode because a looped still is the same picture on every
+    frame.  A run longer than the render on disk re-renders it, still as
+    the one file; a run shorter than it renders nothing.
 
     Rendered at the asset's COVER size for this frame
     (`tv_frame.cover_size`), never at the delivery frame: the overlay is
@@ -326,32 +385,38 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
     transpose = {90: "transpose=1,", 180: "transpose=1,transpose=1,",
                  270: "transpose=2,"}.get(int(rotation), "")
 
+    runs = [(int(start_frame), int(end_frame))
+            for start_frame, end_frame in runs]
+    if not runs:
+        return []
+    # The file's identity is the ASSET's - the stamp above, which is
+    # already correct - and duration is not part of it.
+    path = os.path.join(out_dir, f"tv_frame_{stamp}.mov")
+    longest = max(end_frame - start_frame for start_frame, end_frame in runs)
+    if _rendered_frame_count(path) < longest:
+        # ProRes 4444 for the alpha: the bezel is largely transparent
+        # and a codec without an alpha plane would put a black card
+        # over the picture rather than a window onto it.
+        result = _subprocess.run([
+            "ffmpeg", "-y", "-loop", "1", "-i", asset,
+            "-t", f"{longest / fps:.5f}",
+            "-r", f"{fps:.6f}",
+            "-vf", (f"{transpose}"
+                    f"scale={drawn_width}:{drawn_height}:flags=lanczos"),
+            "-c:v", "prores_ks", "-profile:v", "4444",
+            "-pix_fmt", "yuva444p10le", path,
+        ], capture_output=True, encoding="utf-8", check=False)
+        if result.returncode != 0 or not os.path.isfile(path):
+            raise ReelLookRefused(
+                f"the TV frame could not be rendered to {longest} frames: "
+                f"ffmpeg exited {result.returncode}. "
+                f"{(result.stderr or '').strip()[-500:]}")
     segments = []
     for start_frame, end_frame in runs:
-        frames = end_frame - start_frame
-        path = os.path.join(out_dir, f"tv_frame_{stamp}_{frames}f.mov")
-        if not os.path.isfile(path):
-            # ProRes 4444 for the alpha: the bezel is largely transparent
-            # and a codec without an alpha plane would put a black card
-            # over the picture rather than a window onto it.
-            result = _subprocess.run([
-                "ffmpeg", "-y", "-loop", "1", "-i", asset,
-                "-t", f"{frames / fps:.5f}",
-                "-r", f"{fps:.6f}",
-                "-vf", (f"{transpose}"
-                        f"scale={drawn_width}:{drawn_height}:flags=lanczos"),
-                "-c:v", "prores_ks", "-profile:v", "4444",
-                "-pix_fmt", "yuva444p10le", path,
-            ], capture_output=True, encoding="utf-8", check=False)
-            if result.returncode != 0 or not os.path.isfile(path):
-                raise ReelLookRefused(
-                    f"the TV frame could not be rendered to {frames} frames: "
-                    f"ffmpeg exited {result.returncode}. "
-                    f"{(result.stderr or '').strip()[-500:]}")
         segments.append({
             "overlay_path": path,
             "timeline_start": start_frame / fps,
-            "total_frames": frames,
+            "total_frames": end_frame - start_frame,
         })
     return segments
 

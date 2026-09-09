@@ -534,3 +534,111 @@ def test_the_window_is_a_required_argument():
         reel_look.punch_in_properties(
             {"punch_in": 2.3}, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920)
     assert "screen window" in str(excinfo.value)
+
+
+def _upright_frame_project(tmp_path):
+    """A project folder whose frame asset already matches the delivery.
+
+    2160x3840 against a 1080x1920 reel, so no turn and no cover zoom:
+    the render is small and the test measures identity, not geometry.
+    """
+    asset = _png(tmp_path / "TV 4k.png", (2160, 3840), window=True)
+    look = {"asset": asset, "punch_in": 2.3, "power": {},
+            "origin": "test declaration",
+            "rotate": tv_frame.AUTO_ROTATE}
+    return look
+
+
+def _rendered_frames(path):
+    import subprocess
+    out = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=nb_frames", "-of", "csv=p=0",
+         str(path)],
+        capture_output=True, encoding="utf-8", check=True)
+    return int(out.stdout.strip())
+
+
+def _overlay_dir(project_folder):
+    from library.tools.project_layout import Area, ProjectLayout
+    return os.path.join(
+        str(ProjectLayout(str(project_folder)).read_dir(Area.SCRATCH)),
+        "reel_look", "frame_overlays")
+
+
+def test_two_run_lengths_share_one_overlay_artefact(tmp_path):
+    """One still is one file, however many lengths use it.
+
+    Measured 2026-09-09 in `lucie/geo-podcast`: six renders of the same
+    frame at six lengths (2.8 GB) because the duration was part of the
+    filename, so the existence check missed on every new length.
+    """
+    look = _upright_frame_project(tmp_path)
+    segments = reel_look.frame_overlay_segments(
+        look, [(0, 48), (100, 220)], 24.0, 1080, 1920, str(tmp_path))
+    assert len(segments) == 2
+    assert segments[0]["overlay_path"] == segments[1]["overlay_path"]
+    assert os.path.isfile(segments[0]["overlay_path"])
+    # Each run is trimmed at placement, so each keeps its own length.
+    assert segments[0]["total_frames"] == 48
+    assert segments[1]["total_frames"] == 120
+    # And the identity carries no duration: one directory, one file.
+    stem = os.path.basename(
+        segments[0]["overlay_path"]).rsplit(".", 1)[0]
+    assert "_48f" not in stem and "_120f" not in stem
+    assert [os.path.basename(p) for p in
+            os.listdir(_overlay_dir(tmp_path))].__len__() == 1
+
+
+def test_a_shorter_reuse_extends_nothing_and_renders_nothing(tmp_path):
+    """A run shorter than the render on disk trims it, and renders nothing."""
+    look = _upright_frame_project(tmp_path)
+    first = reel_look.frame_overlay_segments(
+        look, [(0, 220)], 24.0, 1080, 1920, str(tmp_path))
+    before = os.path.getmtime(first[0]["overlay_path"])
+    second = reel_look.frame_overlay_segments(
+        look, [(0, 48)], 24.0, 1080, 1920, str(tmp_path))
+    assert second[0]["overlay_path"] == first[0]["overlay_path"]
+    assert second[0]["total_frames"] == 48
+    assert os.path.getmtime(second[0]["overlay_path"]) == before
+    assert _rendered_frames(second[0]["overlay_path"]) >= 220
+
+
+def test_a_longer_run_extends_the_shared_render(tmp_path):
+    """A run longer than the render on disk re-renders it, still as one file."""
+    look = _upright_frame_project(tmp_path)
+    short = reel_look.frame_overlay_segments(
+        look, [(0, 48)], 24.0, 1080, 1920, str(tmp_path))
+    longer = reel_look.frame_overlay_segments(
+        look, [(0, 220)], 24.0, 1080, 1920, str(tmp_path))
+    assert longer[0]["overlay_path"] == short[0]["overlay_path"]
+    assert _rendered_frames(longer[0]["overlay_path"]) >= 220
+    assert len(os.listdir(_overlay_dir(tmp_path))) == 1
+
+
+def test_the_overlay_name_shape_matches_shared_and_legacy_renders():
+    """The verifier reads live timelines that still carry per-length names.
+
+    The shared render (`tv_frame_<stamp>`) must match, and the legacy
+    per-length renders (`tv_frame_<stamp>_<N>f`) must keep matching
+    until the captain re-points those timelines - a shape that dropped
+    either would misread the set as an out-of-band overlay or miss it.
+    """
+    import re
+    shape = re.compile(reel_look.FRAME_OVERLAY_NAME_SHAPE)
+    assert shape.match("tv_frame_1f8e8d06ff")
+    assert shape.match("tv_frame_1f8e8d06ff_950f")
+    assert not shape.match("tv_frame_1f8e8d06ff_950f_tight")
+    assert not shape.match("vox_00")
+
+    from types import SimpleNamespace
+    items = [
+        SimpleNamespace(track_index=2,
+                        source_file="/s/tv_frame_1f8e8d06ff.mov"),
+        SimpleNamespace(track_index=2,
+                        source_file="/s/tv_frame_1f8e8d06ff_950f.mov"),
+        SimpleNamespace(track_index=1,
+                        source_file="/s/tv_frame_1f8e8d06ff.mov"),
+    ]
+    found = reel_look.frame_overlay_items(items, {"punch_in": 2.3})
+    assert len(found) == 2
