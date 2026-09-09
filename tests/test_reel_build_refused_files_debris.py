@@ -14,8 +14,8 @@ left them.
 
 The fix is in `discard_staged_reels` / `discard_staged_record`: when
 the master timeline is named, the pool is filed after the discard, so
-a refused build's imports land in `Reel subtitles/Not placed on any
-timeline` instead of staying in the current bin. The gate still
+a refused build's imports land in `06 - Subtitle renders/Not placed on
+any timeline` instead of staying in the current bin. The gate still
 refuses - only the debris handling changes.
 
 This test drives `rebuild_reels_in_project` with a placer that stages
@@ -231,11 +231,12 @@ def _moment():
 
 
 def _pool_tree():
+    from library.tools import resolve_bin_layout as bins
     root = FakeFolder("Master", "root")
-    reels = FakeFolder("Reels", "reels")
-    current = FakeFolder("Current plan", "cur")
-    subs = FakeFolder("Reel subtitles", "subs")
-    unplaced = FakeFolder("Not placed on any timeline", "unplaced")
+    reels = FakeFolder(bins.REELS_BIN, "reels")
+    current = FakeFolder(bins.REEL_STATE_BINS["current"], "cur")
+    subs = FakeFolder(bins.SUBTITLES_BIN, "subs")
+    unplaced = FakeFolder(bins.UNPLACED_BIN, "unplaced")
     root.subs = [reels, subs]
     reels.subs = [current]
     subs.subs = [unplaced]
@@ -310,7 +311,8 @@ def test_refused_build_files_its_caption_imports(project_dir):
     assert sorted(names) == sorted([MASTER, TARGET])
 
     # The debris is what this test is about: the imported caption clip
-    # must be filed under Reel subtitles, not left in Current plan.
+    # must be filed under the canonical unplaced bin, not left in the
+    # current bin.
     current_names = [c.GetName() for c in current.GetClipList()]
     unplaced_names = [c.GetName() for c in unplaced.GetClipList()]
     assert "sub_reel-05-a.mov" not in current_names, (

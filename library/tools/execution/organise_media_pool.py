@@ -513,9 +513,10 @@ def render_unplaced(cost: dict) -> str:
         return ("  Nothing this pipeline generated is unplaced - every "
                 "generated clip in the pool is on a timeline.")
     gib = cost["bytes_on_disk"] / (1024 ** 3)
+    homes = " and ".join(f"{b!r}" for b in cost["bins"])
     lines = [
         f"  {cost['count']} clip(s) this pipeline generated are on NO "
-        f"timeline, filed under {cost['bin']!r}.",
+        f"timeline, filed under {homes}.",
         f"    {cost['on_disk']} of their files are still on disk "
         f"({gib:.2f} GiB); {cost['missing']} are already gone, so those "
         f"pool items are offline.",

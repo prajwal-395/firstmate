@@ -32,13 +32,19 @@ The rule has one dimension, and it is a MEASUREMENT
 Every artefact is filed by facts read off the project, never by parsing
 its name:
 
-1. A **timeline** goes to `Reels/<state>` (below) - but only out of
-   root or out of one of those same three bins.  A timeline sitting in
+1. A **timeline** goes to `05 - Reels/<state>` (below) - but only out of
+   root or out of one of the pipeline's own bins.  A timeline sitting in
    any other bin is where a human put it and stays there (`TIMELINE_BINS`).
-   The project's own declared master timeline is NEVER moved - AGENTS.md 5.
+   A proof timeline (`SOP Proof_...`, firstmate's own) goes to
+   `05 - Reels/Proof`, never among the captain's reels.  The project's
+   own declared master timeline is NEVER moved - AGENTS.md 5.
 2. A clip whose file lives **under the project's own directory** is
    something this pipeline generated.  It files under the timeline that
-   PLACES it, or under `Not placed on any timeline` when nothing does.
+   PLACES it, nested under the render bin its KIND belongs to
+   (`06 - Subtitle renders` for subtitle segments, `07 - Motion
+   graphics` for motion-graphics, timed-text and carrier renders - a
+   path fact read off `project_layout.Area`, never a name parse), or
+   under that bin's `Not placed on any timeline` when nothing does.
 3. Anything else is material that came from outside, and files under
    `Source footage`.
 
@@ -47,6 +53,16 @@ from the filename.  The rendered overlays do encode their timeline
 (`library/tools/subtitle_segment_id.py`), but a name is a claim and the
 timeline is the fact - and 1,216 of them are placed nowhere, which no
 filename can say.
+
+Per-reel bins are FLAT under the render bin rather than nested under
+the reel's state, and that is a decision the no-deleting rule forces:
+a reel moves from `Current plan` to `Earlier plans` on the next build,
+and a captions tree that mirrored the state would leave the bin it
+moved out of behind and EMPTY - for every reel, on every plan change,
+for ever, with nothing here allowed to clean them up.  State belongs
+to the timeline; the captions bin answers a different question -
+"which clips does THIS reel place" - and that answer does not move
+when the plan does.
 
 CURRENT is a record, not a guess
 --------------------------------
@@ -97,25 +113,28 @@ import os
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
-BIN_REELS = "Reels"
-"""The captain made this bin by hand and put 28 reels in it. Reusing the
-name they chose, rather than inventing a parallel one beside it."""
+from library.tools import resolve_bin_layout as bins
 
-BIN_SUBTITLES = "Reel subtitles"
-"""Also the captain's own. It held 1,364 rendered overlays.
+BIN_REELS = bins.REELS_BIN
+"""Alias, not a declaration: `resolve_bin_layout` owns every bin path
+the way `timeline_layout` owns every track name, and this module asks
+it. The numbered scheme survives because it is bound to
+`project_layout.Area`; the per-timeline filing this module computed
+survives as sub-bins under it."""
 
-Its per-reel bins are FLAT rather than nested under the reel's state,
-and that is a decision the no-deleting rule forces: a reel moves from
-`Current plan` to `Earlier plans` on the next build, and a captions tree
-that mirrored the state would leave the bin it moved out of behind and
-EMPTY - for every reel, on every plan change, for ever, with nothing
-here allowed to clean them up.  State belongs to the timeline, which is
-where `Reels/<state>` puts it; the captions bin answers a different
-question - "which clips does THIS reel place" - and that answer does not
-move when the plan does."""
+BIN_SUBTITLES = bins.SUBTITLES_BIN
+"""Alias - see above."""
 
-BIN_SOURCE = "Source footage"
-BIN_UNPLACED = "Not placed on any timeline"
+BIN_SOURCE = bins.SOURCE_BIN
+"""Alias - see above. The captain's own name, kept under it."""
+
+BIN_UNPLACED = bins.UNPLACED_BIN
+"""Alias - see above. A clip's placement fact, never a timeline's
+state: UNRECORDED and "not placed" are different axes."""
+
+BIN_PROOF = bins.REELS_PROOF_BIN
+"""Leaf name of the bin firstmate's proof timelines file under. An
+alias like the rest."""
 
 CURRENT = "current"
 EARLIER = "earlier"
@@ -125,15 +144,56 @@ STATES = (CURRENT, EARLIER, UNRECORDED)
 """Every state a reel timeline can be in. Complete."""
 
 STATE_BINS = {
-    CURRENT: "Current plan",
-    EARLIER: "Earlier plans",
-    UNRECORDED: "Unrecorded",
+    CURRENT: bins.REEL_STATE_BINS[CURRENT],
+    EARLIER: bins.REEL_STATE_BINS[EARLIER],
+    UNRECORDED: bins.REEL_STATE_BINS[UNRECORDED],
 }
+"""Leaf names only - the parent (`05 - Reels`) lives in the layout
+module, and destinations are built as `(BIN_REELS, STATE_BINS[state])`."""
+
+LEGACY_REELS_BIN = "Reels"
+"""The retired top-level reels bin. Timelines sitting directly in it,
+or in its per-state sub-bins, are the pipeline's own lag and re-file
+under `05 - Reels` - MOVED, never stranded beside the new empty bins.
+Timelines in any OTHER sub-bin of it are where a human put them and
+stay there, the same bargain `TIMELINE_BINS` always struck: the
+captain's organisation wins wherever the two conflict."""
+
+LEGACY_CLIP_BINS = frozenset(
+    top for (top,) in bins.LEGACY_SUCCESSORS if top != LEGACY_REELS_BIN)
+"""Retired top-level clip bins (`Reel subtitles`, `Subtitles`, `V1`,
+...). A timeline sitting LOOSE in one is pipeline lag - timelines land
+wherever the current folder happened to be, and no human organisation
+is expressed by a timeline at the root of a clip bin - so the plan
+files it out. Anything nested deeper stays: conservatism costs a move,
+overreach costs the captain's sorting."""
+
+
+def timeline_folder_managed(folder: Sequence[str]) -> bool:
+    """May the plan file a timeline OUT of this bin? Root, the
+    canonical state/proof/reels bins, the retired scheme's equivalents,
+    and the roots of retired or canonical clip bins - a timeline loose
+    there is where the current-folder lottery put it, not where a human
+    filed it. Everything else (a review bin, an archive, the captain's
+    own tiers) is theirs and stays."""
+    folder = tuple(folder)
+    if not folder:
+        return True
+    if folder in TIMELINE_BINS:
+        return True
+    return len(folder) == 1 and (
+        folder[0] in LEGACY_CLIP_BINS
+        or folder[0] in (BIN_SUBTITLES, bins.MOTION_GRAPHICS_BIN))
 
 TIMELINE_BINS = frozenset(
-    (BIN_REELS, STATE_BINS[state]) for state in STATES)
-"""The only bins a reel timeline is ever filed OUT of: root (unfiled)
-and the pipeline's own three state bins.
+    [(BIN_REELS, STATE_BINS[state]) for state in STATES]
+    + [(BIN_REELS, BIN_PROOF), (BIN_REELS,)]
+    + [(LEGACY_REELS_BIN, bins.REEL_STATE_BINS[state])
+       for state in STATES]
+    + [(LEGACY_REELS_BIN,)])
+"""The only bins a reel timeline is ever filed OUT of: root (unfiled),
+the canonical state and proof bins, the canonical reels root, and the
+retired scheme's equivalents of the state bins and root.
 
 A timeline sitting anywhere else - `Reels/Fully approved`, a review
 bin, an archive - is where a HUMAN put it, and the plan emits no
@@ -305,10 +365,16 @@ def plan_organization(artefacts: Sequence[Artefact],
                     (a.name,
                      "the master timeline is never moved (AGENTS.md 5)"))
                 continue
-            state, why = states[a.name]
-            dest = (BIN_REELS, STATE_BINS[state])
-            if tuple(a.folder_path) and tuple(a.folder_path) not in TIMELINE_BINS:
-                where = "/".join(a.folder_path)
+            if bins.is_proof_timeline(a.name):
+                dest = (BIN_REELS, BIN_PROOF)
+                why = ("firstmate's proof timeline, filed apart from the "
+                       "captain's reels")
+                state = None
+            else:
+                state, why = states[a.name]
+                dest = (BIN_REELS, STATE_BINS[state])
+            if not timeline_folder_managed(a.folder_path):
+                where = "/".join(a.folder_path) or "(root)"
                 why_left = (
                     f"in {where} - a bin this pipeline does not manage, "
                     "so a human put it there and it stays (`TIMELINE_BINS`)")
@@ -317,7 +383,8 @@ def plan_organization(artefacts: Sequence[Artefact],
             dest = want(dest)
             plan.verdicts.append(Verdict(
                 a.item_id, a.name, a.kind, dest, why, state))
-            plan.stamps.append(_stamp(a, state, plan_hash, built_at))
+            if state is not None:
+                plan.stamps.append(_stamp(a, state, plan_hash, built_at))
             continue
 
         if not is_generated(a.file_path, project_root):
@@ -329,6 +396,7 @@ def plan_organization(artefacts: Sequence[Artefact],
             continue
 
         placer = _sole_placer(a)
+        render_bin = bins.render_bin_for_file(a.file_path, project_root)
         if placer is None:
             if a.placed_by:
                 dest = want((BIN_SOURCE,))
@@ -337,13 +405,13 @@ def plan_organization(artefacts: Sequence[Artefact],
                     f"{len(a.placed_by)} timelines place it, so it "
                     f"belongs to no single one"))
             else:
-                dest = want((BIN_SUBTITLES, BIN_UNPLACED))
+                dest = want((render_bin, BIN_UNPLACED))
                 plan.verdicts.append(Verdict(
                     a.item_id, a.name, a.kind, dest,
                     "no timeline places it"))
             continue
 
-        dest = want((BIN_SUBTITLES, placer))
+        dest = want((render_bin, placer))
         plan.verdicts.append(Verdict(
             a.item_id, a.name, a.kind, dest,
             f"{placer!r} is the only timeline that places it"))
@@ -497,12 +565,46 @@ def unplaced_report(artefacts: Sequence[Artefact],
     unplaced = [a for a in generated if not a.placed_by]
     placed_paths = {a.file_path for a in generated if a.placed_by}
     paths = sorted({a.file_path for a in unplaced if a.file_path})
+    holding = sorted({
+        f"{bins.render_bin_for_file(a.file_path, project_root)}"
+        f"/{BIN_UNPLACED}"
+        for a in unplaced})
     return {
         "count": len(unplaced),
         "paths": tuple(paths),
         "shared_with_placed": tuple(p for p in paths if p in placed_paths),
-        "bin": f"{BIN_SUBTITLES}/{BIN_UNPLACED}",
+        "bins": tuple(holding),
     }
+
+
+def pool_tree_report(artefacts: Sequence[Artefact]) -> str:
+    """The pool as it stands, read before anything is written.
+
+    One line per bin with the asset count of its whole subtree, so the
+    operator sees what is filed where BEFORE the plan moves anything -
+    the read half of the migration bar. Timelines and clips count the
+    same: this is occupancy, not a verdict.
+    """
+    subtree: dict[tuple[str, ...], int] = {}
+    at_root = 0
+    for a in artefacts:
+        folder = tuple(a.folder_path)
+        if not folder:
+            at_root += 1
+        for depth in range(1, len(folder) + 1):
+            prefix = folder[:depth]
+            subtree[prefix] = subtree.get(prefix, 0) + 1
+
+    def line(path: tuple[str, ...]) -> str:
+        name = "/".join(path) if path else "(root)"
+        count = at_root if not path else subtree[path]
+        return f"{'  ' * len(path)}{name} ({count} item(s))"
+
+    ordered = sorted(subtree, key=lambda p: (len(p), list(p)))
+    lines = [line(p) for p in ordered]
+    if at_root:
+        lines.append(line(()))
+    return "\n".join(lines)
 
 
 def state_from_keywords(keywords: str) -> str | None:

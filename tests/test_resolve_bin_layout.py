@@ -34,7 +34,9 @@ def test_every_file_holding_bin_names_a_real_area():
 def test_timeline_bins_say_they_hold_no_files():
     timelines_only = [b for b in BINS if b.area is None]
     assert {b.name for b in timelines_only} == {
-        "04 - Master", "05 - Reels", "05 - Reels/Archive"}
+        "04 - Master", "05 - Reels", "05 - Reels/Archive",
+        "05 - Reels/Current plan", "05 - Reels/Earlier plans",
+        "05 - Reels/Proof", "05 - Reels/Unrecorded"}
     for b in timelines_only:
         assert "only in resolve" in b.purpose.lower().replace("resolve,", "resolve"), (
             f"{b.name} holds timelines and must say they live only in Resolve")

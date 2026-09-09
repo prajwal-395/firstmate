@@ -49,18 +49,66 @@ current without opening the other.  Superseded versions move to
 `05 - Reels/Archive` (and `run_archives/` on disk) rather than gathering
 a new suffix.
 
-`tests/test_resolve_bin_layout.py`.
+One module decides every bin path, the way `timeline_layout.py`
+decides every track name: nothing else in the codebase may invent a
+bin. `resolve_organization` asks this module where each verdict goes,
+and the build halves that import media ask it where each import
+lands. The numbered scheme survives because it is bound to
+`project_layout.Area` - the existing owner of where files go - while
+the retired scheme's per-timeline filing survives as sub-bins UNDER
+it (`LEGACY_SUCCESSORS`).
+
+`tests/test_resolve_bin_layout.py`, `tests/test_bins_one_owner.py`.
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 
-from library.tools.project_layout import Area
+from library.tools.project_layout import AREAS, Area
 
 MASTER_BIN = "04 - Master"
 REELS_BIN = "05 - Reels"
 REELS_ARCHIVE_BIN = "Archive"
+REELS_PROOF_BIN = "Proof"
+"""Firstmate's proof timelines file here, never among the captain's
+reels. A timeline firstmate built to prove the timeline SOP
+(`SOP Proof_...`) is not one of the captain's cuts, and its captions
+landing beside theirs is what made the pool read as one flat mess."""
+
+SUBTITLES_BIN = "06 - Subtitle renders"
+MOTION_GRAPHICS_BIN = "07 - Motion graphics"
+SOURCE_BIN = "Source footage"
+UNPLACED_BIN = "Not placed on any timeline"
+"""A clip no timeline plays files here, under whichever render bin its
+kind belongs to. This is a CLIP's placement fact and never a
+timeline's state: UNRECORDED (no plan names this reel) and "not
+placed" (no timeline plays this clip) are different axes, and the two
+bins below never mean each other."""
+
+REEL_STATE_BINS = {
+    "current": "Current plan",
+    "earlier": "Earlier plans",
+    "unrecorded": "Unrecorded",
+}
+"""Leaf names for the reel states, keyed by the state strings
+`resolve_organization` computes from the provenance record. The leaf
+names are unchanged from the old unnumbered scheme - only the parent
+moved, from `Reels` to `05 - Reels` - so the per-reel information
+survives as structure UNDER the surviving scheme rather than beside
+it."""
+
+PROOF_PREFIX = "SOP Proof"
+"""The naming convention firstmate's own proof timelines carry. A
+prefix, not an exact name: proof builds version and suffix their
+names, and classification of our own artefacts is not addressing the
+captain's work (AGENTS.md 5 governs the latter)."""
+
+
+def is_proof_timeline(name: str) -> bool:
+    """Is this timeline firstmate's proof rather than a captain's reel?"""
+    return (name or "").startswith(PROOF_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -83,7 +131,7 @@ class Bin:
 
 
 BINS: tuple[Bin, ...] = (
-    Bin(("Source footage",), Area.RAW,
+    Bin((SOURCE_BIN,), Area.RAW,
         "The captain's own bin, kept under that name (see above). Camera "
         "originals, linked read-only - the pipeline never writes here and "
         "deleting it loses what no re-run reproduces. The two VFX assets, "
@@ -114,11 +162,31 @@ BINS: tuple[Bin, ...] = (
         "than renamed with a suffix. Timelines live only in Resolve, so "
         "this is a convention, not an Area: on disk the same role is "
         "run_archives/ - the record of what used to be current."),
-    Bin(("06 - Subtitle renders",), Area.SUBTITLE_SEGMENTS,
+    Bin((REELS_BIN, REEL_STATE_BINS["current"]), None,
+        "Reels the live provenance record names. Timelines live only in "
+        "Resolve, so the state comes from the plan records on disk, not "
+        "from an Area - and the leaf name is the old scheme's, kept so "
+        "the per-reel state survives the move rather than being renamed "
+        "beside it."),
+    Bin((REELS_BIN, REEL_STATE_BINS["earlier"]), None,
+        "Reels an archived plan names and the live record does not. "
+        "Timelines live only in Resolve. Moved and relabelled, never "
+        "deleted."),
+    Bin((REELS_BIN, REELS_PROOF_BIN), None,
+        "Timelines firstmate built to prove something (`SOP Proof_...`), "
+        "filed apart from the captain's reels. Timelines live only in "
+        "Resolve. Their captions still file by which timeline places "
+        "them - the name says whose they are, so they need no separate "
+        "bin."),
+    Bin((REELS_BIN, REEL_STATE_BINS["unrecorded"]), None,
+        "Timelines no plan on disk names. Timelines live only in "
+        "Resolve. A real answer, not a failure: the captain built those "
+        "deliberately, and they are kept as they are."),
+    Bin((SUBTITLES_BIN,), Area.SUBTITLE_SEGMENTS,
         "Per-block subtitle overlays the 4.05 step renders. Regenerable "
         "output: empty until a build lands, deleted freely on the next "
         "reset."),
-    Bin(("07 - Motion graphics",), Area.MOTION_GRAPHICS_SEGMENTS,
+    Bin((MOTION_GRAPHICS_BIN,), Area.MOTION_GRAPHICS_SEGMENTS,
         "Per-block motion-graphics overlays the 4.06 step renders. Same "
         "lifetime as the subtitle bin."),
     Bin(("08 - Exports",), Area.EXPORTS,
@@ -128,6 +196,78 @@ BINS: tuple[Bin, ...] = (
 BIN_PATHS = tuple(b.path for b in BINS)
 
 AREA_BY_BIN = {b.path: b.area for b in BINS}
+
+CANONICAL_TOP_LEVELS = frozenset(b.path[0] for b in BINS)
+"""Every top-level bin name the pipeline may file into. Anything else
+at the top level is the captain's, a legacy bin awaiting migration, or
+unfiled root - never a destination."""
+
+LEGACY_SUCCESSORS = {
+    ("Reels",): (REELS_BIN,),
+    ("Reel subtitles",): (SUBTITLES_BIN,),
+    ("Subtitles",): (SUBTITLES_BIN,),
+    ("V1",): (SOURCE_BIN,),
+    ("V2",): (SOURCE_BIN,),
+    ("Audio",): (SOURCE_BIN,),
+    ("MotionGraphics",): (MOTION_GRAPHICS_BIN,),
+    ("TimedText",): (MOTION_GRAPHICS_BIN,),
+    ("Generators",): (MOTION_GRAPHICS_BIN,),
+}
+"""The retired scheme, top level only, and what each bin's contents
+converge onto. Timed-text cards and generator carriers are 4.06-family
+products, so they join the motion-graphics bin rather than gaining
+top-level bins of their own. Per-timeline and per-state sub-bins keep
+their leaf names and move with their parent; only the top level is
+renamed, which is what makes the migration a move rather than a
+re-filing."""
+
+
+def is_canonical(path: tuple[str, ...]) -> bool:
+    """Would the current plan file something HERE? Root never counts -
+    root is unfiled, not a destination."""
+    if not path:
+        return False
+    top = path[0]
+    if top not in CANONICAL_TOP_LEVELS:
+        return False
+    if top == REELS_BIN:
+        if len(path) == 1:
+            return True
+        return len(path) == 2 and path[1] in (
+            REELS_ARCHIVE_BIN, REELS_PROOF_BIN,
+            *REEL_STATE_BINS.values())
+    if top in (SUBTITLES_BIN, MOTION_GRAPHICS_BIN):
+        # Children are per-timeline bins, named for the timeline the
+        # placement evidence names - enumerable only off a live pool.
+        return len(path) <= 2
+    return len(path) == 1
+
+
+_MOTION_GRAPHICS_AREAS = (
+    Area.MOTION_GRAPHICS_SEGMENTS,
+    Area.TIMED_TEXT_SEGMENTS,
+    Area.CARRIERS,
+)
+"""Render kinds that file under the motion-graphics bin. Everything
+else the pipeline generates files under the subtitle bin, which is
+where it always filed - an unknown kind keeps the old behaviour
+rather than gaining a new bin."""
+
+
+def render_bin_for_file(file_path: str, project_root: str) -> str:
+    """Which render bin a generated file's pool item belongs under.
+
+    A path fact, not a judgement: the numbered bins are bound to
+    `Area`s, so the file's own directory names the bin. Falls back to
+    the subtitle bin for kinds no rule names.
+    """
+    absolute = os.path.abspath(file_path or "")
+    for area in _MOTION_GRAPHICS_AREAS:
+        base = os.path.abspath(
+            os.path.join(project_root, AREAS[area].relpath))
+        if absolute == base or absolute.startswith(base + os.sep):
+            return MOTION_GRAPHICS_BIN
+    return SUBTITLES_BIN
 
 
 def bins_to_create(existing: set[tuple[str, ...]]) -> list[tuple[str, ...]]:

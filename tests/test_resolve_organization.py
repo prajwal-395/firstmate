@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_organization import (
     BIN_REELS,
     BIN_SOURCE,
@@ -413,17 +414,21 @@ def test_a_reel_in_the_pipelines_own_bin_is_still_filed():
     assert {"Reel 01 - live (harvest)", "Reel 01 - superseded"} <= stamped
 
 
-def test_a_reel_in_the_flat_reels_bin_is_the_captains_not_the_pipelines():
-    """The captain made the flat `Reels` bin by hand and put 28 reels in
-    it; the pipeline only ever reused the name.  It is not a verdict
-    destination, so a reel sitting directly in it stays."""
+def test_a_reel_in_the_retired_flat_reels_bin_re_files_by_state():
+    """The flat `Reels` bin is retired in favour of `05 - Reels`: a
+    reel sitting directly in it is the pipeline's own lag and moves,
+    never stranded beside the new bins. The captain's TIERS under it
+    are theirs and stay - see the test above."""
     artefacts = [
         timeline("t-master", MASTER),
         timeline("t-flat", "Reel 01 - superseded", folder=(BIN_REELS,)),
     ]
     plan = a_plan(artefacts)
-    assert plan.moves == []
-    assert "Reel 01 - superseded" in [n for n, _ in plan.left_alone]
+    moves = {v.name: v.destination for v in plan.moves}
+    assert moves == {
+        "Reel 01 - superseded": (bins.REELS_BIN, STATE_BINS[EARLIER]),
+    }
+    assert "Reel 01 - superseded" not in [n for n, _ in plan.left_alone]
 
 
 # ------------------------------------------------------- non-destructive

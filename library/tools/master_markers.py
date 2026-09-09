@@ -106,7 +106,7 @@ STATE_MARKER_COLOURS = {
 A LEGEND, not a judgement - the same bargain
 `resolve_organization.STATE_CLIP_COLOURS` strikes, and deliberately the
 same three readings, so a green marker on the master and a green clip in
-`Reels/Current plan` mean the identical thing.  Resolve's marker palette
+`05 - Reels/Current plan` mean the identical thing.  Resolve's marker palette
 has no `Brown`, so EARLIER is `Cocoa`; the clip palette has no `Cocoa`.
 Nothing reads a colour back as evidence.
 """

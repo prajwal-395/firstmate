@@ -91,6 +91,7 @@ from library.tools.timeline_layout import (  # noqa: E402
     allocate_non_overlapping_rows,
     plan_layout,
 )
+from library.tools import resolve_bin_layout as bin_layout  # noqa: E402
 
 # One try per group, so a failure costs only its own group. Each records
 # WHY, because "not loaded" without a reason is what let this sit.
@@ -373,15 +374,19 @@ def _ensure_transparent_carrier(
             file=sys.stderr,
         )
 
-    # Import into the media pool under a Generators subfolder.
+    # Import into the media pool under the motion-graphics bin - the
+    # single owner of every bin path is `resolve_bin_layout`, so the
+    # carrier lands where the organiser will keep it rather than in a
+    # bin of this build's own invention.
     media_pool.SetCurrentFolder(root_folder)
     gen_folder = None
     for sub in (root_folder.GetSubFolderList() or []):
-        if sub.GetName() == "Generators":
+        if sub.GetName() == bin_layout.MOTION_GRAPHICS_BIN:
             gen_folder = sub
             break
     if not gen_folder:
-        gen_folder = media_pool.AddSubFolder(root_folder, "Generators")
+        gen_folder = media_pool.AddSubFolder(
+            root_folder, bin_layout.MOTION_GRAPHICS_BIN)
 
     media_pool.SetCurrentFolder(gen_folder)
     imported = media_pool.ImportMedia([carrier_path])
@@ -613,9 +618,18 @@ def build_timeline(
         return len(imported) if imported else 0
 
     total_imported = 0
-    total_imported += _import_to_folder("V1", [c.get('source_file', '') for c in v1_clips])
-    total_imported += _import_to_folder("V2", [c.get('source_file', '') for c in v2_clips])
-    total_imported += _import_to_folder("Audio", [c.get('source_file', '') for c in a2_clips + a3_clips])
+    # Every import folder is named by `resolve_bin_layout` - the single
+    # owner of bin paths. Source picture and sound file under the
+    # captain's own `Source footage`; subtitle, motion-graphics and
+    # timed-text renders (all 4.05/4.06-family products) under their
+    # render bins, where the organiser's per-timeline filing keeps them.
+    total_imported += _import_to_folder(
+        bin_layout.SOURCE_BIN, [c.get('source_file', '') for c in v1_clips])
+    total_imported += _import_to_folder(
+        bin_layout.SOURCE_BIN, [c.get('source_file', '') for c in v2_clips])
+    total_imported += _import_to_folder(
+        bin_layout.SOURCE_BIN,
+        [c.get('source_file', '') for c in a2_clips + a3_clips])
     # A sequence arrives as its frame files in one call, which is what
     # groups them into a single image-sequence pool item.
     sub_paths = [s.get('overlay_path', '') for s in sub_segments]
@@ -624,9 +638,14 @@ def build_timeline(
                      if s.get('container') == 'frames' else '')
         if frame_dir:
             sub_paths += sequence_frame_paths(frame_dir)
-    total_imported += _import_to_folder("Subtitles", sub_paths)
-    total_imported += _import_to_folder("MotionGraphics", [s.get('overlay_path', '') for s in mg_segments])
-    total_imported += _import_to_folder("TimedText", [s.get('overlay_path', '') for s in tt_segments])
+    total_imported += _import_to_folder(
+        bin_layout.SUBTITLES_BIN, sub_paths)
+    total_imported += _import_to_folder(
+        bin_layout.MOTION_GRAPHICS_BIN,
+        [s.get('overlay_path', '') for s in mg_segments])
+    total_imported += _import_to_folder(
+        bin_layout.MOTION_GRAPHICS_BIN,
+        [s.get('overlay_path', '') for s in tt_segments])
     
     if total_imported > 0:
         print(f"✓ Imported {total_imported} media files into subfolders", file=sys.stderr)

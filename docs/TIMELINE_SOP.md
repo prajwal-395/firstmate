@@ -119,8 +119,12 @@ never invented at build time:
   Measured 2026-09-09: `ImportMedia` never dedupes - re-importing one
   pooled MXF grew the pool 221 to 222 - so the builder skips paths the
   pool already holds (exact-path match only) and says what it skipped.
-  Pool subfolders per role ("V1", "Subtitles", ...) keep the pool
-  browsable; smart bins are not scriptable, so there are none to keep.
+  One module owns every bin path (`library/tools/resolve_bin_layout.py`):
+  source media imports into `Source footage`, subtitle renders into
+  `06 - Subtitle renders`, motion-graphics and timed-text renders into
+  `07 - Motion graphics`, reels into `05 - Reels/<state>`; the organiser
+  then files each by the evidence that names it. Smart bins are not
+  scriptable, so there are none to keep.
 - **The bins.** Same rule as the pool: file from measurements, nothing
   deleted by the build except what the build itself created.
 - **Stale timelines.** The build never deletes a timeline it did not
