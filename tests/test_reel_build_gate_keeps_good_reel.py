@@ -145,7 +145,13 @@ def _patched_build(resolve_project, project_dir, gate_result):
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
-        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        # The placer returns its build record now (the track
+        # plan the timeline was placed from); the container
+        # the mock creates is the half these tests grade.
+        return {"track_plan": {"video_tracks": [],
+                               "audio_tracks": [],
+                               "material": {}}}
 
     with patch("library.tools.reel_build.build_reel_timeline",
                side_effect=_place) as placed, \
@@ -267,7 +273,13 @@ def test_stage_then_promote_is_the_dag_path_end_to_end(project):
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
-        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        # The placer returns its build record now (the track
+        # plan the timeline was placed from); the container
+        # the mock creates is the half these tests grade.
+        return {"track_plan": {"video_tracks": [],
+                               "audio_tracks": [],
+                               "material": {}}}
 
     with patch("library.tools.reel_build.build_reel_timeline",
                side_effect=_place), \

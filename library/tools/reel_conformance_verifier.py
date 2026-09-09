@@ -376,6 +376,15 @@ class TimelineItem:
     speaker: Optional[str]
     name: str
     unique_id: str = ""
+    track_name: str = ""
+    """The Resolve row's name as read back (`TimelineClip.track_name`).
+
+    The bucketing below reads this FIRST: rows are named from the
+    track plan, so a name says which role a row carries wherever it
+    sits. Indices are the fallback, for timelines built before rows
+    were named - and for rows the plan packed (a semantic row with no
+    transitions above it sits on V4, not V6, and only its name still
+    says what it is)."""
 
     transform: dict = field(default_factory=dict)
     """`TimelineItem.GetProperty()` as `timeline_ingest` read it.
@@ -4158,25 +4167,39 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
             speaker=clip.speaker,
             name=clip.name,
             unique_id=clip.resolve_item_id,
+            track_name=getattr(clip, "track_name", "") or "",
             transform=dict(getattr(clip, "transform", None) or {}),
         )
-        if clip.track_type == "video" and clip.track_index <= 2:
+        row = (item.track_name or "").strip()
+        is_video = clip.track_type == "video"
+        # Names first, across ALL roles, then indices. A packed reel
+        # puts its semantic row where transitions would sit (V4) - so
+        # an index fallback consulted role-by-role would file a row
+        # named "Semantic" as a transition element before its name is
+        # ever read. Indices answer only for rows nobody named, which
+        # is every timeline built before rows were named.
+        if is_video and clip.track_index <= 2:
             video_items.append(item)
-        elif clip.track_type == "video" and clip.track_index == 3:
+        elif is_video and row in ("Subtitles", "Captions"):
             caption_items.append(item)
-        elif (clip.track_type == "video"
-              and clip.track_index == OVERLAY_TRACK):
+        elif is_video and row == "Transitions":
             overlay_items.append(item)
-        elif (clip.track_type == "video"
-              and clip.track_index == EXPLAINER_TRACK):
+        elif is_video and row == "Explainer":
             explainer_items.append(item)
-        elif (clip.track_type == "video"
-              and clip.track_index == SEMANTIC_TRACK):
+        elif is_video and row == "Semantic":
+            semantic_items.append(item)
+        elif is_video and clip.track_index == 3:
+            caption_items.append(item)
+        elif is_video and clip.track_index == OVERLAY_TRACK:
+            overlay_items.append(item)
+        elif is_video and clip.track_index == EXPLAINER_TRACK:
+            explainer_items.append(item)
+        elif is_video and clip.track_index == SEMANTIC_TRACK:
             semantic_items.append(item)
         elif clip.track_type == "audio":
             audio_items.append(item)
         elif clip.track_type == "video":
-            # Every video track this verifier has no check for. Kept and
+            # Every video track this verifier grades with nothing. Kept and
             # reported by F19 rather than discarded - see
             # `ReelTimeline.unclassified_items`.
             unclassified_items.append(item)

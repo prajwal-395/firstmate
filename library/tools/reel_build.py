@@ -117,6 +117,13 @@ from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
 from library.tools.resolve_lock import assert_current_timeline
 from library.tools.timeline_ingest import resolve_project_exactly
+from library.tools.timeline_layout import (
+    EXPLAINER,
+    FRAME,
+    SEMANTIC,
+    TRANSITIONS,
+    plan_layout,
+)
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -162,63 +169,588 @@ here as the bare literal `b - a > 0.04` in `keep_ranges`; naming it is
 the whole change, so that "this segment leaves nothing placeable" and
 "this range places nothing" ask one question rather than two."""
 
-def required_tracks(clips) -> dict:
-    """How many video AND AUDIO tracks a reel needs.
+def reel_angles(master_clips) -> List[dict]:
+    """One angle per master PICTURE row, in first-seen order.
 
-    **A reel needs one AUDIO track per picture track, and a new timeline
-    has exactly ONE.** This is not symmetry for its own sake: measured
-    2026-09-04, the first sixteen reels were built with two video tracks
-    and one audio track, so Akshita's V1 clips carried their sound to A1
-    and Craig's V2 clips had nowhere to put theirs. Resolve placed his
-    PICTURE and discarded his AUDIO, returning True the whole way. Every
-    reel reported success and played with one speaker silent - on a
-    format whose entire unit is a two-speaker conversation.
+    A reel inherits its angles from the master it is cut from: each
+    master video row that carries picture (not a layer - rows carrying
+    a singleton role's name like B-Roll or Subtitles are decoration,
+    not cameras) becomes one a-roll row and one speech row on the reel.
 
-    The tell is exact and worth knowing: A1's item count equalled V1's in
-    all sixteen, and the V2 items contributed no audio at all.
-
-    AGENTS.md 5 already warned about the reverse - placing V1 clips while
-    extra tracks exist floods the timeline - so the rule is that track
-    counts are DECLARED from the material, never left at the default.
+    `key` is the master track index as a string, so a master audio
+    clip joins its picture's angle by its own track index - on the
+    captain's master V1/A1 are Akshita and V2/A2 are Craig. `label`
+    is the master video row's own name, falling back to the clip
+    speaker and then to V{index}: the reel's rows are named from the
+    material, never invented.
     """
-    indexes = sorted({c.track_index for c in clips})
-    return {"video": max(indexes) if indexes else 1,
-            "audio": max(indexes) if indexes else 1}
-
-
-def audio_layout(master_clips) -> Dict[int, set]:
-    """Which SOURCE FILES belong on each audio track, from the master.
-
-    **Every source here carries FOUR audio channels**, and a linked
-    append brings all of them - Resolve then spreads them across whatever
-    audio tracks exist. On a two-track reel that put Akshita on A1 AND
-    A2, and Craig on A2 underneath her.
-
-    The captain's master already answers the question: A1 holds only
-    their three files and A2 only Craig's four. So the layout is READ off
-    the master rather than assumed, and `strays` names anything that
-    landed outside it.
-
-    This is the second half of the missing-audio defect. Adding the
-    audio track stopped Craig being dropped; without this, he is present
-    but mixed under a duplicate of Akshita.
-    """
-    out: Dict[int, set] = {}
-    for clip in master_clips:
-        out.setdefault(clip.track_index, set()).add(clip.source_file)
-    return out
-
-
-def strays(timeline, layout: Dict[int, set]) -> List:
-    """Audio items sitting on a track their source does not belong to."""
+    order: List[int] = []
+    names: Dict[int, str] = {}
+    speakers: Dict[int, str] = {}
+    for clip in master_clips or ():
+        if getattr(clip, "track_type", "video") != "video":
+            continue
+        try:
+            index = int(getattr(clip, "track_index", 0))
+        except (TypeError, ValueError):
+            continue
+        if index <= 0 or _is_layer_row(getattr(clip, "track_name", "") or ""):
+            continue
+        if index not in order:
+            order.append(index)
+        track_name = (getattr(clip, "track_name", "") or "").strip()
+        if track_name and index not in names:
+            names[index] = track_name
+        speaker = getattr(clip, "speaker", "") or ""
+        if speaker and index not in speakers:
+            speakers[index] = speaker
     out = []
-    for index, allowed in layout.items():
-        for item in (timeline.GetItemListInTrack("audio", index) or []):
-            pool_item = item.GetMediaPoolItem()
-            path = pool_item.GetClipProperty("File Path") if pool_item else None
-            if path and path not in allowed:
-                out.append(item)
+    for index in order:
+        label = names.get(index) or speakers.get(index) or f"V{index}"
+        out.append({"key": str(index), "label": label,
+                    "track_index": index})
     return out
+
+
+def _is_layer_row(track_name: str) -> bool:
+    """Whether a master row name is a LAYER, not a camera angle.
+
+    Rows carrying the layout owner's singleton role names (B-Roll,
+    Subtitles, Transitions, Explainer, Semantic, Frame, Motion
+    Graphics, Generator Effects, Timed Text, Music, SFX, numbered or
+    not) hold decoration, not picture-with-speech, so their clips
+    must not become reel angles. Anything else - "Akshita", "Craig",
+    even an unnamed "Video 1" - is a camera whose picture the reel
+    carries.
+    """
+    stem = (track_name or "").strip()
+    if not stem:
+        return False
+    from library.tools.timeline_layout import SINGLETON_NAMES
+    if stem in SINGLETON_NAMES:
+        return True
+    for base in SINGLETON_NAMES:
+        if stem.startswith(base + " "):
+            rest = stem[len(base) + 1:]
+            if rest.isdigit():
+                return True
+    return False
+
+
+def reel_speech_name(master_clips, index: int, label: str,
+                     channel: int) -> str:
+    """What the reel calls one angle's speech row.
+
+    The master audio row's own name where it has one ("Akshita CH1"),
+    else the angle label plus the recorded program stream - the same
+    "angle plus stream" shape the SOP's own example carries.
+    """
+    for clip in master_clips or ():
+        if (getattr(clip, "track_type", "") == "audio"
+                and getattr(clip, "track_index", None) == index):
+            track_name = (getattr(clip, "track_name", "") or "").strip()
+            if track_name and not _is_default_track_name(
+                    track_name, "audio", index):
+                return track_name
+            break
+    return f"{label} CH{channel}"
+
+
+def _is_default_track_name(name: str, media_type: str, index: int) -> bool:
+    """Resolve's own untouched row name - nobody organised that row."""
+    stem = (name or "").strip()
+    return (not stem or stem in ("Video", "Audio", "Subtitle")
+            or stem == f"{media_type.capitalize()} {index}")
+
+
+def catalog_program_channels(project_folder: str,
+                             ) -> Tuple[Dict[str, int], Dict[str, str]]:
+    """The RECORDED program stream per source file, from the catalog.
+
+    Returns ({key: channel}, {key: refusal}) keyed by source path AND
+    basename. The catalog is read through `pipeline_data.json`, the
+    same route `reel_conformance_verifier._catalog_source_sizes`
+    takes: the state file is where a step's output is guaranteed to
+    have landed. A source whose catalog entry recorded a refusal is
+    refused here too, with the catalog's own words. A project with no
+    catalog (timeline-ingested) comes back empty and the master
+    timeline below answers instead.
+    """
+    import json as _json
+
+    channels: Dict[str, int] = {}
+    refusals: Dict[str, str] = {}
+    if not project_folder:
+        return channels, refusals
+    try:
+        with open(os.path.join(project_folder, "pipeline_data.json"),
+                  encoding="utf-8") as handle:
+            state = _json.load(handle)
+    except (OSError, ValueError):
+        return channels, refusals
+    entries = (((state.get("step_outputs") or {}).get("catalog") or {})
+               .get("clip_catalog") or [])
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source_file") or entry.get("path") or ""
+        if not source:
+            continue
+        keys = {source, source.rsplit("/", 1)[-1]}
+        selection = entry.get("program_stream") or {}
+        try:
+            channel = int(selection.get("channel"))
+        except (TypeError, ValueError):
+            channel = None
+        if channel is not None:
+            for key in keys:
+                channels.setdefault(key, channel)
+            continue
+        streams = entry.get("audio_streams") or []
+        if len(streams) == 1:
+            # One stream is the program - the "single" basis, the same
+            # reading `select_program_stream` gives it. Mechanical, not
+            # taste: there is nothing else it could be.
+            try:
+                only = int(streams[0].get("channel", 1))
+            except (TypeError, ValueError):
+                only = 1
+            for key in keys:
+                channels.setdefault(key, only)
+            continue
+        refusal = entry.get("program_stream_refusal")
+        if refusal:
+            for key in keys:
+                refusals.setdefault(key, str(refusal))
+    return channels, refusals
+
+
+def master_program_channels(master_timeline) -> Dict[str, int]:
+    """The program stream per source file, read off the MASTER timeline.
+
+    The master's own speech rows already carry only program audio -
+    its builder deletes anything else on the spot - so the channel
+    mapping on what is really there IS the recorded selection, for
+    projects whose catalog predates recording one (or that have no
+    catalog at all). A source whose items disagree, or whose mapping
+    is unreadable, is left out rather than guessed at: the caller
+    refuses it by name.
+    """
+    import json as _json
+
+    if master_timeline is None:
+        return {}
+    try:
+        audio_rows = master_timeline.GetTrackCount("audio") or 0
+    except Exception:
+        return {}
+    per_source: Dict[str, set] = {}
+    for index in range(1, audio_rows + 1):
+        try:
+            items = master_timeline.GetItemListInTrack("audio", index) or []
+        except Exception:
+            continue
+        for item in items:
+            try:
+                mapping = _json.loads(
+                    item.GetSourceAudioChannelMapping())
+                channels = tuple((mapping.get("track_mapping", {})
+                                  .get("1", {}).get("channel_idx", [])) or ())
+            except Exception:
+                continue
+            if len(channels) != 1:
+                continue
+            try:
+                pool_item = item.GetMediaPoolItem()
+                path = (pool_item.GetClipProperty("File Path")
+                        if pool_item is not None else "")
+            except Exception:
+                continue
+            if path:
+                per_source.setdefault(path, set()).add(channels[0])
+                per_source.setdefault(path.rsplit("/", 1)[-1], set()).add(
+                    channels[0])
+    return {source: next(iter(seen)) for source, seen in per_source.items()
+            if len(seen) == 1}
+
+
+def resolve_reel_program_channels(angles: Sequence[dict],
+                                  master_clips,
+                                  project_folder: str = "",
+                                  master_timeline=None,
+                                  explicit: Optional[Dict[str, int]] = None,
+                                  ) -> Dict[str, int]:
+    """The program stream per reel angle, or a refusal naming the source.
+
+    The catalog's recorded selection first, the live master timeline
+    second (its rows already carry only program audio), an explicit
+    per-angle map ahead of both - what a test passes, and the only
+    override. Every source on an angle must resolve to ONE channel;
+    a source nothing recorded, and an angle whose sources disagree,
+    REFUSE rather than default: the mix is declared or measured,
+    never stream 0 dressed as the mix.
+    """
+    explicit = dict(explicit or {})
+    catalog, refused = catalog_program_channels(project_folder)
+    live = master_program_channels(master_timeline)
+
+    by_angle_files: Dict[str, set] = {}
+    for clip in master_clips or ():
+        if getattr(clip, "track_type", "") != "audio":
+            continue
+        try:
+            key = str(int(getattr(clip, "track_index", 0)))
+        except (TypeError, ValueError):
+            continue
+        source = getattr(clip, "source_file", "") or ""
+        if source:
+            by_angle_files.setdefault(key, set()).add(source)
+
+    out: Dict[str, int] = {}
+    for angle in angles:
+        key = angle["key"]
+        if key in explicit:
+            out[key] = int(explicit[key])
+            continue
+        files = sorted(by_angle_files.get(key, set()))
+        if not files:
+            # No audio of this angle on the reel: nothing will be
+            # checked against the channel, so no record is needed.
+            # 1 is the placeholder the layout default would carry.
+            out[key] = 1
+            continue
+        channels: Dict[str, int] = {}
+        for source in files:
+            short = source.rsplit("/", 1)[-1]
+            channel = catalog.get(source, catalog.get(short))
+            basis = "the catalog's recorded program stream"
+            if channel is None:
+                channel = live.get(source, live.get(short))
+                basis = ("the master timeline's own speech rows, which "
+                         "already carry only program audio")
+            if channel is None:
+                raise ReelBuildError(
+                    f"REFUSING to build: no recorded program stream for "
+                    f"{short} (angle {label_of(angles, key)!r}). The "
+                    f"catalog records none"
+                    + (f" - {refused.get(source, refused.get(short))}"
+                       if refused.get(source, refused.get(short)) else
+                       " and it predates stream recording")
+                    + f", and the master timeline carries nothing to read "
+                    f"it off. Declare audio.program_stream and re-run "
+                    f"catalog_footage, or build from a master whose rows "
+                    f"already carry program audio.")
+            channels[source] = int(channel)
+        distinct = set(channels.values())
+        if len(distinct) != 1:
+            raise ReelBuildError(
+                f"REFUSING to build: angle {label_of(angles, key)!r} mixes "
+                f"sources with different program streams - "
+                + ", ".join(f"{s.rsplit('/', 1)[-1]} CH{c}"
+                            for s, c in sorted(channels.items()))
+                + ". One speech row carries one program stream.")
+        out[key] = distinct.pop()
+    return out
+
+
+def label_of(angles: Sequence[dict], key: str) -> str:
+    """An angle's label, for refusals. The key when nothing carries it."""
+    for angle in angles:
+        if angle.get("key") == key:
+            return angle.get("label") or key
+    return key
+
+
+def reel_track_material(master_clips,
+                        program_channels: Dict[str, int],
+                        caption_spans=(),
+                        has_transitions: bool = False,
+                        has_explainer: bool = False,
+                        has_semantic: bool = False,
+                        collapse_picture: bool = False,
+                        has_frame: bool = False) -> dict:
+    """The material `timeline_layout.plan_layout` answers with a plan.
+
+    Angles come from the master's own picture rows (`reel_angles`) and
+    every count from what this reel will place - a row exists because
+    something goes on it, which is what makes "two speakers collapsed
+    onto one row" and "blank rows with nothing on them" structurally
+    impossible rather than fixed once. `caption_spans` are (start, end)
+    in FRAMES, the unit the layout packs in.
+    """
+    angles = reel_angles(master_clips)
+    if not angles:
+        # No picture rows to inherit: the layout falls back to its
+        # legacy single-camera pair, exactly as a manifest declaring
+        # no angles does.
+        return {
+            "angles": [], "collapse_picture": False, "has_broll": False,
+            "has_frame": False, "caption_spans": [tuple(s) for s in
+                                                  (caption_spans or [])],
+            "has_transitions": bool(has_transitions),
+            "has_explainer": bool(has_explainer),
+            "has_semantic": bool(has_semantic),
+            "mg_spans": [], "has_generators": False,
+            "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
+        }
+    described = []
+    for angle in angles:
+        channel = int(program_channels.get(angle["key"], 1))
+        described.append({
+            "key": angle["key"],
+            "label": angle["label"],
+            "speech_name": reel_speech_name(
+                master_clips, angle["track_index"], angle["label"],
+                channel),
+            "program_channel": channel,
+        })
+    return {
+        "angles": described,
+        "collapse_picture": bool(collapse_picture),
+        "has_broll": False,
+        "has_frame": bool(has_frame),
+        "caption_spans": [tuple(s) for s in (caption_spans or [])],
+        "has_transitions": bool(has_transitions),
+        "has_explainer": bool(has_explainer),
+        "has_semantic": bool(has_semantic),
+        "mg_spans": [], "has_generators": False,
+        "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
+    }
+
+
+def _placed_channel(item) -> Optional[int]:
+    """The single source channel a placed audio item carries, or None."""
+    import json as _json
+
+    try:
+        mapping = _json.loads(item.GetSourceAudioChannelMapping())
+        channels = list((mapping.get("track_mapping", {})
+                         .get("1", {}).get("channel_idx", [])) or [])
+    except Exception:
+        return None
+    return channels[0] if len(channels) == 1 else None
+
+
+def _speech_row_uids(timeline, plan) -> dict:
+    """{(audio row index): {item uids on it}} - one inventory snapshot."""
+    out = {}
+    for row in plan.speech_rows():
+        try:
+            items = timeline.GetItemListInTrack("audio", row.index) or []
+        except Exception:
+            items = []
+        out[row.index] = {_item_uid(item) for item in items}
+    return out
+
+
+def sweep_placed_audio(timeline, plan, before: dict, target_row: int,
+                       expected_channel: int, label: str):
+    """Delete what one placement invented outside its row and channel.
+
+    Measured on the live project: an explicit `mediaType: 2` append of
+    an MXF's audio RETURNS one item and PLACES two - the program
+    stream on the named row plus a non-program spill on the next audio
+    row. Judging the call by its return keeps the spill; reading the
+    rows back finds it. So everything this placement ADDED (row
+    inventory after minus before) is checked, not just what the call
+    returned: what sits on the target row carrying the angle's
+    recorded program channel stays, everything else added is deleted
+    on the spot and recorded. An item whose mapping cannot be read is
+    KEPT and reported - an unreadable check must not delete speech,
+    and it must not read as a passing one either.
+
+    Returns (kept, deleted, unverified). `deleted` names the row each
+    stray sat on, because a spill on the next row and a wrong stream
+    on the right row are different failures with the same fix.
+    """
+    after_items: dict = {}
+    for row in plan.speech_rows():
+        try:
+            items = timeline.GetItemListInTrack("audio", row.index) or []
+        except Exception:
+            items = []
+        after_items[row.index] = list(items)
+    kept, deleted, unverified = [], [], []
+    for index, items in after_items.items():
+        seen_before = before.get(index, set())
+        for item in items:
+            if _item_uid(item) in seen_before:
+                continue
+            channel = _placed_channel(item)
+            if channel is None:
+                unverified.append(f"{label} (A{index})")
+                kept.append(item)
+                continue
+            if index == target_row and channel == expected_channel:
+                kept.append(item)
+                continue
+            try:
+                timeline.DeleteClips([item], False)
+            except Exception as exc:
+                deleted.append({"label": label, "row": index,
+                                "expected_channel": expected_channel,
+                                "placed_channels": [channel],
+                                "removal": f"REFUSED ({exc})"})
+                continue
+            deleted.append({"label": label, "row": index,
+                            "expected_channel": expected_channel,
+                            "placed_channels": [channel]})
+    return kept, deleted, unverified
+
+
+def _timeline_span(item):
+    try:
+        return (item.GetStart(), item.GetEnd())
+    except Exception:
+        return None
+
+
+def _linked_ids(item):
+    try:
+        return {i.GetUniqueId() for i in (item.GetLinkedItems() or [])}
+    except Exception:
+        return set()
+
+
+def _item_uid(item):
+    try:
+        return item.GetUniqueId()
+    except Exception:
+        return None
+
+
+def link_reel_groups(timeline, plan) -> dict:
+    """Picture to speech, captions into the group - in ONE call per start.
+
+    Every a-roll picture and every speech item starting on one frame,
+    plus every caption falling inside any of those speeches' spans,
+    link in a single `SetClipsLinked` call - because linking is
+    exclusive, not additive: a second call sharing an item with the
+    first BREAKS the first group rather than joining it (measured
+    2026-09-09, and once more live: two same-start speeches sharing
+    one collapsed picture row, where the second pair-call stole the
+    picture out of the first group). Grouping by start frame makes a
+    shared item structurally impossible: starts are distinct, so no
+    two calls ever share one.
+
+    A caption that falls inside speeches starting on different frames
+    joins the first host in plan row order - the same order the
+    verifier's own host lookup reads, so "the first host" is the same
+    speech item on both sides of the gate. Every call is read back,
+    not trusted.
+    """
+    record = {"link_groups": [], "caption_links": [], "warnings": []}
+
+    speech_index = []  # (start, end, item, angle_key), plan row order
+    for row in plan.speech_rows():
+        try:
+            items = timeline.GetItemListInTrack("audio", row.index) or []
+        except Exception:
+            items = []
+        for item in items:
+            span = _timeline_span(item)
+            if span is None:
+                continue
+            speech_index.append((span[0], span[1], item, row.occupant))
+
+    picture_starts: Dict[int, list] = {}
+    for row in plan.aroll_rows():
+        try:
+            items = timeline.GetItemListInTrack("video", row.index) or []
+        except Exception:
+            items = []
+        for item in items:
+            span = _timeline_span(item)
+            if span is None:
+                continue
+            picture_starts.setdefault(span[0], []).append(item)
+
+    caption_row = plan.caption_row()
+    caption_items = []
+    if caption_row is not None:
+        try:
+            caption_items = (timeline.GetItemListInTrack(
+                "video", caption_row.index) or [])
+        except Exception:
+            caption_items = []
+    claimed_captions = set()
+
+    starts: Dict[int, dict] = {}
+    for start, end, speech, _angle_key in speech_index:
+        bucket = starts.setdefault(start, {"speeches": [], "keys": []})
+        bucket["speeches"].append((start, end, speech))
+        bucket["keys"].append(_angle_key)
+    # Starts in first-encounter order down the plan's rows, so the
+    # caption claim below meets hosts in the verifier's own order.
+    order: List[int] = []
+    for start, _end, _speech, _angle_key in speech_index:
+        if start not in starts or start in order:
+            continue
+        order.append(start)
+
+    for start in order:
+        bucket = starts[start]
+        group = list(picture_starts.get(start, []))
+        group.extend(speech for _, _, speech in bucket["speeches"])
+        spans = [(s, e) for s, e, _ in bucket["speeches"]]
+        for caption in caption_items:
+            if _item_uid(caption) in claimed_captions:
+                # Linking is EXCLUSIVE: a caption that joined one
+                # group and is linked again afterwards breaks the
+                # first group rather than joining the second. Both
+                # mics are hot, so spans overlap - the first host
+                # wins and the caption is never offered twice.
+                continue
+            span = _timeline_span(caption)
+            if span is None:
+                continue
+            if any(s <= span[0] and span[1] <= e for s, e in spans):
+                group.append(caption)
+        if len(group) < 2:
+            only = bucket["speeches"][0]
+            key = bucket["keys"][0]
+            speech_row = plan.speech_row_for_angle(key)
+            row_name = speech_row.name if speech_row else key
+            record["warnings"].append(
+                f"Speech at {only[0]}-{only[1]} on {row_name} has no "
+                f"picture starting on its frame; left unlinked")
+            continue
+        try:
+            ok = timeline.SetClipsLinked(group, True)
+        except Exception as exc:
+            record["warnings"].append(
+                f"Link at frame {start} raised {exc!r}")
+            continue
+        if not ok:
+            record["warnings"].append(
+                f"Link at frame {start} declined")
+            continue
+        # Read back EVERY member, not just the speech: a group that
+        # formed half-way is a breakage wearing a pass.
+        verified = True
+        for member in group:
+            want = {_item_uid(other) for other in group
+                    if other is not member}
+            want.discard(None)
+            if want and not (want <= _linked_ids(member)):
+                verified = False
+                break
+        if verified:
+            record["link_groups"].append(
+                {"speech_start": start, "members": len(group)})
+            for caption in group:
+                if caption in caption_items:
+                    claimed_captions.add(_item_uid(caption))
+                    span = _timeline_span(caption)
+                    record["caption_links"].append(
+                        {"caption_start": span[0] if span else start,
+                         "caption_end": span[1] if span else start,
+                         "speech_start": start,
+                         "members": len(group)})
+        else:
+            record["warnings"].append(
+                f"Link at frame {start} read back unlinked")
+    return record
 
 
 REEL_RESOLUTION = (1080, 1920)
@@ -1682,7 +2214,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                         f"{kind} at {segment['timeline_start']:.2f}s")
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -1692,16 +2224,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
     `cards` are the RENDERED full-frame elements this reel contains, each
     carrying the file it was rendered to
-    (`library/tools/full_frame_element.py`).  They go on **V1**, which is
-    a picture track and not a layer above one: a full-frame element
-    REPLACES picture for its stretch rather than overlaying it, so it is
-    inside the same hole check, item count and framing check every other
-    picture item is.  A HEAD card pushes all the footage down by
-    `lead_frames`, which is the same number `reel_subtitle_segments` was
-    given, so picture and captions move together or not at all.  A SPAN
-    covers the whole body instead: the footage video is suppressed where
-    it plays and the spine audio stays, so the reel is an animated cut
-    over its own speech.
+    (`library/tools/full_frame_element.py`).  They go on the first
+    picture row, which is a picture track and not a layer above one: a
+    full-frame element REPLACES picture for its stretch rather than
+    overlaying it, so it is inside the same hole check, item count and
+    framing check every other picture item is.  A HEAD card pushes all
+    the footage down by `lead_frames`, which is the same number
+    `reel_subtitle_segments` was given, so picture and captions move
+    together or not at all.  A SPAN covers the whole body instead: the
+    footage video is suppressed where it plays and the spine audio
+    stays, so the reel is an animated cut over its own speech.
 
     `overlay_placements` are transition elements laid OVER the reel's own
     cuts, from `library/tools/transition_overlay.py`.  They are ADDITIVE:
@@ -1710,90 +2242,136 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     consuming frames from either side of it - see
     `transition_overlay.TIMING_IS_ADDITIVE`.  None or an empty list
     places nothing AND adds no track, so a project that declares no
-    element gets a timeline byte-for-byte identical to the one it got
-    before this parameter existed.
+    element gets no transitions row - which is the same "declare
+    nothing and get nothing" shape every other effect slot has.
 
     `look` is the project's resolved TV-frame declaration
     (`library/tools/reel_look.py`) or None.  Under it the picture
-    collapses to V1 and plays at the declared punch-in, the frame asset
-    spans each run of picture on V2, and the switch animation and any
-    planned drift are applied afterwards as Fusion comps - by the
-    caller, in its own process (AGENTS.md 5).  `motion` is the reel's
-    RESOLVED drift plan, carried here only so the manifest that pass
-    reads can be built from the placements this function really made.
-    None for either is the timeline this function built before they
-    existed.
+    collapses to one row and plays at the declared punch-in, the frame
+    asset spans each run of picture on the row above it, and the switch
+    animation and any planned drift are applied afterwards as Fusion
+    comps - by the caller, in its own process (AGENTS.md 5).  `motion`
+    is the reel's RESOLVED drift plan, carried here only so the manifest
+    that pass reads can be built from the placements this function
+    really made.  None for either is the timeline this function built
+    before they existed.
+
+    `master_timeline` is the live master this reel is cut from, and is
+    how the builder reaches the recorded program stream on projects
+    whose catalog predates stream recording (or that have no catalog):
+    the master's own speech rows already carry only program audio.
+    `program_channels` ({angle_key: channel}) overrides both routes -
+    what a test passes.  Either way every angle's stream is resolved
+    BEFORE the timeline is created, and an unresolvable one refuses
+    the build rather than placing a default.
+
+    Returns the build record: the track plan as placed, what stream
+    enforcement removed, what the link pass joined, which empty rows
+    were deleted, and which master clips were skipped - so the
+    conformance proof is gradeable without re-deriving any of it.
     """
     import sys, os
+
     name = timeline_name or moment.timeline_name
-    pool = project.GetMediaPool()
-    timeline = pool.CreateEmptyTimeline(name)
-    if not timeline:
-        raise ValueError(f"Failed to create timeline {name}")
-        
-    project.SetCurrentTimeline(timeline)
-    
-    timeline.SetSetting("useCustomSettings", "1")
-    timeline.SetSetting("timelineResolutionWidth", "1080")
-    timeline.SetSetting("timelineResolutionHeight", "1920")
-    
-    # An overlay track is added ONLY when something will go on it. An
-    # empty V4 on every reel is a change to every timeline the captain
-    # already has, made to serve a feature they did not turn on.
-    from library.tools.transition_overlay import OVERLAY_TRACK
-    video_tracks = OVERLAY_TRACK if overlay_placements else 3
-    while timeline.GetTrackCount("video") < video_tracks:
-        timeline.AddTrack("video")
-    while timeline.GetTrackCount("audio") < 2:
-        timeline.AddTrack("audio")
-        
-    timeline.SetTrackName("video", 3, "Captions")
-    if overlay_placements:
-        timeline.SetTrackName("video", OVERLAY_TRACK, "Transitions")
 
-    # The explainer track exists only where there is an explainer to put
-    # on it. A reel that declares none gets a timeline byte-for-byte
-    # identical to the one it got before this existed - three video
-    # tracks and no V5 - which is the same "declare nothing and get
-    # nothing" shape every other effect slot has.
-    if explainer_segments:
-        from library.tools.explainer_plan import (
-            EXPLAINER_TRACK, EXPLAINER_TRACK_NAME)
-        while timeline.GetTrackCount("video") < EXPLAINER_TRACK:
-            timeline.AddTrack("video")
-        timeline.SetTrackName("video", EXPLAINER_TRACK,
-                              EXPLAINER_TRACK_NAME)
-
-    # The semantic-visual track exists only where the model planned a
-    # visual for what is being said. A reel with no model answer gets
-    # the timeline it got before this existed - no V6 - which is the
-    # same "declare nothing and get nothing" shape as the explainer
-    # above. The track number is named once in
-    # `library/tools/reel_semantic_visual.py` so the placer and the
-    # F22 check cannot disagree about it.
-    if semantic_segments:
-        from library.tools.reel_semantic_visual import (
-            SEMANTIC_TRACK, SEMANTIC_TRACK_NAME)
-        while timeline.GetTrackCount("video") < SEMANTIC_TRACK:
-            timeline.AddTrack("video")
-        timeline.SetTrackName("video", SEMANTIC_TRACK,
-                              SEMANTIC_TRACK_NAME)
-
+    # The reel's shape is computed BEFORE anything is created, so a
+    # refusal - a mid-word keep edge, an unresolvable program stream -
+    # fires before a timeline exists rather than leaving half of one.
     ranges = reel_ranges(moment, transcript)
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
     # The TV-frame look, if this project declares one.  The picture
-    # collapses onto V1 so V2 is free for the frame - `reel_look` states
-    # why, and REFUSES rather than collapsing where two placements really
-    # overlap.  Everything above V2 is untouched: captions stay on V3,
-    # transitions on V4, the explainer on V5 and the semantic visuals on
-    # V6, so a reel wearing the look is the same reel with a set around
-    # it.
+    # collapses onto one row so the next is free for the frame -
+    # `reel_look` states why, and REFUSES rather than collapsing where
+    # two placements really overlap.  Everything above the picture is
+    # untouched: captions, transitions, the explainer and the semantic
+    # visuals sit on the same rows with or without the set around them.
     if look is not None:
         from library.tools import reel_look as _look
         _look.assert_one_picture_at_a_time(placements_list, fps)
         placements_list = _look.collapse_to_v1(placements_list)
+
+    # ── The track plan: the material asks, timeline_layout answers ──
+    # Every track index and name below comes from this plan. A-roll
+    # gets one video row per master picture row and speech one audio
+    # row per angle, named from the master's own rows; the reel's own
+    # additive rows (transitions, explainer, semantic, and the frame
+    # under the look) arrive as roles, not hardcoded indices - so
+    # there is exactly one thing that decides a track index.
+    angles = reel_angles(master_clips)
+    resolved_channels = resolve_reel_program_channels(
+        angles, master_clips, project_folder,
+        master_timeline=master_timeline, explicit=program_channels)
+    caption_spans = [
+        (int(round(s["timeline_start"] * fps)),
+         int(round(s["timeline_end"] * fps)))
+        for s in (subtitle_segments or [])
+        if s.get("timeline_end", 0) > s.get("timeline_start", 0)]
+    material = reel_track_material(
+        master_clips, resolved_channels,
+        caption_spans=caption_spans,
+        has_transitions=bool(overlay_placements),
+        has_explainer=bool(explainer_segments),
+        has_semantic=bool(semantic_segments),
+        collapse_picture=look is not None,
+        has_frame=look is not None)
+    track_plan = plan_layout(material)
+    video_row_by_angle = {}
+    if (len(track_plan.aroll_rows()) == 1 and len(angles) > 1):
+        for angle in angles:
+            video_row_by_angle[angle["key"]] = (
+                track_plan.aroll_rows()[0].index)
+    else:
+        for angle in angles:
+            row = track_plan.video_row_for_angle(angle["key"])
+            if row is not None:
+                video_row_by_angle[angle["key"]] = row.index
+    speech_row_by_angle = {
+        angle["key"]: track_plan.speech_row_for_angle(angle["key"]).index
+        for angle in angles
+        if track_plan.speech_row_for_angle(angle["key"]) is not None}
+
+    build_record: dict = {
+        "timeline_name": name,
+        "track_plan": track_plan.serializable(),
+        "stream_enforcement": {"checked": 0, "deleted": [],
+                               "unverified": []},
+        "link_groups": [], "caption_links": [], "link_warnings": [],
+        "deleted_empty_tracks": [], "skipped_clips": [],
+    }
+
+    pool = project.GetMediaPool()
+    timeline = pool.CreateEmptyTimeline(name)
+    if not timeline:
+        raise ValueError(f"Failed to create timeline {name}")
+
+    project.SetCurrentTimeline(timeline)
+
+    timeline.SetSetting("useCustomSettings", "1")
+    timeline.SetSetting("timelineResolutionWidth", "1080")
+    timeline.SetSetting("timelineResolutionHeight", "1920")
+
+    # The plan's rows, and only those. A row exists because the plan
+    # put something on it; occupancy is enforced after placement, so
+    # a row whose placements all fail is DELETED, never kept blank.
+    while timeline.GetTrackCount("video") < len(track_plan.video_tracks):
+        timeline.AddTrack("video")
+    while timeline.GetTrackCount("audio") < len(track_plan.audio_tracks):
+        timeline.AddTrack("audio")
+
+    # Names come from the plan, which named them from the material, and
+    # they go on BEFORE placement: a row the plan did not name is an
+    # error, not a fallback, and there is no "Video 1" anywhere
+    # downstream of the plan.
+    for spec in track_plan.video_tracks + track_plan.audio_tracks:
+        if not timeline.SetTrackName(spec.media_type, spec.index,
+                                      spec.name):
+            raise ReelBuildError(
+                f"{name}: Resolve would not name {spec.media_type} row "
+                f"{spec.index} {spec.name!r} - an unnamed row means "
+                f"nothing organised it, so the build stops rather than "
+                f"placing onto defaults.")
 
     # A span IS the picture for the whole body, so the footage video it
     # replaces is not placed: two pictures on V1 would be an overlap, not
@@ -1840,7 +2418,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             # for `source_out`.
             "endFrame": card.duration_frames,
             "mediaType": 1,
-            "trackIndex": 1,
+            "trackIndex": track_plan.aroll_rows()[0].index,
             # The card's own integer frame, never `round(seconds * fps)`.
             "recordFrame": card.reel_start_frame,
         }])
@@ -1848,13 +2426,40 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # The footage lookup is `pool_item_for` now, module level, because
     # every import in this module has to ask the same question and a
     # nested copy could only ever answer it for footage.
-        
 
 
-        
+
+    # ── Picture and speech, one angle per row ──
+    # Each clip rides the plan's row for its own angle - a video clip
+    # the a-roll row, an audio clip the speech row - never the master's
+    # raw track index. Audio is placed explicitly (`mediaType: 2` plus
+    # the row) and read back: anything that is not the angle's
+    # recorded program stream is deleted on the spot and recorded,
+    # which is what stops the non-program bleed. A clip from a master
+    # row that is no angle (a layer, a bed) is skipped and said, not
+    # misplaced: a reel plays its angles' picture and speech.
     for p in placements_list:
         c = p["clip"]
         if span_present and c.track_type == "video":
+            continue
+        try:
+            angle_key = str(int(c.track_index))
+        except (TypeError, ValueError):
+            angle_key = ""
+        if c.track_type == "video":
+            dest_row = video_row_by_angle.get(angle_key)
+            kind = "picture"
+        else:
+            dest_row = speech_row_by_angle.get(angle_key)
+            kind = "speech"
+        if dest_row is None:
+            note = (f"{name}: skipping {kind} from master "
+                    f"{c.track_type}{getattr(c, 'track_index', '?')} "
+                    f"({getattr(c, 'source_file', '?').rsplit('/', 1)[-1]}) "
+                    f"- that row is no reel angle, and a reel plays its "
+                    f"angles' picture and speech")
+            print(f"  {note}", file=sys.stderr)
+            build_record["skipped_clips"].append(note)
             continue
         pool_item = pool_item_for(pool, c.source_file)
         if not pool_item:
@@ -1866,14 +2471,44 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
         assert_current_timeline(project, timeline)
 
+        # The row inventory BEFORE, so the sweep below can tell what
+        # this append added: an explicit audio append returns one item
+        # and can place two, the program stream plus a non-program
+        # spill on the next row.
+        before = _speech_row_uids(timeline, track_plan)
         pool.AppendToTimeline([{
             "mediaPoolItem": pool_item,
             "startFrame": int(round(p["source_in"] * pool_fps)),
             "endFrame": int(round(p["source_out"] * pool_fps)),
             "mediaType": 1 if c.track_type == "video" else 2,
-            "trackIndex": p["track_index"],
+            "trackIndex": dest_row,
             "recordFrame": p["snapped_record"]
         }])
+        if c.track_type != "video":
+            expected = resolved_channels.get(angle_key, 1)
+            kept, deleted, unverified = sweep_placed_audio(
+                timeline, track_plan, before, dest_row, expected,
+                f"A{dest_row} {os.path.basename(c.source_file)} "
+                f"@{p['snapped_record']}")
+            build_record["stream_enforcement"]["checked"] += (
+                len(kept) + len(deleted) + len(unverified))
+            for record_ in deleted:
+                build_record["stream_enforcement"]["deleted"].append(
+                    record_)
+                print(f"  ✗ {record_['label']}: stray on "
+                      f"A{record_['row']} carrying "
+                      f"CH{record_['placed_channels']}, program on that "
+                      f"row is CH{record_['expected_channel']} - removed",
+                      file=sys.stderr)
+            for label in unverified:
+                build_record["stream_enforcement"]["unverified"].append(
+                    label)
+                print(f"  ⚠ {label}: placed audio mapping unreadable - "
+                      f"kept, UNVERIFIED", file=sys.stderr)
+            if not kept:
+                print(f"  ✗ A{dest_row} "
+                      f"{os.path.basename(c.source_file)}: nothing of "
+                      f"this angle's speech remains here", file=sys.stderr)
 
     # ── The declared look: punch-in on the picture, the frame over it ──
     # The punch-in is the Edit-page transform, which is what the
@@ -1891,7 +2526,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # one is what left black bands inside the screen.
         from library.tools.tv_frame import screen_window_rect
         screen_window = screen_window_rect(look, width, height)
-        picture_items = timeline.GetItemListInTrack("video", 1) or []
+        # The plan's (single, under the look) picture row - never a
+        # hardcoded V1 beside the plan.
+        picture_items = (timeline.GetItemListInTrack(
+            "video", track_plan.aroll_rows()[0].index) or [])
         picture_places = [p for p in placements_list
                           if getattr(p["clip"], "track_type", "video")
                           == "video"]
@@ -1955,10 +2593,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             pool, project, timeline, name, fps,
             _look.frame_overlay_segments(look, runs, fps, width, height,
                                          project_folder),
-            _look.FRAME_TRACK, kind="TV frame", check="F4",
+            track_plan.row_for_role(FRAME).index,
+            kind="TV frame", check="F4",
             properties=_look.frame_properties(look, width, height))
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
-              f"V{_look.FRAME_TRACK} at cover zoom "
+              f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
               f"punch-in aimed on {aimed}/{len(picture_places)} shot(s) "
               f"({look['origin']})", file=sys.stderr)
@@ -2008,7 +2647,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         placement = (segment.get("tight_box") or {}).get("placement")
         placed, note = place_overlay_segment(
             pool, timeline, items[0],
-            track_index=3, record_frame=record_start,
+            track_index=track_plan.caption_row().index,
+            record_frame=record_start,
             source_in_frame=segment["source_in_frame"],
             source_out_frame=segment["source_in_frame"] + content_frames,
             placement=placement,
@@ -2020,12 +2660,21 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             print(f"  caption {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
 
-    # Transition elements last, on the track above the captions. Placed
+    # Transition elements last, on the plan's transitions row. Placed
     # from FRAMES the planner already computed against this reel's own
     # keep ranges - nothing is recomputed here, because a placer and a
     # planner that both do the arithmetic are two chances to land one
-    # frame off the cut the element exists to hide.
+    # frame off the cut the element exists to hide. The planner stamps
+    # its own slot; the plan's row wins, because exactly one thing
+    # decides a track index.
+    transitions_row = track_plan.row_for_role(TRANSITIONS)
+    transitions_row = transitions_row.index if transitions_row else None
     for placement in (overlay_placements or []):
+        if transitions_row is None:
+            raise ReelBuildError(
+                f"{name}: transition elements were planned with no "
+                f"transitions row; refusing to place them on an "
+                f"unplanned row.")
         element_item = import_pool_item(pool, placement.element_path)
         items = [element_item] if element_item is not None else []
         if not items:
@@ -2055,7 +2704,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             "mediaPoolItem": items[0],
             "startFrame": 0,
             "endFrame": source_frames,
-            "trackIndex": placement.track_index,
+            "trackIndex": transitions_row,
             "recordFrame": placement.record_frame,
         }])
 
@@ -2067,10 +2716,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # caption, a graphic renders no handles either side, so
     # `total_frames` IS the content.
     if explainer_segments:
-        from library.tools.explainer_plan import EXPLAINER_TRACK
         place_overlay_segments(
             pool, project, timeline, name, fps, explainer_segments,
-            EXPLAINER_TRACK, kind="explainer", check="F21")
+            track_plan.row_for_role(EXPLAINER).index,
+            kind="explainer", check="F21")
 
 
 
@@ -2079,10 +2728,73 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # Each segment renders with no handles either side, so its whole
     # span is placed - `total_frames` IS the content.
     if semantic_segments:
-        from library.tools.reel_semantic_visual import SEMANTIC_TRACK
         place_overlay_segments(
             pool, project, timeline, name, fps, semantic_segments,
-            SEMANTIC_TRACK, kind="semantic visual", check="F22")
+            track_plan.row_for_role(SEMANTIC).index,
+            kind="semantic visual", check="F22")
+
+    # ── Link pass: picture to speech, captions into the group ──
+    # Span-based, in ONE call per speech item (see `link_reel_groups`
+    # for why a second call breaks the first). Every call is read
+    # back; what did not join is said rather than trusted.
+    print(f"── Link Pass ──", file=sys.stderr)
+    link_record = link_reel_groups(timeline, track_plan)
+    build_record["link_groups"] = link_record["link_groups"]
+    build_record["caption_links"] = link_record["caption_links"]
+    build_record["link_warnings"] = link_record["warnings"]
+    for warning in link_record["warnings"]:
+        print(f"  ⚠ {warning}", file=sys.stderr)
+    print(f"  ✓ {len(link_record['link_groups'])} link group(s), "
+          f"{len(link_record['caption_links'])} caption(s) joined",
+          file=sys.stderr)
+
+    # ── Occupancy: a row with nothing on it leaves the timeline ──
+    # The plan creates a row because something goes on it. When every
+    # placement for a row failed, keeping the blank row is exactly the
+    # defect being fixed - the row is deleted, and the deletion is on
+    # the record. Delete from the top down so indices below hold
+    # still while each deletion lands.
+    plan_names = {(spec.media_type, spec.index): spec.name
+                  for spec in (track_plan.video_tracks
+                               + track_plan.audio_tracks)}
+    for media_type in ("video", "audio"):
+        try:
+            count = timeline.GetTrackCount(media_type) or 0
+        except Exception:
+            continue
+        for index in range(count, 0, -1):
+            spec_name = plan_names.get((media_type, index))
+            try:
+                items = (timeline.GetItemListInTrack(media_type, index)
+                         or [])
+            except Exception:
+                continue
+            if items:
+                if spec_name is None:
+                    raise ReelBuildError(
+                        f"{name}: unplanned {media_type} row {index} "
+                        f"carries {len(items)} item(s); refusing to keep "
+                        f"a row the plan never named.")
+                continue
+            try:
+                gone = timeline.DeleteTrack(media_type, index)
+            except Exception as exc:
+                raise ReelBuildError(
+                    f"{name}: empty {media_type.upper()}{index} "
+                    f"({spec_name or 'unplanned'}) could not be removed: "
+                    f"{exc}")
+            if not gone:
+                raise ReelBuildError(
+                    f"{name}: empty {media_type.upper()}{index} "
+                    f"({spec_name or 'unplanned'}) declined deletion - "
+                    f"an empty row is never kept.")
+            build_record["deleted_empty_tracks"].append(
+                {"media_type": media_type, "index": index,
+                 "name": spec_name or "unplanned"})
+            print(f"  ✗ Empty row {media_type.upper()}{index} "
+                  f"({spec_name or 'unplanned'}) removed", file=sys.stderr)
+
+    return build_record
 
 
 
@@ -2870,6 +3582,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     caption_hashes = {}
     footage_binding_hashes = {}
     overlay_records = {}
+    track_plans = {}
     # Read ONCE, before the loop: a malformed declaration must stop the
     # whole build, not the twelfth reel of nineteen.
     card_declarations = declared_cards(project_folder)
@@ -3084,7 +3797,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"({drop['effect_type']}): {drop['reason']}",
                           file=sys.stderr)
 
-            build_reel_timeline(
+            build_result = build_reel_timeline(
                 project=project,
                 moment=moment,
                 master_clips=master_clips,
@@ -3102,7 +3815,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 semantic_segments=semantic_segments,
                 look=reel_look_decl,
                 motion=reel_motion,
+                # The live master is how the program stream resolves
+                # on projects whose catalog predates stream recording.
+                master_timeline=timeline,
             )
+            # The plan each staging was placed from, keyed by staging
+            # name - so the conformance proof grades what was built,
+            # never a re-derivation, and promotion renames it with the
+            # timeline it describes.
+            track_plans[name] = build_result["track_plan"]
             # The switch animation and the drift are Fusion comps, and a
             # comp cannot be imported by the process that created the
             # timeline (AGENTS.md 5).  So they go in here, in a
@@ -3238,6 +3959,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             final: overlay_records[staged_to_final[final]]
             for final in final_names
             if staged_to_final[final] in overlay_records}
+        track_plans = {
+            final: track_plans[staged_to_final[final]]
+            for final in final_names
+            if staged_to_final[final] in track_plans}
         built_reel_names = list(final_names)
         staged_out = {}
 
@@ -3250,6 +3975,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # final and promote to nothing.
         "staged_timelines": staged_out,
         "caption_hashes": caption_hashes,
+        # The track plan each timeline was placed from, by final name
+        # once promoted - so a conformance proof grades what was
+        # built, never a re-derivation of it.
+        "track_plans": track_plans,
         "plan_path": proposal_path,
         "resolve_project_name": resolve_name,
         "master_timeline_name": master_timeline_name,

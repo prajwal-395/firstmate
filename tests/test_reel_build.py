@@ -179,68 +179,14 @@ def test_the_reel_resolution_is_vertical_and_explicit():
 # A1; Craig's V2 clips had nowhere to put theirs, so Resolve placed his
 # picture and discarded his audio while returning True. Sixteen reels
 # reported success and played with one speaker silent.
-
-def test_a_reel_declares_one_audio_track_per_picture_track():
-    """The defect in one line: a new timeline has ONE audio track, and
-    nothing asked for a second."""
-    from library.tools.reel_build import required_tracks
-    clips = [_clip(1, "Akshita", 0.0, 20.0), _clip(2, "Craig", 21.0, 40.0)]
-    assert required_tracks(clips) == {"video": 2, "audio": 2}
-
-
-def test_a_single_speaker_reel_still_declares_its_audio_track():
-    from library.tools.reel_build import required_tracks
-    assert required_tracks([_clip(1, "Akshita", 0.0, 20.0)]) == {
-        "video": 1, "audio": 1}
-
-
-def test_the_track_count_is_never_left_at_the_default():
-    """Would have FAILED before the fix: the builder added video tracks
-    and left audio at whatever CreateEmptyTimeline gives."""
-    from library.tools.reel_build import required_tracks
-    clips = [_clip(1, "Akshita", 0.0, 20.0), _clip(2, "Craig", 21.0, 40.0)]
-    tracks = required_tracks(clips)
-    assert tracks["audio"] == tracks["video"], (
-        "one audio track per picture track, or a speaker plays silent")
-
-
-def test_every_speaker_in_the_plan_has_a_track_to_land_on():
-    clips = [_clip(1, "Akshita", 0.0, 20.0), _clip(2, "Craig", 21.0, 40.0)]
-    from library.tools.reel_build import required_tracks
-    spots = placements([(0.0, 40.0)], clips, 23.976)
-    needed = max(s["track_index"] for s in spots)
-    assert required_tracks(clips)["audio"] >= needed
-
-
-def test_the_audio_layout_is_read_off_the_master():
-    """Every source carries FOUR audio channels, so a linked append
-    spreads them across whatever tracks exist. The master already says
-    which speaker owns which track."""
-    from library.tools.reel_build import audio_layout
-    clips = [_clip(1, "Akshita", 0.0, 20.0), _clip(2, "Craig", 21.0, 40.0)]
-    layout = audio_layout(clips)
-    assert set(layout) == {1, 2}
-    assert all(paths for paths in layout.values())
-
-
-def test_a_stray_is_an_item_whose_source_does_not_belong_to_its_track():
-    """Would have FAILED before the fix: Akshita's audio was on A1 AND
-    A2, mixed under Craig's."""
-    from library.tools.reel_build import strays
-
-    class Item:
-        def __init__(self, path): self._p = path
-        def GetMediaPoolItem(self): return self
-        def GetClipProperty(self, key): return self._p
-
-    class TL:
-        def GetItemListInTrack(self, kind, index):
-            return {1: [Item("/m/akshita.MXF")],
-                    2: [Item("/m/craig.MXF"), Item("/m/akshita.MXF")]}[index]
-
-    layout = {1: {"/m/akshita.MXF"}, 2: {"/m/craig.MXF"}}
-    found = strays(TL(), layout)
-    assert len(found) == 1, "the duplicate of Akshita on A2 is the stray"
+#
+# The helpers that first closed this (`required_tracks`, `audio_layout`,
+# `strays`) are gone: the track plan (`timeline_layout.plan_layout`)
+# owns row counts and names now, and stream enforcement reads every
+# placed audio item back. Their coverage lives in
+# `tests/test_reel_build_sop_conformance.py`, which drives the real
+# `build_reel_timeline` against fake Resolve and reads the timeline
+# back through the verifier.
 
 def test_reel_contiguous_placement_exact_frames():
     """
@@ -275,10 +221,10 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
 
     This is the test that was MISSING: nothing exercised the function that
     actually talks to Resolve. The 19 tests above cover the pure helpers
-    (keep_ranges, placements, redundant_takes, strays, audio_layout) and
-    stop at the boundary where Resolve begins. So a doubled placement
-    loop, a basename pool match, and a wrong record frame all sailed
-    through because the function that commits them was never called.
+    (keep_ranges, placements, redundant_takes) and stop at the boundary
+    where Resolve begins. So a doubled placement loop, a basename pool
+    match, and a wrong record frame all sailed through because the
+    function that commits them was never called.
     """
     from unittest.mock import MagicMock
 
@@ -306,6 +252,7 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
         c.source_file = f"/footage/clip_{i}.MXF"
         c.track_type = "video"
         c.track_index = 1
+        c.track_name = "Angle 1"
         c.source_in = i * 5.0
         c.source_out = (i + 1) * 5.0
         c.source_start = i * 5.0
@@ -328,7 +275,13 @@ def test_build_reel_timeline_places_each_clip_exactly_once():
 
     timeline_mock = MagicMock()
     timeline_mock.GetUniqueId.return_value = "test-uid"
-    timeline_mock.GetTrackCount.return_value = 3
+    # One angle: the plan mints V1/A1, so the fixture reports exactly
+    # those. Reads back nothing - the link pass and the occupancy
+    # sweep iterate empty rows, which the faithful fake in
+    # test_reel_build_sop_conformance.py covers instead.
+    timeline_mock.GetTrackCount.side_effect = lambda mt: (
+        1 if mt in ("video", "audio") else 0)
+    timeline_mock.GetItemListInTrack.return_value = []
     pool.CreateEmptyTimeline.return_value = timeline_mock
     project.GetCurrentTimeline.return_value = timeline_mock
 

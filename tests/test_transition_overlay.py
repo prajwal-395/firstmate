@@ -678,11 +678,13 @@ def test_the_wipe_withdrawal_no_longer_reads_as_impossible():
 # ── The reel build places them and adds no track when it does not ────
 
 def test_the_build_adds_no_overlay_track_when_nothing_is_declared():
-    """A project that declares no element must get the timeline it got
-    before this feature existed - three video tracks, not four."""
+    """A project that declares no element gets no transitions row - the
+    plan mints rows only for what the reel places. Row-level proof is
+    behavioral in `tests/test_reel_build_sop_conformance.py`; here the
+    contract is that the builder still promises it in words."""
     import library.tools.reel_build as rb
     source = rb.build_reel_timeline.__doc__
-    assert "byte-for-byte identical" in source
+    assert "adds no track" in source
     # And the behaviour, not just the promise:
     assert rb.build_reel_timeline.__defaults__[-1] is None
 

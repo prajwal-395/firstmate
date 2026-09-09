@@ -80,7 +80,13 @@ def _placing(resolve_project):
     def _place(**kwargs):
         name = kwargs.get("timeline_name")
         assert name, "the placer was asked to build into no container"
-        return resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        resolve_project.GetMediaPool().CreateEmptyTimeline(name)
+        # The placer returns its build record now (the track
+        # plan the timeline was placed from); the container
+        # the mock creates is the half these tests grade.
+        return {"track_plan": {"video_tracks": [],
+                               "audio_tracks": [],
+                               "material": {}}}
     return _place
 
 @pytest.fixture

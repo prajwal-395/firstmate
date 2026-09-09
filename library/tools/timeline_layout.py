@@ -4,14 +4,16 @@ One module takes the material - which angles exist, which speakers, what
 the plan asks for - and returns the track plan: for each track its
 index, its media type, its role, its name, and what will occupy it.
 Nothing else in the codebase may decide a track index or a track name;
-`library/tools/reel_build.py` is the one exception, held by a live lane,
-whose conformance is a filed follow-up - this module is shaped so it
-CAN adopt it later (pure input, pure output, no Resolve).
+the reel builder asks it too, passing its reel-specific rows
+(transitions, explainer, semantic, and the TV-frame set row) as roles
+rather than hardcoded indices beside it.
 
 What is fixed and what is derived
 ---------------------------------
 The row ORDER is the standard and it is fixed: picture rows first (one
-a-roll row per angle, then b-roll), then the caption row, then
+a-roll row per angle, then b-roll), then the frame row where the reel
+TV-frame look dresses the picture, then the caption row, then the
+reel's additive rows (transitions, explainer, semantic), then
 decorative picture (motion-graphics rows, generator effects, timed
 text); then speech rows (one per angle), then the music bed, then SFX.
 Role names are vocabulary from that standard, not taste.
@@ -37,7 +39,11 @@ from dataclasses import dataclass, field
 
 A_ROLL = "a_roll"
 B_ROLL = "b_roll"
+FRAME = "frame"
 CAPTIONS = "captions"
+TRANSITIONS = "transitions"
+EXPLAINER = "explainer"
+SEMANTIC = "semantic"
 MOTION_GRAPHICS = "motion_graphics"
 GENERATORS = "generators"
 TIMED_TEXT = "timed_text"
@@ -50,8 +56,20 @@ AUDIO = "audio"
 
 #: Roles of which a timeline holds at most one row. Two rows carrying
 #: one of these names is two rows doing one row's job.
-SINGLETON_ROLES = frozenset({B_ROLL, CAPTIONS, GENERATORS, TIMED_TEXT,
-                             MUSIC})
+SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
+                              EXPLAINER, SEMANTIC, GENERATORS, TIMED_TEXT,
+                              MUSIC})
+
+#: The standard NAMES those singleton rows carry. A master row carrying
+#: one is a layer, not a camera - which is how the reel builder tells
+#: its angles apart from decoration without a second list of its own.
+#: "Captions" is the reel caption row's retired name; it still denotes
+#: a layer wherever it survives.
+SINGLETON_NAMES = frozenset({
+    "B-Roll", "Frame", "Subtitles", "Captions", "Transitions",
+    "Explainer", "Semantic", "Generator Effects", "Timed Text",
+    "Music", "SFX",
+})
 
 #: Names Resolve itself gives tracks nobody named. A row carrying one
 #: was never organised.
@@ -124,6 +142,15 @@ class TrackPlan:
                 return track.role
         return None
 
+    def row_for_role(self, role: str):
+        """The plan row carrying `role`, or None when the material asked
+        for no such row. The reel builder places its overlay rows
+        through this rather than a hardcoded index beside the plan."""
+        for track in self.video_tracks + self.audio_tracks:
+            if track.role == role:
+                return track
+        return None
+
     def program_channels(self):
         """Expected source channel per speech row, by audio row index."""
         channels = {}
@@ -186,9 +213,20 @@ def plan_layout(material: dict) -> TrackPlan:
 
     - angles: [{key, label, speech_name, program_channel}] in row order.
       Empty means the manifest declares none: one legacy-shaped row pair.
+    - collapse_picture: bool. The reel TV-frame look collapses every
+      angle's picture onto ONE row (the frame spans the second), so the
+      plan mints a single a-roll row carrying the legacy single-row
+      name. Speech rows stay per angle - the collapse is picture only.
     - has_broll: bool.
+    - has_frame: bool. The TV-frame look's set row, directly above the
+      picture it dresses (`tv_frame.LAYER_TRACKS`: footage, frame,
+      captions).
     - caption_spans / mg_spans / timed_text_spans: [(start, end)] in
       frames. A row exists per overlapping layer, not per segment.
+    - has_transitions / has_explainer / has_semantic: bool. The reel's
+      own additive rows - transition elements over the reel's cuts, the
+      animated explainer, the model-planned semantic visuals - one row
+      each, only when the reel places something on it.
     - has_generators: bool.
     - music_spans / sfx_spans: [(start, end)] in frames, packed the
       same way.
@@ -207,20 +245,45 @@ def plan_layout(material: dict) -> TrackPlan:
     video = []
     audio = []
 
-    for angle in angles:
+    if material.get("collapse_picture") and len(angles) > 1:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
-                               role=A_ROLL, name=angle.label,
-                               occupant=angle.key))
+                               role=A_ROLL, name=DEFAULT_ANGLE_LABEL,
+                               occupant=""))
+    else:
+        for angle in angles:
+            video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                                   role=A_ROLL, name=angle.label,
+                                   occupant=angle.key))
     if material.get("has_broll"):
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
                                role=B_ROLL, name="B-Roll",
                                occupant="b_roll"))
+
+    if material.get("has_frame"):
+        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                               role=FRAME, name="Frame",
+                               occupant="frame"))
 
     caption_spans = [tuple(s) for s in material.get("caption_spans", [])]
     if caption_spans:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
                                role=CAPTIONS, name="Subtitles",
                                occupant="captions"))
+
+    if material.get("has_transitions"):
+        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                               role=TRANSITIONS, name="Transitions",
+                               occupant="transitions"))
+
+    if material.get("has_explainer"):
+        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                               role=EXPLAINER, name="Explainer",
+                               occupant="explainer"))
+
+    if material.get("has_semantic"):
+        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                               role=SEMANTIC, name="Semantic",
+                               occupant="semantic"))
 
     mg_rows = allocate_non_overlapping_rows(
         [tuple(s) for s in material.get("mg_spans", [])],

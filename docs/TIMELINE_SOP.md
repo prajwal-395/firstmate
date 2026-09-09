@@ -19,9 +19,10 @@ the engine refuses without it.
 One module owns the layout: `library/tools/timeline_layout.py`. It
 takes the material and returns the track plan - for each track its
 index, its media type, its role, its name, and what will occupy it.
-Nothing else in the codebase may decide a track index or a track name.
-(The reel builder still has its own partial layout; conforming it is a
-filed follow-up, and the layout module is shaped so it can adopt it.)
+Nothing else in the codebase may decide a track index or a track name,
+the reel builder included: its reel-specific rows (transitions,
+explainer, semantic, and the TV-frame set row) arrive as roles, not
+hardcoded indices beside the plan.
 
 ## Row order (fixed)
 
@@ -29,13 +30,23 @@ Picture rows first, top to bottom, then sound rows:
 
 1. A-roll, one row per camera angle, in first-seen order.
 2. B-roll, one row.
-3. Subtitles (the caption row), one row.
-4. Motion graphics, one row per overlapping layer.
-5. Generator effects, one row.
-6. Timed text, one row per overlapping layer.
-7. Speech, one row per angle, carrying one program stream each.
-8. Music, one row, more only while a crossfade overlaps itself.
-9. SFX, one row per overlapping layer.
+3. Frame, one row - the reel TV-frame look's set, dressing the
+   picture directly below it. Under the look the picture collapses
+   to ONE row (the frame spans the second), so a reel wearing it
+   reads footage, frame, captions; speech stays one row per angle,
+   because the collapse is picture only.
+4. Subtitles (the caption row), one row.
+5. Transitions, Explainer, Semantic - the reel's own additive rows,
+   one row each, only when the reel places something on it. A row
+   whose every placement failed is deleted, never kept blank, so a
+   reel with no transitions above its explainer still packs with no
+   gaps; readers identify these rows by NAME, never by slot.
+6. Motion graphics, one row per overlapping layer.
+7. Generator effects, one row.
+8. Timed text, one row per overlapping layer.
+9. Speech, one row per angle, carrying one program stream each.
+10. Music, one row, more only while a crossfade overlaps itself.
+11. SFX, one row per overlapping layer.
 
 ## Why each row exists (derived, never constant)
 
@@ -78,7 +89,8 @@ never invented at build time:
 - An a-roll row carries its angle's label ("Akshita", "Craig").
 - A speech row carries its angle plus its program stream ("Akshita
   CH1"). The stream half comes from the catalog's recorded selection.
-- Singleton roles carry the standard name: "B-Roll", "Subtitles",
+- Singleton roles carry the standard name: "B-Roll", "Frame",
+  "Subtitles", "Transitions", "Explainer", "Semantic",
   "Motion Graphics" (then "Motion Graphics 2", ...), "Generator
   Effects", "Timed Text", "Music", "SFX" (then "SFX 2", ...).
 - A row the plan did not name is a build error, not a fallback. There
@@ -163,6 +175,9 @@ never invented at build time:
 ## What the engine refuses
 
 - A multi-stream source with no declared program stream (catalog).
+- A reel angle whose program stream resolves nowhere - neither the
+  catalog's recorded selection nor the master timeline's own speech
+  rows name one (reel builder).
 - A packing that disagrees with the track plan (builder).
 - A row the plan did not name (builder).
 - A timeline name that is already taken (builder - it builds beside,

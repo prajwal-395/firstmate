@@ -2387,6 +2387,43 @@ def test_a_v4_item_reaches_the_overlay_bucket_and_not_the_bin():
     assert [i.track_index for i in timeline.unclassified_items] == [7]
 
 
+def test_a_packed_row_is_read_by_name_not_by_slot():
+    """A reel with no transitions packs its semantic row onto V4. The
+    bucketing must read the row's NAME - V4 named "Semantic" is a
+    semantic visual, not a transition element that no plan wrote (the
+    F18/F22 misgrade the SOP proof caught live: ten vox items filed
+    as unplanned transition elements, ten planned visuals reported
+    missing from an empty V6)."""
+    from library.tools.reel_conformance_verifier import (
+        _snapshot_to_reel_timeline)
+
+    class _Clip:
+        def __init__(self, track_index, track_name, track_type="video"):
+            self.track_type = track_type
+            self.track_index = track_index
+            self.track_name = track_name
+            self.timeline_start, self.timeline_end = 0.0, 2.0
+            self.duration = 2.0
+            self.source_in_frame, self.source_out_frame = 0, 48
+            self.source_file, self.speaker = "/x.mov", None
+            self.name, self.resolve_item_id = f"v{track_index}", ""
+
+    class _Snapshot:
+        fps = FPS
+        timeline_name = "Reel 01"
+        start_frame, end_frame = 0, 48
+        width, height = 1080, 1920
+        clips = [_Clip(1, "A-Roll"), _Clip(3, "Subtitles"),
+                 _Clip(4, "Semantic")]
+
+    timeline = _snapshot_to_reel_timeline(_Snapshot())
+    assert len(timeline.video_items) == 1
+    assert len(timeline.caption_items) == 1
+    assert len(timeline.overlay_items) == 0
+    assert len(timeline.semantic_items) == 1
+    assert timeline.unclassified_items == ()
+
+
 def test_f20_reports_the_caption_seconds_an_element_covers():
     findings = check_overlay_caption_coverage(
         "Reel 01", [_overlay_item(100, 30)],

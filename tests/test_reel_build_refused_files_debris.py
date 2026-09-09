@@ -274,6 +274,8 @@ def test_refused_build_files_its_caption_imports(project_dir):
         pool.CreateEmptyTimeline(name)
         # The caption import the real placer does - lands in CURRENT.
         pool.ImportMedia([stray_path])
+        return {"track_plan": {"video_tracks": [], "audio_tracks": [],
+                               "material": {}}}
 
     def _gate_failed_report():
         path = (project_dir / "pipeline_output" / "review"
