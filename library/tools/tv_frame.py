@@ -174,11 +174,12 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
             f"tv_frame declaration in {source} must be a mapping, got "
             f"{type(declared).__name__}: {declared!r}"
         )
-    unknown = set(declared) - {"asset", "punch_in", "power"}
+    unknown = set(declared) - {"asset", "punch_in", "power", "rotate"}
     if unknown:
         raise ValueError(
             f"tv_frame declaration in {source} names unknown "
-            f"keys {sorted(unknown)}; known: ['asset', 'punch_in', 'power']"
+            f"keys {sorted(unknown)}; known: ['asset', 'punch_in', "
+            f"'power', 'rotate']"
         )
     if declared.get("asset") is None:
         return None
@@ -189,10 +190,12 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
         else DEFAULT_PUNCH_IN
     )
     power = _validate_power_timing(declared.get("power"), source, half="both")
+    rotate = validate_rotation(declared.get("rotate", AUTO_ROTATE), source)
     return {
         "asset": asset,
         "punch_in": punch,
         "power": power,
+        "rotate": rotate,
         "origin": source,
     }
 
@@ -208,6 +211,88 @@ def v1_zoom_for_look(punch_in: float) -> float:
     survives the look.
     """
     return float(punch_in)
+
+
+AUTO_ROTATE = "auto"
+"""Turn the frame upright for this delivery when that is what fits.
+
+The captain's ``TV 4k.png`` is a LANDSCAPE television and a reel is
+PORTRAIT, and on 2026-09-09 they said plainly what to do with it:
+*"the asset is horizontal, u have to rotate it to vertical and align it
+to the frame"*.
+
+Rotating is not a guess about the artwork - it is the measurement that
+makes the two shapes the same one.  Rotated, the asset is 2160x3840
+against a 1080x1920 frame: the aspects match EXACTLY (0.5625 both), so
+it needs no cover zoom at all, it downscales by half, and its
+transparent window lands at y 260..1661 of the reel while the 2.30
+punch-in draws its picture at y 261..1658.  The bezel was drawn to
+frame that punch-in, and unrotated it never could - which is also why
+2.30 is "the new standard zoom" and not an arbitrary number.
+
+``auto`` takes a quarter turn only when doing so brings the asset's
+aspect CLOSER to the delivery's, so a frame already drawn upright is
+left exactly as it is.  A declaration may state 0 to refuse rotation
+outright, or a quarter turn of its own.
+"""
+
+ROTATE_QUARTER = 90
+"""Which quarter turn ``auto`` takes, and why it is stated not derived.
+
+Measured on the captain's asset, 2026-09-09: the two opaque rails are
+723px and 749px wide, both PURE BLACK (mean RGB 0,0,0 across every
+pixel), both fully opaque, with no logo, stand, control or brightness
+variation anywhere in either.  The two directions are therefore
+visually identical on this asset and nothing in the artwork picks one.
+A project whose frame HAS a top and a bottom declares ``rotate``
+rather than relying on this.
+"""
+
+ROTATIONS = (0, 90, 180, 270)
+
+
+def validate_rotation(value, source: str):
+    """A declared rotation as ``auto`` or a quarter turn, or raise."""
+    if value is None or value == AUTO_ROTATE:
+        return AUTO_ROTATE
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            f"rotate in {source} must be {AUTO_ROTATE!r} or one of "
+            f"{list(ROTATIONS)}, got {type(value).__name__}: {value!r}")
+    turn = int(value) % 360
+    if turn not in ROTATIONS:
+        raise ValueError(
+            f"rotate in {source} must be {AUTO_ROTATE!r} or one of "
+            f"{list(ROTATIONS)}, got {value!r}. A frame is turned in "
+            f"quarters or not at all: anything else leaves the bezel's "
+            f"edges off the delivery's edges, which is the one thing a "
+            f"frame has to get right.")
+    return turn
+
+
+def applied_rotation(look, asset_size, frame_width: int,
+                     frame_height: int) -> int:
+    """The quarter turn this frame is really drawn with.
+
+    Resolves ``auto`` against the two shapes: a quarter turn is taken
+    only when it brings the asset's aspect closer to the delivery's.
+    """
+    declared = (look or {}).get("rotate", AUTO_ROTATE)
+    if declared != AUTO_ROTATE:
+        return int(declared)
+    asset_width, asset_height = int(asset_size[0]), int(asset_size[1])
+    if not asset_width or not asset_height or not frame_height:
+        return 0
+    frame_aspect = frame_width / frame_height
+    upright = abs(asset_width / asset_height - frame_aspect)
+    turned = abs(asset_height / asset_width - frame_aspect)
+    return ROTATE_QUARTER if turned < upright else 0
+
+
+def oriented_size(asset_size, rotation: int) -> tuple:
+    """The asset's (width, height) after *rotation*."""
+    width, height = int(asset_size[0]), int(asset_size[1])
+    return (height, width) if int(rotation) % 180 == 90 else (width, height)
 
 
 def cover_zoom(asset_size, frame_width: int, frame_height: int) -> float:
@@ -261,6 +346,76 @@ def cover_size(asset_size, frame_width: int, frame_height: int) -> tuple:
     return (max(width, 2), max(height, 2))
 
 
+def screen_window_rect(look, frame_width: int, frame_height: int,
+                       asset_size=None) -> tuple:
+    """The frame's transparent window in DELIVERY-FRAME pixels.
+
+    Measured off the asset's alpha, turned by the rotation this delivery
+    applies, and put through the same conform the overlay is placed
+    under - so the answer is where the window really lands on the
+    timeline, not where it sits in the artwork.
+
+    This is the rectangle the PICTURE has to cover.  Covering the
+    delivery frame is not the same thing and is the wrong target: on
+    2026-09-09 the picture covered neither, and the 2.30 punch-in left
+    black bands inside the television's own screen.
+    """
+    from PIL import Image
+
+    asset = look["asset"]
+    if asset_size is None:
+        with Image.open(asset) as image:
+            asset_size = image.size
+    rotation = applied_rotation(look, asset_size, frame_width, frame_height)
+    x0, y0, x1, y1 = screen_window(asset)
+    width, height = int(asset_size[0]), int(asset_size[1])
+
+    # A quarter turn clockwise sends (x, y) to (H-1-y, x); two of them
+    # invert both axes; three send it to (y, W-1-x).
+    turn = int(rotation) % 360
+    if turn == 90:
+        x0, y0, x1, y1 = height - 1 - y1, x0, height - 1 - y0, x1
+    elif turn == 180:
+        x0, y0, x1, y1 = width - 1 - x1, height - 1 - y1, width - 1 - x0, height - 1 - y0
+    elif turn == 270:
+        x0, y0, x1, y1 = y0, width - 1 - x1, y1, width - 1 - x0
+
+    oriented = oriented_size(asset_size, rotation)
+    drawn = cover_size(oriented, frame_width, frame_height)
+    zoom = cover_zoom(drawn, frame_width, frame_height)
+    fit = min(frame_width / oriented[0], frame_height / oriented[1])
+    scale = fit * zoom
+    origin_x = frame_width / 2.0 - oriented[0] * scale / 2.0
+    origin_y = frame_height / 2.0 - oriented[1] * scale / 2.0
+    return (origin_x + x0 * scale, origin_y + y0 * scale,
+            origin_x + x1 * scale, origin_y + y1 * scale)
+
+
+def window_cover_zoom(source_width: int, source_height: int,
+                      window: tuple, frame_width: int,
+                      frame_height: int) -> float:
+    """The smallest picture zoom that COVERS the frame's screen window.
+
+    Derived exactly as :func:`cover_zoom` derives the frame's own scale,
+    and for the same reason - the picture inside a television has to
+    reach the edges of the screen or the viewer sees black inside the
+    set.  The target is the WINDOW, never the delivery frame: those are
+    different rectangles and using the wrong one is what left 228px
+    bands inside the screen on 2026-09-09.
+
+    On the captain's asset TURNED UPRIGHT this answers 2.3070 against
+    their declared 2.30 - which is what says the bezel was drawn for
+    that punch-in.  On the same asset UNROTATED it answers 3.05, and the
+    difference between those two numbers is the whole of what rotating
+    the frame fixed.
+    """
+    fit = min(frame_width / source_width, frame_height / source_height)
+    window_width = window[2] - window[0]
+    window_height = window[3] - window[1]
+    return max(window_width / (source_width * fit),
+               window_height / (source_height * fit))
+
+
 def assert_frameable(look, frame_width: int, frame_height: int,
                      asset_size=None) -> None:
     """Refuse a declared frame that genuinely cannot frame this delivery.
@@ -299,7 +454,12 @@ def assert_frameable(look, frame_width: int, frame_height: int,
         from PIL import Image
         with Image.open(asset) as im:
             asset_size = im.size
-    asset_width, asset_height = int(asset_size[0]), int(asset_size[1])
+    # Measured on the asset AS IT WILL BE DRAWN. A landscape frame for a
+    # portrait reel is turned upright first (`applied_rotation`), and
+    # judging its cover before the turn would refuse an asset that fits
+    # perfectly once rotated.
+    rotation = applied_rotation(look, asset_size, frame_width, frame_height)
+    asset_width, asset_height = oriented_size(asset_size, rotation)
     if not asset_width or not asset_height:
         raise ValueError(
             f"tv_frame asset {asset!r} reports a zero dimension "
@@ -323,9 +483,10 @@ def assert_frameable(look, frame_width: int, frame_height: int,
     if cover > 1.0:
         drawn_w = int(round(asset_width * cover))
         drawn_h = int(round(asset_height * cover))
+        turned = f" (turned {rotation} degrees)" if rotation else ""
         raise ValueError(
             f"tv_frame asset {os.path.basename(asset)} is "
-            f"{asset_width}x{asset_height} and covering a "
+            f"{asset_width}x{asset_height}{turned} and covering a "
             f"{frame_width}x{frame_height} frame would draw it at "
             f"{drawn_w}x{drawn_h} - an upscale of {cover:.2f}x beyond "
             f"the pixels that exist. A bezel is hard geometry with thin "

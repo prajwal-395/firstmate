@@ -239,20 +239,37 @@ def declared_zoom_over(declared_crop_factor: float, look) -> float:
         look["punch_in"])
 
 
-def aim_room(delivered, frame_width: int, frame_height: int) -> tuple:
-    """(pan_room, tilt_room) in pixels for a delivered picture.
+def screen_window_rect_for(look, frame_width: int, frame_height: int):
+    """The look's screen window in timeline pixels, for readers.
 
-    How far an AIMED punch-in may move the picture before it uncovers an
-    edge it was covering.  `punch_in_properties` clamps to exactly this,
-    so the verifier can check the property that matters - the aim opened
-    no blank - without re-running the face measurement the aim came
-    from.  A picture smaller than the frame on an axis has no room on
-    it, which is why the answer is often 0 vertically.
+    A thin pass-through to `tv_frame.screen_window_rect` so the verifier
+    reaches the window through the same module it reaches every other
+    part of the look through, rather than importing a second one.
     """
-    shown_width = delivered.right - delivered.left
-    shown_height = delivered.bottom - delivered.top
-    return (max(0.0, (shown_width - frame_width) / 2.0),
-            max(0.0, (shown_height - frame_height) / 2.0))
+    from library.tools.tv_frame import screen_window_rect
+
+    return screen_window_rect(look, frame_width, frame_height)
+
+
+def uncovered_window_edges(delivered, window, tolerance: float = 1.0) -> list:
+    """Which edges of the screen window this picture fails to reach.
+
+    The one property an aimed punch-in has to keep, stated once so the
+    placer's clamp and the conformance check grade the same thing.  The
+    verifier cannot re-run the face measurement the aim came from, but
+    it does not need to: what matters is not WHERE the picture was
+    aimed, it is that the aim left no black inside the television.
+    """
+    edges = []
+    if delivered.left > window[0] + tolerance:
+        edges.append(f"left {delivered.left - window[0]:.1f}px")
+    if delivered.top > window[1] + tolerance:
+        edges.append(f"top {delivered.top - window[1]:.1f}px")
+    if delivered.right < window[2] - tolerance:
+        edges.append(f"right {window[2] - delivered.right:.1f}px")
+    if delivered.bottom < window[3] - tolerance:
+        edges.append(f"bottom {window[3] - delivered.bottom:.1f}px")
+    return edges
 
 
 def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
@@ -279,7 +296,8 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
     import subprocess as _subprocess
 
     from library.tools.project_layout import Area, ProjectLayout
-    from library.tools.tv_frame import cover_size
+    from library.tools.tv_frame import (
+        applied_rotation, cover_size, oriented_size)
 
     out_dir = os.path.join(
         str(ProjectLayout(project_folder).read_dir(Area.SCRATCH)),
@@ -290,11 +308,23 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
     from PIL import Image
     with Image.open(asset) as image:
         asset_size = image.size
-    drawn_width, drawn_height = cover_size(asset_size, width, height)
+    # Turned upright for this delivery FIRST, then measured: the
+    # captain's frame is a landscape television and a reel is portrait,
+    # and rotated it matches the delivery exactly (2160x3840 against
+    # 1080x1920) instead of needing a cover zoom at all.
+    rotation = applied_rotation(look, asset_size, width, height)
+    drawn_width, drawn_height = cover_size(
+        oriented_size(asset_size, rotation), width, height)
 
     stamp = hashlib.sha1(
         f"{asset}|{os.path.getmtime(asset)}|{drawn_width}x{drawn_height}"
-        f"|{fps}".encode("utf-8")).hexdigest()[:10]
+        f"|r{rotation}|{fps}".encode("utf-8")).hexdigest()[:10]
+
+    # `transpose=1` is a quarter turn clockwise, `2` anticlockwise, and
+    # 180 is two of them. Named here rather than computed, because
+    # ffmpeg's filter takes a mode and not an angle.
+    transpose = {90: "transpose=1,", 180: "transpose=1,transpose=1,",
+                 270: "transpose=2,"}.get(int(rotation), "")
 
     segments = []
     for start_frame, end_frame in runs:
@@ -308,7 +338,8 @@ def frame_overlay_segments(look: dict, runs: Sequence[Tuple[int, int]],
                 "ffmpeg", "-y", "-loop", "1", "-i", asset,
                 "-t", f"{frames / fps:.5f}",
                 "-r", f"{fps:.6f}",
-                "-vf", f"scale={drawn_width}:{drawn_height}:flags=lanczos",
+                "-vf", (f"{transpose}"
+                        f"scale={drawn_width}:{drawn_height}:flags=lanczos"),
                 "-c:v", "prores_ks", "-profile:v", "4444",
                 "-pix_fmt", "yuva444p10le", path,
             ], capture_output=True, encoding="utf-8", check=False)
@@ -329,20 +360,22 @@ def frame_properties(look: dict, frame_width: int,
                      frame_height: int) -> Dict[str, float]:
     """The transform the frame overlay plays under: the COVER zoom.
 
-    Derived by `tv_frame.cover_zoom` from the asset's own size and the
-    delivery frame, so nothing here holds a number.  For the captain's
-    3840x2160 asset in a 1080x1920 reel it computes 3.1605, which is
-    what they set by hand.
+    Derived by `tv_frame.cover_zoom` from the size the overlay was
+    RENDERED at - which is the asset turned upright for this delivery
+    and scaled to cover - so nothing here holds a number.  For the
+    captain's 3840x2160 asset in a 1080x1920 reel the turn makes the
+    aspects match exactly, and this computes 1.0: the frame plays at
+    its natural size and the alignment is the rotation, not a zoom.
     """
-    from library.tools.tv_frame import cover_zoom
+    from library.tools.tv_frame import (
+        applied_rotation, cover_size, cover_zoom, oriented_size)
 
     from PIL import Image
     with Image.open(look["asset"]) as image:
         asset_size = image.size
-    # The overlay was RENDERED at the cover size, so the zoom that draws
-    # it 1:1 is the same ratio computed against what was rendered.
-    from library.tools.tv_frame import cover_size
-    drawn = cover_size(asset_size, frame_width, frame_height)
+    rotation = applied_rotation(look, asset_size, frame_width, frame_height)
+    drawn = cover_size(oriented_size(asset_size, rotation),
+                       frame_width, frame_height)
     zoom = cover_zoom(drawn, frame_width, frame_height)
     return {"ZoomX": zoom, "ZoomY": zoom}
 
@@ -361,62 +394,120 @@ all.
 """
 
 
+class PunchInLeavesBlack(ReelLookRefused):
+    """The picture does not reach the edges of the television's screen."""
+
+
 def punch_in_properties(look: dict, subject, source_width: int,
                         source_height: int, frame_width: int,
-                        frame_height: int):
+                        frame_height: int, window=None):
     """The transform one SHOT plays under the frame, or None to refuse.
 
-    Returns None when `subject` is None OR when the shot holds more than
-    one person, and the caller must then leave that shot alone.  A punch-in is a crop, and a crop with nothing
-    aiming it is a guess about where the person is: measured on
-    2026-09-09, a centred 2.30 on this footage showed the middle 43% of
-    the width and put Craig out of shot entirely.  The captain's ruling
-    is to refuse rather than guess, so an unaimed punch-in is not
-    delivered at a smaller magnitude - it is not delivered.
+    Returns None when `subject` is None or the shot holds more than one
+    person: a crop with nothing aiming it is a guess about where the
+    speaker is, and the captain's ruling is to refuse rather than guess.
 
-    Where a subject IS measured:
+    Where a subject IS measured, three numbers are decided here and each
+    is derived from something measured:
 
-    - **Zoom** is the declaration's, absolute, from
-      `tv_frame.v1_zoom_for_look` - unchanged, because how far to punch
-      in is the declaration's decision and not this function's.
-    - **Pan** brings the subject to the centre of the frame, in TIMELINE
-      pixels, which is the unit Resolve's Edit-page transform uses
-      (`reel_framing.delivered_picture` reads it the same way).  It is
-      CLAMPED so the punched-in picture still covers the frame it
-      covered before: aiming may not open a blank edge, and a subject
-      further out than the crop can reach is brought as far as the
-      picture allows and no further.
-    - **Tilt stays 0, and that is a measurement, not an omission.** At
-      this punch-in the picture is shorter than the frame - a 16:9
-      source in a 9:16 delivery shows its whole height - so there is no
-      vertical crop for a tilt to aim.  A shot where the picture DID
-      exceed the frame vertically would get one from the same
-      arithmetic; this returns it when the geometry has room and 0.0
-      when it has none.
+    - **Zoom** must COVER THE SCREEN WINDOW the frame leaves, not the
+      delivery frame.  Those are different rectangles, and using the
+      frame was the defect: with the bezel cover-scaled the window is
+      2491x1853 timeline pixels while a 2.30 picture is 2484x1397, so
+      the television showed 228px of black above and below its own
+      picture.  `tv_frame.window_cover_zoom` derives the minimum, and
+      the drawn zoom is the LARGER of that and the declaration - a
+      project may punch in tighter than the screen needs, never looser.
+      With the frame turned upright the minimum is 2.3070 against the
+      captain's declared 2.30, which is the bezel and the punch-in
+      agreeing to three pixels.
+    - **Pan and Tilt** aim the subject at the centre of the WINDOW, in
+      timeline pixels, and are clamped so the picture still covers that
+      window on every edge.  Aiming at the frame centre would aim at a
+      point the viewer cannot see through the bezel.
+    - Then the result is CHECKED: a transform that leaves any black
+      inside the window raises `PunchInLeavesBlack` rather than being
+      placed.  That is the defect the captain has had to catch twice,
+      and a post-condition is what stops a third time.
     """
-    from library.tools.tv_frame import v1_zoom_for_look
+    from library.tools.tv_frame import v1_zoom_for_look, window_cover_zoom
 
     if subject is None:
         return None
     if int(getattr(subject, "others", 0)) > 0:
         return None
+    if window is None:
+        raise ValueError(
+            "punch_in_properties needs the screen window it must cover; "
+            "covering the delivery frame instead is the defect this "
+            "argument exists to make impossible to repeat.")
 
-    zoom = v1_zoom_for_look(look["punch_in"])
+    declared = v1_zoom_for_look(look["punch_in"])
+    required = window_cover_zoom(source_width, source_height, window,
+                                 frame_width, frame_height)
+    zoom = max(declared, required)
+
     fit = min(frame_width / source_width, frame_height / source_height)
     shown_width = source_width * fit * zoom
     shown_height = source_height * fit * zoom
 
-    # Bring the subject to the centre, then clamp to what the picture can
-    # give without uncovering an edge it was covering.
-    pan = shown_width * (0.5 - float(subject.center_x))
-    tilt = shown_height * (0.5 - float(getattr(subject, "center_y", 0.5)))
-    pan_room = max(0.0, (shown_width - frame_width) / 2.0)
-    tilt_room = max(0.0, (shown_height - frame_height) / 2.0)
-    pan = max(-pan_room, min(pan_room, pan))
-    tilt = max(-tilt_room, min(tilt_room, tilt))
+    window_cx = (window[0] + window[2]) / 2.0
+    window_cy = (window[1] + window[3]) / 2.0
+    # Put the subject at the centre of what the viewer can actually see.
+    pan = window_cx - frame_width / 2.0 + shown_width * (
+        0.5 - float(subject.center_x))
+    tilt = window_cy - frame_height / 2.0 + shown_height * (
+        0.5 - float(getattr(subject, "center_y", 0.5)))
+    # And no further than the picture can go while still covering it.
+    pan_low = window[2] - frame_width / 2.0 - shown_width / 2.0
+    pan_high = window[0] - frame_width / 2.0 + shown_width / 2.0
+    tilt_low = window[3] - frame_height / 2.0 - shown_height / 2.0
+    tilt_high = window[1] - frame_height / 2.0 + shown_height / 2.0
+    pan = max(pan_low, min(pan_high, pan))
+    tilt = max(tilt_low, min(tilt_high, tilt))
 
-    return {"ZoomX": zoom, "ZoomY": zoom,
-            "Pan": round(pan, 3), "Tilt": round(tilt, 3)}
+    properties = {"ZoomX": zoom, "ZoomY": zoom,
+                  "Pan": round(pan, 3), "Tilt": round(tilt, 3)}
+    assert_covers_window(properties, source_width, source_height,
+                         frame_width, frame_height, window)
+    return properties
+
+
+def window_zoom_for(look, source_size, frame_width: int,
+                    frame_height: int) -> float:
+    """The minimum zoom this look's screen window needs, for reporting."""
+    from library.tools.tv_frame import screen_window_rect, window_cover_zoom
+
+    window = screen_window_rect(look, frame_width, frame_height)
+    return window_cover_zoom(source_size[0], source_size[1], window,
+                             frame_width, frame_height)
+
+
+def assert_covers_window(properties, source_width: int, source_height: int,
+                         frame_width: int, frame_height: int,
+                         window, tolerance: float = 1.0) -> None:
+    """Raise unless the picture reaches every edge of the screen window.
+
+    The check the captain should not have had to make: black inside a
+    television's screen is the most visible defect this look can have,
+    and it survived two reviews because nothing measured it.  One pixel
+    of tolerance, for the same reason `reel_framing.PIXEL` allows one -
+    two roundings of one real number.
+    """
+    from library.tools.reel_framing import delivered_picture
+
+    picture = delivered_picture(source_width, source_height,
+                                frame_width, frame_height, properties)
+    bands = uncovered_window_edges(picture, window, tolerance)
+    if bands:
+        raise PunchInLeavesBlack(
+            f"the punch-in leaves black inside the television's screen: "
+            f"{', '.join(bands)}. The picture is "
+            f"{picture.rect} and the screen window is "
+            f"({window[0]:.0f}, {window[1]:.0f}, {window[2]:.0f}, "
+            f"{window[3]:.0f}). A picture that does not reach the edges "
+            f"of the screen shows the set's own background through it, "
+            f"which is what a viewer reads as a broken render.")
 
 
 def power_effects(look: dict, first_label: str,

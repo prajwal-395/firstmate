@@ -2708,29 +2708,34 @@ def check_delivered_framing(reel_name: str,
         # as far as it can without uncovering an edge it was covering.
         # An aim past that bound is a real defect and is reported; an
         # aim inside it is the declared picture, moved on purpose.
+        # Under the look a punch-in is AIMED at the measured subject and
+        # sized to cover the frame's own screen window, so the delivered
+        # picture is bigger than the declaration's and offset. The aim is
+        # not re-derived here - that would mean re-running the face
+        # measurement - the PROPERTY is checked instead, and it is the
+        # one that matters: no black inside the television's screen.
         if look is not None and not is_card:
-            pan = float((item.transform or {}).get("Pan") or 0.0)
-            tilt = float((item.transform or {}).get("Tilt") or 0.0)
-            pan_room, tilt_room = _look.aim_room(delivered, width, height)
-            if abs(pan) > pan_room + 1 or abs(tilt) > tilt_room + 1:
+            window = _look.screen_window_rect_for(look, width, height)
+            uncovered = _look.uncovered_window_edges(delivered, window)
+            if uncovered:
                 findings.append(Finding(
                     finding_class=FindingClass.F12, reel=reel_name,
                     message=(
-                        f"{item.source_file.rsplit('/', 1)[-1]} is aimed "
-                        f"Pan {pan:.1f}, Tilt {tilt:.1f} where the picture "
-                        f"allows {pan_room:.1f}, {tilt_room:.1f} - the aim "
-                        f"has moved the picture off an edge it was "
-                        f"covering, leaving blank frame"),
+                        f"{item.source_file.rsplit('/', 1)[-1]} leaves black "
+                        f"inside the television's screen: "
+                        f"{', '.join(uncovered)}. The picture is "
+                        f"{delivered.rect} and the screen window is "
+                        f"({window[0]:.0f}, {window[1]:.0f}, "
+                        f"{window[2]:.0f}, {window[3]:.0f})"),
                     severity="error",
-                    detail={"pan": pan, "tilt": tilt,
-                            "pan_room": pan_room, "tilt_room": tilt_room}))
-                continue
-            declared = dataclasses.replace(
-                declared,
-                left=declared.left + int(round(pan)),
-                right=declared.right + int(round(pan)),
-                top=declared.top + int(round(tilt)),
-                bottom=declared.bottom + int(round(tilt)))
+                    detail={"uncovered": uncovered,
+                            "picture": list(delivered.rect),
+                            "window": [round(v) for v in window]}))
+            # Nothing further to compare: the declared rect is a
+            # statement about the DELIVERY FRAME, and under the look the
+            # picture is sized to the screen instead. Grading it against
+            # the frame reported every correct shot as wrong.
+            continue
 
         why = disagreement(delivered, declared)
         if why is None:

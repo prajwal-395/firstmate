@@ -1885,6 +1885,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         from library.tools import reel_look as _look
         from library.tools.subject_framing import measure_subject_in_window
 
+        # The rectangle the picture has to cover: the frame's own
+        # transparent window, in timeline pixels. NOT the delivery
+        # frame - those are different rectangles and covering the wrong
+        # one is what left black bands inside the screen.
+        from library.tools.tv_frame import screen_window_rect
+        screen_window = screen_window_rect(look, width, height)
         picture_items = timeline.GetItemListInTrack("video", 1) or []
         picture_places = [p for p in placements_list
                           if getattr(p["clip"], "track_type", "video")
@@ -1906,7 +1912,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                     f"cannot be aimed and must not be guessed at.")
             properties = _look.punch_in_properties(
                 look, subject, source_size[0], source_size[1],
-                width, height)
+                width, height, window=screen_window)
             if properties is None:
                 print(f"  {name}: NO PUNCH-IN on "
                       f"{os.path.basename(source_file)} "
@@ -1925,7 +1931,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                         f"and a clip that did not take it plays at a "
                         f"different size to the ones beside it.")
             aimed += 1
-            print(f"  {name}: punch-in {properties['ZoomX']} aimed at "
+            print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
+                  f"(declared {look['punch_in']}, screen window needs "
+                  f"{_look.window_zoom_for(look, source_size, width, height):.4f}) "
+                  f"aimed at "
                   f"subject x={subject.center_x} y={subject.center_y} "
                   f"({subject.detected}/{subject.samples} frames) on "
                   f"{os.path.basename(source_file)} -> Pan "

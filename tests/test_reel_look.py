@@ -334,61 +334,203 @@ def test_more_than_one_subject_means_no_punch_in():
 
 
 def test_the_punch_in_is_aimed_at_the_measured_subject():
+    window = _window(90)
     props = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.30, 0.32), 3840, 2160, 1080, 1920)
-    # The zoom is the DECLARATION's, untouched: how far to punch in is
-    # not this function's decision.
-    assert props["ZoomX"] == 2.3 and props["ZoomY"] == 2.3
-    # A subject left of centre pulls the picture right.
+        {"punch_in": 2.3}, _Subject(0.30, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
+    # A subject left of centre pulls the picture right, and vice versa.
     assert props["Pan"] > 0
-    # And a subject right of centre pulls it the other way.
     other = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.70, 0.32), 3840, 2160, 1080, 1920)
+        {"punch_in": 2.3}, _Subject(0.70, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
     assert other["Pan"] < 0
 
 
-def test_the_aim_never_uncovers_an_edge():
-    """Clamped to the room the picture has, in both axes.
+def test_the_aim_never_uncovers_the_screen_window():
+    """Clamped to the WINDOW, which is what the viewer can see through.
 
-    At 2.30 a 16:9 source in a 9:16 frame is WIDER than the frame and
-    SHORTER than it, so there is horizontal room and none vertically -
-    which is why Tilt is 0 here and is a measurement rather than an
-    omission.
+    Clamping to the delivery frame would let the aim pull the picture off
+    an edge of the screen while still covering the frame - black inside
+    the television, which is the defect the post-condition now catches.
     """
+    window = _window(90)
     far = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.01, 0.99), 3840, 2160, 1080, 1920)
-    fit = min(1080 / 3840, 1920 / 2160)
-    shown_w = 3840 * fit * 2.3
-    shown_h = 2160 * fit * 2.3
-    assert abs(far["Pan"]) <= (shown_w - 1080) / 2.0 + 1e-6
-    assert shown_h < 1920
-    assert far["Tilt"] == 0.0
-
-
-def test_a_taller_punch_in_gets_vertical_room():
-    """The tilt is arithmetic, not a constant zero.
-
-    A punch-in past the fill ceiling makes the picture taller than the
-    frame, and then aiming vertically is possible - so the same code
-    returns a tilt.
-    """
-    props = reel_look.punch_in_properties(
-        {"punch_in": 3.6}, _Subject(0.5, 0.30), 3840, 2160, 1080, 1920)
-    assert props["Tilt"] > 0
+        {"punch_in": 2.3}, _Subject(0.01, 0.99), 3840, 2160, 1080, 1920,
+        window=window)
+    reel_look.assert_covers_window(far, 3840, 2160, 1080, 1920, window)
 
 
 def test_the_aim_bound_is_what_the_verifier_checks():
-    """`aim_room` and the clamp are one rule, so F12 can grade it.
+    """The placer's clamp and F12 grade ONE property, stated once."""
+    from library.tools.reel_framing import delivered_picture
 
-    The verifier cannot re-run the face measurement, so it checks the
-    property that matters instead: the aim moved the picture no further
-    than the picture could afford.
+    window = _window(90)
+    props = reel_look.punch_in_properties(
+        {"punch_in": 2.3}, _Subject(0.10, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
+    delivered = delivered_picture(3840, 2160, 1080, 1920, props)
+    assert reel_look.uncovered_window_edges(delivered, window) == []
+
+    # And it really can report one: the same picture unaimed against the
+    # unrotated window leaves black top and bottom.
+    flat = delivered_picture(3840, 2160, 1080, 1920,
+                             {"ZoomX": 2.3, "ZoomY": 2.3})
+    assert reel_look.uncovered_window_edges(flat, _window(0))
+
+
+def test_a_landscape_frame_is_turned_upright_for_a_portrait_delivery():
+    """The captain's instruction, and what the turn buys.
+
+    Turned, a 3840x2160 asset is 2160x3840 against a 1080x1920 reel -
+    the same aspect - so it needs no cover zoom at all and downscales by
+    half. Judged on the ORIENTED size, because judging the cover before
+    the turn refuses an asset that fits perfectly after it.
+    """
+    look = {"rotate": tv_frame.AUTO_ROTATE}
+    assert tv_frame.applied_rotation(look, (3840, 2160), 1080, 1920) == 90
+    assert tv_frame.oriented_size((3840, 2160), 90) == (2160, 3840)
+    assert tv_frame.cover_zoom((2160, 3840), 1080, 1920) == pytest.approx(1.0)
+
+
+def test_a_frame_already_upright_is_not_turned():
+    look = {"rotate": tv_frame.AUTO_ROTATE}
+    assert tv_frame.applied_rotation(look, (2160, 3840), 1080, 1920) == 0
+    assert tv_frame.oriented_size((2160, 3840), 0) == (2160, 3840)
+
+
+def test_a_declaration_may_refuse_the_turn_or_state_its_own():
+    assert tv_frame.applied_rotation(
+        {"rotate": 0}, (3840, 2160), 1080, 1920) == 0
+    assert tv_frame.applied_rotation(
+        {"rotate": 270}, (3840, 2160), 1080, 1920) == 270
+
+
+def test_a_partial_turn_is_refused():
+    """A frame turns in quarters or not at all."""
+    with pytest.raises(ValueError) as excinfo:
+        tv_frame.validate_rotation(45, "test declaration")
+    assert "quarters" in str(excinfo.value)
+    with pytest.raises(TypeError):
+        tv_frame.validate_rotation("sideways", "test declaration")
+
+
+def test_the_turned_window_frames_the_declared_punch_in():
+    """The alignment the captain asked for, as arithmetic.
+
+    The bezel was drawn to frame a 2.30 punch-in: turned and conformed
+    into the reel, its transparent window lands where that punch-in puts
+    its picture. Both sides are computed here from the two declarations,
+    so a change to either that broke the alignment would fail.
     """
     from library.tools.reel_framing import delivered_picture
 
+    asset_w, asset_h = 3840, 2160
+    # The measured window of the captain's asset, unrotated.
+    x0, y0, x1, y1 = 519, 37, 3322, 2123
+    rotation = tv_frame.applied_rotation(
+        {"rotate": tv_frame.AUTO_ROTATE}, (asset_w, asset_h), 1080, 1920)
+    assert rotation == 90
+    # A quarter turn clockwise sends (x, y) to (H-1-y, x): the window's
+    # horizontal extent becomes its VERTICAL one, which is the whole
+    # point - the rails move from the sides to the top and bottom.
+    assert (y0, y1) == (37, 2123)          # unused after the turn, but
+    scale = 1080 / asset_h                 # the asset is 2160 wide now
+    window_top = x0 * scale
+    window_bottom = x1 * scale
+
+    picture = delivered_picture(asset_w, asset_h, 1080, 1920,
+                                {"ZoomX": 2.3, "ZoomY": 2.3})
+    assert abs(picture.top - window_top) <= 3
+    assert abs(picture.bottom - window_bottom) <= 4
+
+
+def _window(look_rotate, asset=(3840, 2160)):
+    """The screen window of the captain's asset at a given rotation."""
+    import unittest.mock as mock
+    look = {"asset": "TV 4k.png", "rotate": look_rotate}
+    with mock.patch.object(tv_frame, "screen_window",
+                           return_value=(519, 37, 3322, 2123)):
+        return tv_frame.screen_window_rect(look, 1080, 1920, asset_size=asset)
+
+
+def test_the_picture_covers_the_SCREEN_WINDOW_not_the_frame():
+    """The rule the captain had to state twice.
+
+    Covering the delivery frame and covering the television's screen are
+    different targets. Turned upright the window is 1043x1402 timeline
+    pixels and needs 2.3070; unturned it is 2491x1853 and needs 3.05.
+    The difference between those is the whole of what rotating fixed.
+    """
+    turned = _window(90)
+    assert (round(turned[2] - turned[0]), round(turned[3] - turned[1])) \
+        == (1043, 1402)
+    needed = tv_frame.window_cover_zoom(3840, 2160, turned, 1080, 1920)
+    assert needed == pytest.approx(2.307, abs=0.001)
+
+    flat = _window(0)
+    assert tv_frame.window_cover_zoom(3840, 2160, flat, 1080, 1920) \
+        == pytest.approx(3.05, abs=0.01)
+
+
+def test_the_drawn_zoom_is_the_larger_of_declared_and_needed():
+    """A project may punch in tighter than the screen needs, never looser."""
+    window = _window(90)
+    look = {"punch_in": 2.3}
     props = reel_look.punch_in_properties(
-        {"punch_in": 2.3}, _Subject(0.10, 0.32), 3840, 2160, 1080, 1920)
-    delivered = delivered_picture(3840, 2160, 1080, 1920, props)
-    pan_room, tilt_room = reel_look.aim_room(delivered, 1080, 1920)
-    assert abs(props["Pan"]) <= pan_room + 1
-    assert abs(props["Tilt"]) <= tilt_room + 1
+        look, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920, window=window)
+    assert props["ZoomX"] == pytest.approx(2.307, abs=0.001)
+
+    tighter = reel_look.punch_in_properties(
+        {"punch_in": 3.0}, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
+    assert tighter["ZoomX"] == pytest.approx(3.0)
+
+
+def test_a_real_aim_moves_hundreds_of_pixels():
+    """A subject at the edge of the shot pulls the picture right across.
+
+    The aim was doubted because three shots of one reel all measured
+    near centre and so all moved ~40px. That is the footage, not the
+    arithmetic: a subject at 0.30 moves the picture 498px.
+    """
+    window = _window(90)
+    left = reel_look.punch_in_properties(
+        {"punch_in": 2.3}, _Subject(0.30, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
+    right = reel_look.punch_in_properties(
+        {"punch_in": 2.3}, _Subject(0.70, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
+    assert left["Pan"] > 400
+    assert right["Pan"] < -400
+
+
+def test_a_punch_in_leaving_black_in_the_screen_is_refused():
+    """The post-condition, on the exact geometry that shipped.
+
+    Unrotated and cover-scaled, the declared 2.30 leaves 228px of black
+    above and below the picture INSIDE the television's screen. That
+    reached the captain twice before anything measured it.
+    """
+    flat = _window(0)
+    with pytest.raises(reel_look.PunchInLeavesBlack) as excinfo:
+        reel_look.assert_covers_window(
+            {"ZoomX": 2.3, "ZoomY": 2.3, "Pan": 0.0, "Tilt": 0.0},
+            3840, 2160, 1080, 1920, flat)
+    message = str(excinfo.value)
+    assert "top 227" in message and "bottom 228" in message
+
+
+def test_covering_the_window_passes_the_check():
+    window = _window(90)
+    props = reel_look.punch_in_properties(
+        {"punch_in": 2.3}, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920,
+        window=window)
+    reel_look.assert_covers_window(props, 3840, 2160, 1080, 1920, window)
+
+
+def test_the_window_is_a_required_argument():
+    """Covering the frame instead is the defect; it cannot be defaulted."""
+    with pytest.raises(ValueError) as excinfo:
+        reel_look.punch_in_properties(
+            {"punch_in": 2.3}, _Subject(0.5, 0.32), 3840, 2160, 1080, 1920)
+    assert "screen window" in str(excinfo.value)
