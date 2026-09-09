@@ -35,12 +35,11 @@ speech sequence for the video.
 ### Selection principles:
 1. **Follow the compass**: Every selection should serve the creative
    direction's target mood and energy arc
-2. **Prioritize** passages from clips with higher interest_scores
-3. **Prefer** passages tagged as "highlight" or "body" for the main sequence;
+2. **Prefer** passages tagged as "highlight" or "body" for the main sequence;
    use "hook"-tagged clips for the opening
-4. **Never select a partial sentence** — passage boundaries must align to
+3. **Never select a partial sentence** — passage boundaries must align to
    complete thoughts
-5. **Adjacent passages must logically follow** — no non-sequiturs without
+4. **Adjacent passages must logically follow** — no non-sequiturs without
    narrative motivation
 
 ### What to produce:
