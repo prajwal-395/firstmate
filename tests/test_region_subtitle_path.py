@@ -577,7 +577,8 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
     """MUTATION: drop the `finally`.
 
     A renderer holding a bundle or a browser owns an OS resource; over
-    nineteen reels a leak per pass is nineteen leaks.
+    nineteen reels a leak per pass is nineteen leaks. The default build
+    is the persistent renderer, so the bomb is planted there.
     """
     spine, plan = _spine_and_plan_for_render()
     built = []
@@ -591,7 +592,7 @@ def test_a_renderer_we_BUILT_is_closed_even_when_the_pass_raises(
         built.append(engine)
         return engine
 
-    monkeypatch.setattr(r405, "SubprocessRenderer", factory)
+    monkeypatch.setattr(r405, "PersistentCaptionRenderer", factory)
     with pytest.raises(RuntimeError):
         r405.render_subtitle_overlays(plan, spine,
                                       project_folder=str(tmp_path),
@@ -615,7 +616,8 @@ def test_a_renderer_the_CALLER_supplied_is_never_closed_by_us(no_pixel_qa, tmp_p
 
 def test_the_default_path_is_unchanged_when_no_renderer_is_supplied(no_pixel_qa, tmp_path,
                                                                     monkeypatch):
-    """Inert until their object lands: no renderer means today's subprocess."""
+    """Inert until their object lands: no renderer means the default,
+    which is now the bundle-once persistent renderer."""
     spine, plan = _spine_and_plan_for_render()
     built = []
 
@@ -624,7 +626,7 @@ def test_the_default_path_is_unchanged_when_no_renderer_is_supplied(no_pixel_qa,
         built.append((engine, remotion_dir))
         return engine
 
-    monkeypatch.setattr(r405, "SubprocessRenderer", factory)
+    monkeypatch.setattr(r405, "PersistentCaptionRenderer", factory)
     r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
                                   remotion_dir=REMOTION)
     assert len(built) == 1, "exactly one renderer, built by default"

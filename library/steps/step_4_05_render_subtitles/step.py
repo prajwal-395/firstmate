@@ -376,12 +376,18 @@ class SubprocessRenderer:
 CAPTION_RENDERERS = ("subprocess", "persistent")
 """The renderers the caption step can use. Complete, and required."""
 
-DEFAULT_CAPTION_RENDERER = "subprocess"
-"""Today's mechanism stays the default until the persistent path is
-proven. The captain's ruling, 2026-09-09: retain the version within the
-pipeline as is until the other version is known to work as wanted. A
-change that silently switches the renderer under approved reels is the
-one outcome to avoid, so this default moves only on their word."""
+DEFAULT_CAPTION_RENDERER = "persistent"
+"""The bundle-once renderer is the default; the per-card path is the fallback.
+
+BOTH paths render through headless Chrome - the difference is not Node
+versus browser, it is ONE browser and ONE bundle reused across every
+card versus a FRESH browser and a FRESH bundle for every card,
+~0.70s of bundling per card over 763 cards in a full pass. PR 780
+proved three cards drawn both ways come out byte-identical, which is
+why the switch is safe. The captain's ruling, 2026-09-09: the
+persistent path is the default, the subprocess path stays selectable
+and becomes the fallback - at STARTUP only, never per card, and never
+silent (see `render_subtitle_overlays`)."""
 
 
 class PersistentCaptionRenderer:
@@ -911,12 +917,24 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     renderer itself died mid-pass, which is ONE fault, not one failure
     per remaining card.
 
-    `renderer_kind` chooses HOW one card becomes pixels - `"subprocess"`
-    (today's one-`npx`-per-card mechanism, the default) or `"persistent"`
-    (one bundle for the whole pass). An explicit `renderer` still wins
-    over either. An unknown kind raises rather than falling back,
-    because a fallback would run a renderer the caller did not ask for
-    while reporting success.
+    `renderer_kind` chooses HOW one card becomes pixels -
+    `"persistent"` (one browser, one bundle, reused across the pass -
+    the default) or `"subprocess"` (today's one-`npx`-per-card
+    mechanism, selectable as the explicit fallback). An explicit
+    `renderer` still wins over either. An unknown kind raises rather
+    than falling back, because a fallback would run a renderer the
+    caller did not ask for while reporting success.
+
+    The fallback is at STARTUP, never per card. Where the persistent
+    renderer cannot START - `RendererUnavailable` before a single card
+    is drawn, with a renderer this function built under the persistent
+    kind - the pass continues on the subprocess renderer and SAYS SO
+    LOUDLY: a FALLBACK banner on stderr and `renderer_fallback` in the
+    payload, carrying what was requested, what drew instead, and why.
+    A pass that silently ran the slow way while reporting success is
+    exactly what the design refuses. Anything later - a renderer that
+    dies MID-RUN, a card that fails to draw - keeps today's meaning:
+    the pass stops with one fault, and the card is a card failure.
 
     An empty plan is NOT a refusal - it returns `available: False` with
     the reason, which is what the step has always done.
@@ -955,8 +973,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
         raise ValueError(
             "renderer_kind='persistent' cannot render a 'frames' "
             "container: the persistent renderer stitches video and "
-            "refuses sequences. Use the default subprocess renderer "
-            "for frame sequences.")
+            "refuses sequences. Pass renderer_kind='subprocess' "
+            "explicitly for frame sequences.")
 
     if not os.path.isdir(remotion_dir):
         print(f"ERROR: Remotion project not found at {remotion_dir}",
@@ -1087,10 +1105,11 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     # or a browser builds it once rather than per card.  See
     # `SubprocessRenderer` for the contract and for why it should be lazy.
     #
-    # `renderer_kind="persistent"` builds the bundle-once renderer
-    # beside the default instead of in place of it - the default stays
-    # today's subprocess mechanism until the new path is proven. An
-    # explicit `renderer` still wins over either kind.
+    # The default BUILDS the bundle-once renderer: one browser, one
+    # bundle, reused across every card (the captain's ruling,
+    # 2026-09-09).  `"subprocess"` stays selectable by name - a fresh
+    # browser and a fresh bundle per card - and is the STARTUP fallback
+    # below.  An explicit `renderer` still wins over either kind.
     #
     # Constructing the persistent renderer starts NOTHING: the bundle is
     # paid on the first card that actually renders, so a pass that draws
@@ -1114,14 +1133,31 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
         engine = SubprocessRenderer(remotion_dir)
         owns_engine = True
 
-    segments = []
-    try:
+    # The fallback is at STARTUP, never per card.  `PersistentRenderer`
+    # refuses a per-card fallback BY DESIGN - it would quietly restore
+    # the exact cost that module exists to remove while still reporting
+    # success - so this fires only when the persistent renderer cannot
+    # START: `RendererUnavailable` before a single card is drawn, on a
+    # renderer WE built under the persistent kind.  Anything later is a
+    # mid-run death and stops the pass in the `except` below; a card
+    # that fails to draw stays a card failure.
+    renderer_fallback = None
+
+    def _render_all(active_engine):
+        """Draw every planned card through one renderer, in order.
+
+        Appends into `segments` rather than returning a list, so the
+        `except` below can tell a startup failure (nothing recorded)
+        from a mid-run death (cards already on the record). An
+        assignment (`segments = _render_all(...)`) would only land on
+        success and read empty exactly when the distinction matters.
+        """
         for i, props in enumerate(props_list):
             segment = render_one_segment(
                 props, sub_output_dir, timeline_label,
                 remotion_dir=remotion_dir,
                 progress=f"[{i+1}/{len(props_list)}]",
-                reuse=reuse, renderer=engine,
+                reuse=reuse, renderer=active_engine,
                 overlay_geometry=geometry,
                 overlay_container=container,
                 project_folder=project_folder)
@@ -1130,6 +1166,51 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             # then refuses the compile citing a missing block rather than
             # the render that actually failed.
             segments.append(segment)
+
+    segments = []
+    try:
+        try:
+            _render_all(engine)
+        except RendererUnavailable as exc:
+            if segments or renderer is not None \
+                    or renderer_kind != "persistent":
+                # Mid-run death, a caller-supplied renderer, or a kind
+                # that was never the persistent one: not a startup, so
+                # not a fallback.  Re-raised to the refusal below.
+                #
+                # Note the conservative edge: a REUSED segment also
+                # counts as recorded, so a pass whose first cards reuse
+                # and whose renderer then fails to start refuses rather
+                # than falling back. Loud, never silently slow.
+                raise
+            reason = str(exc).strip() \
+                or "the persistent renderer could not start"
+            announcement = (
+                "FALLBACK: the persistent (bundle-once) caption "
+                "renderer could not START "
+                f"({reason}); falling back to the per-card subprocess "
+                "renderer - a fresh browser and a fresh bundle for "
+                "every card, ~0.70s of bundling per card over 763 "
+                "cards in a full pass. This run is SLOWER but the "
+                "pixels are identical. To choose this path "
+                "deliberately, pass caption_renderer=\"subprocess\".")
+            bar = "=" * 70
+            print(f"\n{bar}\n{announcement}\n{bar}", file=sys.stderr)
+            closer = getattr(engine, "close", None)
+            if callable(closer):
+                closer()
+            engine = SubprocessRenderer(remotion_dir)
+            # Still ours: we built the replacement too, so the `finally`
+            # below closes it.  `owns_engine` stays True.
+            renderer_fallback = {
+                "requested": "persistent",
+                "effective": "subprocess",
+                "reason": reason,
+                "announcement": announcement,
+            }
+            # The startup drew nothing, so the re-run covers every card
+            # from scratch - `segments` is still empty here.
+            _render_all(engine)
     except RendererUnavailable as exc:
         # The RENDERER died - not a card. Every remaining card would fail
         # the same way, so the pass stops here and reports ONE fault
@@ -1215,7 +1296,17 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             }
         })
 
-    return {
+    # Which renderer drew the cards, so the run's own record says HOW
+    # as well as what.  `explicit:<Class>` is a caller-supplied
+    # renderer we did not choose; the fallback entry below fires only
+    # at startup and carries its own reason.
+    if renderer_fallback is not None:
+        effective_renderer = renderer_fallback["effective"]
+    elif renderer is not None:
+        effective_renderer = f"explicit:{type(renderer).__name__}"
+    else:
+        effective_renderer = renderer_kind
+    overlay_payload = {
         "subtitle_overlay": {
             # True only when every planned segment is present and none
             # failed.  `len(segments) > 0` was true on a partial render.
@@ -1229,6 +1320,12 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             # re-deriving it per segment.
             "geometry": geometry,
             "container": container,
+            # HOW the cards were drawn: the persistent default, the
+            # explicit subprocess fallback, or a caller-supplied
+            # renderer.  The fallback that fired is recorded beside it
+            # with its reason - a pass that silently ran the slow way
+            # while reporting success is what that entry exists to stop.
+            "renderer": effective_renderer,
             "total_segments": len(segments),
             "rendered": tally[RENDERED],
             "reused": tally[REUSED],
@@ -1237,6 +1334,10 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             "superseded_generations": superseded_generations,
         }
     }
+    if renderer_fallback is not None:
+        overlay_payload["subtitle_overlay"]["renderer_fallback"] = \
+            renderer_fallback
+    return overlay_payload
 
 
 def _qa_frame_sequence(segment: dict) -> None:
@@ -1307,9 +1408,12 @@ def main():
             audio_spine=data.get("audio_spine", {}),
             project_folder=data.get("project_folder", ""),
             fps=data.get("project_fps", 30),
-            # Optional, and absent means today's mechanism: the default
-            # stays the subprocess renderer until the persistent path is
-            # proven (see DEFAULT_CAPTION_RENDERER).
+            # Optional, and absent means the bundle-once default with a
+            # LOUD startup fallback to the per-card path (see
+            # DEFAULT_CAPTION_RENDERER). Pass "subprocess" explicitly to
+            # choose the slow path deliberately - e.g. a `frames`
+            # container, which the persistent renderer cannot draw and
+            # refuses rather than falling back.
             renderer_kind=data.get("caption_renderer",
                                    DEFAULT_CAPTION_RENDERER),
         )

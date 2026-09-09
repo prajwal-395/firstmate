@@ -78,19 +78,20 @@ class _NoPixelQA:
         monkeypatch.setitem(sys.modules, "tools.qa.subtitle_qa", module)
 
 
-# ── The default is unchanged ──────────────────────────────────────────
+# ── The default is the bundle-once renderer ───────────────────────────
 
-def test_the_default_renderer_is_still_the_subprocess_one(monkeypatch,
-                                                          tmp_path):
-    """The captain's ruling: the existing version is retained until the
-    new one is proven. A change that silently switches the renderer
-    under approved reels is the one outcome to avoid - so the default
-    is pinned here, and any future switch turns this red."""
+def test_the_default_renderer_is_now_the_persistent_one(monkeypatch,
+                                                       tmp_path):
+    """The captain's ruling, 2026-09-09: the persistent renderer is the
+    default and the per-card subprocess path is the fallback. The
+    previous pin on `"subprocess"` turned red on that word, as it said
+    it would - this is its replacement, pinning the new default both
+    as the signature value and as the renderer actually built."""
     import inspect
     _NoPixelQA(monkeypatch)
     spine, plan = _spine_and_plan()
     params = inspect.signature(r405.render_subtitle_overlays).parameters
-    assert params["renderer_kind"].default == "subprocess"
+    assert params["renderer_kind"].default == "persistent"
 
     built = []
 
@@ -106,10 +107,40 @@ def test_the_default_renderer_is_still_the_subprocess_one(monkeypatch,
         def close(self):
             pass
 
-    monkeypatch.setattr(r405, "SubprocessRenderer", _Stub)
-    r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION)
+    monkeypatch.setattr(r405, "PersistentCaptionRenderer", _Stub)
+    out = r405.render_subtitle_overlays(
+        plan, spine, project_folder=str(tmp_path),
+        remotion_dir=REMOTION)
     assert len(built) == 1 and built[0] == REMOTION
+    assert out["subtitle_overlay"]["renderer"] == "persistent"
+
+
+def test_the_subprocess_path_stays_selectable(monkeypatch, tmp_path):
+    """The old default is the explicit fallback: asking for it by name
+    still builds exactly one per-card renderer."""
+    _NoPixelQA(monkeypatch)
+    spine, plan = _spine_and_plan()
+    built = []
+
+    class _Stub:
+        def __init__(self, remotion_dir):
+            built.append(remotion_dir)
+
+        def render(self, props_path, overlay_path, sequence=False):
+            with open(overlay_path, "wb") as handle:
+                handle.write(b"pixels")
+            return True, ""
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(r405, "SubprocessRenderer", _Stub)
+    out = r405.render_subtitle_overlays(
+        plan, spine, project_folder=str(tmp_path),
+        remotion_dir=REMOTION, renderer_kind="subprocess")
+    assert len(built) == 1 and built[0] == REMOTION
+    assert out["subtitle_overlay"]["renderer"] == "subprocess"
+    assert "renderer_fallback" not in out["subtitle_overlay"]
 
 
 def test_an_unknown_renderer_kind_is_refused(tmp_path):
@@ -263,6 +294,122 @@ def test_a_sequence_through_the_persistent_renderer_refuses_loudly(
             plan, spine, project_folder=str(tmp_path),
             remotion_dir=REMOTION, renderer_kind="persistent",
             overlay_container="frames")
+
+
+# ── The startup fallback: loud, once, never per card ─────────────────
+
+def test_a_renderer_that_cannot_start_falls_back_loudly(monkeypatch,
+                                                       tmp_path, capsys):
+    """The fallback fires at STARTUP, not per card: the persistent
+    renderer raises `RendererUnavailable` before a single card is drawn
+    (no node, no bundle, bundling outran its budget), and the pass
+    continues on the per-card subprocess renderer.
+
+    It MUST SAY SO LOUDLY: the step's own stderr carries a FALLBACK
+    banner, and the emitted payload records `renderer_fallback` with
+    the reason - a pass that silently ran the slow way while reporting
+    success is exactly what the design refuses."""
+    _NoPixelQA(monkeypatch)
+    from library.tools.remotion_batch import RendererUnavailable
+    spine, plan = _spine_and_plan()
+
+    dead = []
+
+    class _CannotStart:
+        def __init__(self, remotion_dir):
+            dead.append(remotion_dir)
+
+        def render(self, props_path, overlay_path, sequence=False):
+            raise RendererUnavailable(
+                "could not start the renderer: node is not on PATH")
+
+        def close(self):
+            dead.append("closed")
+
+    drawn = []
+
+    class _Subprocess:
+        def __init__(self, remotion_dir):
+            drawn.append(remotion_dir)
+
+        def render(self, props_path, overlay_path, sequence=False):
+            with open(overlay_path, "wb") as handle:
+                handle.write(b"pixels")
+            return True, ""
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(r405, "PersistentCaptionRenderer", _CannotStart)
+    monkeypatch.setattr(r405, "SubprocessRenderer", _Subprocess)
+    out = r405.render_subtitle_overlays(
+        plan, spine, project_folder=str(tmp_path),
+        remotion_dir=REMOTION)
+
+    overlay = out["subtitle_overlay"]
+    assert overlay["available"] is True
+    assert overlay["renderer"] == "subprocess"
+    fallback = overlay["renderer_fallback"]
+    assert fallback["requested"] == "persistent"
+    assert "node is not on PATH" in fallback["reason"]
+    assert len(drawn) == 1 and drawn[0] == REMOTION
+    assert "closed" in dead, "the dead renderer is closed, not leaked"
+
+    announcement = capsys.readouterr().err
+    assert "FALLBACK" in announcement
+    assert "persistent" in announcement.lower()
+    assert "node is not on PATH" in announcement
+
+
+def test_a_renderer_that_dies_mid_run_still_stops_the_pass(monkeypatch,
+                                                           tmp_path):
+    """The startup fallback must not become a per-card fallback: the
+    first card draws, the renderer dies on the second, and the pass
+    REFUSES with one fault rather than degrading quietly onto the slow
+    path for the remaining cards."""
+    _NoPixelQA(monkeypatch)
+    from library.tools.remotion_batch import RendererUnavailable
+    spine, plan = _spine_and_plan()
+
+    class _DiesAfterOne:
+        def __init__(self, remotion_dir):
+            self.calls = 0
+
+        def render(self, props_path, overlay_path, sequence=False):
+            self.calls += 1
+            if self.calls > 1:
+                raise RendererUnavailable(
+                    "the renderer process exited (code -9)")
+            with open(overlay_path, "wb") as handle:
+                handle.write(b"pixels")
+            return True, ""
+
+        def close(self):
+            pass
+
+    class _SubprocessMustNotRun:
+        def __init__(self, remotion_dir):
+            raise AssertionError(
+                "mid-run death must not fall back to subprocess")
+
+        def render(self, props_path, overlay_path, sequence=False):
+            raise AssertionError("unreachable")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(r405, "PersistentCaptionRenderer", _DiesAfterOne)
+    monkeypatch.setattr(r405, "SubprocessRenderer", _SubprocessMustNotRun)
+    with pytest.raises(r405.SubtitleRenderRefused) as caught:
+        r405.render_subtitle_overlays(
+            plan, spine, project_folder=str(tmp_path),
+            remotion_dir=REMOTION)
+    payload = caught.value.payload["subtitle_overlay"]
+    assert payload["available"] is False
+    assert "renderer" in payload["error"].lower()
+    assert len(payload["segments"]) == 1, (
+        "one card drawn, then the fault - no FAILED entry per card "
+        "that never had a chance")
 
 
 # ── The codec path carries ────────────────────────────────────────────
