@@ -1544,7 +1544,55 @@ def _reel_source_size(project_folder: str):
     return sizes.pop()
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None):
+def place_overlay_segments(pool, project, timeline, name: str, fps: float,
+                           segments, track_index: int, kind: str,
+                           check: str) -> None:
+    """Place rendered overlay segments onto one upper video track.
+
+    One placer for the explainer track and the semantic-visual track:
+    both append full-canvas graphics whose whole span is placed
+    (`total_frames` IS the content, no handles either side), and two
+    placers doing the same arithmetic are two chances to land one
+    frame off.
+
+    Video ONLY (`mediaType: 1`): the rendered overlay carries a silent
+    audio stream, and without this Resolve silently drops the whole
+    append - R09's first vox build placed nothing on V6 while every
+    other video append in this module already passed it. Both the
+    import and the append are judged by what they RETURN (AGENTS.md 5)
+    and REFUSED as `ReelBuildError` rather than skipped: an unplaced
+    segment the record claims is a build the conformance gate
+    (`check`, F21/F22) refuses, so carrying on would only fail later
+    with less pointing at the cause.
+    """
+    for segment in segments or []:
+        items = pool.ImportMedia([segment["overlay_path"]])
+        if not items:
+            raise ReelBuildError(
+                f"{name}: Resolve would not import the rendered {kind} "
+                f"{segment['overlay_path']!r}")
+        assert_current_timeline(project, timeline)
+        record_frame = int(round(segment["timeline_start"] * fps))
+        placed = pool.AppendToTimeline([{
+            "mediaPoolItem": items[0],
+            "startFrame": 0,
+            # EXCLUSIVE, the same reading every other placement here
+            # uses. An inclusive endFrame leaves a one-frame gap, which
+            # is a black hole F1 reports.
+            "endFrame": segment["total_frames"],
+            "mediaType": 1,
+            "trackIndex": track_index,
+            "recordFrame": record_frame,
+        }])
+        if not placed:
+            raise ReelBuildError(
+                f"{name}: Resolve would not place the rendered {kind} "
+                f"{segment['overlay_path']!r} on V{track_index} - "
+                f"AppendToTimeline returned nothing, and an unplaced "
+                f"segment the record claims is a build {check} refuses")
+
+
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -1614,6 +1662,21 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             timeline.AddTrack("video")
         timeline.SetTrackName("video", EXPLAINER_TRACK,
                               EXPLAINER_TRACK_NAME)
+
+    # The semantic-visual track exists only where the model planned a
+    # visual for what is being said. A reel with no model answer gets
+    # the timeline it got before this existed - no V6 - which is the
+    # same "declare nothing and get nothing" shape as the explainer
+    # above. The track number is named once in
+    # `library/tools/reel_semantic_visual.py` so the placer and the
+    # F22 check cannot disagree about it.
+    if semantic_segments:
+        from library.tools.reel_semantic_visual import (
+            SEMANTIC_TRACK, SEMANTIC_TRACK_NAME)
+        while timeline.GetTrackCount("video") < SEMANTIC_TRACK:
+            timeline.AddTrack("video")
+        timeline.SetTrackName("video", SEMANTIC_TRACK,
+                              SEMANTIC_TRACK_NAME)
 
     ranges = reel_ranges(moment, transcript)
     lead = lead_frames(cards, fps)
@@ -1803,24 +1866,23 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # because a reel carries one. Its whole span is placed - unlike a
     # caption, a graphic renders no handles either side, so
     # `total_frames` IS the content.
-    for index, segment in enumerate(explainer_segments or []):
+    if explainer_segments:
         from library.tools.explainer_plan import EXPLAINER_TRACK
-        items = pool.ImportMedia([segment["overlay_path"]])
-        if not items:
-            print(f"Failed to import {segment['overlay_path']}",
-                  file=sys.stderr)
-            continue
-        assert_current_timeline(project, timeline)
-        pool.AppendToTimeline([{
-            "mediaPoolItem": items[0],
-            "startFrame": 0,
-            # EXCLUSIVE, the same reading every other placement here
-            # uses. An inclusive endFrame leaves a one-frame gap, which
-            # is a black hole F1 reports.
-            "endFrame": segment["total_frames"],
-            "trackIndex": EXPLAINER_TRACK,
-            "recordFrame": int(round(segment["timeline_start"] * fps)),
-        }])
+        place_overlay_segments(
+            pool, project, timeline, name, fps, explainer_segments,
+            EXPLAINER_TRACK, kind="explainer", check="F21")
+
+
+
+    # The semantic visuals. ADDITIVE, exactly as the explainer above
+    # is: laid over picture that keeps playing, moving no frame of it.
+    # Each segment renders with no handles either side, so its whole
+    # span is placed - `total_frames` IS the content.
+    if semantic_segments:
+        from library.tools.reel_semantic_visual import SEMANTIC_TRACK
+        place_overlay_segments(
+            pool, project, timeline, name, fps, semantic_segments,
+            SEMANTIC_TRACK, kind="semantic visual", check="F22")
 
 
 
@@ -2233,6 +2295,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     _rename_overlay_records(review_dir, claimed)
     from library.tools.explainer_plan import rename_plan_reels
     rename_plan_reels(project_folder, claimed)
+    from library.tools.reel_semantic_visual import rename_record_reels
+    rename_record_reels(project_folder, claimed)
 
     backup_timelines = timelines_to_replace(project, set(backups.values()))
     assert_deletion_scope(backup_timelines, set(backups.values()))
@@ -2327,6 +2391,8 @@ def discard_staged_reels(project, project_folder: str,
     _drop_overlay_records(review_dir, staging)
     from library.tools.explainer_plan import drop_plan_reels
     drop_plan_reels(project_folder, staging)
+    from library.tools.reel_semantic_visual import drop_record_reels
+    drop_record_reels(project_folder, staging)
     _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
@@ -2607,6 +2673,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # whole build, not the twelfth reel of nineteen.
     card_declarations = declared_cards(project_folder)
     explainer_plans = []
+    semantic_records = []
     # What the model read of each reel, and what the project declares.
     # Both are read ONCE for the batch: the judgement is one file and the
     # declaration is one project, and re-reading either per reel would be
@@ -2702,6 +2769,23 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 timeline_name=name)
             explainer_plans.append(explainer_plan)
 
+            # The semantic visuals: what the MODEL says this reel's
+            # speech wants drawn. The ask is written fresh on every
+            # build from the moment, the transcript and these same
+            # ranges; the answer is read off the response file when a
+            # model has written one, and the reel builds without
+            # visuals - SAID as `awaiting_model_answer` - when none
+            # has. A headless build never blocks on a model.
+            from library.tools import reel_semantic_visual as sem_vis
+            sem_vis.write_request(
+                moment, transcript, ranges, project_folder,
+                fps=24000 / 1001)
+            semantic_segments, semantic_record = sem_vis.build_for_reel(
+                moment, transcript, ranges, project_folder,
+                fps=24000 / 1001, width=1080, height=1920,
+                timeline_name=name)
+            semantic_records.append(semantic_record)
+
             # RECORD what was placed. Derived at build time and previously
             # written down nowhere, which is why the verifier could re-derive
             # a different grouping a day later and grade against it.
@@ -2767,6 +2851,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 overlay_placements=(overlay_plan.placements
                                     if overlay_plan else None),
                 explainer_segments=explainer_segments,
+                semantic_segments=semantic_segments,
             )
             # Placed: only now is this staging a container the gate may
             # grade and promotion may move. An exception above leaves the
@@ -2798,6 +2883,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # path.
     from library.tools.explainer_plan import write_plans as _write_explainers
     _write_explainers(project_folder, explainer_plans)
+
+    # What each reel's semantic visuals really were, INCLUDING the reels
+    # with none. MERGED per reel, for the same reason `write_provenance`
+    # merges: a partial (`only`) build must not delete the record of the
+    # reels it did not touch, or F22 would grade those timelines against
+    # an absence. See `library/tools/reel_semantic_visual.py`.
+    from library.tools.reel_semantic_visual import (
+        write_records as _write_semantic_records)
+    _write_semantic_records(project_folder, semantic_records)
 
     # Record which plan we built from, so the verifier can detect
     # if the plan changes before verification runs.

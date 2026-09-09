@@ -138,6 +138,23 @@ def find_phrase_window(
         f"{phrase!r} occurs nowhere in the measured words")
 
 
+def _word_span(w: Dict[str, Any]) -> Tuple[Any, Any]:
+    """One word's (start, end) in SOURCE seconds, whatever it calls them.
+
+    The spine contract's word shape is `{word, source_start,
+    source_end}` - step 2.02's post-bridge emits exactly that, "not the
+    temporal index's internal start/end", and every consumer downstream
+    reads `source_*`. Bare `start`/`end` is still accepted for words
+    shaped before that contract landed, because refusing them would drop
+    an anchorable visual over a key spelling. Both spellings name the
+    SOURCE clock; the block's own `timeline_start - source_start`
+    offset is what moves them onto the timeline.
+    """
+    start = w.get("source_start", w.get("start"))
+    end = w.get("source_end", w.get("end"))
+    return start, end
+
+
 def collect_word_windows(audio_spine: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Every timed word of the spine, in TIMELINE seconds.
 
@@ -161,7 +178,7 @@ def collect_word_windows(audio_spine: Dict[str, Any]) -> List[Dict[str, Any]]:
         except (TypeError, ValueError):
             continue
         for w in block.get("word_timestamps") or []:
-            start, end = w.get("start"), w.get("end")
+            start, end = _word_span(w)
             if (start is None or end is None
                     or isinstance(start, bool) or isinstance(end, bool)):
                 continue

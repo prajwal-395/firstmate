@@ -14,7 +14,9 @@ import pytest
 from library.tools.reel_build import (
     DURATION_RATIO,
     REEL_RESOLUTION,
+    ReelBuildError,
     keep_ranges,
+    place_overlay_segments,
     placements,
     redundant_takes,
     suspected_takes,
@@ -705,3 +707,100 @@ def test_intra_turn_repetition_is_cut():
     assert len(cuts) > 0
     assert cuts[0].dropped_start == 301.2
 
+
+
+# ── Overlay placement is video-only and judged ────────────────────────
+
+class _FakeItem:
+    def __init__(self, uid="pool-item-1"):
+        self._uid = uid
+
+
+class _FakePool:
+    """Records what the placer asked Resolve to do."""
+
+    def __init__(self, append_result=None):
+        self.appended = []
+        self.append_result = (
+            append_result if append_result is not None else [{"placed": True}])
+
+    def ImportMedia(self, paths):
+        return [_FakeItem()]
+
+    def AppendToTimeline(self, clips):
+        self.appended.extend(clips)
+        return self.append_result
+
+
+class _FakeTimeline:
+    def GetUniqueId(self):
+        return "timeline-1"
+
+    def GetName(self):
+        return "fake reel"
+
+
+class _FakeProject:
+    def __init__(self, timeline):
+        self._timeline = timeline
+        self.set_calls = 0
+
+    def SetCurrentTimeline(self, timeline):
+        self.set_calls += 1
+
+    def GetCurrentTimeline(self):
+        return self._timeline
+
+
+def _segment(path="/renders/vox_test_00.mov", start=9.092, frames=60):
+    return {"overlay_path": path, "timeline_start": start,
+            "timeline_end": start + frames / 23.976, "total_frames": frames}
+
+
+def _placer(pool=None, segments=None, track=6):
+    timeline = _FakeTimeline()
+    project = _FakeProject(timeline)
+    pool = pool if pool is not None else _FakePool()
+    place_overlay_segments(
+        pool, project, timeline, "fake reel", 24000 / 1001,
+        segments if segments is not None else [_segment()],
+        track, kind="semantic visual", check="F22")
+    return pool, project
+
+
+def test_overlay_append_is_video_only_on_the_named_track():
+    """R09's first vox build placed nothing on V6: the append carried
+    the overlay's silent audio stream because no mediaType was passed.
+    Every other video append in reel_build passes mediaType 1, and so
+    must this one - on the track index the caller named, at the reel
+    frame the plan computed."""
+    pool, _ = _placer()
+    assert len(pool.appended) == 1
+    clip = pool.appended[0]
+    assert clip["mediaType"] == 1
+    assert clip["trackIndex"] == 6
+    assert clip["startFrame"] == 0
+    assert clip["endFrame"] == 60
+    assert clip["recordFrame"] == 218  # round(9.092 * 24000/1001)
+
+
+def test_a_refused_append_is_raised_not_skipped():
+    """AppendToTimeline returns nothing on a refusal instead of raising,
+    and the old loop carried on - so the record claimed two visuals and
+    the timeline carried none until F22 refused the build. A refusal
+    raises here, where the cause still points at the append."""
+    pool = _FakePool(append_result=[])
+    with pytest.raises(ReelBuildError, match="would not place"):
+        _placer(pool=pool)
+
+
+def test_a_refused_import_is_raised_not_skipped():
+    """Same shape one call earlier: an overlay file Resolve will not
+    import is a refused build, not a reel that quietly loses a visual."""
+
+    class _NoImport(_FakePool):
+        def ImportMedia(self, paths):
+            return []
+
+    with pytest.raises(ReelBuildError, match="would not import"):
+        _placer(pool=_NoImport())
