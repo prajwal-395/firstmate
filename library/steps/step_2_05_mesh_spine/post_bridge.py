@@ -194,6 +194,39 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
                 file=sys.stderr,
             )
 
+    # ── The captain's edits: drops, re-derived ──
+    # A drop_fragment names spoken words ("drop the 'so what do they'
+    # fragment"), and it applies on EVERY rebuild here - after the LLM's
+    # structure is enriched and before timeline positions are
+    # recalculated, so everything after the cut moves up by exactly the
+    # removed seconds. Whole-value supply (the entire speech_sequence
+    # handed over) is unreadable and goes stale upstream; a word-anchored
+    # delta survives re-transcription, re-cutting and renumbering, and an
+    # anchor that matches nothing reports STALE loudly rather than
+    # vanishing (library/tools/captain_edits.py).
+    captain_applied, captain_stale = [], []
+    try:
+        from library.tools import captain_edits as _edits
+        _project = (data or {}).get("project_folder", "")
+        _all = _edits.load_edits(_project) if _project else []
+        if any(e.get("kind") == "drop_fragment" for e in _all):
+            enriched_blocks, captain_applied, captain_stale = \
+                _edits.apply_drop_fragments(enriched_blocks, _all)
+            for record in captain_applied:
+                print(
+                    f"  Captain edit: dropped {record['blocks_removed']} "
+                    f"({record['seconds_removed']}s) saying "
+                    f"{record['anchor_phrase']!r} - "
+                    f"{record['reason']}",
+                    file=sys.stderr,
+                )
+            if captain_stale:
+                _edits.report_stale(captain_stale)
+    except Exception as exc:  # noqa: BLE001 - an edit pass must never
+        # refuse a spine: unapplied edits are reported, not fatal.
+        print(f"WARNING: captain edits could not apply ({exc}); "
+              f"continuing without them.", file=sys.stderr)
+
     # Recalculate timeline positions from (potentially extended) durations.
     # Block extensions shift all subsequent blocks forward.
     cursor = 0.0
@@ -251,6 +284,10 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
         "frame_rate": fps,
         "structure": enriched_blocks,
         "music_selection": music,
+        # What the captain's deltas did on this build, or [] - a run
+        # that cannot say which edits are in force cannot be reviewed.
+        "captain_edits_applied": captain_applied,
+        "captain_edits_stale": captain_stale,
     }
     declared_bed = spine.get(BED_KEY) or (data or {}).get(BED_KEY)
     if declared_bed:

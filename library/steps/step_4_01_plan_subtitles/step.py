@@ -1151,6 +1151,38 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             if ew in sub["text"]
         ]
 
+    # ── The captain's edits: caption fixes, text only ──
+    # A caption_fix names spoken words and what the caption should read
+    # instead, and it applies on EVERY rebuild here - after grouping, so
+    # the fix lands on finished cards and survives regeneration. Timings
+    # are never touched (that half is `apply_caption_fixes`' contract:
+    # text changes must never move picture or sound), and an anchor that
+    # matches no card reports STALE loudly rather than vanishing
+    # (library/tools/captain_edits.py). Drops are NOT applied here: the
+    # speech is cut upstream in mesh_spine's post-bridge, so by the time
+    # this plans cards the passage is already gone from the spine.
+    captain_applied, captain_stale = [], []
+    try:
+        from library.tools import captain_edits as _edits
+        _all = _edits.load_edits(project_folder) if project_folder else []
+        if any(e.get("kind") == "caption_fix" for e in _all):
+            subtitle_entries, captain_applied, captain_stale = \
+                _edits.apply_caption_fixes(subtitle_entries, _all)
+            for record in captain_applied:
+                print(
+                    f"NOTE: captain edit: {record['cards_touched']} "
+                    f"caption card(s) now read "
+                    f"{record['replacement']!r} where the speech says "
+                    f"{record['anchor_phrase']!r} - {record['reason']}",
+                    file=sys.stderr,
+                )
+            if captain_stale:
+                _edits.report_stale(captain_stale)
+    except Exception as exc:  # noqa: BLE001 - an edit pass must never
+        # refuse captions: unapplied edits are reported, not fatal.
+        print(f"WARNING: captain caption edits could not apply ({exc}); "
+              f"continuing without them.", file=sys.stderr)
+
     # C4 fix: Wrap output under subtitle_plan key to match manifest contract.
     # Manifest declares output as 'subtitle_plan', and DAG edge
     # plan_subtitles -> render_subtitles maps subtitle_plan -> subtitle_plan.
@@ -1169,6 +1201,9 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             # every plan would read as a decision nobody made.
             **({"styles_by_speaker": styles_by_speaker}
                if styles_by_speaker else {}),
+            # What the captain's deltas did on this build, or [].
+            "captain_edits_applied": captain_applied,
+            "captain_edits_stale": captain_stale,
         }
     }
 

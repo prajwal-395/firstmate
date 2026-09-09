@@ -625,6 +625,93 @@ def _check_music_selection(value, context: Context) -> str:
             f"{'+'.join(sorted(streams))}{others}{spans}")
 
 
+def _speech_texts(context: Context) -> Optional[str]:
+    """Every spoken word the pipeline has measured, as one string.
+
+    Returns None where no speech is on file yet (a first run, before
+    any spine exists) - the check must reach a verdict without state,
+    and drift then moves to apply time, where it reports STALE loudly.
+    Reads the spine the pipeline built AND the speech sequence, because
+    a captain's anchor may name words in either; `compile_manifest`
+    reads `pipeline_data.json` the same way rather than one file.
+    """
+    outputs = (context.state.get("step_outputs") or {})
+    parts = []
+    for producer in ("mesh_spine", "assign_aroll", "speech_sequence",
+                     "catalog"):
+        payload = outputs.get(producer) or {}
+        for key in ("audio_spine", "timed_spine"):
+            spine = payload.get(key) or {}
+            for block in spine.get("structure") or []:
+                content = (block or {}).get("content") or {}
+                text = content.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+        sequence = payload.get("body_sequence") or []
+        for passage in sequence:
+            if isinstance(passage, dict):
+                text = passage.get("text")
+                if isinstance(text, str) and text.strip():
+                    parts.append(text)
+            elif isinstance(passage, str) and passage.strip():
+                parts.append(passage)
+    joined = " ".join(parts)
+    return joined if joined.strip() else None
+
+
+def _check_captain_edits(value, context: Context) -> str:
+    """The captain's edits as small readable deltas, not replacements.
+
+    A whole-value handoff (`speech_sequence` wholesale) is unreadable,
+    unreviewable and goes stale the moment anything upstream
+    legitimately changes; a delta names one anchor and one decision.
+    `captain_edits.validate_edits` owns the structure - kind, anchor,
+    replacement, reason, and the refusal of frame-anchored edits - so
+    this check never restates it.
+
+    The correspondence half lives HERE, because captions have no other
+    external route: where the pipeline has already measured speech,
+    every edit's anchor must still occur in it. A caption fix whose
+    anchor is gone is drift - refused by name rather than applied to
+    the wrong seconds. Where no speech is on file yet the edits verify
+    structurally, and drift reports STALE at apply time instead of
+    vanishing (library/tools/captain_edits.py).
+    """
+    from library.tools import captain_edits
+
+    try:
+        edits = captain_edits.validate_edits(value)
+    except captain_edits.CaptainEditError as exc:
+        raise ExternalStateError(f"captain_edits is not a list of "
+                                 f"edits: {exc}") from exc
+    speech = _speech_texts(context)
+    if speech is not None:
+        import re as _re
+
+        haystack = _re.sub(r"\s+", " ",
+                           _re.sub(r"[^\w\s']", "", speech.lower()))
+        for index, edit in enumerate(edits):
+            anchor = captain_edits.normalize(edit["anchor_phrase"])
+            if anchor not in haystack:
+                raise ExternalStateError(
+                    f"captain_edits[{index}] anchors to "
+                    f"{edit['anchor_phrase']!r}, and those words are in "
+                    f"no speech the pipeline has measured. A supplied "
+                    f"caption fix that no longer corresponds to its "
+                    f"speech is drift, not an edit - re-anchor it to "
+                    f"words the reel still says, or drop it.")
+        return (f"{len(edits)} edit(s), every anchor still spoken by "
+                f"the measured speech")
+    kinds = {}
+    for edit in edits:
+        kinds[edit["kind"]] = kinds.get(edit["kind"], 0) + 1
+    breakdown = ", ".join(f"{count} {kind}" for kind, count in
+                           sorted(kinds.items()))
+    return (f"{len(edits)} edit(s) ({breakdown}); no speech measured "
+            f"yet, so correspondence could not be cross-checked and "
+            f"drift will report STALE at apply time")
+
+
 def _probe_duration(path: Path) -> Optional[float]:
     """The file's real length in seconds, or None if ffprobe cannot say."""
     try:
@@ -666,6 +753,7 @@ CHECKS: Dict[str, Check] = {
     "b_roll_assignments": _check_b_roll_assignments,
     "b_roll_interjections": _check_b_roll_interjections,
     "assembly_manifest": _check_assembly_manifest,
+    "captain_edits": _check_captain_edits,
     "music_selection": _check_music_selection,
     "render_output": _check_render_output,
     "speech_sequence": _check_speech_sequence,
