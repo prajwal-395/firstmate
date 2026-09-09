@@ -228,6 +228,21 @@ def test_a_get_behind_a_guard_that_exits_is_read_as_a_refusal(rows):
     assert "guard raises" in row.step_refusal
 
 
+def test_a_presence_guard_is_not_read_as_an_absence_refusal(rows):
+    """`if broll_assignments or broll_interjections: raise` refuses WITH
+    the value - a mutual exclusion under the declared tv_frame look, where
+    the frame spans V2 and B-roll has nowhere to play - not without it.
+    A run that leaves `b_roll_interjections` out compiles: the step reads
+    it with a `[]` default and the guard only fires on presence. The
+    declaration (OPTIONAL) is the true side; the survey misread the
+    guard's polarity."""
+    by_key = {(r.node_id, r.name): r for r in rows}
+    row = by_key[("compile_manifest", "b_roll_interjections")]
+    assert not row.required
+    assert row.step_refusal == ""
+    assert row.refused_by == input_contract.REFUSED_BY_NOBODY
+
+
 def test_a_get_passed_into_a_call_is_not_a_binding(rows):
     """`result = validate_output(..., input_data.get("project_folder"))`
     followed by `if not result...: sys.exit` is a guard on the RESULT.

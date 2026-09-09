@@ -44,6 +44,14 @@ EXEMPTED_KEYS = {
         "Recorded for the reviewer and the dashboard export; no renderer "
         "consumes it. See library/tools/vfx_plan_basis.py"
     ),
+    "tv_frame": (
+        "The TV-frame look this reel renders under (or None): the asset, "
+        "the punch-in factor, the power timings and where the declaration "
+        "came from. The look itself reaches the renderer through `tracks` "
+        "- V1 `fill_zoom`/`tv_punch_in` fields, V2 `tv_frame_*` clips, "
+        "per-clip power keys - and no renderer reads this key itself. "
+        "See library/tools/tv_frame.py"
+    ),
 }
 
 RENDERER = "library/steps/step_6_01_render/resolve_build_timeline.py"

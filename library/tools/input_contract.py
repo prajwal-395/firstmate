@@ -442,6 +442,41 @@ def _exits(body: Sequence[ast.stmt]) -> bool:
     return False
 
 
+def _guard_absence_names(test: ast.AST) -> Set[str]:
+    """Names an `if`-test checks for ABSENCE - the guard refuses WITHOUT.
+
+    `if not X: raise` refuses without X; `if X: raise` refuses WITH it -
+    a mutual-exclusion guard, like compile_manifest's tv_frame/B-roll one
+    (`if broll_assignments or broll_interjections: raise` under a declared
+    look), which fires exactly when the value is present. Only the first
+    is a refusal the declaration must answer for.
+
+    A bare name in positive position (through `and`/`or`) is presence.
+    Anything else holding the name - a negation, a comparison, a call -
+    keeps the old reading, so the survey over-reports rather than
+    inventing a clean bill.
+    """
+    absence: Set[str] = set()
+
+    def visit(node: ast.AST, negated: bool) -> None:
+        if isinstance(node, ast.BoolOp):
+            for value in node.values:
+                visit(value, negated)
+        elif isinstance(node, ast.UnaryOp) and isinstance(
+                node.op, ast.Not):
+            visit(node.operand, not negated)
+        elif isinstance(node, ast.Name):
+            if negated:
+                absence.add(node.id)
+        else:
+            for child in ast.walk(node):
+                if isinstance(child, ast.Name):
+                    absence.add(child.id)
+
+    visit(test, False)
+    return absence
+
+
 def _refusals_and_reads(tree: ast.AST, filename: str
                         ) -> Tuple[Dict[str, str], Set[str]]:
     """`({key: evidence}, {every key the module names})` for one file."""
@@ -481,9 +516,9 @@ def _refusals_and_reads(tree: ast.AST, filename: str
     for node in ast.walk(tree):
         if not isinstance(node, ast.If) or not _exits(node.body):
             continue
-        for name_node in ast.walk(node.test):
-            if isinstance(name_node, ast.Name) and name_node.id in bindings:
-                key = bindings[name_node.id]
+        for name in _guard_absence_names(node.test):
+            if name in bindings:
+                key = bindings[name]
                 refusals.setdefault(
                     key, f"{filename}:{node.lineno} guard raises")
 
