@@ -262,7 +262,7 @@ def test_a_harness_that_cannot_read_a_file_gets_the_whole_catalogue(
     assert restored["sfx_catalog_reference"] == catalog_document(
         load_sfx_catalog(str(library)))
 
-    unchanged, keys = restore_for_harness(inputs, "agy")
+    unchanged, keys = restore_for_harness(inputs, "agent")
     assert keys == []
     assert unchanged is inputs
 

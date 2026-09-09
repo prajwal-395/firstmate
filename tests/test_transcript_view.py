@@ -317,7 +317,7 @@ def test_a_recorded_request_carries_the_transcript_and_no_word_timings(tmp_path)
                 VIEW_STEPS["creative_direction"])["context_fields"],
             "interface": {"outputs": [{"name": "creative_direction"}]},
         },
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
 
     context = json.loads(req.read_text(encoding="utf-8"))["context"]

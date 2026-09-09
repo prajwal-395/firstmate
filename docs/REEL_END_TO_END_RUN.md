@@ -28,7 +28,7 @@ Confirmed on this machine 2026-09-05 unless noted.
 | `remotion-subtitles/node_modules` | the render bundle | `ls remotion-subtitles/node_modules` | **absent in a fresh worktree** - `npm ci` in that directory first |
 | Resolve open, project `Podcast (field test)` | placing clips and reading the built timelines. The EXACT string - the neighbouring `Podcast` is the captain's untouchable original (AGENTS.md 5) | project list read-back | must be arranged with the captain; he is at his desk |
 | `PIPELINE_SFX_LIBRARY`, `PIPELINE_MUSIC_LIBRARY`, `PIPELINE_PROJECTS_ROOT` | declared absolute paths | `.env` | `.env` carries the paths |
-| an LLM backend | `--full-auto api` needs a provider key; `--full-auto agy` is answered by an agent | `env | grep PIPELINE_LLM` | **no API key on this machine.** `agy` only |
+| an LLM backend | `--full-auto api` needs a provider key; `--full-auto agent` is answered by an agent | `env | grep PIPELINE_LLM` | **no API key on this machine.** `agent` only |
 
 The last row is the one that decides how the run is judged, and section
 "Evidence" below says why.
@@ -60,7 +60,7 @@ Steps 1 and 2 exist today. Steps 3 onward depend on the reel path landing.
     python3 manage_project.py run \
         /Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast \
         --step select_reels --rerun select_reels \
-        --full-auto agy --llm-timeout 3600
+        --full-auto agent --llm-timeout 3600
 
     # 3. the captain approves, through write_proposal, never a hand edit
     # 4. build the reel timelines
@@ -123,7 +123,7 @@ conformance report whose caption side is `expected 0`.
 
 ### The one that needs saying about condition 3
 
-With no API key the only backend is `agy`, and `agy` is answered by an agent.
+With no API key the only backend is `agent`, and `agent` is answered by an agent.
 If the agent answering it is the same one that wrote the prompt and knows which
 defect it is hunting, the answer is not evidence about the pipeline - it is the
 "worker supplying taste" failure this project has already been bitten by once,
@@ -143,7 +143,7 @@ the project in scratch - `pipeline_data.json`, `project.yaml`,
 
     PYTHONPATH=<repo root> python3 library/processes/edit_video/run_pipeline.py \
         --project <copy> --step select_reels --rerun select_reels \
-        --full-auto agy --llm-timeout 3600
+        --full-auto agent --llm-timeout 3600
 
 The `PYTHONPATH` is not optional: `run_pipeline.py` does
 `from library.tools...` at module scope and dies with `ModuleNotFoundError`
@@ -152,7 +152,7 @@ changed), catalog: re-runs (step code changed)" and invalidated their
 cached preflight output even though only `select_reels` was selected -
 worth knowing before this is pointed at a real project.
 
-The agy request was answered by a FRESH agent, given the request file and
+The agent request was answered by a FRESH agent, given the request file and
 a shell and nothing else. It completed in 909.8s.
 
 ### What the run proved, and what it honestly did not

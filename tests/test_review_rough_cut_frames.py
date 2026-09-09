@@ -218,7 +218,7 @@ def test_a_harness_that_cannot_be_shown_a_picture_is_told_so():
              "clip_001__0005.000__5fabc123.jpg\n")
     inputs = {OUTPUT_KEY: block}
 
-    kept, withheld = wf.withhold_for_harness(inputs, "agy")
+    kept, withheld = wf.withhold_for_harness(inputs, "agent")
     assert withheld == []
     assert kept[OUTPUT_KEY] == block
 

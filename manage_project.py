@@ -1345,10 +1345,11 @@ def main():
     add_breakpoint_arguments(p_run)
     p_run.add_argument("--resume", action="store_true",
                        help="Resume pipeline from pending gates")
-    p_run.add_argument("--full-auto", choices=["agy", "api"],
-                       help="Run full pipeline autonomously using specified LLM backend")
+    p_run.add_argument("--full-auto", choices=["agent", "agy", "api"],
+                       help="Run full pipeline autonomously using specified LLM backend "
+                            "(`agy` is a deprecated alias of `agent`)")
     p_run.add_argument("--llm-timeout", type=int, default=300,
-                       help="Timeout for LLM response in agy backend")
+                       help="Timeout for LLM response in agent backend")
     p_run.set_defaults(func=cmd_run)
 
     # dashboard

@@ -193,7 +193,7 @@ return the site's SPA HTML - there is no registry to `jsrepo add` from.
 `chat.completions.create` / `generate_content` with **no `tools` parameter**
 and no tool-use loop; `grep` for `tools=`, `tool_use` or `mcp` across
 `llm_client.py`, `run_pipeline.py` and `step_4_06_*/` returns nothing. The
-`agy` backend writes a request JSON and polls for a response JSON - the
+`agent` backend writes a request JSON and polls for a response JSON - the
 answering harness is external, nothing asks it for an MCP server, nothing
 records whether one was used, and the pipeline cannot require it. **And even
 if the model fetched source, there is no route to a frame**: the composition

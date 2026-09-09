@@ -59,7 +59,7 @@ def test_the_machine_readable_schema_names_the_anchor_keys():
     """The `llm_outputs` description is the Required Output Format block.
 
     `run_pipeline.generate_output_schema_text` renders it verbatim into
-    the prompt and the agy request file carries it as `expected_schema`.
+    the prompt and the agent request file carries it as `expected_schema`.
     If `subject`/`anchor_phrase`/`hold_seconds` are named nowhere in it,
     the model is not asked - handoff prose notwithstanding.
     """

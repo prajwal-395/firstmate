@@ -7,7 +7,7 @@ PR #99 landed a proof harness inside `present_llm_step`:
         return mock_data
 
 It sat in the shipped runner for two days. It fired for EVERY project and
-EVERY backend - `--full-auto agy` wrote its request file, waited for the
+EVERY backend - `--full-auto agent` wrote its request file, waited for the
 response, and then discarded it - so every run of every project inherited
 project 001's stale narrative from a backup file on one machine. Nothing
 in the run said so; the step reported success.
@@ -59,7 +59,7 @@ def _present_llm_step() -> ast.FunctionDef:
 def test_present_llm_step_does_not_branch_on_a_step_id():
     """No `if node_id == "...":` anywhere in the LLM step handler.
 
-    The backend branches (`full_auto == "agy"` and friends) are legitimate
+    The backend branches (`full_auto == "agent"` and friends) are legitimate
     and are untouched by this check. Singling out one step by name is not:
     a step's answer comes from its handoff prompt, not from the runner.
     """

@@ -342,7 +342,7 @@ let lastRunStatus = null;
 
 /** The launch options the reviewer has selected in the topbar. */
 function runOptions() {
-    const mode = document.getElementById('run-mode-select')?.value ?? 'agy';
+    const mode = document.getElementById('run-mode-select')?.value ?? 'agent';
     const review = document.getElementById('run-review-check')?.checked ?? false;
     return {
         full_auto: mode || null,   // '' means manual LLM handoff

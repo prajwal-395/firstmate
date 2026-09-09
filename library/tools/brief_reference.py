@@ -106,7 +106,7 @@ A path that cannot be read or is empty RAISES. **A run that attaches none INTERV
 - **The rule is per SECTION, not per step**, so every step sees the same document: the preamble inline, a section under `INLINE_WHEN_UNDER_BYTES` inline, everything else a heading, a size, a range and a lede. Nothing is filtered or summarised away - the whole document is at the path.
 - **Which sections are about THIS video is not the engine's judgement.** A project pins sections inline with `pipeline.creative_brief_inline` in its `project.yaml`, and there is no default list.
 - **The mechanism carries THREE documents, and a fourth costs a row.** `brief_reference.REFERENCED_INPUTS` is that enumeration - the brief, step 4.04's SFX catalogue, and step 3.02's per-clip vision analysis (`library/tools/footage_reference.py`). Do not build a second by-reference mechanism.
-- **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agy` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
+- **`HARNESS_READS_FILES` is a complete enumeration and an unknown harness raises.** `agent` and `mock` reach a file; `api` does not, so under `api` the document is carried whole - a route the model cannot follow is a loss, not a saving. `present_llm_step` does that restore.
 - `tests/test_brief_reference.py` FOLLOWS the reference rather than asserting its shape: it parses the path and the range out of the string the model reads and requires that what comes back was not in the prompt.
 """
 
@@ -130,7 +130,7 @@ LEDE_CHARS = 160
 # Which harnesses can follow a path.  A COMPLETE enumeration: an unknown
 # name raises rather than being assumed either way.
 #
-# - `agy`: the request is a file on disk answered by an agent with a
+# - `agent`: the request is a file on disk answered by an agent with a
 #   shell.  Proven on the run of record - the answering agent read
 #   repository source and ran ffmpeg (see the degradation report §1).
 # - `mock`: replays a recorded answer.  No model runs, so the shape of
@@ -140,7 +140,7 @@ LEDE_CHARS = 160
 #   endpoint and returns the reply.  There is no tool loop and no
 #   filesystem on the other side, so a path is a dead end.
 HARNESS_READS_FILES = {
-    "agy": True,
+    "agent": True,
     "mock": True,
     "api": False,
 }
@@ -148,7 +148,7 @@ HARNESS_READS_FILES = {
 WITHDRAWN_HARNESS_ASSUMPTIONS = {
     "any harness with a capable model": (
         "Capability is a property of the HARNESS, not of the model. The same "
-        "model reaches a file under `agy` and cannot under `api`, because "
+        "model reaches a file under `agent` and cannot under `api`, because "
         "`api` gives it no tool with which to try."
     ),
 }
@@ -264,7 +264,7 @@ DEFAULT_WHY_REFERENCED = ("most of it is about the channel rather than "
                           "about this video")
 
 
-def build_reference(path: str, content: str, pinned=(), harness: str = "agy",
+def build_reference(path: str, content: str, pinned=(), harness: str = "agent",
                     document_name: str = DEFAULT_DOCUMENT_NAME,
                     why_referenced: str = DEFAULT_WHY_REFERENCED,
                     series_identity: str | None = None) -> str:

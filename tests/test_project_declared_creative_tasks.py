@@ -98,7 +98,7 @@ def _canned_answer(**extra):
 
 
 def _run_task(monkeypatch, project, name, context, answer):
-    """Invoke a declared task through the agy backend with a stubbed wait.
+    """Invoke a declared task through the agent backend with a stubbed wait.
 
     Mirrors tests/test_craft_role.py: the request file the answering
     agent reads is the artifact asserted on.
@@ -119,7 +119,7 @@ def _run_task(monkeypatch, project, name, context, answer):
     monkeypatch.setattr(run_pipeline.time, "sleep", _sleep)
     undetermined.reset()
     return creative_tasks.present_creative_task(
-        str(project), name, context, full_auto="agy", llm_timeout=5)
+        str(project), name, context, full_auto="agent", llm_timeout=5)
 
 
 # ── Acceptance: reaches a model with its role attached ─────────────────

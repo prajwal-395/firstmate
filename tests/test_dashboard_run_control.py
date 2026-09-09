@@ -75,7 +75,7 @@ def _cmd(popen) -> list:
 
 # ── 1. Start ────────────────────────────────────────────────────────
 
-def test_start_launches_full_auto_agy_and_does_not_force_review(client, spawned):
+def test_start_launches_full_auto_agent_and_does_not_force_review(client, spawned):
     """The captain's actual mode, and no review gate they did not ask for.
 
     Start used to send ``review_mode=True`` by default, turning one press
@@ -88,14 +88,29 @@ def test_start_launches_full_auto_agy_and_does_not_force_review(client, spawned)
 
     cmd = _cmd(spawned)
     assert "--full-auto" in cmd
-    assert cmd[cmd.index("--full-auto") + 1] == "agy"
+    assert cmd[cmd.index("--full-auto") + 1] == "agent"
     assert "--review" not in cmd
     assert "--step" not in cmd
 
     body = response.json()
     assert body["status"] == "started"
-    assert "full-auto agy" in body["mode"]
+    assert "full-auto agent" in body["mode"]
     assert "review gates off" in body["mode"]
+
+
+def test_start_passes_deprecated_agy_alias_through(client, spawned):
+    """Saved commands and muscle memory still pass `agy`.
+
+    The dashboard forwards it untouched; the runner maps it to `agent`
+    and prints the deprecation (asserted in
+    ``test_full_auto_agent_alias.py``), so the alias keeps working
+    end to end without the dashboard owning the vocabulary.
+    """
+    response = client.post("/api/pipeline/run", json={"full_auto": "agy"})
+    assert response.status_code == 200, response.text
+
+    cmd = _cmd(spawned)
+    assert cmd[cmd.index("--full-auto") + 1] == "agy"
 
 
 def test_start_uses_the_dashboards_own_interpreter(client, spawned):
@@ -234,7 +249,7 @@ def test_resume_releases_the_hold_and_passes_resume(client, temp_project, spawne
 
     cmd = _cmd(spawned)
     assert "--resume" in cmd
-    assert cmd[cmd.index("--full-auto") + 1] == "agy"
+    assert cmd[cmd.index("--full-auto") + 1] == "agent"
     assert "--review" not in cmd
 
     body = response.json()

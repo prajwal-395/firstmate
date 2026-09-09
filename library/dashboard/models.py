@@ -200,13 +200,13 @@ class TimelineView(BaseModel):
 class PipelineRunRequest(BaseModel):
     """Request to start/resume/rerun pipeline.
 
-    ``full_auto`` defaults to ``"agy"`` and ``review_mode`` to False,
+    ``full_auto`` defaults to ``"agent"`` and ``review_mode`` to False,
     because that is how the pipeline is actually driven.  The old default
     of ``review_mode=True`` turned one Start press into 26 stops.
     """
     from_step: Optional[str] = None
     single_step: Optional[str] = None
-    full_auto: Optional[str] = "agy"   # agy | api | mock | None (manual LLM)
+    full_auto: Optional[str] = "agent"   # agent | api | mock | None (manual LLM)
     auto_mode: bool = False            # --auto: complete hybrids from the bridge
     review_mode: bool = False          # --review: opt in, never forced
     llm_timeout: Optional[int] = None
@@ -221,7 +221,7 @@ class PipelineStepRequest(BaseModel):
     to a specific step instead.
     """
     step_id: Optional[str] = None
-    full_auto: Optional[str] = "agy"
+    full_auto: Optional[str] = "agent"
     auto_mode: bool = False
     review_mode: bool = False
     llm_timeout: Optional[int] = None

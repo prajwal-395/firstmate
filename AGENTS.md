@@ -176,8 +176,8 @@ Notes live per project in `pipeline_output/review/channel.json`, each recording 
 
 Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
-- Start uses `--full-auto agy` and does NOT pass `--review`; gates are an opt-in tick box.
-- **The handbrake is a file, not a signal.** `library/tools/run_control.py` owns the whole vocabulary - `pipeline.hold`, `pipeline.pid`, `pipeline_run.json` at the project root - and both processes speak only through it.
+- Start uses `--full-auto agent` and does NOT pass `--review`; gates are an opt-in tick box.
+- **The handbrake is a file, not a signal.** `library/tools/run_control.py` owns the whole vocabulary - `pipeline.hold`, `pipeline.pid`, `pipeline_run.json` at project root - and both processes speak only through it.
 - `pipeline_run.json` is the runner's own account of itself (mode, current step, how it ended). 
 
 ## 5. DaVinci Resolve integration - CRITICAL RULES

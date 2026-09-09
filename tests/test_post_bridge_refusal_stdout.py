@@ -56,7 +56,7 @@ def test_a_post_bridge_refusal_written_to_stdout_reaches_the_retry_message_non_e
     manifest = {"interface": {"outputs": [{"name": "sfx_plan"}]}}
     result = run_hybrid_step(
         step, {"project_folder": str(project)}, "plan_sfx",
-        manifest=manifest, full_auto="agy", llm_timeout=30)
+        manifest=manifest, full_auto="agent", llm_timeout=30)
         
     assert result == {'sfx_spec': {'sfx_list': []}}
     assert len(seen) == 2, "Expected two model calls"

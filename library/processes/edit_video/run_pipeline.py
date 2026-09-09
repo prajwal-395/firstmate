@@ -1542,9 +1542,33 @@ def llm_output_declarations(manifest: dict, already_have: set = None) -> list:
             if o.get("name") not in have]
 
 
+# The `--full-auto` backends.  `agent` names the MECHANISM - the pipeline
+# writes a request file, an agent answers it, the pipeline reads the answer -
+# never the vendor that used to supply the agent.  `agy` is that old vendor
+# name and stays accepted as a deprecated alias for it, because scripts,
+# briefs, saved commands and muscle memory all pass it today.
+FULL_AUTO_AGENT = "agent"
+FULL_AUTO_DEPRECATED_AGY = "agy"
+
+
+def normalize_full_auto(full_auto: str | None) -> str | None:
+    """Map a `--full-auto` value to its canonical backend name.
+
+    `agy` becomes `agent` with a plain deprecation on stderr.  Everything
+    else passes through untouched, so this is safe to call on values that
+    are already canonical, on `api`/`mock`, and on None (manual LLM).
+    """
+    if full_auto == FULL_AUTO_DEPRECATED_AGY:
+        print("--full-auto agy is deprecated; use --full-auto agent "
+              "instead (the same file-handoff mechanism, renamed).",
+              file=sys.stderr)
+        return FULL_AUTO_AGENT
+    return full_auto
+
+
 @step_timer(step_id_kwarg="node_id")
 def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dict = None, full_auto: str = None, llm_timeout: int = 300, bridge_supplied: set = None, retry_feedback: str = "") -> dict:
-    """Present an LLM step and execute it using LLMClient or AGY backend.
+    """Present an LLM step and execute it using LLMClient or the agent backend.
     
     In automated mode, this calls the LLM and returns the parsed output.
 
@@ -1556,6 +1580,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
     being answered by a resample against a byte-identical context.  See
     library/tools/post_bridge_retry.py.
     """
+    full_auto = normalize_full_auto(full_auto)
     raw_input_tokens = len(str(inputs).split()) * 1.3
 
     # Clause 5 of the reference rule: a harness that cannot follow a path
@@ -1688,7 +1713,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # `expected_schema_str` is NOT built here: it is built from
         # `schema_outputs` below, which is `llm_outputs` plus whatever
         # else the RENDERED schema asks for.  Building it here asked the
-        # agy request file to describe a schema that did not yet exist.
+        # agent request file to describe a schema that did not yet exist.
         # See the note beside `schema_outputs`.
 
         # Nothing to ask.  A step reaches here with an empty schema when
@@ -1790,7 +1815,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             prompt += briefing_interview.prompt_block(_reading, _basis)
 
         # `schema_outputs` is now complete, and it is rendered TWICE: as
-        # prose for the prompt, and as JSON for the agy request file's
+        # prose for the prompt, and as JSON for the agent request file's
         # `expected_schema`.  The two renderings are kept adjacent and
         # BELOW every appender on purpose.
         #
@@ -1805,7 +1830,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # have been lost the same way.  Anything appended next goes ABOVE
         # this line, and then it cannot be.
         #
-        # `expected_schema_str` feeds the agy request file and nothing
+        # `expected_schema_str` feeds the agent request file and nothing
         # else: the api path renders its schema out of `prompt` via
         # `generate_output_schema_text`, so there is no second injection
         # site for either field to duplicate into.
@@ -1833,12 +1858,12 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             else:
                 raise LLMError(f"Mock response not found at {bak_file}")
 
-        elif full_auto == "agy":
+        elif full_auto == "agent":
             import datetime
             from pathlib import Path
             project_folder = inputs.get("project_folder", "")
             if not project_folder:
-                raise LLMError("project_folder required in inputs for agy backend")
+                raise LLMError("project_folder required in inputs for agent backend")
                 
             _layout = ProjectLayout(project_folder)
             requests_dir = _layout.write_dir(Area.LLM_REQUESTS)
@@ -1874,7 +1899,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             print(f"LLM_REQUEST_READY: {req_file}", file=sys.stdout)
             sys.stdout.flush()
             
-            print(f"  Waiting for AGY response for {node_id} (timeout {llm_timeout}s)...", file=sys.stderr)
+            print(f"  Waiting for agent response for {node_id} (timeout {llm_timeout}s)...", file=sys.stderr)
             start_wait = time.time()
             start_time_llm = time.time()
             
@@ -1886,14 +1911,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                             res_content = f.read()
                         parsed_result = json.loads(res_content)
                     except Exception as e:
-                        raise LLMError(f"Failed to read or parse AGY LLM response as JSON: {e}")
+                        raise LLMError(f"Failed to read or parse agent LLM response as JSON: {e}")
                         
                     if logger:
                         response_tokens = len(res_content.split()) * 1.3
                         logger.log(
                             step_id=node_id,
                             event_type="llm_generation",
-                            backend="agy",
+                            backend="agent",
                             latency=round(time.time() - start_time_llm, 2),
                             token_count={
                                 "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
@@ -1904,7 +1929,7 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                 time.sleep(2)
                 
             if parsed_result is None:
-                raise LLMError(f"Timeout ({llm_timeout}s) waiting for AGY LLM response at {res_file}")
+                raise LLMError(f"Timeout ({llm_timeout}s) waiting for agent LLM response at {res_file}")
 
         if full_auto == "api":
             llm_config = {}
@@ -3579,7 +3604,7 @@ def _save_review_gate(project_dir, step_id, step_name, output, inputs, state=Non
             save_pipeline_state(project_dir, state)
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Pipeline Runner")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--project", help="Project directory (absolute path)")
@@ -3607,10 +3632,19 @@ def main():
     run_scope.add_scope_arguments(parser)
     run_profile.add_profile_arguments(parser)
     run_breakpoints.add_breakpoint_arguments(parser)
-    parser.add_argument("--full-auto", choices=["agy", "api", "mock"], help="Run full pipeline autonomously using specified LLM backend")
+    parser.add_argument("--full-auto", choices=["agent", "agy", "api", "mock"],
+                        help="Run full pipeline autonomously using specified LLM backend "
+                             "(`agent`: the pipeline writes a request file an agent answers; "
+                             "`agy` is a deprecated alias of `agent`)")
     parser.add_argument("--llm-timeout", type=int, default=300,
-                       help="Timeout for LLM response in agy backend")
+                       help="Timeout for LLM response in agent backend")
+    return parser
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
+    args.full_auto = normalize_full_auto(args.full_auto)
     
     # Resolve project directory from slug if provided
     project_dir = args.project

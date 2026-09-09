@@ -75,7 +75,7 @@ def test_the_role_is_prepended_to_the_prompt_the_model_reads(tmp_path,
         {"project_folder": str(project)},
         node_id,
         {"interface": {"outputs": [{"name": "sfx_creative", "type": "list"}]}},
-        full_auto="agy", llm_timeout=5)
+        full_auto="agent", llm_timeout=5)
 
     prompt = json.loads(
         (layout.read_dir(Area.LLM_REQUESTS)

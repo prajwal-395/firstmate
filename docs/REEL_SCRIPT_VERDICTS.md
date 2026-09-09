@@ -218,7 +218,7 @@ than by reading the diff.
 
 **Method, because it decides what the result is worth.** There is no LLM
 API key on this machine, so `--full-auto api` is unavailable and the only
-backend is `agy` - which is answered by an agent. An agent that wrote the
+backend is `agent` - which is answered by an agent. An agent that wrote the
 prompt and knows which defect it is hunting is not evidence about the
 pipeline; it is the agent agreeing with itself, and it is the
 worker-supplying-taste failure this project was already bitten by when

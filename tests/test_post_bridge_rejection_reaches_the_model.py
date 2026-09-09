@@ -86,7 +86,7 @@ def test_the_second_context_carries_the_violation(tmp_path):
                                            answer_count=2)
     result = run_hybrid_step(
         step, {"project_folder": str(project)}, "mesh_spine",
-        manifest=manifest, full_auto="agy", llm_timeout=60)
+        manifest=manifest, full_auto="agent", llm_timeout=60)
 
     assert result == {"timed_spine": {"ok": True}}
     assert len(seen) == 2, f"expected two model calls, saw {len(seen)}"
@@ -111,7 +111,7 @@ def test_the_retry_is_bounded_and_fails_carrying_the_last_violation(tmp_path):
         answer_count=post_bridge_retry.MAX_ATTEMPTS + 2)
     with pytest.raises(PostBridgeError) as exc:
         run_hybrid_step(step, {"project_folder": str(project)}, "mesh_spine",
-                        manifest=manifest, full_auto="agy", llm_timeout=60)
+                        manifest=manifest, full_auto="agent", llm_timeout=60)
 
     assert len(seen) == post_bridge_retry.MAX_ATTEMPTS, (
         f"the retry is not bounded at {post_bridge_retry.MAX_ATTEMPTS} "
@@ -129,7 +129,7 @@ def test_the_feedback_blocks_accumulate_and_stay_bounded(tmp_path):
         answer_count=post_bridge_retry.MAX_ATTEMPTS + 2)
     with pytest.raises(PostBridgeError):
         run_hybrid_step(step, {"project_folder": str(project)}, "mesh_spine",
-                        manifest=manifest, full_auto="agy", llm_timeout=60)
+                        manifest=manifest, full_auto="agent", llm_timeout=60)
     contexts = [s["context"] for s in seen]
     counts = [c.count(post_bridge_retry.HEADING) for c in contexts]
     assert counts == list(range(post_bridge_retry.MAX_ATTEMPTS)), counts
@@ -160,6 +160,6 @@ def test_a_step_with_no_post_bridge_still_calls_once(tmp_path):
     result = run_hybrid_step(
         step, {"project_folder": str(project)}, "creative_direction",
         manifest={"interface": {"outputs": [{"name": "creative_direction"}]}},
-        full_auto="agy", llm_timeout=30)
+        full_auto="agent", llm_timeout=30)
     assert result == {"creative_direction": {"target_mood": "wry"}}
     assert len(seen) == 1

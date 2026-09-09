@@ -169,7 +169,7 @@ def test_the_question_reaches_the_prompt_and_the_answer_is_recorded(
     result = present_llm_step(
         str(prompt_path), {"project_folder": str(project)}, "plan_vfx",
         manifest={"interface": {"outputs": [{"name": "a_verdict"}]}},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
 
     assert seen, "the step never issued a request"
@@ -200,7 +200,7 @@ def test_a_non_declaring_step_is_not_asked(tmp_path):
     present_llm_step(
         str(prompt_path), {"project_folder": str(project)}, "semantic_analysis",
         manifest={"interface": {"outputs": [{"name": "a_verdict"}]}},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
     assert seen and undetermined.FIELD not in seen[0]["prompt"]
     assert undetermined.collected() == []
@@ -208,7 +208,7 @@ def test_a_non_declaring_step_is_not_asked(tmp_path):
 
 # ── The MACHINE-READABLE half of the request ────────────────────────
 #
-# The agy request file carries the schema twice: as prose inside
+# The agent request file carries the schema twice: as prose inside
 # `prompt`, and as JSON in `expected_schema`.  An answering agent that
 # reads the JSON one - the obvious shortcut, since it is the one meant
 # for a machine - saw a schema with no `could_not_determine` in it,
@@ -218,7 +218,7 @@ def test_a_non_declaring_step_is_not_asked(tmp_path):
 # meaningful: the signal was not lost, it was filled with false silence,
 # in the one mode the pipeline actually runs in.
 
-# What `_agy_request` gives the step per model call.  The answering
+# What `_agent_request` gives the step per model call.  The answering
 # thread below must outlive `times` of them or the later attempts starve.
 LLM_TIMEOUT = 35
 
@@ -249,8 +249,8 @@ def _answer_n_times(req: Path, res: Path, payload: dict, seen: list,
     return t
 
 
-def _agy_request(tmp_path, step_id, payload, inputs=None, times=1, outputs=None):
-    """Drive the REAL agy path and hand back the request files it wrote."""
+def _agent_request(tmp_path, step_id, payload, inputs=None, times=1, outputs=None):
+    """Drive the REAL agent path and hand back the request files it wrote."""
     project = tmp_path / "project"
     project.mkdir(exist_ok=True)
     prompt_path = tmp_path / "handoff.md"
@@ -267,7 +267,7 @@ def _agy_request(tmp_path, step_id, payload, inputs=None, times=1, outputs=None)
             manifest={"interface": {"outputs": outputs or [
                 {"name": "a_verdict", "type": "string", "required": True,
                  "description": "the verdict"}]}},
-            full_auto="agy", llm_timeout=LLM_TIMEOUT,
+            full_auto="agent", llm_timeout=LLM_TIMEOUT,
         )
     except Exception:
         # A step whose answer never validates still issued its requests,
@@ -277,9 +277,9 @@ def _agy_request(tmp_path, step_id, payload, inputs=None, times=1, outputs=None)
     return seen
 
 
-def test_the_agy_request_asks_for_the_field_in_expected_schema(tmp_path):
+def test_the_agent_request_asks_for_the_field_in_expected_schema(tmp_path):
     undetermined.reset()
-    seen = _agy_request(tmp_path, "plan_transitions",
+    seen = _agent_request(tmp_path, "plan_transitions",
                         {"a_verdict": "fine", undetermined.FIELD: []})
     schema = json.loads(seen[0]["expected_schema"])
     names = [entry["name"] for entry in schema]
@@ -302,7 +302,7 @@ def test_expected_schema_and_the_prompt_describe_the_same_schema(tmp_path):
     appended next - here checked with `note_acknowledgements`, which is
     appended on a different condition again."""
     undetermined.reset()
-    seen = _agy_request(
+    seen = _agent_request(
         tmp_path, "plan_transitions", {"a_verdict": "fine"},
         inputs={"timeline_notes": {"notes": [{"id": "n1", "text": "tighter"}]}},
         times=3)
@@ -327,7 +327,7 @@ def test_expected_schema_and_the_prompt_describe_the_same_schema(tmp_path):
 
 def test_a_step_that_does_not_declare_gets_no_such_schema_entry(tmp_path):
     undetermined.reset()
-    seen = _agy_request(tmp_path, "semantic_analysis", {"a_verdict": "fine"})
+    seen = _agent_request(tmp_path, "semantic_analysis", {"a_verdict": "fine"})
     assert undetermined.FIELD not in seen[0]["expected_schema"]
 
 
@@ -341,7 +341,7 @@ def test_each_attempt_is_numbered_and_the_summary_counts_steps(tmp_path):
     step failing the same way three times running is the evidence
     `post_bridge_retry` accumulates one module over."""
     undetermined.reset()
-    seen = _agy_request(tmp_path, "mesh_spine", {"the_wrong_key": 1}, times=3)
+    seen = _agent_request(tmp_path, "mesh_spine", {"the_wrong_key": 1}, times=3)
     assert len(seen) == 3, "the step should have made three model calls"
 
     rows = undetermined.collected()
@@ -444,7 +444,7 @@ def test_both_appended_fields_reach_expected_schema(tmp_path):
     from library.tools import direction_contradiction
     undetermined.reset()
     direction_contradiction.reset()
-    seen = _agy_request(tmp_path, "plan_transitions", {"a_verdict": "fine"},
+    seen = _agent_request(tmp_path, "plan_transitions", {"a_verdict": "fine"},
                         times=3)
     names = [e["name"] for e in json.loads(seen[0]["expected_schema"])]
     assert undetermined.FIELD in names
@@ -464,7 +464,7 @@ def test_a_step_gets_exactly_the_fields_its_two_modules_ask_for(tmp_path):
         dc.reset()
         root = tmp_path / step
         root.mkdir()
-        seen = _agy_request(root, step, {"a_verdict": "fine"})
+        seen = _agent_request(root, step, {"a_verdict": "fine"})
         names = [e["name"] for e in json.loads(seen[0]["expected_schema"])]
         assert (undetermined.FIELD in names) is undetermined.declares(step), step
         assert (dc.FIELD in names) is dc.flags(step), step
@@ -479,7 +479,7 @@ def test_the_twin_channel_counts_steps_and_survives_a_rerun(tmp_path):
     from library.tools import direction_contradiction as dc
     undetermined.reset()
     dc.reset()
-    _agy_request(tmp_path, "plan_transitions", {"the_wrong_key": 1}, times=3)
+    _agent_request(tmp_path, "plan_transitions", {"the_wrong_key": 1}, times=3)
 
     assert [f.attempt for f in dc.collected()] == [1, 2, 3]
     assert len(dc.final_by_step()) == 1

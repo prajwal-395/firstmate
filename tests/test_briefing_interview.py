@@ -138,7 +138,7 @@ def _run(tmp_path, node_id, answer, inputs=None, yaml_body=""):
     step_inputs.update(inputs or {})
     result = present_llm_step(
         str(prompt_path), step_inputs, node_id, manifest=MANIFEST,
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
     assert seen, "the step never issued a request"
     return seen[0], result

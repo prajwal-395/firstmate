@@ -60,7 +60,11 @@ def test_every_harness_the_pipeline_offers_has_a_recorded_reach():
     line = next(l for l in source.splitlines() if '"--full-auto"' in l)
     offered = {c.strip(' "\'') for c in
                line.split("choices=[")[1].split("]")[0].split(",")}
-    assert offered == set(wf.HARNESS_SHOWS_FRAMES)
+    # `agy` is the deprecated alias of `agent`, normalised at the
+    # boundary before any harness lookup - the enumeration stays
+    # canonical, and a genuinely new backend still fails this test.
+    assert offered == set(wf.HARNESS_SHOWS_FRAMES) | {"agy"}
+    assert run_pipeline.normalize_full_auto("agy") == "agent"
 
 
 def test_an_unestablished_harness_raises_rather_than_being_assumed():
@@ -75,7 +79,7 @@ def test_a_harness_that_cannot_be_shown_a_picture_gets_the_prose_instead():
     ])
     inputs = {"broll_window_frames": block, "broll_candidates_toon": "[1]{x}\n"}
 
-    kept, withheld = wf.withhold_for_harness(inputs, "agy")
+    kept, withheld = wf.withhold_for_harness(inputs, "agent")
     assert withheld == []
     assert kept["broll_window_frames"] == block
 

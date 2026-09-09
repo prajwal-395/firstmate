@@ -189,8 +189,8 @@ def test_the_path_is_read_off_the_same_line_the_model_reads(tmp_path):
 # ── Clause 5: the harness ───────────────────────────────────────────
 
 def test_the_harness_enumeration_is_complete_and_an_unknown_one_raises():
-    assert set(HARNESS_READS_FILES) == {"agy", "mock", "api"}
-    assert harness_reads_files("agy") is True
+    assert set(HARNESS_READS_FILES) == {"agent", "mock", "api"}
+    assert harness_reads_files("agent") is True
     assert harness_reads_files("api") is False
     with pytest.raises(UnknownHarness):
         harness_reads_files("some_new_backend")

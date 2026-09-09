@@ -114,7 +114,7 @@ import subprocess
 # assumed either way, because a harness whose reach nobody has
 # established is not a harness known to reach.
 #
-# - `agy`: the request is a file on disk answered by an AGENT with a
+# - `agent`: the request is a file on disk answered by an AGENT with a
 #   shell and its own file tools - "the agent IS the LLM"
 #   (docs/RUN_001_END_TO_END.md §4).  Established on 2026-08-29 by
 #   producing a strip with this module's own ffmpeg command and opening
@@ -128,7 +128,7 @@ import subprocess
 #   shown to anybody; listed as showing because a recorded answer is
 #   unaffected either way, the same reading `HARNESS_READS_FILES` gives.
 HARNESS_SHOWS_FRAMES = {
-    "agy": True,
+    "agent": True,
     "mock": True,
     "api": False,
 }
@@ -137,7 +137,7 @@ WITHDRAWN_DELIVERIES = {
     "base64 in the context string": (
         "No harness this pipeline has decodes it. `api` posts the context "
         "as text, so a data: URI arrives as characters and is charged as "
-        "characters; `agy` writes it into a JSON request file an agent "
+        "characters; `agent` writes it into a JSON request file an agent "
         "reads. Both would carry ~55 KB per strip and show nobody a "
         "picture, which is a fake image part rather than an image part."
     ),

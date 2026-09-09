@@ -10,8 +10,8 @@ captions, transitions, cards and the deterministic explainer, and no
 planning step ever reasons over a reel's speech. That is the gap this
 module closes, without adding any taste to the engine.
 
-The shape mirrors the pipeline's own agy file interface
-(`run_pipeline`, `full_auto == "agy"`): this module builds the SAME
+The shape mirrors the pipeline's own agent file interface
+(`run_pipeline`, `full_auto == "agent"`): this module builds the SAME
 context step 4.06's bridge builds - the whole roster, the timeline as
 context, what the brand template refines - scoped to the reel's own
 spine, and writes it as a request file. A MODEL answers with a

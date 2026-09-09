@@ -32,7 +32,7 @@ Only what the project DECLARES is in there; an undeclared key is absent, never f
 `TemplateLoader.get_brand_constraints` gives `creative_direction` a palette and typography, `plan_transitions` the permitted transition vocabulary and `plan_vfx` a VFX intensity - as prompt text, not as an input key.
 `library/tools/template_loader.BRAND_CONSTRAINT_STEPS` is that enumeration, checked against the step table at import.
 - **The DAG knows `plan_vfx`; the step's manifest and directory know `step_4_03_plan_vfx`, and no rule connects them.** `library/tools/project_layout.node_id_for` is the ONLY translator. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
-- The `agy` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
+- The `agent` request file records `constraints` and concatenates it into `prompt`, because in that mode the file IS the prompt.
 - `tests/test_brand_constraints_reach_the_prompt.py`.
 """
 

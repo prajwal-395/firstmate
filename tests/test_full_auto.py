@@ -42,8 +42,8 @@ def test_full_auto_api(temp_project_dir):
         assert output.get("test_out") == "success"
         mock_generate.assert_called_once()
 
-def test_full_auto_agy_writes_request(temp_project_dir):
-    """Test that --full-auto agy writes request files to the correct path"""
+def test_full_auto_agent_writes_request(temp_project_dir):
+    """Test that --full-auto agent writes request files to the correct path"""
     inputs = {"project_folder": temp_project_dir, "some_data": 456}
     
     prompt_path = Path(temp_project_dir) / "handoff.md"
@@ -55,7 +55,7 @@ def test_full_auto_agy_writes_request(temp_project_dir):
     # Mock time.sleep and time.time to make the timeout happen instantly
     with patch("time.sleep"), patch("time.time", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]):
         with pytest.raises(LLMError, match="Timeout"):
-            present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agy", llm_timeout=1)
+            present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agent", llm_timeout=1)
             
     req_file = requests_dir / "test_step.json"
     assert req_file.exists()
@@ -66,7 +66,7 @@ def test_full_auto_agy_writes_request(temp_project_dir):
         assert req_data["prompt"] == "Test prompt"
         assert "timestamp" in req_data
 
-def test_full_auto_agy_reads_response(temp_project_dir):
+def test_full_auto_agent_reads_response(temp_project_dir):
     """Test that reading a response file returns valid step output"""
     inputs = {"project_folder": temp_project_dir}
     prompt_path = Path(temp_project_dir) / "handoff.md"
@@ -75,7 +75,7 @@ def test_full_auto_agy_reads_response(temp_project_dir):
     # Don't pre-create the response file before the function, because the function unlinks it.
     responses_dir = Path(temp_project_dir) / "pipeline_output" / "llm_responses"
     res_file = responses_dir / "test_step.json"
-    res_data = {"test_out": "agy_success"}
+    res_data = {"test_out": "agent_success"}
     
     def mock_sleep(secs):
         if not res_file.parent.exists():
@@ -85,7 +85,7 @@ def test_full_auto_agy_reads_response(temp_project_dir):
             
     with patch("time.sleep", side_effect=mock_sleep):
         # Should read the response file and return the dict
-        output = present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agy", llm_timeout=5)
+        output = present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agent", llm_timeout=5)
     
     assert output == res_data
 

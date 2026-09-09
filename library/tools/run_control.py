@@ -242,7 +242,7 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
     """A one-line human description of how this run was launched.
 
     The dashboard prints this back so the captain can see that Start
-    really did launch `--full-auto agy` and really did not force review
+    really did launch `--full-auto agent` and really did not force review
     gates on all 26 steps - and, since #250, exactly how much of the DAG
     a scoped run left out.  Since the run profile it also says which
     declared configuration this run is under and where it means to stop,

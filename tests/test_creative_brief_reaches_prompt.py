@@ -249,7 +249,7 @@ def test_no_brief_declared_leaves_the_step_untouched(tmp_path):
 
 
 def _answer_when_asked(project: Path, node_id: str, answer: dict):
-    """Stand in for the agent on the other end of the agy file handshake.
+    """Stand in for the agent on the other end of the agent file handshake.
 
     The response cannot simply be pre-placed: `present_llm_step` deletes
     any existing response file before it writes the request, precisely so
@@ -301,7 +301,7 @@ def test_the_brief_reaches_the_text_handed_to_the_model(tmp_path):
     }
 
     present_llm_step(str(prompt_path), inputs, "plan_vfx",
-                     manifest=manifest, full_auto="agy", llm_timeout=30)
+                     manifest=manifest, full_auto="agent", llm_timeout=30)
 
     request = json.loads(
         (project / "pipeline_output" / "llm_requests" / "plan_vfx.json").read_text()
@@ -337,7 +337,7 @@ def test_context_field_projection_does_not_drop_the_brief(tmp_path):
         manifest={"interface": {"inputs": [{"name": "creative_brief"}],
                                 "outputs": [{"name": "sfx_plan"}]},
                   "context_fields": ["timed_spine"]},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
 
     request = json.loads(
@@ -429,7 +429,7 @@ def test_a_brief_in_a_read_only_planning_tree_reaches_the_request(tmp_path, requ
         manifest={"interface": {"inputs": [{"name": "creative_brief"}],
                                 "outputs": [{"name": "vfx_plan"}]},
                   "context_fields": ["timed_spine"]},
-        full_auto="agy", llm_timeout=30)
+        full_auto="agent", llm_timeout=30)
 
     request = json.loads(
         (project / "pipeline_output" / "llm_requests"

@@ -129,7 +129,7 @@ def test_the_templates_on_disk_really_differ_from_one_another():
 
 
 def _answer_when_asked(project: Path, node_id: str, answer: dict):
-    """Stand in for the agent on the other end of the agy file handshake."""
+    """Stand in for the agent on the other end of the agent file handshake."""
     req = project / "pipeline_output" / "llm_requests" / f"{node_id}.json"
     res = project / "pipeline_output" / "llm_responses" / f"{node_id}.json"
 
@@ -150,7 +150,7 @@ def _answer_when_asked(project: Path, node_id: str, answer: dict):
 def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
     """End to end, through the runner, in the mode this pipeline runs in.
 
-    `agy` writes the request to a file and an agent answers it, so the
+    `agent` writes the request to a file and an agent answers it, so the
     request file IS the prompt.  It used to carry `prompt` alone while
     the constraints were concatenated only into the API path's
     `full_prompt` - which meant that even a working
@@ -179,7 +179,7 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
         node_id,
         manifest={"interface": {"outputs": [{"name": "transition_creative"}]},
                   "context_fields": ["timed_spine"]},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
 
     request = json.loads(
@@ -227,7 +227,7 @@ def test_a_project_that_selected_no_brand_contributes_no_brand_text(tmp_path):
         node_id,
         manifest={"interface": {"outputs": [{"name": "transition_creative"}]},
                   "context_fields": ["timed_spine"]},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
 
     request = json.loads(

@@ -141,7 +141,7 @@ One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#th
   it reads it as `view:transcript` - its Check 5 requires a script "derived from actual temporal
   index data, not from the speech_sequence's intended text", so the projection must not delete it.
   **The remaining self-review is not in the DAG - it is that one agent answers 2.02, 2.05, 3.02 and
-  then 3.03 under `--full-auto agy` (10.1). Closing that needs a different answerer, not an edge.**
+  then 3.03 under `--full-auto agent` (10.1). Closing that needs a different answerer, not an edge.**
 - `tests/test_cut_decisions_reach_a_reader.py`.
 """
 

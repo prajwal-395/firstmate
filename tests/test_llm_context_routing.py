@@ -205,7 +205,7 @@ def test_a_step_with_nothing_to_ask_does_not_call_the_model(tmp_path):
             {"name": "total_clips_analyzed"}]}},
         # A real call in this mode blocks on a response file; reaching the
         # timeout instead of returning is itself the failure.
-        full_auto="agy", llm_timeout=5,
+        full_auto="agent", llm_timeout=5,
     )
 
     assert result == {}
@@ -273,7 +273,7 @@ def test_a_step_with_something_to_ask_still_calls_the_model(tmp_path):
     result = present_llm_step(
         str(prompt_path), {"project_folder": str(project)}, "semantic_analysis",
         manifest={"interface": {"outputs": [{"name": "a_verdict"}]}},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
     assert result == {"a_verdict": "fine"}
 
@@ -381,7 +381,7 @@ def test_a_bridge_table_reaches_the_prompt(node_id, tmp_path):
         str(prompt_path), inputs, node_id,
         manifest={"context_fields": m["context_fields"],
                   "interface": {"outputs": [{"name": "a_verdict"}]}},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
         bridge_supplied=set(tables),
     )
 

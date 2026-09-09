@@ -320,7 +320,7 @@ def _drive(tmp_path, node_id, answer, outputs=("speech_sequence",)):
     result = present_llm_step(
         str(prompt_path), {"project_folder": str(project)}, node_id,
         manifest={"interface": {"outputs": [{"name": o} for o in outputs]}},
-        full_auto="agy", llm_timeout=30,
+        full_auto="agent", llm_timeout=30,
     )
     return seen, result
 

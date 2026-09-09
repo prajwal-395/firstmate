@@ -1280,7 +1280,7 @@ async def operations_for_region(region: str = ""):
 # speak lives in library/tools/run_control.py so the runner in another
 # process cannot disagree with this one about a name.
 #
-# Start launches `--full-auto agy` and does NOT force `--review`.  Review
+# Start launches `--full-auto agent` and does NOT force `--review`.  Review
 # gates are a separate, opt-in press: forcing them turns a 26-step run
 # into 26 stops, which is not what running the pipeline means.
 #
@@ -1379,7 +1379,7 @@ async def _launch(project_dir: str, extra_args: List[str]) -> Dict[str, Any]:
 
 @app.post("/api/pipeline/run")
 async def pipeline_run(request: PipelineRunRequest):
-    """Start a run.  Defaults to `--full-auto agy`, review gates off."""
+    """Start a run.  Defaults to `--full-auto agent`, review gates off."""
     project_dir = _get_project_dir()
     if _is_pipeline_running(project_dir):
         raise HTTPException(400, "Pipeline is already running")
