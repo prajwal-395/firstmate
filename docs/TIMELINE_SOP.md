@@ -61,9 +61,9 @@ Picture rows first, top to bottom, then sound rows:
   graphics, generators, timed text), so an editor reading top-down
   meets the picture, then what the picture says, then decoration. The
   caption row carries rendered caption segments, one per speech block.
-  This placement is flagged as the captain's call: if they want the
-  caption row above the motion-graphics rows instead, the fixed order
-  changes here and only here.
+  This placement is settled (captain's ruling 2026-09-09): the caption
+  row stays where the order above puts it, and if the order is ever
+  revisited it changes here and only here.
 - **Music.** One row for the bed; a crossfade puts two clips on the
   timeline at once, so the bed overlaps itself and takes a second lane
   for exactly that span. Same packing, same rule.

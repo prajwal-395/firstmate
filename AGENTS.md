@@ -235,14 +235,12 @@ Detail: `library/tools/fusion/effects.py`.
 
 ### Tracks
 
-**Per-clip Fusion comps reach V1 AND V2.**
-**A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**
-**A3 is a logical SFX bucket, and TWO SOUNDS AT ONE SPAN IS LAYERING.**
+Rows are the SOP's: `docs/TIMELINE_SOP.md`. `library/tools/timeline_layout.py` is the single owner of track index and track name.
 Detail: `library/tools/execution/fusion_tracks.py`.
 
 ### Media pool and audio
 
-**Prefix overlay filenames with their context.** **Place V1 clips while only track A1 exists**, or the timeline floods with empty tracks. **Resolve audio pool items report 24fps regardless of the timeline**, so compute audio in/out with the pool item's own FPS. **Renders are silent unless you say otherwise** - `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly.
+Rows are the SOP's (`docs/TIMELINE_SOP.md`): a row exists because something goes on it. This supersedes **Place V1 clips while only track A1 exists**. **Prefix overlay filenames with their context.** **Resolve audio pool items report 24fps regardless of the timeline**, so compute audio in/out with the pool item's own FPS. **Renders are silent unless you say otherwise** - `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly.
 Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
