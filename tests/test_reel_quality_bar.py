@@ -371,6 +371,66 @@ def test_a_closer_used_once_raises_no_sharing_finding():
             if f.code == qb.QB_CTA_SHARED] == []
 
 
+def test_a_closer_opening_on_a_sentence_back_half_is_named_and_does_not_fail():
+    """The segment gate refuses a closer that CUTS a segment, but ASR
+    segments split mid-sentence - reel 09's closer starts exactly on
+    one and still opens on "we're calling the Lucie visibility
+    system", whose head the reel never plays. The bar records what the
+    gate cannot see, and records it as a warning: ASR punctuation is a
+    measurement, not a verdict, so this never refuses."""
+    segments = [
+        _segment(10.0, 20.0, "Craig", "so what actually changed"),
+        _segment(200.0, 204.0, "Craig",
+                 "it's exactly why we've been building this platform"),
+        _segment(204.5, 210.0, "Craig",
+                 "we're calling the lucie visibility system check it out"),
+    ]
+    transcript = _transcript(segments)
+    back_half = CallToAction(timeline_start=204.5, timeline_end=210.0,
+                             text="we're calling the lucie visibility "
+                                  "system check it out",
+                             speaker="Craig")
+    moment = _moment(number=1, cta=back_half)
+    closers = qb.declared_closers([moment])
+    findings = [f for f in qb.exact_findings(moment, transcript, closers)
+                if f.code == qb.QB_CTA_OPENS_MID_SENTENCE]
+    assert len(findings) == 1
+    assert findings[0].severity == qb.WARNING
+    assert "building this platform" in findings[0].message
+
+
+def test_a_closer_after_a_turn_change_opens_clean():
+    """A new speaker starts a new utterance, even where the transcript
+    carries no punctuation at all - the fixture closer follows Craig
+    with Akshita, so no sentence-start finding fires on correct
+    output."""
+    transcript = _transcript(SEGMENTS)
+    moment = _moment(cta=CLOSER)
+    closers = qb.declared_closers([moment])
+    assert [f for f in qb.exact_findings(moment, transcript, closers)
+            if f.code == qb.QB_CTA_OPENS_MID_SENTENCE] == []
+
+
+def test_a_closer_after_a_closed_sentence_opens_clean():
+    """The same speaker, but the transcriber closed the sentence - the
+    closer is the next thought, not the back half of this one."""
+    segments = [
+        _segment(10.0, 20.0, "Craig", "so what actually changed"),
+        _segment(200.0, 204.0, "Craig",
+                 "it's exactly why we built this platform."),
+        _segment(204.5, 210.0, "Craig",
+                 "we'd love for you to go check it out"),
+    ]
+    transcript = _transcript(segments)
+    clean = CallToAction(timeline_start=204.5, timeline_end=210.0,
+                         text="we'd love for you to go check it out",
+                         speaker="Craig")
+    moment = _moment(number=1, cta=clean)
+    closers = qb.declared_closers([moment])
+    assert [f for f in qb.exact_findings(moment, transcript, closers)
+            if f.code == qb.QB_CTA_OPENS_MID_SENTENCE] == []
+
+
 # ── The judge is never handed the answer sheet ───────────────────────
 
 def test_the_real_handoff_names_none_of_the_criteria():

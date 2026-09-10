@@ -527,6 +527,7 @@ QB_CTA_IN_BODY = "QB-CTA-IN-BODY"
 QB_CTA_SILENT = "QB-CTA-SILENT"
 QB_CTA_OUTSIDE = "QB-CTA-OUTSIDE"
 QB_CTA_FRAGMENT = "QB-CTA-FRAGMENT"
+QB_CTA_OPENS_MID_SENTENCE = "QB-CTA-OPENS-MID-SENTENCE"
 QB_CTA_SHARED = "QB-CTA-SHARED"
 QB_CTA_NOT_LAST = "QB-CTA-NOT-LAST"
 QB_CTA_DISAGREEMENT = "QB-CTA-DISAGREEMENT"
@@ -550,6 +551,7 @@ FINDING_OWNERS: Dict[str, str] = {
     QB_CTA_SILENT: "call_to_action",
     QB_CTA_OUTSIDE: "call_to_action",
     QB_CTA_FRAGMENT: "call_to_action",
+    QB_CTA_OPENS_MID_SENTENCE: "call_to_action",
     QB_CTA_SHARED: "call_to_action",
     QB_CTA_NOT_LAST: "call_to_action",
     QB_CTA_DISAGREEMENT: "call_to_action",
@@ -811,6 +813,44 @@ def declared_closers(moments: Sequence) -> Dict[Tuple[float, float], List[int]]:
     return out
 
 
+def cta_opening_head(transcript: dict, cta_start: float,
+                      cta_speaker: Optional[str]) -> Optional[str]:
+    """The sentence head a closer leaves behind, or None when it opens clean.
+
+    The proposal gate checks whole SEGMENTS, and ASR segments split
+    mid-sentence - so a closer can start exactly on a segment edge and
+    still open on the back half of a statement ("we're calling the
+    Lucie visibility system", whose head "it's exactly why we've been
+    building this platform" plays nowhere on the reel). This is the
+    deterministic half of that observation: the latest segment ending
+    before the closer starts is its lead-in. A lead-in nobody speaks
+    (episode start), a turn change (another speaker), or a lead-in the
+    transcriber closed with sentence-terminal punctuation all open
+    clean. A same-speaker lead-in with no closing punctuation means the
+    closer's first words continue a sentence the reel never plays the
+    head of, and the trailing words are returned as the evidence.
+
+    WARNING-level on purpose (AGENTS.md 10.4): ASR punctuation is a
+    measurement, not a verdict, and a transcript that drops a period
+    reads here as a fragment. The message quotes the head so the reader
+    can dismiss it, and the bar never refuses on it.
+    """
+    segments = transcript.get("segments") or []
+    earlier = [s for s in segments
+               if float(s.get("timeline_end") or 0) <= float(cta_start) + 1e-6]
+    if not earlier:
+        return None
+    lead = max(earlier, key=lambda s: float(s.get("timeline_end") or 0))
+    if (lead.get("speaker") or "") != (cta_speaker or ""):
+        return None
+    text = re.sub(r"(\.\.\.+|\u2026)\s*$", "",
+                  (lead.get("text") or "").rstrip())
+    if text.endswith((".", "?", "!")):
+        return None
+    words = (lead.get("text") or "").split()
+    return " ".join(words[-12:]) if words else None
+
+
 def cta_reading(moment, transcript: dict,
                 closers: Dict[Tuple[float, float], List[int]]) -> dict:
     """What closes this reel, where it came from, and who else uses it.
@@ -851,6 +891,8 @@ def cta_reading(moment, transcript: dict,
         "silent": False,
         "incomplete": False,
         "unwritten_words": [],
+        "opens_mid_sentence": False,
+        "opening_head": "",
         "is_the_ending": False,
     }
 
@@ -858,6 +900,12 @@ def cta_reading(moment, transcript: dict,
         key = (round(declared[0], 2), round(declared[1], 2))
         others = [n for n in closers.get(key, ()) if n != int(moment.number)]
         closer = moment.call_to_action
+        # A closer that opens on a sentence's back half is a THIRD
+        # captain fragment report (reel 09's "we're calling the
+        # Lucie visibility system"); the segment gate cannot see
+        # it, so the bar records it here instead of refusing it.
+        opening_head = (cta_opening_head(
+            transcript, declared[0], closer.speaker) or "")
         reading.update({
             "source": "declared",
             "span": [round(declared[0], 2), round(declared[1], 2)],
@@ -877,6 +925,8 @@ def cta_reading(moment, transcript: dict,
             # this and nothing read it.
             "incomplete": bool(closer.straddling_within),
             "unwritten_words": [dict(x) for x in closer.straddling_within],
+            "opening_head": opening_head,
+            "opens_mid_sentence": bool(opening_head),
             # `reel_ranges` lays a declared closer down LAST, always, and
             # that is the one place the order is spelled - so a declared
             # closer that is not the ending would mean the builder and
@@ -1012,6 +1062,19 @@ def _cta_findings(moment, name: str, cta: dict,
                 f"its closer plays {len(cta['unwritten_words'])} passage(s) "
                 f"of speech its own text does not contain, so what a viewer "
                 f"hears is not the complete invitation the text reads like"),
+            detail=cta))
+    if cta.get("opens_mid_sentence"):
+        head = cta.get("opening_head") or ""
+        shared = ", ".join(
+            str(n) for n in cta.get("shared_with") or []) or "none"
+        out.append(BarFinding(
+            code=QB_CTA_OPENS_MID_SENTENCE, reel=name, severity=WARNING,
+            message=(
+                f"its closer opens on the back half of a sentence whose "
+                f"head ({head!r}) the reel never plays, so the invitation "
+                f"starts mid-thought. Redrawing the start moves every reel "
+                f"sharing this span ({shared}), which is the captain's "
+                f"call, not a trim"),
             detail=cta))
     if cta["source"] != "absent" and not cta["is_the_ending"]:
         out.append(BarFinding(
