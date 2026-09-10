@@ -77,7 +77,11 @@ def _build_link_map():
         "globs": ["*.setting"],
     })
 
-    # No PowerGrades: the pipeline ships no .drx and applies none.
+    # No PowerGrade sync: a staged grade is applied per clip by path
+    # (`Graph.ApplyGradeFromDRX` in step 6.01 via
+    # library/tools/color_page_grade.py), never linked into Resolve's
+    # preset directories. The file stays with the project that staged
+    # it, with its provenance recorded (AGENTS.md 11).
 
     # Fairlight Presets -> Resolve/Fairlight/Presets/Pipeline/
     links.append({

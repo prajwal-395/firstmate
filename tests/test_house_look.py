@@ -368,3 +368,48 @@ def test_a_resolved_look_is_a_declared_look():
     assert isinstance(resolve_look(FULL_DECLARATION), DeclaredLook)
     assert resolve_look(FULL_DECLARATION).declared == (
         "cdl", "contrast", "glow", "grain", "vignette", "exposure_reference")
+
+
+# ── Project-level override: the project's own config wins ────────────
+
+def _project_with_look(tmp_path, look):
+    (tmp_path / "project.yaml").write_text(
+        yaml.safe_dump({"name": "t", "style": {"house_look": look}}))
+    return str(tmp_path)
+
+
+def test_no_project_declaration_leaves_the_template_slot_alone(tmp_path):
+    """Invisible to every existing project: nothing declared, the
+    template's slot passes through untouched."""
+    from library.tools.house_look import effective_house_look
+
+    (tmp_path / "project.yaml").write_text(
+        yaml.safe_dump({"name": "t", "pipeline": {}}))
+    assert effective_house_look({"house_look": None},
+                                str(tmp_path)) is None
+    assert effective_house_look({}, "") is None
+
+
+def test_a_project_declaration_replaces_the_template_slot(tmp_path):
+    """Whole-slot replace, never a merge: half a look from each of two
+    sources is a look nobody designed."""
+    from library.tools.house_look import effective_house_look
+
+    folder = _project_with_look(tmp_path, {"name": "proj", "contrast": 0.1})
+    assert effective_house_look({"house_look": {"name": "tmpl"}},
+                                folder) == {"name": "proj", "contrast": 0.1}
+
+
+def test_a_malformed_project_declaration_is_refused(tmp_path):
+    """A project block that is not a mapping cannot be resolved, so it
+    raises here rather than rendering nothing at 2am."""
+    from library.tools.house_look import (
+        LookDeclarationError,
+        project_house_look,
+    )
+
+    (tmp_path / "project.yaml").write_text(
+        yaml.safe_dump({"name": "t",
+                        "style": {"house_look": "v04_teal_split"}}))
+    with pytest.raises(LookDeclarationError):
+        project_house_look(str(tmp_path))

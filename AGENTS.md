@@ -645,16 +645,14 @@ Detail: `library/tools/music_measurement.py`. [why](docs/RULE_EVIDENCE.md#what-s
 
 **Anything added to `library/presets/` from an outside source needs its licence recorded here before it lands.**
 
-**No third-party look assets ship.**
-A look is declared by a brand template as CDL plus Fusion values, and this repository ships none of its own - see §12.
-`tests/test_color_grade_delivery.py` fails if any `.drx` reappears. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
+**A PowerGrade lands only with its provenance recorded here.**
+Captain's ruling 2026-09-10 over the withdrawn no-drx rule: `The Grade Free_1.13.1.drx` (captain-supplied, Zay's free grade) is authorised; no file ships in this repo. `library/tools/color_page_grade.py`; `tests/test_color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-unlicensed-powergrade)
 
 **One third-party asset does ship, with its licence.**
-Montserrat, as `remotion-subtitles/public/fonts/Montserrat-Variable.ttf` - a variable font covering the 100-900 weight axis, which is every weight `library/tools/subtitle_style.py` can ask for.
-Licensed under the **SIL Open Font License 1.1**; licence file is `public/fonts/OFL-Montserrat.txt`.
+Montserrat, as `remotion-subtitles/public/fonts/Montserrat-Variable.ttf` (variable 100-900: every weight `library/tools/subtitle_style.py` can ask for), under **SIL Open Font License 1.1** (`public/fonts/OFL-Montserrat.txt`).
 
 - **Bundle fonts; never import one over HTTP.** [why](docs/RULE_EVIDENCE.md#the-webfont-race)
-- `tests/test_bundled_fonts.py` fails if the font or its licence goes missing, if a font is imported over HTTP again, or if a template names a font that is neither bundled nor explicitly accepted as a system font.
+- `tests/test_bundled_fonts.py` fails if the font or licence goes missing, a font arrives over HTTP, or a template names one neither bundled nor accepted as system.
 
 **A declared typeface must be one that really draws the glyphs.**
 One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system font, or carried by the project as a `font_file` staged out of `<project>/brand_assets/` by `prep_remotion`.

@@ -51,11 +51,13 @@ captain's page, which would be a visible disturbance for nothing.
 
 `GalleryStillAlbum.ExportStills` WRITES A `.drx` BESIDE EVERY PNG, unasked
 - `<prefix>_1.1.1.png` and `<prefix>_1.1.1.drx`, a PowerGrade sidecar.
-Nothing in this repository reads a `.drx` and §11 keeps them out
-altogether, so the export goes to a scratch directory, the PNG is moved
-to its real name, and the whole scratch directory is removed.  The
-`_1.1.1` suffix is Resolve's own and is not a name a caller can choose,
-which is the other reason for the scratch directory.
+A capture sidecar is not a staged grade - it carries no recorded
+provenance, so `color.power_grade_drx` would refuse it (AGENTS.md 11,
+library/tools/color_page_grade.py). The export goes to a scratch
+directory, the PNG is moved to its real name, and the whole scratch
+directory is removed.  The `_1.1.1` suffix is Resolve's own and is not
+a name a caller can choose, which is the other reason for the scratch
+directory.
 
 `ExportStills` RETURNS True.  It also returned True in the run where the
 file was wanted, so the return value is not evidence: the PNG is checked

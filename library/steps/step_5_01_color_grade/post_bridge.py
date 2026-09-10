@@ -40,6 +40,7 @@ from library.tools.color_correction import (
     FIELD,
     read_corrections,
 )
+from library.tools.house_look import effective_house_look
 
 
 def resolve_color_grade(data: dict) -> dict:
@@ -75,7 +76,7 @@ def resolve_color_grade(data: dict) -> dict:
         {"entries": entries},
         project_folder,
         style.get("reference_look_image", ""),
-        style.get("house_look"),
+        effective_house_look(style, project_folder),
         measured_clips=measured_clips,
         corrections=corrections,
         dropped=dropped,

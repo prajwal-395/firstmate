@@ -42,11 +42,19 @@ from library.steps.step_5_01_color_grade.grade import (
     measure_clips,
 )
 from library.tools.color_correction import term_legend
-from library.tools.house_look import describe_look, resolve_look
+from library.tools.house_look import (
+    describe_look,
+    effective_house_look,
+    resolve_look,
+)
 
 
 def declared_look_view(house_look) -> dict:
-    """What the project's brand template declared, or the absence of it.
+    """What the project declared as its look, or the absence of it.
+
+    The declaration arrives already resolved - the project's own
+    `style.house_look` wins over its brand template's
+    (`effective_house_look`) - so this function only renders the view.
 
     An absent look is stated as a sentence rather than left as a blank:
     "no look is declared" and "a look is declared and it is quiet" are
@@ -93,7 +101,8 @@ def main():
     print(json.dumps({
         "clip_exposure": rows,
         "cut_adjacency": cut_adjacency(entries, rows),
-        "declared_look": declared_look_view(style.get("house_look")),
+        "declared_look": declared_look_view(effective_house_look(
+            style, data.get("project_folder", ""))),
         "grade_terms_legend": {
             "luma": (
                 f"{LUMA_SCOPE}. It does not know where the light is in the "

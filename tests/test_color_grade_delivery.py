@@ -1,8 +1,16 @@
 """The declared colour look must reach the picture, or say why it cannot.
 
-The look is CDL plus Fusion and nothing else - there is no PowerGrade
-route and no `.drx` in the repo. This covers both halves reaching the
-timeline for a template that DECLARES a look, and what a project whose
+The look is CDL plus Fusion, applied a third way where the project asks:
+`color.power_grade_drx` in its own project.yaml, applied per clip with
+`Graph.ApplyGradeFromDRX` (library/tools/color_page_grade.py) - the
+captain's ruling, 2026-09-10, over the withdrawn no-PowerGrade rule. A
+`.drx` nobody authorised is still refused; the refusal moved from "no
+file anywhere" to "no provenance", and that is what the last test here
+plus tests/test_color_page_grade.py now assert.
+
+This covers all three routes reaching the timeline for a project that
+DECLARES a look - including a look declared in the project's own
+project.yaml rather than its brand template - and what a project whose
 template declares none actually gets, which is nothing.
 
 It also covers the exposure half, which is a measurement and not a look:
@@ -71,6 +79,12 @@ def test_every_designed_node_states_how_it_is_delivered():
 
 
 def test_no_designed_node_is_delivered_by_a_powergrade():
+    """The DECLARED look's halves are CDL and Fusion - the delivery table
+    names no third half, because a PowerGrade is not a half of the
+    declaration. It is a render-time application of a file the project
+    staged (`color.power_grade_drx`), which REPLACES the graph rather
+    than carrying one node's values. See tests/test_color_page_grade.py
+    for the provenance gate on that route."""
     delivered = {r.get("delivered_by") for r in GRADE_PIPELINE_DELIVERY.values()}
     assert "powergrade_path" not in delivered
     assert all("drx" not in str(d).lower() for d in delivered)
@@ -385,11 +399,69 @@ def test_every_brand_template_parses_and_declares_no_look():
         assert resolve_look(declaration) is None or declaration
 
 
-def test_no_drx_survives_in_the_repo():
-    """The one PowerGrade that shipped was a third-party gift with no
-    written commercial licence. Nothing may put one back."""
-    found = []
-    for root, dirs, files in os.walk(REPO_ROOT):
-        dirs[:] = [d for d in dirs if d not in (".git", "__pycache__", ".venv")]
-        found.extend(os.path.join(root, f) for f in files if f.endswith(".drx"))
-    assert not found, f"unlicensed PowerGrade assets are back: {found}"
+def test_a_project_declared_look_reaches_the_cdl(tmp_path):
+    """Scope is the project's own config: `style.house_look` in
+    project.yaml wins over the brand template's slot, whole-slot, so
+    lucie/geo-podcast can carry v04 without forking its template. On the
+    old code this read the template only, and the project's declaration
+    never reached a pixel."""
+    from library.steps.step_5_01_color_grade.post_bridge import (
+        resolve_color_grade,
+    )
+
+    v04 = {
+        "name": "v04_teal_split",
+        "cdl": {"slope": [1.03, 1.0, 0.96],
+                "offset": [-0.01, 0.005, 0.02],
+                "power": [1.0, 1.0, 1.0], "saturation": 1.12},
+        "contrast": 0.12,
+        "glow": {"gain": 0.2, "threshold": 0.72, "size": 3.5},
+        "grain": {"power": 0.35, "size": 1.5},
+        "vignette": {"blend": 0.35, "soft": 0.3},
+    }
+    (tmp_path / "project.yaml").write_text(
+        yaml.safe_dump({"name": "t", "style": {"house_look": v04}}))
+    data = {
+        "a_roll_assignments": [{
+            "spine_block_position": 1, "clip_id": "c1",
+            "source_file": "/nowhere/f1.mov",
+            "video_in": 0.0, "video_out": 1.0,
+            "timeline_start": 0.0, "timeline_end": 1.0}],
+        "b_roll_assignments": [], "b_roll_interjections": [],
+        "brand_template": {},
+        "project_folder": str(tmp_path),
+        "clip_exposure": [{
+            "clip_id": "c1", "track": "V1",
+            "first_plays_at_seconds": 0.0, "placements": 1,
+            "luma": 122.0, "luma_method": LUMA_METHOD,
+            "luma_samples": 40}],
+        "color_correction": [], "grade_assessment": "",
+        "subject_grades": [],
+    }
+    spec = resolve_color_grade(data)["color_grade_spec"]
+    assert spec["house_look"] == "v04_teal_split"
+    cdl = spec["per_clip_adjustments"][0]["cdl_values"]
+    assert cdl == resolve_look(v04).cdl()
+    assert cdl["slope_r"] == pytest.approx(1.03)
+    assert cdl["saturation"] == pytest.approx(1.12)
+    assert spec["fusion_look"]["grade_contrast"] == pytest.approx(0.12)
+
+
+def test_an_unlicensed_drx_is_refused_even_when_staged(tmp_path):
+    """The withdrawn rule failed on any `.drx` anywhere; the captain's
+    ruling keeps the refusal for a `.drx` nobody authorised. A staged
+    file with no provenance never reaches `apply_power_grade` - the
+    refusal happens at resolve time, before any Resolve call."""
+    from library.tools.color_page_grade import (
+        ColorPageGradeError,
+        resolve_color_page_grade,
+    )
+
+    staged = tmp_path / "grade.drx"
+    staged.write_bytes(b"DRX")
+    (tmp_path / "project.yaml").write_text(yaml.safe_dump(
+        {"name": "t",
+         "color": {"power_grade_drx": {"path": str(staged)}}}))
+    with pytest.raises(ColorPageGradeError) as excinfo:
+        resolve_color_page_grade(str(tmp_path))
+    assert "provenance" in str(excinfo.value)

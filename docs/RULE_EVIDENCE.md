@@ -2248,6 +2248,8 @@ The repository previously carried one PowerGrade, `cinematic_warm.drx` - a free 
 It was removed along with the whole PowerGrade route: `build_powergrade.py`, the `luts/` and `dctls/` preset directories, and `preset_indexer.py`.
 `tests/test_color_grade_delivery.py` fails if any `.drx` reappears.
 
+Captain's ruling 2026-09-10, over that removal: *"what do you mean DRX is out, its just lua tables in a file that can be imported right?"* - firstmate's reasoning was wrong twice (a `.drx` is XML wrapping a hex `FieldsBlob`, not lua tables; and the route probed was the wrong object - the import route is `GalleryStillAlbum.ImportStills` and the apply route is `Graph.ApplyGradeFromDRX`, both proved by calling on `SCRATCH_grade_probe`, never by `dir()`). And the asset is the captain's own - `The Grade Free_1.13.1.drx`, Zay's Aesthetics free PowerGrade, supplied at `/Users/prajwal/Downloads/TheGradeFree.zip` - so the licensing caution was firstmate being skittish about the captain's own call. The rule now stands as AGENTS.md 11 has it: a `.drx` lands only with its provenance recorded, and an unrecorded one is refused (`tests/test_color_page_grade.py`). No file ships in this repo; the captain's file proved the route from outside it.
+
 ### the-webfont-race
 
 Montserrat is bundled rather than fetched because `@import url('https://fonts.googleapis.com/...')` with no `delayRender` made typography a race with the network.

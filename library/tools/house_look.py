@@ -253,7 +253,10 @@ def _number(value: Any, where: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise LookDeclarationError(
             f"{where} must be a number, got {value!r}. A look is values; "
-            f"a name or a path is the PowerGrade route, which is closed."
+            f"a name or a path is not a value. A finished node tree "
+            f"travels as `color.power_grade_drx` in the project's own "
+            f"project.yaml (library/tools/color_page_grade.py), never "
+            f"inline in a look."
         )
     return float(value)
 
@@ -512,6 +515,69 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
             declaration["exposure_reference"], "style.house_look.exposure_reference")
 
     return DeclaredLook(**fields)
+
+
+def project_house_look(project_folder: Any) -> Any:
+    """The `style.house_look` a project declares in its own project.yaml.
+
+    Top-level `style:` block, the same shape `effect.timed_text_overlay`
+    takes (library/tools/timed_text_overlay.py): a project may differ
+    from its series without forking the series' template, so the project
+    wins over the template. Returns the declaration mapping, or None
+    when the project declares none.
+
+    A malformed block raises `LookDeclarationError` here rather than at
+    render time, because a declaration that renders nothing is
+    indistinguishable from no declaration at all.
+    """
+    import os
+
+    if not project_folder or not isinstance(project_folder, str):
+        return None
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return None
+    try:
+        import yaml
+    except ImportError:
+        raise LookDeclarationError(
+            "PyYAML is required to read project.yaml for "
+            "`style.house_look`.")
+    with open(project_yaml, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    if not isinstance(config, dict):
+        raise LookDeclarationError(
+            f"{project_yaml} does not parse as a mapping.")
+    style = config.get("style")
+    if style is None:
+        return None
+    if not isinstance(style, dict):
+        raise LookDeclarationError(
+            f"{project_yaml} has a `style:` block that is not a mapping, "
+            f"got {type(style).__name__}.")
+    declaration = style.get("house_look")
+    if declaration is None:
+        return None
+    if not isinstance(declaration, dict):
+        raise LookDeclarationError(
+            f"{project_yaml} `style.house_look` must be a declaration "
+            f"mapping, got {declaration!r}.")
+    return declaration
+
+
+def effective_house_look(template_style: Any,
+                         project_folder: Any) -> Any:
+    """The house_look declaration step 5.01 resolves: project wins.
+
+    The whole slot is replaced rather than merged key by key: half a
+    look from each of two sources is a look nobody designed. A project
+    that declares nothing leaves the template's slot exactly as it was,
+    so this is invisible to every existing project.
+    """
+    project_declaration = project_house_look(project_folder)
+    if project_declaration is not None:
+        return project_declaration
+    return (template_style or {}).get("house_look")
 
 
 def describe_declaration_shape() -> str:

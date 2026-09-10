@@ -2117,12 +2117,16 @@ def build_timeline(
     # since. The cyan-marker path that used to sit here is its fallback.
 
     # ══════════════════════════════════════════════════════════
-    # COLOR GRADING (house look: CDL half)
+    # COLOR GRADING (house look: CDL half, then the PowerGrade route)
     # ══════════════════════════════════════════════════════════
     # The look's other half is Fusion, and it does not arrive here: it is
     # merged into fusion_effects.per_clip by compile_manifest and drawn by
-    # apply_fusion_comps. There is no PowerGrade route - see
-    # library/tools/house_look.py for why the look is CDL plus Fusion.
+    # apply_fusion_comps. The THIRD route is the project's own PowerGrade:
+    # `color.power_grade_drx` in its project.yaml, applied per clip with
+    # `Graph.ApplyGradeFromDRX` (library/tools/color_page_grade.py).
+    # Applying a DRX REPLACES the clip's whole node graph - including the
+    # node SetCDL just wrote - so a declared DRX is the grade, not an
+    # addition to it. An undeclared one changes nothing here.
     color_grade = manifest.get("color_grade", {})
     per_clip_adjs = color_grade.get("per_clip_adjustments", [])
     house_look = color_grade.get("house_look")
@@ -2180,6 +2184,52 @@ def build_timeline(
                     results["warnings"].append(f"SetCDL failed on {clip_name}: {e}")
 
                 print(f"  ✓ Applied CDL base grade to {clip_name}", file=sys.stderr)
+
+    # The PowerGrade route, per clip, after the CDL: a declared DRX
+    # replaces the whole node graph, so this runs inside the same clip
+    # loop position rather than as a second pass that could disagree
+    # about which items carry a grade.
+    power_grade = None
+    if project_folder:
+        try:
+            from library.tools.color_page_grade import (
+                apply_power_grade,
+                resolve_color_page_grade,
+            )
+            power_grade = resolve_color_page_grade(project_folder)
+        except Exception as e:
+            # A malformed declaration refuses the render rather than
+            # rendering ungraded: a dropped grade ships forty minutes in.
+            results["errors"].append(f"color.power_grade_drx refused: {e}")
+            print(f"  ✗ color.power_grade_drx refused: {e}", file=sys.stderr)
+            power_grade = "refused"
+
+    if power_grade is not None and power_grade != "refused":
+        print(f"\n── Color Grading (PowerGrade: "
+              f"{os.path.basename(power_grade['path'])}) ──",
+              file=sys.stderr)
+        for track_idx in range(1, timeline.GetTrackCount("video") + 1):
+            items = timeline.GetItemListInTrack("video", track_idx)
+            if not items:
+                continue
+            for item in items:
+                try:
+                    mpi = item.GetMediaPoolItem()
+                    clip_name = ((mpi.GetClipProperty("File Name")
+                                  if mpi else None) or item.GetName()
+                                 or "unnamed clip")
+                except Exception:
+                    clip_name = "unnamed clip"
+                record = apply_power_grade(item, power_grade["path"])
+                if record.get("applied"):
+                    print(f"  ✓ Applied PowerGrade to {clip_name} "
+                          f"({record.get('nodes')} nodes)", file=sys.stderr)
+                else:
+                    results["warnings"].append(
+                        f"PowerGrade did not land on {clip_name}: "
+                        f"{record.get('reason')}")
+                    print(f"  ⚠ PowerGrade did not land on {clip_name}: "
+                          f"{record.get('reason')}", file=sys.stderr)
 
 
     if verify_color_grades:
