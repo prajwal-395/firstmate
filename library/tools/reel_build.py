@@ -3542,6 +3542,23 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     return items[0] if items else None
 
 
+def _overlay_segment_id(segment: dict) -> str:
+    """The intent key for one overlay segment.
+
+    The declared `segment_id` first - caption segments carry one, and
+    a rebuild that reuses the render keeps it. Otherwise the render
+    filename stem, which is what a captain reading the timeline sees
+    and what stays stable while the file is reused.
+    """
+    import os
+
+    declared = (segment or {}).get("segment_id")
+    if declared:
+        return str(declared)
+    path = (segment or {}).get("overlay_path") or ""
+    return os.path.splitext(os.path.basename(path))[0]
+
+
 def pool_sequence_for(pool, frame_dir: str):
     """The pooled image-sequence item for a rendered frame directory.
 
@@ -3670,7 +3687,8 @@ def overlay_import_bin(project_folder: str, timeline_name: str,
 def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            segments, track_index: int, kind: str,
                            check: str, properties: dict = None,
-                           project_folder: str = "") -> None:
+                           project_folder: str = "",
+                           overlay_intent: dict = None) -> None:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -3701,6 +3719,11 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     full-canvas segment (`tight_box` None) needs no transform. A tight
     canvas without its transform is a small clip Resolve centres on
     the delivery frame, nowhere near the union it was computed from.
+
+    Where the project declares intent (`overlay_intent` - loaded from
+    `external/overlay_intent.json` by the caller), a pinned segment
+    lands on the declared position instead of the computed one; the
+    pin is selected by the segment's id, falling back to `kind`.
     """
     import sys
 
@@ -3752,10 +3775,16 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # IS on the timeline, and failing the build over a movable
         # graphic would trade a misplaced one for a missing one (the
         # same discipline `overlay_placement` keeps for captions).
+        # A declared pin for this segment wins over the computed
+        # placement (Reel 09: the captain's hand corrections), so a
+        # rebuild lands where they put things.
         note = apply_placement_transform(
             timeline, track_index, record_frame,
             (segment.get("tight_box") or {}).get("placement"),
-            label=f"{kind} at {segment['timeline_start']:.2f}s")
+            label=f"{kind} at {segment['timeline_start']:.2f}s",
+            kind=kind,
+            segment_id=_overlay_segment_id(segment),
+            intent=overlay_intent)
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
 
@@ -3811,7 +3840,7 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -4252,7 +4281,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             track_plan.row_for_role(FRAME).index,
             kind="TV frame", check="F4",
             properties=_look.frame_properties(look, width, height),
-            project_folder=project_folder)
+            project_folder=project_folder,
+            overlay_intent=overlay_intent)
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -4337,7 +4367,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             source_in_frame=segment["source_in_frame"],
             source_out_frame=segment["source_in_frame"] + content_frames,
             placement=(segment.get("tight_box") or {}).get("placement"),
-            label=segment.get("segment_id", "caption"))
+            label=segment.get("segment_id", "caption"),
+            kind="caption",
+            segment_id=segment.get("segment_id"),
+            intent=overlay_intent)
         if not placed:
             print(f"Failed to place {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
@@ -4417,7 +4450,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             pool, project, timeline, name, fps, explainer_segments,
             track_plan.row_for_role(EXPLAINER).index,
             kind="explainer", check="F21",
-            project_folder=project_folder)
+            project_folder=project_folder,
+            overlay_intent=overlay_intent)
 
 
 
@@ -4430,7 +4464,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             pool, project, timeline, name, fps, semantic_segments,
             track_plan.row_for_role(SEMANTIC).index,
             kind="semantic visual", check="F22",
-            project_folder=project_folder)
+            project_folder=project_folder,
+            overlay_intent=overlay_intent)
 
     # ── Link pass: picture to speech, captions into the group ──
     # Span-based, in ONE call per speech item (see `link_reel_groups`
@@ -5138,6 +5173,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
                              name_suffix: str = "",
                              organise: bool = True,
+                             intent_file: str = "",
                              allow_drops=None) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
@@ -5209,6 +5245,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     conformance verifier run and still gets a raise on a defective
     build - with the approved timelines intact.
 
+    `intent_file` names an overlay-intent file outright
+    (`library/tools/overlay_intent.py`); empty reads the project's own
+    `external/overlay_intent.json` when the captain declared one, and
+    builds purely computed placements otherwise. A declared position
+    wins over the computed one, so a rebuild lands where the captain
+    put things - Reel 09's hand corrections survive the next build
+    instead of being recomputed past.
+
     `allow_drops` declares intended reductions by ROW for the replace
     guard (`library/tools/reel_replace_guard.py`, issue #925): a list
     of `"ROW"` (every reel this call promotes) or `"FINAL::ROW"`
@@ -5269,7 +5313,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         if not proj:
             raise ValueError(f"Unknown project {project_slug}")
         project_folder = str(proj.project_root)
-    
+
+    # The captain's pinned overlay positions, if they declared any.
+    # Missing is the normal case (purely computed placements); a
+    # malformed file REFUSES rather than building past it, because a
+    # silently ignored pin rebuilds the wrong positions while
+    # reading as honoured.
+    from library.tools.overlay_intent import (
+        OverlayIntentError, load_intent)
+    try:
+        overlay_intent = load_intent(
+            project_folder,
+            intent_file=intent_file or None)
+    except OverlayIntentError as exc:
+        raise ReelBuildError(
+            f"overlay intent cannot be honoured: {exc}") from exc
+
     with open(os.path.join(project_folder, "project.yaml")) as f:
         config = yaml.safe_load(f)
         
@@ -5280,6 +5339,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         raise ValueError("Missing 'timeline_name' under 'resolve' in project.yaml")
     
     project = resolve_project_exactly(pm, resolve_name)
+
+    # Pan/Tilt sets are interpreted in the ENTRY timeline's units and
+    # silently converted to the target's (measured 2026-09-10 - see
+    # `overlay_placement.entry_unit_mismatch`), while same-process
+    # read-back echoes the set value. Reels build at 1080x1920, so a
+    # session entered on the 3840x2160 master would store every
+    # overlay scaled while every check reads back clean. Refuse
+    # before anything lands rather than placing a wrong-but-stored
+    # timeline.
+    from library.tools.overlay_placement import entry_unit_mismatch
+    unit_refusal = entry_unit_mismatch(project, (1080, 1920))
+    if unit_refusal:
+        raise ReelBuildError(unit_refusal)
         
     from library.tools.reel_proposal import proposal_path as _proposal_path
     proposal_path = str(_proposal_path(project_folder))
@@ -5766,6 +5838,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # the build returns, which is the still recipe's
                 # CDL-first order held structurally.
                 grade_cdl=reel_grade_cdl,
+                # The captain's pinned overlay positions ({} when they
+                # declared none): declared wins over computed, so a
+                # rebuild keeps their corrections.
+                overlay_intent=overlay_intent,
                 power_grade=reel_power_grade,
             )
             # The plan each staging was placed from, keyed by staging

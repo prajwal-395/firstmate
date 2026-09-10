@@ -514,3 +514,53 @@ def test_json_round_trip_of_a_recorded_box_carries_a_placement():
               "placement": box.placement}
     assert json.loads(json.dumps(record))["placement"]["tilt"] == -1720.0
     assert not hasattr(box, "origin")
+
+
+class _EntryTimeline:
+    def __init__(self, width, height):
+        self._settings = {"timelineResolutionWidth": width,
+                          "timelineResolutionHeight": height}
+
+    def GetSetting(self, key):
+        return self._settings[key]
+
+    def GetName(self):
+        return "entry"
+
+
+class _EntryProject:
+    def __init__(self, timeline):
+        self._timeline = timeline
+
+    def GetCurrentTimeline(self):
+        return self._timeline
+
+
+def test_matching_entry_size_places_literally():
+    from library.tools.overlay_placement import entry_unit_mismatch
+
+    project = _EntryProject(_EntryTimeline("1080", "1920"))
+    assert entry_unit_mismatch(project, (1080, 1920)) == ""
+
+
+def test_mismatched_entry_size_is_a_refusal():
+    """The Reel 09 positioning proof, 2026-09-10: Pan/Tilt sets are
+    interpreted in the entry timeline's units and silently converted
+    to the target's (-1700 stored as -1912.5 across 3840x2160 ->
+    1080x1920, as -1511.11 the other way), while same-process
+    read-back echoes the set value. The refusal names both sizes so
+    the build reconnects from a same-size timeline instead of
+    placing a wrong-but-stored one."""
+    from library.tools.overlay_placement import entry_unit_mismatch
+
+    project = _EntryProject(_EntryTimeline("3840", "2160"))
+    reason = entry_unit_mismatch(project, (1080, 1920))
+    assert reason != ""
+    assert "3840x2160" in reason
+    assert "1080x1920" in reason
+
+
+def test_no_open_timeline_is_no_entry_to_judge():
+    from library.tools.overlay_placement import entry_unit_mismatch
+
+    assert entry_unit_mismatch(_EntryProject(None), (1080, 1920)) == ""
