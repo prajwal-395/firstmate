@@ -1,6 +1,6 @@
 """A look is DECLARED, whole, by a template - or it is not drawn at all.
 
-`library/tools/house_look.py` used to be a catalogue of four looks whose
+`library/tools/series_look.py` used to be a catalogue of four looks whose
 strengths this repository authored. It is now a reader for a declaration
 a brand template writes, and these tests hold it to three things:
 
@@ -21,7 +21,7 @@ import pytest
 import yaml
 
 from library.tools.fusion.comp_builder import build_effect_comp
-from library.tools.house_look import (
+from library.tools.series_look import (
     ELEMENTS_BY_KEY,
     LOOK_ELEMENTS,
     NEUTRAL_CDL,
@@ -66,13 +66,13 @@ def test_the_module_carries_no_look_values_of_its_own():
     settled house grain or anything". A module-level float in here is a
     strength nobody chose, whatever it is called.
     """
-    import library.tools.house_look as module
+    import library.tools.series_look as module
 
     for name, value in vars(module).items():
         if name.startswith("__"):
             continue
         assert not isinstance(value, float), (
-            f"house_look.{name} is a bare number: {value!r}. Every "
+            f"series_look.{name} is a bare number: {value!r}. Every "
             f"strength belongs in a template's declaration."
         )
 
@@ -110,7 +110,7 @@ def test_no_shipped_template_declares_a_look():
             continue
         with open(os.path.join(TEMPLATES_DIR, filename)) as handle:
             template = yaml.safe_load(handle) or {}
-        if (template.get("style") or {}).get("house_look"):
+        if (template.get("style") or {}).get("series_look"):
             declaring.append(filename)
 
     assert not declaring, (
@@ -127,7 +127,7 @@ def test_every_shipped_template_says_why_it_declares_none():
         text = open(os.path.join(TEMPLATES_DIR, filename)).read()
         assert "NO LOOK IS DECLARED" in text, (
             f"{filename} declares no look and does not say so")
-        assert "house_look" in text, (
+        assert "series_look" in text, (
             f"{filename} does not point at the declaration shape")
 
 
@@ -200,6 +200,27 @@ def test_an_undeclared_element_emits_no_key_at_all():
     assert "SoftGlow" not in comp
     assert "FilmGrain" not in comp
     assert "EllipseMask" not in comp
+
+
+def test_a_removed_element_leaves_the_rest_drawn():
+    """The captain refused grain 2026-09-10, so the declaration carries
+    every other element and no `grain` key at all - not a zeroed one.
+    The comp must draw every remaining node and no FilmGrain stub: a
+    declared element that draws nothing is the ghost this project keeps
+    tripping over, and a removal that drops its neighbours is the
+    mis-weighting a chain edit risks."""
+    declaration = {k: v for k, v in FULL_DECLARATION.items() if k != "grain"}
+    look = resolve_look(declaration)
+    fusion = look.fusion()
+    assert not any("grain" in key for key in fusion)
+    assert fusion["grade_contrast"] == 0.2
+    assert fusion["glow_gain"] == 0.3
+    assert fusion["vignette_blend"] == 0.3
+    comp = build_effect_comp(dict(fusion), 120)
+    assert "BrightnessContrast" in comp, "contrast lost with the grain removal"
+    assert "SoftGlow" in comp, "glow lost with the grain removal"
+    assert "EllipseMask" in comp, "vignette lost with the grain removal"
+    assert "FilmGrain" not in comp, "a removed grain still draws a node"
 
 
 def test_a_look_with_no_cdl_leaves_the_cdl_neutral():
@@ -312,7 +333,7 @@ def test_the_old_catalogue_name_says_what_replaced_it():
     message = str(excinfo.value)
     assert "DECLARATION, not a name" in message
     # And the refusal carries the shape, so the fix is in the error.
-    assert "house_look:" in message
+    assert "series_look:" in message
     assert "glow" in message
 
 
@@ -374,42 +395,108 @@ def test_a_resolved_look_is_a_declared_look():
 
 def _project_with_look(tmp_path, look):
     (tmp_path / "project.yaml").write_text(
-        yaml.safe_dump({"name": "t", "style": {"house_look": look}}))
+        yaml.safe_dump({"name": "t", "style": {"series_look": look}}))
     return str(tmp_path)
 
 
 def test_no_project_declaration_leaves_the_template_slot_alone(tmp_path):
     """Invisible to every existing project: nothing declared, the
     template's slot passes through untouched."""
-    from library.tools.house_look import effective_house_look
+    from library.tools.series_look import effective_series_look
 
     (tmp_path / "project.yaml").write_text(
         yaml.safe_dump({"name": "t", "pipeline": {}}))
-    assert effective_house_look({"house_look": None},
+    assert effective_series_look({"series_look": None},
                                 str(tmp_path)) is None
-    assert effective_house_look({}, "") is None
+    assert effective_series_look({}, "") is None
 
 
 def test_a_project_declaration_replaces_the_template_slot(tmp_path):
     """Whole-slot replace, never a merge: half a look from each of two
     sources is a look nobody designed."""
-    from library.tools.house_look import effective_house_look
+    from library.tools.series_look import effective_series_look
 
     folder = _project_with_look(tmp_path, {"name": "proj", "contrast": 0.1})
-    assert effective_house_look({"house_look": {"name": "tmpl"}},
+    assert effective_series_look({"series_look": {"name": "tmpl"}},
                                 folder) == {"name": "proj", "contrast": 0.1}
 
 
 def test_a_malformed_project_declaration_is_refused(tmp_path):
     """A project block that is not a mapping cannot be resolved, so it
     raises here rather than rendering nothing at 2am."""
-    from library.tools.house_look import (
+    from library.tools.series_look import (
         LookDeclarationError,
-        project_house_look,
+        project_series_look,
     )
 
     (tmp_path / "project.yaml").write_text(
         yaml.safe_dump({"name": "t",
-                        "style": {"house_look": "a_named_look"}}))
+                        "style": {"series_look": "a_named_look"}}))
     with pytest.raises(LookDeclarationError):
-        project_house_look(str(tmp_path))
+        project_series_look(str(tmp_path))
+
+
+# ── The rename: `house_look` is gone as a name, alive as a reading ────────
+
+
+def test_the_engine_never_writes_the_old_slot_name():
+    """`house_look` is the thing the captain banned BY NAME.
+
+    2026-09-10, on opening his own `project.yaml`: *"you better not be
+    pulling some random shit from like a 'house look' because there is no
+    house look"*. The values under it were his own pick and never a house
+    default - but a slot named for the forbidden thing reads as smuggled
+    defaults every time somebody opens the file. The module's docstring
+    still QUOTES the old name, and the reader still accepts it, which is
+    why this checks the emitted shape rather than the source text.
+    """
+    from library.tools.series_look import (
+        LEGACY_SLOT_KEY, SLOT_KEY, describe_declaration_shape,
+    )
+
+    assert SLOT_KEY == "series_look"
+    assert LEGACY_SLOT_KEY == "house_look"
+    shape = describe_declaration_shape()
+    assert "series_look:" in shape
+    assert "house_look" not in shape
+
+
+def test_a_declaration_written_under_the_old_slot_still_works(tmp_path):
+    """Every declaration written before the rename keeps working.
+
+    A rename that ungrades a series is worse than the name it fixed.
+    """
+    from library.tools.series_look import (
+        effective_series_look, project_series_look, resolve_look,
+    )
+
+    look = {"name": "written_before_the_rename", "contrast": 0.1}
+    (tmp_path / "project.yaml").write_text(
+        yaml.safe_dump({"name": "t", "style": {"house_look": look}}))
+
+    assert project_series_look(str(tmp_path)) == look
+    assert effective_series_look({}, str(tmp_path)) == look
+    assert effective_series_look({"house_look": look}, "") == look
+    assert resolve_look(look).contrast == 0.1
+
+
+def test_the_new_slot_wins_where_a_file_carries_both(tmp_path):
+    from library.tools.series_look import project_series_look
+
+    (tmp_path / "project.yaml").write_text(yaml.safe_dump({
+        "name": "t",
+        "style": {"house_look": {"name": "old"},
+                  "series_look": {"name": "new"}}}))
+    assert project_series_look(str(tmp_path)) == {"name": "new"}
+
+
+def test_a_brand_template_written_under_the_old_slot_still_loads():
+    """`StyleSlots(**style)` would raise TypeError on the old key, so the
+    migration has to happen where the template is parsed, not only where
+    the declaration is read."""
+    from library.schemas.brand_template import BrandTemplate
+
+    look = {"name": "old_template_look", "contrast": 0.2}
+    tmpl = BrandTemplate.from_dict({"series_id": "s",
+                                    "style": {"house_look": look}})
+    assert tmpl.style.series_look == look

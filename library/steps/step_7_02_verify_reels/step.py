@@ -137,12 +137,24 @@ def verify_reels(data: dict) -> dict:
     # staging and only then moves it onto the final names, retiring
     # each approved original to a backup first
     # (`reel_build.promote_staged_reels`).
+    #
+    # The replace guard's declaration comes off the BUILD'S OWN RECORD
+    # (`allow_drops`, normalised per final by the build node), never
+    # re-derived - for the same reason the binding and the plan come
+    # off it. A declaration supplied alongside this node (the
+    # `--allow-drop` flag reaches both nodes) is the fallback for a
+    # record written before declarations existed.
     organised = None
     if staged:
+        from library.tools import reel_replace_guard as _guard
         from library.tools.reel_build import promote_staged_reels
+        recorded = build.get("allow_drops")
+        if recorded is None:
+            recorded = _guard.parse_specs(
+                (data or {}).get("allow_drops"), list(staged))
         promoted = promote_staged_reels(
             project_folder, resolve_project_name, master_timeline_name,
-            staged)
+            staged, allow_drops=recorded)
         organised = promoted["organised"]
         timelines_verified = list(promoted["promoted"])
     else:

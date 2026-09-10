@@ -210,17 +210,17 @@ Detail: `library/tools/transition_carriers.py`.
 
 ### Stabilization is the memory ceiling, and it runs last
 
-**Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it. It changes picture steadiness and nothing else: never structure, timing, framing, grade, captions or sound.
+**Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it.
 Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Fusion .comp files - NEVER
 
-**Six things that must NEVER appear in a Fusion .comp**: `ApplyMode` in a Merge node (SIGSEGV), `Path {}` beside a Merge (black output), `BlendClone` (silently ignored), a Background with no `GlobalOut` (stops rendering mid-clip), DirectionalBlur `Length` over 5 (artifacts and edge tiling), and Transform Size past 1.15.
+**Six things that must NEVER appear in a Fusion .comp**: `ApplyMode` in a Merge node, `Path {}` beside a Merge, `BlendClone`, a Background with no `GlobalOut`, DirectionalBlur `Length` over 5, and Transform Size past 1.15.
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Fusion .comp files - ALWAYS
 
-**What a Fusion .comp must ALWAYS carry**: `Inverted` on an EllipseMask vignette, its `MaskWidth`/`MaskHeight`/`PixelAspect`, an explicit `Transform1.Input <- MediaIn1.Output` wire, `Blend` rather than `BlendClone` for Merge opacity, `GlobalOut` on every Background matching the clip duration, and a static `Center` for animated pan. **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.**
+**What a Fusion .comp must ALWAYS carry**: `Invert` on an EllipseMask vignette, its `MaskWidth`/`MaskHeight`/`PixelAspect`, an explicit `Transform1.Input <- MediaIn1.Output` wire, `Blend` rather than `BlendClone` for Merge opacity, `GlobalOut` on every Background, and a static `Center` for animated pan. **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.**
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Frame mapping
@@ -230,7 +230,7 @@ Detail: `library/tools/fusion/played_window.py`.
 
 ### Default transition values
 
-**The default transition values** - Brightness Flash, Crash Zoom and Glow - plus the `LUTLookup` easing the Edit page uses and the `BezierSpline.sampled()` route that replicates it in a per-clip comp.
+**The default transition values** - Brightness Flash, Crash Zoom and Glow.
 Detail: `library/tools/fusion/effects.py`.
 
 ### Tracks
@@ -240,7 +240,7 @@ Detail: `library/tools/execution/fusion_tracks.py`.
 
 ### Media pool and audio
 
-Rows are the SOP's (`docs/TIMELINE_SOP.md`): a row exists because something goes on it. This supersedes **Place V1 clips while only track A1 exists**. **Prefix overlay filenames with their context.** **Resolve audio pool items report 24fps regardless of the timeline**, so compute audio in/out with the pool item's own FPS. **Renders are silent unless you say otherwise** - `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly.
+A row exists because something goes on it. This supersedes **Place V1 clips while only track A1 exists**. **Prefix overlay filenames with their context.** **Resolve audio pool items report 24fps regardless of the timeline**, so compute audio in/out with the pool item's own FPS. **Renders are silent unless you say otherwise** - `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly.
 Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
@@ -250,6 +250,9 @@ Detail: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-th
 
 
 ### Visual verification
+
+**Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.**
+Detail: `library/tools/resolve_surfaces.py`. [why](docs/RULE_EVIDENCE.md#the-two-pages-that-showed-one-frame)
 
 ### Reading a killed build off disk
 
@@ -262,6 +265,9 @@ Detail: `library/tools/resolve_organization.py`.
 
 **REMOVING is a different act: `DeleteClips` on a TIMELINE's pool item DELETES THE TIMELINE.**
 Detail: `library/tools/orphan_removal.py`.
+
+**Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.**
+Detail: `library/tools/build_sweep.py`.
 
 ### Markers and timeline items
 
@@ -431,7 +437,7 @@ Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#the-brand
 **The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.** **A run that attaches none INTERVIEWS rather than going quiet.**
 Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 
-**A reference is an ABSOLUTE PATH plus a MAP, and the rule for what still travels inline is in `library/tools/brief_reference.py`.**
+**A reference is an ABSOLUTE PATH plus a MAP.**
 Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
 
 **A step may carry ONE reading of a measurement, or two on different axes - never the reading and the structure it was read from.**
@@ -496,6 +502,9 @@ Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVID
 **A MODEL plans the motion-graphics layer, on its own timebase, in rows - and a brand template REFINES it rather than gating it.**
 Detail: `library/tools/motion_graphics_plan.py`.
 
+**An overlay artefact is a TIGHT canvas at the 480 floor, and the placer SETS its transform then READS IT BACK - inside the 3840 rail or reported by name.**
+Detail: `library/tools/tight_box.py`, `library/tools/overlay_placement.py`. [why](docs/RULE_EVIDENCE.md#the-captions-at-the-clamp)
+
 **A project may caption each speaker differently, and the engine declares no per-speaker values.**
 Detail: `library/tools/subtitle_style.py`.
 
@@ -509,13 +518,13 @@ Detail: `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manif
 Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#undeclared-black)
 
 **Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.** **Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included**
-Detail: `library/tools/safe_area.py`. [why - the profile, and the grouper that never ran](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
 **Reconstruct a grouping with `fits_in_box`, never `fits`.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
 
 **A project may typeset its own captions, and that is not a change to anyone else's.**
-Detail: `library/tools/subtitle_style.py`. [why - the captain's measurement, and what the size moves on 001](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
+Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
 
 ### 10.3 Measuring the footage
 
@@ -528,7 +537,7 @@ Detail: `library/tools/subject_framing.py`.
 `SUBJECT_HEADROOM` is how much clear space the subject needs on each side. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
 
 **Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
-Detail: `library/steps/step_1_04_temporal_index/step.py`. [why - the numbers, and what the fix does not fix](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
+Detail: `library/steps/step_1_04_temporal_index/step.py`. [why](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
 
 **The frame FILLS by default, and there is no heuristic.** **A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
 Detail: `library/tools/framing_intent.py`. [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
@@ -549,7 +558,7 @@ Detail: `library/tools/analysis/picture_quality.py`. [why](docs/RULE_EVIDENCE.md
 Detail: `library/tools/camera_stability.py`. [why](docs/RULE_EVIDENCE.md#the-residual-nobody-read)
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
-Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why - the four found in #301, and what a re-run of 001 would and would not fix](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
+Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
 
 ### 10.4 Gates, and what counts as evidence
 
@@ -558,6 +567,9 @@ Detail: `library/tools/reel_proposal.py`; its four qualities: `library/tools/ree
 
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
+
+**A replace is a diff: promotion refuses an undeclared row loss.**
+Detail: `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
 
 **Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
 Detail: `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
@@ -575,8 +587,9 @@ If you add a model-judged gate, give it a deterministic half that can carry the 
 `render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
 **`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
 `manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
-Chroma and the mix REPORT A NUMBER and pass. [why - including why frame-mean saturation is not the statistic](docs/RULE_EVIDENCE.md#baseline-craft-properties)
-`SPEECH_ABOVE_BED_GATES` stays False: `background` means clip gain while the check reads it as SEPARATION. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
+Chroma and the mix REPORT A NUMBER and pass. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
+`SPEECH_ABOVE_BED_GATES` stays False.
+Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 Detail: `library/tools/render_qa.py`.
 
 **A clip gain is not a separation, and both halves now SAY which one they are holding.**
@@ -602,10 +615,11 @@ Detail: `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-
 **The pipeline never invents a creative judgement on the model's behalf.**
 A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect, a sound, an energy word) and it goes. A MECHANICAL default is a safe technical value (a frame rate, a timeout, a codec) and it stays. Where a creative value is genuinely absent, FAIL or REPORT PLAINLY. [why](docs/RULE_EVIDENCE.md#the-pipeline-invented-taste-where-no-step-ran)
 
-- Two things are NOT taste, and are the reason the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `house_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
+- Two things are NOT taste, and are why the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
 - A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
 - **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP` is REMOVED (captain, 2026-09-02) and `plan_vfx.TOOLKIT_PARAMETERS` replaces it, carrying NO value, default or bound. An entry whose `params` name none of them is dropped as `no_readable_parameters`. Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
-- An alias may RENAME a capability and may not CHOOSE one. `push_in` -> `zoom_emphasis` is a fact; `slow_zoom` -> `slow_zoom_in` answered "which way?" for the planner and is withdrawn.
+- An alias may RENAME a capability and may not CHOOSE one.
+Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
 - Dead code that states taste is removed, not left.
 
 **There are NO creative floors, and there must not be again.**
@@ -659,14 +673,14 @@ One enumeration, `library/tools/render_fonts.py` - bundled, accepted as a system
 
 ## 12. The look
 
-**There is no house look.**
-Detail: `library/tools/house_look.py`. [why](docs/RULE_EVIDENCE.md#there-is-no-house-look)
+**There is no house look**, and the slot is `style.series_look`.
+Detail: `library/tools/series_look.py`. [why](docs/RULE_EVIDENCE.md#there-is-no-house-look)
 
 **A project that names no template still gets a GRADE, because a colourist decides one.**
-Detail: `library/tools/color_correction.py`. [why - the nine measured clips and the identity CDL](docs/RULE_EVIDENCE.md#the-step-that-measured-nine-clips-and-graded-none)
+Detail: `library/tools/color_correction.py`. [why](docs/RULE_EVIDENCE.md#the-step-that-measured-nine-clips-and-graded-none)
 
-A look is delivered in two halves, because that is what the mechanisms can express:
-Detail: `library/tools/house_look.py`. [why](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
+**A grade DELIVERS or it does not, and only EXPORTED PIXELS say which.**
+Detail: `library/tools/color_page_grade.py`. [why](docs/RULE_EVIDENCE.md#the-powergrade-with-no-grade-in-it)
 
 ## 13. Intros, outros and end cards
 

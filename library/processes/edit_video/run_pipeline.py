@@ -65,6 +65,7 @@ from library.tools import (brief_attachment, briefing_interview,
                            second_pass, undetermined)
 from library.tools import run_control
 from library.tools import footage_identity, code_identity, step_ledger
+from library.tools import stable_json
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
 from library.tools import external_inputs, run_scope, run_archive
@@ -94,7 +95,7 @@ def looks_like_a_path(value: str) -> bool:
     anything the footage really contains arrives with one.
     A bare dotted tail is not enough - the designed pipeline
     names brand-template slots like "brand template
-    style.house_look.cdl", whose suffix `os.path.splitext`
+    style.series_look.cdl", whose suffix `os.path.splitext`
     reads as an extension but which no disk ever held.
     """
     return "/" in value or "\\" in value
@@ -590,7 +591,12 @@ def save_pipeline_state(project_dir: str, state: dict):
     state_path = str(layout.pipeline_data_path)
     state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     with open(state_path, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+        # Canonical spelling (library/tools/stable_json.py): the same
+        # state is the same bytes, so a build that changes nothing
+        # leaves a clean tree and a variant merge never conflicts on
+        # key order alone. Content churn (last_updated, ledgers) still
+        # makes this file rebuild-not-merge - see timeline_variants.
+        stable_json.dump_stable(state, f)
 
 
 # ── The preflight / edit split ──────────────────────────────────────

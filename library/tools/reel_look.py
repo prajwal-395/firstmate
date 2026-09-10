@@ -35,7 +35,7 @@ This module is that route, and it adds no look of its own:
   was created in the calling process.
 - The GRADE rides two halves, the way step 6.01 delivers it on the
   master: `resolve_grade_cdl` renders the project's own
-  `style.house_look` to the SetCDL values and `apply_cdl` lands them
+  `style.series_look` to the SetCDL values and `apply_cdl` lands them
   on every footage picture item (Color page node 1, CDL-first per the
   v04 still recipe), while `resolve_grade_look` renders the Fusion
   half (pivot contrast, glow, grain, vignette - the nodes no
@@ -139,7 +139,7 @@ def _template_style(project_folder: str):
 
     One spelling for the two grade-half resolvers below: both read the
     project's own `project.yaml` for the template name and return its
-    `style` as the mapping `effective_house_look` reads. A project that
+    `style` as the mapping `effective_series_look` reads. A project that
     names no template, or whose file is absent, resolves to None - and
     then the project's own declaration (or its absence) is the answer.
     """
@@ -154,7 +154,7 @@ def _template_style(project_folder: str):
             template = resolve_project_template(named)
             style = getattr(template, "style", None)
             if style is not None:
-                return {"house_look": getattr(style, "house_look", None)}
+                return {"series_look": getattr(style, "series_look", None)}
     return None
 
 
@@ -162,8 +162,8 @@ def resolve_grade_look(project_folder: str) -> dict:
     """This project's designed film look as Fusion effect parameters.
 
     The same declaration step 5.01 resolves - the project's own
-    `style.house_look` winning whole-slot over its brand template's
-    (`effective_house_look`) - rendered to the parameter names
+    `style.series_look` winning whole-slot over its brand template's
+    (`effective_series_look`) - rendered to the parameter names
     `build_effect_comp` dispatches on (`DeclaredLook.fusion()`).
     `{}` where nothing is declared, and `{}` means no comp is drawn
     for the look's sake at all.
@@ -172,13 +172,13 @@ def resolve_grade_look(project_folder: str) -> dict:
     a grade somebody asked for. Read once per build, beside
     `resolve_look`, for the same reason.
     """
-    from library.tools.house_look import (
-        effective_house_look,
-        resolve_look as resolve_house_look,
+    from library.tools.series_look import (
+        effective_series_look,
+        resolve_look as resolve_series_look,
     )
 
-    look = resolve_house_look(
-        effective_house_look(_template_style(project_folder),
+    look = resolve_series_look(
+        effective_series_look(_template_style(project_folder),
                              project_folder))
     return dict(look.fusion()) if look is not None else {}
 
@@ -187,8 +187,8 @@ def resolve_grade_cdl(project_folder: str) -> dict:
     """This project's CDL half, in the key names the renderer reads.
 
     The same declaration `resolve_grade_look` reads - the project's own
-    `style.house_look` winning whole-slot over its brand template's
-    (`effective_house_look`) - rendered by `DeclaredLook.cdl()` to the
+    `style.series_look` winning whole-slot over its brand template's
+    (`effective_series_look`) - rendered by `DeclaredLook.cdl()` to the
     `slope_r`...`saturation` keys step 6.01 formats onto the master.
     `{}` where nothing is declared, and `{}` grades nothing.
 
@@ -198,25 +198,107 @@ def resolve_grade_cdl(project_folder: str) -> dict:
     different ranges - there is no clip they could follow. A malformed
     declaration RAISES, for the same reason the Fusion half does.
     """
-    from library.tools.house_look import (
-        effective_house_look,
-        resolve_look as resolve_house_look,
+    from library.tools.series_look import (
+        effective_series_look,
+        resolve_look as resolve_series_look,
     )
 
-    look = resolve_house_look(
-        effective_house_look(_template_style(project_folder),
+    look = resolve_series_look(
+        effective_series_look(_template_style(project_folder),
                              project_folder))
     return dict(look.cdl()) if look is not None else {}
 
+
+CDL_RETURN_IS_NOT_EVIDENCE = (
+    "TimelineItem.SetCDL returns True without applying the grade. "
+    "Measured 2026-09-10 on `Podcast (field test)` / `Reel 09 - "
+    "your-website-is-only-20-percent`, task "
+    "vep-fusion-grade-check-the-frame: the project's declared "
+    "v04_teal_split CDL (slope 1.03/1.0/0.96, offset -0.01/0.005/0.02, "
+    "power 1.0, saturation 1.12) returned True on all six picture "
+    "clips and rendered a still BYTE-IDENTICAL to no grade at all - 0 "
+    "of 2,073,600 pixels moved, max delta 0, same md5. Reproduced six "
+    "times including a six-second settle and a re-grab, with "
+    "SetCDL(saturation 0) immediately before AND after as a positive "
+    "control that moved 601,760 pixels at max delta 154, so the clips "
+    "demonstrably responded. numpy predicts those values should move "
+    "2,073,600 pixels at max delta 22, so it is not arithmetic "
+    "cancellation, and each of the four terms moves the picture on its "
+    "own. Nothing readable back from Resolve distinguishes the two "
+    "cases: there is no GetCDL, and a .drx exported from a "
+    "SetCDL-graded clip does not carry the CDL either (checked - the "
+    "node body is byte-for-byte the ungraded one plus a timestamp). "
+    "Only exported pixels settle whether a CDL arrived."
+)
+"""Why a CDL record is never `verified`, with the numbers.
+
+AGENTS.md 5's rule - judge a Resolve call by what it RETURNS, never by
+`hasattr`, and a True past a silent clamp still lies - arriving from a
+new direction: here the READ BACK lies too, because there is nothing to
+read back. The rule this constant enforces is in `apply_grade`: a look
+that can only be delivered by a route nothing can verify is REFUSED,
+not reported.
+"""
 
 CDL_NODE_INDEX = "1"
 """The Color page node `apply_cdl` writes: PR 870 established SetCDL
 lands on node 1, on the master and therefore here."""
 
 
+def _footage_picture_items(timeline, track_plan, footage_sources,
+                           record: Dict[str, Any], skip_note: str):
+    """(item, short name) for every PLACED FOOTAGE item on a picture row.
+
+    The one join both grade routes need, so `apply_cdl` and
+    `apply_power_grade_to_footage` cannot drift on what counts as
+    footage.  WHAT gets graded: picture items on the plan's a-roll rows
+    whose pool item's File Path or basename is one of `footage_sources`
+    (the placements' own source files).  A rendered card shares the
+    first picture row but is a graphic, not footage - grading one would
+    tint it, and the master path never grades one either.  The frame
+    overlay and the captions ride other rows and are never visited.
+
+    Everything skipped is RECORDED with `skip_note` saying which grade
+    it did not get, because "no clip matched" and "no grade declared"
+    are different facts and a reader must be able to tell them apart.
+    """
+    sources = {str(s) for s in (footage_sources or ())}
+    basenames = {s.rsplit("/", 1)[-1].lower() for s in sources}
+    for row in picture_rows(track_plan).values():
+        try:
+            items = timeline.GetItemListInTrack("video", row) or []
+        except Exception:
+            continue
+        for item in items:
+            try:
+                pool_item = item.GetMediaPoolItem()
+                path = (pool_item.GetClipProperty("File Path")
+                        if pool_item is not None else "")
+                name = (pool_item.GetClipProperty("File Name")
+                        if pool_item is not None else "") or item.GetName()
+            except Exception:
+                path, name = "", ""
+            short = (name or (path or "?").rsplit("/", 1)[-1])
+            if not path or (path not in sources
+                            and short.lower() not in basenames):
+                record["skipped"].append(
+                    f"{short}: not placed footage - {skip_note}")
+                continue
+            yield item, short
+
+
 def apply_cdl(timeline, track_plan, cdl_values: dict,
               footage_sources=()) -> dict:
     """SetCDL on every footage picture item, the way 6.01 does it.
+
+    **`applied` on this record means the CALL RETURNED TRUE and NOT
+    that the grade reached the picture** - see
+    `CDL_RETURN_IS_NOT_EVIDENCE`, which is why the record carries
+    `verified: False` and why `apply_grade` refuses this route as a
+    reel's only grade. It is kept as the mechanism because the master
+    path uses it and because it is how a per-clip correction lands
+    INSIDE an applied PowerGrade, where the node graph read-back does
+    evidence the surrounding look.
 
     One item, one `SetCDL` with `NodeIndex` 1 and the four terms as
     4-decimal strings - at 3 the offsets, the smallest numbers in a
@@ -241,18 +323,16 @@ def apply_cdl(timeline, track_plan, cdl_values: dict,
     afterwards in its own process, so CDL-before-Fusion holds
     structurally rather than by convention.
 
-    WHERE A DRX WOULD GO: a GUI-built grade travels as
-    `color.power_grade_drx` in the project's own project.yaml, applied
-    per clip with `GetNodeGraph().ApplyGradeFromDRX` - which REPLACES
-    the whole node graph, including the node SetCDL just wrote, so on
-    the master a declared DRX is the grade rather than an addition to
-    it. Adopting that route on reels means calling `apply_power_grade`
-    per footage picture item at this same point (replacing this call,
-    not joining it); keeping the CDL in this one function is what
-    keeps that adoption a swap rather than surgery.
+    THE CDL IS THE FALLBACK, NOT THE ROUTE, where a project declares a
+    `.drx`: `apply_grade` calls `apply_power_grade_to_footage` instead
+    of this, because `ApplyGradeFromDRX` REPLACES the whole node graph
+    including the node `SetCDL` writes. Two grades on one clip is one
+    grade nobody chose. This function stays exactly as the master's
+    6.01 loop writes it, so the two paths keep one CDL spelling.
     """
     record: Dict[str, Any] = {"applied": [], "skipped": [],
-                                "warnings": []}
+                              "warnings": [], "verified": False,
+                              "unverified_because": CDL_RETURN_IS_NOT_EVIDENCE}
     if not cdl_values:
         record["basis"] = "no look declared - nothing graded"
         return record
@@ -266,45 +346,192 @@ def apply_cdl(timeline, track_plan, cdl_values: dict,
              f"{cdl_values.get('power_g', 1.0):.4f} "
              f"{cdl_values.get('power_b', 1.0):.4f}")
     saturation = f"{cdl_values.get('saturation', 1.0):.4f}"
-    sources = {str(s) for s in (footage_sources or ())}
-    basenames = {s.rsplit("/", 1)[-1].lower() for s in sources}
-    for row in picture_rows(track_plan).values():
+    for item, short in _footage_picture_items(
+            timeline, track_plan, footage_sources, record, "no CDL"):
         try:
-            items = timeline.GetItemListInTrack("video", row) or []
-        except Exception:
+            landed = item.SetCDL({
+                "NodeIndex": CDL_NODE_INDEX,
+                "Slope": slope,
+                "Offset": offset,
+                "Power": power,
+                "Saturation": saturation,
+            })
+            if not landed:
+                item.SetClipProperty("Slope", slope)
+                item.SetClipProperty("Offset", offset)
+                item.SetClipProperty("Power", power)
+                item.SetClipProperty("Saturation", saturation)
+        except Exception as exc:
+            record["warnings"].append(f"SetCDL failed on {short}: {exc}")
             continue
-        for item in items:
-            try:
-                pool_item = item.GetMediaPoolItem()
-                path = (pool_item.GetClipProperty("File Path")
-                        if pool_item is not None else "")
-                name = (pool_item.GetClipProperty("File Name")
-                        if pool_item is not None else "") or item.GetName()
-            except Exception:
-                path, name = "", ""
-            short = (name or (path or "?").rsplit("/", 1)[-1])
-            if not path or (path not in sources
-                            and short.lower() not in basenames):
-                record["skipped"].append(
-                    f"{short}: not placed footage - no CDL")
-                continue
-            try:
-                landed = item.SetCDL({
-                    "NodeIndex": CDL_NODE_INDEX,
-                    "Slope": slope,
-                    "Offset": offset,
-                    "Power": power,
-                    "Saturation": saturation,
-                })
-                if not landed:
-                    item.SetClipProperty("Slope", slope)
-                    item.SetClipProperty("Offset", offset)
-                    item.SetClipProperty("Power", power)
-                    item.SetClipProperty("Saturation", saturation)
-            except Exception as exc:
-                record["warnings"].append(f"SetCDL failed on {short}: {exc}")
-                continue
-            record["applied"].append(short)
+        record["applied"].append(short)
+    return record
+
+
+
+def resolve_power_grade(project_folder: str) -> Optional[dict]:
+    """This project's declared PowerGrade `.drx`, or None.
+
+    Delegates entirely to `color_page_grade.resolve_color_page_grade`,
+    so a reel and its master read ONE declaration and one provenance
+    rule. Read once per build beside `resolve_grade_cdl`, for the same
+    reason: a refused declaration must stop the whole build, not the
+    fourteenth reel.
+    """
+    from library.tools.color_page_grade import resolve_color_page_grade
+
+    return resolve_color_page_grade(project_folder)
+
+
+def apply_power_grade_to_footage(timeline, track_plan, drx_path: str,
+                                 footage_sources=(), cdl_values=None,
+                                 cdl_node: Optional[str] = None) -> dict:
+    """`ApplyGradeFromDRX` on every footage picture item of a reel.
+
+    The Color page route, and the reason it exists: a `.drx` carries a
+    REAL node graph - the reference grade's own Film Look Creator,
+    Chromatic Adaptation and colour-space transforms - and no ASC CDL
+    can express any of it. A CDL has four terms; a split-tone with a
+    luminance midpoint, seven hue spheres and lum-vs-sat curves has
+    none of them. Approximating that across `SetCDL` plus Fusion
+    BrightnessContrast/Glow/Grain/Vignette is not a coarser version of
+    the grade, it is a different picture.
+
+    Reaches exactly the items `apply_cdl` reaches - same rows, same
+    footage join - so swapping route does not swap WHICH clips are
+    graded. A clip Resolve refuses is RECORDED and the reel continues:
+    one clip's grade failing must not stop the build, and the record
+    names the clip and what Resolve said.
+
+    `cdl_node` is where the declared CDL lands INSIDE the applied
+    graph, by LABEL. `The Grade Free` ships `BAL/EXP` and `W&B` as
+    identity placeholders precisely so a per-clip exposure and balance
+    correction goes there, under the look - so the look is the graph
+    and the correction is one node inside it, rather than the two
+    fighting for the clip. A label the graph does not carry is
+    REFUSED per clip and recorded as `cdl_node_missing`: node 1 is the
+    grade's own input colour-space transform, and writing a correction
+    into it because a label was misspelt would replace the conversion
+    the whole grade is built on. No `cdl_node` means the DRX alone -
+    which is the grade exactly as its author saved it.
+    """
+    record: Dict[str, Any] = {"applied": [], "skipped": [],
+                              "warnings": [], "path": drx_path,
+                              "nodes": {}, "cdl_node": cdl_node,
+                              "cdl_landed_on": {}, "verified": False}
+    if not drx_path:
+        record["basis"] = "no power grade declared - nothing graded"
+        return record
+    from library.tools.color_page_grade import (
+        apply_cdl_to_node,
+        apply_power_grade,
+        node_index_by_label,
+    )
+
+    for item, short in _footage_picture_items(
+            timeline, track_plan, footage_sources, record, "no DRX grade"):
+        landed = apply_power_grade(item, drx_path)
+        if not landed.get("applied"):
+            record["warnings"].append(
+                f"ApplyGradeFromDRX failed on {short}: "
+                f"{landed.get('reason', 'no reason given')}")
+            continue
+        record["applied"].append(short)
+        record["nodes"][short] = landed.get("nodes")
+        if not (cdl_node and cdl_values):
+            continue
+        index = node_index_by_label(item, cdl_node)
+        if index is None:
+            record["warnings"].append(
+                f"cdl_node_missing on {short}: the applied grade has no "
+                f"node labelled {cdl_node!r}, so the per-clip CDL was "
+                f"NOT placed - it is not guessed onto a node index.")
+            continue
+        placed = apply_cdl_to_node(item, index, cdl_values)
+        record["cdl_landed_on"][short] = placed
+        if not placed.get("landed"):
+            record["warnings"].append(
+                f"SetCDL on {cdl_node!r} (node {index}) refused for "
+                f"{short}: {placed.get('reason', 'returned false')}")
+    # VERIFIED means read back, not returned. Every clip that took the
+    # grade reported a node COUNT off a re-fetched graph - the handle
+    # goes stale across the apply - and a graph carrying the `.drx`'s
+    # nodes is evidence the CDL route has no equivalent of. A count of
+    # 1 is the bare graph: the call said yes and the nodes are not
+    # there, which is exactly the shape this record exists to catch.
+    counts = [n for n in record["nodes"].values() if isinstance(n, int)]
+    record["verified"] = bool(
+        record["applied"] and counts
+        and len(counts) == len(set(record["nodes"]))
+        and all(n > 1 for n in counts))
+    if record["applied"] and not record["verified"]:
+        record["warnings"].append(
+            "the grade was APPLIED but not VERIFIED: no re-fetched node "
+            "graph came back carrying more than the bare node. Treat "
+            "this reel as ungraded until a frame says otherwise.")
+    return record
+
+
+def apply_grade(timeline, track_plan, cdl_values: dict,
+                power_grade: Optional[dict] = None,
+                footage_sources=(),
+                allow_unverified_cdl: bool = False) -> dict:
+    """The reel's grade, by whichever route the project declared.
+
+    ONE call site in `build_reel_timeline`, so the choice between the
+    two routes is made in one place and recorded in one shape. A
+    project that declares a `.drx` gets the DRX and NOT the CDL -
+    `ApplyGradeFromDRX` replaces the node graph `SetCDL` writes into,
+    so applying both would leave whichever ran second and call it the
+    grade. A project that declares no `.drx` gets the CDL half exactly
+    as before.
+
+    The returned record always says `route` - `"power_grade_drx"`,
+    `"cdl"`, or `"none"` - because a reader looking at a reel that
+    came out wrong must be able to tell which mechanism drew it
+    without re-deriving the declaration.
+
+    **A LOOK THAT CAN ONLY BE DELIVERED BY THE CDL ROUTE IS REFUSED.**
+    `SetCDL` returns True without applying the grade
+    (`CDL_RETURN_IS_NOT_EVIDENCE`), and there is nothing to read back
+    that would catch it - so a reel built this way ships a video
+    missing the grade somebody asked for, and a build record saying
+    `applied` on six clips that were never touched. Reporting a grade
+    nobody applied is worse than refusing, because it reads as
+    coverage (AGENTS.md 10.4). The fix is one line of the project's own
+    `project.yaml`: declare `color.power_grade_drx`, which IS verified
+    - the node graph reads back the nodes the `.drx` builds.
+
+    `allow_unverified_cdl=True` is the ONE deliberate exception and
+    the master path is not it: it is for a caller that has its own
+    pixel evidence, and it still returns `verified: False` so the
+    record cannot claim otherwise. It is never defaulted on.
+    """
+    if power_grade and power_grade.get("path"):
+        record = apply_power_grade_to_footage(
+            timeline, track_plan, power_grade["path"],
+            footage_sources=footage_sources,
+            cdl_values=cdl_values,
+            cdl_node=power_grade.get("cdl_node"))
+        record["route"] = "power_grade_drx"
+        record["provenance"] = dict(power_grade.get("provenance") or {})
+        return record
+    if cdl_values and not allow_unverified_cdl:
+        raise ReelLookRefused(
+            "This project declares a look but no "
+            "`color.power_grade_drx`, so the only route to the picture "
+            "is TimelineItem.SetCDL - and that route cannot be shown "
+            "to have worked.\n\n"
+            f"{CDL_RETURN_IS_NOT_EVIDENCE}\n\n"
+            "Declare the look as a `.drx` under `color.power_grade_drx` "
+            "in the project's own project.yaml (with provenance - see "
+            "library/tools/color_page_grade.py). That route IS "
+            "verified: the node graph reads back the nodes the file "
+            "builds. Refusing here rather than writing `applied` "
+            "against six clips nothing reached.")
+    record = apply_cdl(timeline, track_plan, cdl_values,
+                       footage_sources=footage_sources)
+    record["route"] = "cdl" if cdl_values else "none"
     return record
 
 

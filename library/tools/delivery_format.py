@@ -30,7 +30,7 @@ fails if the retired ``project_resolution`` key reappears anywhere.
 
 One enumeration
 ---------------
-Like ``house_look`` and ``transition_vocabulary``, this is a closed
+Like ``series_look`` and ``transition_vocabulary``, this is a closed
 enumeration and an unknown name RAISES.  A silent fallback is exactly how
 a landscape master ships again.  Adding a format means adding a row.
 

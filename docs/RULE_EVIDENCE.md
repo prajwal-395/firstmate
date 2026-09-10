@@ -578,7 +578,7 @@ Project 001's three cutaways therefore played at a different contrast with no gr
 Transitions stay on V1 because `after_clip` indexes the V1 clip LIST; replaying it elsewhere draws a transition at an unrelated cut.
 The drop detection in `build_verification` now asks whether a label was PLACED, not whether it is on V1.
 
-`tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
+`tests/test_series_look_reaches_broll.py` drives the real pass against a fake Resolve.
 
 ### pan-tilt-and-volume
 
@@ -693,6 +693,42 @@ It shows only what was FLUSHED, which is exactly what makes it useful: the gap b
 
 It cannot answer everything.
 Conform geometry (`Pan`/`Tilt`/`Zoom`) sits in a binary `FieldsBlob`, so proving the picture band still needs Resolve running.
+
+### the-two-pages-that-showed-one-frame
+
+The captain, 2026-09-10, holding a side-by-side of one frame off his rebuilt Reel 09:
+
+> *"i think i know why previously when i told you to sample the stills from davinci in order to color grade, you made all the parameters way more than they needed to be, and it was because the way the video looks in fusion is different from the way it shows up in the timeline render. im not exactly sure why and i would like this to be fixed because the way it shows up in fusion is how i want it but it does not look like that in the timeline on the edit page."*
+
+The Edit page frame was flatter, lifted and greyer; the Fusion page frame had deeper blacks, more contrast and warmer skin. He wanted the Fusion one.
+
+The first question was not how to close the gap. It was **which of the two is real**, because the fix is opposite in the two cases, and a viewer cannot answer it - a screenshot of two pages only proves the pages differ, which was already known. It was settled on exported pixels, on the captain's own project, at timeline frame 300 throughout.
+
+**They hold the same pixels.** A temporary Fusion `Saver` wired to whatever feeds `MediaOut1` - exactly the image the Fusion page viewer draws - rendered one frame; the same timeline frame went through Deliver as a 16-bit TIFF. Aligned by the clip's own Edit-page geometry, every luma bin maps to itself:
+
+| Fusion output | delivered | difference |
+|---|---|---|
+| 4.72 | 4.75 | +0.03 |
+| 24.06 | 24.15 | +0.09 |
+| 55.58 | 55.68 | +0.11 |
+| 108.67 | 108.03 | -0.64 |
+| 175.52 | 175.48 | -0.04 |
+| 233.48 | 233.33 | -0.15 |
+
+Percentiles agree to 0.1/255, mean saturation 66.13 against 66.37. There is no tone curve between them. **The export already carried the look he was pointing at**, and no grade change could have been the answer.
+
+**The difference is the two viewers.** Both grabbed off one window through one identical capture path, same frame, same clip: the Edit page draws those pixels with its midtones lifted by +6.2 to +9.9/255 and saturation 46.41 against the file's 48.41; the Fusion page tracks the file to within a few units (64.95 against 65.69). Resolve's own preference file carries `EnableMacDisplayColorProfile = 1` - "Use Mac Display Color Profiles for viewers" - the window composites in Display P3 and the delivered TIFF is tagged Rec. 709. That reaches the Edit, Color and Deliver viewers and not the Fusion one. A plain ColorSync Rec.709 to Display P3 of the same file does not reproduce Resolve's curve (it darkens by 14-19/255 instead), so the transform is Resolve's own and exists nowhere outside it.
+
+Two structural facts were verified rather than read off documentation, because they bound how far the finding generalises:
+
+* **Fusion sits upstream of Color.** On a throwaway project created and deleted by the probe, a comp feeding `MediaOut1` a solid RED `Background` rendered GREY through Deliver with a `SetCDL` saturation 0 on Color node 1 (R=G=B=16.77), and RED again with that node bypassed (R 80.68, G 0.00, B 0.00). So the Fusion page is BEFORE the Color page and the Edit page is AFTER it - wherever the Color page does anything, the two pages cannot agree even before the display transform.
+* **On Reel 09 the Color page does nothing.** Bypassing all 75 nodes on every picture item moved the delivered frame by mean 0.000/255, max 7. The bypass mechanism was proved on the throwaway project first, so the null result is a fact about the grade and not about the tool. It is the same near-identity `library/tools/color_page_grade.py` already recorded for the captain's `.drx` on its own reference frame, now measured on the reel.
+
+**Which surface the repo's own still-export captures**, the load-bearing unknown: `library/tools/marker_capture.py` uses `Timeline.GrabStill`, which returns the graded, conformed timeline frame and measured 1.61/255 against a Deliver render. That is the delivered surface - the right one. The `vep-match-the-chosen-grade` lane's fourteen stills are all exactly 6,232,792 bytes, that route's own fingerprint, so it sampled the right surface too; and the `v04_teal_split.jpg` the captain chose from was built in numpy off an ffmpeg-extracted source frame, never off a Resolve surface at all, with Resolve's own decode of that frame differing from ffmpeg's by a uniform +1.8/255. **No landed grade value is traceable to the wrong surface.** The over-crank the captain remembers has a cause already found and already being fixed elsewhere: `contrast` shipped as 1.12 where the declaration said 0.12.
+
+The rule the measurement buys is narrower than the captain's diagnosis and stronger: **a grade is measured on an EXPORT, never on a viewer.** Both viewers are wrong in different directions and neither is reproducible off that machine. The roster of what each surface shows, with every number above, is `library/tools/resolve_surfaces.py`; `assert_measurable` refuses a viewer by name rather than warning, because a warning is what let this cost two lanes.
+
+Two `SetSetting`-shaped lies were found on the way and are recorded in `library/steps/step_6_01_render/probe_resolve_capabilities.py`: `Timeline.SetTrackEnable` returns True from every page and only takes effect with the Edit page open - a render taken in between silently used the wrong track set - and `GalleryStillAlbum.ExportStills` and `TimelineItem.ExportLUT` both return False and write nothing at all on this build, in every format, from every page, to every destination tried, which leaves the capture button unable to produce a PNG and a one-frame Deliver render as the working substitute.
 
 ---
 
@@ -1170,7 +1206,7 @@ Moving it behind a path makes it cheap, not usable. Classifying every leaf secti
 | Typography Philosophy (intro) | 376 | as above |
 | Series Identifier System (intro) | 322 | identity marks, not the edit |
 | Volume Targets | 280 | videos per month |
-| Per-Series Color Identity (to be finalized) | 275 | unsettled; the grade is `house_look` (§12) |
+| Per-Series Color Identity (to be finalized) | 275 | unsettled; the grade is `series_look` (§12) |
 | **total** | **23,877** | **49.8% of 47,903 B** |
 
 That is stricter than the degradation report's 41.9% by 7.9 points, and the difference is entirely the four sections above that a reader could call channel-level rather than out-of-scope (The Netflix Model, Three Content Lanes, Cross-Series Narrative Weaving, Part 3). Either number says the same thing.
@@ -1178,7 +1214,7 @@ That is stricter than the degradation report's 41.9% by 7.9 points, and the diff
 **What would make them usable.** Three different answers, and none of them is "rewrite the captain's brief":
 
 - **Six are unsettled by the document's own headings** - `(to be finalized)`, `Open Creative Decisions`. They become usable when the captain settles them, and not before; a model asked to act on a `⚠️ Partial` row is being asked to decide it.
-- **Six name things the engine already takes from somewhere else** - typography from `render_fonts` and the brand template, colour from `house_look`, format from `delivery_format`, intro cards from `content.bookends`, timed text from the project's own declaration. They become usable when a brand template for this series carries the parameters, which is where §14 says a per-series value belongs. Prose in a channel document is not a route to any of them.
+- **Six name things the engine already takes from somewhere else** - typography from `render_fonts` and the brand template, colour from `series_look`, format from `delivery_format`, intro cards from `content.bookends`, timed text from the project's own declaration. They become usable when a brand template for this series carries the parameters, which is where §14 says a per-series value belongs. Prose in a channel document is not a route to any of them.
 - **Nine are about the channel rather than about a video** - posting, growth, volume, naming, thumbnails, the portfolio. Nothing in this pipeline makes those decisions and nothing should; they are usable to the captain and to nobody in the DAG. Behind a path they cost 5 bytes of map line each, which is the right price.
 
 The one thing that would help every step at once is the thing the entry above already says: **a brief specific to 001**, which is the captain's writing and not the engine's.
@@ -1846,14 +1882,14 @@ Three of its five checks could not fire on real data:
 |---|---|---|
 | transitions | `target_energy` high/calm | `"building"` reads as `moderate` (§10.1), so it is inert |
 | SFX density | same | inert |
-| colour grade | `color_grade_spec["mood"]` / `["grade_name"]` | step 5.01 emits **neither**; its spec carries `grade_pipeline`, `grade_pipeline_delivery`, `per_clip_adjustments`, `fusion_look`, `house_look`, `house_look_title`, `look_notes`, `withdrawn`, `output_color_space`, `consistency_notes` |
+| colour grade | `color_grade_spec["mood"]` / `["grade_name"]` | step 5.01 emits **neither**; its spec carries `grade_pipeline`, `grade_pipeline_delivery`, `per_clip_adjustments`, `fusion_look`, `series_look`, `series_look_title`, `look_notes`, `withdrawn`, `output_color_space`, `consistency_notes` |
 | engagement | the model's ranking | fires - and this was the one finding |
 | duration | the spine | fires; 59.44s, inside the zone |
 
 The colour check is REMOVED for the same three reasons the pacing check was (`PIPELINE_PLAN.md`
 P4.2): it read a key no producer emits, the tests that covered it supplied `mood` themselves, and
 it emitted no adjustment even when it fired. The values that ARE in the spec are numbers -
-`house_look.py` gives every look a `saturation` and a `contrast` - and turning one into "soft" or
+`series_look.py` gives every look a `saturation` and a `contrast` - and turning one into "soft" or
 "punchy" against an energy word means choosing a threshold nobody measured, which is AGENTS.md
 10.5's line. The step's now-dead `color_grade_spec` input declaration and its DAG edge went with
 it.
@@ -2173,7 +2209,7 @@ Captain, 2026-08-26, on finding a fixed creative direction in step 2.01: "we nee
 
 **The line applied.** A CREATIVE fallback substitutes taste - a mood, a theme, a transition choice, an effect, a sound, an energy arc, a pace chosen for feel. A MECHANICAL default is a safe technical value - a frame rate, a timeout, a codec, a retry count, a path. Creative fallbacks go; mechanical ones stay. Where a creative value is genuinely absent the step fails or reports plainly, because a silently-defaulted mood ships and a stopped run does not.
 
-**Two corollaries the audit needed.** First: a value that means "nothing is drawn" is not taste. `hard_cut` and `jump_cut` are in `transition_vocabulary.CUT_TYPES` and draw nothing, and `house_look`'s `NEUTRAL_CDL` is the identity transform - falling back to the absence of decoration is not choosing decoration. Second: a rule that acts on a value the creative direction really declared is not a fallback. `creative_cohesion` may judge a transition against a DECLARED "high"; what it may not do is invent the word "high" first.
+**Two corollaries the audit needed.** First: a value that means "nothing is drawn" is not taste. `hard_cut` and `jump_cut` are in `transition_vocabulary.CUT_TYPES` and draw nothing, and `series_look`'s `NEUTRAL_CDL` is the identity transform - falling back to the absence of decoration is not choosing decoration. Second: a rule that acts on a value the creative direction really declared is not a fallback. `creative_cohesion` may judge a transition against a DECLARED "high"; what it may not do is invent the word "high" first.
 
 **What was found, and where.**
 
@@ -2268,7 +2304,7 @@ Every card it rendered was already in the wrong face, and the frames were still 
 
 Captain, 2026-08-28: *"i want no hardcoded values. **there are no house glow looks, there are no settled house grain or anything**"*.
 
-**What was there.** `library/tools/house_look.py` held four complete looks - `pmk_default`, `warm_reflection`, `electric_contrast`, `film_stock_warmth` - each carrying a slope, offset and power triple, a saturation, a pivot contrast, a glow gain / threshold / size, a grain power and size, and a vignette blend and falloff. The DIRECTIONS were cited to the captain's own planning docs at `PLAN/series portfolio '26 planning/` (read-only, outside this repo) by document and section - "warm shadows, never blue", "highlights pushed to cream", "deep, inky blacks". The STRENGTHS were not, and could not be: a document states a direction, not a magnitude. `warm_reflection`'s own comment says its blue slope was "pulled back" from a first-party DCTL's 0.88 to 0.935, and its 1.08 saturation came from a judgement that "the channel-level DNA outranks one series". Those are numbers this repository chose.
+**What was there.** `library/tools/series_look.py` held four complete looks - `pmk_default`, `warm_reflection`, `electric_contrast`, `film_stock_warmth` - each carrying a slope, offset and power triple, a saturation, a pivot contrast, a glow gain / threshold / size, a grain power and size, and a vignette blend and falloff. The DIRECTIONS were cited to the captain's own planning docs at `PLAN/series portfolio '26 planning/` (read-only, outside this repo) by document and section - "warm shadows, never blue", "highlights pushed to cream", "deep, inky blacks". The STRENGTHS were not, and could not be: a document states a direction, not a magnitude. `warm_reflection`'s own comment says its blue slope was "pulled back" from a first-party DCTL's 0.88 to 0.935, and its 1.08 saturation came from a judgement that "the channel-level DNA outranks one series". Those are numbers this repository chose.
 
 **What reached 001.** `project.yaml` names no brand template. Before #297 that resolved to `default_brand.yaml`, which named `pmk_default`, so on the 2026-08-26 run every one of these reached the finished video:
 
@@ -2281,7 +2317,7 @@ Captain, 2026-08-28: *"i want no hardcoded values. **there are no house glow loo
 
 **What could NOT be established.** How that reads on screen. The captain has live markers and a Text+ block on 001's timeline, so it is not re-rendered and there is no A/B frame. From the values alone: the CDL is a ~3.5% red-over-blue slope split and a +10% saturation, the contrast is a 0.1 pivot, the glow is gated at 0.78 so it touches only the brightest part of the frame, and the grain is 0.18. Whether the sum is visible at a glance or only in a difference image is exactly the question a render answers and these numbers do not.
 
-**Where the routing landed.** No value was relocated. The four looks are removed, the five shipped templates each dropped their `house_look:` and record the series DIRECTION their planning document states plus the fact that no strength was ever chosen, and `style.house_look` became a declaration of values that `resolve_look` reads. Nothing in `library/templates/` declares one, so at HEAD every project - 001 included - gets no grade.
+**Where the routing landed.** No value was relocated. The four looks are removed, the five shipped templates each dropped their `series_look:` and record the series DIRECTION their planning document states plus the fact that no strength was ever chosen, and `style.series_look` became a declaration of values that `resolve_look` reads. Nothing in `library/templates/` declares one, so at HEAD every project - 001 included - gets no grade.
 
 **A second, quieter one, found on the way.** `build_effect_comp` defaulted `vignette` to True, so any clip carrying a zoom and no explicit vignette key got one at `blend 0.25`, `soft 0.35` - through a `.get` default rather than a plan or a template. `normalize_effects` set `vignette: False` for the no-zoom case only, which is why it never showed: the clips it hit were the ones with a VFX zoom on them. It now draws only where one was asked for.
 
@@ -2312,7 +2348,7 @@ Nothing depends on a file inside a Resolve installation.
 
 **So the note was the defect, not the number.** AGENTS.md §10.3: no field reports a default as though it were measured. The step now records `measured_luma`, `measured_luma_method`, `measured_luma_samples` and, where nothing measured, `measured_luma_reason` - and `exposure_offset` is `null`, never `0.0`.
 
-**Fixing the parser is not the same as applying the result**, and the two were separated deliberately. `_REFERENCE_BRIGHTNESS = 122.0` ("typical well-exposed iPhone footage sits around 115-130. We aim for the middle") and `_MAX_EXPOSURE_OFFSET = 0.5` are decisions about how bright a finished video is and how far the engine may overrule the footage. Both were picked by nobody, and turning the parser on without routing them would have shipped an unreviewed exposure change to every clip of every project - on 001, a 0.72x on its brightest clip and a 1.41x on its darkest. So the reference is now `style.house_look.exposure_reference`, declared or absent, and with nothing declared the luma is measured, recorded and acted on by nothing. The offset is `log2(reference / measured)`, which is the definition of a stop rather than a chosen scale, and there is no clamp.
+**Fixing the parser is not the same as applying the result**, and the two were separated deliberately. `_REFERENCE_BRIGHTNESS = 122.0` ("typical well-exposed iPhone footage sits around 115-130. We aim for the middle") and `_MAX_EXPOSURE_OFFSET = 0.5` are decisions about how bright a finished video is and how far the engine may overrule the footage. Both were picked by nobody, and turning the parser on without routing them would have shipped an unreviewed exposure change to every clip of every project - on 001, a 0.72x on its brightest clip and a 1.41x on its darkest. So the reference is now `style.series_look.exposure_reference`, declared or absent, and with nothing declared the luma is measured, recorded and acted on by nothing. The offset is `log2(reference / measured)`, which is the definition of a stop rather than a chosen scale, and there is no clamp.
 
 ---
 
@@ -3124,7 +3160,7 @@ Read out of 001's own `pipeline_data.json` and `pipeline_output/llm_responses/`,
 **The brand constraints in the prompts.** Before, on a project that had chosen nothing:
 
 ```
-creative_direction: "\nBrand Constraints:\n- Style: {\"color_palette\": [...], \"house_look\":
+creative_direction: "\nBrand Constraints:\n- Style: {\"color_palette\": [...], \"series_look\":
                      \"pmk_default\", \"typography\": {...160...}, \"energy_profile\": \"high\"}\n
                      - Content Rules: {... \"music_genre\": [\"electronic\", \"upbeat\"],
                      \"target_duration_seconds\": {\"min\": 30, \"max\": 60}}\n"
@@ -3183,7 +3219,7 @@ Captions stay lowercase.
 
 ### The consequence to take to the captain
 
-`default_brand.yaml` declares `house_look: pmk_default`, and 001 inherited it. With absence
+`default_brand.yaml` declares `series_look: pmk_default`, and 001 inherited it. With absence
 declaring nothing, **001's next grade would carry exposure normalisation only** - step 5.01 says so
 in its own `look_notes` - instead of `pmk_default`'s CDL and Fusion values on all 17 per-clip comps.
 
@@ -4491,7 +4527,7 @@ vocabulary would reach every client.
 
 ### Why the numbers are not in the table
 
-PR #310 emptied `library/tools/house_look.py` of four complete looks on the captain's ruling of
+PR #310 emptied `library/tools/series_look.py` of four complete looks on the captain's ruling of
 2026-08-28: *"i want no hardcoded values. there are no house glow looks, there are no settled house
 grain or anything"*. A roster saying "the stat callout holds for 1.2 s in the accent colour" puts
 that defect back one level up, in the place it is hardest to see - a vocabulary is read as
@@ -5923,7 +5959,7 @@ declare.
 Project 001 names no brand template. So on the run of record the step
 measured luma on 9 of 9 clips, correctly, and wrote the IDENTITY CDL to
 every one - slope 1/1/1, offset 0/0/0, power 1/1/1, saturation 1.0,
-`exposure_gain` 1.0, `house_look: null`, `fusion_look: {}`. An identity
+`exposure_gain` 1.0, `series_look: null`, `fusion_look: {}`. An identity
 CDL is a no-op, so Resolve drew no node, and the captain opened the
 colour page to find it empty.
 
@@ -6779,3 +6815,453 @@ ledger - not just the steps one invocation touched
 (`library/processes/edit_video/run_pipeline.py`) - and a detector
 names steps that report success while emitting nothing usable. A build
 that owes an unanswered model request must not report success.
+
+## the-captions-at-the-clamp
+
+The captain reported the same defect twice: captions in the Reel 09
+timeline sitting off their band, and motion graphics on very large X.
+The first repair read the transform back and gated it; the captain
+reported it again.
+
+The approach was the defect, and the gate was calibrated wrong.
+Resolve's per-clip Pan/Tilt are expressed in a unit relative to the
+CLIP's own size - measured on Resolve 21, `shift_x = Pan * (placed_W /
+timeline_W)` and `shift_y = -Tilt * (placed_H / timeline_H)` - so the
+transform needed to carry a box is INVERSELY PROPORTIONAL to the box,
+while Resolve pins |Pan| and |Tilt| at a rail it does not report and
+refuses silently past it: setting beyond returns True and reads back
+the clamp.
+
+**Read off the live timeline**, 2026-09-09, project "Podcast (field
+test)", both Reel 09 timelines at 1080x1920, against
+`geo-podcast/pipeline_output/steps/4_05_render_subtitles/render_ledger.json`:
+
+| canvas h | Tilt asked | Tilt Resolve HELD |
+|---|---|---|
+| 152 | -7578.9 | **-3840.0** |
+| 158 | -7254.7 | **-3840.0** |
+| 160 | -7152.0 | **-3840.0** |
+| 164 | -6954.1 | **-3840.0** |
+| 166 | -6858.8 | **-3840.0** |
+| 220 | -4939.6 | **-3840.0** |
+| 224 | -4834.3 | **-3840.0** |
+| 232 | -4634.5 | **-3840.0** |
+| 236 | -4539.7 | **-3840.0** |
+| 242 | -4403.3 | **-3840.0** |
+| 244 | -4359.3 | **-3840.0** |
+| 300 | -3366.4 | -3366.4 |
+
+37 of the 39 caption items are pinned at exactly -3840.0 whatever they
+asked for; the two held exactly are the two that asked for -3366.4.
+
+**The rail is a constant in property space, not a clip-relative cap**,
+and that is the one thing this data settles. The Pan/Tilt UNIT is
+relative to the clip, so a rail capping the resulting SHIFT would show
+a different Tilt limit for every box size. Those 37 items span **17
+distinct box geometries** - heights 152..246, a 1.62x spread, widths
+840..902 - and a shift-capped rail would have read back twelve
+different values from -3840 down to -2373. Every one read back
+-3840.0.
+
+**3840 is recorded as a NUMBER, not a formula.** It equals two times
+this timeline's height, but one timeline geometry cannot distinguish
+`2 x the height` from `2 x the longer side` from a fixed constant, and
+turning one data point into a formula is precisely how `four times the
+timeline dimensions` came to be written down as measured fact. Nothing
+in the code depends on it.
+
+Every caption's tight canvas is bottom-anchored with its lower edge at
+y=1636, so the Tilt it needs is `tilt(h) = -(676 - h/2) * 1920 / h`,
+which crosses 3840 at **h = 270.4px**. A tight canvas is the drawn ink
+plus 52px of pad, so only the single three-line card (h=300) cleared
+it; every one- and two-line card did not.
+
+**That is why the first repair did not hold.** It gated at four times
+the timeline dimensions - 7680, twice the rail that was actually there
+- so it refused exactly one card (-7692.8) and let the other 37 ride
+straight onto a clamp it was calibrated to miss. `SetProperty`
+returned True every time. A gate is only as good as the constant it
+carries, and this API reports neither its limits nor when it has
+ignored you.
+
+**It is a clamp, not a value something set.** The asked-vs-held table
+proves it four ways. The split is perfectly ORDERED - every value
+asked below 3840 survived to the last digit, every value above it was
+pinned - which is what clamping is and what nothing else produces. The
+rail is independently BRACKETED to `[3366.4, 4316.1]` by which items
+were left alone, and 3840.0 lies inside that bracket; a constant
+something merely wrote has no reason to land there. No box geometry in
+the project could EMIT -3840 from the carriage's own arithmetic (it
+needs h = 270.4; the heights present are 152..246 and 300). And a path
+setting a flat -3840 would have set it on the two -3366.4 items too.
+There is no literal `3840` anywhere in `library/`, and the only writer
+of Tilt was `overlay_placement`, writing a computed value.
+
+**The asked values are trustworthy**, which matters because the table
+rests on them: each is reproduced to within 0.01 by `tilt(h)` from the
+box height recorded beside it, so they are internally consistent
+rather than transcribed; the ledger records the REQUEST at render
+time, before placement, so asked-vs-held is a real before-and-after
+and not one number read twice; and all 39 items paired to their ledger
+entry by a filename carrying a content digest of the props, so the
+artefacts on the timeline are the ones the ledger describes even after
+another lane rebuilt the reel.
+
+**The Inspector agrees with the API - a settled NEGATIVE.** The captain
+read the Edit page Inspector on 2026-09-10: *"all of them are -3840,
+except for 2 subtitle clips, one which is y=0 and another which is
+y=-3366.4"*. Both anomalies are in the data: -3366.4 is the single
+tight caption whose canvas (840x300) clears the 270.4 cliff, and y=0
+is a caption carried FULL CANVAS, which needs no shift at all. So
+there is **no display scale**, and the theory that the Inspector showed
+twice the API value - which would have neatly explained the old
+four-times figure - is dead. Recorded because a plausible explanation
+that turned out to be false is exactly what a later reader would
+otherwise re-invent. (The captain counted one y=0 where the data has
+two per timeline, `akshita_4` and `akshita_16`; both are full-canvas
+fallbacks with the same explanation, so it reads as a miscount over 22
+clips rather than a discrepancy.)
+
+**Where the captain's original -7680 came from is UNRESOLVED**, and no
+story is offered for it. What it is NOT: not a display scale (the
+Inspector agrees with the API), not an API scale (values inside the
+rail round-trip to the last digit), and not clip-size dependent (one
+rail across 17 box geometries). The number does occur once in this
+project's own records - inside the first repair's refusal text, `Tilt
+-7692.8 exceeds +- 7680` - but that text was written AFTER the
+captain's first report, so it cannot be its source. Left open.
+
+What the clamp does to the picture, and what it does NOT do: a pinned
+Tilt moves the box `2h` down from centre instead of the `676 - h/2` it
+needed, so the caption rides `676 - 2.5h` px HIGH - 296px for a
+one-liner, 66px for a two-liner. It is misplaced, never absent, and a
+clamp can only ever pull an overlay TOWARDS the frame centre, so it
+cannot on its own put one off frame. The measurement explains captions
+sitting wrong and bunched; it does not by itself reproduce "completely
+off frame", and that is stated rather than papered over.
+
+So the position stopped being a transform. An overlay artefact IS the
+delivery frame, its position is baked pixels, and the placer writes no
+position property at all - there is nothing left for Resolve to clamp,
+and nothing left to calibrate wrongly. A motion-graphics segment still
+renders once at its drawn union and is PADDED onto the frame
+(`tight_box.pad_to_delivery_frame`), verified frame by frame on the
+delivered file: measured 0.71s for a 43-frame clip, 1.80MB -> 4.06MB,
+worst channel difference 3 inside the pasted rect and alpha exactly 0
+outside it, with the ink bbox translating by the pad offset with no
+drift at any alpha threshold.
+
+`subtitle_overlay_geometry: tight` is RETIRED rather than repaired.
+Measuring a caption's tight canvas needs a FULL-CANVAS probe render
+first (`_probe_tight_box`; nothing ever passed `probe_mov`), so tight
+cost TWO Chromium launches per segment - and once position is pixels,
+the padded tight file is exactly the probe. It delivered the same
+artefact for twice the render. Retiring it halves the caption render
+launches, which is the cost PR 725 existed to reduce. The disk price
+is stated rather than hidden: one reel's 21 caption overlays go from
+174.6MB to a measured-predicted 277.0MB (x1.59). A project that still
+declares `tight` renders full canvas and is TOLD so on every segment.
+
+Two smaller lessons are recorded in the code. The reuse key now names
+the CARRIAGE (`overlay_mode.OVERLAY_CARRIAGE`), because an artefact
+from the Pan/Tilt era is not stale, it is UNUSABLE - reusing one under
+today's rule would place a small clip with no transform, centring the
+caption in the frame. And the read-back RAISES now, where the first
+repair only reported: while position rode Pan/Tilt a clamped caption
+was routine and failing a build over a movable miss would have traded
+a misplaced caption for a missing one, but nothing is routine once the
+clamp is unreachable. Footage clips are not overlays - the live
+measurement shows A-roll and B-roll carrying the captain's own
+reframes and the per-shot punch-in aims (Pan -35.0, -14.204, -38.372,
+Zoom 2.307) - and the identity check is scoped to overlay artefacts
+only.
+
+Correction, 2026-09-10, fifteen-lane merge: the retirement above did
+not survive composition. The captain's standing order is tight
+overlays, and the floor answers the cost argument the retirement
+rested on - the cliff sits at h = 270.4 against the measured 3840
+rail, so a canvas floored at 480 (`tight_box.MIN_CANVAS_HEIGHT`,
+grown away from the anchor so the ink does not move) places every
+caption with headroom (worst cases under 3400), and the clamp gate
+(`placement_holds`, now calibrated to the measured 3840 rather than
+the disproved 7680) still refuses at render time what even the grown
+canvas cannot hold. The carriage is `tight-480-1`
+(`overlay_mode.OVERLAY_CARRIAGE`): tight canvas, Scaling/Pan/Tilt set
+at placement time and read back, mismatches REPORTED by name rather
+than raised. The rail measurement, the bracket, the Inspector
+negative and the cliff arithmetic above all stand - they are what the
+floor and the gate are calibrated against.
+
+## the-powergrade-with-no-grade-in-it
+
+The captain: *"ok can you fix the color grade?"*
+
+`The Grade Free 1.13.1.drx` was applied to all six of Reel 09's picture items,
+with all eight of its own nodes, correctly labelled and enabled - and it changed
+nothing. Two lanes had measured 0.023%; the lane that applied it had recorded
+28.9%. Both could not be true of the same clips.
+
+### The .drx contains no grade
+
+Measured 2026-09-11 on `Podcast (field test)` / Reel 09, frame 300, through a
+one-frame Deliver render. Each of the eight nodes bypassed in turn:
+
+| node | bypassed alone | max delta |
+|---|---|---|
+| 2 `BAL/EXP` | **0** px | 0 |
+| 3 `CONTRAST` | **0** px | 0 |
+| 4 `SAT` | 49 px | 1 (rounding) |
+| 5 `W&B` (OFX Chromatic Adaptation) | **0** px | 0 |
+| 7 `FLC` (OFX Film Look Creator) | **0** px | 0 |
+| 8 `Corrections` | **0** px | 0 |
+| 1 `Input` (OFX Color Space Transform) | 1,451,766 px | 123 |
+| 6 `Output` (OFX Color Space Transform) | 1,451,827 px | 106 |
+| **1 and 6 together** | **554 px** | **7** |
+
+The two Color Space Transforms are an exact inverse pair - `TIMELINE_COLORSPACE`
+/`AUTO_GAMMA` to `DWG_COLORSPACE`/`DAV_INTER_OETF_GAMMA` and back to
+`REC709_COLORSPACE`/`TWOPOINTFOUR_GAMMA`, read out of the file's own zstd-
+compressed node body - and everything they wrap is identity. The whole grade
+nets to 486 px of 2,073,600: **0.023%**.
+
+The instrument was proved in the same session on the same clip: `SetCDL`
+saturation 0 moved **1,435,016 px (69.2%)** at max delta 96. The Color page
+reaches the render; there was simply nothing in the grade to render.
+
+**Colour management is not the cause.** The leading hypothesis was that a
+colourist's PowerGrade assumes DaVinci Wide Gamut under colour management and
+lands near-neutral on Rec.709 in an unmanaged project (this one is
+`davinciYRGB`). The CST pair cancelling to 554 px refutes it: the round trip is
+already exact, and no colour-management change gives the grade content it does
+not have.
+
+The one node that DOES carry a look is `FLC` - `flPreSat 0.7`, seven hue spheres,
+split-tone blend 0.5 midpoint 0.336, lum/sat curves - and it renders nothing. It
+is instantiated (`GetToolsInNode(7)` returns `['OFX: Film Look Creator']`) on
+Resolve **Studio** 21.0.0b.28, so it is not a licence. The `.drx` was authored in
+20.3.2. Clearing the two per-node flags that differ between `FLC` and the three
+OFX nodes that DO render, in a rebuilt copy of the file, changed nothing either.
+**The look cannot be woken from a `.drx` here.**
+
+This is what the grade's own author says it is
+(`brand_assets/TheGradeFree_README.txt`): *"This is a STARTING POINT, not a
+finishing point ... Color Space Transform (node 02) - set to your camera.
+Exposure (node 03) - dial in for your specific clip. White Balance (node 04) -
+correct before grading. Do not apply and export without adjusting."* A free
+starting-point PowerGrade applied unmodified is expected to be near-identity.
+That is not a defect in the file; it is a defect in shipping it unmodified.
+
+### The 28.9% is withdrawn, and why the two disagreed
+
+The 0.023% reproduces EXACTLY across lanes - 486 pixels of 2,073,600, the same
+integer from two independent sessions - through a one-frame Deliver render.
+
+The 28.9% came from `Timeline.GrabStill()` plus
+`GalleryStillAlbum.ExportStills`, which **on this build returns False and writes
+no file at all** (reproduced 2026-09-11; recorded independently in PR 916). A
+capture route that cannot write a file cannot settle a pixel question.
+
+The corroboration is in the shape of that lane's own numbers: 599,583 for the
+DRX, 601,760 for its `SetCDL(saturation 0)` control, and "29% of pixels" for
+`ResetAllGrades` against the untouched original. Those are one constant - the
+picture area - not three magnitudes. **A pixel COUNT above a 1/255 threshold
+saturates the moment anything perturbs the whole picture**; it does not
+distinguish a grade from a re-decode. Report the magnitude beside the count, or
+the count reads as a result.
+
+Nothing neutralised the grade between then and now. There was never anything to
+neutralise.
+
+### What actually lands
+
+The project already declared the look the captain picked - `v04_teal_split`
+(slope 1.03/1.0/0.96, offset -0.01/0.005/0.02, saturation 1.12) - and it was
+being *displaced* by the inert `.drx`, because a declared DRX replaces the whole
+node graph including the node `SetCDL` writes.
+
+`color_page_grade` already had the mechanism to land a CDL by LABEL inside the
+applied graph. Declaring `cdl_node: "BAL/EXP"` puts the captain's own CDL on the
+node this grade's author ships for exactly that, inside the DWG/Intermediate
+working space. Measured on the delivered timeline: **1,452,396 px moved, 70.0%
+of the frame, mean |d| 2.59**.
+
+The reason it had been withheld - that v04 would be "a second creative look"
+fighting the DRX's own - is refuted rather than overruled: with the DRX being
+identity, DRX+CDL against CDL-alone differ by **2 pixels at >= 8/255**. There
+was no look to fight.
+
+### The rule
+
+**A node count is not a grade.** `apply_power_grade` reporting `applied: True,
+nodes: 8` was true and meant nothing. A look is verified in exported pixels
+before it ships, per `.drx`, or it is not verified - AGENTS.md 10.4: a gate that
+cannot fail reads as coverage.
+
+## the-variant-that-dropped-the-captains-closer
+
+The captain, on the two Reel 09 timelines he was comparing:
+
+> *"there is another timeline which has the 8 frame cutaway to akshita, but does
+> not have the updated cta or the color grade"*
+
+He was right, and the cause was not the cutaway. `build_reel_variants` (PR 890)
+was written to run "the SAME derivation the rebuild runs today", and it does -
+for ranges, cards, captions, explainer, semantic visuals, overlays, look and
+motion. But it read `transcript_corrections` and `resolve_grade_cdl` and **not**
+`captain_edits.apply_closer_redraws`, and **not** `reel_look.resolve_power_grade`.
+
+So the reaction-cutaway variant opened its closer 54 frames later than the
+approved reel - source 483.563s against 481.311s - and would have been graded by
+`SetCDL` while the reel it exists to be compared against is graded on the Color
+page. A variant that differs from the approved timeline anywhere but its seam is
+not a comparison; it is two changes at once, and the difference the captain
+reads as "the seam" is partly something else.
+
+**Both were invisible to every check that ran.** The build printed
+`conformance-clean (6 checks)` either way, because conformance grades STRUCTURE
+and a dropped obedience is structurally perfect: every frame is covered, every
+row is the plan's, every item is linked. Nothing was malformed. Something was
+simply not applied.
+
+The guard is therefore not another structural check. It is:
+`tests/test_reel_variants_carry_recorded_obedience.py` - whatever
+`rebuild_reels_in_project` reads in order to obey a decision the captain
+RECORDED, `build_reel_variants` reads too. It parses both functions and asserts
+the subset, and it names the missing call in the failure. It fails on the code
+as PR 890 landed it, naming `apply_closer_redraws`.
+
+The list is explicit rather than inferred: a heuristic over every call in a
+6,000-line module would either miss one or drown the failure in noise. Adding a
+new recorded obedience means adding it to that list - which is the point.
+
+## the-single-frame-that-rendered-fourteen-hundred
+
+Asking `segment_renderer.render_single_frame` for frame 300 of Reel 09 on
+2026-09-11 queued a job with `MarkIn 0` / `MarkOut 1665` and rendered **1,471
+TIFFs of the entire reel** before it was stopped by hand. Resolve ignores
+`MarkIn`/`MarkOut` in `SetRenderSettings` unless `SelectAllFrames` is also set
+False.
+
+This is AGENTS.md 5 arriving from a new direction. The rule there is to judge a
+Resolve call by what it RETURNS - and here every return was fine.
+`SetRenderSettings` returned True. `AddRenderJob` returned a job id.
+`StartRendering` started. What was never read back was the QUEUE, which is the
+only place the range either took or did not.
+
+The cost of finding out afterwards is the whole timeline. The captain's machine
+is the fleet's one hard CPU limiter, and a "single frame" that renders a whole
+timeline is not a slow check on it - it is an outage. So `render_segment` now
+sets `SelectAllFrames: False`, reads the queued job back off `GetRenderJobList`,
+and REFUSES before `StartRendering` if the range is not exactly what was asked
+for. The job is deleted either way.
+
+`tests/test_segment_render_range_takes.py` drives it with a fake project whose
+queue reports the wrong range, and asserts nothing was started. Three of its
+four tests fail on the unfixed module; the fourth is the
+does-not-refuse-correct-output half, which must pass both ways.
+
+## Section 5 - DaVinci Resolve (continued)
+
+### the-bins-that-came-back-three-times
+
+The captain's screenshot of 2026-09-10: one reel showing up twice
+under both `06 - Subtitle renders` and `07 - Motion graphics`, a
+leftover `SOP Proof_...` bin with its timeline, and an `Unrecorded`
+bucket holding eight variant timelines.  The third report of the same
+bins.  Two previous lanes had reported it fixed - PR 912 (the sweep
+runs itself) and PR 927 (canonical orphan sweep) - and both were still
+open and unmerged, which is half the answer.  The other half is that
+neither would have fixed it anyway: both kept the EMPTINESS bar, and
+the dead leaves are not empty.
+
+Measured off HEAD code, not the screenshot: per-reel bins are keyed
+by placing-timeline NAME (`plan_organization` files a clip under
+`(render_bin, placer)`), every variant and every superseded build is
+a new timeline name, timelines are never deleted (the captain's
+2026-09-06 ruling, *"a refusal is cheap and a deleted timeline is
+not"*), and `plan_retirements` could only retire empty legacy-scheme
+bins - canonical per-reel leaves never matched `is_retired_scheme_bin`
+at all.  Proven both ways in a REPL: two timeline names for one reel
+produce two leaves and zero retirements, and deleting one timeline
+still produces zero.  So the old design was an ACCUMULATION of
+everything ever built: every build made it worse and no amount of
+sweeping kept up.
+
+The fix makes the tree a function of what currently exists:
+`plan_dead_render_bins` retires a per-reel leaf naming no live
+timeline WITH its contents - proven unplaced and pipeline-generated,
+journalled with what it held, pool items only, files never unlinked -
+and declines anything else by name (a placed clip inside, a timeline
+inside, foreign material, a sub-bin standing under it).  A leaf
+naming a timeline that still exists stays, whatever that timeline's
+state: `Earlier plans` reels are reality too.
+
+`Unrecorded` keeps its bucket: the exact-match rule means a suffixed
+one-off is unclassifiable BY DESIGN (calling it EARLIER would assert
+by prefix a provenance nobody recorded), and the bucket is where such
+timelines are kept rather than deleted or misfiled.  The `Not placed`
+leaves stay canonical destinations whose removal belongs to the prune
+path under its own authority.
+
+The proof timeline and the merge-demo timeline are the exception that
+proves the no-delete ruling: both go by EXACT name under the
+captain's verbatim authority (*"yeah clean that up"*, plus the
+standing instruction that crew demo leftovers are cleaned up), with
+the four protected timelines verified present and untouched in the
+same plan - `library/tools/proof_cleanup.py`.
+
+## the-promote-that-never-looked-back
+
+Three drops in one day, one shape: a build that REPLACES a timeline
+was judged only against its own PLAN, so no gate could fail on a
+feature the plan does not name (issue #925).
+
+1. The cutaway. `Reel 09 - your-website-is-only-20-percent (final)`
+was built 11:45 through `build_reel_variants` with a `plan_cutaway`
+offset: Craig's picture hidden over reel frames 574..598, an Akshita
+cover (LC4932 @ src 34788, 24 frames) revealed underneath. A 12:33
+`build-reels --only-reel 9` derives everything from the plan - and the
+cutaway is an intentional deviation from the plan, so the rebuild
+reproduced the plan faithfully and dropped it. V1 went 3 picture items
+to 2, the two Craig spans grew (55->67, 59->71) to close the hole so
+the picture stayed continuous, and the build reported `PASSED: 0
+errors, 4 warning(s)`. The captain found it by opening the timeline.
+
+2. The semantic visuals. Two builds ran from a tree whose
+`remotion-subtitles/` had no `node_modules`: all four semantic visuals
+printed `WARN: Render failed`, the whole V5 'Semantic' row was absent
+from the built timeline, and the build was `conformance-clean (6
+checks)`.
+
+3. The Fusion comp bank (fixed in #923): keyed over the inputs a comp
+was built from and not over the builder, so a build imported a comp a
+different build had generated.
+
+Why the existing gates could not catch any of them:
+`reel_conformance_verifier` grades the built timeline against the plan,
+and a feature not in the plan is invisible to it in both directions -
+it cannot notice one missing, and would flag one present. The
+structural gate (`no_empty_tracks, named_tracks, singleton_roles,
+aroll_linked, captions_linked, program_stream`) passes on a timeline
+with no cutaway and no Semantic row: a shape check, not a content
+check. The planned-vs-built NO-REFERENCE check was captions-only and
+all-or-nothing (`if planned_captions and actual_captions: return []`,
+so 48 planned and 1 built passes) - the gate that cannot fail for
+every overlay family except one.
+
+The fix is at `promote_staged_reels`, the one place a
+captain-visible timeline is replaced: before the first rename, diff
+the incoming timeline against the one it retires, live against live -
+per-row item counts and which named rows exist. Any row that loses
+items, or exists retired and not incoming, REFUSES with the exact
+`--allow-drop` declaration that would proceed deliberately (issue #925
+proposed `--allow-drop <row>`; it landed as repeatable `--allow-drop
+ROW` / `FINAL::ROW` plus the per-final mapping). Frame totals report,
+never trigger, so a shortened cut passes; an unreadable retiring
+timeline refuses rather than passing. Fresh builds skip the diff -
+nothing is being replaced.
+
+`tests/test_promote_replace_guard.py` reconstructs drops 1 and 2 as
+refusals, plus the declared-reduction pass, the unreadable refusal,
+and the growth/shortening passes. A guard nobody has watched fire is
+not a guard.

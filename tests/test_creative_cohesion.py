@@ -20,7 +20,7 @@ Three things these tests used to assert, and no longer can:
   by nothing outside the step.  Removed; see the comment at the end of
   `review_creative_cohesion` for the three reasons.
 - **`color_grade_spec["mood"]`.**  Step 5.01 emits no such key - project
-  001's real spec carries `grade_pipeline`, `fusion_look`, `house_look`,
+  001's real spec carries `grade_pipeline`, `fusion_look`, `series_look`,
   `look_notes` and five more - so the substring match ran against "" on
   every real run.  The old fixtures supplied `mood` themselves, which is
   a fixture proving a fixture.  The check is removed with the same three
@@ -215,7 +215,7 @@ def test_step_501_really_emits_neither_key():
     spec = define_color_grade({})["color_grade_spec"]
     assert "mood" not in spec and "grade_name" not in spec, spec.keys()
     # What it does carry, so a reader knows what a future check has.
-    assert {"house_look", "fusion_look", "look_notes"} <= set(spec)
+    assert {"series_look", "fusion_look", "look_notes"} <= set(spec)
 
 
 def test_the_cohesion_step_no_longer_asks_for_the_grade():

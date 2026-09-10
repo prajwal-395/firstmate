@@ -36,6 +36,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.tight_box import (  # noqa: E402
+    MIN_CANVAS_HEIGHT,
     PAD_BOTTOM,
     PAD_TOP,
     PAD_X,
@@ -137,18 +138,21 @@ def test_subtitles_and_timing_pass_through_untouched():
     assert box.props["fps"] == props["fps"]
 
 
-def test_tight_safe_area_is_padding_not_platform_insets():
+def test_tight_safe_area_is_padding_plus_rail_growth():
     """The component positions against style.safeArea pixels.
 
     On a small canvas the platform insets are meaningless - the box is
-    placed by Resolve, not by the render. The insets must be the pads,
-    so the card sits pad-anchored exactly as it sat inset-anchored.
+    placed by Resolve, not by the render. The insets are the pads plus
+    the minimum-height growth, which always goes AWAY from the anchor:
+    bottom-anchored cards keep their bottom inset exactly, and the top
+    absorbs the growth, so the ink does not move.
     """
     box = tighten_subtitle_props(_props())
-    assert box.props["style"]["safeArea"] == {
-        "top": PAD_TOP, "right": PAD_X,
-        "bottom": PAD_BOTTOM, "left": PAD_X,
-    }
+    assert box.props["style"]["safeArea"]["bottom"] == PAD_BOTTOM
+    assert box.props["style"]["safeArea"]["right"] == PAD_X
+    assert box.props["style"]["safeArea"]["left"] == PAD_X
+    assert box.props["style"]["safeArea"]["top"] >= PAD_TOP
+    assert box.height >= MIN_CANVAS_HEIGHT
 
 
 def test_centered_captions_need_no_pan():
@@ -163,13 +167,14 @@ def test_tilt_puts_canvas_bottom_where_full_canvas_put_content():
     bottom, and Tilt is the measured Resolve unit for that shift."""
     props = _props()
     box = tighten_subtitle_props(props)
-    # The canvas is top-anchored: its top edge sits PAD_TOP above the
-    # content top, and any even-rounding slack lands at the bottom.
-    # The test recomputes the centre from that edge, not from the
-    # bottom, so the two agree by construction of the same edge.
+    # The canvas origin is the content edge minus the RENDERED top
+    # inset (pads plus any minimum-height growth above the anchor),
+    # read off the props the render draws from rather than assumed.
     content_bottom = FULL_H - SAFE["bottom"]
     content_top = content_bottom - box.union_h
-    canvas_cy = (content_top - PAD_TOP) + box.height / 2
+    canvas_top = (content_top
+                  - box.props["style"]["safeArea"]["top"])
+    canvas_cy = canvas_top + box.height / 2
     dy = canvas_cy - FULL_H / 2
     assert box.placement["tilt"] == pytest.approx(
         -dy * (FULL_H / box.height))
@@ -179,7 +184,9 @@ def test_top_positioned_captions_anchor_from_the_top():
     props = _props(style=_style(position="top"))
     box = tighten_subtitle_props(props)
     content_top = SAFE["top"]
-    canvas_cy = (content_top - PAD_TOP) + box.height / 2
+    canvas_top = (content_top
+                  - box.props["style"]["safeArea"]["top"])
+    canvas_cy = canvas_top + box.height / 2
     dy = canvas_cy - FULL_H / 2
     assert box.placement["tilt"] == pytest.approx(
         -dy * (FULL_H / box.height))
@@ -203,14 +210,16 @@ def test_placement_for_box_uses_measured_resolve_units():
 
 def test_taller_union_gives_taller_canvas():
     one_line = _props(cards=[_card("hi there", 0, 20)])
-    # A long card wraps onto several lines; the union is the tallest
-    # card, so it stands taller than a single-line segment.
+    # A long card wraps onto many lines; past the minimum-height
+    # floor the union is the tallest card, so it stands taller than a
+    # single-line segment (both would tie at the floor).
     many = _props(cards=[
-        _card("today I have a big announcement to make about the brand "
-              "template and it will change everything", 0, 60),
+        _card(("today I have a big announcement to make about the brand "
+               "template and it will change everything ") * 4, 0, 60),
     ])
     assert (tighten_subtitle_props(many).height
             > tighten_subtitle_props(one_line).height)
+    assert tighten_subtitle_props(one_line).height == MIN_CANVAS_HEIGHT
 
 
 def test_emphasis_words_widen_the_box():
@@ -252,3 +261,27 @@ def test_pads_cover_shadow_blur_outline_and_qa_margin():
     assert PAD_X >= 20 + 2
     assert PAD_BOTTOM >= 30 + 2
     assert PAD_TOP >= 10 + 2
+
+
+def test_small_box_is_floored_at_the_minimum_canvas_height():
+    """The third option past tight-vs-full: a small union renders on
+    a 480-tall canvas, not a 152-tall one, so the placing Tilt stays
+    inside Resolve's rail (see `MIN_CANVAS_HEIGHT`)."""
+    box = tighten_subtitle_props(_props(cards=[_card("hi", 0, 20)]))
+    assert box.height == MIN_CANVAS_HEIGHT
+    assert box.height % 2 == 0
+    assert abs(box.placement["tilt"]) <= 3400
+
+
+def test_placement_formula_reproduces_the_captains_live_numbers():
+    """The brief's table pins the inversion: a 152-tall canvas centred
+    600px below frame centre needs Tilt -7578.9 on 1080x1920, past the
+    3840 rail - which is why the small boxes never landed."""
+    p = placement_for_box(canvas_w=900, canvas_h=152,
+                          canvas_cx=540, canvas_cy=960 + 600,
+                          full_w=1080, full_h=1920)
+    assert p["tilt"] == pytest.approx(-7578.9, abs=0.5)
+    grown = placement_for_box(canvas_w=900, canvas_h=480,
+                              canvas_cx=540, canvas_cy=960 + 600,
+                              full_w=1080, full_h=1920)
+    assert abs(grown["tilt"]) <= 3400

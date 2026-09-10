@@ -25,7 +25,7 @@ style:
   # 'Colour Grading - The Film Grade').
   #
   # To grade under this template, declare the values:
-  # `python3 -c "from library.tools.house_look import
+  # `python3 -c "from library.tools.series_look import
   #  describe_declaration_shape as d; print(d())"`
 effect:
   # dissolve is not deliverable - see transition_vocabulary.py

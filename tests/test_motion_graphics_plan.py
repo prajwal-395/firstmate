@@ -82,7 +82,7 @@ def test_the_template_refines_a_colour_role_and_does_not_gate_the_layer():
 
     # The SAME entry with no template: dropped for want of a colour, and
     # dropped BY NAME - not drawn in a house colour, which is what
-    # house_look.py was emptied to stop.
+    # series_look.py was emptied to stop.
     without = resolve([declared])
     assert without.basis == mgp.EVERY_ENTRY_DROPPED
     assert without.dropped[0].reason == "no_colour_to_draw_it_in"

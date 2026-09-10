@@ -87,7 +87,7 @@
       {
         "name": "declared_look",
         "type": "object",
-        "description": "Bridge output: what the project's brand template declared under style.house_look, as the colourist sees it, or the stated absence of one. Declared for the same reason as clip_exposure."
+        "description": "Bridge output: what the project's brand template declared under style.series_look, as the colourist sees it, or the stated absence of one. Declared for the same reason as clip_exposure."
       },
       {
         "name": "grade_terms_legend",

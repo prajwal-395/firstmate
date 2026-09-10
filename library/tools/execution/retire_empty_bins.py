@@ -1,45 +1,52 @@
-"""Retiring the migration's empty shells, and only those.
+"""Retiring the pipeline's dead bins, and only those.
 
 The Resolve half of the retirement rules in
 `library/tools/resolve_organization.py`, which holds every rule and no API
-calls. The split is the same one `organise_media_pool.py` uses, and for a
+calls. Two populations, one deleter: the migration's legacy shells and
+the current scheme's orphaned per-reel leaves (a staging name emptied
+by promotion, a deleted timeline's bin). The split is the same one
+`organise_media_pool.py` uses, and for a
 sharper reason here: organising must never delete
 (`tests/test_resolve_organization.py` asserts that of both organiser
-files), while THIS module's whole reason to exist is one deletion. A
+files), while THIS module's whole reason to exist is deletion. A
 reader can see which file is which.
 
-What `DeleteFolders` does, and what it is NOT trusted with
-----------------------------------------------------------
-The scripting reference says only this: `DeleteFolders([subfolders])`
-"deletes the specified subfolders in the media pool" and returns a bool.
-It does NOT say what happens to anything still inside or below the
-folder - whether a non-empty folder refuses, empties, or takes its
-contents with it - and the AGENTS.md 5 record is about a DIFFERENT call
-(`DeleteClips` on a timeline's pool item DELETES THE TIMELINE). So the
-folder call gets its own proof rather than borrowing that one's:
+Two populations, two deletions
+------------------------------
+1. The migration's EMPTY legacy shells: `DeleteFolders` only, exactly
+   as before.  An empty bin strands nothing.
+2. The current scheme's DEAD per-reel leaves: a bin under a render bin
+   that names no live timeline, retired WITH its contents.  The
+   contents go first, as pool ITEMS, and only then does the bin go.
 
-- The call is NEVER made on a bin that holds anything. Emptiness means
-  zero artefacts in the whole subtree AND no kept sub-bin standing under
-  it, proven off a fresh `read_pool` taken immediately before the call -
-  not off the plan, which is a claim about an earlier moment. A bin that
-  gained an item between plan and apply refuses instead of deleting.
-- Children are deleted before parents, so no call ever has a retired
-  sub-bin below it - the one recursion shape the reference leaves
-  undefined never arises from here.
-- The return value is judged (AGENTS.md 5): a falsy answer stops the
-  run with `RetirementRefused`, and the bins already retired are in the
-  journal.
-- The call takes Folder objects, never pool items, so the `DeleteClips`
-  failure mode - a timeline's pool item deleting the timeline - cannot
-  trigger through this path: an empty folder holds no timelines by the
-  proof above.
+What each call does, and what it is NOT trusted with
+----------------------------------------------------
+The scripting reference says only this about `DeleteFolders`: it
+"deletes the specified subfolders in the media pool" and returns a
+bool.  It does NOT say what happens to anything still inside or below
+the folder, so the folder call is NEVER made on a bin that holds
+anything or has a kept sub-bin below it - proven off a fresh
+`read_pool` taken immediately before the call, children before
+parents, return value judged (AGENTS.md 5).
 
-Reversibility: an empty bin carries nothing, so re-creating its path
-restores exactly what was removed. The journal names every retired path
-deepest first; `revert` re-creates them shallowest first and refuses a
-journal that was already reverted.
+`DeleteClips` on a clip's pool item removes the ITEM and leaves the
+file on disk; on a TIMELINE's pool item it DELETES THE TIMELINE
+(AGENTS.md 5).  So the contents call is never made on anything the
+live pool reports as a timeline: every content proxy's `Type` is
+re-read at the moment of the call (the plan is a claim about an
+earlier moment), and one wrong entry refuses the whole run.  What the
+contents call takes is bounded by what the dead-bin proof allowed -
+unplaced, pipeline-generated clips under that one bin, re-proven off
+a fresh read, with the exact item set the plan named.  Files are
+never unlinked here: a removed item's render is still on disk, so a
+project that comes back wrong can have its items re-imported, and the
+journal names every file path for the file-level sweep.
 
-`tests/test_retire_empty_shells.py`.
+Reversibility: an empty shell re-creates exactly.  A dead bin
+re-creates as an empty shell - its removed items do not come back,
+and `revert` says so, naming the files for hand re-import.
+
+`tests/test_retire_empty_shells.py`, `tests/test_dead_render_bins.py`.
 """
 from __future__ import annotations
 
@@ -80,17 +87,24 @@ def read_bin_tree(project) -> dict[tuple[str, ...], object]:
 
 
 def retire_bins(project, retirements: list[dict],
-                journal_path: str) -> dict:
+                journal_path: str,
+                project_root: str | None = None) -> dict:
     """Delete the retired bins, deepest first, re-proving each one.
 
-    Each path is re-read before its own deletion: occupancy off a fresh
-    `read_pool`, scheme membership off the same rules that planned it.
-    The journal records every retired path with the occupancy that
-    proved it, and is written even when a later deletion refuses.
+    Each path is re-read before its own deletion: scheme membership
+    off the same rules that planned it, occupancy off a fresh
+    `read_pool`.  A dead per-reel bin carries its contents: those are
+    re-proven (still the exact planned item set, still unplaced clips
+    under that bin, still no timeline among them by live proxy read)
+    and removed as pool items first - files stay on disk.  The
+    journal records every retired path with what it held, and is
+    written even when a later deletion refuses.
     """
     from library.tools.execution.organise_media_pool import read_pool
     from library.tools.resolve_organization import (
+        is_retired_canonical_bin,
         is_retired_scheme_bin,
+        plan_dead_render_bins,
     )
 
     pool = project.GetMediaPool()
@@ -100,26 +114,75 @@ def retire_bins(project, retirements: list[dict],
         "resolve_project": project.GetName(),
         "retired": [],
     }
+    by_path = {tuple(r["path"]): r for r in retirements}
+
+    def index_clips(folder, into: dict) -> None:
+        for clip in (folder.GetClipList() or []):
+            into[clip.GetUniqueId()] = clip
+        for sub in (folder.GetSubFolderList() or []):
+            index_clips(sub, into)
 
     try:
         ordered = sorted((tuple(r["path"]) for r in retirements),
                          key=lambda p: (-len(p), list(p)))
         for path in ordered:
+            entry = by_path[path]
+            planned_contents = list(entry.get("contents") or [])
             artefacts, _, _, _ = read_pool(project)
             timeline_names = frozenset(
                 a.name for a in artefacts if a.kind == "timeline")
-            if not is_retired_scheme_bin(path, timeline_names):
+            # An emptied canonical per-reel leaf retires like a legacy
+            # shell (both populations retire only once empty); a leaf
+            # retiring WITH contents goes through the dead-leaf
+            # re-proof below instead.
+            is_shell = (is_retired_scheme_bin(path, timeline_names)
+                        or (not planned_contents
+                            and is_retired_canonical_bin(
+                                path, timeline_names)))
+            dead_here = None
+            if not is_shell and planned_contents:
+                if project_root is None:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} retires with "
+                        f"{len(planned_contents)} item(s), and no "
+                        f"project root was given to re-prove they are "
+                        f"the pipeline's. Nothing further was retired.")
+                fresh_dead, _declined = plan_dead_render_bins(
+                    artefacts, list(read_bin_tree(project)),
+                    project_root, timeline_names)
+                matches = [d for d in fresh_dead
+                           if tuple(d["path"]) == path]
+                if not matches:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} no longer proves dead - "
+                        f"a timeline of that name may have landed, or "
+                        f"something inside it is now placed. Nothing "
+                        f"further was retired.")
+                dead_here = matches[0]
+                fresh_ids = {c["item_id"]
+                             for c in dead_here.get("contents") or []}
+                planned_ids = {c["item_id"] for c in planned_contents}
+                if fresh_ids != planned_ids:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} holds a different item set "
+                        f"than the plan named "
+                        f"(plan {sorted(planned_ids)}, "
+                        f"pool {sorted(fresh_ids)}). Nothing further "
+                        f"was retired.")
+            if not is_shell and dead_here is None:
                 raise RetirementRefused(
-                    f"{'/'.join(path)!r} is not a pipeline legacy bin. "
+                    f"{'/'.join(path)!r} is not a pipeline legacy bin "
+                    f"or a proven-dead per-reel bin. "
                     f"Nothing further was retired.")
-            holding = [a for a in artefacts
-                       if (tuple(a.folder_path)[:len(path)] == path
-                           and len(tuple(a.folder_path)) >= len(path))]
-            if holding:
-                raise RetirementRefused(
-                    f"{'/'.join(path)!r} is no longer empty - "
-                    f"{len(holding)} item(s) sit in it, first "
-                    f"{holding[0].name!r}. Nothing further was retired.")
+            if is_shell:
+                holding = [a for a in artefacts
+                           if (tuple(a.folder_path)[:len(path)] == path
+                               and len(tuple(a.folder_path)) >= len(path))]
+                if holding:
+                    raise RetirementRefused(
+                        f"{'/'.join(path)!r} is no longer empty - "
+                        f"{len(holding)} item(s) sit in it, first "
+                        f"{holding[0].name!r}. Nothing further was retired.")
             tree = read_bin_tree(project)
             kept_below = sorted(
                 "/".join(b) for b in tree
@@ -130,6 +193,47 @@ def retire_bins(project, retirements: list[dict],
                     f"{', '.join(kept_below)}. Retiring it would take a "
                     f"bin this plan did not retire. Nothing further was "
                     f"retired.")
+            removed_contents: list[dict] = []
+            if dead_here is not None:
+                proxies: dict = {}
+                index_clips(pool.GetRootFolder(), proxies)
+                targets = []
+                for content in planned_contents:
+                    proxy = proxies.get(content["item_id"])
+                    if proxy is None:
+                        raise RetirementRefused(
+                            f"{content['name']!r} is in the plan and not "
+                            f"in the pool. Nothing further was retired.")
+                    # Re-read the KIND off the live proxy, never trust
+                    # the plan: DeleteClips on a timeline's pool item
+                    # deletes the timeline.
+                    if (proxy.GetClipProperty("Type") or "") == "Timeline":
+                        raise RetirementRefused(
+                            f"{content['name']!r} reports Type 'Timeline' "
+                            f"in the pool and the plan calls it a clip. "
+                            f"DeleteClips would delete the timeline. "
+                            f"Nothing further was retired.")
+                    targets.append((content, proxy))
+                for start in range(0, len(targets), 100):
+                    chunk = targets[start:start + 100]
+                    if not pool.DeleteClips(
+                            [proxy for _, proxy in chunk]):
+                        raise RetirementRefused(
+                            f"DeleteClips returned a falsy answer for "
+                            f"{len(chunk)} item(s) under "
+                            f"{'/'.join(path)!r} after "
+                            f"{len(removed_contents)} had been removed. "
+                            f"The journal names those; every file is "
+                            f"still on disk.")
+                    for content, _proxy in chunk:
+                        removed_contents.append({
+                            "item_id": content["item_id"],
+                            "name": content["name"],
+                            "file_path": content.get("file_path", ""),
+                            "from": content.get(
+                                "folder", "/".join(path)),
+                        })
+                tree = read_bin_tree(project)
             folder = tree.get(path)
             if folder is None:
                 raise RetirementRefused(
@@ -141,7 +245,9 @@ def retire_bins(project, retirements: list[dict],
                     f"answer. The bin is still there and nothing further "
                     f"was retired.")
             journal["retired"].append({"path": "/".join(path),
-                                       "occupancy_before": 0})
+                                       "occupancy_before":
+                                           len(removed_contents),
+                                       "contents": removed_contents})
     finally:
         if before_current:
             pool.SetCurrentFolder(before_current)
@@ -151,12 +257,19 @@ def retire_bins(project, retirements: list[dict],
 
     journal["journal_path"] = journal_path
     return {"retired": [r["path"] for r in journal["retired"]],
+            "removed_items": sum(len(r.get("contents") or [])
+                                 for r in journal["retired"]),
             "journal_path": journal_path}
 
 
 def revert(project, journal_path: str) -> dict:
     """Re-create the retired shells. They were empty, so empty bins
-    restore exactly what was removed."""
+    restore exactly what was removed.
+
+    A dead per-reel bin re-creates as an EMPTY shell: its removed pool
+    items do not come back (their files are still on disk, named in
+    the journal for hand re-import), and the return says so rather
+    than reading as a full undo."""
     journal = json.loads(Path(journal_path).read_text(encoding="utf-8"))
     if journal.get("reverted_at"):
         raise RetirementRefused(
@@ -188,7 +301,13 @@ def revert(project, journal_path: str) -> dict:
     journal["reverted_at"] = datetime.now(timezone.utc).isoformat()
     Path(journal_path).write_text(
         json.dumps(journal, indent=2), encoding="utf-8")
+    not_restored = [
+        {"bin": r["path"], "name": c["name"],
+         "file_path": c.get("file_path", "")}
+        for r in journal.get("retired", [])
+        for c in (r.get("contents") or [])]
     return {"recreated": sorted(set(recreated)),
+            "contents_not_restored": not_restored,
             "journal_path": journal_path}
 
 

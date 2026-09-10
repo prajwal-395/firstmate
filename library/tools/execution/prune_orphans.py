@@ -102,6 +102,39 @@ def placed_paths_from_database(db_path: str,
     return paths
 
 
+def timeline_names_from_database(db_path: str) -> set[str]:
+    """Every timeline the saved project holds, from a COPY of the db.
+
+    `Sm2Timeline.Name` is the timeline's own name - the same string
+    `GetName()` returns and the same one build records bind to. Read
+    through a copy, like every other reader here, so the captain's live
+    file is never opened in place.
+
+    A query that raises RAISES, for the reason `placed_paths_from_database`
+    states: an empty answer reads exactly like a project with no
+    timelines, and a caller that used it to decide what is superseded
+    would call every recorded binding dead.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = os.path.join(tmp, PROJECT_DB_NAME)
+        shutil.copy2(db_path, copy)
+        con = sqlite3.connect(f"file:{copy}?mode=ro", uri=True)
+        try:
+            rows = con.execute(
+                'select "Name" from "Sm2Timeline" where "Name" is not null'
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise RemovalRefused(
+                f"reading Sm2Timeline.Name from {db_path} raised {exc}. "
+                f"An unreadable database returns nothing, which reads "
+                f"exactly like a project with no timelines at all and "
+                f"would call every recorded binding dead. Nothing was "
+                f"removed.") from exc
+        finally:
+            con.close()
+    return {row[0] for row in rows if row[0]}
+
+
 def timeline_digests(db_path: str) -> dict[str, str]:
     """A digest of every timeline's EDIT, from a COPY of the database.
 

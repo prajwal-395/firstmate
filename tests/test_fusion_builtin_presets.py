@@ -6,7 +6,7 @@ used to fail a parse + serialize round-trip, and the failure was read as
 
 - 38 were our own authorship rules (FusionNode._validate) refusing
   Blackmagic's macros. 20 built-ins carry a Background with no GlobalOut,
-  14 an EllipseMask with no Inverted, 4 an ApplyMode on Merge. Those rules
+  14 an EllipseMask with no Invert, 4 an ApplyMode on Merge. Those rules
   describe comps THIS pipeline writes; a foreign file is not bound by them.
 - 14 were an anonymous nested table (`Curves = { { Points = ... } }`) whose
   opening brace `_parse_table` swallowed instead of recursing into, so the
@@ -153,7 +153,7 @@ def test_string_input_is_quoted():
 def test_numeric_input_is_unchanged():
     node = FusionNode("Transform1", "Transform")
     node.inputs["Size"] = {"_type": "value", "value": 1.04}
-    node.inputs["Count"] = {"_type": "value", "value": 3}
+    node.inputs["Angle"] = {"_type": "value", "value": 3}
     out = node.serialize()
     assert "Value = 1.04," in out
     assert "Value = 3," in out
@@ -192,7 +192,7 @@ def test_authored_comp_still_requires_global_out_on_background():
 )
 def test_foreign_comp_skips_the_house_rules(name):
     """posterize uses ApplyMode, anisotropic omits GlobalOut,
-    burning_engine omits Inverted - all legitimate in DaVinci's own files."""
+    burning_engine omits Invert - all legitimate in DaVinci's own files."""
     assert parse_setting(_source(name)).serialize()
 
 

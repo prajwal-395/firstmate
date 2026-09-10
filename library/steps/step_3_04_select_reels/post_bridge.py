@@ -227,7 +227,14 @@ def resolve(llm_output: dict, data: dict) -> dict:
             max(m.timeline_end,
                 m.call_to_action.timeline_end if m.call_to_action else 0.0)
             for m in moments)
-        validate_proposal(moments, transcript, duration or furthest)
+        # Reels a recorded pin just redrew carry the captain's own
+        # word-edge guarantee instead of the whole-segments one: the
+        # pin may open mid-row where the row is chunking, and
+        # refusing it here would make a recorded decision break every
+        # future regeneration (`reel_proposal.validate_proposal`).
+        pinned = frozenset(int(r["reel"]) for r in closer_redraws["applied"])
+        validate_proposal(moments, transcript, duration or furthest,
+                          pinned_cta_reels=pinned)
 
     considered = (
         llm_output.get("considered")

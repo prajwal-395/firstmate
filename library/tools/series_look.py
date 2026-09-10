@@ -41,7 +41,7 @@ project NAMED writes down, and this module reads that declaration:
   `library/tools/fusion/comp_builder.build_effect_comp` dispatches on.
   Emitting a name that module does not read produces a comp without that
   effect in it and no warning, which is how three VFX types and four
-  grade nodes were silently lost before; `tests/test_house_look.py`
+  grade nodes were silently lost before; `tests/test_series_look.py`
   asserts the nodes get drawn.
 
 Three rules make a declaration incapable of smuggling a value back in:
@@ -62,12 +62,38 @@ Three rules make a declaration incapable of smuggling a value back in:
 
 Nothing here depends on a file inside a DaVinci Resolve installation.
 
-**On the names.** `house_look` is kept as the name of the module, of the
-brand-template slot and of the manifest key. It is an address - templates
-write it, the renderer reads it, project 001's recorded state carries it -
-and renaming an address moves no frame while risking every reader. What
-changed is what it MEANS: it is no longer a name into a catalogue in this
-repository, it is the declaration itself.
+**On the names.** This module, the brand-template slot, the project
+slot and the manifest key were all called `house_look` until 2026-09-10.
+Keeping the name was argued for as leaving an ADDRESS alone: templates
+write it, the renderer reads it, project 001's recorded state carries it,
+and renaming an address moves no frame while risking every reader. The
+captain overruled that on sight of his own `project.yaml`:
+
+    *"you better not be pulling some random shit from like a 'house
+    look' because there is no house look and all references to any
+    hardcoded values around it should be removed."*
+
+The values under it were his own pick and were never a house default -
+`v04_teal_split`, chosen from five rendered variants and copied verbatim
+into `lucie/geo-podcast` alone. But a slot named for the thing the engine
+is forbidden to have reads as smuggled defaults every time somebody opens
+the file, and a reader who has to be told "it does not mean what it says"
+is a reader the name has already failed. It is a look a PROJECT or its
+SERIES declares, so it is `series_look`.
+
+`house_look` is still READ, from a brand template and from a
+`project.yaml` alike, so every declaration written before the rename
+keeps working; it is never written and never offered in an error
+message. `slot_from` is the one place that reads it.
+
+The old addresses, written out so that a search for any of them lands
+here: `library/tools/house_look.py` IS this file;
+`house_look.NEUTRAL_CDL` is `series_look.NEUTRAL_CDL`;
+`house_look.resolve_look`, `house_look.project_house_look` and
+`house_look.effective_house_look` are `resolve_look`,
+`project_series_look` and `effective_series_look`; `style.house_look` is
+`style.series_look` in a brand template and in a `project.yaml`; and
+`tests/test_house_look.py` is `tests/test_series_look.py`.
 
 
 Rules relocated from AGENTS.md 12
@@ -78,7 +104,7 @@ so each rule is findable by its own words, and AGENTS.md 12
 keeps the headline and points here.
 
 **There is no house look.** The engine ships no slope, no saturation, no contrast, no glow, no grain and no vignette, and a project gets a grade only where a brand template it NAMED declares one.
-`library/tools/house_look.py` holds no values of its own. [why](docs/RULE_EVIDENCE.md#there-is-no-house-look)
+`library/tools/series_look.py` holds no values of its own. [why](docs/RULE_EVIDENCE.md#there-is-no-house-look)
 
 A look is delivered in two halves, because that is what the mechanisms can express:
 - **CDL** carries hue and level - slope (highlights), offset (shadows and the black floor), power (midtones), saturation - applied by `SetCDL` in `resolve_build_timeline`.
@@ -89,7 +115,7 @@ A look is delivered in two halves, because that is what the mechanisms can expre
 - **A project declaring no look gets NOTHING** - not a reduced look and not exposure normalisation. `NEUTRAL_CDL` is identity and `fusion_look` is `{}`, so no clip gets a comp for the look's sake at all. This is the shape #297 established for every other brand slot (§10.1).
 - **A vignette is drawn only where one was asked for.** `build_effect_comp` used to default `vignette` to True, drawing one at blend 0.25 on every clip carrying a zoom.
 - **Exposure is MEASURED, and normalised only onto a reference the declaration carries.** A clip nothing measured carries `null` and a reason, never `0.0`. `exposure_reference` is the declared target. [why](docs/RULE_EVIDENCE.md#the-exposure-probe-measured-nothing)
-- `tests/test_house_look.py`, `tests/test_color_grade_delivery.py`.
+- `tests/test_series_look.py`, `tests/test_color_grade_delivery.py`.
 """
 
 from __future__ import annotations
@@ -101,7 +127,7 @@ RGB = tuple[float, float, float]
 
 
 class LookDeclarationError(ValueError):
-    """A `style.house_look` declaration that cannot be delivered as written.
+    """A `style.series_look` declaration that cannot be delivered as written.
 
     Raised rather than dropped, and rather than completed. A dropped
     element ships a video missing a grade somebody asked for, forty
@@ -115,7 +141,7 @@ class LookElement:
     """One thing a look may declare, and what carries it to the picture.
 
     Attributes:
-        key: What a brand template writes under `style.house_look`.
+        key: What a brand template writes under `style.series_look`.
         scalar: True when the value is one number rather than a mapping.
         delivered_by: "cdl" or "fusion" - which of the two halves.
         required: Sub-keys that must ALL be present when the element is.
@@ -228,6 +254,31 @@ LOOK_ELEMENTS: tuple[LookElement, ...] = (
 )
 
 ELEMENTS_BY_KEY: dict[str, LookElement] = {e.key: e for e in LOOK_ELEMENTS}
+
+#: What a brand template or a project writes the declaration under.
+SLOT_KEY = "series_look"
+
+#: The name the slot had until 2026-09-10, still READ so that every
+#: declaration written before the rename keeps working. Never written and
+#: never offered in an error message: a deprecated spelling that a
+#: message teaches is not deprecated.
+LEGACY_SLOT_KEY = "house_look"
+
+
+def slot_from(style: Any) -> tuple[Any, Optional[str]]:
+    """`(declaration, which key it came from)` out of a `style:` mapping.
+
+    The current name wins where both are present, and the caller is told
+    which one answered so a report can say so rather than implying the
+    file said `series_look` when it did not.
+    """
+    if not isinstance(style, Mapping):
+        return None, None
+    for key in (SLOT_KEY, LEGACY_SLOT_KEY):
+        if style.get(key) is not None:
+            return style[key], key
+    return None, None
+
 
 #: The one key that is not an element: the label a report, a dashboard
 #: and the manifest use to say WHICH look shipped. Required, because a
@@ -383,20 +434,20 @@ def _require_whole(element: LookElement, value: Mapping[str, Any]
     """Every required sub-key, or a refusal naming the missing ones."""
     if not isinstance(value, Mapping):
         raise LookDeclarationError(
-            f"style.house_look.{element.key} must be a mapping carrying "
+            f"style.series_look.{element.key} must be a mapping carrying "
             f"{', '.join(element.required)}; got {value!r}."
         )
     unknown = sorted(set(value) - set(element.required) - set(element.optional))
     if unknown:
         raise LookDeclarationError(
-            f"style.house_look.{element.key} carries {unknown}, which "
+            f"style.series_look.{element.key} carries {unknown}, which "
             f"nothing reads. Known: "
             f"{', '.join(element.required + element.optional)}."
         )
     missing = [k for k in element.required if k not in value]
     if missing:
         raise LookDeclarationError(
-            f"style.house_look.{element.key} declares "
+            f"style.series_look.{element.key} declares "
             f"{sorted(set(value)) or 'nothing'} but not {missing}. An "
             f"element is declared whole or not at all - finishing it "
             f"means this engine choosing {'a strength' if len(missing) == 1 else 'strengths'} "
@@ -407,10 +458,10 @@ def _require_whole(element: LookElement, value: Mapping[str, Any]
 
 
 def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
-    """Read a `style.house_look` declaration, or None when there is none.
+    """Read a `style.series_look` declaration, or None when there is none.
 
     Args:
-        declaration: What a brand template wrote under `style.house_look`.
+        declaration: What a brand template wrote under `style.series_look`.
             An absent, empty or None declaration means the template
             declares no look, and the answer is None - no grade, no glow,
             no grain, no vignette.
@@ -424,7 +475,7 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
 
     if isinstance(declaration, str):
         raise LookDeclarationError(
-            f"style.house_look is a DECLARATION, not a name: got "
+            f"style.series_look is a DECLARATION, not a name: got "
             f"{declaration!r}. The four looks this engine used to ship "
             f"were removed - their strengths were numbers nobody chose "
             f"(captain, 2026-08-28: 'there are no house glow looks, there "
@@ -434,7 +485,7 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
 
     if not isinstance(declaration, Mapping):
         raise LookDeclarationError(
-            f"style.house_look must be a mapping, got "
+            f"style.series_look must be a mapping, got "
             f"{type(declaration).__name__}."
         )
 
@@ -443,7 +494,7 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
     )
     if unknown:
         raise LookDeclarationError(
-            f"style.house_look carries {unknown}, which nothing reads. A "
+            f"style.series_look carries {unknown}, which nothing reads. A "
             f"key the renderer never dispatches on produces a comp "
             f"without that effect and no warning. Known elements: "
             f"{', '.join(ELEMENTS_BY_KEY)}."
@@ -452,7 +503,7 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
     name = str(declaration.get(NAME_KEY, "") or "").strip()
     if not name:
         raise LookDeclarationError(
-            "style.house_look declares no `name`. The name is the label "
+            "style.series_look declares no `name`. The name is the label "
             "the manifest, the renderer's log and the step summary use to "
             "say which look shipped; a grade nobody can name is a grade "
             "nobody can review."
@@ -461,7 +512,7 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
     declared = tuple(k for k in declaration if k in ELEMENTS_BY_KEY)
     if not declared:
         raise LookDeclarationError(
-            f"style.house_look {name!r} declares no element, so it draws "
+            f"style.series_look {name!r} declares no element, so it draws "
             f"nothing. Omit the key to declare no look; a named look that "
             f"changes no pixel reads as a grade in every report that names "
             f"it. Elements: {', '.join(ELEMENTS_BY_KEY)}."
@@ -475,50 +526,50 @@ def resolve_look(declaration: Any) -> Optional[DeclaredLook]:
 
     if "cdl" in declaration:
         cdl = _require_whole(ELEMENTS_BY_KEY["cdl"], declaration["cdl"])
-        fields["slope"] = _triple(cdl["slope"], "style.house_look.cdl.slope")
-        fields["offset"] = _triple(cdl["offset"], "style.house_look.cdl.offset")
-        fields["power"] = _triple(cdl["power"], "style.house_look.cdl.power")
+        fields["slope"] = _triple(cdl["slope"], "style.series_look.cdl.slope")
+        fields["offset"] = _triple(cdl["offset"], "style.series_look.cdl.offset")
+        fields["power"] = _triple(cdl["power"], "style.series_look.cdl.power")
         fields["saturation"] = _number(
-            cdl["saturation"], "style.house_look.cdl.saturation")
+            cdl["saturation"], "style.series_look.cdl.saturation")
 
     if "contrast" in declaration:
         fields["contrast"] = _number(
-            declaration["contrast"], "style.house_look.contrast")
+            declaration["contrast"], "style.series_look.contrast")
 
     if "glow" in declaration:
         glow = _require_whole(ELEMENTS_BY_KEY["glow"], declaration["glow"])
-        fields["glow_gain"] = _number(glow["gain"], "style.house_look.glow.gain")
+        fields["glow_gain"] = _number(glow["gain"], "style.series_look.glow.gain")
         fields["glow_threshold"] = _number(
-            glow["threshold"], "style.house_look.glow.threshold")
-        fields["glow_size"] = _number(glow["size"], "style.house_look.glow.size")
+            glow["threshold"], "style.series_look.glow.threshold")
+        fields["glow_size"] = _number(glow["size"], "style.series_look.glow.size")
 
     if "grain" in declaration:
         grain = _require_whole(ELEMENTS_BY_KEY["grain"], declaration["grain"])
         fields["grain_power"] = _number(
-            grain["power"], "style.house_look.grain.power")
+            grain["power"], "style.series_look.grain.power")
         fields["grain_size"] = _number(
-            grain["size"], "style.house_look.grain.size")
+            grain["size"], "style.series_look.grain.size")
 
     if "vignette" in declaration:
         vig = _require_whole(
             ELEMENTS_BY_KEY["vignette"], declaration["vignette"])
         fields["vignette_blend"] = _number(
-            vig["blend"], "style.house_look.vignette.blend")
+            vig["blend"], "style.series_look.vignette.blend")
         fields["vignette_soft"] = _number(
-            vig["soft"], "style.house_look.vignette.soft")
+            vig["soft"], "style.series_look.vignette.soft")
         if "color" in vig:
             fields["vignette_color"] = _triple(
-                vig["color"], "style.house_look.vignette.color")
+                vig["color"], "style.series_look.vignette.color")
 
     if "exposure_reference" in declaration:
         fields["exposure_reference"] = _number(
-            declaration["exposure_reference"], "style.house_look.exposure_reference")
+            declaration["exposure_reference"], "style.series_look.exposure_reference")
 
     return DeclaredLook(**fields)
 
 
-def project_house_look(project_folder: Any) -> Any:
-    """The `style.house_look` a project declares in its own project.yaml.
+def project_series_look(project_folder: Any) -> Any:
+    """The `style.series_look` a project declares in its own project.yaml.
 
     Top-level `style:` block, the same shape `effect.timed_text_overlay`
     takes (library/tools/timed_text_overlay.py): a project may differ
@@ -542,7 +593,7 @@ def project_house_look(project_folder: Any) -> Any:
     except ImportError:
         raise LookDeclarationError(
             "PyYAML is required to read project.yaml for "
-            "`style.house_look`.")
+            "`style.series_look`.")
     with open(project_yaml, "r", encoding="utf-8") as handle:
         config = yaml.safe_load(handle) or {}
     if not isinstance(config, dict):
@@ -555,29 +606,29 @@ def project_house_look(project_folder: Any) -> Any:
         raise LookDeclarationError(
             f"{project_yaml} has a `style:` block that is not a mapping, "
             f"got {type(style).__name__}.")
-    declaration = style.get("house_look")
+    declaration, read_from = slot_from(style)
     if declaration is None:
         return None
     if not isinstance(declaration, dict):
         raise LookDeclarationError(
-            f"{project_yaml} `style.house_look` must be a declaration "
+            f"{project_yaml} `style.{read_from}` must be a declaration "
             f"mapping, got {declaration!r}.")
     return declaration
 
 
-def effective_house_look(template_style: Any,
+def effective_series_look(template_style: Any,
                          project_folder: Any) -> Any:
-    """The house_look declaration step 5.01 resolves: project wins.
+    """The series_look declaration step 5.01 resolves: project wins.
 
     The whole slot is replaced rather than merged key by key: half a
     look from each of two sources is a look nobody designed. A project
     that declares nothing leaves the template's slot exactly as it was,
     so this is invisible to every existing project.
     """
-    project_declaration = project_house_look(project_folder)
+    project_declaration = project_series_look(project_folder)
     if project_declaration is not None:
         return project_declaration
-    return (template_style or {}).get("house_look")
+    return slot_from(template_style or {})[0]
 
 
 def describe_declaration_shape() -> str:
@@ -588,7 +639,7 @@ def describe_declaration_shape() -> str:
     """
     lines = [
         "style:",
-        "  house_look:",
+        "  series_look:",
         "    name: <a label for reports; required>",
         "    intent: <one line on what it is for; optional>",
     ]
@@ -606,7 +657,7 @@ def describe_declaration_shape() -> str:
     lines.append(
         "Every element is optional; an undeclared one is not drawn. A "
         "declared one must carry all of its required keys. Omit "
-        "`house_look` entirely to declare no look.")
+        "`series_look` entirely to declare no look.")
     return "\n".join(lines)
 
 
@@ -614,10 +665,10 @@ def describe_look(look: Optional[DeclaredLook]) -> str:
     """One line for the step summary and the renderer's log."""
     if look is None:
         return (
-            "No look: no brand template declares `style.house_look`, so "
+            "No look: no brand template declares `style.series_look`, so "
             "the clips carry no CDL, no contrast, no glow, no grain and "
             "no vignette. There is no house look to fall back to - see "
-            "library/tools/house_look.py."
+            "library/tools/series_look.py."
         )
     parts = ", ".join(look.declared)
     intent = f" {look.intent}" if look.intent else ""

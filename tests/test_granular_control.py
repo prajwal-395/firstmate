@@ -6,7 +6,6 @@ import pytest
 from library.tools.fusion.engine import CompEngine
 from library.tools.fusion.effects import fx
 from library.tools.custom_asset_bank import (
-    clip_asset_key,
     find_clip_assets,
     get_custom_asset,
     save_custom_asset,
@@ -37,7 +36,7 @@ def test_fx_blocks_compose_correctly():
     # 2. Grade
     engine.add(fx.grade(gain=1.05))
     # 3. Grain
-    engine.add(fx.grain(power=0.5))
+    engine.add(fx.grain(power=0.5, size=1.5))
     
     comp_content = engine.serialize()
     
@@ -152,4 +151,8 @@ def test_apply_fusion_comps_uses_engine_path(monkeypatch, tmp_path):
     with open(custom_asset_path, "r") as f:
         content = f.read()
         assert "ShakeTransform" in content
-        assert "ChromaticAberration1" in content
+        # `chromatic_aberration` draws NOTHING and must not: Fusion
+        # registers no tool of that name, so the node this once emitted
+        # was a comp Resolve loaded without it. The real route is
+        # DaVinci's own shipped macro through `fusion_macro_loader`.
+        assert "ChromaticAberration" not in content

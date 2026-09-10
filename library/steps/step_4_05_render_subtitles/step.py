@@ -50,7 +50,6 @@ carrying their payload rather than as `emit` plus `sys.exit` inline -
 a function that kills its caller's process cannot be called by one.
 See AGENTS.md 3.
 """
-import hashlib
 import json
 import os
 import subprocess
@@ -67,7 +66,9 @@ from library.tools.remotion_batch import (
 )
 from library.tools.overlay_mode import (
     CONTAINERS,
+    DEFAULT_GEOMETRY,
     GEOMETRIES,
+    OVERLAY_CARRIAGE,
     resolve_overlay_container,
     resolve_overlay_geometry,
 )
@@ -76,10 +77,14 @@ from library.tools.qa.subtitle_qa import (
     ALPHA_INK_THRESHOLD,
     check_caption_geometry,
 )
+from library.tools.render_cache import (
+    content_key as _content_key,
+    drawing_digest as _drawing_digest_of,
+    renderer_fingerprint as _renderer_fingerprint,
+)
 from library.tools.step_stdout import claim_stdout, emit
 from library.tools.subtitle_segment_id import (
-    assert_named_timeline,
-    assert_unique_segment_names,
+    assert_no_content_collision,
     segment_binding,
     segment_identifier,
     timeline_scope,
@@ -139,57 +144,90 @@ been rendered.  Inference from absence is what made the collapse
 possible; every segment now says which of these three it is."""
 
 
-def _props_digest(props: dict) -> str:
+# Props keys that are PLACEMENT or provenance, never pixels. Everything
+# else in the props - `subtitles` (text + frame timings + emphasis +
+# words + fit), `style`, `fps`, `width`/`height`, `durationInFrames`,
+# `_source_in_frame`/`_source_out_frame` - draws, and stays in the
+# digest.
+#
+# What each excluded key is, so a future props addition lands on the
+# right side: `timeline` never reaches the props (it travels as the
+# caller's label); `_block_position` is the ordinal within one spine;
+# `_timeline_start`/`_timeline_end` are absolute timeline bounds;
+# `_speaker`/`_source_clip_id`/`_source_start`/`_source_end` are the
+# provenance the filename stem already carries. Duration stays IN: it
+# is the file's frame count, and two variants holding one caption for
+# genuinely different lengths must still render twice, because the
+# pixels really differ. The source in/out frames stay IN: they are
+# derived from the same timing the subtitles carry, so they agree on
+# every genuine hit, and hashing them is the SAFE direction against a
+# derivation drift - it re-renders where hashing less would skip.
+NON_DRAWING_PROPS_KEYS = frozenset((
+    "_block_position",
+    "_timeline_start",
+    "_timeline_end",
+    "_speaker",
+    "_source_clip_id",
+    "_source_start",
+    "_source_end",
+))
+"""Props that must never decide reuse. Complete, and load-bearing.
+
+A NEW metadata key defaults INTO the digest (safe: it re-renders),
+and joins this set only by an edit that says why it draws nothing.
+A new DRAWING input needs no edit at all - which is the direction a
+default must fail in.
+"""
+
+
+def _drawing_digest(props: dict, geometry: str = "full",
+                    container: str = "video") -> str:
     """A stable hash of everything about this segment that draws pixels.
 
-    The whole props object, including its `_`-prefixed metadata.  Hashing
-    more than strictly draws is the SAFE direction: it re-renders on a
-    metadata-only change, where hashing less would skip on a real one.
+    The drawing props (see `NON_DRAWING_PROPS_KEYS`) plus the
+    carrying: geometry (the delivery frame, or the tight canvas
+    floored at `tight_box.MIN_CANVAS_HEIGHT`) and container (stitched
+    mov versus frames directory - different artefacts of the same
+    pixels).
     """
-    canonical = json.dumps(props, sort_keys=True, default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    drawing = {k: v for k, v in props.items()
+               if k not in NON_DRAWING_PROPS_KEYS}
+    drawing["_geometry"] = geometry
+    drawing["_container"] = container
+    return _drawing_digest_of(drawing)
 
 
 def renderer_fingerprint(remotion_dir: str) -> str:
     """The identity of the code and fonts that turn props into pixels.
 
-    Props do NOT capture the Remotion composition or the bundled font, so
-    a props hash alone would skip every segment forever after an edit to
-    `remotion-subtitles/src/` - the pixels change and the key does not.
-    That is exactly the defect `library/tools/code_identity.py` exists to
-    remove one layer down, in its own words: "the system reports success
-    while the work did not happen."
-
-    Returns `""` when the tree cannot be read, and `""` NEVER matches -
-    see `_reuse_key`.  Unavailable evidence must not read as matching
-    evidence.
+    One spelling, in `library/tools/render_cache.py`: step 4.05's key
+    used to carry its own copy, and two fingerprints of one tree is
+    how a renderer edit reuses on one path and re-renders on the
+    other.  Kept here as the name the tests and the key builder read.
     """
-    root = Path(remotion_dir)
-    parts = []
-    for pattern in ("src/**/*.tsx", "src/**/*.ts", "public/fonts/*"):
-        for path in sorted(root.glob(pattern)):
-            if not path.is_file():
-                continue
-            try:
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            except OSError:
-                return ""
-            parts.append(f"{path.relative_to(root)}={digest}")
-    if not parts:
-        return ""
-    return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()[:32]
+    return _renderer_fingerprint(remotion_dir)
 
 
-def _reuse_key(props: dict, remotion_dir: str) -> str:
-    """The pair that has to match for a skip to be safe, or `""`.
+def _reuse_key(props: dict, remotion_dir: str,
+               geometry: str = "full", container: str = "video") -> str:
+    """The three things that have to match for a skip to be safe, or `""`.
 
-    Empty means "cannot be established", and every comparison against it
-    fails, so an unreadable renderer tree renders rather than skips.
+    The drawing digest (never placement: no timeline, no block
+    ordinal, no absolute timeline bounds), the renderer fingerprint,
+    and the carriage.  Empty means "cannot be established", and every
+    comparison against it fails, so an unreadable renderer tree
+    renders rather than skips.
+
+    The CARRIAGE is in the key (`overlay_mode.OVERLAY_CARRIAGE`)
+    because an artefact from a previous carriage is not stale, it is
+    UNUSABLE: the `frame-baked-1` era baked the position into
+    delivery-frame pixels and placed with no transform, so reusing one
+    under today's rule would place a full-frame clip AND transform it
+    off the frame. A key that did not name the carriage would let
+    exactly that through as a hit.
     """
-    fingerprint = renderer_fingerprint(remotion_dir)
-    if not fingerprint:
-        return ""
-    return f"{_props_digest(props)}+{fingerprint}"
+    return _content_key(_drawing_digest(props, geometry, container),
+                        remotion_dir, OVERLAY_CARRIAGE)
 
 
 def _tally(segments) -> dict:
@@ -227,13 +265,12 @@ class _TightFailed(Exception):
         super().__init__(reason)
 
 
-def _box_sidecar_path(out_dir: str, segment_name: str, suffix: str) -> str:
-    return os.path.join(out_dir, f"{segment_name}{suffix}_box.json")
+def _box_sidecar_path(out_dir: str, segment_name: str) -> str:
+    return os.path.join(out_dir, f"{segment_name}_box.json")
 
 
 def _probe_tight_box(props: dict, out_dir: str, engine,
-                     remotion_dir: str, container: str,
-                     probe_mov: str | None, progress: str):
+                     remotion_dir: str, container: str, progress: str):
     """Measure this segment's box off a decoded probe render.
 
     Returns `(box_or_None, probe_tmpdir, probe_frames, union_or_None)`:
@@ -258,9 +295,7 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
 
     probe_tmpdir = tempfile.mkdtemp(prefix="probe_", dir=out_dir)
     try:
-        if probe_mov:
-            probe_frames = extract_frames(probe_mov, probe_tmpdir)
-        elif container == "frames":
+        if container == "frames":
             probe_props_path = os.path.join(probe_tmpdir,
                                             "probe_props.json")
             with open(probe_props_path, "w") as handle:
@@ -496,8 +531,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        renderer=None,
                        overlay_geometry: str = None,
                        overlay_container: str = None,
-                       project_folder: str = "",
-                       probe_mov: str | None = None) -> dict:
+                       project_folder: str = "") -> dict:
     """Render ONE subtitle segment.  ALWAYS returns an entry.
 
     The per-segment unit, split out from the orchestrator's loop because
@@ -520,18 +554,19 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     for reuse outright, opts in.
 
     A skip requires BOTH the overlay and its recorded reuse key to be on
-    disk and to match - never mere presence.  The filename is built from
-    `SEGMENT_BINDING_KEYS`, which carries no caption content, so a
-    text-only correction produces the identical name: measured on project
-    001, changing every caption in a block changed 0 of 8 filenames.
-    Skipping on presence would skip exactly the work an operator asked
-    for.
+    disk and to match - never mere presence.  The filename carries the
+    content digest but no timeline, so two variants captioning the same
+    words compute the same name: that is the sharing, and the recorded
+    key is still what says the file on disk is current - a renderer or
+    carriage change mismatches the key and re-renders over the same
+    filename rather than serving stale pixels.
 
     `overlay_geometry` / `overlay_container` choose the alternative
     carrying (`library/tools/overlay_mode.py`): a tight canvas instead
     of the delivery frame, a PNG sequence instead of a stitched mov.
     Explicit values win; otherwise the project's declaration is read,
-    and a project that declares nothing renders exactly as before.
+    and a project that declares nothing renders tight (the default
+    since 2026-09-10 - `library/tools/overlay_mode.py`).
 
     Where the geometry is tight the box is MEASURED off a decoded
     probe render, never predicted: a full-canvas probe is rendered to
@@ -551,7 +586,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     `library/tools/caption_asset_gc.py`.
 
     A timeline label naming a REJECTED reel is refused FIRST - before
-    reuse, before the probe, before any render - by reading that
+    reuse, before any render - by reading that
     reel's LIVE verdict off `reel_proposals_v2.json`
     (`library/tools/reel_proposal.py`). The master timeline names no
     reel and passes through untouched.
@@ -581,33 +616,44 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
 
     # The tight canvas, where declared, is MEASURED off a decoded
     # probe further down - never predicted (the PIL predictor
-    # under-measures against Chromium and clips ink). The suffix is
-    # known up front; a probe that draws nothing resets it to the
-    # full-canvas name when it falls back.
-    tight = None
-    suffix = "_tight" if geometry == "tight" else ""
+    # under-measures against Chromium and clips ink). The name is
+    # content-keyed (`segment_identifier` over the drawing digest,
+    # which carries the geometry), so tight and full renderings of
+    # one segment never share a filename: a canvas change cannot
+    # serve the other carrying stale.
     # Set when a tight box was measured and its output did not verify, so
     # the card is carried full canvas instead. Initialised HERE, above
     # every `entry()` return including the reuse path, because `entry`
     # closes over it - a later assignment left the reuse path raising
     # NameError on a free variable.
+    tight = None
+    suffix = ""
     tight_fallback = ""
     render_props = props
 
     # Generate output path.
     #
-    # The name BINDS the segment to its speaker, its timeline and the
-    # source audio span it was transcribed from. It used to be
-    # `sub_block_<block_position>`, an ordinal within one spine, and
-    # this directory is per PROJECT rather than per timeline - so a
-    # reel's `body_1` silently overwrote the master's, and no name
-    # said whose speech it captioned. See
-    # library/tools/subtitle_segment_id.py.
+    # The name is rooted in PROVENANCE and keyed by CONTENT. The stem
+    # says which source footage the speech came from (speaker + clip +
+    # source span, `subtitle_segment_id.provenance_stem`) - the
+    # captain's ruling of 2026-09-09, so a listing says where a file
+    # came from. The digest beside it is the drawing-inputs digest:
+    # two variants captioning the same words compute the same name and
+    # share the file, while anything that draws differently digests
+    # differently and can never overwrite it. No timeline names a file
+    # any more: the timeline survives in the recorded binding (which
+    # placing this file serves), never in the identity. See
+    # library/tools/subtitle_segment_id.py and
+    # library/tools/render_cache.py.
     #
-    # The geometry/container ride in the FILENAME (`_tight`, `.frames`)
-    # so one directory can hold today's render beside the alternative
-    # without either overwriting the other: the reuse key already
-    # separates them, but a listing should say so too.
+    # The container rides in the FILENAME (`.frames`) so one directory
+    # can hold today's render beside the alternative without either
+    # overwriting the other - and in the DIGEST, so the two carryings
+    # of the same pixels never share a stem. The geometry rides in the
+    # DIGEST too (`_drawing_digest` carries `_geometry`), never as a
+    # suffix: tight and full renderings of one segment compute
+    # different names, so a canvas change re-renders rather than
+    # serving the other carrying stale (see `_reuse_key`).
     binding = segment_binding(
         timeline=timeline_label,
         speaker=props.get("_speaker"),
@@ -616,7 +662,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         source_start=props.get("_source_start"),
         source_end=props.get("_source_end"),
     )
-    segment_name = segment_identifier(binding)
+    segment_name = segment_identifier(
+        binding, _drawing_digest(props, geometry, container))
     # Frame directories carry NO extension: the CLI's `--sequence`
     # mode treats its output as a directory and refuses one that has
     # an extension (`..._tight.frames` fails with "cannot have an
@@ -673,9 +720,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             # to a file that was never rendered.
             "overlay_path": overlay_path if not is_frames else "",
             "segment_id": segment_name,
-            # The unabridged binding. The filename slugs and truncates;
-            # this is what a reader checks a segment against its audio
-            # with, without parsing a name.
+            # The unabridged placement record. The filename stems the
+            # provenance and digests the pixels; this is what a reader
+            # checks a segment's placing against - speaker, timeline,
+            # block ordinal and source span - without parsing a name.
             "binding": binding,
             "timeline_start": tl_start,
             "timeline_end": tl_end,
@@ -689,8 +737,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             # Where a tight clip lands. None for full-canvas, which
             # needs no transform.
             "tight_box": _placement_record(),
-            # Why this card is full canvas although the project declared
-            # tight, or "" when that did not happen.
+            # Why this card is full canvas although the project
+            # declared tight, or "" when it declared nothing.
             "tight_fallback": tight_fallback,
             # Where a sequence lives. None for stitched video.
             "frames": _frames_record(),
@@ -726,13 +774,30 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         record_rendered_segments(out_dir, [built])
         return built
 
-    # The reuse key digests what DRAWS - the full props, plus the
-    # renderer fingerprint. The tight output is a deterministic
-    # function of those two (same props through the same renderer
-    # measure the same box), so one key covers both geometries and a
-    # reuse hit needs no probe render. Placement itself is restored
-    # from the box sidecar below, never re-derived.
-    key = _reuse_key(props, remotion_dir)
+    # The reuse key digests what DRAWS - the drawing props (never
+    # placement: no timeline, no block ordinal, no absolute timeline
+    # bounds) plus the carrying, and the renderer fingerprint - and
+    # WHAT THE ARTEFACT IS, the carriage.  See `_reuse_key`: an
+    # artefact from a previous carriage re-renders rather than
+    # serving stale pixels under a new one.
+    key = _reuse_key(props, remotion_dir, geometry, container)
+
+    def _content_paths(geometry_name: str) -> tuple:
+        """The content-keyed stem and paths for one carrying.
+
+        The digest carries the geometry, so tight and full renderings
+        of one segment never share a file: a canvas change re-renders
+        rather than serving the other carrying stale.
+        """
+        name = segment_identifier(
+            binding, _drawing_digest(props, geometry_name, container))
+        if is_frames:
+            overlay = os.path.join(out_dir, f"{name}{suffix}_frames")
+        else:
+            overlay = os.path.join(out_dir, f"{name}{suffix}.mov")
+        props_p = os.path.join(out_dir, f"{name}{suffix}_props.json")
+        key_p = os.path.join(out_dir, f"{name}{suffix}_reuse_key.txt")
+        return name, overlay, props_p, key_p
 
     # ── Skip only on proven-identical CONTENT ──
     if reuse:
@@ -745,31 +810,25 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             if geometry == "tight":
                 # Placement lives in the box sidecar, not in the
                 # filename: restore it without a probe render. A
-                # missing or unreadable sidecar (e.g. a predictor-era
-                # file) falls through to a fresh measured render -
-                # never an assumed placement. And a READABLE one is
-                # re-gated against today's timeline before it ships:
-                # the sidecar may predate the clamp gate, or the
-                # delivery format may have changed since, and either
-                # leaves a placement Resolve silently pins to
-                # +-7680/+-4320 - the captain's off-frame captions.
-                # A refused restore re-renders measured below, which
-                # carries the card full canvas instead.
+                # missing or unreadable sidecar falls through to a
+                # fresh measured render - never an assumed placement.
+                # And a READABLE one is re-gated against today's
+                # timeline before it ships: the sidecar may predate
+                # the clamp gate, or the delivery format may have
+                # changed since. A refused restore re-renders measured
+                # below, which carries the card full canvas instead.
                 try:
-                    with open(_box_sidecar_path(out_dir, segment_name,
-                                                suffix)) as handle:
+                    with open(_box_sidecar_path(
+                            out_dir, segment_name)) as handle:
                         sidecar = json.load(handle)
-                    from library.tools.delivery_format import (
-                        resolve_delivery_format as _resolve_format,
-                    )
                     from library.tools.tight_box import (
                         TightBoxMismatch,
                         restore_reused_placement,
                     )
                     tight = restore_reused_placement(
                         sidecar, props,
-                        tuple(_resolve_format(project_folder or None)))
-                    render_props = props
+                        tuple(resolve_delivery_format(
+                            project_folder or None)))
                 except (OSError, ValueError, KeyError, TypeError,
                         TightBoxMismatch) as exc:
                     print(f"    note: {segment_name} reuses its key but "
@@ -783,7 +842,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     return measured(REUSED)
             else:
                 print(f"  {progress} {segment_name}{suffix} reused "
-                      f"(tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
+                      f"(tl:{tl_start:.1f}-{tl_end:.1f}s)",
+                      file=sys.stderr)
                 return measured(REUSED)
         if not key:
             print(f"    note: renderer fingerprint unavailable, rendering "
@@ -794,10 +854,9 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
 
     # ── Measure the tight box off a decoded probe ──
     #
-    # The predictor is retired from this path: it under-measures
-    # against Chromium. The probe is a full-canvas render to a temp
-    # dir (or `probe_mov` measured directly), the union across its
-    # frames sizes the canvas, and the tight output is verified
+    # The box is MEASURED off a decoded probe render, never predicted.
+    # The probe is a full-canvas render to a temp dir, the union across
+    # its frames sizes the canvas, and the tight output is verified
     # against the probe after rendering. Temp dir is owned here and
     # deleted once the segment is kept or refused.
     probe_tmpdir = None
@@ -809,22 +868,21 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             tight, probe_tmpdir, probe_frames, probe_union = \
                 _probe_tight_box(
                     props, out_dir, probe_engine, remotion_dir,
-                    container, probe_mov, progress)
+                    container, progress)
         except _TightFailed as exc:
             return entry(FAILED, failure=str(exc.reason)[:500].strip()
                          or "tight probe failed")
         if tight is None:
-            suffix = ""
-            overlay_path = os.path.join(out_dir, f"{segment_name}.mov") \
-                if not is_frames else os.path.join(
-                    out_dir, f"{segment_name}_frames")
-            props_path = os.path.join(out_dir, f"{segment_name}_props.json")
-            key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
-            # The file IS full canvas, so the record says so: leaving
-            # `geometry` at "tight" would pin a full-canvas file as a
-            # tight one in the only record a staging render leaves.
-            tight_fallback = "probe draws nothing - full canvas"
+            # The probe draws nothing: the file IS full canvas, so the
+            # record says so under the full-geometry content name -
+            # leaving `geometry` at "tight" would pin a full-canvas
+            # file as a tight one in the only record a staging render
+            # leaves.
             geometry = "full"
+            tight_fallback = "probe draws nothing - full canvas"
+            (segment_name, overlay_path, props_path,
+             key_path) = _content_paths(geometry)
+            key = _reuse_key(props, remotion_dir, geometry, container)
             print(f"  {progress} no subtitles to bound - full canvas",
                   file=sys.stderr)
         else:
@@ -838,15 +896,15 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
           f"({num_subs} subs, {total_frames}f, "
           f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
 
-    # Render.  WHICH cards render and what comes back is this function's
-    # business; HOW one card is turned into pixels is the renderer's, and
-    # the two are deliberately separable - see `SubprocessRenderer`.
     import shutil as _shutil_probe
 
     def _drop_probe():
         if probe_tmpdir:
             _shutil_probe.rmtree(probe_tmpdir, ignore_errors=True)
 
+    # Render.  WHICH cards render and what comes back is this function's
+    # business; HOW one card is turned into pixels is the renderer's, and
+    # the two are deliberately separable - see `SubprocessRenderer`.
     engine = renderer or SubprocessRenderer(remotion_dir)
     ok, error = engine.render(props_path, overlay_path,
                               sequence=is_frames)
@@ -861,10 +919,14 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         return entry(FAILED, failure="sequence incomplete on disk")
     if tight is not None:
         # The gate: the tight output IS the probe crop, or the
-        # segment is refused. Placement is read off the two renders
-        # (the composition re-centers in the narrower canvas), then
-        # proven frame by frame. Cut-off text never reaches a
-        # timeline on a warning.
+        # segment is refused the tight carrying. Placement is read off
+        # the two renders, then proven frame by frame. What changes on
+        # a refusal is what happens NEXT: the segment falls back to
+        # full canvas under the full-geometry content name, the tight
+        # file is discarded, and the run SAYS which card lost its tight
+        # carriage and why. Nothing here widens `verify_frames` - its
+        # tolerances are untouched and its verdict is still final for
+        # the tight output.
         from library.tools.overlay_placement import (
             sequence_frame_paths as _sequence_paths,
         )
@@ -887,31 +949,12 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                 raise TightBoxMismatch(
                     "tight render draws nothing the probe drew: "
                     "no correspondence exists.")
-            from library.tools.delivery_format import (
-                resolve_delivery_format,
-            )
             timeline_size = tuple(resolve_delivery_format(
                 project_folder or None))
             tight = finalize_box_placement(tight, probe_union,
                                            tight_union, timeline_size)
             report = verify_frames(probe_frames, tight_frames, tight)
         except TightBoxMismatch as exc:
-            # The GATE HOLDS: this tight output is not the probe crop and
-            # it does not reach a timeline. What changes is what happens
-            # NEXT. Returning FAILED here refused the whole reel over one
-            # card of eighteen, and the card was not wrong - the ink
-            # measured IoU 0.9999 at centroid offset 0.00px, and only one
-            # frame's colour differed. A tight box is a statement about
-            # CARRIAGE, not about the picture: the same props drawn on
-            # the full canvas are the same pixels on screen, which is the
-            # path a segment with nothing to bound already takes a few
-            # lines above.
-            #
-            # So the segment falls back to full canvas, the tight file is
-            # discarded, and the run SAYS which card lost its tight
-            # carriage and why. Nothing here widens `verify_frames` - its
-            # tolerances are untouched and its verdict is still final for
-            # the tight output.
             print(f"    WARN: Tight output mismatch, carrying this card "
                   f"FULL CANVAS instead: {str(exc)[:300]}", file=sys.stderr)
             try:
@@ -927,13 +970,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             tight = None
             tight_fallback = str(exc)[:500].strip() or "tight output mismatch"
             geometry = "full"
-            suffix = ""
             render_props = props
-            overlay_path = (
-                os.path.join(out_dir, f"{segment_name}_frames") if is_frames
-                else os.path.join(out_dir, f"{segment_name}.mov"))
-            props_path = os.path.join(out_dir, f"{segment_name}_props.json")
-            key_path = os.path.join(out_dir, f"{segment_name}_reuse_key.txt")
+            (segment_name, overlay_path, props_path,
+             key_path) = _content_paths(geometry)
+            key = _reuse_key(props, remotion_dir, geometry, container)
             with open(props_path, "w") as handle:
                 json.dump(render_props, handle, indent=2)
             ok, error = engine.render(props_path, overlay_path,
@@ -944,16 +984,21 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     f"tight refused ({tight_fallback}) and the full-canvas "
                     f"fallback also failed: "
                     f"{(error or '').strip()[:200] or 'render failed'}"))
-    # The verified-tight tail. `tight` is None where the box could not be
-    # measured OR where its output did not verify and the card fell back
-    # to full canvas above; neither has a `report` and neither writes a
-    # box sidecar, because there is no box to record.
+            if is_frames and not _frames_on_disk():
+                _drop_probe()
+                return entry(FAILED, failure=(
+                    f"tight refused ({tight_fallback}) and the full-canvas "
+                    f"fallback holds no complete sequence"))
+    # The verified-tight tail. `tight` is None where the box could not
+    # be measured OR where its output did not verify and the card fell
+    # back to full canvas above; neither has a `report` and neither
+    # writes a box sidecar, because there is no box to record.
     if tight is not None:
         print(f"    OK: {overlay_path} "
               f"(verified {report['frames']} frames, "
               f"maxdiff {report['max_diff']}, "
               f"IoU {report['min_iou']:.4f})", file=sys.stderr)
-        union_path = _box_sidecar_path(out_dir, segment_name, suffix)
+        union_path = _box_sidecar_path(out_dir, segment_name)
         try:
             with open(union_path, "w") as handle:
                 json.dump({
@@ -999,12 +1044,16 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              scope=None,
                              renderer=None,
                              renderer_kind: str = DEFAULT_CAPTION_RENDERER,
-                             require_named_timeline: bool = False,
                              overlay_geometry: str = None,
                              overlay_container: str = None) -> dict:
-    """Render one overlay per captioned spine block: stitched ProRes 4444
-    video by default, a tight canvas and/or a PNG sequence where the
-    project declares it (`library/tools/overlay_mode.py`).
+    """Render one overlay per captioned spine block: stitched ProRes
+    4444 video by default, a PNG sequence where the project declares
+    one (`library/tools/overlay_mode.py`).
+
+    A tight segment renders only its drawn bounds (floored at
+    `tight_box.MIN_CANVAS_HEIGHT`) and the placer carries it on
+    Scaling/Pan/Tilt read back against the measured 3840 rail -
+    see `library/tools/tight_box.py`.
 
     Returns the `subtitle_overlay` payload.  Raises
     `SubtitleRenderRefused` where the step cannot deliver: no Remotion
@@ -1044,7 +1093,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             f"did not ask for is never substituted silently.")
 
     # Explicit values win; otherwise the project's declaration, and a
-    # project that declares nothing renders exactly as before.
+    # project that declares nothing renders tight (`overlay_mode`).
     geometry = overlay_geometry or resolve_overlay_geometry(
         project_folder or None)
     container = overlay_container or resolve_overlay_container(
@@ -1166,33 +1215,38 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     print(f"Rendering {len(props_list)} subtitle segments...",
           file=sys.stderr)
 
-    # Which timeline these overlays belong to. Measured off the spine
-    # when the spine came from a real timeline; otherwise the project's
-    # declaration. Never invented - an unnamed timeline that collides is
-    # a visible bug, a made-up name that does not is a silent one.
+    # Which timeline these overlays are PLACED on. Measured off the
+    # spine when the spine came from a real timeline; otherwise the
+    # project's declaration. Never invented - but it no longer names
+    # any file: it is recorded on each entry's binding (which placing
+    # the shared file serves) and it drives the rejected-reel refusal
+    # in `render_one_segment`. An unnamed timeline shares correctly
+    # and collides with nothing.
     timeline_label = timeline_scope(audio_spine, project_config=None)
-    print(f"Naming segments under timeline "
+    print(f"Placing segments for timeline "
           f"{timeline_label or '<unnamed>'}", file=sys.stderr)
 
-    # ── No two segments may share a filename, checked BEFORE anything
-    #    is written ──
+    # ── No two segments may draw different pixels to one filename,
+    #    checked BEFORE anything is written ──
     #
-    # `SEGMENT_BINDING_KEYS` carries no caption content, so uniqueness
-    # rests entirely on the binding - and across reels the only thing
-    # separating two reels' closers is the TIMELINE component. The
-    # captain's format closes every reel on a call to action taken from
-    # anywhere in the episode, so a shared closer is normal rather than
-    # exceptional: measured on the field test, seven of nineteen reels
-    # close on one identical sentence and five more on another, so a
-    # 19-reel pass collides on twelve of them.
+    # The filename is provenance plus content digest, so two entries
+    # sharing a name share identical pixels - which is the
+    # cross-variant sharing, not a collision. The captain's format
+    # closes every reel on a call to action taken from anywhere in
+    # the episode (seven of nineteen reels close on one identical
+    # sentence): those closers compute ONE name and render ONCE.
     #
-    # Over the whole set and before the loop, because a collision found
-    # after rendering is a file already overwritten and nothing
-    # downstream reads content to notice:
-    # `_assert_subtitle_overlay_matches_plan` compares block position and
-    # time span only, so it passes while the wrong words are on screen.
-    bindings = [
-        segment_binding(
+    # What is refused is one name behind two content keys - a drawing
+    # input that escaped the digest. Nothing downstream reads content
+    # (`_assert_subtitle_overlay_matches_plan` compares block position
+    # and time span only), so a wrong-pixels overwrite would reach the
+    # timeline with every check green.
+    #
+    # Over the whole set and before the loop, because a collision
+    # found after rendering is a file already overwritten.
+    named = []
+    for props in props_list:
+        binding = segment_binding(
             timeline=timeline_label,
             speaker=props.get("_speaker"),
             block_position=props.get("_block_position"),
@@ -1200,12 +1254,12 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             source_start=props.get("_source_start"),
             source_end=props.get("_source_end"),
         )
-        for props in props_list
-    ]
-    if require_named_timeline:
-        for binding in bindings:
-            assert_named_timeline(binding, where="render_subtitle_overlays")
-    assert_unique_segment_names(bindings)
+        digest = _drawing_digest(props, geometry, container)
+        named.append((
+            segment_identifier(binding, digest),
+            _reuse_key(props, remotion_dir, geometry, container),
+        ))
+    assert_no_content_collision(named)
 
     # ONE renderer for the whole pass, so a replacement holding a bundle
     # or a browser builds it once rather than per card.  See

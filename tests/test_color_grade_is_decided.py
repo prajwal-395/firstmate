@@ -151,7 +151,7 @@ def test_a_project_with_no_brand_template_still_gets_a_reasoned_grade(
         "grade_assessment": "one stop and a third across the last cut",
     })
 
-    assert spec["house_look"] is None and spec["fusion_look"] == {}
+    assert spec["series_look"] is None and spec["fusion_look"] == {}
     by_clip = {a["clip_id"]: a for a in spec["per_clip_adjustments"]}
     assert by_clip["clip_011"]["cdl_values"]["slope_r"] == round(
         2.0 ** -0.35, 4)
@@ -178,9 +178,9 @@ def test_a_project_with_a_template_still_gets_that_templates_look(
         "color_correction": [
             {"clip_id": "clip_017", "exposure_stops": 1.0, "why": "dark"}],
         "grade_assessment": "one clip under",
-    }, brand_template={"style": {"house_look": DECLARED_LOOK}})
+    }, brand_template={"style": {"series_look": DECLARED_LOOK}})
 
-    assert spec["house_look"] == "test_declaration"
+    assert spec["series_look"] == "test_declaration"
     assert spec["fusion_look"]["film_grain"] is True
     by_clip = {a["clip_id"]: a for a in spec["per_clip_adjustments"]}
     # Untouched clips carry EXACTLY the declared look.

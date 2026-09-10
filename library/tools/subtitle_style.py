@@ -52,7 +52,7 @@ read - so none of `bold_large` (192), `clean_standard` (144), `minimal`
 
 Adding a style means adding it here and naming it from a template;
 `tests/test_subtitle_style.py` fails on an orphan in either direction, the
-same contract `transition_vocabulary` and `house_look` hold.
+same contract `transition_vocabulary` and `series_look` hold.
 
 
 Rules relocated from AGENTS.md 10.2

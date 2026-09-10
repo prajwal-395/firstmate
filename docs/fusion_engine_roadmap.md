@@ -8,7 +8,7 @@ This document outlines potential upgrades discussed during the engine refactor t
 
 **Status: WITHDRAWN (2026-08-15).** The pipeline no longer applies PowerGrades
 at all: a look is CDL plus Fusion values a brand template DECLARES
-(`library/tools/house_look.py`, AGENTS.md section 12), no look values are
+(`library/tools/series_look.py`, AGENTS.md section 12), no look values are
 committed in this repo at all, and no `.drx` ships.
 Cracking the format would buy a route nothing needs. The research below is
 kept as a record of what was learned, not as a plan.

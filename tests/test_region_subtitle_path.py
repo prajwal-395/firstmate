@@ -211,7 +211,8 @@ def _props(block=1, text="alpha"):
 def test_a_successful_render_reports_rendered(tmp_path):
     """MUTATION 7: mark everything `reused`."""
     seg = r405.render_one_segment(_props(), str(tmp_path), "tl",
-                                  remotion_dir=REPO, renderer=_Renderer())
+                                  remotion_dir=REPO, renderer=_Renderer(),
+                                  overlay_geometry="full")
     assert seg["provenance"] == r405.RENDERED
 
 
@@ -235,10 +236,12 @@ def test_an_unchanged_segment_is_reused_and_says_so(tmp_path):
     engine = _Renderer()
     first = r405.render_one_segment(_props(), str(tmp_path), "tl",
                                     remotion_dir=REMOTION, renderer=engine,
-                                    reuse=True)
+                                    reuse=True,
+                                    overlay_geometry="full")
     second = r405.render_one_segment(_props(), str(tmp_path), "tl",
                                      remotion_dir=REMOTION, renderer=engine,
-                                     reuse=True)
+                                     reuse=True,
+                                     overlay_geometry="full")
     assert first["provenance"] == r405.RENDERED
     assert second["provenance"] == r405.REUSED
     assert engine.calls == 1, "the second call must not have rendered"
@@ -254,10 +257,12 @@ def test_a_CHANGED_segment_is_never_skipped(tmp_path):
     """
     engine = _Renderer()
     r405.render_one_segment(_props(text="before"), str(tmp_path), "tl",
-                            remotion_dir=REMOTION, renderer=engine, reuse=True)
+                            remotion_dir=REMOTION, renderer=engine, reuse=True,
+                            overlay_geometry="full")
     again = r405.render_one_segment(_props(text="AFTER"), str(tmp_path), "tl",
                                     remotion_dir=REMOTION, renderer=engine,
-                                    reuse=True)
+                                    reuse=True,
+                                    overlay_geometry="full")
     assert again["provenance"] == r405.RENDERED
     assert engine.calls == 2
 
@@ -272,9 +277,11 @@ def test_a_plain_run_re_renders_even_when_the_key_matches(tmp_path):
     """
     engine = _Renderer()
     r405.render_one_segment(_props(), str(tmp_path), "tl",
-                            remotion_dir=REMOTION, renderer=engine, reuse=True)
+                            remotion_dir=REMOTION, renderer=engine, reuse=True,
+                            overlay_geometry="full")
     plain = r405.render_one_segment(_props(), str(tmp_path), "tl",
-                                    remotion_dir=REMOTION, renderer=engine)
+                                    remotion_dir=REMOTION, renderer=engine,
+                                    overlay_geometry="full")
     assert plain["provenance"] == r405.RENDERED
     assert engine.calls == 2
 
@@ -290,7 +297,8 @@ def test_an_unavailable_renderer_fingerprint_refuses_reuse(tmp_path):
         seg = r405.render_one_segment(
             _props(), str(tmp_path), "tl",
             remotion_dir=str(tmp_path / "nothing-here"),
-            renderer=engine, reuse=True)
+            renderer=engine, reuse=True,
+            overlay_geometry="full")
         assert seg["provenance"] == r405.RENDERED
     assert engine.calls == 2
 
@@ -566,7 +574,8 @@ def test_the_orchestrator_builds_ONE_renderer_and_passes_it_to_every_card(
     monkeypatch.setattr(r405, "render_one_segment", spy)
     engine = _CountingRenderer()
     r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION, renderer=engine)
+                                  remotion_dir=REMOTION, renderer=engine,
+                                  overlay_geometry="full")
     assert len(seen) == 2, "both cards must be reached"
     assert all(r is engine for r in seen), "one renderer, passed to every card"
     assert engine.rendered == 2
@@ -609,7 +618,8 @@ def test_a_renderer_the_CALLER_supplied_is_never_closed_by_us(no_pixel_qa, tmp_p
     spine, plan = _spine_and_plan_for_render()
     engine = _CountingRenderer()
     r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION, renderer=engine)
+                                  remotion_dir=REMOTION, renderer=engine,
+                                  overlay_geometry="full")
     assert engine.rendered == 1
     assert engine.closed == 0, "not ours to close"
 
@@ -628,7 +638,8 @@ def test_the_default_path_is_unchanged_when_no_renderer_is_supplied(no_pixel_qa,
 
     monkeypatch.setattr(r405, "PersistentCaptionRenderer", factory)
     r405.render_subtitle_overlays(plan, spine, project_folder=str(tmp_path),
-                                  remotion_dir=REMOTION)
+                                  remotion_dir=REMOTION,
+                                  overlay_geometry="full")
     assert len(built) == 1, "exactly one renderer, built by default"
     assert built[0][1] == REMOTION
     assert built[0][0].closed == 1

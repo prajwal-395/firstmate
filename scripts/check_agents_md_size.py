@@ -43,7 +43,8 @@ import sys
 # `resolve_build_timeline.py:37` and the `GetProperty()` read-back only at
 # `probe_resolve_capabilities.py:22`, both verbatim. The 78 characters left
 # over went off the ceiling rather than back into the spare.
-CEILING = 53084
+# MERGED 2026-09-10: fifteen-lane merge; ceiling re-seeded from measurement below.
+CEILING = 53072
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -93,14 +94,14 @@ SECTION_BUDGETS = {
     "## 2. Repo layout": 2144,
     "## 3. Pipeline execution": 5404,
     "## 4. Dashboard": 3120,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4529,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4501,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
     "## 9. Environment and dependencies": 6316,
     "## 10. Cross-cutting rules": 16967,
     "## 11. Third-Party Asset Licenses": 1313,
-    "## 12. The look": 573,
+    "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,
     "## 14. General assets vs project assets": 2127,
     "## 15. Notes the captain types onto the timeline": 1800,

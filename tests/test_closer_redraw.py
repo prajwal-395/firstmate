@@ -418,3 +418,168 @@ def test_a_pin_checks_both_phrases_against_measured_speech(tmp_path):
     with pytest.raises(ExternalStateError) as exc:
         external_inputs.load(str(project), state)
     assert "zebras on mars" in str(exc.value)
+
+
+# ── 8. The real geometry: mid-row on a word edge ─────────────────────
+#
+# The fixture above rows the head ("it's exactly why ... platform")
+# as its own segment, so the pin lands on a segment edge. The real
+# transcript rows it INSIDE the previous row ([318.091, 321.530]:
+# "to be the answer it's exactly why we've been building this
+# platform") - WhisperX's chunking, not a sentence. The pin refused
+# that opening as "no longer on a clean segment edge" and the rebuild
+# faithfully reproduced the wrong CTA forever. A mid-row opening on a
+# clean timed-word edge is the captain's ruling standing over the
+# rowing, and applies; a mid-WORD opening still refuses.
+
+def _tx_merged():
+    """The real geometry: answer and head share one bound row."""
+    tx = _tx()
+    lead = [s for s in tx["segments"] if s["resolve_item_id"] == "lead"][0]
+    head = [s for s in tx["segments"] if s["resolve_item_id"] == "head"][0]
+    merged = dict(lead)
+    merged["text"] = lead["text"] + " " + head["text"]
+    merged["timeline_end"] = head["timeline_end"]
+    merged["words"] = lead["words"] + head["words"]
+    tx["segments"] = [
+        merged if s["resolve_item_id"] == "lead" else s
+        for s in tx["segments"]
+        if s["resolve_item_id"] != "head"]
+    return tx
+
+
+def test_a_sentence_start_mid_row_applies():
+    moments, applied, held, stale = captain_edits.apply_closer_redraws(
+        _moments(), _tx_merged(), [_pin()])
+    assert stale == [] and held == []
+    assert sorted(r["reel"] for r in applied) == [2, 9, 20, 26]
+    for moment in moments:
+        assert moment.call_to_action.timeline_start == pytest.approx(
+            NEW_START)
+        assert moment.call_to_action.timeline_end == pytest.approx(CTA_END)
+
+
+def test_an_overlapping_word_still_refuses():
+    """An overlapping speaker's word strictly containing the opening:
+    starting there would cut their word in half, so the pin reports
+    STALE rather than shipping a half-word."""
+    tx = _tx_merged()
+    tx["segments"].append(
+        _seg("Akshita", "yeah", 319.0, 319.5, "overlap",
+             words=[("yeah", 319.0, 319.5)]))
+    moments, applied, held, stale = captain_edits.apply_closer_redraws(
+        [_moment(2, 10.0, 40.0)], tx, [_pin()])
+    assert applied == [] and held == []
+    assert len(stale) == 1 and stale[0].get("reel") == 2
+    assert "word edge" in stale[0]["reason"]
+    assert moments[0].call_to_action.timeline_start == pytest.approx(
+        OLD_START)
+
+
+def test_a_pinned_cta_passes_validation_where_unpinned_refuses():
+    """Regeneration draws the pinned start and then validates: without
+    the pin's own word-edge guarantee the whole-segments refusal would
+    break every future selection run - a recorded decision breaking
+    the loop it closed. Every other reel, and every body span, is
+    checked exactly as before."""
+    from library.tools.reel_proposal import (
+        ProposalError, _check_call_to_action)
+    tx = _tx_merged()
+    moments, applied, _, _ = captain_edits.apply_closer_redraws(
+        [_moment(9, 50.0, 110.0)], tx, [_pin()])
+    assert [r["reel"] for r in applied] == [9]
+    redrawn = moments[0]
+    duration = max(redrawn.timeline_end,
+                   redrawn.call_to_action.timeline_end)
+    label = "reel 9 ('your-website-is-only-20-percent')"
+    with pytest.raises(ProposalError) as exc:
+        _check_call_to_action(redrawn, tx, duration, label)
+    assert "cuts 1 segment" in str(exc.value)
+    _check_call_to_action(redrawn, tx, duration, label, pinned=True)
+
+
+# ── 9. Durability through the write side ─────────────────────────────
+
+def test_a_recorded_pin_survives_the_read_and_two_rebuilds(tmp_path):
+    """The whole loop through the dormant store: record (the write
+    side, correspondence-checked against measured speech) -> load
+    (the reader the build uses) -> apply, twice. The first rebuild
+    redraws; the second holds. That is what "persist" means."""
+    project = _project(tmp_path)
+    transcript_path = (project / "pipeline_output" / "scratch"
+                       / "timeline_transcript" / "transcript.json")
+    transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.write_text(json.dumps(_tx()), encoding="utf-8")
+    edit, action = captain_edits.record_edit(
+        str(project), _pin(), "captain, 2026-09-10")
+    assert action == "recorded"
+    moments = _moments()
+    for round in range(2):
+        edits = captain_edits.load_edits(str(project))
+        assert edits == [edit]
+        moments, applied, held, stale = (
+            captain_edits.apply_closer_redraws(moments, _tx(), edits))
+        assert stale == []
+        if round == 0:
+            assert sorted(r["reel"] for r in applied) == [2, 9, 20, 26]
+            assert held == []
+        else:
+            assert applied == []
+            assert sorted(h["reel"] for h in held) == [2, 9, 20, 26]
+    for moment in moments:
+        assert moment.call_to_action.timeline_start == pytest.approx(
+            NEW_START)
+
+
+# ── 10. The gate derives what the build placed ────────────────────────
+#
+# The build redraws approved moments in memory and places the redrawn
+# spans; the verifier derived the un-pinned file and read Reel 09's
+# +2.25s CTA growth as 54 dropped frames, failing a correct build.
+# The gate applies the same pins before deriving anything.
+
+def test_the_gate_applies_recorded_pins_before_deriving(tmp_path):
+    import io
+    from library.tools.reel_conformance_verifier import (
+        _apply_recorded_pins)
+    project = _project(tmp_path)
+    _write_edits_file(project, [_pin()])
+    redrawn = _apply_recorded_pins(
+        _moments(), _tx_merged(), str(project), io.StringIO())
+    for moment in redrawn:
+        assert moment.call_to_action.timeline_start == pytest.approx(
+            NEW_START)
+
+
+def test_the_gate_without_a_project_grades_the_file_as_before(tmp_path):
+    import io
+    from library.tools.reel_conformance_verifier import (
+        _apply_recorded_pins)
+    moments = _moments()
+    assert _apply_recorded_pins(
+        moments, _tx_merged(), "", io.StringIO()) == moments
+
+
+def test_the_gate_refuses_an_unreadable_pin_file(tmp_path):
+    import io
+    from library.tools.reel_conformance_verifier import (
+        _apply_recorded_pins)
+    project = _project(tmp_path)
+    _write_edits_file(project, [{"kind": "redraw_closer"}])
+    with pytest.raises(RuntimeError) as exc:
+        _apply_recorded_pins(
+            _moments(), _tx_merged(), str(project), io.StringIO())
+    assert "cannot be read" in str(exc.value)
+
+
+def test_the_gate_repair_keeps_moments_without_moves(tmp_path):
+    """The gate grades the batch the build placed: the repair reports
+    moves and keeps every moment, moveless ones included. Dropping a
+    moment here grades the batch against a smaller plan - Reel 09's
+    rebuild failed the gate on an empty derived plan for exactly this
+    reason, after a re-indentation left the append outside the loop."""
+    import io
+    from library.tools.reel_conformance_verifier import _repair_moments
+    moments = _moments()
+    repaired = _repair_moments(moments, _tx(), io.StringIO())
+    assert [m.number for m in repaired] == [2, 9, 20, 26]

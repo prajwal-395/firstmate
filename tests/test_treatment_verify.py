@@ -151,8 +151,10 @@ def test_window_gate_can_fail():
     """The deterministic half can fail: a leak outside the window."""
     from library.tools import treatment_verify as tv
 
-    curves = {"PowerCrop1Top": [0.49 if f == 50 else 0.0
-                                for f in range(72)]}
+    # The band's neutral is 1.0 (the whole frame shows); a frame where
+    # it narrows is a frame the treatment drew on.
+    curves = {"PowerBand1Height": [0.02 if f == 50 else 1.0
+                                   for f in range(72)]}
     verdict = tv.check_window(curves, window=(54, 71), played=72)
     assert verdict["passed"] is False
     assert verdict["outside_window"] == [50]
@@ -161,7 +163,7 @@ def test_window_gate_can_fail():
 def test_window_gate_passes_clean_curves():
     from library.tools import treatment_verify as tv
 
-    curves = {"PowerCrop1Top": [0.0 for _ in range(72)]}
+    curves = {"PowerBand1Height": [1.0 for _ in range(72)]}
     verdict = tv.check_window(curves, window=(54, 71), played=72)
     assert verdict["passed"] is True
 
@@ -348,14 +350,14 @@ def test_applier_ships_a_drawing_tail_with_receipt(monkeypatch, tmp_path):
 
     banked = glob.glob(str(tmp_path / "assets" / "fusion_presets" / "clip_0_*.comp"))
     assert len(banked) == 1
-    assert "PowerCrop" in open(banked[0]).read()
+    assert "PowerBandMask1 = RectangleMask" in open(banked[0]).read()
 
 
 def test_applier_undoes_a_tail_with_no_room_and_receipts_it(
         monkeypatch, tmp_path):
     """10 played frames: the tail cannot fit, so the applier drops it.
 
-    The banked comp carries no PowerCrop - the picture keeps what the
+    The banked comp carries no PowerBand - the picture keeps what the
     footage had - and the receipt names the failed key and the reason.
     That is the undo, proven on the path that ships, not asserted.
     """
@@ -378,7 +380,7 @@ def test_applier_undoes_a_tail_with_no_room_and_receipts_it(
 
     banked = glob.glob(str(tmp_path / "assets" / "fusion_presets" / "clip_0_*.comp"))
     assert len(banked) == 1
-    assert "PowerCrop" not in open(banked[0]).read()
+    assert "PowerBand" not in open(banked[0]).read()
 
 
 def test_head_samples_decode_the_opening_not_the_number():

@@ -9,8 +9,8 @@ and `reel_build` has no SetCDL call at all.
 Three things have to be true for the split to reach the picture:
 
 1. The CDL half resolves from the same declaration the Fusion half reads -
-   the project's own `style.house_look` winning whole-slot over its brand
-   template's (`effective_house_look`) - in the key names the renderer
+   the project's own `style.series_look` winning whole-slot over its brand
+   template's (`effective_series_look`) - in the key names the renderer
    reads (`slope_r`...`saturation`, the names step 6.01 formats).
 2. Every footage picture item on the reel gets `SetCDL` on Color page
    node 1 (PR 870: that is where SetCDL lands on the master), and nothing
@@ -40,7 +40,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from library.tools import reel_look
-from library.tools.house_look import LookDeclarationError
+from library.tools.series_look import LookDeclarationError
 
 # A declared look's magnitudes, fixed here so the test never reaches a
 # real project (AGENTS.md 8) - the same copy
@@ -65,7 +65,7 @@ TEST_LOOK = {
 def _write_project(path, style=None, template=None):
     config = {"name": "t"}
     if style is not None:
-        config["style"] = {"house_look": style}
+        config["style"] = {"series_look": style}
     if template is not None:
         config.setdefault("pipeline", {})["brand_template"] = template
     (path / "project.yaml").write_text(yaml.safe_dump(config))
@@ -106,7 +106,7 @@ def test_resolve_grade_cdl_project_wins_whole_slot_over_template(
     monkeypatch.setattr(
         "library.tools.brand_registry.resolve_project_template",
         lambda name: SimpleNamespace(
-            style=SimpleNamespace(house_look=TEST_LOOK)))
+            style=SimpleNamespace(series_look=TEST_LOOK)))
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.10)
     assert cdl["slope_b"] == pytest.approx(0.90)
@@ -117,7 +117,7 @@ def test_resolve_grade_cdl_falls_back_to_the_template(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "library.tools.brand_registry.resolve_project_template",
         lambda name: SimpleNamespace(
-            style=SimpleNamespace(house_look=TEST_LOOK)))
+            style=SimpleNamespace(series_look=TEST_LOOK)))
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.03)
 

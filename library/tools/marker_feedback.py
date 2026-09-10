@@ -730,7 +730,9 @@ def pull(project_folder, timeline=None, project=None) -> dict:
         "notes": [asdict(n) for n in notes],
     }
     path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
     )
     return {"path": str(path), "notes": notes, "payload": payload}
 

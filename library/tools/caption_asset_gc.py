@@ -59,6 +59,11 @@ lives when its `.mov` lives and goes when its `.mov` goes, because
 nothing references a props file - timelines place the mov. A sibling
 whose mov is absent (a render that failed after writing props) is an
 orphan on its own. `_tight_box.json` belongs to its `_tight.mov`.
+
+`_tight.mov` and `_tight_box.json` are a PREVIOUS CARRIAGE - nothing
+writes them now that an overlay artefact is the delivery frame
+(`library/tools/tight_box.py`) - and they are still swept, because
+what is on the captain's disk is what this module is for.
 """
 
 from __future__ import annotations
@@ -68,6 +73,7 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,6 +126,11 @@ class RootResult:
     # project; `memory` cannot be re-established (tests only).
     kind: str = "memory"
     db_path: str = ""
+    # The timeline names this root saw. Only a `resolve` root fills it,
+    # and `live_timelines_from` is the ONE place that reads it - so the
+    # mark and the sweep cannot derive different live sets from the same
+    # roots and disagree about what is superseded.
+    timelines: set = field(default_factory=set)
 
 
 @dataclass
@@ -357,6 +368,27 @@ def _ledger_entry_path(entry: dict) -> str:
     return str(frames.get("dir") or "")
 
 
+def _ledger_entry_placement(entry: dict) -> str:
+    """Which placing an entry vouches for: its binding's timeline.
+
+    One file is now shared by several timelines' placements, and each
+    placement keeps its own entry - provenance, timeline bounds and
+    binding differ per placing while the path agrees. Keying the merge
+    on the segment id alone would collapse them into one and unprotect
+    every placing but the last recorded. Entries with no binding (the
+    reconciled adoptions) carry "": they vouch for the file, not for a
+    placing.
+    """
+    binding = entry.get("binding") or {}
+    if not isinstance(binding, dict):
+        return ""
+    return str(binding.get("timeline") or "")
+
+
+def _ledger_merge_key(entry: dict) -> tuple[str, str]:
+    return (str(entry["segment_id"]), _ledger_entry_placement(entry))
+
+
 def _anchor_to_dir(asset_dir: str, path: str) -> str:
     """A recorded path, anchored where the ledger lives.
 
@@ -401,14 +433,20 @@ def record_rendered_segments(asset_dir: str, segments: list[dict],
     raises `LedgerUnreadable` WITHOUT being overwritten, so the root
     keeps reading UNREADABLE and the sweep keeps refusing.
 
-    Merge, never replace, keyed by `segment_id`: one step directory
-    holds several timelines' batches, and a pass covers one plan, so a
-    replace would unprotect every batch the pass did not render. Entries
-    whose path a new entry names as `superseded` ARE dropped - that is
-    the re-render retention rule, and reachability still has the last
-    word. Entries whose file is gone from disk are pruned: an absent
-    path protects nothing. With `only_new`, segment ids already present
-    keep their genuinely-recorded entries (the reconcile path below).
+    Merge, never replace, keyed by `(segment_id, placing)`: one step
+    directory holds several timelines' batches, and a pass covers one
+    plan, so a replace would unprotect every batch the pass did not
+    render. One file is now shared by several placings, and EACH
+    placing keeps its entry (`_ledger_merge_key`) - collapsing them
+    would unprotect every placing but the last recorded, which is the
+    shared-file deletion this collector exists to refuse. Entries whose
+    path THIS placing names as `superseded` are dropped for that
+    placing only - that is the re-render retention rule, and a file
+    another placing still names stays referenced. Reachability still
+    has the last word. Entries whose file is gone from disk are pruned:
+    an absent path protects nothing. With `only_new`, entries already
+    present keep their genuinely-recorded records (the reconcile path
+    below).
     """
     path = ledger_path_for(asset_dir)
     try:
@@ -443,9 +481,6 @@ def record_rendered_segments(asset_dir: str, segments: list[dict],
             for p in (trimmed.get("superseded") or [])
             if isinstance(p, str) and p]
         fresh.append(trimmed)
-    superseded = {str(p) for entry in fresh
-                  for p in (entry.get("superseded") or [])
-                  if isinstance(p, str) and p}
     try:
         handle = open(path, "a+", encoding="utf-8")
     except OSError as exc:
@@ -494,21 +529,47 @@ def record_rendered_segments(asset_dir: str, segments: list[dict],
             by_id = {}
             for entry in existing:
                 if isinstance(entry, dict) and entry.get("segment_id"):
-                    by_id[str(entry["segment_id"])] = entry
+                    by_id[_ledger_merge_key(entry)] = entry
+            existing_ids = {merge_key[0] for merge_key in by_id}
             for entry in fresh:
-                sid = str(entry["segment_id"])
-                if only_new and sid in by_id:
+                merge_key = _ledger_merge_key(entry)
+                if only_new and merge_key in by_id:
                     continue
-                by_id[sid] = entry
-            for sid in [sid for sid, entry in by_id.items()
-                        if _ledger_entry_path(entry) in superseded]:
-                del by_id[sid]
+                if only_new and entry.get("reconciled") \
+                        and merge_key[0] in existing_ids:
+                    # Reconstructed evidence never duplicates genuine
+                    # evidence for the same file: the recorded entry
+                    # already vouches for the path, whatever placing
+                    # it was recorded under, so the adoption adds
+                    # nothing and is skipped rather than stored
+                    # beside it.
+                    continue
+                by_id[merge_key] = entry
+            # The supersede-drop is per placing: a re-render unpins the
+            # generation ITS placing replaced, never a generation
+            # another placing still names. Dropping every entry naming
+            # the path would unprotect a file two live timelines still
+            # use the moment one of them moves on - the shared-file
+            # deletion. Reachability still rules the mark: the dropped
+            # placing's file becomes an orphan candidate, and a file
+            # any entry still names stays LIVE.
+            for entry in fresh:
+                placing = _ledger_entry_placement(entry)
+                dropped_here = {
+                    str(p) for p in (entry.get("superseded") or [])
+                    if isinstance(p, str) and p}
+                for merge_key in [
+                        merge_key for merge_key, old in by_id.items()
+                        if merge_key[1] == placing
+                        and _ledger_entry_path(old) in dropped_here]:
+                    del by_id[merge_key]
             kept = {}
-            for sid, entry in by_id.items():
+            for merge_key, entry in by_id.items():
                 at = _ledger_entry_path(entry)
                 if at and os.path.exists(at):
-                    kept[sid] = entry
-            overlay["segments"] = [kept[sid] for sid in sorted(kept)]
+                    kept[merge_key] = entry
+            overlay["segments"] = [
+                kept[merge_key] for merge_key in sorted(kept)]
             data["ledger_updated_at"] = datetime.now(timezone.utc).isoformat()
             data["ledger_version"] = LEDGER_VERSION
             if extra_top_level:
@@ -617,8 +678,9 @@ def reconcile_render_ledger(project_folder: str,
     """
     layout = ProjectLayout(project_folder)
     asset_dir = str(layout.read_dir(Area.SUBTITLE_SEGMENTS))
-    roots = collect_resolve_roots(list(db_paths or [])) \
-        + collect_pipeline_roots(project_folder)
+    roots = collect_resolve_roots(list(db_paths or []))
+    roots += collect_pipeline_roots(
+        project_folder, live_timelines=live_timelines_from(roots))
     pre = mark(project_folder, asset_dir, roots)
     entries = _reconcile_entries(asset_dir)
     stamped = datetime.now(timezone.utc).isoformat()
@@ -643,7 +705,139 @@ def reconcile_render_ledger(project_folder: str,
     return {"ledger": path, "recorded": len(entries), "mark": pre}
 
 
-def collect_pipeline_roots(project_folder: str) -> list[RootResult]:
+def rename_ledger_timelines(asset_dir: str, claimed: dict) -> dict:
+    """Re-point ledger bindings when a staging reel is promoted.
+
+    `promote_staged_reels` renames the staging timeline to its final
+    name and DELETES the staging container. Every other record of that
+    build is renamed with it (`plan_provenance.rename_reel_entries`,
+    `explainer_plan.rename_plan_reels`, ...); the render ledger was
+    not, so its entries went on naming a timeline that no longer
+    exists.
+
+    That is not a cosmetic drift. `collect_pipeline_roots` reads the
+    ledger as a reference ROOT, so an entry bound to a dead timeline
+    pins its mov LIVE for ever and no sweep can ever reclaim it.
+    Measured on geo-podcast, 2026-09-10: all 23 movs the ledger alone
+    held live were bound to `Reel 09 ... (rebuild staging)`, a
+    timeline the project does not have - which is why a hand-run sweep
+    reclaimed 15.7 MB of 584 MB.
+
+    `claimed` is `{old_name: new_name}`, the same shape the sibling
+    renamers take. Returns `{"renamed": n, "ledger": path}`; a ledger
+    that is absent is nothing to rename, and one that cannot be parsed
+    is left untouched (it stays UNREADABLE, and the sweep keeps
+    refusing) rather than being rewritten from scratch.
+    """
+    path = ledger_path_for(asset_dir)
+    if not claimed or not os.path.isfile(path):
+        return {"renamed": 0, "ledger": path}
+    try:
+        handle = open(path, "r+", encoding="utf-8")
+    except OSError as exc:
+        raise LedgerError(
+            f"the render ledger at {path} cannot be opened ({exc}), so "
+            f"its bindings cannot be re-pointed at the promoted "
+            f"names.") from exc
+    renamed = 0
+    with handle:
+        _lock(handle)
+        try:
+            raw = handle.read()
+            try:
+                data = json.loads(raw) if raw.strip() else {}
+            except ValueError as exc:
+                raise LedgerUnreadable(
+                    f"the render ledger at {path} exists but cannot be "
+                    f"parsed ({exc}): left untouched, so the pipeline "
+                    f"root keeps reading UNREADABLE and the sweep keeps "
+                    f"refusing.") from exc
+            if not isinstance(data, dict):
+                raise LedgerUnreadable(
+                    f"the render ledger at {path} holds "
+                    f"{type(data).__name__}, not an object: left "
+                    f"untouched, so the sweep keeps refusing.")
+            overlay = data.get("subtitle_overlay")
+            segments = (overlay or {}).get("segments") \
+                if isinstance(overlay, dict) else None
+            if not isinstance(segments, list):
+                return {"renamed": 0, "ledger": path}
+            for entry in segments:
+                if not isinstance(entry, dict):
+                    continue
+                binding = entry.get("binding")
+                if not isinstance(binding, dict):
+                    continue
+                new = claimed.get(str(binding.get("timeline") or ""))
+                if new and new != binding.get("timeline"):
+                    binding["timeline"] = new
+                    renamed += 1
+            if renamed:
+                data["ledger_updated_at"] = \
+                    datetime.now(timezone.utc).isoformat()
+                handle.seek(0)
+                handle.truncate()
+                json.dump(data, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+        finally:
+            _unlock(handle)
+    return {"renamed": renamed, "ledger": path}
+
+
+def _read_ledger_paths(path: str,
+                       live_timelines: frozenset | None
+                       ) -> tuple[set[str], str]:
+    """Overlay paths the render ledger references, timelines considered.
+
+    With `live_timelines` given, an entry counts as a reference only
+    when the timeline it binds to still EXISTS. A ledger is a record of
+    what was rendered; once the timeline it was rendered for is gone,
+    the entry records history and references nothing, so keeping it as
+    a root makes the ledger a monotonic accumulator that no sweep can
+    ever drain.
+
+    The failure direction is chosen deliberately. `None` means the set
+    of live timelines is UNKNOWN - no database was read - and then
+    EVERY entry references, because an unknown timeline set reads
+    exactly like a project with no timelines and would orphan the whole
+    directory. An entry carrying no binding at all references too, for
+    the same reason.
+    """
+    if live_timelines is None:
+        return _read_json_paths(path)
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as exc:
+        return set(), f"cannot be read: {exc}"
+    overlay = data.get("subtitle_overlay") if isinstance(data, dict) else None
+    segments = (overlay or {}).get("segments") \
+        if isinstance(overlay, dict) else None
+    if not isinstance(segments, list):
+        return _read_json_paths(path)
+    found: set[str] = set()
+    for entry in segments:
+        if not isinstance(entry, dict):
+            continue
+        binding = entry.get("binding")
+        named = str((binding or {}).get("timeline") or "") \
+            if isinstance(binding, dict) else ""
+        if named and named not in live_timelines:
+            continue
+        at = entry.get("overlay_path")
+        if isinstance(at, str) and at:
+            found.add(at)
+        frames = entry.get("frames")
+        if isinstance(frames, dict) and isinstance(frames.get("dir"), str) \
+                and frames["dir"]:
+            found.add(frames["dir"])
+    return found, ""
+
+
+def collect_pipeline_roots(project_folder: str,
+                           live_timelines: Iterable[str] | None = None
+                           ) -> list[RootResult]:
     """The pipeline's own records as roots: step output and manifest.
 
     A project whose caption step never ran has no record to read, and
@@ -651,14 +845,21 @@ def collect_pipeline_roots(project_folder: str) -> list[RootResult]:
     Refusing the sweep on a missing record would refuse it forever on
     exactly the projects whose garbage predates the records. A record
     that EXISTS but cannot be read is `unreadable` and refuses.
+
+    `live_timelines` narrows the RENDER LEDGER only, and only when it
+    is given: see `_read_ledger_paths` for why an unknown set keeps
+    everything. The step output and the manifest are read whole either
+    way - they describe the current plan, not an accumulated history.
     """
+    live = None if live_timelines is None else frozenset(live_timelines)
     roots = []
     layout = ProjectLayout(project_folder)
+    ledger = layout.step_dir(STEP_NODE_ID) / RENDER_LEDGER_NAME
     candidates = [
         ("pipeline:render_subtitles",
          [layout.pipeline_data_path,
           layout.step_dir(STEP_NODE_ID) / "output.json",
-          layout.step_dir(STEP_NODE_ID) / RENDER_LEDGER_NAME]),
+          ledger]),
         ("pipeline:assembly-manifest",
          [layout.step_dir("compile_manifest") / "assembly_manifest.json",
           layout.step_dir("compile_manifest") / "output.json"]),
@@ -673,7 +874,10 @@ def collect_pipeline_roots(project_folder: str) -> list[RootResult]:
         merged: set[str] = set()
         problems = []
         for path in existing:
-            found, problem = _read_json_paths(str(path))
+            if path == ledger:
+                found, problem = _read_ledger_paths(str(path), live)
+            else:
+                found, problem = _read_json_paths(str(path))
             if problem:
                 problems.append(f"{path}: {problem}")
             merged |= {str(layout.resolve_project_relative(p))
@@ -700,6 +904,7 @@ def collect_resolve_roots(db_paths: list[str]) -> list[RootResult]:
     """
     from library.tools.execution.prune_orphans import (
         placed_paths_from_database,
+        timeline_names_from_database,
     )
     roots = []
     for db_path in db_paths:
@@ -712,6 +917,7 @@ def collect_resolve_roots(db_paths: list[str]) -> list[RootResult]:
             continue
         try:
             placed = placed_paths_from_database(str(db_path))
+            timelines = timeline_names_from_database(str(db_path))
         except Exception as exc:  # noqa: BLE001 - any failure refuses
             roots.append(RootResult(
                 name=name, status=UNREADABLE, kind="resolve",
@@ -719,9 +925,28 @@ def collect_resolve_roots(db_paths: list[str]) -> list[RootResult]:
             continue
         roots.append(RootResult(
             name=name, status=OK, paths=set(placed), kind="resolve",
-            db_path=str(db_path),
-            detail=f"{len(placed)} placed path(s)"))
+            db_path=str(db_path), timelines=set(timelines),
+            detail=f"{len(placed)} placed path(s), "
+                   f"{len(timelines)} timeline(s)"))
     return roots
+
+
+def live_timelines_from(roots: Iterable[RootResult]) -> frozenset | None:
+    """The timelines that EXIST, off the resolve roots, or None.
+
+    `None` means no readable Resolve root was among them, so the live
+    set is unknown - and every reader here treats unknown as "keep
+    everything" rather than "nothing is live". One function, because
+    the mark and the sweep deriving this differently would let a sweep
+    refuse for ever on a mark it should have agreed with.
+    """
+    readable = [r for r in roots if r.kind == "resolve" and r.status == OK]
+    if not readable:
+        return None
+    names: set[str] = set()
+    for root in readable:
+        names |= set(root.timelines)
+    return frozenset(names)
 
 
 # ── Mark ──────────────────────────────────────────────────────────────
@@ -769,6 +994,7 @@ class MarkResult:
             "roots": [{"name": r.name, "status": r.status,
                        "kind": r.kind, "db_path": r.db_path,
                        "detail": r.detail,
+                       "timelines": sorted(r.timelines),
                        "paths": sorted(r.paths)}
                       for r in self.roots],
             "assets": [vars(a) for a in self.assets],
@@ -790,7 +1016,8 @@ class MarkResult:
                             paths=set(r.get("paths", [])),
                             detail=r.get("detail", ""),
                             kind=r.get("kind", "memory"),
-                            db_path=r.get("db_path", ""))
+                            db_path=r.get("db_path", ""),
+                            timelines=set(r.get("timelines", [])))
                  for r in data.get("roots", [])]
         assets = [AssetVerdict(**a) for a in data.get("assets", [])]
         return MarkResult(
@@ -1217,7 +1444,12 @@ def _restablish(result: MarkResult, project_folder: str,
     elif recorded_db:
         out.extend(collect_resolve_roots(recorded_db))
     if any(r.kind == "pipeline" for r in result.roots):
-        out.extend(collect_pipeline_roots(project_folder))
+        # The SAME derivation the mark used, off the roots just
+        # re-read: a sweep that narrowed the ledger differently from
+        # the mark would find candidates "newly referenced" and refuse
+        # for ever on a mark it should have agreed with.
+        out.extend(collect_pipeline_roots(
+            project_folder, live_timelines=live_timelines_from(out)))
     recorded_memory = [r.name for r in result.roots
                        if r.kind == "memory"]
     if recorded_memory:
@@ -1260,8 +1492,9 @@ def main(argv=None) -> int:
     if args.command == "mark":
         layout = ProjectLayout(args.project)
         asset_dir = str(layout.read_dir(Area.SUBTITLE_SEGMENTS))
-        roots = collect_resolve_roots(args.db) \
-            + collect_pipeline_roots(args.project)
+        roots = collect_resolve_roots(args.db)
+        roots += collect_pipeline_roots(
+            args.project, live_timelines=live_timelines_from(roots))
         result = mark(args.project, asset_dir, roots)
         written = write_mark_report(result, args.out)
         print(render_mark_report(result))

@@ -72,7 +72,13 @@ def _moment(number, name):
 
 
 class FakeTimeline:
-    """A timeline whose name really changes when renamed."""
+    """A timeline whose name really changes when renamed.
+
+    It carries no rows: `GetTrackCount` answers 0 on both media types,
+    so the replace guard (issue #925) diffs empty against empty and
+    passes. A timeline the tests mean to grade row by row belongs in
+    `test_promote_replace_guard.py`, whose fakes carry real rows.
+    """
 
     def __init__(self, name):
         self._name = name
@@ -83,6 +89,15 @@ class FakeTimeline:
     def SetName(self, name):
         self._name = name
         return True
+
+    def GetTrackCount(self, kind):
+        return 0
+
+    def GetTrackName(self, kind, index):
+        return ""
+
+    def GetItemListInTrack(self, kind, index):
+        return []
 
 
 class FakeProject:

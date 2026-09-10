@@ -3,7 +3,7 @@
 Step 5.01's hybrid output carries `grade_terms_legend` - a dict whose
 `clip_id` key maps to the legend's prose, not to a clip - and
 `grade_pipeline`, whose `source` values name brand-template slots
-("brand template style.house_look.cdl"), not files. The check walked the
+("brand template style.series_look.cdl"), not files. The check walked the
 whole step output with bare-key matching, so both read as unrecognized
 references on every run.
 
@@ -22,7 +22,7 @@ sys.path.insert(0, str(REPO))
 from library.processes.edit_video import run_pipeline as runner  # noqa: E402
 from library.steps.step_5_01_color_grade.grade import GRADE_PIPELINE  # noqa: E402
 from library.tools.color_correction import CLIP_KEY, term_legend  # noqa: E402
-from library.tools.house_look import describe_look  # noqa: E402
+from library.tools.series_look import describe_look  # noqa: E402
 from library.tools.window_frames import STRIP_LEGEND  # noqa: E402
 
 

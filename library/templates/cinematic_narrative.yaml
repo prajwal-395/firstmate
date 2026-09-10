@@ -28,7 +28,7 @@ style:
   # identity is decided.
   #
   # To grade under this template, declare the values:
-  # `python3 -c "from library.tools.house_look import
+  # `python3 -c "from library.tools.series_look import
   #  describe_declaration_shape as d; print(d())"`
   # Add path to reference frame for AI color matching here:
   # reference_look_image: "/path/to/reference.jpg"

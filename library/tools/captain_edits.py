@@ -88,11 +88,58 @@ which would play those seconds twice. Anything failing that is
 reported LOUDLY and that reel keeps its span.
 
 `tests/test_closer_redraw.py`.
+
+A hand move in the Inspector
+----------------------------
+The captain drags a clip's Position X by hand (Reel 09, 2026-09-10:
+Akshita's clip from the pipeline's Pan 14 to Pan -35) and the next
+rebuild re-aims the punch-in onto the measured subject, throwing the
+hand move away. That pin is a `transform_override` edit: the same
+word anchor (the words the moved shot speaks), naming one Edit-page
+transform property (`Pan`, `Tilt`, `ZoomX`, `ZoomY` - what the build
+sets and the Inspector shows as Position/Zoom) and the number it must
+hold. Zoom must be positive; Pan/Tilt must sit inside what Resolve
+holds on a 1080x1920 timeline (`PAN_TILT_RAIL_1080X1920`, measured in
+`library/tools/tight_box.py`), because
+past it Resolve clamps silently and the held value would not be the
+recorded one.
+
+The build applies overrides AFTER aiming the punch-in, so the held
+value is the captain's, and re-proves coverage (`assert_punch_took`):
+an override that uncovered an edge raises rather than shipping black.
+An override matching no placed span reports STALE like every other
+kind. `tests/test_transform_override.py`.
+
+Recording a decision: the one route
+------------------------------------
+`python3 -m library.tools.captain_edits <project> <verb>`:
+
+- `list` (the default): what is in force, in plain language.
+- `record-closer --anchor ... --from ... --reason ...`: pin a closer.
+- `record-transform --anchor ... --property Pan --value -35
+  --reason ...`: the typed fallback for a decision settled in words.
+- `capture-transform --reel 9 --timeline 'Reel 09 - ...' --words ...
+  [--property Pan] [--reason ...]`: read the value out of the LIVE
+  Resolve timeline - the hand move, which exists nowhere else - and
+  record what Resolve holds. Footage items only (the master snapshot
+  decides membership, never an extension guess); ambiguity - the
+  words twice on the reel, two items on one track, stacked angles
+  without `--track` - refuses, naming what matched.
+
+Every record refuses before writing: structurally, and against the
+measured transcript where one is on file (a typo fails here, not on
+the next build). A re-ruling of the same decision SUPERSEDES it; an
+exact duplicate is refused as already in force. No second store
+beside this one: a placement value fits here because the ANCHOR is
+the same stable thing every other kind anchors to - the spoken
+words - and only the payload differs (a number held, not a range
+redrawn or a fragment dropped).
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -100,11 +147,39 @@ from pathlib import Path
 CAPTAIN_EDITS_KEY = "captain_edits"
 """The state key, and the file name: `<project>/external/captain_edits.json`."""
 
-KINDS = ("caption_fix", "drop_fragment", "redraw_closer")
+KINDS = ("caption_fix", "drop_fragment", "redraw_closer",
+         "transform_override")
 """The complete vocabulary. `caption_fix` rewrites caption text;
 `drop_fragment` removes the speech (and so the picture) that says it;
 `redraw_closer` moves a shared closer's start to the anchor's words,
-end fixed."""
+end fixed; `transform_override` holds one Edit-page transform property
+(Pan, Tilt, ZoomX, ZoomY) at the captain's value on every shot that
+speaks the anchor - a hand move in the Inspector that a rebuild would
+otherwise throw away."""
+
+
+TRANSFORM_PROPERTIES = ("Pan", "Tilt", "ZoomX", "ZoomY")
+"""The properties a `transform_override` may name: the Edit-page
+transform the build itself sets (the punch-in), which is what the
+Inspector shows as Position and Zoom. Anything else - a Fusion
+Center, an opacity, a volume - is another mechanism's business and is
+refused here rather than half-applied."""
+
+
+PAN_TILT_RAIL_1080X1920 = 3840.0
+"""What Resolve holds for |Pan| and |Tilt| on a 1080x1920 timeline.
+
+Measured on the live timeline 2026-09-09 (`library/tools/tight_box.py`):
+37 of 39 caption items pinned at exactly Tilt -3840.0 across 17 box
+geometries - a constant in PROPERTY space, not a clip-relative cap, so
+it binds footage clips the same as overlays. The retired carriage
+believed 4320; the measured bracket is [3366.4, 4316.1] and 3840 lies
+inside it. The measurement is on Tilt; Pan is taken symmetric (same
+property space, and every recorded Pan sits two orders of magnitude
+inside the rail either way). Past this Resolve returns True and holds
+the clamp, so an override past it is REFUSED rather than recorded -
+a recorded clamp is a pin the build cannot hold.
+"""
 
 
 class CaptainEditError(ValueError):
@@ -180,6 +255,35 @@ def validate_edits(value) -> list:
                         f"a timecode breaks the moment anything upstream "
                         f"re-times. Name the opening in spoken words "
                         f"(`anchor_phrase`, `from_phrase`) instead.")
+        if kind == "transform_override":
+            prop = edit.get("property")
+            if prop not in TRANSFORM_PROPERTIES:
+                raise CaptainEditError(
+                    f"{label} names property {prop!r}. A transform "
+                    f"override holds one Edit-page transform the build "
+                    f"itself sets: {', '.join(TRANSFORM_PROPERTIES)}.")
+            number = edit.get("value")
+            if (isinstance(number, bool)
+                    or not isinstance(number, (int, float))
+                    or math.isnan(number)
+                    or number in (float("inf"), float("-inf"))):
+                raise CaptainEditError(
+                    f"{label} carries value {number!r}: a transform "
+                    f"override names the number {prop} must hold.")
+            if prop in ("ZoomX", "ZoomY") and not number > 0:
+                raise CaptainEditError(
+                    f"{label} wants {prop} {number!r}: a zoom of zero or "
+                    f"less draws nothing - the picture would vanish "
+                    f"rather than move.")
+            if prop in ("Pan", "Tilt"):
+                if abs(number) > PAN_TILT_RAIL_1080X1920:
+                    raise CaptainEditError(
+                        f"{label} wants {prop} {number:g}: Resolve holds "
+                        f"only +- {PAN_TILT_RAIL_1080X1920:.0f} on a "
+                        "1080x1920 timeline "
+                        "and clamps past it silently, so the held value "
+                        "would not be the recorded one. Aim inside what "
+                        "Resolve holds.")
         reason = edit.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise CaptainEditError(
@@ -422,6 +526,39 @@ def _run_starts(stream: list, phrase: str) -> list:
             if haystack[i:i + n] == needle]
 
 
+def _opens_on_word_edge(when: float, transcript: dict,
+                          edge: str = "start") -> bool:
+    """Whether `when` lands exactly on a timed word's edge, inside none.
+
+    `edge="start"` is a span opening (some word starts there);
+    `edge="end"` is a span closing (some word ends there). The pin's
+    start comes from a timed word's own start, so it is a word edge by
+    construction - what breaks it is honest and named: a
+    re-transcription that re-timed the passage (no word bounds there
+    anymore) or an overlapping speaker's word that strictly contains
+    the boundary (starting there would cut their word in half). Either
+    refuses; a mid-ROW boundary on a clean word edge is the captain's
+    ruling standing over WhisperX's rowing, not damage, and passes.
+    """
+    lands = False
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                start, end = float(word["start"]), float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if end <= start:
+                continue
+            if start < when < end:
+                return False
+            bound = start if edge == "start" else end
+            if abs(bound - when) <= 1e-6:
+                lands = True
+    return lands
+
+
 def _closer_opening_tokens(transcript: dict, cta_start: float,
                            cta_end: float, count: int) -> list:
     """The first `count` tokens the closer plays, from timed words.
@@ -458,9 +595,11 @@ def apply_closer_redraws(moments: list, transcript: dict,
     iterations" reads rather than as a stale pin; `stale` carries every
     pin that could not redraw, LOUDLY: an anchor the transcript no
     longer speaks, an extension that would overlap the reel's own body
-    and play seconds twice, or an anchor no longer sitting on a clean
-    segment edge. A reel closing on a different invitation is none of
-    these - untouched, and the pin is not stale for it.
+    and play seconds twice, or an anchor no longer opening on a timed
+    word edge. A mid-row opening on a clean word edge APPLIES - the row
+    is chunking and the captain ruled the words. A reel closing on a
+    different invitation is none of these - untouched, and the pin is
+    not stale for it.
     """
     from dataclasses import replace as _replace
 
@@ -562,18 +701,27 @@ def apply_closer_redraws(moments: list, transcript: dict,
                              f"and the end never moves. Original request: "
                              f"{edit.get('reason', '')}".strip())})
                     continue
-                if abs(snapped[0] - new_start) > 1e-6:
+                # Mid-ROW on a clean word edge: the row is WhisperX's
+                # chunking, and the captain ruled the opening twice.
+                # The ruling stands over the rowing - every
+                # downstream gate tests boundaries against WORDS
+                # (F8, `_word_at`, strictly inside), so a word-edge
+                # start is one no gate can fail.
+                if (abs(snapped[0] - new_start) > 1e-6
+                        and not _opens_on_word_edge(new_start,
+                                                    transcript or {})):
                     stale.append(
                         {"kind": "redraw_closer",
                          "reel": int(moment.number),
                          "anchor_phrase": anchor,
                          "reason": (
                              f"CANNOT APPLY on reel {int(moment.number)}: "
-                             f"the anchor {anchor!r} at {new_start:.3f}s no "
-                             f"longer sits on a clean segment edge (snaps "
-                             f"to {snapped[0]:.3f}s) - the transcript "
-                             f"re-segmented around it. Re-anchor to words "
-                             f"the transcript still bounds. Original "
+                             f"the anchor {anchor!r} at {new_start:.3f}s "
+                             f"is no longer on a timed word edge - the "
+                             f"transcript re-timed around it, or an "
+                             f"overlapping word now contains the "
+                             f"opening. Re-anchor to words the "
+                             f"transcript still bounds. Original "
                              f"request: "
                              f"{edit.get('reason', '')}".strip())})
                     continue
@@ -593,6 +741,85 @@ def apply_closer_redraws(moments: list, transcript: dict,
                     round(s, 3) for s in starts[1:]]
             applied.append(record)
     return out, applied, held, stale
+
+
+# ── Transform overrides: a hand move the rebuild must keep ─────────
+
+def _span_word_tokens(transcript: dict, start: float, end: float) -> list:
+    """Normalized timed-word tokens spoken inside `[start, end)`.
+
+    Timed words only, for the reason `_word_stream` states: an untimed
+    word cannot place anything and is not offered as evidence. Words
+    are claimed by their START so a word straddling the span's end
+    belongs to the span it opens, the same edge rule `_word_at`
+    grades by."""
+    tokens = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                wstart = float(word["start"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            token = normalize(str(word.get("word") or ""))
+            if token and start - 1e-6 <= wstart < end - 1e-6:
+                tokens.append(token)
+    return tokens
+
+
+def match_transform_overrides(spans: list, transcript: dict,
+                              edits: list) -> tuple:
+    """Which placed spans speak each recorded override's anchor. Returns
+    `(matched, stale)`.
+
+    `spans` are the placed picture spans in play order, each carrying
+    its master-transcript range as `span["master"] = (start, end)` -
+    the reel build's `placements()` entries, which is the ONE place
+    that order is spelled. A span matches when the anchor's words occur
+    in it as an ordered run, the same containment `apply_drop_fragments`
+    uses for blocks.
+
+    Every matching span is named, like `caption_fix` names every card:
+    a rebuild that re-cuts one shot into two keeps both under the
+    captain's decision rather than splitting it silently. An override
+    matching nothing reports STALE rather than vanishing."""
+    overrides = [e for e in (edits or [])
+                 if e.get("kind") == "transform_override"]
+    matched, stale = [], []
+    for edit in overrides:
+        anchor, prop = edit["anchor_phrase"], edit["property"]
+        anchor_tokens = _tokens(anchor)
+        hits = []
+        for index, span in enumerate(spans or []):
+            master = (span.get("master") if isinstance(span, dict)
+                      else None)
+            if not master:
+                continue
+            try:
+                span_start, span_end = float(master[0]), float(master[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            tokens = _span_word_tokens(transcript, span_start, span_end)
+            if _contains_run(tokens, anchor_tokens):
+                hits.append(index)
+        if not hits:
+            stale.append(
+                {"kind": "transform_override",
+                 "anchor_phrase": anchor, "property": prop,
+                 "reason": (
+                     f"STALE: transform override for {anchor!r} no longer "
+                     f"applies - those words are in no placed span. The "
+                     f"passage was reworded, re-cut out of this reel, or "
+                     f"never reached it. Original request: "
+                     f"{edit.get('reason', '')}".strip())})
+            continue
+        for index in hits:
+            matched.append(
+                {"span_index": index, "property": prop,
+                 "value": edit["value"], "anchor_phrase": anchor,
+                 "reason": edit.get("reason", "")})
+    return matched, stale
 
 
 # ── The captain reads what is in force ───────────────────────────────
@@ -621,6 +848,11 @@ def describe_edits(edits: list) -> list:
                 f"{number}. Redrawn: the closer opening on "
                 f"{edit.get('from_phrase', '')!r} now opens on "
                 f"{anchor!r}, end fixed - {reason}")
+        elif kind == "transform_override":
+            lines.append(
+                f"{number}. Framing: wherever the speech says "
+                f"{anchor!r}, {edit.get('property')} holds "
+                f"{edit.get('value')} - {reason}")
         else:
             lines.append(f"{number}. {kind}: {anchor!r} - {reason}")
     for line in lines:
@@ -641,25 +873,457 @@ def report_stale(records: list) -> list:
     return lines
 
 
-def main(argv=None) -> int:
-    """`python3 -m library.tools.captain_edits <project_folder>` - the
-    plain-language listing of edits in force."""
-    argv = list(sys.argv[1:] if argv is None else argv)
-    if not argv:
-        print("usage: python3 -m library.tools.captain_edits "
-              "<project_folder>", file=sys.stderr)
-        return 2
+# ── Recording a decision: the write side ──────────────────────────
+
+def transcript_path(project_folder) -> Path:
+    """The measured transcript, where the anchors resolve.
+
+    The same file the reel build reads (`reel_build` joins it
+    inline) - a pin recorded against other words than these is
+    drift, so the record commands check correspondence here at
+    write time rather than failing the next build."""
+    return (Path(str(project_folder)) / "pipeline_output" / "scratch"
+            / "timeline_transcript" / "transcript.json")
+
+
+def load_transcript(project_folder):
+    """The measured transcript, or None where nothing is on file."""
+    path = transcript_path(project_folder)
+    if not path.is_file():
+        return None
     try:
-        edits = load_edits(argv[0])
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def check_anchor_spoken(edit: dict, transcript) -> None:
+    """Refuse an edit whose anchor is in no measured speech.
+
+    The write-time half of the correspondence the external check
+    enforces pre-run (`external_inputs._check_captain_edits`): a pin
+    recorded against words the transcript never speaks - a typo in
+    `from_phrase`, a reworded passage - would sit in force and match
+    nothing, failing SILENTLY on reels that close on something else
+    (`test_a_closer_opening_on_neither_phrase_is_left_alone`). Where
+    no transcript is on file yet the edit verifies structurally, and
+    drift reports STALE at apply time instead."""
+    if transcript is None:
+        return
+    stream = _word_stream(transcript)
+    phrases = [edit["anchor_phrase"]]
+    if edit.get("kind") == "redraw_closer":
+        phrases.append(edit["from_phrase"])
+    for phrase in phrases:
+        if not _run_starts(stream, phrase):
+            raise CaptainEditError(
+                f"{phrase!r} is spoken nowhere in this transcript - "
+                f"the pin would sit in force and match nothing. "
+                f"Re-anchor to words the reel still says.")
+
+
+def _edit_identity(edit: dict) -> tuple:
+    """What makes two edits the SAME decision: kind, anchor, and the
+    field that scopes it (the property held, the opening moved, the
+    text replaced). A captain who re-rules the same decision
+    SUPERSEDES it; a different scope is a different edit."""
+    kind, anchor = edit.get("kind"), normalize(edit.get("anchor_phrase",
+                                                         ""))
+    if kind == "transform_override":
+        return (kind, anchor, edit.get("property"))
+    if kind == "redraw_closer":
+        return (kind, anchor, normalize(edit.get("from_phrase", "")))
+    if kind == "caption_fix":
+        return (kind, anchor)
+    return (kind, anchor)
+
+
+def record_edit(project_folder, edit: dict, source: str = "") -> tuple:
+    """Append one decision to the durable store, or supersede it.
+
+    Validates structurally BEFORE touching disk, checks the anchor
+    against the measured transcript where one is on file, then reads
+    the store the reader reads (`load_edits`): an exact duplicate is
+    REFUSED as already in force, a re-ruling of the same decision
+    REPLACES it, anything else appends. Returns `(edit, action)` with
+    action one of `"recorded"`, `"superseded"`. The store is created
+    (with its `external/` directory) where nothing was ever written -
+    that absence was the whole defect."""
+    validate_edits([edit])
+    check_anchor_spoken(edit, load_transcript(project_folder))
+    path = edits_path(project_folder)
+    existing: list = []
+    if path.is_file():
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            raise CaptainEditError(
+                f"{path} cannot be read: {exc}") from exc
+        if (not isinstance(document, dict) or "value" not in document
+                or document.get("key") != CAPTAIN_EDITS_KEY):
+            raise CaptainEditError(
+                f"{path.name} must be an object with 'key', 'source' "
+                f"and 'value' - it is not the store this reader reads.")
+        existing = validate_edits(document["value"])
+    if edit in existing:
+        raise CaptainEditError(
+            f"already in force: {describe_edits([edit])[0]} - "
+            f"recording it again would list the same decision twice.")
+    identity = _edit_identity(edit)
+    action = "recorded"
+    kept = [e for e in existing if _edit_identity(e) != identity]
+    if len(kept) != len(existing):
+        action = "superseded"
+    value = validate_edits(kept + [edit])
+    if not source:
+        from datetime import datetime, timezone
+        source = ("captain via firstmate, "
+                  f"{datetime.now(timezone.utc):%Y-%m-%d}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(
+        {"key": CAPTAIN_EDITS_KEY, "source": source, "value": value},
+        indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return edit, action
+
+
+def anchor_reel_time(ranges: list, transcript: dict, anchor: str,
+                     lead_seconds: float = 0.0) -> tuple:
+    """Where the anchor's words play on the REEL, in reel seconds.
+
+    The anchor must occur in exactly ONE of the reel's ranges - an
+    occurrence nowhere is a stale pin, and two occurrences (the words
+    spoken twice) need the captain to say which clip they moved, so
+    both are named and nothing is guessed. Returns
+    `(reel_start, master_start, master_end)` - the reel second the
+    anchor's first word plays, with the master span for centring on
+    the words rather than their edge."""
+    needle = _tokens(anchor)
+    if not needle:
+        raise CaptainEditError("no anchor words named.")
+    stream = _word_stream(transcript or {})
+    at = _run_starts(stream, anchor)
+    if not at:
+        raise CaptainEditError(
+            f"{anchor!r} is spoken nowhere in this transcript.")
+    candidates = []
+    for occurrence in at:
+        master = stream[occurrence][1]
+        master_end = stream[occurrence + len(needle) - 1][2]
+        for order, (range_start, range_end) in enumerate(ranges):
+            if range_start - 1e-6 <= master < range_end - 1e-6:
+                reel = (lead_seconds + sum(
+                    end - start for start, end in ranges[:order])
+                    + (master - range_start))
+                candidates.append((reel, master, master_end, order))
+    if not candidates:
+        raise CaptainEditError(
+            f"{anchor!r} is spoken, but in no range this reel plays - "
+            f"the passage was cut out of it.")
+    if len(candidates) > 1:
+        options = ", ".join(
+            f"reel {reel:.2f}s (range {order})"
+            for reel, _, _, order in candidates)
+        raise CaptainEditError(
+            f"{anchor!r} plays {len(candidates)} times on this reel: "
+            f"{options}. Say which clip was moved - nothing is guessed.")
+    reel, master, master_end, _ = candidates[0]
+    return reel, master, master_end
+
+
+def main(argv=None) -> int:
+    """The write side beside the listing. One route into the store:
+
+    `python3 -m library.tools.captain_edits <project> list`
+        the plain-language listing of edits in force (the default -
+        a bare `<project>` lists too).
+    `... record-closer --anchor ... --from ... --reason ...`
+        pin a shared closer's opening to the anchor's words, end
+        fixed. Checked against the measured transcript at write time,
+        so a typo fails here and not on the next build.
+    `... record-transform --anchor ... --property Pan --value -35
+    --reason ...`
+        hold one Edit-page transform at the captain's number on every
+        shot speaking the anchor. The typed fallback for a decision
+        settled in words.
+    `... capture-transform --reel 9 --timeline 'Reel 09 - ...'
+    --words ... [--property Pan] --reason ...`
+        read the value out of the LIVE Resolve timeline - the captain's
+        hand move, which exists nowhere else - and record it. The
+        route for a change made by hand in Resolve.
+
+    Every record refuses before writing: structurally (`validate_edits`)
+    and against the measured speech where a transcript is on file.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="library.tools.captain_edits",
+        description="The captain's edits: record a settled decision so "
+                    "a rebuild keeps it, or list what is in force.")
+    parser.add_argument("project_folder")
+    parser.add_argument("verb", nargs="?", default="list",
+                        choices=["list", "record-closer",
+                                 "record-transform", "capture-transform"])
+    parser.add_argument("--anchor", default="")
+    parser.add_argument("--from", dest="opening", default="")
+    parser.add_argument("--property", dest="prop", default="")
+    parser.add_argument("--value", default=None)
+    parser.add_argument("--reason", default="")
+    parser.add_argument("--source", default="")
+    parser.add_argument("--reel", default=None)
+    parser.add_argument("--timeline", default="")
+    parser.add_argument("--track", default=None)
+    parser.add_argument("--words", default="")
+    args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+
+    if args.verb == "list":
+        try:
+            edits = load_edits(args.project_folder)
+        except CaptainEditError as exc:
+            print(f"REFUSED\n\n{exc}\n")
+            return 1
+        if not edits:
+            print(f"No captain edits in force for {args.project_folder}.")
+            return 0
+        for line in describe_edits(edits):
+            pass
+        return 0
+
+    if not args.reason.strip():
+        print("REFUSED\n\nRecording without a reason is not reviewable - "
+              "carry the captain's own words in --reason.\n")
+        return 1
+    try:
+        if args.verb == "record-closer":
+            edit = {"kind": "redraw_closer",
+                    "anchor_phrase": args.anchor,
+                    "from_phrase": args.opening,
+                    "reason": args.reason}
+            _, action = record_edit(args.project_folder, edit,
+                                    args.source)
+        elif args.verb == "record-transform":
+            try:
+                number = float(args.value)
+            except (TypeError, ValueError):
+                raise CaptainEditError(
+                    f"--value {args.value!r} is not a number: a "
+                    f"transform override names the number the property "
+                    f"must hold.")
+            edit = {"kind": "transform_override",
+                    "anchor_phrase": args.anchor,
+                    "property": args.prop, "value": number,
+                    "reason": args.reason}
+            _, action = record_edit(args.project_folder, edit,
+                                    args.source)
+        else:
+            edit, action = _capture_transform(args)
     except CaptainEditError as exc:
         print(f"REFUSED\n\n{exc}\n")
         return 1
-    if not edits:
-        print(f"No captain edits in force for {argv[0]}.")
-        return 0
-    for line in describe_edits(edits):
-        pass
+    print(f"{action}: {describe_edits([edit])[0]}")
     return 0
+
+
+def _capture_transform(args) -> tuple:
+    """Read the captain's hand move out of live Resolve and record it.
+
+    The value is READ, never typed: the manual change lives only in
+    the project file, and a typed number is a second chance to
+    misremember it. The clip is named by the WORDS it speaks
+    (`--words`), resolved to reel seconds through the reel's own
+    ranges, and the live video item covering those seconds supplies
+    the held value. Ambiguity refuses - two occurrences, two items on
+    two tracks - naming what matched rather than guessing."""
+    if not args.timeline:
+        raise CaptainEditError(
+            "capture-transform needs --timeline, the reel timeline's "
+            "EXACT listed name - a near match lands elsewhere.")
+    anchor = args.words or args.anchor
+    if not normalize(anchor):
+        raise CaptainEditError(
+            "capture-transform needs --words: the words the moved clip "
+            "speaks, which is what survives the next rebuild.")
+    prop = args.prop or "Pan"
+    if prop not in TRANSFORM_PROPERTIES:
+        raise CaptainEditError(
+            f"--property {prop!r} is not one the build sets: "
+            f"{', '.join(TRANSFORM_PROPERTIES)}.")
+    try:
+        number = int(args.reel)
+    except (TypeError, ValueError):
+        raise CaptainEditError(
+            f"--reel {args.reel!r} names no reel: capture reads the "
+            f"approved moment to know which ranges the timeline plays.")
+    transcript = load_transcript(args.project_folder)
+    if transcript is None:
+        raise CaptainEditError(
+            "no transcript on file - without measured speech the words "
+            "cannot resolve to a clip. Run the transcript first.")
+    from library.tools.reel_proposal import (
+        proposal_path as _proposal_path, read_proposal)
+    from library.tools.reel_proposal import ProposalError as _ProposalError
+    try:
+        moments = read_proposal(str(_proposal_path(args.project_folder)))
+    except (OSError, ValueError, _ProposalError) as exc:
+        raise CaptainEditError(
+            f"no readable reel proposal on file: {exc}. Capture reads "
+            f"the approved moment to know which ranges the timeline "
+            f"plays - without it the words cannot resolve to a clip.")
+    moment = next((m for m in moments if int(m.number) == number), None)
+    if moment is None:
+        raise CaptainEditError(
+            f"reel {number} is in no proposal on file.")
+    from library.tools import reel_build as _build
+    from library.tools import transcript_corrections as _tc
+    try:
+        keep_exclusions = _tc.keep_exclusions(args.project_folder)
+        moment_cuts = _tc.grow_cuts_over_wordless_leadin(
+            _tc.exclusion_cuts_for_span(
+                moment.timeline_start, moment.timeline_end,
+                keep_exclusions),
+            transcript)
+        ranges = _build.reel_ranges(moment, transcript,
+                                    extra_cuts=moment_cuts)
+    except Exception as exc:  # noqa: BLE001 - the CLI edge reports
+        raise CaptainEditError(
+            f"reel {number}'s played ranges cannot be derived: "
+            f"{exc}") from exc
+    # A head card occupies reel seconds before any footage plays -
+    # the words land that far later on the timeline. The same
+    # arithmetic the build places from, so the capture reads the clip
+    # the words actually play on.
+    cards = _build.plan_cards(
+        moment, transcript, ranges, args.project_folder,
+        fps=24000 / 1001,
+        declarations=_build.declared_cards(args.project_folder))
+    lead = _build.lead_frames(cards, 24000 / 1001) / (24000 / 1001)
+    reel_start, master_start, master_end = anchor_reel_time(
+        ranges, transcript, anchor, lead_seconds=lead)
+    # Centre on the words, not their edge: a frame at the anchor's
+    # first word can round onto the previous item at a cut, and the
+    # previous item is exactly the wrong clip to capture.
+    try:
+        import DaVinciResolveScript as dvr
+    except ImportError:
+        import os as _os
+        _os.environ["RESOLVE_SCRIPT_API"] = (
+            "/Library/Application Support/Blackmagic Design/"
+            "DaVinci Resolve/Developer/Scripting")
+        _os.environ["RESOLVE_SCRIPT_LIB"] = (
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/"
+            "Contents/Libraries/Fusion/libfusionscript.dylib")
+        if "PYTHONPATH" not in _os.environ:
+            _os.environ["PYTHONPATH"] = ""
+        _os.environ["PYTHONPATH"] += ":" + _os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
+        sys.path.insert(0, _os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
+        import DaVinciResolveScript as dvr
+    import yaml as _yaml
+    with open(Path(str(args.project_folder)) / "project.yaml",
+              encoding="utf-8") as handle:
+        resolve_config = _yaml.safe_load(handle).get("resolve", {})
+    resolve_name = resolve_config.get("project_name", "")
+    master_name = resolve_config.get("timeline_name", "")
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    from library.tools.timeline_ingest import resolve_project_exactly
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
+    project = resolve_project_exactly(
+        resolve.GetProjectManager(), resolve_name)
+    timeline = None
+    for index in range(1, project.GetTimelineCount() + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if candidate.GetName() == args.timeline:
+            timeline = candidate
+            break
+    if timeline is None:
+        raise CaptainEditError(
+            f"timeline {args.timeline!r} is not in Resolve project "
+            f"{resolve_name!r}.")
+    if args.track is not None:
+        try:
+            wanted = int(args.track)
+        except (TypeError, ValueError):
+            raise CaptainEditError(
+                f"--track {args.track!r} names no video track.")
+    else:
+        wanted = None
+    fps = float(timeline.GetSetting("timelineFrameRate") or 0) or 24000 / 1001
+    start_frame = timeline.GetStartFrame()
+    # Mid-anchor in reel seconds, so a cut exactly on the anchor's
+    # first word cannot round the lookup onto the previous item.
+    reel_second = reel_start + (master_end - master_start) / 2
+    frame = start_frame + round(reel_second * fps)
+    # Footage only: the frame, the captions and the motion graphics
+    # all cover the same seconds, and none of them is the clip the
+    # captain moved. What counts as footage is the master snapshot
+    # the build places from - an exact membership, never an
+    # extension guess.
+    from library.tools.timeline_ingest import snapshot_timeline
+    master = None
+    for index in range(1, project.GetTimelineCount() + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if candidate.GetName() == master_name:
+            master = candidate
+            break
+    if master is None:
+        raise CaptainEditError(
+            f"master timeline {master_name!r} is not in Resolve "
+            f"project {resolve_name!r} - the footage set cannot be "
+            f"listed, so nothing is recorded.")
+    footage = {clip.source_file for clip in
+               snapshot_timeline(master, resolve_name).clips}
+    covering = []
+    for track in range(1, timeline.GetTrackCount("video") + 1):
+        if wanted is not None and track != wanted:
+            continue
+        for item in timeline.GetItemListInTrack("video", track) or ():
+            if not (item.GetStart() <= frame < item.GetEnd()):
+                continue
+            try:
+                pool_item = item.GetMediaPoolItem()
+                source = (pool_item.GetClipProperty("File Path")
+                          if pool_item is not None else None)
+            except Exception:  # noqa: BLE001 - unresolvable, skipped
+                source = None
+            if source in footage:
+                covering.append((track, item))
+    if not covering:
+        raise CaptainEditError(
+            f"no video item covers reel {reel_second:.2f}s "
+            f"(frame {frame}) on {args.timeline!r} - the timeline "
+            f"moved under the words.")
+    tracks = sorted({track for track, _ in covering})
+    if len(covering) > 1 and len(tracks) == 1:
+        names = [item.GetName() for _, item in covering]
+        raise CaptainEditError(
+            f"{len(covering)} items on one track cover reel "
+            f"{reel_second:.2f}s ({', '.join(names)}): the timeline "
+            f"was re-cut under the words. Say which clip was moved.")
+    value = None
+    for track, item in covering:
+        try:
+            read = item.GetProperty(prop)
+            value = float(read) if read is not None else None
+        except Exception:  # noqa: BLE001 - unreadable, named below
+            value = None
+        if value is None:
+            raise CaptainEditError(
+                f"{item.GetName()!r} on V{track} does not serve "
+                f"{prop} - the value cannot be read, so nothing is "
+                f"recorded.")
+    # Rounded to the pipeline's own precision (`punch_in_properties`
+    # rounds Pan/Tilt to 3): the read-back float residue (-35.000...36)
+    # is Resolve's, not the captain's, and the store keeps what the
+    # captain can read back.
+    value = round(value, 3)
+    if len(tracks) > 1:
+        raise CaptainEditError(
+            f"V{', V'.join(str(t) for t in tracks)} all cover reel "
+            f"{reel_second:.2f}s ({anchor!r}): stacked angles need "
+            f"one value each, and one capture cannot tell them apart. "
+            f"Re-run per track after --track selects one.")
+    edit = {"kind": "transform_override", "anchor_phrase": anchor,
+            "property": prop, "value": value, "reason": args.reason}
+    return record_edit(args.project_folder, edit, args.source)
 
 
 if __name__ == "__main__":

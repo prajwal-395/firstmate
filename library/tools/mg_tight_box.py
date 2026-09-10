@@ -63,7 +63,9 @@ How the box lands in Resolve
 ----------------------------
 The tight props keep every element, its local timing and its anchor,
 and replace only the canvas (`width`/`height`) and the insets
-(`safeArea` becomes the pads). Anchored stacks hug canvas edges, so
+(`safeArea` becomes the pads, plus the minimum-height growth where a
+single zone allowed one - always away from the anchored edge, so the
+ink does not move). Anchored stacks hug canvas edges, so
 they sit pad-anchored on the small canvas exactly as they sat
 inset-anchored on the full one; chrome positions itself from the
 insets absolutely, so it is consistent wherever the union put it; a
@@ -80,6 +82,7 @@ from typing import Optional
 from library.tools.tight_box import (
     TightBox,
     TightBoxMismatch,
+    grow_to_minimum,
     placement_for_box,
     placement_holds,
 )
@@ -387,6 +390,7 @@ def tighten_motion_graphics_props(props: dict,
         return None
 
     _cache: dict = {}
+    absolute_zones: set = set()
 
     # Chrome rects are absolute. Anchored copy shares one flex
     # container per ANCHOR, laid out in row order against each other's
@@ -417,6 +421,7 @@ def tighten_motion_graphics_props(props: dict,
             else:
                 y0 = full_h - float(safe["bottom"]) - bar_h + BAR_GLOW
             absolute.append((x0, y0, x1, y0 + bar_h))
+            absolute_zones.add(_vertical_zone(anchor))
             continue
         entry = stacks.setdefault(
             anchor, {"zone": _vertical_zone(anchor),
@@ -477,13 +482,32 @@ def tighten_motion_graphics_props(props: dict,
         return None
 
     canvas_w = _ceil_even(union_w + 2 * MG_PAD)
-    canvas_h = _ceil_even(union_h + 2 * MG_PAD)
+    measured_h = _ceil_even(union_h + 2 * MG_PAD)
+
+    # The floor that keeps the placement inside Resolve's rail
+    # (`tight_box.MIN_CANVAS_HEIGHT`) - but ONLY where growing cannot
+    # move the ink. Anchored stacks hug canvas edges, so a top+bottom
+    # mix re-lays-out on a taller canvas: growing there would break
+    # the union this placement is computed from, and motion graphics
+    # have no probe/verify loop to catch it. A single zone grows away
+    # from its edge (top grows below, bottom above, middle splits);
+    # anything mixed keeps its measured size and the clamp gate below
+    # still refuses what Resolve cannot hold.
+    all_zones = {stack["zone"] for stack in stacks.values()} | set(
+        absolute_zones)
+    grown_below = 0
+    top_extra = 0
+    canvas_h = measured_h
+    if len(all_zones) == 1:
+        (zone,) = tuple(all_zones)
+        canvas_h, top_extra = grow_to_minimum(measured_h, zone, full_h)
+        grown_below = canvas_h - measured_h - top_extra
 
     if canvas_w * canvas_h >= FULL_FRAME_COVERAGE * full_w * full_h:
         return None
 
     canvas_cx = union[0] - MG_PAD + canvas_w / 2.0
-    canvas_cy = union[1] - MG_PAD + canvas_h / 2.0
+    canvas_cy = union[1] - (MG_PAD + top_extra) + canvas_h / 2.0
     placement = placement_for_box(
         canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h)
 
@@ -506,8 +530,8 @@ def tighten_motion_graphics_props(props: dict,
     tight_props["width"] = canvas_w
     tight_props["height"] = canvas_h
     tight_props["safeArea"] = {
-        "top": MG_PAD, "right": MG_PAD,
-        "bottom": MG_PAD, "left": MG_PAD,
+        "top": MG_PAD + top_extra, "right": MG_PAD,
+        "bottom": MG_PAD + grown_below, "left": MG_PAD,
     }
 
     return TightBox(

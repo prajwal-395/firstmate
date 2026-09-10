@@ -35,7 +35,14 @@ from library.tools.execution.fusion_tracks import (
     reachable_effect_labels,
 )
 
-LOOK = {"glow_gain": 1.4, "film_grain": 0.02, "vignette_intensity": 0.35}
+# A look declared WHOLE: an armed element with no strength is refused by
+# `comp_builder.UndeclaredEffectStrength`, which is the same rule
+# `series_look` applies at the template. `vignette_intensity` is a name
+# the renderer never reads and is kept here on purpose - this file also
+# pins that an unreadable name is REPORTED as dropped, not drawn.
+LOOK = {"glow_gain": 1.4, "glow_threshold": 0.75, "glow_size": 3.5,
+        "film_grain": 0.02, "film_grain_power": 0.2, "film_grain_size": 1.5,
+        "vignette_intensity": 0.35}
 
 MANIFEST = {
     "tracks": {

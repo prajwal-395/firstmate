@@ -159,7 +159,7 @@ def test_a_gutted_section_must_point_at_a_destination_that_gained(tmp_path):
     silent.write_text(text[:s] + "## 12. The look\n\nThere is no house look.\n\n" + text[e:],
                       encoding="utf-8")
     code, out = run(PRESERVE, "--before", AGENTS, "--after", silent,
-                    REPO_ROOT / "library/tools/house_look.py", "--gained-since", "HEAD")
+                    REPO_ROOT / "library/tools/series_look.py", "--gained-since", "HEAD")
     assert code == 1
     assert "SHRANK INTO SILENCE" in out
 
@@ -168,13 +168,13 @@ def test_an_index_row_pointing_at_a_destination_that_gained_nothing_is_refused(t
     """Naming a destination is not enough - it has to have received something.
 
     The destination here must be a repo file this branch does NOT modify, or the
-    premise collapses: it originally used `house_look.py`, and the moment section
+    premise collapses: it originally used `series_look.py`, and the moment section
     12's rules moved INTO that file the "gained nothing" case stopped existing and
     this test failed for a reason that had nothing to do with the gate. The
     assertion below states the premise so a future collision says so directly.
     """
     import subprocess
-    untouched = "library/tools/paths.py"
+    untouched = "library/tools/beat_grid.py"
     changed = subprocess.run(["git", "diff", "--name-only", "HEAD", "--", untouched],
                              capture_output=True, text=True, cwd=REPO_ROOT, check=False).stdout
     assert not changed.strip(), (

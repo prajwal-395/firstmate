@@ -154,7 +154,7 @@ class TestFusionNode(unittest.TestCase):
     def test_reject_ellipse_missing_required(self):
         n = FusionNode("Ellipse1", "EllipseMask")
         n.set_input("SoftEdge", 0.35)
-        # Missing Inverted, MaskWidth, MaskHeight, PixelAspect
+        # Missing Invert, MaskWidth, MaskHeight, PixelAspect
 
         with self.assertRaises(ValueError) as ctx:
             n.serialize()
@@ -337,7 +337,7 @@ class TestHook1Reproduction(unittest.TestCase):
         ellipse.set_input("MaskWidth", 320)
         ellipse.set_input("MaskHeight", 240)
         ellipse.set_input("PixelAspect", (1, 1))
-        ellipse.set_input("Inverted", 1)
+        ellipse.set_input("Invert", 1)
         ellipse.set_input("Width", 1.8)
         ellipse.set_input("Height", 1.8)
         ellipse.pos = (220, 82)
@@ -373,7 +373,7 @@ class TestHook1Reproduction(unittest.TestCase):
         self.assertIn("Saturation = Input { Value = 1.15, },", out)
 
         # Vignette
-        self.assertIn("Inverted = Input { Value = 1, },", out)
+        self.assertIn("Invert = Input { Value = 1, },", out)
         self.assertIn("Blend = Input { Value = 0.25, },", out)
 
         # Correct wiring chain

@@ -109,12 +109,21 @@ def build_reels(data: dict) -> dict:
     # `verify=False`: this process has a `verify_reels` node, and running
     # the conformance verifier twice would report the same findings twice
     # under two different step ids.
+    #
+    # `allow_drops` is FORWARDED, not interpreted, for the same reason
+    # `only_reels` is: what a malformed declaration means is the
+    # replace guard's to say (`reel_replace_guard.parse_specs`), and a
+    # guard here would make this step refuse without an input its own
+    # manifest declares OPTIONAL. The normalised form lands on the
+    # `reel_build` record, which is what the `verify_reels` node
+    # promotes off.
     record = rebuild_reels_in_project(
         project_folder,
         skip_captions=bool((data or {}).get("skip_captions")),
         verify=False,
         only=(data or {}).get("only_reels"),
-        name_suffix=str((data or {}).get("timeline_name_suffix") or ""))
+        name_suffix=str((data or {}).get("timeline_name_suffix") or ""),
+        allow_drops=(data or {}).get("allow_drops"))
 
     return {"reel_build": record}
 

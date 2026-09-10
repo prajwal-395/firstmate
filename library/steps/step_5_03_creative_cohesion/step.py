@@ -114,13 +114,13 @@ def review_creative_cohesion(inputs: dict) -> dict:
     #   1. It read `color_grade_spec["mood"]` and `["grade_name"]`.
     #      Step 5.01 emits neither. Its real spec carries
     #      `grade_pipeline`, `per_clip_adjustments`, `fusion_look`,
-    #      `house_look`, `house_look_title`, `look_notes`, `withdrawn`,
+    #      `series_look`, `series_look_title`, `look_notes`, `withdrawn`,
     #      `output_color_space` and `consistency_notes` - measured on
     #      project 001's own 2026-08-26 output - so the substring match
     #      ran against "" on every real run and the check never fired.
     #      The tests that covered it supplied `mood` themselves.
     #   2. The values that ARE there are numbers, not moods:
-    #      `library/tools/house_look.py` gives every look a `saturation`
+    #      `library/tools/series_look.py` gives every look a `saturation`
     #      and a `contrast`. Turning either into "soft" or "punchy"
     #      against an energy word means choosing a threshold, and a
     #      threshold nobody measured is a creative value this file would

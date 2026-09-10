@@ -425,9 +425,43 @@ class FusionNode:
                     "This causes rendering to stop mid-clip."
                 )
 
-        # EllipseMask must have Inverted, MaskWidth, MaskHeight, PixelAspect
+        # Every input name must be one the Fusion tool really has.
+        # Fusion ignores a name it does not know without a word, so this
+        # is the only place a misspelt input can be caught: it is what
+        # shipped `Inverted` on an EllipseMask (the tool's name is
+        # `Invert`) and `CropTop` on a Crop for months.
+        # library/tools/fusion/tool_inputs.py carries the evidence.
+        from .tool_inputs import (UnknownFusionInput, UnknownFusionTool,
+                                  describe_provenance, is_absent_tool,
+                                  unknown_inputs)
+        if is_absent_tool(self.tool_type):
+            raise UnknownFusionTool(
+                f"{self.name}: Fusion registers no tool called "
+                f"{self.tool_type!r} - the probe asked for it and Resolve "
+                f"had none. A comp naming it loads without it and the "
+                f"effect is simply absent. {describe_provenance()}."
+            )
+        # A `quoted_key` entry is not a tool input at all: it is the
+        # instance-scoped `["MediaIn1.GlobalStart"]` idiom Resolve writes
+        # into its own clip comps, and it never appears in
+        # `GetInputList()`. Judging it against the tool's inputs would
+        # refuse a comp Resolve itself authored.
+        checked = [k for k, v in self.inputs.items()
+                   if not (isinstance(v, dict)
+                           and v.get("_type") == "quoted_key")]
+        unknown = unknown_inputs(self.tool_type, checked)
+        if unknown:
+            raise UnknownFusionInput(
+                f"{self.name}: {self.tool_type} has no input "
+                f"{', '.join(repr(u) for u in unknown)}. Fusion ignores an "
+                f"input it does not know SILENTLY - the tool keeps its "
+                f"registry default and the picture is whatever that draws. "
+                f"{describe_provenance()}."
+            )
+
+        # EllipseMask must have Invert, MaskWidth, MaskHeight, PixelAspect
         if self.tool_type == "EllipseMask":
-            required = {"Inverted", "MaskWidth", "MaskHeight", "PixelAspect"}
+            required = {"Invert", "MaskWidth", "MaskHeight", "PixelAspect"}
             missing = required - set(self.inputs.keys())
             if missing:
                 raise ValueError(
@@ -543,7 +577,8 @@ class FusionComp:
                 rules describe comps we write, and DaVinci's own shipped
                 macros legitimately break them - 20 of the 143 built-in
                 presets carry a Background with no GlobalOut, 14 an
-                EllipseMask with no Inverted, 4 an ApplyMode on Merge.
+                EllipseMask with no Invert, 4 an ApplyMode on Merge, and
+                they use tools and inputs this engine never probed.
                 Auditing a foreign file against them reported those
                 presets as crashes when nothing was wrong with them.
         """

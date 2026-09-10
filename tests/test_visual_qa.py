@@ -40,6 +40,14 @@ def mock_project(mock_timeline):
     project = MagicMock()
     project.IsRenderingInProgress.side_effect = [True, False]
     project.GetCurrentTimeline.return_value = mock_timeline
+    project.AddRenderJob.return_value = "job-1"
+    # `render_segment` reads the queue back before starting, because
+    # Resolve ignores MarkIn/MarkOut unless SelectAllFrames is False
+    # and a "single frame" then renders the whole timeline. A bare
+    # MagicMock returns a Mock here, which is not a list of dicts - so
+    # the queue is spelled out rather than auto-specced.
+    project.GetRenderJobList.return_value = [
+        {"JobId": "job-1", "MarkIn": 0, "MarkOut": 10}]
     return project
 
 

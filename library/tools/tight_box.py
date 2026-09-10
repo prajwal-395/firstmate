@@ -126,6 +126,60 @@ CARD_VERTICAL_PADDING = 48
 # The composition's line height: `lineHeight: "1.2"`.
 LINE_HEIGHT_EM = 1.2
 
+# The smallest canvas height a tight box may ship, in pixels.
+#
+# A tight box is small and placing it needs a large Pan/Tilt value -
+# tilt scales as full_h / canvas_h - and Resolve silently pins
+# Pan/Tilt while returning success (the captain's 37 off-frame
+# captions, 2026-09-09). Full-frame artefacts need no transform, so
+# the project defaulted to full canvas to make the clamp
+# unreachable.
+#
+# The measured numbers point at a third option: the single three-line
+# caption at h=300 needed only Tilt 3366 and landed correctly, while
+# h=152 needed 7579 and did not - the cliff sits at h=270.4 against
+# the 3840 rail, verified live on the captain's own 1080x1920 timeline
+# 2026-09-10 (probes at -3400/-3840 hold exactly; -4000 and past
+# return True and pin at -3840). A canvas floored at 480 keeps every
+# caption inside that rail (the smallest box needs ~2400, worst cases
+# stay under 3400) while carrying a quarter of the frame's pixels.
+# What that buys in bytes is SMALLER than it sounds, measured the
+# same day on Reel 09's own files: full-frame captions cost 198MB
+# for 19, the floor estimates 158MB - the ink dominates and
+# transparent margins were always cheap, so the floor returns about
+# a fifth of the caption disk, not most of it. Tight still wins on
+# movability and render time; the disk is a bonus, stated honestly.
+# The floor is applied AWAY from the anchor (bottom-anchored cards
+# grow upward), so the ink does not move: the correspondence
+# read-off and `verify_frames` prove that per segment, and a segment
+# that fails the proof still falls back to full canvas. `placement_holds`
+# and the placement read-back both survive below, unchanged.
+MIN_CANVAS_HEIGHT = 480
+
+
+def grow_to_minimum(canvas_h: int, anchor: str,
+                    ceiling: int) -> tuple[int, int]:
+    """Enforce `MIN_CANVAS_HEIGHT`, returning `(new_h, top_extra)`.
+
+    `anchor` names the edge the ink hangs from - `"top"`, `"bottom"`
+    or `"middle"` - and the growth goes everywhere else, so anchored
+    ink stays pixel-identical: `"bottom"` grows above (`top_extra` is
+    the whole growth), `"top"` grows below (zero), `"middle"` splits
+    it. `ceiling` is the delivery frame height: a frame shorter than
+    the floor cannot grow past itself. Both numbers stay even, so no
+    codec clips half a pixel row.
+    """
+    floor = min(MIN_CANVAS_HEIGHT, ceiling) if ceiling > 0 else canvas_h
+    if canvas_h >= floor:
+        return canvas_h, 0
+    grown = _ceil_even(max(floor, canvas_h))
+    extra = grown - canvas_h
+    if anchor == "top":
+        return grown, 0
+    if anchor == "middle":
+        return grown, extra // 2
+    return grown, extra
+
 
 def _ceil_even(value: float) -> int:
     """Round up to an even int, so no codec clips half a pixel row."""
@@ -276,7 +330,17 @@ def tighten_subtitle_props(props: dict,
         union_h = max(union_h, card_h)
 
     canvas_w = _ceil_even(union_w + 2 * PAD_X)
-    canvas_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
+    measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
+
+    # The floor that keeps the placement inside Resolve's rail (see
+    # `MIN_CANVAS_HEIGHT`): grown away from the anchor, so the content
+    # box in full-frame coordinates does not move - only the canvas
+    # origin shifts, by exactly the growth above it.
+    anchor = {"top": "top", "center": "middle"}.get(position, "bottom")
+    canvas_h, top_extra = grow_to_minimum(measured_h, anchor, full_h)
+    grown_below = canvas_h - measured_h - top_extra
+    pad_top = PAD_TOP + top_extra
+    pad_bottom = PAD_BOTTOM + grown_below
 
     # The content box in full-frame coordinates. Horizontally every
     # card is centred, so the union is centred. Vertically the union
@@ -292,7 +356,7 @@ def tighten_subtitle_props(props: dict,
         content_bottom = full_h - float(safe["bottom"])
         content_top = content_bottom - union_h
 
-    canvas_top = content_top - PAD_TOP
+    canvas_top = content_top - pad_top
     canvas_cx = full_w / 2.0
     canvas_cy = canvas_top + canvas_h / 2.0
 
@@ -301,8 +365,8 @@ def tighten_subtitle_props(props: dict,
 
     tight_style = dict(style)
     tight_style["safeArea"] = {
-        "top": PAD_TOP, "right": PAD_X,
-        "bottom": PAD_BOTTOM, "left": PAD_X,
+        "top": pad_top, "right": PAD_X,
+        "bottom": pad_bottom, "left": PAD_X,
     }
     # captionMaxWidth is DELIBERATELY unchanged: it is the wrap width,
     # and the canvas is wider than it everywhere, so every card wraps
@@ -326,21 +390,23 @@ def tighten_subtitle_props(props: dict,
 
 # ─── Measured boxes: from the decoded probe, never predicted ──────────
 
-# Resolve holds Pan/Tilt to four times the timeline dimensions, and
-# refuses silently: setting beyond returns True and reads back the
-# clamp. Measured 2026-09-09 on Resolve 21, scratch timelines (never
-# the captain's): on 1920x1080 Pan stops at +-7680 and Tilt at +-4320;
-# on 1080x1920 Pan stops at +-4320 and Tilt at +-7680. A small canvas
-# needs large transforms - shifting a 146px-tall box 603px down the
-# frame takes Tilt -7929 - so the range is a real gate: a placement
-# Resolve cannot hold is refused exactly like a box that clips ink.
-PAN_TILT_RANGE_FACTOR = 4
+# Resolve holds Pan/Tilt to a rail it does not report, and refuses
+# silently: setting beyond returns True and reads back the clamp.
+# READ OFF THE LIVE TIMELINE, 2026-09-10, Resolve 21, project "Podcast
+# (field test)", both Reel 09 timelines at 1080x1920: 37 caption items
+# asking for Tilt -4316..-7579 all read back exactly -3840.0, while
+# every value asked at or below 3840 round-tripped to the last digit.
+# The earlier "four times the timeline dimensions" figure (7680) was
+# calibrated to miss it - its gate refused exactly one card (-7692.8)
+# and let 37 ride onto the clamp. A NUMBER, not a formula: one
+# geometry cannot tell `2x height` from a constant, so this is scoped
+# to the measured 1080x1920 frame and anything else re-probes.
+MEASURED_PAN_TILT_RAIL = 3840.0
 
 
 def placement_limits(timeline_w: int, timeline_h: int) -> tuple[float, float]:
     """The largest |Pan| and |Tilt| Resolve holds, measured above."""
-    return (PAN_TILT_RANGE_FACTOR * timeline_w,
-            PAN_TILT_RANGE_FACTOR * timeline_h)
+    return (MEASURED_PAN_TILT_RAIL, MEASURED_PAN_TILT_RAIL)
 
 
 def placement_holds(placement: dict | None,
@@ -365,11 +431,11 @@ def placement_holds(placement: dict | None,
     if pan is not None and abs(pan) > pan_limit:
         return (f"Pan {pan:.1f} exceeds +- {pan_limit:.0f} on a "
                 f"{timeline_w}x{timeline_h} timeline (measured "
-                f"2026-09-09, refused silently past it)")
+                f"2026-09-10, refused silently past it)")
     if tilt is not None and abs(tilt) > tilt_limit:
         return (f"Tilt {tilt:.1f} exceeds +- {tilt_limit:.0f} on a "
                 f"{timeline_w}x{timeline_h} timeline (measured "
-                f"2026-09-09, refused silently past it)")
+                f"2026-09-10, refused silently past it)")
     return ""
 
 
@@ -538,7 +604,20 @@ def tighten_measured(props: dict, union: InkUnion) -> TightBox:
     union_w = float(union.x1 - union.x0)
     union_h = float(union.y1 - union.y0)
     canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
-    canvas_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
+    measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
+
+    # The floor that keeps the placement inside Resolve's rail (see
+    # `MIN_CANVAS_HEIGHT`). Grown away from the anchor, so the union
+    # sits at the same canvas offset it would have: the render draws
+    # the probe layout translated, which is exactly what
+    # `resolve_placement_from_correspondence` and `verify_frames`
+    # prove before the box ships.
+    position = str(style.get("position") or "bottom")
+    anchor = {"top": "top", "center": "middle"}.get(position, "bottom")
+    canvas_h, top_extra = grow_to_minimum(measured_h, anchor, full_h)
+    grown_below = canvas_h - measured_h - top_extra
+    pad_top = PAD_TOP + top_extra
+    pad_bottom = PAD_BOTTOM + grown_below
     if canvas_w > full_w or canvas_h > full_h:
         raise TightBoxClipsInk(
             f"measured ink ({union.x0},{union.y0})-({union.x1},{union.y1}) "
@@ -550,13 +629,13 @@ def tighten_measured(props: dict, union: InkUnion) -> TightBox:
     provisional = placement_for_box(
         canvas_w, canvas_h,
         union.x0 - PAD_X + canvas_w / 2.0,
-        union.y0 - PAD_TOP + canvas_h / 2.0,
+        union.y0 - pad_top + canvas_h / 2.0,
         full_w, full_h)
 
     tight_style = dict(style)
     tight_style["safeArea"] = {
-        "top": PAD_TOP, "right": PAD_X,
-        "bottom": PAD_BOTTOM, "left": PAD_X,
+        "top": pad_top, "right": PAD_X,
+        "bottom": pad_bottom, "left": PAD_X,
     }
     tight_props = dict(props)
     tight_props["width"] = canvas_w
@@ -587,7 +666,7 @@ def resolve_placement_from_correspondence(
     the probe union minus the tight union - no pads, no centring
     assumption. An origin that leaves the delivery frame, or a
     transform Resolve cannot hold (`timeline_size` bounds Pan/Tilt at
-    four times the timeline dimensions, measured 2026-09-09), raises
+    the measured 3840 rail, 2026-09-10), raises
     `TightBoxMismatch`: the renders disagree about the layout, or the
     layout is unplaceable, and the segment is refused either way.
     """

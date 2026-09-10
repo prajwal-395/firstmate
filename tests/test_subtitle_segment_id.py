@@ -12,6 +12,15 @@ alone is not a fix:
 
 `test_a_bigger_number_would_not_have_fixed_it` is the one that pins the
 captain's actual instruction - the fix is a binding, not a wider ordinal.
+
+The second change (2026-09-10): the name used to carry the TIMELINE as
+the discriminator, so three variant timelines captioning the same words
+rendered the same pixels three times.  The captain's ruling roots the
+identity in PROVENANCE - the source footage for subtitles - and keys it
+by content: `sub_<speaker>_<clip>_<span>_<digest>`.  No timeline names a
+file any more.  Two variants captioning the same words compute the same
+name (the sharing); anything that draws differently digests differently
+and can never overwrite (the collision stays dead).
 """
 
 from __future__ import annotations
@@ -19,8 +28,11 @@ from __future__ import annotations
 import pytest
 
 from library.tools.subtitle_segment_id import (
+    PROVENANCE_STEM_KEYS,
     SEGMENT_BINDING_KEYS,
-    binding_digest,
+    assert_no_content_collision,
+    SegmentNameCollision,
+    provenance_stem,
     segment_binding,
     segment_identifier,
     slug,
@@ -41,58 +53,103 @@ def _binding(**overrides):
     return segment_binding(**base)
 
 
+DIGEST_A = "a" * 64
+DIGEST_B = "b" * 64
+
+
+def _name(binding=None, digest=DIGEST_A):
+    return segment_identifier(_binding() if binding is None else binding,
+                              digest)
+
+
 # ── The collision the captain reported ───────────────────────────────
 
-def test_the_same_block_on_two_timelines_does_not_collide():
-    master = _binding(timeline="Studio Chat - Synced")
-    reel = _binding(timeline="Reel 01 - geography")
-    assert segment_identifier(master) != segment_identifier(reel)
+def test_two_placements_of_different_pixels_never_share_a_name():
+    """A reel can never overwrite the master's caption again.
+
+    Same source span, different words: the digest differs, so the
+    filenames differ, so no render overwrites the other.  This is the
+    ordinal bug staying dead under the new identity.
+    """
+    assert _name() != _name(digest=DIGEST_B)
 
 
 def test_the_same_block_for_two_speakers_does_not_collide():
     akshita = _binding(speaker="Akshita")
     craig = _binding(speaker="Craig")
-    assert segment_identifier(akshita) != segment_identifier(craig)
+    assert _name(akshita) != _name(craig)
 
 
 def test_the_same_block_over_two_source_spans_does_not_collide():
     first = _binding(source_start=131.42295, source_end=151.69320)
     second = _binding(source_start=207.33, source_end=212.96)
-    assert segment_identifier(first) != segment_identifier(second)
+    assert _name(first) != _name(second)
 
 
-def test_every_binding_component_changes_the_name():
-    """No component is decorative: change any one, get a different name."""
+def test_provenance_changes_the_name_but_placement_does_not():
+    """No provenance component is decorative; no placement component is
+    load-bearing.  Change speaker, clip or span, get a different stem;
+    change timeline or block ordinal, get the same stem."""
     base = _binding()
-    changed = {
-        "timeline": "Reel 02 - rivers",
-        "speaker": "Craig",
-        "block_position": "body_2",
-        "source_clip_id": "clip_004",
-        "source_start": 99.0,
-        "source_end": 199.0,
-    }
-    for key, value in changed.items():
+    for key, value in (("speaker", "Craig"),
+                       ("source_clip_id", "clip_004"),
+                       ("source_start", 99.0),
+                       ("source_end", 199.0)):
         other = _binding(**{key: value})
-        assert segment_identifier(base) != segment_identifier(other), key
+        assert provenance_stem(base) != provenance_stem(other), key
+    for key, value in (("timeline", "Reel 02 - rivers"),
+                       ("block_position", "body_2")):
+        other = _binding(**{key: value})
+        assert provenance_stem(base) == provenance_stem(other), key
+        assert _name(base) == _name(other), key
+
+
+# ── The timeline left the identity entirely ──────────────────────────
+
+def test_no_timeline_names_a_file():
+    """Three variant timelines captioning the same words compute the
+    same filename.  That sameness IS the cross-variant sharing - not a
+    collision - and it is what the old timeline discriminator split
+    apart into three renders of identical pixels."""
+    variants = [
+        "Reel 09 - your-website-is-only-20-percent (rebuild staging)",
+        "Reel 09 - your-website-is-only-20-percent (j-cut)",
+        "Reel 09 - your-website-is-only-20-percent (reaction-cutaway)",
+    ]
+    names = {_name(_binding(timeline=v)) for v in variants}
+    assert len(names) == 1, names
+    for name in names:
+        assert "reel" not in name
+        assert "j-cut" not in name
+        assert "staging" not in name
+
+
+def test_the_name_carries_speaker_and_source_span_readably():
+    name = _name()
+    assert "akshita" in name
+    assert "clip-003" in name
+    assert "131423-151693" in name
+
+
+def test_a_digest_is_required_never_defaulted():
+    """A provenance stem alone names WHERE the speech came from but not
+    WHICH pixels - two different captions over one span would share a
+    filename.  The digest is required, and \"\" is refused rather than
+    hashed into a name that skips nothing and proves nothing."""
+    with pytest.raises(ValueError):
+        segment_identifier(_binding(), "")
 
 
 # ── What the captain said the fix must NOT be ────────────────────────
 
 def test_a_bigger_number_would_not_have_fixed_it():
     """Two segments differing ONLY in ordinal collided before; two
-    differing only in TIMELINE are what actually collided in the field.
-    A wider ordinal separates the first and not the second."""
+    differing only in TIMELINE shared nothing before and share the
+    file now.  A wider ordinal separates neither case that matters."""
     master = _binding(timeline="Studio Chat - Synced", block_position="body_1")
     reel = _binding(timeline="Reel 01 - geography", block_position="body_1")
     assert master["block_position"] == reel["block_position"]
-    assert segment_identifier(master) != segment_identifier(reel)
-
-
-def test_the_name_carries_speaker_and_timeline_readably():
-    name = segment_identifier(_binding())
-    assert "akshita" in name
-    assert "studio-chat-synced" in name
+    assert _name(master) == _name(reel)
 
 
 # ── Absence is recorded, never dropped ───────────────────────────────
@@ -100,17 +157,17 @@ def test_the_name_carries_speaker_and_timeline_readably():
 def test_an_absent_component_is_named_not_omitted():
     """Two different absences must not both become the empty string."""
     no_speaker = _binding(speaker=None)
-    no_block = _binding(block_position=None)
-    assert "nospeaker" in segment_identifier(no_speaker)
-    assert "noblock" in segment_identifier(no_block)
-    assert segment_identifier(no_speaker) != segment_identifier(no_block)
+    no_clip = _binding(source_clip_id=None)
+    assert "nospeaker" in _name(no_speaker)
+    assert "noclip" in _name(no_clip)
+    assert _name(no_speaker) != _name(no_clip)
 
 
 def test_a_missing_binding_key_is_refused_rather_than_defaulted():
     incomplete = _binding()
     del incomplete["speaker"]
     with pytest.raises(ValueError) as excinfo:
-        segment_identifier(incomplete)
+        segment_identifier(incomplete, DIGEST_A)
     assert "speaker" in str(excinfo.value)
 
 
@@ -124,23 +181,42 @@ def test_slug_requires_the_caller_to_name_the_absence():
 # ── Stability, so a rebuild overwrites ITSELF ────────────────────────
 
 def test_the_name_is_stable_across_rebuilds():
-    assert segment_identifier(_binding()) == segment_identifier(_binding())
-
-
-def test_the_digest_survives_a_json_round_trip():
-    """A float that goes through JSON must not move the digest, or a
-    rebuild would stop overwriting itself and start accumulating."""
-    import json
-    binding = _binding()
-    revived = json.loads(json.dumps(binding))
-    assert binding_digest(binding) == binding_digest(revived)
+    assert _name() == _name()
 
 
 def test_binding_keys_are_the_whole_enumeration():
     assert set(_binding()) == set(SEGMENT_BINDING_KEYS)
 
 
-# ── Which timeline a render belongs to ───────────────────────────────
+def test_provenance_keys_are_speaker_and_source_span_only():
+    assert set(PROVENANCE_STEM_KEYS) == {
+        "speaker", "source_clip_id", "source_start", "source_end"}
+
+
+# ── One filename, two pixels is refused ──────────────────────────────
+
+def test_one_name_behind_two_content_keys_is_refused():
+    """The guard the timeline discriminator used to be: a shared
+    filename with two content keys means a drawing input escaped the
+    digest, and the second render would overwrite the first with
+    nothing downstream reading content to notice."""
+    name = _name()
+    with pytest.raises(SegmentNameCollision) as exc:
+        assert_no_content_collision([
+            (name, f"{DIGEST_A}+fp+carriage"),
+            (name, f"{DIGEST_B}+fp+carriage"),
+        ])
+    assert name in str(exc.value)
+
+
+def test_one_name_behind_one_content_key_passes():
+    """The sharing the identity exists for: three variants, one name,
+    one key - refused nothing, rendered once."""
+    name = _name()
+    assert_no_content_collision([(name, f"{DIGEST_A}+fp+carriage")] * 3)
+
+
+# ── Which timeline a placing belongs to ──────────────────────────────
 
 def test_a_measured_spine_names_its_own_timeline():
     spine = {"derived_from": {"timeline": "Studio Chat - Synced"}}
@@ -162,7 +238,6 @@ def test_a_measurement_beats_a_declaration():
 
 def test_no_timeline_name_is_invented():
     assert timeline_scope({}, project_config=None) == ""
-    assert "notimeline" in segment_identifier(_binding(timeline=""))
 
 
 # ── A slug breaks on a word boundary, never mid-word ─────────────────

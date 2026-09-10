@@ -9,7 +9,7 @@ post-bridge as a bridge output the way every other hybrid step's table
 does.
 
 **No look is defined here and none is defined in the engine at all** -
-`library/tools/house_look.py` reads a declaration and holds no values of
+`library/tools/series_look.py` reads a declaration and holds no values of
 its own.  A project whose template declares nothing gets no LOOK.
 
 **What it does now get is a colourist.**  The exposure half used to
@@ -36,7 +36,7 @@ from library.tools.color_correction import (
     describe_correction,
     planning_basis,
 )
-from library.tools.house_look import (
+from library.tools.series_look import (
     NEUTRAL_CDL,
     describe_look,
     resolve_look,
@@ -59,17 +59,17 @@ GRADE_PIPELINE = {
     "node_2": {
         "type": "declared_look_primary",
         "carries": ["slope", "offset", "power", "saturation"],
-        "source": "brand template style.house_look.cdl",
+        "source": "brand template style.series_look.cdl",
     },
     "node_3": {
         "type": "tonal_shaping",
         "carries": ["pivot_contrast"],
-        "source": "brand template style.house_look.contrast",
+        "source": "brand template style.series_look.contrast",
     },
     "node_4": {
         "type": "creative_film_look",
         "carries": ["glow", "grain", "vignette"],
-        "source": "brand template style.house_look.{glow,grain,vignette}",
+        "source": "brand template style.series_look.{glow,grain,vignette}",
     },
     "node_5": {
         "type": "color_space_transform",
@@ -432,7 +432,7 @@ def cut_adjacency(entries: list, rows: list) -> list:
 
 
 def define_color_grade(shot_list: dict, project_folder: str = "",
-                       reference_image: str = "", house_look=None,
+                       reference_image: str = "", series_look=None,
                        *, measured_clips=None, corrections=None,
                        dropped=None, decided: bool = False,
                        assessment: str = "",
@@ -440,9 +440,9 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
     """Assemble the colour grade spec.
 
     Args:
-        house_look: What the brand template wrote under
-            `style.house_look` - a DECLARATION, read by
-            `library/tools/house_look.resolve_look`. `None`, `""` or `{}`
+        series_look: What the brand template wrote under
+            `style.series_look` - a DECLARATION, read by
+            `library/tools/series_look.resolve_look`. `None`, `""` or `{}`
             means the template declares no look, and the clips get no
             LOOK. A declaration that cannot be delivered as written
             raises `LookDeclarationError`; it is never completed from a
@@ -463,7 +463,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
     entries = [e for e in shot_list.get("entries", [])
                if e.get("track") in ("V1", "V2")]
 
-    look = resolve_look(house_look)
+    look = resolve_look(series_look)
     reference = look.exposure_reference if look else None
 
     if measured_clips is None:
@@ -619,8 +619,8 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
             # declared, and `{}` means no comp is drawn for the look's
             # sake at all - not a comp with quiet values in it.
             "fusion_look": look.fusion() if look else {},
-            "house_look": look.name if look else None,
-            "house_look_declared": list(look.declared) if look else [],
+            "series_look": look.name if look else None,
+            "series_look_declared": list(look.declared) if look else [],
             "look_notes": look_notes,
             "output_color_space": "Rec.709, Gamma 2.4",
             "exposure_reference": reference,

@@ -24,6 +24,16 @@ keeps the headline and points here.
 - **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.** An audio `TimelineItem` has no property dictionary at all, so every spelling of `SetProperty` returns False; the whole documented audio surface is `GetFairlightPresets`, `ApplyFairlightPresetToCurrentTimeline` and `InsertAudioToCurrentTrackAtPlayhead`, and Fusion's `ActionManager` registers no audio action.
 - `CreateMagicMask` is withdrawn: it returns False for every mode.
 - Super Scale is a **MediaPoolItem** property taking an **int**, with companion keys `SuperScale Sharpness`/`SuperScale Noise Reduction` (no space after Super).
+
+Measured 2026-09-10 on Resolve Studio 21.0.0b.28, macOS 26.3, while
+settling which surface a grade may be sampled from
+(`library/tools/resolve_surfaces.py`).  Both are `SetSetting`-shaped
+lies of the kind this file exists to catch:
+
+- **`Timeline.SetTrackEnable` returns True from every page and only TAKES EFFECT with the EDIT page open.**  Called from the Deliver page it returned True for all five video tracks and `GetIsTrackEnabled` still read back False for four of them, three attempts running, with fresh timeline handles each time; one `OpenPage("edit")` and the same calls took immediately.  A render taken in between silently used the WRONG track set - two renders that were supposed to differ came out byte-identical - so read `GetIsTrackEnabled` back before believing a track state, and open the Edit page before setting one.
+- **`GalleryStillAlbum.ExportStills` and `TimelineItem.ExportLUT` both return False and write NOTHING on this build.**  Every combination was tried and every one wrote an empty directory: png/tif/jpg/dpx, all four `ExportLUT` export types, and destinations under `/var/folders`, the user's Documents and `/Users/Shared`, from the Edit, Color and Fusion pages.  `GrabStill` itself still returns a real `GalleryStill` and `DeleteStills` still puts the album back, so it is the WRITE that is dead: `library/tools/marker_capture.py`'s capture button cannot produce a PNG in this state, and a lane that needs pixels must render one frame through Deliver instead (`MarkIn == MarkOut`, ~1.2 s, no full render).
+
+- **`Composition.AddTool` INSERTS the new tool into the live flow, and deleting it does NOT put the wire back.**  Adding a `Saver` to read a comp's output - four add/delete cycles across two clips on the captain's own `Reel 09` - left `MediaOut1.Input` disconnected on BOTH, and on the clip that took four cycles it also left `SoftGlow1.Input` pointing at `MediaIn1` instead of `BrightnessContrast1`, silently bypassing the contrast node.  Resolve says so in its own log: `MediaOut1 cannot get Parameter for Input at time 182, layer [Main]`.  `SetActiveTool(None)` before `Delete()` did not prevent it.  So: READ every input of every tool you are about to touch FIRST, keep the map, and read it back afterwards - `tool.<Input>.GetConnectedOutput().GetTool().Name` is the only honest answer, and `ConnectInput` is the safe repair.  The repair is only proved by re-rendering the frame and comparing it to one taken BEFORE the comp was touched: byte-identical is the bar, and it was met (mean absolute difference 0.000/255, max 0) on both clips.
 """
 
 import sys

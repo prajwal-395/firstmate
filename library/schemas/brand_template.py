@@ -12,14 +12,14 @@ def _delivery_format_names() -> List[str]:
 class StyleSlots:
     color_palette: List[str] = field(default_factory=list)
     # The look this series DECLARES, as values - a mapping read by
-    # `library/tools/house_look.resolve_look`.  It used to be a NAME into
+    # `library/tools/series_look.resolve_look`.  It used to be a NAME into
     # a catalogue of four looks this engine shipped, and their strengths
     # were numbers nobody chose (captain, 2026-08-28: "there are no house
     # glow looks, there are no settled house grain or anything").  The
     # catalogue is gone and was not relocated: None means this template
     # declares no look, and a project under it gets no CDL, no contrast,
     # no glow, no grain and no vignette.
-    house_look: Optional[Dict[str, Any]] = None
+    series_look: Optional[Dict[str, Any]] = None
     reference_look_image: str = ""
 
     typography: Dict[str, Any] = field(default_factory=dict)
@@ -102,7 +102,16 @@ class BrandTemplate:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'BrandTemplate':
         series_id = data.get("series_id", "default")
-        style = StyleSlots(**data.get("style", {}))
+        # `series_look` was called `house_look` until 2026-09-10 (the
+        # captain's ruling; `library/tools/series_look.py` carries it).
+        # A template written before the rename is READ, never rewritten:
+        # dropping it would silently ungrade a series, and refusing it
+        # would break a file nobody had a reason to touch.
+        style_data = dict(data.get("style", {}) or {})
+        legacy = style_data.pop("house_look", None)
+        if legacy is not None and style_data.get("series_look") is None:
+            style_data["series_look"] = legacy
+        style = StyleSlots(**style_data)
         effect = EffectSlots(**data.get("effect", {}))
         content = ContentSlots(**data.get("content", {}))
         return cls(series_id=series_id,
@@ -124,9 +133,9 @@ class BrandTemplate:
                     "type": "object",
                     "properties": {
                         "color_palette": {"type": "array", "items": {"type": "string"}},
-                        "house_look": {
+                        "series_look": {
                             "type": ["object", "null"],
-                            "description": "The look this series declares, as values. Omit for no look; there is no engine default. Shape: library/tools/house_look.describe_declaration_shape().",
+                            "description": "The look this series declares, as values. Omit for no look; there is no engine default. Shape: library/tools/series_look.describe_declaration_shape().",
                         },
                         "reference_look_image": {"type": "string"},
 

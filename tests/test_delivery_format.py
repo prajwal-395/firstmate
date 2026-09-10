@@ -6,7 +6,7 @@ derived the render target from the MODAL SOURCE RESOLUTION, so project
 overlays banded down the middle, and the whole framing mechanism
 (letterbox vs tracked fill) was a no-op because target equalled source.
 
-These tests hold the ruling to the same bar as `house_look` and
+These tests hold the ruling to the same bar as `series_look` and
 `transition_vocabulary`: one enumeration, an unknown name raises, and the
 retired key cannot come back.
 """

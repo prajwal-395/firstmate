@@ -305,18 +305,18 @@ def test_only_refuses_a_reel_the_plan_has_not_approved(project):
 
 
 def test_the_suffix_reaches_the_caption_filenames(project):
-    """A caption named for the OLD timeline overwrites the old overlays.
+    """A rebuild under a staging suffix still places through its own
+    timeline label.
 
-    The segment filename's `timeline` component is the discriminator
-    (`subtitle_segment_id.assert_named_timeline`) and it carries no
-    caption content - so a rebuild under the old label writes new words
-    into the exact files the approved timeline still points at, leaving
-    every database row identical and the picture changed.
+    The label no longer names any file - segment filenames are
+    provenance plus content digest - but it is recorded on every
+    entry's binding (which placing the shared file serves) and it
+    drives the rejected-reel refusal, so the staging container's
+    renders must still travel under the staged name.
 
-    The staging container carries the final name plus the staging
-    suffix, so its renders land in their own files and the approved
-    timeline's overlays are untouched until promotion renames the
-    timeline (pool items, not filenames, are what it points at).
+    The approved timeline's overlays are untouched until promotion
+    renames the timeline (pool items, not filenames, are what it
+    points at).
     """
     resolve_project = FakeProject([MASTER] + APPROVED)
 

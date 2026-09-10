@@ -2728,9 +2728,20 @@ class TestCaptionSlugFragments:
                 source_clip_id="clip_004", source_start=200.0,
                 source_end=205.0),
         ]
-        items = [_placed_caption(100 + index * 50, 40, segment_identifier(b))
-                 for index, b in enumerate(bindings)]
+        items = [_placed_caption(
+            100 + index * 50, 40,
+            segment_identifier(b, "ab12cd34" * 8))
+            for index, b in enumerate(bindings)]
         assert check_caption_slugs(self.REEL, items) == []
+
+    def test_a_previous_producer_timeline_slug_is_still_graded(self):
+        """The timeline-carrying producer is gone, but its files still
+        sit on timelines: a previous-producer name from ANOTHER reel
+        placed here is the old overwrite made visible, and still
+        flagged."""
+        items = self._items([(100, 40, "sub_reel-01-geography_akshita_"
+                                       "body-1_10000-11000_ab12cd34.mov")])
+        assert check_caption_slugs(self.REEL, items) != []
 
     def test_a_short_reel_name_is_quiet(self):
         items = self._items([(100, 40, "sub_reel-01-geography_akshita_"

@@ -79,10 +79,10 @@ class ColorGradeAdjustment(BaseModel):
 
 class ColorGrade(BaseModel):
     per_clip_adjustments: List[ColorGradeAdjustment] = Field(default_factory=list)
-    # The NAME the brand template's `style.house_look` declaration
+    # The NAME the brand template's `style.series_look` declaration
     # carries. None means no template declared a look, which means no
     # grade at all - there is no house look to fall back to.
-    house_look: Optional[str] = None
+    series_look: Optional[str] = None
 
 
 class DuckingCurve(BaseModel):

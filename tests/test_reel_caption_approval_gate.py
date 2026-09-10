@@ -160,6 +160,7 @@ def test_render_one_segment_renders_an_approved_reel(tmp_path):
     out = render_one_segment(
         _props(), str(out_dir),
         "Reel 09 - your-website-is-only-20-percent (rebuild staging)",
-        renderer=stub, project_folder=project)
+        renderer=stub, project_folder=project,
+        overlay_geometry="full")
     assert out["provenance"] == "rendered"
     assert stub.calls != []

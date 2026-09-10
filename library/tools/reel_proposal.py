@@ -878,7 +878,8 @@ def _text_between(start: float, end: float, transcript: dict) -> str:
 
 
 def _check_call_to_action(moment: ReelMoment, transcript: dict,
-                          timeline_duration: float, label: str) -> None:
+                           timeline_duration: float, label: str,
+                           pinned: bool = False) -> None:
     """Refuse a CTA range that is not real spoken audio from the episode.
 
     Exactly the refusals a body span gets - a real range, inside the
@@ -893,6 +894,17 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
     is the model's and the captain's (AGENTS.md 10.5).  What is checked
     is only that the seconds are real and somebody speaks in them, which
     is what stops a CTA being authored, templated, padded or invented.
+
+    `pinned` is a closer the captain's recorded pin just redrew
+    (`captain_edits.apply_closer_redraws`, applied before this check):
+    the pin may open mid-ROW on a clean timed-word edge, where the
+    row is WhisperX's chunking and the captain ruled the words twice.
+    The whole-segments refusal is skipped for exactly that span - and
+    only where both edges still open on timed-word edges, re-verified
+    here, so a re-transcription between the pin and this check still
+    refuses rather than shipping a half-word. Applying the pin is
+    obedience, not re-decision; refusing it here would make a recorded
+    decision break every future regeneration.
     """
     cta = moment.call_to_action
     if cta is None:
@@ -924,13 +936,22 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
     cut = partial_overlaps(cta.timeline_start, cta.timeline_end, transcript)
     if cut:
         first = cut[0]
-        raise ProposalError(
-            f"{label}: its call to action cuts {len(cut)} segment(s) "
-            f"rather than containing them, so the reel would close "
-            f"mid-sentence. First: [{first['timeline_start']:.2f}-"
-            f"{first['timeline_end']:.2f}s] "
-            f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
-            f"move the boundaries out to whole segments.")
+        if pinned:
+            from library.tools import captain_edits as _edits
+            if (_edits._opens_on_word_edge(cta.timeline_start,
+                                           transcript, edge="start")
+                    and _edits._opens_on_word_edge(cta.timeline_end,
+                                                   transcript,
+                                                   edge="end")):
+                cut = []
+        if cut:
+            raise ProposalError(
+                f"{label}: its call to action cuts {len(cut)} segment(s) "
+                f"rather than containing them, so the reel would close "
+                f"mid-sentence. First: [{first['timeline_start']:.2f}-"
+                f"{first['timeline_end']:.2f}s] "
+                f"{first.get('text', '')[:60]!r}. Use `snap_to_speech` to "
+                f"move the boundaries out to whole segments.")
 
     overlap_start = max(cta.timeline_start, moment.timeline_start)
     overlap_end = min(cta.timeline_end, moment.timeline_end)
@@ -946,12 +967,19 @@ def _check_call_to_action(moment: ReelMoment, transcript: dict,
 
 def validate_proposal(moments: Sequence[ReelMoment],
                       transcript: dict,
-                      timeline_duration: float) -> None:
+                      timeline_duration: float,
+                      pinned_cta_reels: frozenset = frozenset()) -> None:
     """Every moment names a real, non-empty span containing real speech.
 
     This is what stops a model inventing a timecode. A proposal is taste
     about WHICH moment matters; it is not licence to claim seconds that
     do not exist or that nobody speaks in.
+
+    `pinned_cta_reels` are reel numbers whose closer a recorded
+    captain's pin just redrew (`captain_edits.apply_closer_redraws`,
+    before this check): their whole-segments refusal is the pin's own
+    word-edge guarantee instead. Every other reel - and every body
+    span, pinned or not - is checked exactly as before.
     """
     if not moments:
         raise ProposalError(
@@ -1017,7 +1045,8 @@ def validate_proposal(moments: Sequence[ReelMoment],
                 f"reinstates part of a take the cutter dropped, "
                 f"narrowing drops more speech it kept. Redraw the span "
                 f"past the take instead - no snap can do this one.")
-        _check_call_to_action(moment, transcript, timeline_duration, label)
+        _check_call_to_action(moment, transcript, timeline_duration, label,
+                              pinned=(moment.number in pinned_cta_reels))
 
     # NOTHING here refuses two reels for sharing seconds, and that is
     # true of the BODY as well as the CTA.
@@ -1375,8 +1404,12 @@ def write_proposal(path, moments: Sequence[ReelMoment],
                    transcript: dict) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Canonical spelling (library/tools/stable_json.py): the proposal is
+    # a declaration the captain rules on and a variant merge reads, so
+    # the same moments are the same bytes.
+    from library.tools.stable_json import dumps_stable
     path.write_text(
-        json.dumps(proposal_document(moments, transcript), indent=2),
+        dumps_stable(proposal_document(moments, transcript)),
         encoding="utf-8")
     return path
 

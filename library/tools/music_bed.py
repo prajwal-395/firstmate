@@ -68,7 +68,7 @@ The crossfade
 -------------
 **A splice with no declared crossfade is a hard splice, and that is the
 absence of decoration rather than a choice of it** - the same reading
-``transition_vocabulary.CUT_TYPES`` and ``house_look.NEUTRAL_CDL`` get.
+``transition_vocabulary.CUT_TYPES`` and ``series_look.NEUTRAL_CDL`` get.
 No default length is invented here, because a crossfade length is a
 creative number and inventing one is the defect this week has been
 clearing.  A segment that wants one declares ``crossfade_seconds``.

@@ -39,7 +39,7 @@ model reads it and says where to start.
 
 **A selection that declares no section plays from the head of the file.**
 That is the absence of a decision, not a decision - the same reading
-``transition_vocabulary.CUT_TYPES`` and ``house_look.NEUTRAL_CDL`` get:
+``transition_vocabulary.CUT_TYPES`` and ``series_look.NEUTRAL_CDL`` get:
 undecorated, not chosen.  :func:`resolve_section` says which of the two
 happened in :attr:`MusicSection.declared`, so a run can tell them apart.
 

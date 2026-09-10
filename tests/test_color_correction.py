@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from library.tools import color_correction as cc  # noqa: E402
-from library.tools.house_look import NEUTRAL_CDL, resolve_look  # noqa: E402
+from library.tools.series_look import NEUTRAL_CDL, resolve_look  # noqa: E402
 
 DECLARED = {
     "name": "test_declaration",

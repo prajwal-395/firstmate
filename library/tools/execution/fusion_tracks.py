@@ -50,7 +50,7 @@ One enumeration, `library/tools/execution/fusion_tracks.py`.
 - `compile_manifest` merges a declared look onto both.
 - Transitions stay on V1: `after_clip` indexes the V1 clip LIST, so replaying it elsewhere draws a transition at an unrelated cut.
 - Drop detection in `build_verification` asks whether a label was PLACED, not whether it is on V1.
-- `tests/test_house_look_reaches_broll.py` drives the real pass against a fake Resolve.
+- `tests/test_series_look_reaches_broll.py` drives the real pass against a fake Resolve.
 
 **A V2 clip that is FOOTAGE carries its own picture; a TRANSPARENT one carries none**, and neither comp reads V1. Which is which, and what each may be asked to draw, is in `fusion_tracks.py` beside the enumeration above.
 - A cutaway takes zoom, blur and grade as a V1 clip does; `vfx_carriers.py` tells the planner which track a block is on.

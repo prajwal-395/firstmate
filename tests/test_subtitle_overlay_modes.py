@@ -1,9 +1,11 @@
-"""The overlay option: tight geometry, frames container, or both.
+"""The overlay option: the frames container, and the retired geometry.
 
 `render_one_segment` behind a stub renderer, so what is pinned is the
 unit's own decisions - names, records, reuse, refusal - without paying
-for Remotion. The default path (full-canvas video) is asserted
-unchanged first: the option adds, it does not move.
+for Remotion. Explicit full-canvas video is asserted unchanged: the
+option adds, it does not move. The default is tight (since
+2026-09-10); the tight render tests below serve canned decodable
+renders because a byte stub cannot feed the probe.
 """
 import json
 import os
@@ -175,113 +177,6 @@ def _crop_mov(full_mov, tight_mov, box):
     return tight_mov
 
 
-def _props_frames(props, n):
-    props = dict(props)
-    props["durationInFrames"] = n
-    props["_source_out_frame"] = n
-    return props
-
-
-def _probe_leftovers(out_dir):
-    return [n for n in os.listdir(out_dir) if n.startswith("probe_")]
-
-
-def test_default_path_is_unchanged(tmp_path):
-    out = render_one_segment(_props(), str(tmp_path), "tl",
-                             remotion_dir="/none",
-                             renderer=_StubRenderer())
-    assert out["provenance"] == RENDERED
-    assert out["overlay_path"].endswith(".mov")
-    assert "_tight" not in os.path.basename(out["overlay_path"])
-    assert out["geometry"] == "full"
-    assert out["container"] == "video"
-    assert out["tight_box"] is None
-    assert out["frames"] is None
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_video_renders_beside_not_over(tmp_path):
-    """The box is measured off a decoded probe and the tight output is
-    verified against it before it is kept - the predictor sizes
-    nothing that reaches a timeline."""
-    props = _props_frames(_props(), N_FRAMES)
-    full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
-    _, box = _measure_full_mov(full_mov, props)
-    tight_mov = _crop_mov(full_mov,
-                          os.path.join(str(tmp_path), "tight.mov"), box)
-    stub = _ServingRenderer(full_mov, tight_mov)
-    out = render_one_segment(props, str(tmp_path), "tl",
-                             remotion_dir="/none",
-                             renderer=stub,
-                             overlay_geometry="tight")
-    assert out["provenance"] == RENDERED
-    assert out["overlay_path"].endswith("_tight.mov")
-    assert out["geometry"] == "tight"
-    assert out["container"] == "video"
-    assert out["frames"] is None
-    box_out = out["tight_box"]
-    assert box_out["width"] == box.width
-    assert box_out["height"] == box.height
-    assert box_out["width"] < 1080 and box_out["height"] < 1920
-    assert box_out["placement"]["scaling"] == 1
-    props_file = os.path.join(
-        str(tmp_path),
-        os.path.basename(out["overlay_path"]).replace(
-            "_tight.mov", "_tight_props.json"))
-    with open(props_file) as handle:
-        props_on_disk = json.load(handle)
-    assert props_on_disk["width"] == box.width
-    assert props_on_disk["height"] == box.height
-    sidecar_file = os.path.join(
-        str(tmp_path),
-        os.path.basename(out["overlay_path"]).replace(
-            "_tight.mov", "_tight_box.json"))
-    with open(sidecar_file) as handle:
-        sidecar = json.load(handle)
-    assert sidecar["placement"] == box_out["placement"]
-    assert stub.calls and len(stub.calls) == 2
-    assert _probe_leftovers(str(tmp_path)) == []
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_video_mismatch_falls_back_to_full_canvas(tmp_path):
-    """A tight output that is not the probe crop is carried full canvas.
-
-    The gate still holds - the mistightened file is discarded and never
-    reaches a timeline - but the segment is not failed: the same props
-    drawn on the full canvas are the same pixels on screen, so the card
-    is re-rendered full with the reason recorded on it (ratified in
-    project.yaml: carried full canvas instead, by name, gate not
-    widened)."""
-    props = _props_frames(_props(), N_FRAMES)
-    full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
-    _, box = _measure_full_mov(full_mov, props)
-    ox, oy = canvas_offset(box)
-    shifted = os.path.join(str(tmp_path), "shifted.mov")
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", full_mov,
-         "-vf", f"crop={box.width}:{box.height}:{ox + 40}:{oy}",
-         "-c:v", "prores_ks", "-profile:v", "4444",
-         "-pix_fmt", "yuva444p10le", shifted],
-        check=True,
-    )
-    stub = _ServingRenderer(full_mov, shifted)
-    out = render_one_segment(props, str(tmp_path), "tl",
-                             remotion_dir="/none",
-                             renderer=stub,
-                             overlay_geometry="tight")
-    assert out["provenance"] == RENDERED
-    assert out["geometry"] == "full"
-    assert out["tight_box"] is None
-    assert "probe crop" in out["tight_fallback"]
-    assert out["overlay_path"].endswith(".mov")
-    assert "_tight" not in os.path.basename(out["overlay_path"])
-    assert os.path.isfile(out["overlay_path"])
-    assert not os.path.exists(
-        out["overlay_path"].replace(".mov", "_tight.mov"))
-    assert _probe_leftovers(str(tmp_path)) == []
-
-
 def _blank_mov(path, frames=N_FRAMES):
     """A fully transparent full-canvas probe: nothing to bound."""
     subprocess.run(
@@ -292,30 +187,6 @@ def _blank_mov(path, frames=N_FRAMES):
         check=True,
     )
     return path
-
-
-@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_probe_drawing_nothing_records_full_geometry(tmp_path):
-    """A card with nothing to bound is full canvas IN THE RECORD too.
-
-    The file was always full canvas; the entry used to keep saying
-    "tight" with no box, pinning a full-canvas file as a tight one in
-    the only record a staging render leaves."""
-    props = _props_frames(_props(), N_FRAMES)
-    blank = _blank_mov(os.path.join(str(tmp_path), "blank.mov"))
-    stub = _ServingRenderer(blank, blank)
-    out = render_one_segment(props, str(tmp_path), "tl",
-                             remotion_dir="/none",
-                             renderer=stub,
-                             overlay_geometry="tight")
-    assert out["provenance"] == RENDERED
-    assert out["geometry"] == "full"
-    assert out["tight_box"] is None
-    assert "draws nothing" in out["tight_fallback"]
-    assert out["overlay_path"].endswith(".mov")
-    assert "_tight" not in os.path.basename(out["overlay_path"])
-    assert os.path.isfile(out["overlay_path"])
-    assert _probe_leftovers(str(tmp_path)) == []
 
 
 def _rect_frames(d, size, rect, n):
@@ -357,28 +228,30 @@ def _measured_frames_setup(tmp_path, name, n=5):
     return props, probe_canned, tight_canned, box
 
 
-def test_tight_frames_records_dir_and_placement(tmp_path):
-    props, probe_canned, tight_canned, box = _measured_frames_setup(
-        tmp_path, "frames")
-    stub = _ServingRenderer(probe_canned, tight_canned)
-    out = render_one_segment(props, str(tmp_path), "tl",
+def _props_frames(props, n):
+    props = dict(props)
+    props["durationInFrames"] = n
+    props["_source_out_frame"] = n
+    return props
+
+
+def _probe_leftovers(out_dir):
+    return [n for n in os.listdir(out_dir) if n.startswith("probe_")]
+
+
+def test_explicit_full_path_is_unchanged(tmp_path):
+    out = render_one_segment(_props(), str(tmp_path), "tl",
                              remotion_dir="/none",
-                             renderer=stub,
-                             overlay_geometry="tight",
-                             overlay_container="frames")
+                             renderer=_StubRenderer(),
+                             overlay_geometry="full")
     assert out["provenance"] == RENDERED
-    assert out["overlay_path"] == ""
-    assert out["geometry"] == "tight"
-    assert out["container"] == "frames"
-    assert out["tight_box"]["width"] == box.width
-    assert out["tight_box"]["placement"]["scaling"] == 1
-    frames = out["frames"]
-    assert frames["count"] == 5
-    assert os.path.isdir(frames["dir"])
-    assert frames["dir"].endswith("_tight_frames")
-    assert (len([n for n in os.listdir(frames["dir"])
-                 if n.endswith(".png")]) == 5)
-    assert _probe_leftovers(str(tmp_path)) == []
+    assert out["overlay_path"].endswith(".mov")
+    assert "_tight" not in os.path.basename(out["overlay_path"])
+    assert out["geometry"] == "full"
+    assert out["container"] == "video"
+    assert out["tight_box"] is None
+    assert out["tight_fallback"] == ""
+    assert out["frames"] is None
 
 
 def test_full_frames_keeps_full_geometry(tmp_path):
@@ -404,17 +277,123 @@ def test_incomplete_sequence_is_a_failure_not_a_render(tmp_path):
     assert "sequence" in out["failure"]
 
 
-def test_unknown_mode_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="overlay_geometry"):
-        render_one_segment(_props(), str(tmp_path), "tl",
-                           remotion_dir="/none",
-                           renderer=_StubRenderer(),
-                           overlay_geometry="small")
-    with pytest.raises(ValueError, match="overlay_container"):
-        render_one_segment(_props(), str(tmp_path), "tl",
-                           remotion_dir="/none",
-                           renderer=_StubRenderer(),
-                           overlay_container="gif")
+def test_tight_video_renders_beside_not_over(tmp_path):
+    """The box is measured off a decoded probe and the tight output is
+    verified against it before it is kept - the predictor sizes
+    nothing that reaches a timeline. Tight and full carryings never
+    share a filename: the content digest carries the geometry."""
+    props = _props_frames(_props(), N_FRAMES)
+    full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
+    _, box = _measure_full_mov(full_mov, props)
+    tight_mov = _crop_mov(full_mov,
+                          os.path.join(str(tmp_path), "tight.mov"), box)
+    stub = _ServingRenderer(full_mov, tight_mov)
+    out = render_one_segment(props, str(tmp_path), "tl",
+                             remotion_dir="/none",
+                             renderer=stub,
+                             overlay_geometry="tight")
+    assert out["provenance"] == RENDERED
+    assert out["overlay_path"].endswith(".mov")
+    assert out["geometry"] == "tight"
+    assert out["container"] == "video"
+    assert out["frames"] is None
+    box_out = out["tight_box"]
+    assert box_out["width"] == box.width
+    assert box_out["height"] == box.height
+    assert box_out["width"] < 1080 and box_out["height"] < 1920
+    assert box_out["placement"]["scaling"] == 1
+    props_file = out["overlay_path"][:-len(".mov")] + "_props.json"
+    with open(props_file) as handle:
+        props_on_disk = json.load(handle)
+    assert props_on_disk["width"] == box.width
+    assert props_on_disk["height"] == box.height
+    sidecar_file = out["overlay_path"][:-len(".mov")] + "_box.json"
+    with open(sidecar_file) as handle:
+        sidecar = json.load(handle)
+    assert sidecar["placement"] == box_out["placement"]
+    assert stub.calls and len(stub.calls) == 2
+    assert _probe_leftovers(str(tmp_path)) == []
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_tight_video_mismatch_falls_back_to_full_canvas(tmp_path):
+    """A tight output that is not the probe crop is carried full canvas.
+
+    The gate still holds - the mistightened file is discarded and never
+    reaches a timeline - but the segment is not failed: the same props
+    drawn on the full canvas are the same pixels on screen, so the card
+    is re-rendered full with the reason recorded on it."""
+    props = _props_frames(_props(), N_FRAMES)
+    full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
+    _, box = _measure_full_mov(full_mov, props)
+    ox, oy = canvas_offset(box)
+    shifted = os.path.join(str(tmp_path), "shifted.mov")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", full_mov,
+         "-vf", f"crop={box.width}:{box.height}:{ox + 40}:{oy}",
+         "-c:v", "prores_ks", "-profile:v", "4444",
+         "-pix_fmt", "yuva444p10le", shifted],
+        check=True,
+    )
+    stub = _ServingRenderer(full_mov, shifted)
+    out = render_one_segment(props, str(tmp_path), "tl",
+                             remotion_dir="/none",
+                             renderer=stub,
+                             overlay_geometry="tight")
+    assert out["provenance"] == RENDERED
+    assert out["geometry"] == "full"
+    assert out["tight_box"] is None
+    assert "not the probe crop" in out["tight_fallback"]
+    assert out["overlay_path"].endswith(".mov")
+    assert os.path.isfile(out["overlay_path"])
+    assert _probe_leftovers(str(tmp_path)) == []
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_tight_probe_drawing_nothing_records_full_geometry(tmp_path):
+    """A card with nothing to bound is full canvas IN THE RECORD too.
+
+    The file was always full canvas; the entry used to keep saying
+    "tight" with no box, pinning a full-canvas file as a tight one in
+    the only record a staging render leaves."""
+    props = _props_frames(_props(), N_FRAMES)
+    blank = _blank_mov(os.path.join(str(tmp_path), "blank.mov"))
+    stub = _ServingRenderer(blank, blank)
+    out = render_one_segment(props, str(tmp_path), "tl",
+                             remotion_dir="/none",
+                             renderer=stub,
+                             overlay_geometry="tight")
+    assert out["provenance"] == RENDERED
+    assert out["geometry"] == "full"
+    assert out["tight_box"] is None
+    assert "draws nothing" in out["tight_fallback"]
+    assert out["overlay_path"].endswith(".mov")
+    assert os.path.isfile(out["overlay_path"])
+    assert _probe_leftovers(str(tmp_path)) == []
+
+
+def test_tight_frames_records_dir_and_placement(tmp_path):
+    props, probe_canned, tight_canned, box = _measured_frames_setup(
+        tmp_path, "frames")
+    stub = _ServingRenderer(probe_canned, tight_canned)
+    out = render_one_segment(props, str(tmp_path), "tl",
+                             remotion_dir="/none",
+                             renderer=stub,
+                             overlay_geometry="tight",
+                             overlay_container="frames")
+    assert out["provenance"] == RENDERED
+    assert out["overlay_path"] == ""
+    assert out["geometry"] == "tight"
+    assert out["container"] == "frames"
+    assert out["tight_box"]["width"] == box.width
+    assert out["tight_box"]["placement"]["scaling"] == 1
+    frames = out["frames"]
+    assert frames["count"] == 5
+    assert os.path.isdir(frames["dir"])
+    assert frames["dir"].endswith("_frames")
+    assert (len([n for n in os.listdir(frames["dir"])
+                 if n.endswith(".png")]) == 5)
+    assert _probe_leftovers(str(tmp_path)) == []
 
 
 def test_reuse_skips_identical_tight_frames(tmp_path):
@@ -442,6 +421,19 @@ def test_reuse_skips_identical_tight_frames(tmp_path):
     assert fresh.calls == []
     assert (second["tight_box"]["placement"]
             == first["tight_box"]["placement"])
+
+
+def test_unknown_mode_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="overlay_geometry"):
+        render_one_segment(_props(), str(tmp_path), "tl",
+                           remotion_dir="/none",
+                           renderer=_StubRenderer(),
+                           overlay_geometry="small")
+    with pytest.raises(ValueError, match="overlay_container"):
+        render_one_segment(_props(), str(tmp_path), "tl",
+                           remotion_dir="/none",
+                           renderer=_StubRenderer(),
+                           overlay_container="gif")
 
 
 def _frame_dir(tmp_path, name, draw):

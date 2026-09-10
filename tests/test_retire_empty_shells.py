@@ -154,6 +154,95 @@ def test_a_top_level_state_orphan_is_a_legacy_shell():
     assert names(plan) == ["Unrecorded"]
 
 
+def test_an_emptied_canonical_per_reel_bin_retires_when_its_timeline_is_gone():
+    """The captain's stale sub-bins, literally: `06 - Subtitle renders`
+    still carries the staging name promotion emptied, and `07 - Motion
+    graphics` still carries a deleted reel's bin. Empty and naming
+    nothing live, so they retire - the population the legacy sweep
+    never covered, in the same sweep rather than a second one."""
+    from library.tools.resolve_organization import plan_retirements
+    artefacts = [
+        timeline("t-master", MASTER),
+        timeline("t-live", "Reel 09 - slug v003",
+                 folder=(BIN_REELS, "Current plan")),
+    ]
+    tree = [
+        (BIN_SUBTITLES,),
+        (BIN_SUBTITLES, "Reel 09 - slug (staging)"),
+        (BIN_SUBTITLES, "Reel 09 - slug v003"),
+        (bins.MOTION_GRAPHICS_BIN,),
+        (bins.MOTION_GRAPHICS_BIN, "Reel 04 - deleted"),
+    ]
+    plan = plan_retirements(artefacts, tree)
+    ordered = names(plan)
+    assert f"{BIN_SUBTITLES}/Reel 09 - slug (staging)" in ordered
+    assert f"{bins.MOTION_GRAPHICS_BIN}/Reel 04 - deleted" in ordered
+    assert f"{BIN_SUBTITLES}/Reel 09 - slug v003" not in ordered
+    assert BIN_SUBTITLES not in ordered
+    assert bins.MOTION_GRAPHICS_BIN not in ordered
+    assert all("why" in entry and entry["why"].strip() for entry in plan)
+
+
+def test_a_canonical_per_reel_bin_of_a_live_timeline_stays_even_when_empty():
+    """A live reel with nothing currently filed may gain some on the
+    next build. Retiring its bin would be churn, not cleaning."""
+    from library.tools.resolve_organization import plan_retirements
+    artefacts = [
+        timeline("t-master", MASTER),
+        timeline("t-live", "Reel 09 - slug v003",
+                 folder=(BIN_REELS, "Current plan")),
+    ]
+    tree = [(BIN_SUBTITLES,),
+            (BIN_SUBTITLES, "Reel 09 - slug v003")]
+    plan = plan_retirements(artefacts, tree)
+    assert names(plan) == []
+
+
+def test_the_unplaced_bin_is_a_standing_destination_and_never_retires():
+    from library.tools.resolve_organization import plan_retirements
+    from library.tools.resolve_organization import BIN_UNPLACED
+    artefacts = [timeline("t-master", MASTER)]
+    tree = [(BIN_SUBTITLES,), (BIN_SUBTITLES, BIN_UNPLACED)]
+    plan = plan_retirements(artefacts, tree)
+    assert names(plan) == []
+
+
+def test_a_captains_bin_under_a_render_top_stays_even_when_empty():
+    """`06 - Subtitle renders/my picks` holds nothing, but nothing says
+    the pipeline made it either - same bargain as the legacy unknown
+    leaf, so it stays."""
+    from library.tools.resolve_organization import plan_retirements
+    artefacts = [timeline("t-master", MASTER)]
+    tree = [(BIN_SUBTITLES,), (BIN_SUBTITLES, "my picks")]
+    plan = plan_retirements(artefacts, tree)
+    assert names(plan) == []
+
+
+def test_a_nonempty_canonical_orphan_stays_and_says_so():
+    """An orphaned per-reel bin that still holds something is not a
+    shell - the census says keep, with the reason, rather than going
+    quiet about it."""
+    from library.tools.resolve_organization import (
+        plan_retirements,
+        render_bin_census,
+    )
+    from library.tools.resolve_organization import BIN_UNPLACED
+    artefacts = [
+        timeline("t-master", MASTER),
+        clip("c-old", "old.mov",
+             path=f"{PROJECT_ROOT}/pipeline_output/old.mov",
+             placed_by=["Reel 04 - deleted"],
+             folder=(BIN_SUBTITLES, "Reel 04 - deleted")),
+    ]
+    tree = [(BIN_SUBTITLES,), (BIN_SUBTITLES, "Reel 04 - deleted"),
+            (BIN_SUBTITLES, BIN_UNPLACED)]
+    plan = plan_retirements(artefacts, tree)
+    assert names(plan) == []
+    text = render_bin_census(artefacts, tree, plan)
+    assert "keep" in text
+    assert f"{BIN_SUBTITLES}/Reel 04 - deleted (1 item(s))" in text
+
+
 def test_a_nested_legacy_duplicate_retires_as_one_empty_shell():
     """`Reels/Reels/Unrecorded`: the fork `AddSubFolder` makes. Every
     component is old-scheme vocabulary and nothing is inside, so the
@@ -224,6 +313,8 @@ class FakeClip:
         if key == "File Path":
             return self.path
         return ""
+
+    def GetMetadata(self, key): return ""
 
 
 class FakeTimeline:
@@ -392,3 +483,33 @@ def test_retirement_journals_live_beside_placement_journals(tmp_path):
     second = retire.journal_path_for(str(tmp_path), "B")
     assert first != second
     assert "retire" in Path(first).name
+
+
+def test_retiring_removes_an_emptied_canonical_orphan_end_to_end(tmp_path):
+    """The re-proof inside `retire_bins` accepts the canonical
+    population too: plan off a fake pool, delete, and the orphan is
+    gone while the live reel's bin and the tops stand."""
+    from library.tools.execution.organise_media_pool import read_pool
+    from library.tools.resolve_organization import plan_retirements
+    root = FakeFolder("Master", "root")
+    subs = FakeFolder(BIN_SUBTITLES, "s1")
+    subs.subs.append(FakeFolder("Reel 09 - slug (staging)", "s2"))
+    subs.subs.append(FakeFolder("Reel 09 - slug v003", "s3"))
+    root.subs.append(subs)
+    # The v003 timeline is live, so its bin stays; the staging name
+    # answers to nothing, so its bin is an orphan.
+    root.clips.append(FakeClip("t-live", "Reel 09 - slug v003",
+                               kind="timeline"))
+    proj = FakeProject("Fake", FakePool(root))
+    artefacts, _, _, _ = read_pool(proj)
+    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)))
+    result = retire.retire_bins(
+        proj, plan, str(tmp_path / "retire.json"))
+    remaining = sorted("/".join(p) for p in retire.read_bin_tree(proj))
+    assert remaining == [
+        BIN_SUBTITLES,
+        f"{BIN_SUBTITLES}/Reel 09 - slug v003",
+    ]
+    assert result["retired"] == [
+        f"{BIN_SUBTITLES}/Reel 09 - slug (staging)",
+    ]

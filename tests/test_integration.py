@@ -7,7 +7,7 @@ from library.schemas.brand_template import BrandTemplate
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 from library.tools.brand_registry import load_brand_template
 from library.steps.step_5_01_color_grade.grade import define_color_grade
-from library.tools.house_look import resolve_look
+from library.tools.series_look import resolve_look
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 
 class TestIntegration(unittest.TestCase):
@@ -69,7 +69,7 @@ class TestIntegration(unittest.TestCase):
         }
         look = resolve_look(declaration)
         res = define_color_grade(shot_list, project_folder="proj",
-                                 house_look=declaration)
+                                 series_look=declaration)
         spec = res["color_grade_spec"]
 
         adj = {a["clip_id"]: a["cdl_values"] for a in spec["per_clip_adjustments"]}
@@ -141,7 +141,7 @@ class TestIntegration(unittest.TestCase):
         self.assertIn("per_clip_adjustments", manifest["color_grade"])
         # The look's name travels with the CDL; its Fusion half rides on
         # the per-clip effects, which is where the renderer reads it.
-        self.assertEqual(manifest["color_grade"]["house_look"], look.name)
+        self.assertEqual(manifest["color_grade"]["series_look"], look.name)
         for effects in manifest["fusion_effects"]["per_clip"].values():
             self.assertAlmostEqual(effects["grade_contrast"], look.contrast)
 

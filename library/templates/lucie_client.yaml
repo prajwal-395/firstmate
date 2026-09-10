@@ -43,7 +43,7 @@ style:
   # only brand direction on file, and a palette is not a grade.
   #
   # To grade under this template, declare the values:
-  # `python3 -c "from library.tools.house_look import
+  # `python3 -c "from library.tools.series_look import
   #  describe_declaration_shape as d; print(d())"`
   typography:
     font: "Montserrat"

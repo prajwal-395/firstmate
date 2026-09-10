@@ -517,6 +517,58 @@ def cmd_resolve_organize(args):
     project_folder = _reel_project_folder(args.project)
     project, master = open_project(project_folder)
 
+    if args.remove_proof is not None:
+        from library.tools.execution.organise_media_pool import read_pool
+        from library.tools.execution import remove_proof as proof_ex
+        from library.tools.execution.retire_empty_bins import read_bin_tree
+        from library.tools.proof_cleanup import (
+            discover_proof_bins,
+            plan_proof_removal,
+        )
+        artefacts, _, _, _ = read_pool(project)
+        tree = read_bin_tree(project)
+        if not args.proof_bin:
+            candidates = discover_proof_bins(artefacts, list(tree))
+            if candidates and not args.timeline_only:
+                print("  Proof/demo caption bins in this pool - pass the "
+                      "ones to remove back with --proof-bin:")
+                for path in candidates:
+                    print(f"    {'/'.join(path)}")
+                print("  Nothing was changed.")
+                return
+            if candidates and args.timeline_only:
+                print("  REFUSED: candidate bins exist - pass them with "
+                      "--proof-bin or drop --timeline-only:")
+                for path in candidates:
+                    print(f"    {'/'.join(path)}")
+                sys.exit(1)
+            if not candidates:
+                print("  No proof/demo caption bins in this pool - "
+                      "removing the timeline alone.")
+        try:
+            plan = plan_proof_removal(
+                artefacts, list(tree),
+                timeline_name=args.remove_proof,
+                bin_names=args.proof_bin,
+                project_root=project_folder, master_name=master)
+        except Exception as exc:
+            print(f"  REFUSED: {exc}")
+            sys.exit(1)
+        result = proof_ex.remove_proof(
+            project, plan, proof_ex.journal_path_for(project_folder))
+        print(f"  Removed proof timeline {result['timeline']!r}: "
+              f"{result['removed_items']} pool item(s), "
+              f"{len(result['bins'])} bin(s):")
+        for bin_path in result["bins"]:
+            print(f"    {bin_path}")
+        print("  Verified untouched:")
+        for name in result["verified_untouched"]:
+            print(f"    {name}")
+        print(f"  Journal: {result['journal_path']}")
+        print("  Files were NOT deleted - pool items only. There is no "
+              "undo for a deleted timeline.")
+        return
+
     if args.revert is not None:
         if not args.revert:
             # No guessing which apply to undo: an operator three days
@@ -588,15 +640,22 @@ def cmd_resolve_organize(args):
         print(f"  Undo it with: --revert {journal['journal_path']}")
         retired = result.get("retirement", {})
         if retired.get("retired"):
-            print(f"  Retired {len(retired['retired'])} empty legacy "
-                  f"bin(s):")
+            print(f"  Retired {len(retired['retired'])} bin(s)"
+                  + (f" with {retired['removed_items']} pool item(s)"
+                     if retired.get("removed_items") else "") + ":")
             for bin_path in retired["retired"]:
                 print(f"    {bin_path}")
+            if retired.get("removed_items"):
+                print("  Removed items were pool items only - their files "
+                      "are still on disk, named in the journal.")
             print(f"  Retirement journal: {retired['journal_path']}")
             print(f"  Undo it with: --revert {retired['journal_path']}")
+        for held in result.get("held_for_dead_sweep") or []:
+            print(f"  Held for the dead-bin sweep: {held['name']} "
+                  f"(in {held['bin']})")
     else:
         if result["retirements"]:
-            print(f"\n{len(result['retirements'])} empty legacy bin(s) "
+            print(f"\n{len(result['retirements'])} bin(s) "
                   f"would retire on --apply.")
         print("\nNothing was changed. Pass --apply to perform this.")
     print()
@@ -1119,7 +1178,8 @@ def cmd_build_reels(args):
                 project_folder,
                 skip_captions=args.skip_captions,
                 only_reels=args.only_reel or None,
-                timeline_name_suffix=args.name_suffix)
+                timeline_name_suffix=args.name_suffix,
+                allow_drops=args.allow_drop or None)
             if result.refused:
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(result.error, file=sys.stderr)
@@ -1264,6 +1324,14 @@ def main():
         help="Append this to the Resolve timeline name each reel is built "
              "into, and to its caption filenames. Default: the plan's own "
              "name, which REPLACES the timeline already called that.")
+    build_reels_parser.add_argument(
+        "--allow-drop", dest="allow_drop", action="append", default=[],
+        metavar="SPEC",
+        help="A row the replace guard may let shrink, by ROW never by "
+             "blanket (issue #925): `ROW` (e.g. `video:Semantic`) for "
+             "every reel this run promotes, or `FINAL::ROW` for one reel "
+             "only. Repeatable. Absent means any row that loses items, "
+             "or vanishes, refuses the promotion.")
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
     p_status = sub.add_parser("status", help="Show project status")
@@ -1306,7 +1374,23 @@ def main():
                         help="Undo a filing by reading its journal; with no "
                              "path, list the journals in this project")
     p_rorg.add_argument("--check", action="store_true",
-                        help="Report what is filed wrong; exit 1 if any")
+                         help="Report what is filed wrong; exit 1 if any")
+    p_rorg.add_argument("--remove-proof", metavar="TIMELINE", default=None,
+                         help="Delete a captain-authorised demo timeline "
+                              "(firstmate proof or exact authorised demo "
+                              "name) with its caption bins. IRREVERSIBLE; "
+                              "refuses protected timelines. Each bin must "
+                              "be passed explicitly with --proof-bin")
+    p_rorg.add_argument("--proof-bin", metavar="BIN", action="append",
+                         default=[],
+                         help="A caption bin the proof timeline created, "
+                              "as shown by --check's census or by running "
+                              "with --remove-proof and no --proof-bin "
+                              "(repeatable)")
+    p_rorg.add_argument("--timeline-only", action="store_true",
+                         help="With --remove-proof: the timeline created "
+                              "no bins, so remove it alone. Refused when "
+                              "any candidate bin exists")
     p_rorg.set_defaults(func=cmd_resolve_organize)
 
     # resolve-prune

@@ -35,7 +35,7 @@ of them.  There is no colour here, no duration, no size, no easing
 strength and no intensity, and none of those has a default or a bound
 either - the captain, 2026-08-28: *"i want no hardcoded values. there are
 no house glow looks, there are no settled house grain or anything"*, and
-PR #310 emptied ``house_look.py`` on that ruling.  A roster that said
+PR #310 emptied ``series_look.py`` on that ruling.  A roster that said
 "the stat callout holds for 1.2 s in the accent colour" would put the
 same defect back one level up, in the one place it is hardest to see.
 
@@ -116,7 +116,7 @@ from dataclasses import dataclass
 # NEVER carries a bound: how long is long, how large is large and how
 # loud is loud are the declaring author's decisions, and an
 # engine-supplied range is a strength nobody chose arriving one level up
-# (the rule `house_look.py` was emptied to establish).
+# (the rule `series_look.py` was emptied to establish).
 
 
 @dataclass(frozen=True)
@@ -147,7 +147,7 @@ class Axis:
 
 #: The whole vocabulary of dimensions. An entry names the axes it is
 #: declared on; an axis outside this table is refused by name, for the
-#: same reason `house_look.LOOK_ELEMENTS` refuses an unknown element - a
+#: same reason `series_look.LOOK_ELEMENTS` refuses an unknown element - a
 #: misspelt axis that silently draws nothing is the failure this
 #: repository keeps hitting.
 AXES: tuple[Axis, ...] = (

@@ -45,6 +45,9 @@ its name:
    graphics` for motion-graphics, timed-text and carrier renders - a
    path fact read off `project_layout.Area`, never a name parse), or
    under that bin's `Not placed on any timeline` when nothing does.
+   A generated clip SEVERAL timelines place belongs to no single one,
+   so it files at the render bin's ROOT - still ours, never as outside
+   material (rule 3 below is for files the pipeline did not write).
 3. Anything else is material that came from outside, and files under
    `Source footage`.
 
@@ -63,6 +66,37 @@ for ever, with nothing here allowed to clean them up.  State belongs
 to the timeline; the captions bin answers a different question -
 "which clips does THIS reel place" - and that answer does not move
 when the plan does.
+
+The bin tree derives from reality, not from build history
+---------------------------------------------------------
+Measured 2026-09-10, the captain's third report of the same bins: the
+design above was an ACCUMULATION of everything ever built.  Per-reel
+bins are keyed by placing-timeline NAME, every variant and every
+superseded build is a new timeline name, timelines are never deleted -
+so one reel is N names is N leaves under `06` and `07`, and the sweep
+(`plan_retirements`) could only ever retire EMPTY legacy shells, never
+a canonical per-reel leaf.  Every build made it worse and no amount of
+sweeping kept up.
+
+It is a function of what currently exists instead: a per-reel leaf
+under a render bin whose name is NO live timeline's name is dead
+whether or not it still holds files, and `plan_dead_render_bins`
+retires it with its contents - proven unplaced and pipeline-generated,
+journalled with what it held.  A leaf named for a timeline that still
+exists stays, whatever state that timeline is in: `Earlier plans`
+timelines are reality too, kept deliberately under the no-delete
+ruling, and their bins stay with them.
+
+`UNRECORDED` keeps its bucket for the same reason.  The exact-match
+rule means a suffixed one-off (`" (fragment fix)"`) is UNRECORDED
+rather than EARLIER - calling it EARLIER would assert by prefix a
+provenance nobody recorded.  Those timelines are unclassifiable BY
+DESIGN, not by failure: the bucket is where timelines no plan names
+are kept rather than deleted or misfiled, and emptying it is the
+captain's call (a plan record naming them) never the sweeper's.  The
+`Not placed on any timeline` leaves are the same bargain on the clip
+axis: canonical destinations the organiser files into, whose removal
+belongs to the prune path under its own authority - never to this one.
 
 CURRENT is a record, not a guess
 --------------------------------
@@ -110,6 +144,7 @@ to Resolve.
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
@@ -131,6 +166,10 @@ BIN_SOURCE = bins.SOURCE_BIN
 BIN_UNPLACED = bins.UNPLACED_BIN
 """Alias - see above. A clip's placement fact, never a timeline's
 state: UNRECORDED and "not placed" are different axes."""
+
+BIN_MOTION_GRAPHICS = bins.MOTION_GRAPHICS_BIN
+"""Alias - see above. The second render top whose depth-2 children are
+per-timeline bins, and the second place a dead reel's leaf can stand."""
 
 BIN_PROOF = bins.REELS_PROOF_BIN
 """Leaf name of the bin firstmate's proof timelines file under. An
@@ -399,11 +438,18 @@ def plan_organization(artefacts: Sequence[Artefact],
         render_bin = bins.render_bin_for_file(a.file_path, project_root)
         if placer is None:
             if a.placed_by:
-                dest = want((BIN_SOURCE,))
+                # Shared, but still generated: a rebuild that reuses one
+                # file on two timelines (a backup beside its final, two
+                # reels over one element) must not read as outside
+                # material. The render bin's root is "ours, shared" -
+                # and self-healing, because the next organise after the
+                # extra placer goes moves it under the one that stays.
+                dest = want((render_bin,))
                 plan.verdicts.append(Verdict(
                     a.item_id, a.name, a.kind, dest,
                     f"{len(a.placed_by)} timelines place it, so it "
-                    f"belongs to no single one"))
+                    f"belongs to no single one - it stays under its "
+                    f"render bin instead of filing as outside material"))
             else:
                 dest = want((render_bin, BIN_UNPLACED))
                 plan.verdicts.append(Verdict(
@@ -466,7 +512,8 @@ def _stamp(a: Artefact, state: str, plan_hash: str, built_at: str) -> dict:
 def findings(artefacts: Sequence[Artefact],
              plan: Plan,
              duplicate_bins: Sequence[str] = (),
-             recorded_states: dict[str, str] | None = None) -> list[dict]:
+             recorded_states: dict[str, str] | None = None,
+             dead_paths: Sequence[Sequence[str]] = ()) -> list[dict]:
     """What is WRONG with the project as it stands. Empty means organised.
 
     Four things can be wrong, and each is read from a different place so
@@ -484,6 +531,7 @@ def findings(artefacts: Sequence[Artefact],
     """
     out: list[dict] = []
     by_id = {a.item_id: a for a in artefacts}
+    dead = {tuple(p) for p in dead_paths}
 
     for v in plan.verdicts:
         a = by_id.get(v.item_id)
@@ -493,6 +541,13 @@ def findings(artefacts: Sequence[Artefact],
                                   f"the media pool"})
             continue
         if a.folder_path != v.destination:
+            folder = tuple(a.folder_path)
+            if any(folder[:len(d)] == d for d in dead):
+                # Not misfiled: it sits in a dead bin and leaves the
+                # pool with it.  The dead_render_bin finding carries
+                # it; a misfiled line beside it would read as an
+                # instruction to hand-move it to Unplaced first.
+                continue
             out.append({
                 "kind": "misfiled", "name": v.name,
                 "detail": f"{v.name!r} is in "
@@ -629,6 +684,13 @@ old state leaves standing alone at the top level (`Unrecorded`, ...).
 A top-level bin with any other name is the captain's - they may be about
 to put something in it - and stays even when empty."""
 
+_REEL_LEAF_RE = re.compile(r"^Reel \d+\s+-")
+"""The leaf vocabulary a per-reel bin is provably pipeline-made in:
+`Reel NN - ...` - staging, final, versioned (`v003`) or backup
+(`(superseded)`) alike. Firstmate proofs (`SOP Proof...`,
+`bins.is_proof_timeline`) join it in `is_retired_canonical_bin`.
+Anything else under a render top is read as the captain's."""
+
 STATE_LEAVES = frozenset(STATE_BINS.values())
 """Leaf names of the old scheme's state bins. Kept so the per-reel state
 survives the move in `resolve_bin_layout.REEL_STATE_BINS`."""
@@ -658,11 +720,52 @@ def _is_pipeline_component(name: str, timeline_names: frozenset) -> bool:
     )
 
 
+RENDER_TOP_BINS = frozenset([BIN_SUBTITLES, bins.MOTION_GRAPHICS_BIN])
+"""The CURRENT scheme's render tops. Their children are per-timeline
+bins the plan names for the timeline that places the clips, so a reel
+rebuilt under a new name leaves its old child standing and empty."""
+
+
+def is_spent_render_bin(path: Sequence[str]) -> bool:
+    """Is this an emptied PER-REEL bin of the CURRENT scheme?
+
+    The defect this answers, measured on geo-podcast 2026-09-10: the
+    retirement rule only ever reached the LEGACY tops, and per-reel
+    bins live under the canonical ones (`06 - Subtitle renders`,
+    `07 - Motion graphics`). So `Reel 09 ... (j-cut)` sat empty under
+    BOTH of them with no rule that could ever collect it, and every
+    rebuild under a new reel name added one more - which is exactly the
+    "empty bins from several iterations" the captain reported.
+
+    Depth two only, and never `Not placed on any timeline`: the tops
+    themselves are scaffolding `resolve_bin_layout.bins_to_create`
+    stands up on every build, and the unplaced leaf is a canonical
+    DESTINATION - retiring either would be a bin the next build
+    immediately re-creates, which is churn, not cleanup.
+
+    Emptiness is NOT decided here: this is scheme membership, and
+    `plan_retirements` proves the bin holds nothing off the artefacts.
+    """
+    path = tuple(path)
+    return (len(path) == 2
+            and path[0] in RENDER_TOP_BINS
+            and path[1] != BIN_UNPLACED)
+
+
 def is_retired_scheme_bin(path: Sequence[str],
                            timeline_names: frozenset = frozenset()) -> bool:
     """May this bin be retired once empty? Scheme membership only -
     emptiness is `plan_retirements`' half, proven off the artefacts."""
     path = tuple(path)
+    if len(path) == 2 and path[0] in RENDER_TOP_BINS:
+        # Current-scheme per-reel leaves are the canonical rule's
+        # half (`is_retired_canonical_bin`): only reel-vocabulary
+        # leaves of gone timelines retire there, and a captain's bin
+        # under a render top stays. Claiming them here too would
+        # retire any empty leaf whatever it is called.
+        return False
+    if is_spent_render_bin(path):
+        return True
     if not path or path[0] not in RETIRABLE_TOP_BINS:
         return False
     if path[0] in STATE_LEAVES and len(path) > 1:
@@ -671,8 +774,56 @@ def is_retired_scheme_bin(path: Sequence[str],
                for name in path[1:])
 
 
+def is_retired_canonical_bin(path: Sequence[str],
+                             timeline_names: frozenset = frozenset()
+                             ) -> bool:
+    """May this CANONICAL bin be retired once empty? The other half of
+    the sweep `plan_retirements` runs: the legacy scheme above covers
+    the retired bins, this covers the CURRENT scheme's per-reel leaves
+    - `06 - Subtitle renders/<reel>`, `07 - Motion graphics/<reel>` -
+    whose timeline is gone.
+
+    A rebuild files under the staging name and promotion moves the
+    items onto the final name; a deleted timeline leaves its bin
+    behind. Either way the bin that is left is EMPTY and names nothing
+    live, and keeping it is what strands a stale sub-bin beside every
+    rebuild for ever. So: depth exactly two under a render top (the
+    layout allows nothing deeper there), never the `Not placed`
+    standing destination, and never a leaf a live timeline still
+    answers to - a live reel with nothing currently filed may gain
+    some on the next build, and retiring its bin would be churn, not
+    cleaning.
+
+    A captain's bin under a render top (`my picks`) stays even when
+    empty: from the pool alone it is indistinguishable from the
+    captain's, so only a leaf in REEL-LEAF vocabulary retires - a
+    `Reel NN - ...` name (staging, final, versioned or backup) or a
+    firstmate proof. A deleted timeline by any other name leaves a bin
+    this sweep cannot prove pipeline-made, and the captain's
+    organisation wins where the two conflict.
+
+    Residual unknown, said plainly: a captain's bin named EXACTLY like
+    a reel under a render top reads as pipeline-made. Every retirement
+    is journalled and re-creating an empty bin restores exactly what
+    was removed.
+    """
+    path = tuple(path)
+    if len(path) != 2:
+        return False
+    top, leaf = path
+    if top not in (bins.SUBTITLES_BIN, bins.MOTION_GRAPHICS_BIN):
+        return False
+    if leaf == BIN_UNPLACED:
+        return False
+    if leaf in timeline_names:
+        return False
+    return bool(_REEL_LEAF_RE.match(leaf)) or bins.is_proof_timeline(leaf)
+
+
 def _successor_of(top: str) -> str:
     """The canonical bin that superseded this legacy top, for the record."""
+    if top in RENDER_TOP_BINS:
+        return top
     successor = bins.LEGACY_SUCCESSORS.get((top,))
     if successor is not None:
         return "/".join(successor)
@@ -681,22 +832,167 @@ def _successor_of(top: str) -> str:
     return BIN_REELS
 
 
+RENDER_TOP_BINS = frozenset([BIN_SUBTITLES, BIN_MOTION_GRAPHICS])
+"""The canonical render tops whose depth-2 children are per-timeline
+bins.  The plan files a generated clip under `(render_bin, placer)`,
+so every child but the unplaced leaf is named for the timeline that
+places what is inside it - which is what makes a child naming NO live
+timeline a measurable fact rather than a guess."""
+
+
+def plan_dead_render_bins(
+        artefacts: Sequence[Artefact],
+        bin_paths: Sequence[Sequence[str]],
+        project_root: str,
+        timeline_names: Iterable[str] | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Per-reel leaves of the CURRENT scheme whose timeline is gone.
+
+    Returns `(retirements, declined)`.  A retirement is
+    `{"path": (...), "why": ..., "contents": [{item_id, name,
+    file_path, folder}]}` - the pool items that go with the bin, so
+    the executor removes exactly what was proven and journals what it
+    held.  A declined entry is `{"path": (...), "why": ...}`: a bin
+    that looked dead and was kept, with the sentence saying why -
+    an over-cautious sweep reports what it declined rather than
+    guessing.
+
+    Dead means all of these, proven off the artefacts:
+
+    - depth exactly 2 under a render top, and not the unplaced leaf
+      (a canonical DESTINATION the next build re-creates; retiring it
+      is churn, not cleanup),
+    - the leaf names NO live timeline, exactly - the same exact-match
+      rule that files timelines, so a variant suffix is a different
+      name and a different bin,
+    - nothing in the subtree is a timeline (timelines file under
+      `05 - Reels`; one sitting here is a human's filing or a drag,
+      and retiring its bin would strand it),
+    - every clip in the subtree is placed on NOTHING - a clip some
+      live timeline still plays belongs to that timeline's bin, and
+      the organiser moves it there; the sweep does not take it,
+    - every clip in the subtree is pipeline-generated (its file under
+      the project directory) - anything else is the captain's
+      material and stays,
+    - no sub-bin stands under it that this plan does not retire -
+      retiring the parent would take that bin with it.
+
+    A leaf named for a timeline that still exists is never examined
+    here, whatever that timeline's state: `Earlier plans` reels keep
+    their bins.  Contents may be empty - an emptied dead leaf retires
+    as a shell, the same outcome the legacy rule gives its own.
+    """
+    if timeline_names is None:
+        timeline_names = frozenset(
+            a.name for a in artefacts if a.kind == "timeline")
+    else:
+        timeline_names = frozenset(timeline_names)
+
+    known: set[tuple[str, ...]] = {tuple(p) for p in bin_paths}
+    for artefact in artefacts:
+        folder = tuple(artefact.folder_path)
+        for depth in range(1, len(folder) + 1):
+            known.add(folder[:depth])
+    known.discard(())
+
+    retirements: list[dict] = []
+    declined: list[dict] = []
+    for path in sorted(known):
+        if not (len(path) == 2 and path[0] in RENDER_TOP_BINS
+                and path[1] != BIN_UNPLACED):
+            continue
+        leaf = path[1]
+        if leaf in timeline_names:
+            continue
+        subtree = [a for a in artefacts
+                   if tuple(a.folder_path)[:2] == path]
+        holders = [a for a in subtree if a.kind == "timeline"]
+        if holders:
+            declined.append({
+                "path": path,
+                "why": (f"names no live timeline, but timeline "
+                        f"{holders[0].name!r} sits inside it - kept, "
+                        f"because retiring the bin would strand it")})
+            continue
+        placed = [a for a in subtree if a.placed_by]
+        if placed:
+            declined.append({
+                "path": path,
+                "why": (                f"names no live timeline, but "
+                        f"{placed[0].name!r} inside it is still placed "
+                        f"on {min(placed[0].placed_by)!r} - kept; "
+                        f"the organiser files placed clips by their "
+                        f"live placer")})
+            continue
+        foreign = [a for a in subtree
+                   if not is_generated(a.file_path, project_root)]
+        if foreign:
+            declined.append({
+                "path": path,
+                "why": (f"names no live timeline, but "
+                        f"{foreign[0].name!r} inside it is not "
+                        f"pipeline-generated - kept; the sweep never "
+                        f"takes the captain's material")})
+            continue
+        descendants = [b for b in known
+                       if len(b) > len(path) and b[:len(path)] == path]
+        if descendants:
+            declined.append({
+                "path": path,
+                "why": (f"names no live timeline, but sub-bin(s) "
+                        f"{', '.join('/'.join(d) for d in sorted(descendants))} "
+                        f"stand under it that this plan does not retire "
+                        f"- kept, because retiring the parent would take "
+                        f"them with it")})
+            continue
+        contents = [{"item_id": a.item_id, "name": a.name,
+                     "file_path": a.file_path,
+                     "folder": "/".join(a.folder_path)}
+                    for a in sorted(subtree, key=lambda a: a.name)]
+        retirements.append({
+            "path": path,
+            "kind": "dead_render_bin",
+            "why": (f"per-reel bin under '{path[0]}' naming "
+                    f"{leaf!r}, and no timeline of that name is in "
+                    f"the pool - dead whether or not it holds files; "
+                    f"{len(contents)} item(s) retire with it"),
+            "contents": contents,
+        })
+    retirements.sort(key=lambda e: ([-len(e["path"])] + list(e["path"])))
+    return retirements, declined
+
+
 def plan_retirements(
         artefacts: Sequence[Artefact],
         bin_paths: Sequence[Sequence[str]],
-        timeline_names: Iterable[str] | None = None) -> list[dict]:
+        timeline_names: Iterable[str] | None = None,
+        project_root: str | None = None) -> list[dict]:
     """The legacy shells that are provably empty, deepest first.
 
     Pure: takes the artefacts off `read_pool` and the full bin tree, and
     returns `[{"path": (...), "why": ...}]` ordered so a child is always
     retired before its parent. Calls nothing, writes nothing.
 
+    TWO populations, one sweep rather than two sweepers: the retired
+    SCHEME's shells (`is_retired_scheme_bin` - the migration's legacy
+    bins) and the current scheme's orphaned per-reel leaves
+    (`is_retired_canonical_bin` - a staging name emptied by promotion,
+    a deleted timeline's bin). Both retire only once empty, and the
+    emptiness proof below is shared.
+
     Empty means NO ITEM in the whole subtree - a shell with an empty
     sub-bin under it is still empty, and the sub-bin retires with it.
     A bin stays when anything at all is inside it, when it is not part
-    of either scheme (the captain's, even when empty), or when a kept
+    of either population (the captain's, even when empty), or when a kept
     sub-bin stands under it - retiring the parent would take the
     captain's bin with it, so the parent stays too.
+
+    Dead per-reel leaves of the CURRENT scheme ride along when
+    `project_root` is given: `plan_dead_render_bins` retires a leaf
+    under a render bin that names no live timeline, WITH its contents
+    (proven unplaced and pipeline-generated).  Without a root the dead
+    rule cannot prove contents are the pipeline's, so it stays off and
+    this plans legacy shells exactly as before.
     """
     if timeline_names is None:
         timeline_names = frozenset(
@@ -721,7 +1017,19 @@ def plan_retirements(
     retired: list[dict] = []
     retired_paths: set[tuple[str, ...]] = set()
     for path in sorted(known, key=lambda p: (-len(p), list(p))):
-        if not is_retired_scheme_bin(path, timeline_names):
+        if is_retired_scheme_bin(path, timeline_names):
+            if len(path) == 1:
+                why = (f"legacy bin superseded by "
+                       f"'{_successor_of(path[0])}'; empty including sub-bins")
+            else:
+                why = (f"emptied legacy leaf under "
+                       f"'{'/'.join(path[:-1])}', superseded by "
+                       f"'{_successor_of(path[0])}'; empty including sub-bins")
+        elif is_retired_canonical_bin(path, timeline_names):
+            why = (f"emptied per-reel bin under "
+                   f"'{path[0]}' for {path[1]!r}, which no live timeline "
+                   f"answers to; empty including sub-bins")
+        else:
             continue
         if occupancy.get(path, 0):
             continue
@@ -729,22 +1037,38 @@ def plan_retirements(
                        if len(b) > len(path) and b[:len(path)] == path]
         if any(d not in retired_paths for d in descendants):
             continue
-        if len(path) == 1:
-            why = (f"legacy bin superseded by "
-                   f"'{_successor_of(path[0])}'; empty including sub-bins")
-        else:
-            why = (f"emptied legacy leaf under "
-                   f"'{'/'.join(path[:-1])}', superseded by "
-                   f"'{_successor_of(path[0])}'; empty including sub-bins")
-        retired.append({"path": path, "why": why})
+        kind = ("legacy_shell"
+                if is_retired_scheme_bin(path, timeline_names)
+                else "canonical_empty")
+        retired.append({"path": path, "kind": kind, "why": why})
         retired_paths.add(path)
+    if project_root is not None:
+        dead, _declined = plan_dead_render_bins(
+            artefacts, bin_paths, project_root, timeline_names)
+        for entry in dead:
+            key = tuple(entry["path"])
+            if key not in retired_paths:
+                retired.append(entry)
+                retired_paths.add(key)
+            else:
+                # The dead proof is stronger than the empty proof: it
+                # re-proves the contents unplaced and pipeline-made,
+                # so a dead leaf first swept as `canonical_empty`
+                # upgrades to `dead_render_bin`. Legacy shells are a
+                # different population and keep their kind.
+                for i, old in enumerate(retired):
+                    if tuple(old["path"]) == key and old.get(
+                            "kind") == "canonical_empty":
+                        retired[i] = entry
+        retired.sort(key=lambda e: (-len(e["path"]), list(e["path"])))
     return retired
 
 
 def render_bin_census(artefacts: Sequence[Artefact],
-                      bin_paths: Sequence[Sequence[str]],
-                      retirements: Sequence[dict],
-                      timeline_names: Iterable[str] | None = None) -> str:
+                       bin_paths: Sequence[Sequence[str]],
+                       retirements: Sequence[dict],
+                       timeline_names: Iterable[str] | None = None,
+                       declined: Sequence[dict] = ()) -> str:
     """Every bin with its recursive item count and the retire/keep
     decision for each - the read-only plan, reported before acting and
     reconciled after."""
@@ -753,7 +1077,8 @@ def render_bin_census(artefacts: Sequence[Artefact],
             a.name for a in artefacts if a.kind == "timeline")
     else:
         timeline_names = frozenset(timeline_names)
-    retiring = {tuple(r["path"]): r["why"] for r in retirements}
+    retiring = {tuple(r["path"]): r for r in retirements}
+    declining = {tuple(d["path"]): d["why"] for d in declined}
     occupancy: dict[tuple[str, ...], int] = {}
     for artefact in artefacts:
         folder = tuple(artefact.folder_path)
@@ -768,12 +1093,32 @@ def render_bin_census(artefacts: Sequence[Artefact],
         name = "/".join(path)
         count = occupancy.get(path, 0)
         if path in retiring:
+            entry = retiring[path]
+            held = entry.get("contents") or []
+            if held:
+                lines.append(
+                    f"  {name} ({count} item(s)) - "
+                    f"RETIRE with {len(held)} item(s): {entry['why']}")
+            else:
+                lines.append(f"  {name} ({count} item(s)) - "
+                             f"RETIRE: {entry['why']}")
+        elif path in declining:
             lines.append(f"  {name} ({count} item(s)) - "
-                         f"RETIRE: {retiring[path]}")
+                         f"keep: declined - {declining[path]}")
         elif is_retired_scheme_bin(path, timeline_names):
             lines.append(f"  {name} ({count} item(s)) - "
                          f"keep: legacy but not empty, or a kept bin "
                          f"stands under it")
+        elif is_retired_canonical_bin(path, timeline_names):
+            lines.append(f"  {name} ({count} item(s)) - "
+                         f"keep: orphaned per-reel bin, but not empty "
+                         f"or a kept bin stands under it")
+        elif (len(path) >= 1 and path[0] in
+              (bins.SUBTITLES_BIN, bins.MOTION_GRAPHICS_BIN)):
+            lines.append(f"  {name} ({count} item(s)) - "
+                         f"keep: current-scheme bin - a render top, the "
+                         f"standing unplaced destination, or a live "
+                         f"reel's bin")
         else:
             lines.append(f"  {name} ({count} item(s)) - "
                          f"keep: not part of either scheme - the "

@@ -66,12 +66,12 @@ from library.schemas.brand_template import BrandTemplate, StyleSlots, EffectSlot
 # absence of decoration rather than a substitute taste.  The table is the
 # statement of what absence means; keep it true when a slot changes.
 ABSENT_SLOT_READINGS = {
-    "style.house_look": (
+    "style.series_look": (
         "NO look and NO exposure normalisation: no CDL, no contrast, no "
         "glow, no grain, no vignette.  There is nothing to fall back to - "
         "the engine ships no look values at all, and the clip's measured "
         "luma is recorded without anything acting on it "
-        "(AGENTS.md 12, library/tools/house_look.py)"),
+        "(AGENTS.md 12, library/tools/series_look.py)"),
     "style.color_palette": (
         "no palette, so each consumer keeps its own colour "
         "(library/tools/brand_palette.py)"),

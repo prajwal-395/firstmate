@@ -1,7 +1,14 @@
 """How a project chooses to carry its caption overlays, if it chooses.
 
-Two independent axes, both defaulting to today. See the test module
-for the declaration shape; resolvers below are what the steps call.
+Two independent axes, both defaulting to tight. The default was full
+canvas until 2026-09-10, when the captain reversed it ("the media
+graphics are not tightbox and are full frame ... please fix this"):
+tight boxes are smaller, faster and movable after the fact, and the
+minimum canvas height (`tight_box.MIN_CANVAS_HEIGHT`) keeps every box
+inside Resolve's Pan/Tilt rail, with the clamp gate, the frame-by-frame
+probe verification and the placement read-back still refusing what
+cannot be placed. See the test module for the declaration shape;
+resolvers below are what the steps call.
 """
 
 from __future__ import annotations
@@ -11,10 +18,21 @@ from typing import Optional
 GEOMETRIES = ("full", "tight")
 """What the render draws: the delivery frame, or only the drawn bounds."""
 
+#: What a rendered overlay artefact IS. Bumped whenever the CARRIAGE
+#: changes, and digested into the caption reuse key
+#: (`step_4_05_render_subtitles._reuse_key`) so an artefact produced by
+#: a previous carriage is UNUSABLE rather than merely stale. The
+#: `frame-baked-1` era baked the position into delivery-frame pixels
+#: and placed with no transform; `tight-480-1` renders the tight
+#: canvas (floored at `tight_box.MIN_CANVAS_HEIGHT`) and carries it on
+#: Scaling/Pan/Tilt Resolve holds inside its measured 3840 rail
+#: (`library/tools/tight_box.py`).
+OVERLAY_CARRIAGE = "tight-480-1"
+
 CONTAINERS = ("video", "frames")
 """What reaches Resolve: one stitched mov, or the PNG sequence itself."""
 
-DEFAULT_GEOMETRY = "full"
+DEFAULT_GEOMETRY = "tight"
 DEFAULT_CONTAINER = "video"
 
 
@@ -26,7 +44,7 @@ def _pipeline_block(project_folder: Optional[str]) -> dict:
 
 
 def resolve_overlay_geometry(project_folder: Optional[str] = None) -> str:
-    """`pipeline.subtitle_overlay_geometry`: `full` unless `tight` is declared."""
+    """`pipeline.subtitle_overlay_geometry`: `tight` unless `full` is declared."""
     declared = (_pipeline_block(project_folder).get(
         "subtitle_overlay_geometry") or "").strip()
     if not declared:
@@ -55,7 +73,7 @@ def resolve_overlay_container(project_folder: Optional[str] = None) -> str:
 
 def resolve_motion_graphics_geometry(
         project_folder: Optional[str] = None) -> str:
-    """`pipeline.motion_graphics_overlay_geometry`: `full` unless `tight` is declared.
+    """`pipeline.motion_graphics_overlay_geometry`: `tight` unless `full` is declared.
 
     The motion-graphics half of the caption geometry above, and a
     SEPARATE key on purpose: a project may want tight captions with

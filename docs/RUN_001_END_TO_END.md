@@ -285,12 +285,12 @@ in a comment beside it so the next reader does not undo it.
 `project.yaml` declares no brand template, so 001 resolves to
 `default_brand.yaml`, whose own comments describe it as the fallback that
 exists "to render something legible rather than to express a brand": a
-deliberately accent-free neutral palette, `house_look: pmk_default`, no
+deliberately accent-free neutral palette, `series_look: pmk_default`, no
 `framing_intent`, no motion accents.
 
 Of the four shipped templates, `shortform_energetic` is the one
 `AGENTS.md` describes this pipeline as making, and it declares
-`framing_intent: 1.0`, `house_look: electric_contrast` and
+`framing_intent: 1.0`, `series_look: electric_contrast` and
 `motion_accents: true`. This is `docs/PIPELINE_PLAN.md` **Q9**, unanswered.
 
 Reported, not proposed - the right answer may be a new template authored
@@ -436,7 +436,7 @@ the line that applies them:
 (`run_pipeline.py:618`, `project_config.py:54`). That template's own
 comments describe its job as "to render something legible rather than to
 express a brand". It carries no accent colour by construction, and
-declares `house_look: pmk_default`, `font: Helvetica`,
+declares `series_look: pmk_default`, `font: Helvetica`,
 `energy_profile: high`, `sfx_density: dense`, and no `framing_intent`.
 
 **2. No `creative_brief` - and setting one would not help, because the
@@ -478,7 +478,7 @@ specific enough to change the edit:
 | B-roll "sparingly, if ever - the default is: stay on you" | (no guidance; B-roll planned freely) |
 | "Soft audio fades only. No hard cuts, no stingers, no whooshes" | `sfx_density: dense` |
 | Captions in Nanum Pen Script, Warm Ivory `#FFF1DA`, Ice Blue `#00BFFF` for rare emphasis | `font: Helvetica`, no accent |
-| Grade warm amber, "rich and alive - NOT desaturated" | `house_look: pmk_default` |
+| Grade warm amber, "rich and alive - NOT desaturated" | `series_look: pmk_default` |
 
 The register is not merely unset. On energy and SFX density it is set to
 the opposite of what the series asks for.
@@ -498,7 +498,7 @@ is proposed here rather than batched with the section 1 fixes.
 > was proposed on the day; the `warm_reflection` half of it no longer exists.
 
 And one of the four shipped looks, `warm_reflection`, is already authored
-*from this series' own branding document* (`house_look.py:187-195`): warm
+*from this series' own branding document* (`series_look.py:187-195`): warm
 amber highlights, warm shadows that never go blue, medium-high contrast,
 falloff into Deep Espresso. It is named today only by
 `cinematic_narrative`, whose `target_duration_seconds` is 180-600 and
@@ -1063,7 +1063,7 @@ resolution the catalog derives is a DESCRIPTION OF THE SOURCE and must
 never be the render target again.
 
 `library/tools/delivery_format.py` is the one enumeration, in the house
-style of `house_look` and `transition_vocabulary`: four named formats, an
+style of `series_look` and `transition_vocabulary`: four named formats, an
 unknown name RAISES, and adding one means adding a row. A brand template
 declares `delivery_format`; a project overrides with
 `pipeline.delivery_format`; every shipped template now states its frame

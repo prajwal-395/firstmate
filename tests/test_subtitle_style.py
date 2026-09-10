@@ -9,7 +9,7 @@ none of it reached anything.
 
 These tests hold the three ends together: the enumeration, the templates
 that name it, and the Remotion component that reads the props. The same
-contract `test_transition_vocabulary` and `test_house_look` enforce.
+contract `test_transition_vocabulary` and `test_series_look` enforce.
 """
 import glob
 import json

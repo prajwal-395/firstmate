@@ -145,10 +145,13 @@ class FakePoolItem:
 
 
 class FakeFolder:
-    def __init__(self):
+    def __init__(self, name="Master"):
+        self._name = name
         self.clips = []
+        self.subs = []
+    def GetName(self): return self._name
     def GetClipList(self): return list(self.clips)
-    def GetSubFolderList(self): return []
+    def GetSubFolderList(self): return list(self.subs)
 
 
 class FakePool:
@@ -168,6 +171,12 @@ class FakePool:
             self.root.clips.append(item)
 
     def GetRootFolder(self): return self.root
+    def GetCurrentFolder(self): return self.root
+    def SetCurrentFolder(self, folder): return True
+    def AddSubFolder(self, parent, name):
+        folder = FakeFolder(name)
+        parent.subs.append(folder)
+        return folder
     def ImportMedia(self, paths):
         out = []
         for p in paths:

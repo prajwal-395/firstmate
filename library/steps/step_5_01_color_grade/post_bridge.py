@@ -12,7 +12,7 @@ colourist did not write is neutral, and neutral means the picture is not
 moved on that axis (AGENTS.md 10.5).
 
 It does not clamp. How far a correction may travel is the colourist's,
-the same way `house_look` puts no bound on a declared slope. A value that
+the same way `series_look` puts no bound on a declared slope. A value that
 is not the SHAPE a CDL takes is a different matter and is REFUSED by
 name, which is how it reaches the model that wrote it - see
 `library/tools/post_bridge_retry.py`.
@@ -40,7 +40,7 @@ from library.tools.color_correction import (
     FIELD,
     read_corrections,
 )
-from library.tools.house_look import effective_house_look
+from library.tools.series_look import effective_series_look
 
 
 def resolve_color_grade(data: dict) -> dict:
@@ -76,7 +76,7 @@ def resolve_color_grade(data: dict) -> dict:
         {"entries": entries},
         project_folder,
         style.get("reference_look_image", ""),
-        effective_house_look(style, project_folder),
+        effective_series_look(style, project_folder),
         measured_clips=measured_clips,
         corrections=corrections,
         dropped=dropped,

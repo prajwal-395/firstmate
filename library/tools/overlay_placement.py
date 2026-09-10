@@ -14,15 +14,16 @@ that about spans - so the transform half lives here, once, and both
 loops call it.
 
 Every `SetProperty` is judged by what it RETURNS and then READ BACK,
-because Resolve lies about Pan/Tilt past four times the timeline
-dimensions: setting beyond returns True and reads back the clamp
-(measured 2026-09-09 on Resolve 21 - a 146px-tall caption box needing
-Tilt -7929 reads back -7680). A return judged alone reports the
-overlay placed while it sits off-screen - the captain's captions -
-so a value Resolve does not hold is REPORTED in the returned note,
-never raised: the clip IS on the timeline, and failing the build
-over a movable caption would trade a misplaced caption for a
-missing one.
+because Resolve lies about Pan/Tilt past its measured 3840 rail:
+setting beyond returns True and reads back the clamp (read off the
+live timeline 2026-09-10 on Resolve 21 - 37 caption items asking for
+Tilt -4316..-7579 all read back exactly -3840.0; the earlier "four
+times the timeline dimensions" figure was calibrated to miss it).
+A return judged alone reports the overlay placed while it sits
+off-position - the captain's captions - so a value Resolve does not
+hold is REPORTED in the returned note, never raised: the clip IS on
+the timeline, and failing the build over a movable caption would
+trade a misplaced caption for a missing one.
 """
 
 from __future__ import annotations
@@ -96,7 +97,10 @@ def apply_placement_transform(timeline, track_index: int,
     name = label or "overlay"
     if not placement:
         return ""
-    items = timeline.GetItemListInTrack("video", track_index) or []
+    try:
+        items = timeline.GetItemListInTrack("video", track_index) or []
+    except Exception:  # noqa: BLE001 - a proxy that does not serve it
+        items = []
     placed_item = None
     for item in items:
         try:
@@ -106,10 +110,13 @@ def apply_placement_transform(timeline, track_index: int,
         except Exception:  # noqa: BLE001 - a stale handle, keep looking
             continue
     if placed_item is None:
-        placed_item = items[-1] if items else None
-    if placed_item is None:
-        return (f"{name}: placed but no timeline item found on "
-                f"V{track_index} for the transform")
+        # NOT the last item on the track: that fallback reads a
+        # NEIGHBOUR when the match fails, which is one caption judged
+        # - and transformed - by another caption's geometry. An item
+        # this cannot name is an unavailable read-back, said plainly.
+        return (f"{name}: placed but no timeline item starts on "
+                f"V{track_index} at frame {record_frame}, so its "
+                f"transform was not judged")
     refused = []
     for prop, key in (("Scaling", "scaling"), ("Pan", "pan"),
                       ("Tilt", "tilt")):
@@ -123,10 +130,11 @@ def apply_placement_transform(timeline, track_index: int,
         if not ok:
             refused.append(f"{prop}={value}")
             continue
-        # The return is a lie past the clamp: setting Tilt -7929
-        # returns True and holds -7680. The only honest judgement is
-        # to read the value back - a held value that is not the
-        # requested one is a REFUSED placement, never a success.
+        # The return is a lie past the clamp: setting Tilt past the
+        # measured 3840 rail returns True and holds 3840.0. The only
+        # honest judgement is to read the value back - a held value
+        # that is not the requested one is a REFUSED placement, never
+        # a success.
         held = _read_back(placed_item, prop)
         if held is not None and abs(held - float(value)) > READBACK_TOLERANCE:
             refused.append(

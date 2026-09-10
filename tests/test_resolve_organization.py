@@ -179,14 +179,19 @@ def test_footage_from_outside_the_project_is_source_footage():
     assert "outside the project" in by_name["flare.mov"].why
 
 
-def test_a_generated_clip_several_timelines_place_belongs_to_no_single_one():
+def test_a_generated_clip_several_timelines_place_stays_under_its_render_bin():
+    """Several placers means no single reel owns it - but it is still
+    generated, so it stays under its render bin's root instead of
+    filing as outside material. Measured 2026-09-10: a rebuild beside
+    its backup shares every reused overlay file, and the old verdict
+    filed all of them as Source footage."""
     shared = clip("c-shared", "shared.mov",
                   path=f"{PROJECT_ROOT}/pipeline_output/x.mov",
                   placed_by=["Reel 01 - live (harvest)",
                              "Reel 01 - superseded"])
     plan = a_plan(a_project() + [shared])
     by_name = {v.name: v for v in plan.verdicts}
-    assert by_name["shared.mov"].destination == (BIN_SOURCE,)
+    assert by_name["shared.mov"].destination == (BIN_SUBTITLES,)
     assert "no single one" in by_name["shared.mov"].why
 
 

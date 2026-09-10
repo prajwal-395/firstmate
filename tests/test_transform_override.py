@@ -1,0 +1,446 @@
+"""The captain's hand move survives the rebuild that would throw it away.
+
+The captain, 2026-09-10: Akshita's clip moved by hand in Resolve to
+Pan -35 from the pipeline's 14 - *"i want you to really investigate
+if any of these changes actually persist and are saved"*. And earlier,
+still standing: *"if i ask to remove a piece of the video and replace
+it with something else, and then ask you to rebuild the timeline,
+those changes should persist"*.
+
+The store, the reader and the CTA redraw all exist
+(`library/tools/captain_edits.py`, PR #857); what was missing was the
+WRITE side and a placement-shaped entry. A `transform_override` is
+that entry, in the SAME store - the anchor is the same stable thing
+every other kind anchors to (the spoken words), only the payload
+differs (a number held, not a range redrawn). The "x" the captain
+moved is the API property `Pan` (the Inspector's Position X;
+`PositionX` is not an API property - measured live on Reel 09).
+
+Fail-before: `validate_edits` knows no `transform_override` kind and
+`captain_edits` has no `match_transform_overrides` - every test here
+errors on the kind or the attribute, not on an assertion.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+from library.tools import captain_edits
+from library.tools.project_layout import ProjectLayout
+
+
+# ── Fixtures ─────────────────────────────────────────────────────────
+
+def _tx():
+    """Two spans of timed speech: Akshita explains, Craig asks."""
+    def seg(speaker, text, start, words):
+        out = []
+        cursor = start
+        for token in words:
+            out.append({"word": token, "start": round(cursor, 3),
+                        "end": round(cursor + 0.3, 3), "timed": True})
+            cursor += 0.4
+        return {"speaker": speaker, "text": text,
+                "timeline_start": start,
+                "timeline_end": round(cursor, 3), "words": out}
+
+    return {"segments": [
+        seg("Akshita", "akshita explains the number clearly", 10.0,
+            ["akshita", "explains", "the", "number", "clearly"]),
+        seg("Craig", "craig asks where the rest comes from", 20.0,
+            ["craig", "asks", "where", "the", "rest", "comes", "from"]),
+    ]}
+
+
+def _override(anchor="explains the number", prop="Pan", value=-35.0,
+              reason="captain: akshita sits left of the frame edge"):
+    return {"kind": "transform_override", "anchor_phrase": anchor,
+            "property": prop, "value": value, "reason": reason}
+
+
+def _project(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    ProjectLayout(str(project)).ensure()
+    return project
+
+
+def _write_edits_file(project, edits):
+    directory = project / "external"
+    directory.mkdir(exist_ok=True)
+    (directory / "captain_edits.json").write_text(
+        json.dumps({"key": "captain_edits",
+                    "source": "captain, 2026-09-10", "value": edits}),
+        encoding="utf-8")
+
+
+def _write_transcript(project, transcript):
+    path = (project / "pipeline_output" / "scratch"
+            / "timeline_transcript" / "transcript.json")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(transcript), encoding="utf-8")
+
+
+def _span(master, speaker="Akshita"):
+    clip = type("Clip", (), {})()
+    clip.track_index = 1
+    clip.track_type = "video"
+    clip.source_file = "LC4932.MXF"
+    clip.speaker = speaker
+    return {"clip": clip, "source_in": 0.0, "source_out": 4.0,
+            "record": 0.0, "snapped_record": 0, "track_index": 1,
+            "speaker": speaker, "master": master}
+
+
+class _PoolItem:
+    def GetClipProperty(self, name):
+        return "1920x1080" if name == "Resolution" else None
+
+
+class _Item:
+    """A Resolve timeline item, holding an Edit-page transform."""
+
+    def __init__(self, pan=14.0):
+        self.held = {"Pan": pan, "Tilt": 0.25,
+                     "ZoomX": 2.307, "ZoomY": 2.307}
+        self.sets = []
+
+    def GetName(self):
+        return "LC4932.MXF"
+
+    def GetProperty(self, prop):
+        return self.held.get(prop)
+
+    def SetProperty(self, prop, value):
+        self.sets.append((prop, value))
+        self.held[prop] = value
+        return True
+
+    def GetMediaPoolItem(self):
+        return _PoolItem()
+
+
+class _Row:
+    def __init__(self, index):
+        self.index = index
+
+
+class _TrackPlan:
+    def aroll_rows(self):
+        return [_Row(1)]
+
+
+class _Timeline:
+    def __init__(self, items):
+        self.items = items
+
+    def GetItemListInTrack(self, kind, index):
+        assert kind == "video" and index == 1
+        return list(self.items)
+
+
+# ── 1. The override validates, number-anchored ───────────────────────
+
+def test_a_transform_override_validates():
+    assert len(captain_edits.validate_edits([_override()])) == 1
+
+
+def test_an_unknown_property_is_refused():
+    with pytest.raises(captain_edits.CaptainEditError) as exc:
+        captain_edits.validate_edits([_override(prop="PositionX")])
+    assert "PositionX" in str(exc.value)
+
+
+def test_a_non_numeric_value_is_refused():
+    edit = _override()
+    edit["value"] = "left a bit"
+    with pytest.raises(captain_edits.CaptainEditError) as exc:
+        captain_edits.validate_edits([edit])
+    assert "number" in str(exc.value).lower()
+
+
+def test_a_non_positive_zoom_is_refused():
+    with pytest.raises(captain_edits.CaptainEditError):
+        captain_edits.validate_edits([_override(prop="ZoomX", value=0)])
+
+
+def test_a_pan_past_what_resolve_holds_is_refused():
+    with pytest.raises(captain_edits.CaptainEditError) as exc:
+        captain_edits.validate_edits([_override(value=5000)])
+    assert "3840" in str(exc.value)
+
+
+def test_a_frame_field_is_refused_like_every_other_kind():
+    edit = _override()
+    edit["timeline_start"] = 5.38
+    with pytest.raises(captain_edits.CaptainEditError):
+        captain_edits.validate_edits([edit])
+
+
+def test_a_reasonless_override_is_refused():
+    edit = _override(reason="  ")
+    with pytest.raises(captain_edits.CaptainEditError):
+        captain_edits.validate_edits([edit])
+
+
+# ── 2. Matching: words to placed spans ──────────────────────────────
+
+def test_an_override_matches_the_span_speaking_its_anchor():
+    spans = [_span((10.0, 14.0)), _span((20.0, 24.0), speaker="Craig")]
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_override()])
+    assert stale == []
+    assert len(matched) == 1
+    assert matched[0]["span_index"] == 0
+    assert matched[0]["property"] == "Pan"
+    assert matched[0]["value"] == pytest.approx(-35.0)
+
+
+def test_an_override_matching_no_span_reports_stale():
+    spans = [_span((10.0, 14.0))]
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_override(anchor="zebras on mars")])
+    assert matched == []
+    assert len(stale) == 1 and "STALE" in stale[0]["reason"]
+
+
+def test_an_override_matching_two_spans_names_both():
+    spans = [_span((10.0, 14.0)), _span((10.0, 14.0))]
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_override()])
+    assert stale == []
+    assert sorted(m["span_index"] for m in matched) == [0, 1]
+
+
+# ── 3. The rebuild holds the recorded value, not the aim ────────────
+
+def test_a_rebuild_reproduces_minus_35_rather_than_14(tmp_path):
+    """The placement-survives-rebuild case: the item sits at the
+    punch-in aim (Pan 14) and the recorded override holds -35 after
+    the build pass, judged by return AND read-back."""
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [_override()])
+    item = _Item(pan=14.0)
+    timeline = _Timeline([item])
+    applied = reel_build.apply_transform_overrides(
+        "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+        timeline, _tx(), str(project), 1080, 1920)
+    assert applied == 1
+    assert item.sets == [("Pan", -35.0)]
+    assert item.GetProperty("Pan") == pytest.approx(-35.0)
+
+
+def test_a_refused_setproperty_refuses_the_build(tmp_path, capsys):
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [_override()])
+
+    class _Refusing(_Item):
+        def SetProperty(self, prop, value):
+            return False
+
+    timeline = _Timeline([_Refusing(pan=14.0)])
+    with pytest.raises(reel_build.ReelBuildError) as exc:
+        reel_build.apply_transform_overrides(
+            "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+            timeline, _tx(), str(project), 1080, 1920)
+    assert "refused" in str(exc.value).lower()
+
+
+def test_an_unreadable_store_refuses_rather_than_building_past(tmp_path):
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [{"kind": "transform_override"}])
+    with pytest.raises(reel_build.ReelBuildError) as exc:
+        reel_build.apply_transform_overrides(
+            "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+            _Timeline([_Item()]), _tx(), str(project), 1080, 1920)
+    assert "cannot be read" in str(exc.value)
+
+
+def test_no_recorded_override_costs_nothing(tmp_path):
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [{
+        "kind": "caption_fix", "anchor_phrase": "the number",
+        "replacement": "the figure", "reason": "captain: say figure"}])
+    item = _Item(pan=14.0)
+    applied = reel_build.apply_transform_overrides(
+        "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+        _Timeline([item]), _tx(), str(project), 1080, 1920)
+    assert applied == 0
+    assert item.sets == [] and item.GetProperty("Pan") == pytest.approx(
+        14.0)
+
+
+# ── 4. The write side: record, refuse, supersede ────────────────────
+
+def test_record_creates_the_store_where_none_was_ever_written(tmp_path):
+    project = _project(tmp_path)
+    assert not (project / "external").exists()
+    edit, action = captain_edits.record_edit(
+        str(project), _override(), "captain, 2026-09-10")
+    assert action == "recorded"
+    assert captain_edits.load_edits(str(project)) == [edit]
+
+
+def test_record_refuses_an_exact_duplicate(tmp_path):
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _override())
+    with pytest.raises(captain_edits.CaptainEditError) as exc:
+        captain_edits.record_edit(str(project), _override())
+    assert "already in force" in str(exc.value)
+
+
+def test_a_re_ruling_supersedes_in_place(tmp_path):
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _override(value=-35.0))
+    edit, action = captain_edits.record_edit(
+        str(project), _override(value=-40.0))
+    assert action == "superseded"
+    assert captain_edits.load_edits(str(project)) == [edit]
+
+
+def test_a_different_property_is_a_different_edit(tmp_path):
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _override(prop="Pan"))
+    captain_edits.record_edit(str(project), _override(prop="Tilt",
+                                                       value=1.5))
+    assert len(captain_edits.load_edits(str(project))) == 2
+
+
+def test_record_checks_the_anchor_against_measured_speech(tmp_path):
+    project = _project(tmp_path)
+    _write_transcript(project, _tx())
+    with pytest.raises(captain_edits.CaptainEditError) as exc:
+        captain_edits.record_edit(
+            str(project), _override(anchor="zebras on mars"))
+    assert "spoken nowhere" in str(exc.value)
+    edit, _ = captain_edits.record_edit(str(project), _override())
+    assert edit["anchor_phrase"] == "explains the number"
+
+
+def test_record_closer_refuses_a_typo_before_it_lands(tmp_path):
+    project = _project(tmp_path)
+    _write_transcript(project, _tx())
+    typo = {"kind": "redraw_closer",
+            "anchor_phrase": "explains the number",
+            "from_phrase": "craig asks where the zebras",
+            "reason": "captain: typo check"}
+    with pytest.raises(captain_edits.CaptainEditError):
+        captain_edits.record_edit(str(project), typo)
+    assert captain_edits.load_edits(str(project)) == []
+
+
+def test_the_anchor_resolves_to_reel_seconds(tmp_path):
+    ranges = [(10.0, 14.0), (20.0, 24.0)]
+    reel, master, master_end = captain_edits.anchor_reel_time(
+        ranges, _tx(), "explains the number", lead_seconds=2.0)
+    assert reel == pytest.approx(2.0 + 0.4)
+    assert master == pytest.approx(10.4)
+    assert master_end == pytest.approx(11.5)
+
+
+def test_a_twice_spoken_anchor_names_both_occurrences(tmp_path):
+    ranges = [(10.0, 14.0), (20.0, 24.0)]
+    with pytest.raises(captain_edits.CaptainEditError) as exc:
+        captain_edits.anchor_reel_time(ranges, _tx(), "the")
+    assert "2 times" in str(exc.value)
+
+
+def test_the_external_check_covers_the_new_kind(tmp_path):
+    from library.tools import external_inputs
+    from library.tools.external_inputs import ExternalStateError
+    project = _project(tmp_path)
+    _write_edits_file(project, [_override(
+        anchor="akshita explains the number")])
+    state = {"step_outputs": {"speech_sequence": {"body_sequence": [
+        {"text": "akshita explains the number clearly"}]}}}
+    supplied = external_inputs.load(str(project), state)
+    assert "1 edit(s)" in supplied["captain_edits"].checked
+    _write_edits_file(project, [_override(anchor="zebras on mars")])
+    with pytest.raises(ExternalStateError):
+        external_inputs.load(str(project), state)
+
+
+def test_describe_names_the_hold_in_plain_language(capsys):
+    lines = captain_edits.describe_edits([_override()])
+    assert "Pan" in lines[0] and "-35.0" in lines[0]
+
+
+def test_a_recorded_override_survives_the_read_and_the_rebuild(tmp_path):
+    """The whole loop through the dormant store: record (the write
+    side) -> load (the reader the build uses) -> match -> apply over
+    a 14 aim. What the captain settled is what the rebuild holds -
+    and a second rebuild holds it again rather than drifting."""
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _override(), "captain, test")
+    spans = [_span((10.0, 14.0)), _span((20.0, 24.0), speaker="Craig")]
+    for _ in range(2):
+        edits = captain_edits.load_edits(str(project))
+        matched, stale = captain_edits.match_transform_overrides(
+            spans, _tx(), edits)
+        assert stale == [] and len(matched) == 1
+        item = _Item(pan=14.0)
+        applied = reel_build.apply_transform_overrides(
+            "Reel 09", _TrackPlan(), {"1": 1}, spans,
+            _Timeline([item]), _tx(), str(project), 1080, 1920)
+        assert applied == 1
+        assert item.GetProperty("Pan") == pytest.approx(-35.0)
+
+
+# ── 5. The CLI: the one route ────────────────────────────────────────
+
+def test_cli_record_then_list(tmp_path, capsys):
+    project = _project(tmp_path)
+    assert captain_edits.main([
+        str(project), "record-transform", "--anchor", "explains the number",
+        "--property", "Pan", "--value", "-35",
+        "--reason", "captain: akshita sits left"]) == 0
+    out, _ = capsys.readouterr()
+    assert "recorded" in out and "Pan" in out
+    assert captain_edits.main([str(project), "list"]) == 0
+    out, _ = capsys.readouterr()
+    assert "Framing" in out and "-35.0" in out
+
+
+def test_cli_record_without_reason_is_refused(tmp_path, capsys):
+    project = _project(tmp_path)
+    assert captain_edits.main([
+        str(project), "record-transform", "--anchor", "explains the number",
+        "--property", "Pan", "--value", "-35",
+        "--reason", "  "]) == 1
+    out, _ = capsys.readouterr()
+    assert "REFUSED" in out
+
+
+def test_cli_capture_without_timeline_is_refused(tmp_path, capsys):
+    project = _project(tmp_path)
+    assert captain_edits.main([
+        str(project), "capture-transform", "--reel", "9",
+        "--words", "explains the number",
+        "--reason", "captain: moved by hand"]) == 1
+    out, _ = capsys.readouterr()
+    assert "EXACT" in out
+
+
+def test_cli_capture_without_proposal_is_refused(tmp_path, capsys):
+    project = _project(tmp_path)
+    _write_transcript(project, _tx())
+    assert captain_edits.main([
+        str(project), "capture-transform", "--reel", "9",
+        "--timeline", "Reel 09 - your-website-is-only-20-percent",
+        "--words", "explains the number",
+        "--reason", "captain: moved by hand"]) == 1
+    out, _ = capsys.readouterr()
+    assert "no readable reel proposal" in out
+    assert captain_edits.load_edits(str(project)) == []

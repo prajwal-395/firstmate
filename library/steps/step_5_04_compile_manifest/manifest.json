@@ -52,7 +52,7 @@
         "name": "color_grade_spec",
         "type": "object",
         "required": false,
-        "description": "State input: color_grade_spec, from step 5.01. OPTIONAL: an absent grade compiles to `color_grade: {}`, the renderer applies no CDL and no house-look Fusion values, and the picture ships ungraded. That is house_look.NEUTRAL_CDL's case: nothing drawn, not a look chosen."
+        "description": "State input: color_grade_spec, from step 5.01. OPTIONAL: an absent grade compiles to `color_grade: {}`, the renderer applies no CDL and no house-look Fusion values, and the picture ships ungraded. That is series_look.NEUTRAL_CDL's case: nothing drawn, not a look chosen."
       },
       {
         "name": "enhancement_spec",

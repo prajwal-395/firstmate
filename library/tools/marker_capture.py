@@ -143,7 +143,11 @@ _HERE = Path(__file__).resolve()
 if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
-from library.tools import marker_payload, timeline_decisions  # noqa: E402
+from library.tools import (  # noqa: E402
+    marker_payload,
+    resolve_surfaces,
+    timeline_decisions,
+)
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 WRITER = "capture_frame"
@@ -155,6 +159,13 @@ OUTPUT: a frame the captain chose is no more reproducible than the note
 they typed on it, and both die with the timeline a re-render deletes."""
 
 STILL_FORMAT = "png"
+
+CAPTURED_SURFACE = resolve_surfaces.GALLERY_STILL
+"""WHICH SURFACE THIS ROUTE CAPTURES.  `GrabStill` returns the graded,
+conformed timeline frame regardless of the open page, which is one of the
+two surfaces a grade may be measured on (AGENTS.md 5,
+`library/tools/resolve_surfaces.py`).  Named here so `grab_still` can
+assert it rather than every caller having to know it."""
 
 CREATED_MARKER_NAME = "Frame captured"
 """`AddMarker` refuses an empty name (§15), so a created marker must carry
@@ -331,6 +342,11 @@ class StillResult:
     stills_after: int
     exported_names: list = field(default_factory=list)
     discarded: list = field(default_factory=list)
+    surface: str = ""
+    """WHICH RESOLVE SURFACE THIS IMAGE IS - `CAPTURED_SURFACE`.  It is
+    recorded rather than assumed because the neighbouring surfaces -
+    either page's viewer - are NOT the delivered picture, and a lane that
+    mixes them up grades against a preview."""
 
 
 def _current_album(project):
@@ -388,11 +404,17 @@ def grab_still(timeline, project, destination: Path) -> StillResult:
 
     if destination.stat().st_size <= 0:
         raise CaptureError(f"The exported still {destination} is empty.")
-    return StillResult(
+    result = StillResult(
         path=destination, gallery_album=album_name,
         stills_before=before, stills_after=after,
         exported_names=names, discarded=discarded,
+        surface=CAPTURED_SURFACE,
     )
+    # The surface is asserted, not assumed: if this route is ever pointed
+    # at a viewer instead of the gallery, the capture fails here rather
+    # than handing a lane a preview to grade against.
+    resolve_surfaces.assert_measurable(result.surface)
+    return result
 
 
 def unused_path(path: Path) -> Path:

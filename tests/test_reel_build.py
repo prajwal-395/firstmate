@@ -676,6 +676,23 @@ class _FakePool:
         self.appended = []
         self.append_result = (
             append_result if append_result is not None else [{"placed": True}])
+        self._root = self._Folder("Master")
+        self._current = self._root
+        self.imported_into = []
+
+    class _Folder:
+        def __init__(self, name):
+            self._name = name
+            self.subs = []
+
+        def GetName(self):
+            return self._name
+
+        def GetClipList(self):
+            return []
+
+        def GetSubFolderList(self):
+            return list(self.subs)
 
     class _EmptyFolder:
         """A pool with nothing in it yet.
@@ -687,16 +704,37 @@ class _FakePool:
         still takes the import path these tests are about.
         """
 
+        def __init__(self):
+            self._subs = []
+            self._name = "Master"
+
+        def GetName(self):
+            return self._name
+
         def GetClipList(self):
             return []
 
         def GetSubFolderList(self):
-            return []
+            return list(self._subs)
 
     def GetRootFolder(self):
-        return self._EmptyFolder()
+        return self._root
+
+    def GetCurrentFolder(self):
+        return self._current
+
+    def SetCurrentFolder(self, folder):
+        self._current = folder
+        return True
+
+    def AddSubFolder(self, parent, name):
+        folder = self._Folder(name)
+        parent.subs.append(folder)
+        self._current = folder
+        return folder
 
     def ImportMedia(self, paths):
+        self.imported_into.append(self._current)
         return [_FakeItem()]
 
     def AppendToTimeline(self, clips):
@@ -778,6 +816,48 @@ def test_a_refused_import_is_raised_not_skipped():
         _placer(pool=_NoImport())
 
 
+def test_an_overlay_import_lands_in_its_declared_bin_not_in_current():
+    """The destination is binding at import time: the import happens
+    with the current folder set to the overlay's declared bin, and the
+    previous current folder is restored afterwards. Measured
+    2026-09-10: a fresh build left every overlay render in Source
+    footage because CURRENT was there and no organise followed."""
+    from library.tools import resolve_bin_layout as bins
+
+    pool, _ = _placer()
+    assert len(pool.imported_into) == 1
+    landed = pool.imported_into[0]
+    assert landed.GetName() == "fake reel"
+    tops = {f.GetName(): f for f in pool.GetRootFolder().GetSubFolderList()}
+    assert list(tops) == [bins.SUBTITLES_BIN]
+    assert landed in tops[bins.SUBTITLES_BIN].GetSubFolderList()
+
+
+def test_the_import_restores_the_previous_current_folder():
+    """Bin creation moves CURRENT (`AddSubFolder` parks it on the bin
+    it made), so the import restores what it found - the next timeline
+    creation must not land where this import filed."""
+    pool = _FakePool()
+    before = pool.GetCurrentFolder()
+    _placer(pool=pool)
+    assert pool.GetCurrentFolder() is before
+
+
+def test_import_into_bin_creates_no_duplicate_bins_on_rebuild(tmp_path):
+    """Lookup-first: the second build of the same reel reuses the bins
+    the first build made instead of forking same-named duplicates
+    (`AddSubFolder` never refuses)."""
+    from library.tools.execution.organise_media_pool import import_into_bin
+
+    pool = _FakePool()
+    dest = ("06 - Subtitle renders", "fake reel")
+    import_into_bin(pool, dest, ["/renders/a.mov"])
+    import_into_bin(pool, dest, ["/renders/b.mov"])
+    tops = pool.GetRootFolder().GetSubFolderList()
+    assert [f.GetName() for f in tops] == ["06 - Subtitle renders"]
+    assert [f.GetName() for f in tops[0].GetSubFolderList()] == ["fake reel"]
+
+
 # ── The explainer render reads the project's geometry ────────────────
 
 def test_explainer_render_forwards_the_project_folder(tmp_path, monkeypatch):
@@ -835,17 +915,32 @@ def test_explainer_render_forwards_the_project_folder(tmp_path, monkeypatch):
 # ── Tight motion graphics land positioned, not centred ───────────────
 
 class _PlacedItem:
-    """A timeline item the transform can be aimed at."""
+    """A timeline item whose transform can be read back.
 
-    def __init__(self, start):
+    A tight overlay carries Scaling/Pan/Tilt from its box; a fake
+    that reports something else is what proves the mismatch is
+    reported (`library/tools/overlay_placement.py`).
+    """
+
+    def __init__(self, start, held=None, frozen=None):
         self._start = start
+        self._held = dict(held or {})
+        # Props Resolve silently clamps: `SetProperty` returns True
+        # but the held value does not move - the captain's -3840.
+        self._frozen = dict(frozen or {})
+        self._held.update(self._frozen)
         self.set_calls = {}
 
     def GetStart(self):
         return self._start
 
+    def GetProperty(self, prop):
+        return self._held.get(prop)
+
     def SetProperty(self, prop, value):
         self.set_calls[prop] = value
+        if prop not in self._frozen:
+            self._held[prop] = value
         return True
 
 
@@ -863,32 +958,29 @@ def _tight_segment(path="/renders/vox_test_00_tight.mov"):
     seg["geometry"] = "tight"
     seg["tight_box"] = {
         "width": 800, "height": 400,
-        "placement": {"scaling": 1, "pan": 12.5, "tilt": -300.0},
+        "placement": {"scaling": 1, "pan": 140.0, "tilt": -1720.0},
     }
     return seg
 
 
-def _tight_placer(segments, track=7):
-    placed = [_PlacedItem(218)]
+def _tight_placer(segments, track=7, placed=None, **kwargs):
+    placed = placed if placed is not None else [_PlacedItem(218)]
     timeline = _TrackTimeline(placed)
     project = _FakeProject(timeline)
     pool = _FakePool()
     place_overlay_segments(
         pool, project, timeline, "fake reel", 24000 / 1001,
         segments, track, kind="semantic visual", check="F22",
-        project_folder="/proj")
+        project_folder="/proj", **kwargs)
     return pool, placed
 
 
-def test_a_tight_segment_is_placed_small_and_moved_into_position():
-    """A tight canvas without its Pan/Tilt is a small clip Resolve
-    centres on the delivery frame - the graphic lands nowhere near the
-    union it was computed from. The placer applies the segment's own
-    `tight_box.placement` (Scaling=1, then Pan/Tilt), the same three
-    moves `overlay_placement` makes for a tight caption."""
+def test_a_tight_segment_is_placed_through_its_box_placement():
+    """A tight graphic rides the Scaling/Pan/Tilt its box computed:
+    the placer SETS them on the placed item, then reads them back."""
     _, placed = _tight_placer([_tight_segment()])
     assert placed[0].set_calls == {
-        "Scaling": 1, "Pan": 12.5, "Tilt": -300.0}
+        "Scaling": 1, "Pan": 140.0, "Tilt": -1720.0}
 
 
 def test_a_full_canvas_segment_takes_no_transform():
@@ -896,3 +988,30 @@ def test_a_full_canvas_segment_takes_no_transform():
     a segment whose box the module declined must not inherit one."""
     _, placed = _tight_placer([_segment()])
     assert placed[0].set_calls == {}
+
+
+def test_a_graphic_resolve_has_moved_is_reported_by_name(capsys):
+    """THE READ-BACK. A placed overlay holding something other than
+    its box placement is REPORTED by name: the clip IS on the
+    timeline, and failing the build over a movable graphic would
+    trade a misplaced one for a missing one."""
+    moved = [_PlacedItem(218, frozen={"Tilt": -3840.0})]
+    _tight_placer([_tight_segment()], placed=moved)
+    err = capsys.readouterr().err
+    assert "semantic visual" in err
+    assert "Tilt" in err and "-3840" in err
+
+
+def test_a_declared_cover_zoom_is_held_and_judged_against():
+    """The TV frame's cover zoom is the one DECLARED overlay transform,
+    so holding it is correct rather than a refusal - the read-back is
+    scoped to what the caller asked for, never to the identity alone."""
+    item = _PlacedItem(218)
+    pool = _FakePool(append_result=[item])
+    timeline = _TrackTimeline([item])
+    place_overlay_segments(
+        pool, _FakeProject(timeline), timeline, "fake reel", 24000 / 1001,
+        [_segment()], 7, kind="TV frame", check="F4",
+        properties={"ZoomX": 1.7778, "ZoomY": 1.7778},
+        project_folder="/proj")
+    assert item.set_calls == {"ZoomX": 1.7778, "ZoomY": 1.7778}

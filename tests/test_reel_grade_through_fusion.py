@@ -3,18 +3,21 @@
 The captain approved the Fusion route for the four nodes no scriptable
 Color page call can reach (pivot contrast, glow, grain, vignette), and
 their numbers live in a project's own `project.yaml` under
-`style.house_look` - contrast 0.12, glow 0.20/0.72/3.5, grain 0.35/1.5,
+`style.series_look` - contrast 0.12, glow 0.20/0.72/3.5, grain 0.35/1.5,
 vignette 0.35/0.30.
 
 Two things have to be true for those numbers to reach the picture:
 
 1. The comp must carry what Fusion's own tool means by them. The
    declaration says contrast in pivot-gain units (0 is neutral, the same
-   units the reference stills were rendered in); Fusion's BrightnessContrast
-   tool takes 1.0 as neutral, with values below it collapsing the image
-   toward mid-grey. Emitting 0.12 verbatim ships a flat frame, which is
-   the check `data/vep-grade-variants/report.md` in the firstmate home,
-   section 4.1, asks the follow-up to make before writing anything.
+   units the reference stills were rendered in) and Fusion's
+   `BrightnessContrast.Contrast` is neutral at 0.0 as well, so it is
+   emitted VERBATIM. This file asserted `1.12` for a day, from the
+   grade-variant report's PREDICTION that Fusion's neutral was 1.0;
+   probing the tool says its default is 0.0, and a still off the live
+   Reel 09 says `Contrast = 0.0` is byte-identical to having no node at
+   all while `1.12` crushes the mean luma from 45.39 to 19.74 where the
+   declared 0.12 takes it to 39.97 (see `fusion/effects.fx.grade`).
 2. The reels path must merge the look onto every picture clip. Step
    5.04 merges `fusion_look` onto every V1/V2 clip of the master, but
    the reel manifest (`reel_look.fusion_manifest`) carried only the
@@ -33,7 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from library.tools import reel_look
 from library.tools.fusion.comp_builder import build_effect_comp
-from library.tools.house_look import resolve_look
+from library.tools.series_look import resolve_look
 
 # A declared look's magnitudes, fixed here so the test never reaches a
 # real project (AGENTS.md 8). The values exercise the machinery; the
@@ -82,13 +85,13 @@ def _two_row_plan():
 
 # ── 1. The declaration reaches the tool in the tool's own units ───────────
 
-def test_declared_contrast_emits_tool_neutral_plus_declaration():
-    """0.12 declared is a pivot gain with 0 neutral; the tool's neutral
-    is 1.0, so the comp must carry 1.12. Verbatim 0.12 collapses the
-    picture toward mid-grey (report.md 4.1)."""
+def test_declared_contrast_reaches_the_tool_verbatim():
+    """0.12 declared is a pivot gain with 0 neutral, and so is Fusion's
+    own Contrast: 0.0 renders byte-identical to no node at all. Emitting
+    1.12 for a declared 0.12 shipped eight times the grade."""
     comp = build_effect_comp({"grade_contrast": 0.12}, 120)
-    assert "Contrast = Input { Value = 1.12, }," in comp
-    assert "Contrast = Input { Value = 0.12, }," not in comp
+    assert "Contrast = Input { Value = 0.12, }," in comp
+    assert "Contrast = Input { Value = 1.12, }," not in comp
 
 
 def test_zero_contrast_still_draws_no_grade_node():
@@ -102,12 +105,12 @@ def test_declared_look_fusion_half_draws_all_four_nodes_at_declared_values():
     look = resolve_look(TEST_LOOK)
     comp = build_effect_comp(dict(look.fusion()), 120)
     assert "BrightnessContrast" in comp
-    assert "Contrast = Input { Value = 1.12, }," in comp
+    assert "Contrast = Input { Value = 0.12, }," in comp
     assert "SoftGlow" in comp
     assert "Gain = Input { Value = 0.2, }," in comp
     assert "Threshold = Input { Value = 0.72, }," in comp
     assert "FilmGrain" in comp
-    assert "Power = Input { Value = 0.35, }," in comp
+    assert "MasterStrength = Input { Value = 0.35, }," in comp
     assert "EllipseMask" in comp
     assert "Blend = Input { Value = 0.35, }," in comp
 
@@ -182,7 +185,7 @@ def test_no_grade_look_means_no_grade_keys_on_reels():
 
 def test_resolve_grade_look_reads_the_project_declaration(tmp_path):
     (tmp_path / "project.yaml").write_text(
-        yaml.safe_dump({"name": "t", "style": {"house_look": TEST_LOOK}}))
+        yaml.safe_dump({"name": "t", "style": {"series_look": TEST_LOOK}}))
     grade = reel_look.resolve_grade_look(str(tmp_path))
     assert grade["grade_contrast"] == pytest.approx(0.12)
     assert grade["glow_gain"] == pytest.approx(0.20)

@@ -209,7 +209,11 @@ def _save_pipeline_state(project_dir: str, state: dict):
     state_path = str(layout.pipeline_data_path)
     state["last_updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
     with open(state_path, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+        # Canonical spelling - same file save_pipeline_state writes, so
+        # the dashboard must emit the same bytes for the same state
+        # (library/tools/stable_json.py).
+        from library.tools.stable_json import dump_stable
+        dump_stable(state, f)
 
 
 def _load_dag() -> dict:

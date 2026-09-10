@@ -152,7 +152,7 @@ def test_a_project_declaring_none_inherits_no_taste(tmp_path):
     assert effect["transition_duration_ms"] == {}
     assert effect["vfx_intensity"] == 0.0
     assert effect["subtitle_style"] == ""
-    assert inputs["brand_style"]["house_look"] is None
+    assert inputs["brand_style"]["series_look"] is None
     assert inputs["brand_style"]["energy_profile"] == ""
     assert inputs["brand_style"]["typography"] == {}
     # The one exception, and it is recorded as one.
@@ -239,15 +239,15 @@ _COLOR_GRADE = os.path.join(
 
 def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
     """step_5_01_color_grade does `brand_template.get("style", {})` and
-    reads `style.house_look` off it.  The key was never set, so the look
+    reads `style.series_look` off it.  The key was never set, so the look
     a template declares never reached the grade - `main()` fell through
     to the neutral CDL on every run of every project.
 
     It needs a DICT, so this also pins the type: broadcasting the
     reference string under the same key would crash the step.
 
-    `house_look` is now a DECLARATION rather than a name into a catalogue
-    (the catalogue was removed - see tests/test_house_look.py), and no
+    `series_look` is now a DECLARATION rather than a name into a catalogue
+    (the catalogue was removed - see tests/test_series_look.py), and no
     shipped template declares one, so the route is proved with a
     declaration this test writes into the project's own template.
     """
@@ -266,7 +266,7 @@ def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
     assert isinstance(template, dict), "step 5.01 calls .get() on this"
     # The shipped template declares no look, and that is the point: it
     # reaches the step as an absence rather than as a substitute.
-    assert template["style"]["house_look"] is None
+    assert template["style"]["series_look"] is None
     assert "color_palette" in template["style"], "the template still arrives"
 
 
@@ -287,12 +287,12 @@ def test_the_grade_actually_reads_a_declared_look(tmp_path):
     shot_list = {"entries": [{"track": "V1", "clip_id": "c1",
                               "entry_id": "e1", "source_file": "f1.mov"}]}
     with_look = define_color_grade(shot_list, project_folder=str(tmp_path),
-                                   house_look=declaration)
+                                   series_look=declaration)
     without = define_color_grade(shot_list, project_folder=str(tmp_path),
-                                 house_look=None)
+                                 series_look=None)
     graded, neutral = with_look["color_grade_spec"], without["color_grade_spec"]
-    assert graded["house_look"] == "geo_declaration"
-    assert neutral["house_look"] is None
+    assert graded["series_look"] == "geo_declaration"
+    assert neutral["series_look"] is None
     # The two halves the look is delivered in (AGENTS.md section 12).
     # Neutral is the identity CDL and an empty Fusion block: literally no
     # grade, which is what every project with no declaration gets.

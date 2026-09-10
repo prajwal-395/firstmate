@@ -20,6 +20,7 @@ from library.tools.project_layout import (
     Area,
     ProjectLayout,
 )
+from library.tools.stable_json import dump_stable
 
 
 def export_step_output(
@@ -34,10 +35,14 @@ def export_step_output(
     """
     layout = ProjectLayout(project_dir)
 
-    # Write raw JSON output
+    # Write raw JSON output in the canonical spelling
+    # (library/tools/stable_json.py): sorted keys so the same step
+    # output is the same bytes no matter what order the bridge or the
+    # post-bridge built the dict in - otherwise every rebuild would
+    # dirty the tree and every variant merge would conflict on it.
     json_path = layout.step_output_json(step_id)
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2)
+        dump_stable(output, f)
 
     # Generate human-readable summary
     summary_md = generate_summary(step_id, step_name, output)
@@ -463,18 +468,18 @@ def _summary_plan_sfx(name: str, out: dict) -> str:
 def _summary_color_grade(name: str, out: dict) -> str:
     spec = out.get("color_grade_spec", out)
     lines = [f"# {name}", ""]
-    # `house_look` is the NAME the brand template's declaration carries;
-    # `house_look_declared` is which elements it wrote. This used to look
+    # `series_look` is the NAME the brand template's declaration carries;
+    # `series_look_declared` is which elements it wrote. This used to look
     # for `target_look`/`look`/`lut`, none of which any step has ever
     # written, so the summary never named the grade it was summarising.
-    look = spec.get("house_look")
+    look = spec.get("series_look")
     if look:
-        declared = ", ".join(spec.get("house_look_declared", [])) or "nothing"
+        declared = ", ".join(spec.get("series_look_declared", [])) or "nothing"
         lines.append(f"**Declared look**: {look} ({declared})")
     else:
         lines.append(
             "**Declared look**: none - no brand template declares "
-            "`style.house_look`, so no CDL, contrast, glow, grain or "
+            "`style.series_look`, so no CDL, contrast, glow, grain or "
             "vignette reaches the picture")
     # The look is only half the grade. The other half is what the
     # COLOURIST decided, and an identity CDL reads the same whether one

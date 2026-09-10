@@ -35,7 +35,7 @@ templates"):
     are usable by the engine while living with the project they belong to.
     Omit ``source`` and the composition must be one the engine itself
     registers (``ENGINE_BOOKEND_COMPOSITIONS``); an unknown name raises,
-    the same way an unknown ``house_look`` does.
+    the same way an unknown ``series_look`` does.
 
 How a declaration reaches the picture, in order:
 

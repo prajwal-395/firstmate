@@ -51,7 +51,7 @@ style:
   # (overall_branding_creative_direction.md).
   #
   # To grade under this template, declare the values:
-  # `python3 -c "from library.tools.house_look import
+  # `python3 -c "from library.tools.series_look import
   #  describe_declaration_shape as d; print(d())"`
   # Agrees with `default_subtitles` in library/tools/subtitle_style.py
   # rather than fighting it. A template's typography legitimately

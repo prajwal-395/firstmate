@@ -94,10 +94,15 @@ def reel_run(monkeypatch, tmp_path):
                 overlay_geometry=None, overlay_container=None,
                 project_folder=""):
             seen.append(reuse)
+            # These tests pin the reuse wiring, not the carrying: the
+            # byte stub cannot feed the tight probe (it writes no
+            # decodable video), so the geometry is held at full while
+            # the default is tight. Geometry itself is pinned in
+            # test_overlay_mode.py and test_subtitle_overlay_modes.py.
             return render_one_segment(
                 props, out_dir, name, remotion_dir=REMOTION,
                 progress=progress, reuse=reuse, renderer=engine,
-                overlay_geometry=overlay_geometry,
+                overlay_geometry="full",
                 overlay_container=overlay_container,
                 project_folder=project_folder)
 

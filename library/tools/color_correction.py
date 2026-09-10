@@ -48,7 +48,7 @@ own would be enough:
    defect with a model's name on it.
 2. **It is a JUDGEMENT, not a declaration, and the output has to be able
    to tell them apart.**  Writing a model's answer into the template slot
-   would make `house_look.exposure_reference` mean two different things
+   would make `series_look.exposure_reference` mean two different things
    depending on who wrote it, and `resolve_look` refuses unknown keys
    precisely so that no value arrives from somewhere nobody can name.
 3. **A template that declares one must keep winning.**  Keeping the two
@@ -111,7 +111,7 @@ What is refused, what is dropped, and what is recorded
   colourist had looked and approved or whether no colourist existed.
 
 There are no bounds.  How far a correction may travel is the colourist's,
-the same way `house_look` has no bound on how far a declared slope may
+the same way `series_look` has no bound on how far a declared slope may
 go: an engine-supplied range is a strength nobody chose arriving one
 level up (AGENTS.md 10.5).
 
@@ -129,7 +129,7 @@ keeps the headline and points here.
 One enumeration, `library/tools/color_correction.py`. [why - the nine measured clips and the identity CDL](docs/RULE_EVIDENCE.md#the-step-that-measured-nine-clips-and-graded-none) Step 5.01 measured 001's nine clips across a 2.7x luma spread - clip_011 at 145.495, clip_017 at 53.116 - and wrote the identity CDL on all nine, because normalisation was reachable only through an `exposure_reference` only a template declares. Captain, 2026-09-03: *"we need to still let the LLM understand it should try to add some color grading if it thinks it is needed rather than saying no completely bc of a lack of brand template."*
 - **The correction is its own field, NOT `exposure_reference` reused.** That slot is a per-SERIES scalar a template DECLARES; a correction is per-clip, is a JUDGEMENT, and a template that declares one must keep winning. Writing a model's answer into a template slot would make the key mean two things depending on who wrote it.
 - **The two compose EXACTLY, in a stated serial order**: `out = (in * (2**exposure_stops * slope * look_slope) + (look_offset + offset)) ** (look_power * power)`, saturations multiplied. Every step is exact - `(x**p)**q == x**(p*q)`, a pre-scale folds into slope, a same-stage offset adds - which is why the order is fixed. **A declared look with no correction is byte-for-byte `look.cdl()`.**
-- **No bound and no default.** How far a correction may travel is the colourist's, the same way `house_look` bounds no declared slope. A malformed VALUE RAISES so `post_bridge_retry` carries it back to the model; an entry naming no clip, no term or no `why` is DROPPED with the reason (`DROP_REASONS`, refused if outside).
+- **No bound and no default.** How far a correction may travel is the colourist's, the same way `series_look` bounds no declared slope. A malformed VALUE RAISES so `post_bridge_retry` carries it back to the model; an entry naming no clip, no term or no `why` is DROPPED with the reason (`DROP_REASONS`, refused if outside).
 - **`correction_basis` says which absence an ungraded run is.** FOUR readings, spelled differently on purpose: `corrected`, `judged_no_correction_needed` (a decision), `no_correction_decision` (nobody looked), `every_entry_dropped`. The old output could not tell the second from the third - an identity CDL read the same either way.
 - **`WITHHELD_TERMS` records what a correction may NOT say** and where it lives instead: `temperature` (no CDL term; say it as slope and offset), `contrast` (Fusion's, not the CDL's), `curve` (no reader anywhere).
 - 5.01 is now HYBRID: `bridge.py` measures and builds `clip_exposure` + `cut_adjacency` (the pairs a viewer sees, in stops), `handoff.md` asks a colourist, `post_bridge.py` composes. `tests/test_color_correction.py`, `tests/test_color_grade_is_decided.py`.
@@ -275,7 +275,7 @@ WITHHELD_TERMS = {
     "contrast": (
         "A CDL cannot pivot around mid grey, which is why a declared "
         "look delivers contrast through Fusion "
-        "(`house_look.LOOK_ELEMENTS`). A per-clip pivot contrast would "
+        "(`series_look.LOOK_ELEMENTS`). A per-clip pivot contrast would "
         "need a per-clip Fusion comp for the correction's sake alone; "
         "whether a correction may draw a comp is a real question and it "
         "is not this change's to answer."
@@ -534,11 +534,11 @@ def compose_cdl(look, correction: Optional[Correction],
     of the two would produce and not an approximation of it.
 
     Args:
-        look: a `house_look.DeclaredLook`, or None where the project's
+        look: a `series_look.DeclaredLook`, or None where the project's
             template declares no look.
         correction: this clip's correction, or None where the colourist
             left it alone.
-        neutral_cdl: `house_look.NEUTRAL_CDL`, passed in rather than
+        neutral_cdl: `series_look.NEUTRAL_CDL`, passed in rather than
             imported so this module holds no CDL values of its own.
     """
     gain = correction.exposure_gain if correction else 1.0

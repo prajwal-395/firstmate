@@ -48,7 +48,7 @@ spacing, not a distance, not a ramp length, not a typeface, not an
 opacity.  Every one of those is a magnitude, and the captain's rule of
 2026-09-08 - "i want no hardcoded values.  there are no house glow
 looks, there are no settled house grain or anything" - is why they live
-in a per-project LOOK DECLARATION instead, the way `house_look.py`
+in a per-project LOOK DECLARATION instead, the way `series_look.py`
 holds nothing and `StagedScene` states nothing.  A plan entry carrying a
 look key is refused as `look_value_in_component_plan`, read from the KEY
 and never from the value, exactly as `reel_semantic_visual` refuses one
@@ -798,7 +798,7 @@ def resolve_component_plan(
 # Everything below reads magnitudes out of `look` and states none. The
 # only numbers this file authors are 0 and 1 - "not there" and "there" -
 # which are the absence of a choice rather than a choice, the same
-# reading `house_look.NEUTRAL_CDL` gets (AGENTS.md 10.5).
+# reading `series_look.NEUTRAL_CDL` gets (AGENTS.md 10.5).
 
 
 def _keys(pairs: Sequence[Tuple[float, float]], ease: str | None = None) -> List[dict]:

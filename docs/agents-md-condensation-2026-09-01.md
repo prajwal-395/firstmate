@@ -253,7 +253,7 @@ REMOVED normative statements (each must be accounted for):
 
   L1026 [10.4 Gates, and what counts as evidence] - **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. They carry their own legend, because `handoff.md` is frozen (the `CUTS_LEGEND` route), and the legend says plainly that a finding is not grounds to reject a rough cut.
 
-  L1059 [10.5 Creative latitude] - Two things are NOT taste, and are the reason the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `house_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
+  L1059 [10.5 Creative latitude] - Two things are NOT taste, and are the reason the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
 
   L1060 [10.5 Creative latitude] - A plan entry that names no effect, no sound, no intensity or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
 
@@ -325,7 +325,7 @@ REMOVED normative statements (each must be accounted for):
 
   L1411 [What Resolve's script host does not give an entry point] - **A bootstrap failure must reach the SCREEN.** Resolve puts a traceback in `~/Library/Application Support/.../logs/davinci_resolve.log` and nothing in front of the captain, so a script that dies during bootstrap is a menu item that silently does nothing. `print` is the floor - it reaches Resolve's Console before any import of ours has run - and a window built from the injected `fusion`/`bmd` goes on top of it and MAY NOT RAISE. The panel's module body cannot be reached by its own `if __name__ == "__main__":` guard, so it holds its failure in `BOOTSTRAP_ERROR` instead.
 
-  L1467 [16. Motion graphics] - **An entry names a dimension; the magnitude belongs to whoever declares it.** `AXES` is the vocabulary of dimensions - timing, anchor, footprint, entrance, exit, emphasis, colour_role, type_role, copy, data, asset - and no axis has a default or a bound. `colour_role` is a role of the declaring palette and never a colour; `type_role` is a weight within the element and never a size. Nothing here fixes a colour, a duration, an easing strength or an intensity, which is the same rule §12 emptied `house_look.py` to establish.
+  L1467 [16. Motion graphics] - **An entry names a dimension; the magnitude belongs to whoever declares it.** `AXES` is the vocabulary of dimensions - timing, anchor, footprint, entrance, exit, emphasis, colour_role, type_role, copy, data, asset - and no axis has a default or a bound. `colour_role` is a role of the declaring palette and never a colour; `type_role` is a weight within the element and never a size. Nothing here fixes a colour, a duration, an easing strength or an intensity, which is the same rule §12 emptied `series_look.py` to establish.
 
   L1468 [16. Motion graphics] - **Reachability is REPORTED per entry, never a filter on membership.** Four entries are `reachable_now`, ten need renderer work and one needs a measurement nothing takes. The render path is broken; a roster written around it would keep the defect after the repair.
 
@@ -569,7 +569,7 @@ ADDED normative statements:
 
   L1214 [10.4 Gates, and what counts as evidence] - **No DAG edge carries the findings to 3.03 and none can**: (Mentions: `CUTS_LEGEND`, `gather_step_inputs`, `handoff.md`, `load_findings`, `validate`, is not, only).
 
-  L1248 [10.5 Creative latitude] - Two things are NOT taste, and are the reason the rule is workable. (Mentions: `creative_cohesion`, `house_look.NEUTRAL_CDL`, `transition_vocabulary.CUT_TYPES`, is not, may not).
+  L1248 [10.5 Creative latitude] - Two things are NOT taste, and are the reason the rule is workable. (Mentions: `creative_cohesion`, `series_look.NEUTRAL_CDL`, `transition_vocabulary.CUT_TYPES`, is not, may not).
 
   L1250 [10.5 Creative latitude] - A plan entry that names no effect, no sound, no intensity or no level is DROPPED with the reason. (Mentions: Never, `compile_manifest`).
 
@@ -641,7 +641,7 @@ ADDED normative statements:
 
   L1659 [What Resolve's script host does not give an entry point] - **A bootstrap failure must reach the SCREEN.** (Mentions: MAY NOT, `BOOTSTRAP_ERROR`, `bmd`, `fusion`, `if __name__ == "__main__":`, `print`, `~/Library/Application Support/.../logs/davinci_resolve.log`, cannot).
 
-  L1718 [16. Motion graphics] - **An entry names a dimension; the magnitude belongs to whoever declares it.** (Mentions: `AXES`, `colour_role`, `house_look.py`, `type_role`, never).
+  L1718 [16. Motion graphics] - **An entry names a dimension; the magnitude belongs to whoever declares it.** (Mentions: `AXES`, `colour_role`, `series_look.py`, `type_role`, never).
 
   L1720 [16. Motion graphics] - **Reachability is REPORTED per entry, never a filter on membership.** (Mentions: `reachable_now`).
 

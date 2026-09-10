@@ -67,9 +67,13 @@ def _read_json(path: Path) -> Optional[dict]:
 
 
 def _write_json(path: Path, data: dict) -> None:
+    # Canonical spelling (library/tools/stable_json.py): pipeline_run.json
+    # is run state, rebuilt rather than merged, but sorted keys still
+    # keep no-op rewrites byte-identical so the tree stays clean.
+    from library.tools.stable_json import dump_stable
     tmp = path.with_suffix(path.suffix + ".tmp")
     with open(tmp, "w") as f:
-        json.dump(data, f, indent=2)
+        dump_stable(data, f)
     os.replace(tmp, path)
 
 

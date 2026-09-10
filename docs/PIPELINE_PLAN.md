@@ -348,10 +348,10 @@ templates declare it. See Q5.
 **Colour is CDL plus Fusion, and the values are DECLARED, not authored here.**
 ~~The shipped look is an exposure-matched slope plus a fixed +0.02 lift and
 1.12 saturation - uniform, not wrong, and not a look.~~ ~~**CLOSED.** Four
-looks are authored in `library/tools/house_look.py` from the captain's
+looks are authored in `library/tools/series_look.py` from the captain's
 planning docs, one named by each shipped template~~ **REOPENED AND CLOSED
 AGAIN, 2026-08-28**: the captain ruled there is no house look and no settled
-grain, so the four looks are REMOVED and `library/tools/house_look.py` holds
+grain, so the four looks are REMOVED and `library/tools/series_look.py` holds
 no values - it reads a declaration a brand template writes. No shipped
 template declares one, so no project gets a grade today. The CDL half carries
 hue and level and the Fusion half carries contrast, glow, grain and a shaped
@@ -577,7 +577,7 @@ The remaining items (P2.1 Real music level, P2.3 Music fades, P2.4 Master limite
   Remotion props, and delete the hardcoded default at
   `generate_remotion_props.py:145-153`.~~ **DONE.** The named looks live in
   one enumeration, `library/tools/subtitle_style.py`, on the same contract
-  as `transition_vocabulary` and `house_look`: an unknown name raises, and
+  as `transition_vocabulary` and `series_look`: an unknown name raises, and
   a style no template names fails CI. A named style owns the SHAPE (size,
   weight, outline, position); the template supplies the brand, via
   `style.typography` and `style.color_palette`. Step 4.01 resolves it and
@@ -1013,7 +1013,7 @@ lowercased unconditionally since #102.
 ruled: drop the PowerGrade node and deliver the look entirely through CDL plus
 Fusion, which the pipeline can do unaided. It needs no hand-grading, it removes
 an unlicensed third-party asset, and it fixes the templates that named no grade
-- in one move. Four looks then shipped in `library/tools/house_look.py`,
+- in one move. Four looks then shipped in `library/tools/series_look.py`,
 authored from the planning docs at `PLAN/series portfolio '26 planning/`.
 Rejected: hand-authoring `.drx` files in Resolve; keeping the gifted grade and
 merely flagging the licence.

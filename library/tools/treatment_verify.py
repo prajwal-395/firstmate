@@ -220,15 +220,21 @@ def evaluate_comp(comp_text: str, played: int) -> Dict[str, List[float]]:
 def neutral_value(spline_name: str) -> Optional[float]:
     """What this spline reads where the treatment draws nothing.
 
-    By name suffix, the same way the comp names them: Crop edges rest
-    at 0, Transform size at 1, gains and blends at their pass-through.
+    By name suffix, the same way the comp names them: the deflection
+    band's Height rests at 1 (the whole frame shows), Transform size at
+    1, gains and blends at their pass-through.
     None means "cannot tell" - a curve nothing here judges is reported,
     never gated, because a gate that fails correct output is worthless
     (AGENTS.md 10.4).
+
+    ``Top``/``tom`` were the switch animation's Crop edges, which rested
+    at 0. That construction never drew - Fusion's Crop has no such
+    inputs (`library/tools/fusion/tool_inputs.py`) - and the block is now
+    a masked band whose one animated term is ``Height``.
     """
     name = spline_name or ""
-    if name.endswith(("Top", "tom", "Bottom", "Left", "Right")):
-        return 0.0
+    if name.endswith("Height"):
+        return 1.0
     if name.endswith("Size"):
         return 1.0
     if name.endswith(("Gain", "Blend")):
@@ -693,30 +699,33 @@ def verify_and_undo_drift(effects: dict, clip_dur: int,
     return final, row
 
 
-def _edge(curves: Dict[str, List[float]], name: str, frame: int,
-          edge: str) -> float:
-    """One crop edge's value, or 0 when the curve is absent."""
-    values = curves.get(name)
-    if not values or frame >= len(values):
-        return 0.0
-    return values[frame]
-
-
 def _kept_series(curves: Dict[str, List[float]],
                   played: int) -> List[float]:
-    """Fraction of picture height the crop pair keeps, per frame."""
-    tops = [n for n in curves if n.endswith("Top")]
-    bots = [n for n in curves if n.endswith("tom")]
-    if not tops or not bots:
+    """Fraction of picture height the deflection band keeps, per frame.
+
+    The band's ``Height`` IS the kept fraction: the mask shows the
+    picture inside it and the black Background covers everything else.
+    Where several bands are present (a single-clip reel carries both the
+    switch-on and the switch-off), the tightest wins - the picture is
+    only as visible as the narrowest slot in front of it.
+    """
+    bands = [n for n in curves if n.endswith("Height")]
+    if not bands:
         return [1.0] * played
     out = []
     for f in range(played):
-        top = max((_edge(curves, n, f, "top") for n in tops),
-                  default=0.0)
-        bot = max((_edge(curves, n, f, "bottom") for n in bots),
-                  default=0.0)
-        out.append(max(0.0, 1.0 - top - bot))
+        kept = min((_clamped(curves, n, f) for n in bands), default=1.0)
+        out.append(kept)
     return out
+
+
+def _clamped(curves: Dict[str, List[float]], name: str, f: int) -> float:
+    """One band curve at frame `f`, clamped to 0..1."""
+    values = curves.get(name) or []
+    if not values:
+        return 1.0
+    value = values[f] if f < len(values) else values[-1]
+    return max(0.0, min(1.0, float(value)))
 
 
 #: The head frames the captain judges a power-on opening on: the

@@ -1337,16 +1337,17 @@ def build_timeline(
             # Shift the subtitle's timeline_start by the offset
             tl_in_frame += offset_f
 
-            # A tight clip is placed small and moved into position;
-            # full-canvas needs no transform. See
-            # library/tools/overlay_placement.py.
-            placement = (seg.get('tight_box') or {}).get('placement')
+            # The caption artefact rides the placement its tight box
+            # computed - read off the entry step 4.05 recorded - and
+            # the placer SETS it then READS BACK what Resolve holds.
+            # See library/tools/overlay_placement.py.
             assert_current_timeline(project, timeline)
             placed, note = place_overlay_segment(
                 media_pool, timeline, pool_item,
                 track_index=_caption_row, record_frame=tl_in_frame,
                 source_in_frame=src_in_f, source_out_frame=src_out_f,
-                placement=placement, label=f"V{_caption_row}[{si}] {seg_basename}")
+                placement=(seg.get("tight_box") or {}).get("placement"),
+                label=f"V{_caption_row}[{si}] {seg_basename}")
             if placed:
                 v3_count += 1
                 print(f"  ✓ [{si}] {seg_basename} on V{_caption_row} ({seg_frames}f @ TL {tl_in_frame})",
@@ -1401,16 +1402,17 @@ def build_timeline(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
 
-            # A tight clip is placed small and moved into position;
-            # full-canvas needs no transform. See
-            # library/tools/overlay_placement.py.
-            placement = (seg.get('tight_box') or {}).get('placement')
+            # The graphic artefact rides the placement its tight box
+            # computed - read off the entry step 4.06 recorded - and
+            # the placer SETS it then READS BACK what Resolve holds.
+            # See library/tools/overlay_placement.py.
             assert_current_timeline(project, timeline)
             placed, note = place_overlay_segment(
                 media_pool, timeline, pool_item,
                 track_index=_mg_row, record_frame=tl_in_frame,
                 source_in_frame=0, source_out_frame=seg_frames,
-                placement=placement, label=f"V{_mg_row}[{mi}] {seg_basename}")
+                placement=(seg.get("tight_box") or {}).get("placement"),
+                label=f"V{_mg_row}[{mi}] {seg_basename}")
             if placed:
                 v4_count += 1
                 _mg_counts[_mg_row] = _mg_counts.get(_mg_row, 0) + 1
@@ -1557,23 +1559,31 @@ def build_timeline(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
             tl_in_frame = round(seg.get('timeline_start', 0) * fps)
 
+            # Through the ONE overlay placer, like the captions and the
+            # motion graphics above. A timed-text card is a full-frame
+            # overlay artefact (`library/tools/timed_text_render.py`),
+            # so it needs no transform, and routing it here is what
+            # gives it the read-back every other overlay row already
+            # has. It used to carry its own inline append, which meant
+            # the one row on the timeline nobody ever asked Resolve
+            # what it held.
             assert_current_timeline(project, timeline)
-            result = media_pool.AppendToTimeline([{
-                "mediaPoolItem": pool_item,
-                "startFrame": 0,
-                "endFrame": seg_frames,
-                "trackIndex": _tt_row,
-                "recordFrame": tl_in_frame,
-                "mediaType": 1,  # video-only placement
-            }])
-            if result:
+            placed, note = place_overlay_segment(
+                media_pool, timeline, pool_item,
+                track_index=_tt_row, record_frame=tl_in_frame,
+                source_in_frame=0, source_out_frame=seg_frames,
+                label=f"V{_tt_row}[{ti}] {seg_basename}")
+            if placed:
                 v6_count += 1
                 _tt_counts[_tt_row] = _tt_counts.get(_tt_row, 0) + 1
                 print(f"  V [{ti}] {seg_basename} on V{_tt_row} "
                       f"({seg_frames}f @ TL {tl_in_frame})", file=sys.stderr)
+                if note:
+                    results["warnings"].append(note)
+                    print(f"  ! {note}", file=sys.stderr)
             else:
-                print(f"  X [{ti}] {seg_basename}: placement failed",
-                      file=sys.stderr)
+                print(f"  X [{ti}] {seg_basename}: placement failed - "
+                      f"{note}", file=sys.stderr)
                 results["warnings"].append(
                     f"V{_tt_row}[{ti}] placement failed: {seg_basename}")
 
@@ -2129,7 +2139,7 @@ def build_timeline(
     # addition to it. An undeclared one changes nothing here.
     color_grade = manifest.get("color_grade", {})
     per_clip_adjs = color_grade.get("per_clip_adjustments", [])
-    house_look = color_grade.get("house_look")
+    series_look = color_grade.get("series_look")
 
     # Build a lookup by source_file basename
     color_lookup = {}
@@ -2139,7 +2149,7 @@ def build_timeline(
             color_lookup[os.path.basename(src).lower()] = adj.get("cdl_values", {})
 
     if color_lookup:
-        label = house_look or "no house look named - exposure only"
+        label = series_look or "no house look named - exposure only"
         print(f"\n── Color Grading (CDL: {label}) ──", file=sys.stderr)
 
         for track_idx in range(1, timeline.GetTrackCount("video") + 1):
@@ -2583,6 +2593,35 @@ def build_timeline(
     if results["warnings"]:
         for w in results["warnings"]:
             print(f"  WARNING: {w}", file=sys.stderr)
+
+    # ══════════════════════════════════════════════════════════
+    # VERSION-CONTROL RECORD (per-project git repo)
+    # ══════════════════════════════════════════════════════════
+    # AFTER comps and grade, so the record describes the finished
+    # timeline: a final OTIO export (the mix path's .delivered.otio
+    # only exists when levels were delivered), the serializer read,
+    # and a note naming what the export cannot see - committed
+    # together with the .comp files.  Never fails the build.
+    if project_folder:
+        try:
+            from library.tools import build_version_control as _bvc
+            _vc = _bvc.record_finished_timeline(
+                resolve, timeline, project_folder, timeline_name)
+            results["build_record"] = {
+                k: v for k, v in _vc.items() if k != "files"}
+            if _vc.get("committed"):
+                print(f"\n── Version control: committed {_vc['commit']} "
+                      f"({len(_vc.get('files', []))} file(s)) ──",
+                      file=sys.stderr)
+            else:
+                msg = (f"version-control record not committed: "
+                       f"{_vc.get('reason', 'unknown')}")
+                results["warnings"].append(msg)
+                print(f"  ⚠ {msg}", file=sys.stderr)
+        except Exception as exc:
+            msg = f"version-control record failed: {exc!r}"
+            results["warnings"].append(msg)
+            print(f"  ⚠ {msg}", file=sys.stderr)
 
     return results
 

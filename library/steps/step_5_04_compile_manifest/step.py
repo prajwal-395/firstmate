@@ -2400,8 +2400,13 @@ def main():
             os.path.dirname(os.path.abspath(out_dir))
         ).write_path(Area.ASSEMBLY_MANIFEST, "assembly_manifest.json",
                      step="compile_manifest"))
-        with open(out_path, "w") as f:
-            json.dump(manifest, f, indent=2)
+        with open(out_path, "w", encoding="utf-8") as f:
+            # Canonical spelling (library/tools/stable_json.py): the
+            # manifest is the document a variant merge reads, so the
+            # same plan is the same bytes. Stdout below keeps its old
+            # spelling - it is piped, never merged.
+            from library.tools.stable_json import dump_stable
+            dump_stable(manifest, f)
         print(f"\nWrote: {out_path}", file=sys.stderr)
 
         json.dump(manifest, sys.stdout, indent=2)

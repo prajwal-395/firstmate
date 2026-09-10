@@ -18,7 +18,7 @@ prompt.
 A view is the enumeration that lets a manifest ask for the READING of a
 routed input rather than its storage shape.  One table, one builder per
 name, and an unknown name raises - the same shape `beat_grid`,
-`energy_reading`, `music_behavior`, `safe_area` and `house_look` use.
+`energy_reading`, `music_behavior`, `safe_area` and `series_look` use.
 
 Declare one by putting `view:<name>` in `context_fields`.  A view whose
 source input is not routed to the step contributes nothing, exactly as a

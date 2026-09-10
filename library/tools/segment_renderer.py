@@ -112,6 +112,17 @@ def render_segment(resolve, project, timeline,
             "CustomName": name,
             "FormatWidth": width,
             "FormatHeight": height,
+            # WITHOUT `SelectAllFrames: False` Resolve IGNORES the
+            # range and queues the whole timeline (§5: judge the call
+            # by what it returns, and here even the return lies - both
+            # SetRenderSettings and AddRenderJob succeed).  Measured
+            # 2026-09-11 on `Podcast (field test)` / Reel 09: a request
+            # for frame 300 alone queued MarkIn 0 / MarkOut 1665 and
+            # rendered 1,471 TIFFs of the entire reel before it was
+            # stopped by hand.  On the captain's machine - the fleet's
+            # one hard CPU limiter - a "single frame" that renders a
+            # whole timeline is not a slow check, it is an outage.
+            "SelectAllFrames": False,
             "MarkIn": mark_in,
             "MarkOut": mark_out,
             "ExportVideo": True,
@@ -121,6 +132,30 @@ def render_segment(resolve, project, timeline,
         project.SetRenderSettings(settings)
         assert_current_timeline(project, timeline)
         our_job_id = project.AddRenderJob()
+        # And then what Resolve actually QUEUED.  A range that did not
+        # take is caught HERE, before a frame is rendered, because the
+        # cost of finding out afterwards is the whole timeline.  The
+        # job is deleted by the `finally` below either way.
+        queued = next((job for job in (project.GetRenderJobList() or [])
+                       if job.get("JobId") == our_job_id), None)
+        if queued is None:
+            return SegmentRenderResult(
+                path="", mark_in=mark_in, mark_out=mark_out,
+                duration_frames=mark_out - mark_in + 1,
+                width=width, height=height, success=False,
+                error=(f"AddRenderJob returned {our_job_id!r} but no such "
+                       f"job is in the render queue - nothing was started"),
+            )
+        got_in, got_out = queued.get("MarkIn"), queued.get("MarkOut")
+        if (got_in, got_out) != (mark_in, mark_out):
+            return SegmentRenderResult(
+                path="", mark_in=mark_in, mark_out=mark_out,
+                duration_frames=mark_out - mark_in + 1,
+                width=width, height=height, success=False,
+                error=(f"Resolve queued MarkIn={got_in} MarkOut={got_out} "
+                       f"for a request of {mark_in}-{mark_out} - refusing "
+                       f"to start a render of a range nobody asked for"),
+            )
         project.StartRendering([our_job_id], isInteractiveMode=False)
 
         # Poll for completion

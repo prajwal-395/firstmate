@@ -32,14 +32,14 @@ from library.steps.step_5_01_color_grade.grade import (
     exposure_gain_for,
 )
 from library.tools.fusion.comp_builder import build_effect_comp
-from library.tools.house_look import LookDeclarationError, resolve_look
+from library.tools.series_look import LookDeclarationError, resolve_look
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATES_DIR = os.path.join(REPO_ROOT, "library", "templates")
 
 # Values written HERE, in a test, standing in for what a brand template
 # would declare. The engine ships none of its own - see
-# tests/test_house_look.py.
+# tests/test_series_look.py.
 DECLARED = {
     "name": "test_declaration",
     "cdl": {
@@ -59,14 +59,14 @@ NOT_MEASURED = {"luma": None, "method": LUMA_UNMEASURED, "samples": 0,
                 "reason": "ffprobe is not on PATH"}
 
 
-def _spec(house_look=None, measurement=None):
+def _spec(series_look=None, measurement=None):
     with patch("library.steps.step_5_01_color_grade.grade.measure_luma",
                return_value=dict(measurement or MEASURED)):
         return define_color_grade(
             {"entries": [{"track": "V1", "clip_id": "c1", "entry_id": "e1",
                           "source_file": "f1.mov"}]},
             project_folder="proj",
-            house_look=house_look,
+            series_look=series_look,
         )["color_grade_spec"]
 
 
@@ -92,7 +92,7 @@ def test_no_designed_node_is_delivered_by_a_powergrade():
 
 def test_no_designed_node_sources_its_values_from_the_engine():
     """Every node that carries values names the template slot that
-    declares them. `library/tools/house_look.py` holds none."""
+    declares them. `library/tools/series_look.py` holds none."""
     for node, record in GRADE_PIPELINE.items():
         source = record.get("source")
         if source is None:
@@ -103,7 +103,7 @@ def test_no_designed_node_sources_its_values_from_the_engine():
 def test_a_declared_look_reaches_the_cdl():
     spec = _spec(DECLARED)
 
-    assert spec["house_look"] == "test_declaration"
+    assert spec["series_look"] == "test_declaration"
     cdl = spec["per_clip_adjustments"][0]["cdl_values"]
     # No exposure reference is declared, so the CDL is the look itself.
     assert cdl == resolve_look(DECLARED).cdl()
@@ -128,7 +128,7 @@ def test_a_declared_look_reaches_the_fusion_comp():
 def test_a_project_with_no_declared_look_gets_no_grade_at_all():
     spec = _spec(None)
 
-    assert spec["house_look"] is None
+    assert spec["series_look"] is None
     assert spec["fusion_look"] == {}
     cdl = spec["per_clip_adjustments"][0]["cdl_values"]
     # Identity CDL: nothing is graded and nothing is normalised either.
@@ -309,7 +309,7 @@ def test_compile_manifest_merges_the_look_onto_every_clip():
     inputs = {
         "color_grade_spec": {
             "per_clip_adjustments": [],
-            "house_look": look.name,
+            "series_look": look.name,
             "fusion_look": look.fusion(),
         },
         "audio_spine": {
@@ -337,7 +337,7 @@ def test_compile_manifest_merges_the_look_onto_every_clip():
 
     # The CDL half travels in color_grade, the Fusion half in the per-clip
     # effects. Both must be in the manifest the renderer reads.
-    assert manifest["color_grade"]["house_look"] == "test_declaration"
+    assert manifest["color_grade"]["series_look"] == "test_declaration"
     per_clip = manifest["fusion_effects"]["per_clip"]
     assert per_clip, "the look reached no clip"
     for effects in per_clip.values():
@@ -353,7 +353,7 @@ def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
 
     source = os.path.abspath(__file__)
     inputs = {
-        "color_grade_spec": {"per_clip_adjustments": [], "house_look": None,
+        "color_grade_spec": {"per_clip_adjustments": [], "series_look": None,
                              "fusion_look": {}},
         "audio_spine": {
             "structure": [{
@@ -378,14 +378,14 @@ def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
                side_effect=lambda out_dir, filename: inputs):
         manifest = compile_manifest("dummy")
 
-    assert manifest["color_grade"]["house_look"] is None
+    assert manifest["color_grade"]["series_look"] is None
     for label, effects in manifest["fusion_effects"]["per_clip"].items():
         assert not effects, f"{label} got a comp with nothing declared: {effects}"
 
 
 def test_every_brand_template_parses_and_declares_no_look():
     """The four looks this engine shipped are gone and were not moved
-    into a template. See tests/test_house_look.py for the standing rule."""
+    into a template. See tests/test_series_look.py for the standing rule."""
     template_files = sorted(
         f for f in os.listdir(TEMPLATES_DIR) if f.endswith((".yaml", ".yml"))
     )
@@ -394,13 +394,13 @@ def test_every_brand_template_parses_and_declares_no_look():
     for filename in template_files:
         with open(os.path.join(TEMPLATES_DIR, filename)) as handle:
             template = yaml.safe_load(handle) or {}
-        declaration = (template.get("style") or {}).get("house_look")
+        declaration = (template.get("style") or {}).get("series_look")
         # Either nothing, or something resolve_look can deliver whole.
         assert resolve_look(declaration) is None or declaration
 
 
 def test_a_project_declared_look_reaches_the_cdl(tmp_path):
-    """Scope is the project's own config: `style.house_look` in
+    """Scope is the project's own config: `style.series_look` in
     project.yaml wins over the brand template's slot, whole-slot, so
     a project can carry its own look without forking its template. On the
     old code this read the template only, and the project's declaration
@@ -420,7 +420,7 @@ def test_a_project_declared_look_reaches_the_cdl(tmp_path):
         "vignette": {"blend": 0.35, "soft": 0.3},
     }
     (tmp_path / "project.yaml").write_text(
-        yaml.safe_dump({"name": "t", "style": {"house_look": test_look}}))
+        yaml.safe_dump({"name": "t", "style": {"series_look": test_look}}))
     data = {
         "a_roll_assignments": [{
             "spine_block_position": 1, "clip_id": "c1",
@@ -439,7 +439,7 @@ def test_a_project_declared_look_reaches_the_cdl(tmp_path):
         "subject_grades": [],
     }
     spec = resolve_color_grade(data)["color_grade_spec"]
-    assert spec["house_look"] == "test_look"
+    assert spec["series_look"] == "test_look"
     cdl = spec["per_clip_adjustments"][0]["cdl_values"]
     assert cdl == resolve_look(test_look).cdl()
     assert cdl["slope_r"] == pytest.approx(1.03)

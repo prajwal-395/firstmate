@@ -44,6 +44,7 @@ class MockProject:
         self.deleted_jobs = []
         self.set_format_codec_calls = []
         self.set_render_settings_calls = []
+        self._queued = []
 
     def GetCurrentRenderFormatAndCodec(self):
         return dict(self._format_codec)
@@ -57,7 +58,18 @@ class MockProject:
         return True
 
     def AddRenderJob(self):
+        self._queued.append(dict(self.set_render_settings_calls[-1],
+                                 JobId=self._job_id)
+                            if self.set_render_settings_calls
+                            else {"JobId": self._job_id})
         return self._job_id
+
+    def GetRenderJobList(self):
+        # `render_segment` reads the queue back before it starts, so a
+        # range Resolve silently widened refuses instead of rendering
+        # the whole timeline (`tests/test_segment_render_range_takes`).
+        # The mock therefore has to report what it was asked for.
+        return [dict(job) for job in self._queued]
 
     def StartRendering(self, *args, **kwargs):
         return self._render_ok

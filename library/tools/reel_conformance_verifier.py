@@ -1704,6 +1704,48 @@ def check_placed_caption_hangs(
     return findings
 
 
+_CURRENT_SPAN_RE = re.compile(r"^\d+-\d+$")
+_CURRENT_DIGEST_RE = re.compile(r"^[0-9a-f]{8}$")
+
+
+def _is_current_caption_shape(parts: Sequence[str]) -> bool:
+    """The current producer's `sub_<speaker>_<clip>_<span>_<digest>`.
+
+    Five fields, the span a millisecond pair and the digest 8 hex -
+    which is also what separates it from the oldest producer's
+    `sub_<timeline>_<speaker>_<text>_<digest>`: a text slug is never
+    shaped like a span beside a hex digest.
+    """
+    return (len(parts) == 5
+            and _CURRENT_SPAN_RE.match(parts[3]) is not None
+            and _CURRENT_DIGEST_RE.match(parts[4]) is not None)
+
+
+def _grade_current_caption_slugs(parts: Sequence[str]) -> List[str]:
+    """Grade the speaker and clip slugs of a current-shape name.
+
+    The producer's `slug` breaks on word boundaries and strips
+    trailing dashes, so a component ending on a dash was cut, and one
+    ending `-<single letter>` (other than `a` or `I`, and never a
+    digit) ends inside a word.  The span and digest carry no words to
+    cut; they must simply parse, because a name failing the shape is
+    not this producer's output.
+    """
+    reasons: List[str] = []
+    for label, comp in (("speaker", parts[1]), ("clip", parts[2])):
+        if comp.endswith("-"):
+            reasons.append(
+                f"{label} slug {comp!r} ends on a dash - it was cut, "
+                f"and a correct slug never ends with one")
+        elif re.search(r"-[b-hj-z]$", comp):
+            reasons.append(
+                f"{label} slug {comp!r} ends inside a word")
+    if not parts[1] or not parts[2]:
+        reasons.append("a provenance slug is empty - an absence the "
+                       "producer names, never omits")
+    return reasons
+
+
 def check_caption_slugs(reel_name: str,
                         caption_items: Sequence[TimelineItem],
                         ) -> List[Finding]:
@@ -1717,38 +1759,42 @@ def check_caption_slugs(reel_name: str,
     is the one place a mid-word cut can reach a viewer - it is what an
     editor reads on the V3 track and in the media pool.
 
-    Two halves, because neither sees the whole defect alone:
+    Three shapes, because the producer changed twice and all three meet
+    on real timelines:
 
-    - The timeline component must equal what `slug` (the producer,
-      `library/tools/subtitle_segment_id.py`) returns for this reel's
-      own name today.  A correct producer agrees with its check by
-      construction; a hard cut at the limit does not.  It is the
-      timeline component because that is the long one - speaker, block
-      and span never reach the limit on a real project, and their full
-      values are not on the item to recompute from.  This half alone
-      would have stayed quiet on reel 05 before the producer was fixed:
-      the old names agree with the old producer, which is exactly why
-      the producer fix and this check land together.
-    - Names shaped `sub_<timeline>_<speaker>_<text>_<digest>` (one
-      component per underscore field, five fields) carry the caption
-      TEXT the old producer slugged into the filename.  The current
-      producer emits no text component, so this shape is always old
-      output - and its text slug is graded on its own shape, with no
-      source text and no limit literal: a component ending in a dash
-      was cut (a correct slug never ends with one - the producer
-      strips them), and one ending in `-<single letter>` other than
-      `a` or `I` ends inside a word, because no English word is one
-      letter long besides those two.  Digits are excluded - a lone
-      `3` is a number, not a fragment.  What this half cannot see is
-      said plainly: a multi-letter fragment (`envisio`, `goog`) is
-      indistinguishable from a complete word without the source text,
-      so the timeline - not the verifier - is where that half is
+    - The CURRENT producer emits
+      `sub_<speaker>_<clip>_<span>_<digest>` - provenance plus content,
+      no timeline anywhere, because variant timelines sharing words
+      share the file.  The speaker and clip slugs are graded the way
+      the old text slug was: a correct `slug` never ends a component
+      on a dash and never ends one inside a word, and the span
+      (`<ms>-<ms>`) and digest (8 hex) must parse - a name that fails
+      the shape is not this producer's output and is said so rather
+      than graded as a truncation.
+    - The PREVIOUS producer emitted
+      `sub_<timeline>_<speaker>_<block>_<span>_<digest>`.  Its timeline
+      component must equal what `slug` returns for this reel's own
+      name today: a file from another reel placed here is the old
+      overwrite made visible.  A correct producer agrees with its
+      check by construction; a hard cut at the limit does not.
+    - The OLDEST producer emitted
+      `sub_<timeline>_<speaker>_<text>_<digest>`, carrying the caption
+      TEXT slugged into the filename.  Its text slug is graded on its
+      own shape, with no source text and no limit literal: a component
+      ending in a dash was cut (a correct slug never ends with one -
+      the producer strips them), and one ending in `-<single letter>`
+      other than `a` or `I` ends inside a word, because no English
+      word is one letter long besides those two.  Digits are excluded
+      - a lone `3` is a number, not a fragment.  What this half cannot
+      see is said plainly: a multi-letter fragment (`envisio`, `goog`)
+      is indistinguishable from a complete word without the source
+      text, so the timeline - not the verifier - is where that half is
       closed, by the producer never cutting one.
 
     One finding per reel, listing every offender: fifty-six copies of
-    one sentence is a report nobody reads.  Names outside the segment
-    shape (`sub_<timeline>_...`) are skipped - an unparseable V3 name is
-    F11's unattributed-card territory, not a truncation.
+    one sentence is a report nobody reads.  Names outside every known
+    segment shape are skipped - an unparseable V3 name is F11's
+    unattributed-card territory, not a truncation.
     """
     from library.tools.subtitle_segment_id import slug
 
@@ -1760,11 +1806,20 @@ def check_caption_slugs(reel_name: str,
         if len(parts) < 2 or parts[0] != "sub":
             continue
         reasons: List[str] = []
-        if parts[1] != want:
-            reasons.append(
-                f"timeline slug {parts[1]!r} is not what the producer "
-                f"writes for this reel ({want!r})")
-        if len(parts) == 5:
+        if _is_current_caption_shape(parts):
+            reasons.extend(_grade_current_caption_slugs(parts))
+        elif len(parts) == 6:
+            if parts[1] != want:
+                reasons.append(
+                    f"timeline slug {parts[1]!r} is not what the producer "
+                    f"writes for this reel ({want!r})")
+        elif len(parts) == 5:
+            # The oldest producer carried the timeline too: a foreign
+            # timeline slug here is the same overwrite made visible.
+            if parts[1] != want:
+                reasons.append(
+                    f"timeline slug {parts[1]!r} is not what the producer "
+                    f"writes for this reel ({want!r})")
             text_comp = parts[3]
             if text_comp.endswith("-"):
                 reasons.append(
@@ -4739,6 +4794,69 @@ def check_plan_provenance(
 
 # ── The full verification pipeline ───────────────────────────────────
 
+def _repair_moments(moments, transcript, err):
+    """Stored boundaries, repaired the way the build repairs them.
+
+    One spelling for the gate and the build
+    (`reel_build.rebuild_reels_in_project` runs the same
+    `snap_moment_to_speech` on the way through): the gate grades what
+    the build placed, so it reads the same repair rather than the raw
+    file. Every moment survives - a moment already clean returns
+    itself with no moves, and dropping a moveless moment would grade
+    the batch against a smaller plan than the build placed.
+    """
+    from library.tools.reel_proposal import snap_moment_to_speech
+
+    repaired = []
+    for moment in moments:
+        fixed, moves = snap_moment_to_speech(moment, transcript)
+        for move in moves:
+            word = (f" through '{move['through']}'"
+                    if move.get("through") else "")
+            print(f"  Reel {moment.number:02d}: "
+                  f"{move['boundary']} {move['was']:.3f}s -> "
+                  f"{move['now']:.3f}s{word} (stored proposal "
+                  f"predates the boundary snap)", file=err)
+        repaired.append(fixed)
+    return repaired
+
+
+def _apply_recorded_pins(moments, transcript, project_folder, err):
+    """The captain's recorded closer pins, as the build applies them.
+
+    One spelling for the gate and the build: the build redraws
+    approved moments in memory and places the redrawn spans, so
+    whatever derives a plan from the proposal file must apply the
+    same pins or it grades seconds nobody placed. Returns the moments
+    with pins applied (or unaltered where none are recorded). A
+    recorded pin the gate cannot read refuses rather than grading
+    silently past it.
+    """
+    if not project_folder:
+        return list(moments)
+    from library.tools import captain_edits as _edits
+    try:
+        pin_edits = _edits.load_edits(project_folder)
+    except _edits.CaptainEditError as exc:
+        raise RuntimeError(
+            f"captain_edits cannot be read: {exc}. A recorded pin the "
+            f"gate cannot read must refuse, never grade silently past "
+            f"it.") from exc
+    if not any(e.get("kind") == "redraw_closer" for e in pin_edits):
+        return list(moments)
+    redrawn, applied, held, stale = _edits.apply_closer_redraws(
+        moments, transcript, pin_edits)
+    for record in applied:
+        print(f"  Reel {record['reel']:02d}: closer "
+              f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
+              f"(recorded pin: {record['reason']})", file=err)
+    for record in held:
+        print(f"  Reel {record['reel']:02d}: closer already opens on "
+              f"{record['anchor_phrase']!r} - pin held", file=err)
+    _edits.report_stale(stale)
+    return redrawn
+
+
 def run_verification(
     project_name: str,
     master_name: str,
@@ -4918,8 +5036,7 @@ def run_verification(
     plan_source = ""
     if plan_path:
         if os.path.isfile(plan_path):
-            from library.tools.reel_proposal import (
-                read_proposal, snap_moment_to_speech)
+            from library.tools.reel_proposal import read_proposal
             moments = read_proposal(plan_path)
             if transcript:
                 # The build repairs stored boundaries on the way through;
@@ -4927,19 +5044,16 @@ def run_verification(
                 # same repair rather than the raw file.  Without this a
                 # stored proposal predating the boundary snap fails here
                 # on seconds the build no longer plays.
-                repaired = []
-                for moment in moments:
-                    fixed, moves = snap_moment_to_speech(
-                        moment, transcript)
-                    for move in moves:
-                        word = (f" through '{move['through']}'"
-                                if move.get("through") else "")
-                        print(f"  Reel {moment.number:02d}: "
-                              f"{move['boundary']} {move['was']:.3f}s -> "
-                              f"{move['now']:.3f}s{word} (stored proposal "
-                              f"predates the boundary snap)", file=err)
-                    repaired.append(fixed)
-                moments = repaired
+                moments = _repair_moments(moments, transcript, err)
+                # The captain's recorded closer pins, applied for the
+                # same reason as the repair above: the build redraws
+                # approved moments in memory and places the redrawn
+                # spans, so a gate deriving the un-pinned file grades a
+                # plan the build never placed - Reel 09's +2.25s CTA
+                # growth read as 54 dropped frames. A recorded pin the
+                # gate cannot read refuses rather than grading past it.
+                moments = _apply_recorded_pins(
+                    moments, transcript, project_folder, err)
             plan_source = f"proposal file: {plan_path}"
             print(f"Plan:    {plan_source} ({len(moments)} moments)",
                   file=err)

@@ -108,16 +108,22 @@ def _step_outputs(a_roll: str, b_roll: str, music: str, sfx: str,
              "duration": 0.4, "after_clip": 0}]},
         "plan_vfx": {"enhancement_spec": {"vfx": [
             {"effect_type": "glow", "timeline_start": 0.0,
-             "timeline_end": 2.285, "params": {"glow_gain": 5.0}}]}},
+             "timeline_end": 2.285,
+             "params": {"glow_gain": 5.0, "glow_threshold": 0.75,
+                        "glow_size": 3.5}}]}},
         "plan_sfx": {"sfx_spec": {"sfx": [
             {"sfx_id": "whoosh.wav", "source_file": sfx, "source_in": 0.0,
              "label": "sfx_1", "timeline_in": 2.285,
              "timeline_out": 2.785, "volume_db": -14}]}},
         "color_grade": {"color_grade_spec": {
-            "house_look": "warm_street",
+            "series_look": "warm_street",
             "per_clip_adjustments": [
                 {"clip_id": "clip_1", "cdl": {"saturation": 1.1}}],
-            "fusion_look": {"glow_gain": 1.2}}},
+            # Declared WHOLE: an armed glow with no threshold or size is
+            # refused by `comp_builder.UndeclaredEffectStrength`, the
+            # same rule `series_look` applies at the template.
+            "fusion_look": {"glow_gain": 1.2, "glow_threshold": 0.75,
+                            "glow_size": 3.5}}},
         "audio_mix": {"audio_mix_spec": {
             "fairlight_preset": "dialogue_clarity",
             "music_bed": [{"timeline_start": 0.0, "timeline_end": 5.418,

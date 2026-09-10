@@ -1,13 +1,35 @@
 import hashlib
-import json
 import os
-import glob
 import re
 
-# Generated comps are banked as "<clip label>_<12 hex digest>". The digest
-# covers everything the comp was built from, so a re-cut that changes a
-# clip's duration or effect parameters never reuses the previous run's
-# baked keyframes.
+# Generated comps are banked as "<clip label>_<12 hex digest>", and the
+# digest is taken over THE COMP'S OWN BYTES.
+#
+# It used to be taken over the inputs the comp was built from - the
+# effects, the clip duration, the source frame, the played length - and
+# that is a key over half of what decides the answer.  The other half is
+# the code that turns those inputs into nodes, and it changes.  On
+# 2026-09-10 the old-TV switch-on was rebuilt from a `Crop` node (which
+# had never drawn: `CropTop`/`CropBottom` are not inputs `Crop` has) to a
+# masked black `Background`.  The head clip's inputs did not move across
+# that change, so its key did not either, and the next build imported the
+# pre-fix comp out of the bank verbatim - a 3840x2160 source cropped to
+# its bottom-left quadrant, on the captain's finished Reel 09, six
+# minutes after the fix had shipped.  The tail clip's `source_in` had
+# moved by two seconds, so the tail alone missed the bank and got the
+# repaired recipe: one timeline, two builders, told apart by nothing but
+# whether a number in the manifest happened to change.
+#
+# Hashing the bytes ends the class.  A hit now means the banked file IS
+# what this build generates, not that it was generated from the same
+# request by some earlier version of the engine.  There is nothing left
+# to add to the key when the next generator changes, which is the point:
+# the previous two repairs each added a field (`source_res`,
+# `played_frames`) and each left the same trap armed.
+#
+# Generating the bytes is string assembly and costs microseconds; the
+# expensive call is `ImportFusionComp`, which happens either way.  The
+# bank was never saving the work it appeared to save.
 _VARIANT_SUFFIX = re.compile(r"^_[0-9a-f]{12}$")
 
 
@@ -15,29 +37,37 @@ def get_asset_bank_dir(project_folder: str) -> str:
     return os.path.join(project_folder, "assets", "fusion_presets")
 
 
-def clip_asset_key(label: str, effects: dict, clip_dur,
-                   source_res=None, played_frames=None) -> str:
-    """Bank key identifying exactly the comp these inputs generate.
+def comp_asset_key(label: str, comp_content: str) -> str:
+    """Bank name for exactly these comp bytes, under this clip's label.
 
-    `source_res` is part of the key because the comp's Background nodes
-    are built at that size: two clips with identical effects and duration
-    but different source frames generate different bytes, and replaying
-    one for the other reintroduces the wrong-sized rectangle.
-
-    `played_frames` is part of the key because end-anchored animations
-    are clamped to it: the same effects over the same source render
-    different keyframes for different played lengths, and replaying a
-    pre-clamp comp reintroduces the animation parked past everything
-    rendered. Same key means same bytes.
+    The label prefix keeps `find_clip_assets` able to answer "what was
+    banked for this clip"; the digest is the content, so two names are
+    equal exactly when the two comps are.
     """
-    fingerprint = json.dumps(
-        {"effects": effects, "clip_dur": clip_dur,
-         "source_res": list(source_res) if source_res else None,
-         "played_frames": played_frames},
-        sort_keys=True, default=str,
-    )
-    digest = hashlib.sha1(fingerprint.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha1(comp_content.encode("utf-8")).hexdigest()[:12]
     return f"{label.lower()}_{digest}"
+
+
+def bank_comp(project_folder: str, label: str,
+              comp_content: str) -> tuple[str, bool]:
+    """Put these comp bytes in the bank and return `(path, reused)`.
+
+    `reused` says the bank already held this file, which is a fact about
+    the bytes and nothing else - it can never mean "close enough".  The
+    caller imports the returned path, so what reaches the timeline is
+    always what this build generated.
+    """
+    path = get_custom_asset(project_folder, comp_asset_key(label, comp_content))
+    if path:
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                if handle.read() == comp_content:
+                    return path, True
+        except OSError:
+            pass
+    return save_custom_asset(project_folder,
+                             comp_asset_key(label, comp_content),
+                             comp_content), False
 
 
 def find_clip_assets(project_folder: str, label: str) -> list[str]:
@@ -94,11 +124,3 @@ def save_custom_asset(project_folder: str, name: str, comp_content: str) -> str:
     with open(path, "w", encoding="utf-8") as f:
         f.write(comp_content)
     return path
-
-def import_custom_asset(clip, project_folder: str, name: str) -> bool:
-    """Imports custom asset into timeline clip via ImportFusionComp()."""
-    asset_path = get_custom_asset(project_folder, name)
-    if not asset_path:
-        return False
-        
-    return clip.ImportFusionComp(asset_path)

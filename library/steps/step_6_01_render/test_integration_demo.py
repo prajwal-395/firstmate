@@ -198,22 +198,27 @@ def run_integration_test():
             "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
             "grade_gain": 1.05, "grade_contrast": 0.04,
             "grade_saturation": 1.15, "glow_gain": 0.08,
+            "glow_threshold": 0.75, "glow_size": 3.5,
         },
         "settle": {
             "zoom_start": 1.02, "zoom_mid": 1.0, "zoom_end": 1.02,
             "grade_gain": 1.03, "grade_contrast": 0.04,
             "grade_saturation": 1.10, "glow_gain": 0.08,
+            "glow_threshold": 0.75, "glow_size": 3.5,
         },
         "grain": {
             "zoom_start": 1.0, "zoom_mid": 1.04, "zoom_end": 1.03,
             "grade_gain": 1.06, "grade_contrast": 0.05,
             "grade_saturation": 1.18, "glow_gain": 0.10,
+            "glow_threshold": 0.75, "glow_size": 3.5,
             "film_grain": True, "film_grain_power": 0.15,
+            "film_grain_size": 1.5,
         },
         "fade": {
             "zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
             "grade_gain": 1.05, "grade_contrast": 0.04,
             "grade_saturation": 1.08, "glow_gain": 0.06,
+            "glow_threshold": 0.75, "glow_size": 3.5,
             "fade_out_frames": 15,
         },
     }

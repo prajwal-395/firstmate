@@ -34,8 +34,6 @@ import sys
 import os
 import json
 import argparse
-import shutil
-import tempfile
 
 sys.path.append("/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting/Modules")
 os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
@@ -283,7 +281,6 @@ def apply_fusion_comps(manifest, project_folder,
         transition_by_clip[next_idx]['head_transition_frames'] = dur_f
 
     has_any_effects = per_clip_effects or transition_by_clip
-    comp_dir = None
     # One aggregate record of what the treatment check saw, per clip.
     # Written as a verify_treatment receipt at the end of the pass, so
     # the look-before-you-ship evidence lives where the other skill
@@ -341,18 +338,10 @@ def apply_fusion_comps(manifest, project_folder,
         print(f"\n── Fusion .comp: {len(per_clip_effects)} VFX, {len(transition_specs)} transitions ──", file=sys.stderr)
 
         try:
-            # Also fusion_comp_generator is in library/steps/step_6_01_render
-            sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'steps', 'step_6_01_render'))
-            from fusion_comp_generator import write_comp
-            from custom_asset_bank import (
-                clip_asset_key, import_custom_asset, save_custom_asset,
-                get_custom_asset,
-            )
+            from custom_asset_bank import bank_comp
         except ImportError as e:
-            print(f"Failed to import fusion_comp_generator: {e}", file=sys.stderr)
+            print(f"Failed to import custom_asset_bank: {e}", file=sys.stderr)
             return False
-
-        comp_dir = tempfile.mkdtemp(prefix='fusion_comps_')
 
         # One flat work list over every track that carries comps, so the
         # per-clip body below is written once. Each entry is a clip that
@@ -547,38 +536,32 @@ def apply_fusion_comps(manifest, project_folder,
                         file=sys.stderr,
                     )
 
-            # 2. Check custom asset bank.
-            # A generated comp bakes the clip's own frame count into its
-            # keyframes (AGENTS.md section 5), so the key must cover
-            # everything the comp is built from - not the preset name
-            # (which replays one clip's timing on every clip sharing it)
-            # and not the positional label alone (which is stable across
-            # runs, so a re-cut of the same block position would replay
-            # the previous run's duration). Same key means same bytes.
-            asset_key = clip_asset_key(label, effects, clip_dur,
-                                       source_res=source_res,
-                                       played_frames=played)
-            custom_asset = get_custom_asset(project_folder, asset_key)
-            if custom_asset:
-                for cn in (tl_clip.GetFusionCompNameList() or []):
-                    tl_clip.DeleteFusionCompByName(cn)
-
-                tl_clip.ImportFusionComp(custom_asset)
-                print(f"  ✓ [{where}] {label}: Imported custom asset {asset_key}", file=sys.stderr)
-                continue
-
-            # 3. Generate custom .comp via composable engine
+            # 2. BUILD, then bank. Never the other way round.
+            #
+            # The bank used to be consulted FIRST, on a key taken over
+            # the inputs alone, and a hit skipped the build entirely.
+            # That let a comp built by a previous version of the engine
+            # reach the timeline unchanged - see the note at the top of
+            # `custom_asset_bank`, and the switch-on that shipped a
+            # bottom-left crop six minutes after its repair. The comp is
+            # string assembly; building it and then asking whether those
+            # exact bytes are already banked costs nothing and cannot
+            # import a sibling build's leftovers.
             comp_content = build_effect_comp(effects, clip_dur, source_res,
                                              played_frames=played)
-
-            save_custom_asset(project_folder, asset_key, comp_content)
-            
-            comp_path = write_comp(os.path.join(comp_dir, f"{label.lower()}.comp"), comp_content)
+            comp_path, reused = bank_comp(project_folder, label,
+                                          comp_content)
 
             for cn in (tl_clip.GetFusionCompNameList() or []):
                 tl_clip.DeleteFusionCompByName(cn)
 
+            # Imported from the bank, not from a scratch copy of it: the
+            # file that reached the timeline is then still on disk under
+            # its own content digest, which is how a build is read back.
             tl_clip.ImportFusionComp(comp_path)
+            if reused:
+                print(f"  · [{where}] {label}: comp unchanged since "
+                      f"{os.path.basename(comp_path)}", file=sys.stderr)
             comp_names = tl_clip.GetFusionCompNameList()
 
             if comp_names and len(comp_names) > 0:
@@ -664,9 +647,6 @@ def apply_fusion_comps(manifest, project_folder,
                 "  WARNING: generator_overlays present but no carrier clips",
                 file=sys.stderr,
             )
-
-    if comp_dir:
-        shutil.rmtree(comp_dir, ignore_errors=True)
 
     # The pass's own account of what the treatment check saw: one row
     # per armed treatment, written by this code - never by a model's

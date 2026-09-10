@@ -298,7 +298,7 @@ class TestApplySubjectGrades:
 def _compile_inputs(source, subject_grades):
     return {
         "color_grade_spec": {
-            "per_clip_adjustments": [], "house_look": None,
+            "per_clip_adjustments": [], "series_look": None,
             "fusion_look": {},
             "subject_grades": subject_grades,
             "subject_grade_drops": [],

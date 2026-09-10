@@ -140,6 +140,78 @@ def _next_name(base: str) -> str:
     return f"{base}{_counters[base]}"
 
 
+def _power_band(*, start_frame: int, end_frame: int, open_at: str,
+                collapse_crop: float, clip_dur: int, last: int,
+                res: tuple):
+    """The old-TV deflection band: black frame, picture in a shrinking slot.
+
+    Returns ``(nodes, spline, input_node_name, output_node_name)``.  The
+    caller wires its upstream picture into ``input_node_name`` on the
+    Merge's ``Background`` input and reads ``output_node_name``.
+
+    A black ``Background`` sized to the SOURCE clip's own frame is gated
+    by a ``RectangleMask`` with ``Invert`` set, so the mask is solid
+    EVERYWHERE EXCEPT the band and the black paints everything outside
+    it.  The band's ``Height`` is the animated term.  Frame size never
+    changes, which is the whole reason this is not a ``Crop``: Fusion's
+    ``Crop`` resizes the image to the crop rectangle.
+
+    ``collapse_crop`` is a depth taken off EACH edge - what it meant when
+    a pair of crop edges carried it - so the band is
+    ``1 - 2 * collapse_crop`` at its tightest and 1.0 wide open.
+    ``open_at`` says which end of the ramp is the open one: ``"end"`` for
+    a switch-on (tight -> open), ``"start"`` for a switch-off
+    (open -> tight).
+
+    Nothing here is a strength: every number is either the caller's
+    declared timing or the geometry of "the whole frame" (AGENTS.md 10.5).
+    """
+    tight = round(1.0 - 2.0 * float(collapse_crop), 6)
+
+    bg_name = _next_name("PowerBand")
+    mask_name = _next_name("PowerBandMask")
+    merge_name = _next_name("PowerBandMerge")
+
+    if open_at == "end":
+        offset, scale, hold_before = tight, round(1.0 - tight, 6), tight
+    else:
+        offset, scale, hold_before = 1.0, round(tight - 1.0, 6), 1.0
+
+    height = BezierSpline.sampled(
+        f"{bg_name}Height",
+        start_frame=start_frame, end_frame=end_frame,
+        easing="Linear",
+        scale=scale, offset=offset,
+        hold_before=hold_before, hold_after=last,
+        color=(255, 255, 255),
+    )
+
+    bg = FusionNode(bg_name, "Background")
+    bg.set_input("GlobalOut", clip_dur - 1)
+    bg.set_input("Width", res[0])
+    bg.set_input("Height", res[1])
+    bg.set_input("TopLeftRed", 0.0)
+    bg.set_input("TopLeftGreen", 0.0)
+    bg.set_input("TopLeftBlue", 0.0)
+    bg.set_input("EffectMask", mask_name, source="Mask")
+    bg.pos = (110, 82)
+
+    mask = FusionNode(mask_name, "RectangleMask")
+    mask.set_input("MaskWidth", res[0])
+    mask.set_input("MaskHeight", res[1])
+    mask.set_input("PixelAspect", (1, 1))
+    mask.set_input("Invert", 1)
+    mask.set_input("Width", 1.0)
+    mask.set_input("Height", height)
+    mask.pos = (0, 82)
+
+    merge = FusionNode(merge_name, "Merge")
+    merge.set_input("Foreground", bg_name)
+    merge.pos = (110, 0)
+
+    return [bg, mask, merge], height, merge_name, merge_name
+
+
 # ─── Composable Effect Functions ─────────────────────────────
 
 
@@ -358,15 +430,33 @@ class fx:
 
         `contrast` arrives in the declaration's pivot-gain units - 0.0
         is neutral, the units the reference stills were rendered in and the
-        units `DeclaredLook.fusion()` emits. Fusion's own tool takes
-        1.0 as neutral (below it the picture collapses toward
-        mid-grey), so the node carries `1.0 + contrast`: emitting the
-        declaration verbatim ships a flat frame
-        (`data/vep-grade-variants/report.md` in the firstmate home, 4.1).
+        units `DeclaredLook.fusion()` emits - and it is emitted VERBATIM,
+        because Fusion's `BrightnessContrast.Contrast` is neutral at 0.0
+        too.
+
+        **It carried `1.0 + contrast` between 2026-09-09 and 2026-09-10,
+        and that is roughly eight times the declared grade.** The
+        translation came from the grade-variant report's prediction that
+        "Fusion's own neutral is 1.0 by Fusion's documentation"; nobody
+        probed the tool. Measured on the live Reel 09 (frame 129, every
+        other node neutral):
+
+        =============  ===================================  ==========
+        Contrast       vs bypassing the node entirely        mean luma
+        =============  ===================================  ==========
+        bypassed       -                                    45.39
+        0.0            0 px changed, max delta 0            45.39
+        0.12 declared  1,491,473 px, max delta 22           39.97
+        1.12 shipped   1,492,630 px, max delta 91           19.74
+        =============  ===================================  ==========
+
+        `Contrast = 0.0` is BYTE-IDENTICAL to having no node at all, so
+        0.0 is the neutral and 1.12 was crushing the picture by 25 luma
+        where the captain asked for 5.
 
         Skips if all values are neutral (gain=1, contrast=0, sat=1) -
-        the skip stays on the declaration, never on the translated
-        tool value.
+        the skip stays on the declaration, which is the same number the
+        tool takes.
         """
         if gain == 1.0 and contrast == 0.0 and saturation == 1.0:
             return EffectBlock(nodes=[], input_name="", output_name="")
@@ -374,7 +464,7 @@ class fx:
         name = _next_name("BrightnessContrast")
         bc = FusionNode(name, "BrightnessContrast")
         bc.set_input("Gain", gain)
-        bc.set_input("Contrast", 1.0 + contrast)
+        bc.set_input("Contrast", contrast)
         bc.set_input("Saturation", saturation)
         bc.pos = (220, 0)
 
@@ -383,9 +473,9 @@ class fx:
     @staticmethod
     def glow(
         *,
-        gain: float = 0.0,
-        threshold: float = 0.75,
-        size: float = 3.5,
+        gain: float,
+        threshold: float,
+        size: float,
     ) -> EffectBlock:
         """SoftGlow highlight bloom.
 
@@ -406,20 +496,39 @@ class fx:
     @staticmethod
     def grain(
         *,
-        power: float = 0.25,
-        size: float = 1.5,
+        power: float,
+        size: float,
     ) -> EffectBlock:
-        """Film grain overlay."""
+        """Film grain overlay.
+
+        `power` is the declared strength and `size` the declared
+        coarseness (`series_look.LOOK_ELEMENTS["grain"]`), passed verbatim
+        to the terms that carry them.
+
+        **The node drove `Power` and `Size` until 2026-09-10, and Fusion
+        has neither.**  It has `MasterStrength` and `MasterXSize`/
+        `MasterYSize`, so every declared grain was silently ignored and
+        every graded clip carried a FilmGrain node sitting at its
+        registry default strength of 0.1 - a strength nobody chose, which
+        is the defect AGENTS.md 10.5 exists for, arriving through a NAME
+        rather than through a `.get`.  `library/tools/fusion/
+        tool_inputs.py` is the gate that now refuses it.
+
+        Both size axes are set rather than relying on `LockSizeXY`: a
+        lock is a UI convenience, and a comp that depends on one is a
+        comp whose second axis is a default.
+        """
         name = _next_name("FilmGrain")
         fg = FusionNode(name, "FilmGrain")
-        fg.set_input("Power", power)
-        fg.set_input("Size", size)
+        fg.set_input("MasterStrength", power)
+        fg.set_input("MasterXSize", size)
+        fg.set_input("MasterYSize", size)
         fg.pos = (385, 0)
 
         return EffectBlock(nodes=[fg], input_name=name, output_name=name)
 
     @staticmethod
-    def defocus(*, size: float = 2.0) -> EffectBlock:
+    def defocus(*, size: float) -> EffectBlock:
         """Depth-of-field blur."""
         name = _next_name("Defocus")
         df = FusionNode(name, "Defocus")
@@ -432,18 +541,32 @@ class fx:
     def vignette(
         *,
         clip_dur: int,
-        width: float = 1.8,
-        height: float = 1.8,
-        soft: float = 0.35,
-        blend: float = 0.25,
+        width: float,
+        height: float,
+        soft: float,
+        blend: float,
         color: tuple = (0.0, 0.0, 0.0),
         res: tuple = (1080, 1920),
     ) -> EffectBlock:
         """Elliptical vignette.
 
         Creates Background + EllipseMask + Merge triplet.
-        The Background is colored (default black), masked by an inverted
-        ellipse, then merged over the upstream image.
+        The Background is colored (default black), masked by an INVERTED
+        ellipse - solid at the corners, clear in the middle - then merged
+        over the upstream image.
+
+        The invert is `Invert`, which is the name the tool has. This block
+        wrote `Inverted` until 2026-09-10, and Fusion ignored it in
+        silence: the mask stayed solid INSIDE the ellipse, so the black
+        Background drew as a DISC IN THE MIDDLE OF THE FRAME - the exact
+        opposite of a vignette - on every clip that carried one. The
+        captain found it by eye on Reel 09. `library/tools/fusion/
+        tool_inputs.py` is the gate that now refuses the misspelling.
+
+        The mask is rasterised at the image's own resolution. It was
+        pinned at 320x240 (Fusion's own default frame) and scaled up to
+        the source, which quantised the soft edge into visible steps on a
+        3840x2160 frame.
 
         Args:
             color: (r, g, b) floats 0-1 for the vignette color.
@@ -467,10 +590,10 @@ class fx:
 
         ellipse = FusionNode(el_name, "EllipseMask")
         ellipse.set_input("SoftEdge", soft)
-        ellipse.set_input("MaskWidth", 320)
-        ellipse.set_input("MaskHeight", 240)
+        ellipse.set_input("MaskWidth", res[0])
+        ellipse.set_input("MaskHeight", res[1])
         ellipse.set_input("PixelAspect", (1, 1))
-        ellipse.set_input("Inverted", 1)
+        ellipse.set_input("Invert", 1)
         ellipse.set_input("Width", width)
         ellipse.set_input("Height", height)
         ellipse.pos = (220, 82)
@@ -843,15 +966,35 @@ class fx:
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         played_frames: Optional[int] = None,
+        res: tuple = (1080, 1920),
     ) -> EffectBlock:
         """Old-TV switch-ON at the head of the clip.
 
         From black: a bright line strikes at centre (held ``line_frames``),
         opens to full height over ``expand_frames``, and a white overshoot
-        decays over ``bloom_frames``.  A ``Crop`` node animates the
-        vertical open (uniform Transform ``Size`` can only shrink to a
-        dot, never to a line); a ``BrightnessContrast`` node carries the
-        strike spike and its decay.
+        decays over ``bloom_frames``.  A black ``Background`` gated by an
+        INVERTED ``RectangleMask`` draws the vertical open - the mask's
+        band is the picture, everything outside it is black - and a
+        ``BrightnessContrast`` node carries the strike spike and its
+        decay.
+
+        **This was a ``Crop`` node until 2026-09-10, and it never once
+        drew the animation.**  Fusion's ``Crop`` has ``XOffset``,
+        ``YOffset``, ``XSize`` and ``YSize``; this block drove
+        ``CropTop``/``CropBottom``, which the tool does not have, so
+        Fusion ignored them in silence and ``XSize``/``YSize`` fell to
+        their 1920x1080 registry defaults at offset (0, 0).  Fusion's
+        origin is BOTTOM-LEFT, so every 3840x2160 source came out cropped
+        to its bottom-left quadrant, on every reel's first and last
+        picture clip.  The captain found it by eye on Reel 09.
+        ``library/tools/fusion/tool_inputs.py`` is the gate that now
+        refuses the misspelling.
+
+        ``Crop`` was the wrong tool even spelled correctly: it resizes the
+        image to the crop rectangle, so the frame itself would shrink
+        rather than the picture blanking in place.  A masked black
+        overlay keeps the frame and is the same construction the vignette
+        uses.
 
         Every count is declared in ``library/tools/tv_power.py`` - the
         frame defaults here repeat that module's values so the block
@@ -891,24 +1034,15 @@ class fx:
         expand_end = line_end + expand_frames
         settle_end = min(expand_end + bloom_frames, last)
 
-        crop_name = _next_name("PowerCrop")
-        crop = FusionNode(crop_name, "Crop")
-        crop_splines = []
-        for edge in ("CropTop", "CropBottom"):
-            spline = BezierSpline.sampled(
-                f"{crop_name}{edge[-3:]}",
-                start_frame=line_end, end_frame=expand_end,
-                easing="Linear", reverse=True,
-                scale=collapse_crop, offset=0.0,
-                hold_before=collapse_crop, hold_after=last,
-                color=(255, 255, 255),
-            )
-            crop.set_input(edge, spline)
-            # sampled() bakes Linear flags; CompEngine.serialize()
-            # auto-linearizes them into explicit handles (Resolve ignores
-            # the flags).
-            crop_splines.append(spline)
-        crop.pos = (110, 0)
+        # The band the picture shows through, as a fraction of frame
+        # height.  `collapse_crop` is a depth taken off EACH edge, which
+        # is what it meant when a Crop pair carried it, so the band is
+        # `1 - 2 * collapse_crop` at the strike and 1.0 fully open.
+        band_nodes, band_spline, band_in, band_out = _power_band(
+            start_frame=line_end, end_frame=expand_end,
+            open_at="end", collapse_crop=collapse_crop,
+            clip_dur=clip_dur, last=last, res=res,
+        )
 
         bc_name = _next_name("PowerBloom")
         bc = FusionNode(bc_name, "BrightnessContrast")
@@ -919,7 +1053,7 @@ class fx:
         # the crop's output goes nowhere, and Resolve renders the clip
         # as "The Fusion composition at 00:00:00:00 could not be
         # processed successfully" - a comp that imports and cannot draw.
-        bc.set_input("Input", crop_name)
+        bc.set_input("Input", band_out)
         gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
         gain.add_key(first, strike_gain, flags={"Linear": True})
         gain.add_key(line_end, strike_gain, flags={"Linear": True})
@@ -930,11 +1064,11 @@ class fx:
         bc.set_input("Gain", gain)
         bc.pos = (220, 0)
 
-        nodes = [crop] + crop_splines + [bc, gain]
+        nodes = band_nodes + [band_spline, bc, gain]
         return EffectBlock(
             nodes=nodes,
-            input_name=crop_name,
-            input_key="Input",
+            input_name=band_in,
+            input_key="Background",
             output_name=bc_name,
         )
 
@@ -950,18 +1084,21 @@ class fx:
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         played_frames: Optional[int] = None,
+        res: tuple = (1080, 1920),
     ) -> EffectBlock:
         """Old-TV switch-OFF at the tail of the clip.
 
         From picture: full height collapses to a line over
         ``collapse_frames``, the line contracts to a dot over
         ``dot_frames`` while the spot spikes bright, and the afterglow
-        decays to black over ``decay_frames``.  ``Crop`` draws the
-        collapse, a uniform ``Transform`` the dot (its animated peak is
-        1.0, inside the 1.04 ceiling), ``BrightnessContrast`` the spike
-        and decay.  See ``tv_power_head`` for where the counts live,
-        for what ``played_frames`` clamps, and for the refusal when the
-        clip has no room for the animation.
+        decays to black over ``decay_frames``.  A black ``Background``
+        gated by an INVERTED ``RectangleMask`` draws the collapse, a
+        uniform ``Transform`` the dot (its animated peak is 1.0, inside
+        the 1.04 ceiling), ``BrightnessContrast`` the spike and decay.
+        See ``tv_power_head`` for where the counts live, for why this is
+        a masked band rather than the ``Crop`` node it used to be, for
+        what ``played_frames`` clamps, and for the refusal when the clip
+        has no room for the animation.
         """
         from library.tools.tv_power import COLLAPSE_CROP
 
@@ -978,21 +1115,11 @@ class fx:
         line_at = start + collapse_frames
         dot_at = min(line_at + dot_frames, last)
 
-        crop_name = _next_name("PowerCrop")
-        crop = FusionNode(crop_name, "Crop")
-        crop_splines = []
-        for edge in ("CropTop", "CropBottom"):
-            spline = BezierSpline.sampled(
-                f"{crop_name}{edge[-3:]}",
-                start_frame=start, end_frame=line_at,
-                easing="Linear",
-                scale=COLLAPSE_CROP, offset=0.0,
-                hold_before=0.0, hold_after=last,
-                color=(255, 255, 255),
-            )
-            crop.set_input(edge, spline)
-            crop_splines.append(spline)
-        crop.pos = (110, 0)
+        band_nodes, band_spline, band_in, band_out = _power_band(
+            start_frame=start, end_frame=line_at,
+            open_at="start", collapse_crop=COLLAPSE_CROP,
+            clip_dur=clip_dur, last=last, res=res,
+        )
 
         tf_name = _next_name("PowerDot")
         tf = FusionNode(tf_name, "Transform")
@@ -1003,9 +1130,9 @@ class fx:
         size.add_key(dot_at, dot_size, flags={"Linear": True})
         size.add_key(last, dot_size, flags={"Linear": True})
         tf.set_input("Size", size)
-        # WIRED to the crop above it - see `tv_power_head` for what an
+        # WIRED to the band above it - see `tv_power_head` for what an
         # unwired internal link does to the render.
-        tf.set_input("Input", crop_name)
+        tf.set_input("Input", band_out)
         tf.pos = (220, 0)
 
         bc_name = _next_name("PowerDecay")
@@ -1021,9 +1148,9 @@ class fx:
         bc.pos = (330, 0)
 
         return EffectBlock(
-            nodes=[crop] + crop_splines + [tf, size, bc, gain],
-            input_name=crop_name,
-            input_key="Input",
+            nodes=band_nodes + [band_spline, tf, size, bc, gain],
+            input_name=band_in,
+            input_key="Background",
             output_name=bc_name,
         )
 
@@ -1031,8 +1158,8 @@ class fx:
     def shake(
         clip_dur: int,
         *,
-        x_amount: float = 0.01,
-        y_amount: float = 0.01,
+        x_amount: float,
+        y_amount: float,
         decay_frames: Optional[int] = None,
     ) -> EffectBlock:
         """Transform node with animated random X/Y position.
@@ -1087,26 +1214,17 @@ class fx:
             output_name=tf_name,
         )
 
-    @staticmethod
-    def chromatic_aberration(
-        *,
-        amount: float = 0.01,
-    ) -> EffectBlock:
-        """Channel offset effect."""
-        name = _next_name("ChromaticAberration")
-        node = FusionNode(name, "ChromaticAberration")
-        node.set_input("RedOffset", amount)
-        node.set_input("BlueOffset", -amount)
-        return EffectBlock(nodes=[node], input_name=name, output_name=name)
-
-    @staticmethod
-    def lens_distortion(
-        *,
-        distortion: float = 0.1,
-    ) -> EffectBlock:
-        """Barrel/pincushion distortion."""
-        name = _next_name("LensDistort")
-        node = FusionNode(name, "LensDistort")
-        node.set_input("Distortion", distortion)
-        return EffectBlock(nodes=[node], input_name=name, output_name=name)
+    # `chromatic_aberration` and `lens_distortion` lived here until
+    # 2026-09-10 and neither could ever have drawn: Fusion registers no
+    # tool called `ChromaticAberration` at all, and `LensDistort` has no
+    # bare `Distortion` input (its terms are per-model, e.g.
+    # `DEClassicLDModel.Distortion`).  Nothing emitted their keys either -
+    # `comp_builder` dispatched on `chromatic_aberration` /
+    # `lens_distortion`, which no planner writes.  Step 4.03 offers
+    # `chromatic_aberration` as one of DaVinci's own shipped MACROS
+    # (`library/presets/resolve-builtin/tools/Chromatic Aberration.setting`,
+    # loaded by `library/tools/fusion_macro_loader.py`), which is the real
+    # route and is unaffected.  Removed rather than left: dead code that
+    # states a capability the renderer does not have is the defect
+    # AGENTS.md 10.2 names.
 

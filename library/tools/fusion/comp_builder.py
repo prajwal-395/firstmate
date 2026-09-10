@@ -26,7 +26,8 @@ keeps the headline and points here.
 - Never set DirectionalBlur `Length` greater than 5: it creates artifacts and edge tiling.
 - Never set animated Transform zoom (Size) past `nodes.MAX_ANIMATED_ZOOM` (1.15): it is too aggressive and breaks immersion.
 
-- Always set `Inverted = Input { Value = 1, }` on EllipseMask for vignettes.
+- **An input name the tool does not have is a SILENT no-op**, and four shipped that way: `Inverted` on EllipseMask (the name is `Invert`, so the vignette drew a black DISC in the middle), `Power`/`Size` on FilmGrain (`MasterStrength`/`MasterXSize`, so every declared grain was ignored), `CropTop`/`CropBottom` on Crop (`XOffset`/`YOffset`/`XSize`/`YSize`, so the old-TV switch cropped to the source's bottom-left corner and never animated), and a `ChromaticAberration` tool Fusion does not register at all. `library/tools/fusion/tool_inputs.py` carries what each tool really has, dumped off a running Resolve by `scripts/probe_fusion_tool_inputs.py`, and `FusionNode._validate` refuses anything else in an authored comp.
+- Always set `Invert = Input { Value = 1, }` on EllipseMask for vignettes.
 - Always include `MaskWidth`, `MaskHeight` and `PixelAspect` on EllipseMask.
 - Always wire `Transform1.Input <- MediaIn1.Output` explicitly.
 - Always use `Blend` instead of `BlendClone` for Merge opacity.
@@ -62,6 +63,35 @@ def normalize_effects(effects, has_zoom):
 
 
 DEFAULT_SOURCE_RES = (1080, 1920)
+
+
+class UndeclaredEffectStrength(KeyError):
+    """A clip armed an effect and did not say how strong it is.
+
+    Raised rather than completed. AGENTS.md 10.5: how strong a glow is,
+    how coarse a grain is and how deep a vignette falls off are the
+    declaring author's decisions, and an engine-supplied value is a
+    strength nobody chose arriving one level up. `series_look` refuses a
+    half-declared element at the template; this is the same refusal at
+    the renderer, for the plan-side callers that do not go through it.
+
+    Every one of these was a live `.get(key, <number>)` here until
+    2026-09-10 - glow 0.75/3.5, grain 0.25/1.5, vignette 0.25/0.35,
+    defocus 2.0, shake 0.01 - which is the catalogue AGENTS.md 12 says
+    this engine does not ship, still shipping through a different door.
+    """
+
+
+def _strength(effects: dict, armed_by: str, key: str) -> float:
+    """One declared magnitude, or a refusal naming what armed it."""
+    if key not in effects:
+        raise UndeclaredEffectStrength(
+            f"{armed_by} is armed on this clip but {key} is not declared, "
+            f"so nothing says how strong it is. Declare it, or drop the "
+            f"effect - the engine may not choose the number "
+            f"(AGENTS.md 10.5)."
+        )
+    return effects[key]
 
 
 def build_effect_comp(effects: dict, clip_dur: int,
@@ -150,33 +180,41 @@ def build_effect_comp(effects: dict, clip_dur: int,
 
     if effects.get('glow_gain', 0.0) > 0:
         engine.add(fx.glow(
-            gain=effects.get('glow_gain', 0.0),
-            threshold=effects.get('glow_threshold', 0.75),
-            size=effects.get('glow_size', 3.5)
+            gain=effects['glow_gain'],
+            threshold=_strength(effects, 'glow_gain', 'glow_threshold'),
+            size=_strength(effects, 'glow_gain', 'glow_size'),
         ))
 
     if effects.get('film_grain'):
         engine.add(fx.grain(
-            power=effects.get('film_grain_power', 0.25),
-            size=effects.get('film_grain_size', 1.5)
+            power=_strength(effects, 'film_grain', 'film_grain_power'),
+            size=_strength(effects, 'film_grain', 'film_grain_size'),
         ))
 
     if effects.get('defocus'):
-        engine.add(fx.defocus(size=effects.get('defocus_size', 2.0)))
-        
+        engine.add(fx.defocus(
+            size=_strength(effects, 'defocus', 'defocus_size')))
+
+    # `shake_x` and `shake_y` are two INDEPENDENT AXES, and an absent one
+    # is 0.0 - the axis is not moved. That is a neutral, not a strength,
+    # so it is the one dispatch here that may complete itself; the plan
+    # contract (`plan_vfx.TOOLKIT_PARAMETERS`) advertises them
+    # separately and drops an entry naming neither. It defaulted to 0.01
+    # on both, which IS a strength and put a shake on an axis the plan
+    # never asked to move.
     if 'shake_x' in effects or 'shake_y' in effects:
         engine.add(fx.shake(
             clip_dur,
-            x_amount=effects.get('shake_x', 0.01),
-            y_amount=effects.get('shake_y', 0.01),
+            x_amount=effects.get('shake_x', 0.0),
+            y_amount=effects.get('shake_y', 0.0),
             decay_frames=effects.get('shake_decay_frames'),
         ))
-        
-    if 'chromatic_aberration' in effects or 'chromatic_aberration_amount' in effects:
-        engine.add(fx.chromatic_aberration(amount=effects.get('chromatic_aberration_amount', 0.01)))
 
-    if 'lens_distortion' in effects or 'lens_distortion_amount' in effects:
-        engine.add(fx.lens_distortion(distortion=effects.get('lens_distortion_amount', 0.1)))
+    # `chromatic_aberration` and `lens_distortion` were dispatched here
+    # until 2026-09-10. Neither builder could draw - see
+    # `fusion/effects.py` for what Fusion actually registers - and no
+    # planner emitted either key. Step 4.03's `chromatic_aberration` is
+    # DaVinci's own shipped macro and takes the macro-loader route.
 
     # A vignette is DRAWN ONLY WHERE ONE WAS ASKED FOR. This used to
     # default to True, so any clip carrying a zoom and no explicit
@@ -186,13 +224,20 @@ def build_effect_comp(effects: dict, clip_dur: int,
     # False` for the no-zoom case only, which is why it never showed up
     # as an obvious bug: the half of the clips it hit were the ones with
     # a VFX zoom on them.
+    #
+    # `vignette_width` / `vignette_height` at 1.0 are the ONE thing here
+    # that is not a strength: 1.0 is the ellipse inscribed in the frame,
+    # which is the geometry of "a vignette" rather than a choice of how
+    # much of one. Nothing declares them and `LOOK_ELEMENTS` offers no
+    # slot, so they stay geometry. `vignette_color` absent is the absence
+    # of a TINT, which `series_look` writes down as its reading.
     if effects.get('vignette'):
         engine.add(fx.vignette(
             clip_dur=clip_dur,
             width=effects.get('vignette_width', 1.0),
             height=effects.get('vignette_height', 1.0),
-            soft=effects.get('vignette_soft', 0.35),
-            blend=effects.get('vignette_blend', 0.25),
+            soft=_strength(effects, 'vignette', 'vignette_soft'),
+            blend=_strength(effects, 'vignette', 'vignette_blend'),
             color=effects.get('vignette_color', (0.0, 0.0, 0.0)),
             res=res,
         ))
@@ -221,6 +266,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             collapse_crop=timing['collapse_crop'],
             source_in=src_in, source_out=src_out,
             played_frames=played_frames,
+            res=res,
         ))
 
     if effects.get('tv_power_tail'):
@@ -234,6 +280,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             decay_frames=timing['decay_frames'],
             source_in=src_in, source_out=src_out,
             played_frames=played_frames,
+            res=res,
         ))
 
     tail_trans = effects.get('tail_transition')

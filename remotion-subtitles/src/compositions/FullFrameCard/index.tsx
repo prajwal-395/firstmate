@@ -18,7 +18,7 @@
  * It states nothing of its own. The ground, the typeface, every colour,
  * every word, the hold and the motion character all arrive in props from
  * a declaration the project wrote. There is no default background, no
- * default colour and no default copy here, for the reason `house_look.py`
+ * default colour and no default copy here, for the reason `series_look.py`
  * was emptied (AGENTS.md 10.5). The only value this file supplies is what
  * a named motion character LOOKS like, and it imports those from
  * MotionGraphics rather than respelling them - one drawing of `blur` in

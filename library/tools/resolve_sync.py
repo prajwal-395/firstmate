@@ -15,7 +15,7 @@ Symlink map:
 
 These are assets a human uses on the Color and Fusion pages. The
 pipeline's own look is not among them: it is CDL plus Fusion values a
-brand template declares (library/tools/house_look.py), applied by the
+brand template declares (library/tools/series_look.py), applied by the
 renderer, with no file inside a Resolve installation involved.
 
 Usage:
@@ -58,7 +58,7 @@ def _build_link_map():
 
     # There is no luts/ or dctls/ preset directory: nothing in the
     # pipeline ever read one, and a look now ships as CDL plus Fusion
-    # values a brand template declares (library/tools/house_look.py).
+    # values a brand template declares (library/tools/series_look.py).
 
     # Project DCTL (4thWall_Base_Memory.dctl) -> Resolve/LUT/4th Wall/
     # This one has its own namespace because it was already manually placed there

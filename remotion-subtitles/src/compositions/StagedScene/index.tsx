@@ -40,7 +40,7 @@
  * colour, no vignette, no texture, no palette, no typeface, no size, no
  * duration, no easing magnitude and no camera move anywhere in it.
  * Every one of those arrives in props from a declaration someone wrote,
- * for the reason `house_look.py` was emptied (AGENTS.md 10.5), and the
+ * for the reason `series_look.py` was emptied (AGENTS.md 10.5), and the
  * captain restated it for this work on 2026-09-08: "i want no hardcoded
  * values.  there are no house glow looks, there are no settled house
  * grain or anything."
@@ -51,7 +51,7 @@
  *   - The NEUTRAL camera: zoom 1, x 0, y 0, roll 0, focus 0.  That is
  *     "the camera does not move", which is no move rather than a chosen
  *     one - the same reading `transition_vocabulary.CUT_TYPES` and
- *     `house_look.NEUTRAL_CDL` get in AGENTS.md 10.5.
+ *     `series_look.NEUTRAL_CDL` get in AGENTS.md 10.5.
  *   - `holdFrames` absent: every frame is drawn.  No stylisation.
  *   - What the four EASE NAMES look like.  `in`, `out` and `inOut` are
  *     cubic here.  That is what those words MEAN in this renderer, the

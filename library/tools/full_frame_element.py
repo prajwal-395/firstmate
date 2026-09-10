@@ -70,7 +70,7 @@ A declaration, and no taste
 ---------------------------
 The engine draws what a declaration states and states nothing itself.  No
 colour, no typeface, no duration, no motion character and no copy has a
-default here, for the reason ``house_look.py`` was emptied (AGENTS.md
+default here, for the reason ``series_look.py`` was emptied (AGENTS.md
 10.5).  What a declaration looks like, in a project's own ``project.yaml``
 (the PROJECT wins, the same precedence and the same reason as
 ``timed_text_overlay.resolve_declaration``: copy the viewer reads is
@@ -438,7 +438,7 @@ NO_MOTION = "cut"
 Legal as a default under AGENTS.md 10.5's own carve-out: a value meaning
 "nothing is drawn" is the absence of decoration, not a choice of it - the
 same reading ``transition_vocabulary.CUT_TYPES`` and
-``house_look.NEUTRAL_CDL`` are given.  Every other axis - colour, ground,
+``series_look.NEUTRAL_CDL`` are given.  Every other axis - colour, ground,
 typeface, duration, copy - has no default and refuses when absent.
 """
 

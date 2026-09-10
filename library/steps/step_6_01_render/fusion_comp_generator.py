@@ -47,15 +47,15 @@ def generate_comp(
     grade_saturation: float = 1.0,
     # Highlight bloom (SoftGlow)
     glow_gain: float = 0.0,
-    glow_threshold: float = 0.75,
-    glow_size: float = 3.5,
+    glow_threshold: Optional[float] = None,
+    glow_size: Optional[float] = None,
     # Film Grain
     film_grain: bool = False,
-    film_grain_power: float = 0.25,
-    film_grain_size: float = 1.5,
+    film_grain_power: Optional[float] = None,
+    film_grain_size: Optional[float] = None,
     # Defocus (depth-of-field effect)
     defocus: bool = False,
-    defocus_size: float = 2.0,
+    defocus_size: Optional[float] = None,
     # Opacity animation (for transitions)
     fade_in_frames: int = 0,   # 0 = no fade
     fade_out_frames: int = 0,  # 0 = no fade
@@ -66,11 +66,11 @@ def generate_comp(
     head_transition: Optional[str] = None,
     head_transition_frames: int = 7,
     # Vignette
-    vignette: bool = True,
+    vignette: Optional[bool] = None,
     vignette_width: Optional[float] = None,   # engine picks defaults by orientation
     vignette_height: Optional[float] = None,   # engine picks defaults by orientation
-    vignette_soft: float = 0.35,
-    vignette_blend: float = 0.25,
+    vignette_soft: Optional[float] = None,
+    vignette_blend: Optional[float] = None,
     vignette_color: Optional[tuple] = None,    # (r, g, b) 0-1; default black
     # Resolution (for vignette Background)
     width: int = 1080,
@@ -98,8 +98,15 @@ def generate_comp(
     Returns:
         Complete .comp file content as string
     """
-    # Delegate to the composable engine; filter out None values so
-    # the engine's orientation-aware defaults take effect.
+    # Delegate to the composable engine; None values are filtered out,
+    # which is what "not declared" means. Every STRENGTH here is
+    # `Optional[...] = None` on purpose: this signature carried
+    # `vignette=True`, `vignette_blend=0.25`, `vignette_soft=0.35`,
+    # `glow_threshold=0.75`, `film_grain_power=0.25` and `defocus_size=2.0`
+    # until 2026-09-10 - the look catalogue AGENTS.md 12 records as
+    # removed, still shipping from a function signature. An effect armed
+    # with no strength is now REFUSED by name
+    # (`comp_builder.UndeclaredEffectStrength`).
     return CompEngine.from_params(clip_dur, **{
         k: v for k, v in locals().items()
         if k != 'clip_dur' and v is not None

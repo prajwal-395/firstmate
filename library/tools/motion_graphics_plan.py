@@ -206,7 +206,7 @@ DROP_REASONS: Dict[str, str] = {
     "no_colour_to_draw_it_in": (
         "Neither a brand palette role nor a colour stated by the plan "
         "itself resolves to a colour. There is no fallback: drawing in a "
-        "constant is what PR #310 emptied house_look.py to stop."
+        "constant is what PR #310 emptied series_look.py to stop."
     ),
     "anchor_phrase_not_found": (
         "The entry's anchor phrase occurs nowhere in the measured word "

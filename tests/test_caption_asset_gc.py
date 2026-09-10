@@ -346,11 +346,11 @@ def test_collect_resolve_roots_marks_missing_database_unreadable(tmp_path):
 def test_superseded_generation_orphaned_at_rerender_time(tmp_path):
     """Re-rendering a card orphans the generation it replaced, at once.
 
-    Two renders of one card (same stem, different digest - e.g. a source
-    span that shifted within the millisecond the filename carries) leave
-    the older mov superseded: named on the newer entry, without waiting
-    for a sweep. Reachability still rules the mark - this only names the
-    candidate at the moment it becomes one.
+    Two renders of one card with genuinely different pixels (a text
+    correction: same provenance stem, new content digest) leave the
+    older mov superseded: named on the newer entry, without waiting
+    for a sweep. Reachability still rules the mark - this only names
+    the candidate at the moment it becomes one.
     """
     from library.steps.step_4_05_render_subtitles.step import (
         RENDERED,
@@ -361,19 +361,52 @@ def test_superseded_generation_orphaned_at_rerender_time(tmp_path):
     out_dir = str(tmp_path)
     first = render_one_segment(_props(), out_dir, "tl",
                                remotion_dir="/none",
-                               renderer=_StubRenderer())
+                               renderer=_StubRenderer(),
+                               overlay_geometry="full")
     assert first["provenance"] == RENDERED
     assert first["superseded"] == []
 
     changed = _props()
-    changed["_source_start"] = 10.0004  # same ms token, new digest
+    changed["subtitles"] = [dict(changed["subtitles"][0],
+                                 text="and so my very CHANGED")]
     second = render_one_segment(changed, out_dir, "tl",
                                 remotion_dir="/none",
-                                renderer=_StubRenderer())
+                                renderer=_StubRenderer(),
+                                overlay_geometry="full")
     assert second["provenance"] == RENDERED
+    assert second["overlay_path"] != first["overlay_path"]
     assert second["superseded"] == [first["overlay_path"]]
     # The old file is still on disk: orphaned, not deleted.
     assert os.path.isfile(first["overlay_path"])
+
+
+def test_a_sub_pixel_source_shift_is_the_same_artefact(tmp_path):
+    """A source-span shift inside the millisecond the filename carries
+    changes no pixel: same provenance stem, same drawing digest, same
+    file. The re-render overwrites itself - which is correct - and
+    names nothing superseded, because there is no older generation."""
+    from library.steps.step_4_05_render_subtitles.step import (
+        RENDERED,
+        render_one_segment,
+    )
+    from tests.test_subtitle_overlay_modes import _props, _StubRenderer
+
+    out_dir = str(tmp_path)
+    first = render_one_segment(_props(), out_dir, "tl",
+                               remotion_dir="/none",
+                               renderer=_StubRenderer(),
+                               overlay_geometry="full")
+    assert first["provenance"] == RENDERED
+
+    changed = _props()
+    changed["_source_start"] = 10.0004  # same ms token, same pixels
+    second = render_one_segment(changed, out_dir, "tl",
+                                remotion_dir="/none",
+                                renderer=_StubRenderer(),
+                                overlay_geometry="full")
+    assert second["provenance"] == RENDERED
+    assert second["overlay_path"] == first["overlay_path"]
+    assert second["superseded"] == []
 
 
 # --------------------------------------------- the render ledger
@@ -403,8 +436,9 @@ def test_render_one_segment_records_the_ledger(tmp_path):
     asset_dir = _asset_dir(project)
     os.makedirs(asset_dir, exist_ok=True)
     produced = render_one_segment(_props(), asset_dir, "tl",
-                                  remotion_dir="/none",
-                                  renderer=_StubRenderer())
+                                   remotion_dir="/none",
+                                   renderer=_StubRenderer(),
+                                   overlay_geometry="full")
     assert produced["provenance"] == RENDERED
     ledger = ledger_path_for(asset_dir)
     assert os.path.isfile(ledger)

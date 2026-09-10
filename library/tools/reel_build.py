@@ -629,7 +629,7 @@ def _item_uid(item):
         return None
 
 
-def link_reel_groups(timeline, plan) -> dict:
+def link_reel_groups(timeline, plan, offset_links=()) -> dict:
     """Picture to speech, captions into the group - in ONE call per start.
 
     Every a-roll picture and every speech item starting on one frame,
@@ -648,8 +648,22 @@ def link_reel_groups(timeline, plan) -> dict:
     verifier's own host lookup reads, so "the first host" is the same
     speech item on both sides of the gate. Every call is read back,
     not trusted.
+
+    `offset_links` are the `OffsetLink` groups an offset placement
+    declared (`plan_j_cut`, `plan_cutaway`): picture and speech that
+    deliberately start on different frames. Each is matched to
+    timeline items by exact record span and unioned with whatever
+    group those items already sit in, then linked in ONE call per
+    union - so an offset build keeps the SOP guarantee (picture, its
+    speech, and captions inside that speech stay linked) without a
+    same-start match. An offset build is strict: anything still
+    unlinked afterwards raises `OffsetRefused` naming it, rather than
+    placing silently unlinked. Without `offset_links` the legacy
+    behaviour stands - leftovers warn and conformance fails them.
     """
     record = {"link_groups": [], "caption_links": [], "warnings": []}
+    verified_groups: list = []  # each verified call's member items
+    offset_links = list(offset_links or [])
 
     speech_index = []  # (start, end, item, angle_key), plan row order
     for row in plan.speech_rows():
@@ -700,7 +714,17 @@ def link_reel_groups(timeline, plan) -> dict:
 
     for start in order:
         bucket = starts[start]
-        group = list(picture_starts.get(start, []))
+        pictures_here = picture_starts.get(start, [])
+        if offset_links and not pictures_here:
+            # An offset build's heads start where no picture does -
+            # the J-cut's early audio, a cutaway's trimmed piece.
+            # Linking those speeches among themselves here would
+            # pre-merge what the offset unions keep as take-pure
+            # groups (and claim captions the hints must place), so
+            # the bucket is deferred: a hint links it, or the strict
+            # pass refuses it. Without offsets this changes nothing.
+            continue
+        group = list(pictures_here)
         group.extend(speech for _, _, speech in bucket["speeches"])
         spans = [(s, e) for s, e, _ in bucket["speeches"]]
         for caption in caption_items:
@@ -748,6 +772,7 @@ def link_reel_groups(timeline, plan) -> dict:
         if verified:
             record["link_groups"].append(
                 {"speech_start": start, "members": len(group)})
+            verified_groups.append(list(group))
             for caption in group:
                 if caption in caption_items:
                     claimed_captions.add(_item_uid(caption))
@@ -760,7 +785,187 @@ def link_reel_groups(timeline, plan) -> dict:
         else:
             record["warnings"].append(
                 f"Link at frame {start} read back unlinked")
+    if offset_links:
+        _link_offset_unions(timeline, plan, record, verified_groups,
+                            speech_index, caption_items, claimed_captions,
+                            offset_links)
     return record
+
+
+def _link_offset_unions(timeline, plan, record, verified_groups,
+                        speech_index, caption_items, claimed_captions,
+                        offset_links) -> None:
+    """Link what an offset placement declared, strictly.
+
+    Each `OffsetLink` is matched to timeline items by exact record
+    span, unioned with the verified groups its items already sit in
+    (a cutaway picture joins a grouped speech by re-linking the whole
+    union in ONE call - linking is exclusive, so the one call IS the
+    group), and linked in one call per union. Claimed captions stay
+    with their first host: a hint only ever claims the unclaimed, so
+    two speech groups can never merge through one shared caption.
+
+    Strict means strict: a hint matching nothing, a union that reads
+    back unlinked, or any a-roll picture or speech item still linked
+    to nothing afterwards raises `OffsetRefused` naming it. On success
+    the legacy warnings stand resolved and are cleared - every one of
+    them names an item this pass just linked.
+    """
+    by_speech_span: Dict[tuple, list] = {}
+    for start, end, item, _angle_key in speech_index:
+        by_speech_span.setdefault((start, end), []).append(item)
+    picture_spans: Dict[tuple, list] = {}
+    for row in plan.aroll_rows():
+        try:
+            items = timeline.GetItemListInTrack("video", row.index) or []
+        except Exception:
+            items = []
+        for item in items:
+            span = _timeline_span(item)
+            if span is None:
+                continue
+            picture_spans.setdefault((span[0], span[1]), []).append(item)
+
+    parent: Dict[str, str] = {}
+
+    def find(uid):
+        parent.setdefault(uid, uid)
+        while parent[uid] != uid:
+            parent[uid] = parent[parent[uid]]
+            uid = parent[uid]
+        return uid
+
+    def union(uids):
+        uids = [u for u in uids if u is not None]
+        if not uids:
+            return
+        root = find(uids[0])
+        for uid in uids[1:]:
+            parent[find(uid)] = root
+
+    members: Dict[str, object] = {}
+    for group in verified_groups:
+        union([_item_uid(m) for m in group])
+        for member in group:
+            members[_item_uid(member)] = member
+
+    unions: Dict[str, list] = {}
+    for link in offset_links:
+        speech_span = (int(link.speech[0]), int(link.speech[1]))
+        speeches = by_speech_span.get(speech_span, [])
+        if not speeches:
+            raise OffsetRefused(
+                f"Offset link for speech span {speech_span[0]}-"
+                f"{speech_span[1]} matches no speech item on the "
+                f"timeline - the placement it was planned from did "
+                f"not land, so the offset is refused rather than "
+                f"half-linked.")
+        # One link, one union: the speech, its pictures and its
+        # captions join in a SINGLE union call below, because linking
+        # is exclusive - unioning speeches with speeches and pictures
+        # with pictures but never the two together would leave the
+        # offset group unformed and rip the pictures out of the
+        # verified groups they already sit in.
+        link_uids = [_item_uid(s) for s in speeches]
+        for member in speeches:
+            members[_item_uid(member)] = member
+        for picture_span in (link.pictures or ()):
+            key = (int(picture_span[0]), int(picture_span[1]))
+            pictures = picture_spans.get(key, [])
+            if not pictures:
+                raise OffsetRefused(
+                    f"Offset link for picture span {key[0]}-{key[1]} "
+                    f"matches no picture item on the timeline - the "
+                    f"placement it was planned from did not land, so "
+                    f"the offset is refused rather than half-linked.")
+            link_uids.extend(_item_uid(p) for p in pictures)
+            for member in pictures:
+                members[_item_uid(member)] = member
+        for speech in speeches:
+            for caption in caption_items:
+                if _item_uid(caption) in claimed_captions:
+                    continue
+                span = _timeline_span(caption)
+                if span is None:
+                    continue
+                if speech_span[0] <= span[0] and span[1] <= speech_span[1]:
+                    link_uids.append(_item_uid(caption))
+                    members[_item_uid(caption)] = caption
+        union(link_uids)
+
+    for uid in list(parent):
+        unions.setdefault(find(uid), []).append(uid)
+
+    already = set()
+    for group in verified_groups:
+        already.add(frozenset(_item_uid(m) for m in group))
+    for root, uids in unions.items():
+        items = [members[u] for u in uids if u in members]
+        if frozenset(uids) in already:
+            continue
+        if len(items) < 2:
+            continue
+        try:
+            ok = timeline.SetClipsLinked(items, True)
+        except Exception as exc:
+            raise OffsetRefused(
+                f"Offset link of {len(items)} items raised {exc!r} - "
+                f"refused rather than placed half-linked.")
+        if not ok:
+            raise OffsetRefused(
+                "Resolve declined the offset link group "
+                f"({len(items)} items) - refused rather than placed "
+                "half-linked.")
+        for member in items:
+            want = {_item_uid(other) for other in items
+                    if other is not member}
+            want.discard(None)
+            if want and not (want <= _linked_ids(member)):
+                raise OffsetRefused(
+                    "Offset link group read back unlinked - refused "
+                    "rather than placed half-linked.")
+        start = min(_timeline_span(m)[0] for m in items
+                    if _timeline_span(m) is not None)
+        record["link_groups"].append(
+            {"speech_start": start, "members": len(items),
+             "offset": True})
+        for caption in items:
+            if caption in caption_items:
+                if _item_uid(caption) in claimed_captions:
+                    continue
+                claimed_captions.add(_item_uid(caption))
+                span = _timeline_span(caption)
+                record["caption_links"].append(
+                    {"caption_start": span[0] if span else start,
+                     "caption_end": span[1] if span else start,
+                     "speech_start": start,
+                     "members": len(items)})
+
+    unlinked = []
+    for _start, _end, item, _key in speech_index:
+        if not _linked_ids(item):
+            span = _timeline_span(item)
+            unlinked.append(f"speech at {span[0]}-{span[1]}")
+    for row in plan.aroll_rows():
+        try:
+            items = timeline.GetItemListInTrack("video", row.index) or []
+        except Exception:
+            items = []
+        for item in items:
+            if not _linked_ids(item):
+                span = _timeline_span(item)
+                unlinked.append(
+                    f"picture at {span[0]}-{span[1]} on {row.name}"
+                    if span else f"picture on {row.name}")
+    if unlinked:
+        shown = "; ".join(unlinked[:4])
+        if len(unlinked) > 4:
+            shown += f" (+{len(unlinked) - 4} more)"
+        raise OffsetRefused(
+            f"Offset build leaves {len(unlinked)} a-roll item(s) "
+            f"unlinked: {shown} - refused rather than placed silently "
+            f"unlinked.")
+    record["warnings"] = []
 
 
 REEL_RESOLUTION = (1080, 1920)
@@ -1859,9 +2064,548 @@ def placements(ranges: Sequence[Tuple[float, float]],
                 "snapped_record": record_f,
                 "track_index": clip.track_index,
                 "speaker": clip.speaker,
+                # The master-transcript range this placement plays, in
+                # seconds. The captain's transform overrides anchor to
+                # SPOKEN WORDS, and this is the join: words in this
+                # range are the words this item speaks, across any
+                # rebuild, re-cut or renumbering.
+                "master": (overlap_start_f / fps, overlap_end_f / fps),
             })
         cursor_frames += range_frames
     return out
+
+
+class OffsetRefused(ReelBuildError):
+    """An offset placement was asked for and cannot be built safely."""
+
+
+@dataclass
+class OffsetLink:
+    """One link group an offset placement declares, by record span.
+
+    `speech` is the (start, end) record span in FRAMES of the speech
+    item the group is built around; `pictures` are the record spans of
+    the picture items that travel with it. `link_reel_groups` matches
+    timeline items to these spans exactly - the transform that moved
+    the spans names them, so no tie-break at link time can join a
+    speech to its neighbour's picture.
+    """
+
+    speech: tuple
+    pictures: tuple = ()
+
+
+@dataclass
+class OffsetPlan:
+    """An adjusted placements list plus what it needs downstream.
+
+    `placements` replaces the list the transform was given - the build
+    loop places from it, so picture, punch-in and frame runs all read
+    the moved spans. `links` are the `OffsetLink` groups for
+    `link_reel_groups`. `report` is the operator-readable account of
+    what moved and what was checked.
+    """
+
+    placements: list
+    links: list
+    report: dict
+
+
+def _placement_span_frames(place: dict, fps: float) -> tuple:
+    """The (start, end) record span of a placement, in whole frames."""
+    start = int(place["snapped_record"])
+    duration = int(round((place["source_out"] - place["source_in"]) * fps))
+    return (start, start + duration)
+
+
+def _is_audio_place(place: dict) -> bool:
+    return getattr(place["clip"], "track_type", "video") != "video"
+
+
+def _check_audio_row_disjoint(adjusted: list, fps: float,
+                              what: str) -> None:
+    """No two audio placements from one master row may overlap.
+
+    An offset moves audio cuts; two items on one row overlapping is a
+    placement Resolve would trim silently, so it refuses by name.
+    Picture rows are not checked here: a cutaway deliberately stacks
+    angles on different rows, and rows are disjoint by construction.
+    """
+    by_row: Dict[tuple, list] = {}
+    for place in adjusted:
+        if not _is_audio_place(place):
+            continue
+        clip = place["clip"]
+        key = (getattr(clip, "track_index", None),
+               getattr(clip, "source_file", ""))
+        by_row.setdefault(key, []).append(place)
+    for key, items in by_row.items():
+        spans = sorted(_placement_span_frames(p, fps) for p in items)
+        for (first_s, first_e), (second_s, second_e) in zip(spans,
+                                                            spans[1:]):
+            if second_s < first_e:
+                raise OffsetRefused(
+                    f"{what}: audio placements from master row "
+                    f"{key[0]} ({(key[1] or '').rsplit('/', 1)[-1]}) "
+                    f"overlap at [{second_s}, {first_e}) frames after "
+                    f"the move - Resolve would trim one silently, so "
+                    f"the offset is refused rather than placed.")
+
+
+def plan_j_cut(placements_list: Sequence[dict], fps: float,
+               join_record_frame: int, lead_frames: int,
+               words: Sequence[tuple] = ()) -> OffsetPlan:
+    """Move the AUDIO cut earlier than the picture cut at one join.
+
+    Every audio placement starting on `join_record_frame` (the incoming
+    take's head on every angle) starts `lead_frames` earlier instead,
+    reaching back into its own source; every audio placement ending on
+    the join (the outgoing take's tail) ends that much earlier; an
+    audio item spanning the join is split at the moved cut. Picture is
+    untouched, so the ear crosses the join before the eye does. The
+    reel plays the same words in the same order - only which take's
+    room the first `lead_frames` of the incoming take are heard under
+    changes.
+
+    `words` are (start, end, text) in REEL seconds for the played span.
+    A word inside the trimmed tail `[join-lead, join)` refuses: the
+    lead must sit inside the pause, not inside speech. The extended
+    head reaches source the reel never played, whose words no played
+    transcript covers - the report names each lead-in source span so
+    the operator checks what it carries (on Reel 09 that span is
+    source the rough cut dropped) instead of the gate guessing.
+
+    Returns an `OffsetPlan`: the moved placements, one `OffsetLink`
+    per moved head speech (head speech plus its own take's picture,
+    matched by angle so a same-start neighbour can never claim it),
+    and the report. A join with no audio on it, a lead the source
+    cannot supply (`source_in` below the lead), a tail the lead would
+    erase, or a post-move audio overlap all raise `OffsetRefused`.
+    """
+    if lead_frames <= 0:
+        raise OffsetRefused(
+            f"J-cut lead is {lead_frames} frames - a J-cut with no lead "
+            f"is the straight cut it was asked to improve.")
+    cut_frame = int(join_record_frame) - int(lead_frames)
+    if cut_frame < 0:
+        raise OffsetRefused(
+            f"J-cut lead of {lead_frames} frames reaches before reel "
+            f"frame 0 - the join sits too early for that lead.")
+
+    heads = [p for p in placements_list
+             if _is_audio_place(p)
+             and int(p["snapped_record"]) == int(join_record_frame)]
+    tails = [p for p in placements_list
+             if _is_audio_place(p)
+             and _placement_span_frames(p, fps)[1] == int(join_record_frame)]
+    spanned = [p for p in placements_list
+               if _is_audio_place(p)
+               and int(p["snapped_record"]) < int(join_record_frame)
+               < _placement_span_frames(p, fps)[1]]
+    if not heads and not spanned:
+        raise OffsetRefused(
+            f"J-cut at reel frame {join_record_frame}: no audio starts "
+            f"or spans there, so there is no incoming take to lead with.")
+
+    lead_seconds = int(lead_frames) / fps
+    for word in (words or ()):
+        start_s, end_s = float(word[0]), float(word[1])
+        if start_s * fps < int(join_record_frame) and \
+                end_s * fps > cut_frame:
+            raise OffsetRefused(
+                f"J-cut at reel frame {join_record_frame}: the word "
+                f"{word[2]!r} ({start_s:.2f}-{end_s:.2f}s) sounds "
+                f"inside the {lead_seconds:.2f}s the tail would give "
+                f"up - the lead must sit inside the pause, so pick "
+                f"a shorter lead or another join.")
+
+    adjusted: list = []
+    head_reports = []
+    split_tails: list = []
+    for place in placements_list:
+        if place in heads:
+            if float(place["source_in"]) < lead_seconds - 1e-9:
+                raise OffsetRefused(
+                    f"J-cut at reel frame {join_record_frame}: "
+                    f"{getattr(place['clip'], 'source_file', '?').rsplit('/', 1)[-1]} "
+                    f"starts its source at {place['source_in']:.2f}s, "
+                    f"so a {lead_seconds:.2f}s lead reaches before the "
+                    f"file - nothing to hear under the outgoing picture.")
+            moved = dict(place)
+            moved["snapped_record"] = int(place["snapped_record"]) - int(
+                lead_frames)
+            moved["record"] = moved["snapped_record"] / fps
+            moved["source_in"] = float(place["source_in"]) - lead_seconds
+            adjusted.append(moved)
+            head_reports.append({
+                "file": getattr(place["clip"], "source_file", "?"),
+                "record_frame": moved["snapped_record"],
+                "lead_in_source": [round(moved["source_in"], 3),
+                                   round(float(place["source_in"]), 3)],
+            })
+        elif place in tails:
+            span = _placement_span_frames(place, fps)
+            if span[1] - int(lead_frames) <= span[0]:
+                raise OffsetRefused(
+                    f"J-cut at reel frame {join_record_frame}: the "
+                    f"outgoing tail [{span[0]}, {span[1]}) is no longer "
+                    f"than the {lead_frames}-frame lead - trimming it "
+                    f"erases the item.")
+            moved = dict(place)
+            moved["source_out"] = float(place["source_out"]) - lead_seconds
+            adjusted.append(moved)
+        elif place in spanned:
+            span = _placement_span_frames(place, fps)
+            ratio = (cut_frame - span[0]) / (span[1] - span[0])
+            mid_source = (float(place["source_in"])
+                          + ratio * (float(place["source_out"])
+                                     - float(place["source_in"])))
+            tail_piece = dict(place)
+            tail_piece["source_out"] = mid_source
+            head_piece = dict(place)
+            head_piece["snapped_record"] = cut_frame
+            head_piece["record"] = cut_frame / fps
+            head_piece["source_in"] = mid_source
+            adjusted.extend([tail_piece, head_piece])
+            split_tails.append(tail_piece)
+            head_reports.append({
+                "file": getattr(place["clip"], "source_file", "?"),
+                "record_frame": cut_frame,
+                "lead_in_source": "split at the moved cut - no unplayed "
+                                  "source reached",
+            })
+        else:
+            adjusted.append(place)
+
+    _check_audio_row_disjoint(adjusted, fps, "J-cut")
+
+    # Links, named by exact span so link time matches rather than
+    # tie-breaks. One per moved head: the head speech plus its own
+    # take's picture - same angle first (a continuous angle's own
+    # picture is the listening shot's home), then greatest overlap,
+    # then the incoming speech on a tie - computed HERE, where the
+    # angle is known. Split tails claim their own picture too: a tail
+    # the same-start pass already grouped unions with exactly its own
+    # group and no second call is made, while a tail it could not
+    # group is linked instead of left to the strict pass.
+    pictures = [p for p in adjusted if not _is_audio_place(p)]
+    links = []
+
+    def _best_picture(speech_span, speech_angle):
+        best = None
+        best_key = None
+        for pic in pictures:
+            pic_span = _placement_span_frames(pic, fps)
+            overlap = min(speech_span[1], pic_span[1]) - max(
+                speech_span[0], pic_span[0])
+            if overlap <= 0:
+                continue
+            key = (0 if _angle_key(pic["clip"]) == speech_angle else 1,
+                   -overlap, -pic_span[0])
+            if best_key is None or key < best_key:
+                best_key = key
+                best = pic
+        return best
+
+    def _claim_head(head):
+        head_span = _placement_span_frames(head, fps)
+        best = _best_picture(head_span, _angle_key(head["clip"]))
+        if best is None:
+            raise OffsetRefused(
+                f"J-cut at reel frame {join_record_frame}: the moved "
+                f"speech [{head_span[0]}, {head_span[1]}) overlaps "
+                f"no picture - it would place unlinked, so the cut is "
+                f"refused rather than placed silently.")
+        pic_span = _placement_span_frames(best, fps)
+        for link in links:
+            if link.speech == head_span:
+                if pic_span not in link.pictures:
+                    link.pictures = link.pictures + (pic_span,)
+                return
+        links.append(OffsetLink(speech=head_span, pictures=(pic_span,)))
+
+    moved_heads = [p for p in adjusted
+                   if _is_audio_place(p)
+                   and int(p["snapped_record"]) == cut_frame
+                   and _placement_span_frames(p, fps)[1]
+                   > int(join_record_frame)]
+    for head in moved_heads:
+        _claim_head(head)
+    for tail in split_tails:
+        _claim_head(tail)
+
+    return OffsetPlan(
+        placements=adjusted,
+        links=links,
+        report={"kind": "j_cut",
+                "join_record_frame": int(join_record_frame),
+                "lead_frames": int(lead_frames),
+                "heads_moved": len(head_reports),
+                "tails_trimmed": len(tails),
+                "spanned_split": len(spanned),
+                "lead_ins": head_reports,
+                "lead_in_note": (
+                    "each lead-in reaches source the reel never played "
+                    "- check what it carries before approving the build"),
+                })
+
+
+def plan_cutaway(placements_list: Sequence[dict], fps: float,
+                 hide_angle_key: str, window_record_frames: tuple,
+                 cover_words: Sequence[tuple] = ()) -> OffsetPlan:
+    """Hide one angle's picture over a window, revealing the angle below.
+
+    Every picture placement of `hide_angle_key` overlapping the window
+    is trimmed to exclude it (splitting where the window falls
+    mid-item); every other angle's picture is untouched, so the
+    continuous angle beneath shows through and the audio is never
+    moved. A reaction cutaway is this with the hidden angle the
+    speaker and the revealed angle the listener.
+
+    `cover_words` are (start, end, text) in REEL seconds spoken by the
+    REVEALED angle. Any inside the window refuses: a cutaway to a
+    speaker mid-sentence is a jump to someone talking, not a reaction.
+    The report names the window and the covering angles, so the choice
+    of listening span is said, not implied.
+
+    Every frame of the window must be covered by at least one other
+    angle's picture, or the cutaway opens a hole - refused by frame.
+    Returns an `OffsetPlan` with one `OffsetLink` per covered speech
+    the window picture joins (the speech with the greatest overlap,
+    the incoming on a tie).
+    """
+    window_start, window_end = (int(window_record_frames[0]),
+                                int(window_record_frames[1]))
+    if window_end <= window_start:
+        raise OffsetRefused(
+            f"Cutaway window [{window_start}, {window_end}) runs "
+            f"backwards - nothing to reveal.")
+    for word in (cover_words or ()):
+        start_f = int(round(float(word[0]) * fps))
+        end_f = int(round(float(word[1]) * fps))
+        if start_f < window_end and end_f > window_start:
+            raise OffsetRefused(
+                f"Cutaway over [{window_start}, {window_end}): the "
+                f"revealed angle says {word[2]!r} "
+                f"({word[0]:.2f}-{word[1]:.2f}s) inside the window - a "
+                f"cutaway to someone mid-sentence is not a reaction. "
+                f"Pick a span where they are listening.")
+
+    hidden = [p for p in placements_list
+              if not _is_audio_place(p)
+              and _angle_key(p["clip"]) == str(hide_angle_key)]
+    if not any(_placement_span_frames(p, fps)[1] > window_start
+               and _placement_span_frames(p, fps)[0] < window_end
+               for p in hidden):
+        raise OffsetRefused(
+            f"Cutaway over [{window_start}, {window_end}): angle "
+            f"{hide_angle_key} has no picture there - nothing to hide.")
+
+    cover = [p for p in placements_list
+             if not _is_audio_place(p)
+             and _angle_key(p["clip"]) != str(hide_angle_key)]
+    uncovered = None
+    for frame in range(window_start, window_end):
+        if not any(_placement_span_frames(p, fps)[0] <= frame
+                   < _placement_span_frames(p, fps)[1] for p in cover):
+            uncovered = frame
+            break
+    if uncovered is not None:
+        raise OffsetRefused(
+            f"Cutaway over [{window_start}, {window_end}): reel frame "
+            f"{uncovered} has no covering picture under angle "
+            f"{hide_angle_key} - the cutaway would open a hole there.")
+    cover_angles = sorted({_angle_key(p["clip"]) for p in cover
+                           if _placement_span_frames(p, fps)[1]
+                           > window_start
+                           and _placement_span_frames(p, fps)[0]
+                           < window_end})
+
+    adjusted: list = []
+    for place in placements_list:
+        if place in hidden:
+            span = _placement_span_frames(place, fps)
+            pieces = []
+            if span[0] < window_start:
+                pieces.append((span[0], min(span[1], window_start)))
+            if span[1] > window_end:
+                pieces.append((max(span[0], window_end), span[1]))
+            total = span[1] - span[0]
+            for piece_start, piece_end in pieces:
+                if piece_end - piece_start <= 0:
+                    continue
+                piece = dict(place)
+                ratio_start = (piece_start - span[0]) / total
+                ratio_end = (piece_end - span[0]) / total
+                src_in = float(place["source_in"])
+                src_out = float(place["source_out"])
+                piece["snapped_record"] = piece_start
+                piece["record"] = piece_start / fps
+                piece["source_in"] = (src_in
+                                      + ratio_start * (src_out - src_in))
+                piece["source_out"] = (src_in
+                                       + ratio_end * (src_out - src_in))
+                adjusted.append(piece)
+            # A hidden item fully inside the window leaves no piece:
+            # that is the cutaway, not a loss - said in the report.
+        else:
+            adjusted.append(place)
+
+    # Links: every picture this transform created or exposed must
+    # travel with speech, named by exact span so link time matches
+    # rather than tie-breaks.
+    #
+    # - Each surviving hidden piece joins its own take's speech
+    #   (same angle first, so a same-length neighbour can never claim
+    #   it) - unless a speech starts on the piece's first frame, in
+    #   which case the same-start pass already grouped it and no
+    #   offset link is made. Abutting the window is the common case
+    #   for needing one: the trim moved the picture start off its
+    #   speech's start, so nothing starts there anymore.
+    # - Each covering item overlapping the window joins a speech only
+    #   when no speech starts on its first frame - the continuous
+    #   cover groups by start and needs no link, while a cover that
+    #   starts mid-reel is what the same-start pass could not group.
+    #   A cover that TALKS in the window was refused above via
+    #   `cover_words` (continuous audio beds overlap every window, so
+    #   an audio-overlap check here would refuse the link every
+    #   cutaway needs). The join goes to the speech with the greatest
+    #   overlap, the incoming on a tie, so the seam's listener
+    #   travels with the seam's words.
+    speeches = [p for p in adjusted if _is_audio_place(p)]
+    speech_starts = {_placement_span_frames(s, fps)[0]
+                     for s in speeches}
+    links: list = []
+    window_pics = [
+        p for p in adjusted
+        if not _is_audio_place(p)
+        and _angle_key(p["clip"]) != str(hide_angle_key)
+        and _placement_span_frames(p, fps)[1] > window_start
+        and _placement_span_frames(p, fps)[0] < window_end]
+
+    def _best_speech(pic_span, prefer_angle=None):
+        best = None
+        best_key = None
+        for speech in speeches:
+            speech_span = _placement_span_frames(speech, fps)
+            overlap = (min(pic_span[1], speech_span[1])
+                       - max(pic_span[0], speech_span[0]))
+            if overlap <= 0:
+                continue
+            if prefer_angle is None:
+                key = (-overlap, -speech_span[0])
+            else:
+                key = (0 if _angle_key(speech["clip"]) == prefer_angle
+                       else 1, -overlap, -speech_span[0])
+            if best_key is None or key < best_key:
+                best_key = key
+                best = speech
+        return best
+
+    def _claim(pic_span, speech_span):
+        for link in links:
+            if link.speech == speech_span:
+                if pic_span not in link.pictures:
+                    link.pictures = link.pictures + (pic_span,)
+                return
+        links.append(OffsetLink(speech=speech_span,
+                                pictures=(pic_span,)))
+
+    for place in adjusted:
+        if _is_audio_place(place):
+            continue
+        if _angle_key(place["clip"]) != str(hide_angle_key):
+            continue
+        pic_span = _placement_span_frames(place, fps)
+        if pic_span[0] in speech_starts:
+            # A speech starts on this piece's first frame - the
+            # same-start pass grouped it, so no offset link is made.
+            continue
+        best = _best_speech(pic_span,
+                            prefer_angle=str(hide_angle_key))
+        if best is None:
+            raise OffsetRefused(
+                f"Cutaway over [{window_start}, {window_end}): the "
+                f"trimmed picture [{pic_span[0]}, {pic_span[1]}) "
+                f"overlaps no speech - it would place unlinked, so "
+                f"the cutaway is refused rather than placed silently.")
+        _claim(pic_span, _placement_span_frames(best, fps))
+
+    for pic in window_pics:
+        pic_span = _placement_span_frames(pic, fps)
+        if pic_span[0] in speech_starts:
+            # The same-start pass grouped this cover with the speech
+            # starting on its first frame - no offset link is made.
+            continue
+        best = _best_speech(pic_span)
+        if best is None:
+            raise OffsetRefused(
+                f"Cutaway over [{window_start}, {window_end}): the "
+                f"revealed picture [{pic_span[0]}, {pic_span[1]}) "
+                f"overlaps no speech - it would place unlinked, so "
+                f"the cutaway is refused rather than placed silently.")
+        _claim(pic_span, _placement_span_frames(best, fps))
+
+    return OffsetPlan(
+        placements=adjusted,
+        links=links,
+        report={"kind": "cutaway",
+                "window_record_frames": [window_start, window_end],
+                "hidden_angle": str(hide_angle_key),
+                "cover_angles": cover_angles,
+                "cover_note": (
+                    f"frames [{window_start}, {window_end}) show "
+                    f"angle(s) {', '.join(cover_angles)} while the "
+                    f"audio stays - chosen because the cover speaks "
+                    f"no word inside the window"),
+                })
+
+
+def shift_captions_for_audio_lead(segments: Sequence[dict],
+                                  join_record_frame: int,
+                                  lead_frames: int,
+                                  fps: float) -> tuple:
+    """Move caption cards with the speech an audio lead moved.
+
+    A card belongs to the speech containing its END (cards close on
+    speech): cards ending on or before the join stay; cards ending
+    after it shift earlier by the lead, travelling with the take they
+    caption. A card STRADDLING the join shifts whole - its head (the
+    outgoing take's last words) displays up to the lead early, the
+    standard J-cut compromise - and is REPORTED by segment id rather
+    than adjusted silently, so the captain can judge that one card.
+
+    Returns (adjusted_segments, notes); the input dicts are not
+    mutated.
+    """
+    from library.tools.frame_utils import span_frames
+
+    join_frame = int(join_record_frame)
+    lead = int(lead_frames)
+    adjusted = []
+    notes = []
+    for segment in (segments or []):
+        start, end = span_frames(segment["timeline_start"],
+                                 segment["timeline_end"], fps)
+        if end <= join_frame:
+            adjusted.append(segment)
+            continue
+        moved = dict(segment)
+        moved["timeline_start"] = ((start - lead) / fps
+                                   if start >= join_frame
+                                   else segment["timeline_start"])
+        moved["timeline_end"] = (end - lead) / fps
+        if start < join_frame:
+            notes.append({
+                "segment_id": segment.get("segment_id", "?"),
+                "compromise": (
+                    f"card [{start}, {end}) straddles the join at "
+                    f"{join_frame}: shifted whole with the incoming "
+                    f"take, so its head shows up to "
+                    f"{lead / fps:.2f}s early"),
+            })
+        adjusted.append(moved)
+    return adjusted, notes
 
 
 class _SegmentsWithEntries(list):
@@ -1991,8 +2735,8 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
         Area.SUBTITLE_SEGMENTS, step="render_subtitles"))
     render = operations.get("subtitles.render_segment")
     # The project's declared carrying, resolved once for the reel. A
-    # project that declares nothing renders full-canvas video - today's
-    # path, byte for byte.
+    # project that declares nothing renders tight - the default since
+    # 2026-09-10 (`library/tools/overlay_mode.py`).
     from library.tools.overlay_mode import (
         resolve_overlay_container,
         resolve_overlay_geometry,
@@ -2250,7 +2994,16 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
             planned, out_dir,
             segment_name=ex.segment_name(name, index),
             progress=f"[{index + 1}/{len(segments_plan)}]",
-            project_folder=project_folder)
+            project_folder=project_folder,
+            # `reuse=True`: the cache-and-pair, the same opt-in the
+            # reel caption path carries. The file is content-keyed
+            # (`mg_<project>_<digest>`, step 4.06), so a rebuild - or
+            # a sibling variant - rendering the same graphic pairs
+            # back to the file already on disk instead of paying a
+            # Chromium launch for identical pixels. The per-variant
+            # `vox_<reel>_<index>` name travels as the entry's
+            # `placement_label`, never as the file's identity.
+            reuse=True)
         if rendered is None:
             continue
         # LOOK AT WHAT WAS DRAWN. A graphic too big for its band is not
@@ -2534,6 +3287,120 @@ def aim_picture_row(name: str, look: dict, screen_window,
     return aimed
 
 
+def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
+                              placements_list: list, timeline, transcript: dict,
+                              project_folder: str, width: int, height: int,
+                              look=None, screen_window=None) -> int:
+    """Hold the captain's recorded transform overrides on the picture.
+
+    The punch-in aims every shot at its measured subject; a hand move
+    the captain made in the Inspector (Reel 09, 2026-09-10: Akshita's
+    clip to Pan -35) is that aim being overruled, so overrides apply
+    AFTER it - the held value is the captain's, never the aim's. Each
+    one is judged the way the punch-in is: the `SetProperty` return
+    AND the read-back (a silent clamp reads back the clamp, not the
+    ask), and where the look declares a screen window the merged
+    transform is re-proved against it (`assert_punch_took`) - an
+    override that uncovered an edge raises rather than shipping
+    black. Without a look there is no declared window, so the
+    read-back equality is the whole proof. An override matching no
+    placed span reports STALE, loudly, like every other captain's
+    edit. Returns how many property holds were applied.
+    """
+    import sys
+
+    from library.tools import captain_edits as _edits
+    try:
+        edits = _edits.load_edits(project_folder)
+    except _edits.CaptainEditError as exc:
+        raise ReelBuildError(
+            f"captain_edits cannot be read: {exc}. A recorded override "
+            f"the build cannot read must refuse, never build silently "
+            f"past it.") from exc
+    if not any(e.get("kind") == "transform_override" for e in edits):
+        return 0
+    video_places = [
+        p for p in placements_list
+        if getattr(p["clip"], "track_type", "video") == "video"]
+    matched, stale = _edits.match_transform_overrides(
+        video_places, transcript, edits)
+    _edits.report_stale(stale)
+    if not matched:
+        return 0
+    position = {id(place): index
+                for index, place in enumerate(video_places)}
+    by_span: dict = {}
+    for record in matched:
+        by_span.setdefault(record["span_index"], []).append(record)
+    applied = 0
+    for aroll_row in track_plan.aroll_rows():
+        row_items = (timeline.GetItemListInTrack(
+            "video", aroll_row.index) or [])
+        row_places = [
+            p for p in placements_list
+            if getattr(p["clip"], "track_type", "video") == "video"
+            and video_row_by_angle.get(_angle_key(p["clip"]))
+            == aroll_row.index]
+        row_places.sort(key=lambda p: p["snapped_record"])
+        for index, item in enumerate(row_items):
+            if index >= len(row_places):
+                break
+            place = row_places[index]
+            records = by_span.get(position.get(id(place), -1), [])
+            if not records:
+                continue
+            source_file = place["clip"].source_file
+            for record in records:
+                prop, value = record["property"], record["value"]
+                before = _held_property(item, prop)
+                if not item.SetProperty(prop, value):
+                    raise ReelBuildError(
+                        f"{name}: Resolve refused the captain's "
+                        f"{prop}={value:g} on {item.GetName()!r} "
+                        f"(speaks {record['anchor_phrase']!r}). The "
+                        f"decision is recorded and the clip did not "
+                        f"take it - {record['reason']}")
+                held = _held_property(item, prop)
+                if held is not None and abs(held - value) > 1e-3:
+                    raise ReelBuildError(
+                        f"{name}: the captain's {prop}={value:g} did "
+                        f"not take on {item.GetName()!r} - Resolve "
+                        f"holds {held:g} (asked {value:g}). A silent "
+                        f"clamp is a rebuild that reports the "
+                        f"captain's value and plays another.")
+                if screen_window is not None:
+                    current = {key: _held_property(item, key)
+                               for key in ("ZoomX", "ZoomY", "Pan",
+                                           "Tilt")}
+                    if any(v is not None for v in current.values()):
+                        effective = {
+                            key: (current[key]
+                                  if current[key] is not None
+                                  else (1.0 if key.startswith("Zoom")
+                                        else 0.0))
+                            for key in current}
+                        try:
+                            assert_punch_took(
+                                name, item, source_file, effective,
+                                _source_frame_size(item), width, height,
+                                screen_window)
+                        except Exception as exc:
+                            raise ReelBuildError(
+                                f"{name}: the captain's {prop}={value:g} "
+                                f"on {item.GetName()!r} uncovers the "
+                                f"screen window: {exc}") from exc
+                held_desc = (f"{held:g}" if held is not None
+                             else "unreadable")
+                before_desc = (f"{before:g}" if before is not None
+                               else "unreadable")
+                print(f"  {name}: captain's {prop} holds {held_desc} "
+                      f"(was {before_desc}) on "
+                      f"{os.path.basename(source_file)} - "
+                      f"{record['reason']}", file=sys.stderr)
+                applied += 1
+    return applied
+
+
 def pool_item_for(pool, filepath: str):
     """The media pool item for *filepath*, or None if it is not there yet.
 
@@ -2564,17 +3431,240 @@ def pool_item_for(pool, filepath: str):
     return _search(pool.GetRootFolder())
 
 
-def import_pool_item(pool, filepath: str):
+def import_dest_bin(filepath: str, project_folder: str = "") -> tuple[str, ...]:
+    """The bin path a file imports INTO, decided before Resolve is asked.
+
+    The same fact the organiser files by, read through the same
+    function: a generated file's own directory names its render bin
+    (`resolve_bin_layout.render_bin_for_file`), so what an import
+    lands in is what the next organise keeps it in - the destination
+    is decided once, not once at import and again at filing. Anything
+    not generated here (source footage, which this module never
+    imports - it looks it up and skips when absent) belongs under the
+    captain's source bin. A path with no project to read it against
+    cannot be decided and answers the reels root, which is canonical
+    (`is_canonical`) rather than wherever the current folder happens
+    to be.
+    """
+    from library.tools import resolve_bin_layout as bins
+
+    if project_folder:
+        from library.tools.resolve_organization import is_generated
+
+        if is_generated(filepath, project_folder):
+            return (bins.render_bin_for_file(filepath, project_folder),)
+        return (bins.SOURCE_BIN,)
+    return (bins.REELS_BIN,)
+
+
+def _ensure_bin_path(pool, path: tuple[str, ...]):
+    """The folder at `path` under the root bin, made only if absent.
+
+    Lookup-first, because `AddSubFolder` happily makes a SECOND folder
+    of the same name (`execution/organise_media_pool.py`) - creating
+    unconditionally forks the layout on every build. Every bin path
+    here comes from `resolve_bin_layout`, never a literal: one module
+    decides every bin path the way `timeline_layout` decides every
+    track name.
+    """
+    folder = pool.GetRootFolder()
+    for part in path:
+        match = None
+        for sub in (folder.GetSubFolderList() or []):
+            if sub.GetName() == part:
+                match = sub
+                break
+        if match is None:
+            match = pool.AddSubFolder(folder, part)
+            if not match:
+                raise ReelBuildError(
+                    f"Resolve would not make bin {part!r} under "
+                    f"{folder.GetName()!r} - nothing was imported.")
+        folder = match
+    return folder
+
+
+def import_pool_item(pool, filepath: str, project_folder: str = "",
+                     dest: tuple[str, ...] | None = None):
     """The pool item for *filepath*, imported only if it is not there.
 
+    A needed import lands in the bin `import_dest_bin` names -
+    decided by the file, never inherited from whichever bin is
+    CURRENT - and the current folder is restored afterwards, because
+    `AddSubFolder` moves it to the bin it made and the next timeline
+    creation would otherwise land somewhere nobody recorded. The
+    lookup runs first, so re-running a build against a project that
+    already holds the file adds no second entry: `ImportMedia` on a
+    path already in the pool makes another item rather than returning
+    the existing one (measured 2026-09-09).
+
+    `dest` is a caller-computed bin path from the root - built with
+    `overlay_import_bin` below, the render bin its kind belongs to
+    under the timeline about to place it. Without it the import lands
+    in the flat render bin and filing waits for a later organise pass
+    that some build paths never run: measured 2026-09-10, a fresh
+    overlay build left every subtitle and motion-graphics render in
+    Source footage because CURRENT was there and no organise followed.
+    With it the destination is binding at import time, the way
+    `timeline_layout` owns track index and name. A tuple passed as
+    `project_folder` reads as `dest`, so overlay callers keep spelling
+    the destination positionally.
+
     Returns None when the import itself failed, so every caller keeps
-    judging the call by what it RETURNS (AGENTS.md 5).
+    judging the call by what it RETURNS (AGENTS.md 5). Without a
+    `project_folder` the destination cannot be decided and the import
+    lands wherever is current - the old behaviour, kept for callers
+    that have nothing to decide it from.
     """
     existing = pool_item_for(pool, filepath)
     if existing is not None:
         return existing
-    items = pool.ImportMedia([filepath])
+    if isinstance(project_folder, (tuple, list)) and dest is None:
+        dest = tuple(project_folder)
+        project_folder = ""
+    if dest is not None:
+        from library.tools.execution.organise_media_pool import (
+            import_into_bin,
+        )
+        items = import_into_bin(pool, dest, [filepath])
+        return items[0] if items else None
+    if not project_folder:
+        items = pool.ImportMedia([filepath])
+        return items[0] if items else None
+    dest = _ensure_bin_path(pool, import_dest_bin(filepath, project_folder))
+    before = pool.GetCurrentFolder()
+    try:
+        pool.SetCurrentFolder(dest)
+        items = pool.ImportMedia([filepath])
+    finally:
+        if before is not None:
+            pool.SetCurrentFolder(before)
     return items[0] if items else None
+
+
+def pool_sequence_for(pool, frame_dir: str):
+    """The pooled image-sequence item for a rendered frame directory.
+
+    A sequence reports ONE `File Path` with a bracket range
+    (`dir/frame-[00-46].png`), so no single frame path ever matches it
+    and a lookup by first frame always misses - which is how every
+    rebuild re-imported every caption sequence beside the one already
+    there. The directory is the identity: frame directories are per
+    segment, so the mapping stays one to one.
+    """
+    if not frame_dir:
+        return None
+    wanted = os.path.normpath(frame_dir)
+    found = None
+
+    def _search(folder):
+        nonlocal found
+        for item in folder.GetClipList() or ():
+            try:
+                path = item.GetClipProperty("File Path") or ""
+            except Exception:  # noqa: BLE001 - a stale handle, keep looking
+                continue
+            if not path:
+                continue
+            if "[" in path:
+                if os.path.normpath(
+                        os.path.dirname(path.split("[")[0])) == wanted:
+                    found = item
+                    return
+            elif os.path.normpath(os.path.dirname(path)) == wanted:
+                found = item
+                return
+        for sub in folder.GetSubFolderList() or ():
+            if found is None:
+                _search(sub)
+
+    _search(pool.GetRootFolder())
+    return found
+
+
+def import_pool_sequence(pool, frame_paths: list, frame_dir: str,
+                         project_folder: str = "",
+                         dest: tuple[str, ...] | None = None):
+    """The pool item for a frame directory, imported only if unpooled.
+
+    The sequence-shaped half of `import_pool_item`: lookup by
+    directory first (`pool_sequence_for`), else one `ImportMedia` of
+    the whole frame list - which is what groups them into a single
+    image-sequence item - into the decided bin with the current folder
+    restored. `dest` is a caller-computed bin path (see
+    `overlay_import_bin`); without it the flat render bin
+    `import_dest_bin` names. Returns None when there is nothing to
+    import or the import failed.
+    """
+    existing = pool_sequence_for(pool, frame_dir)
+    if existing is not None:
+        return existing
+    if not frame_paths:
+        return None
+    if dest is None and not project_folder:
+        items = pool.ImportMedia(list(frame_paths))
+        return items[0] if items else None
+    if dest is None:
+        first = frame_paths[0] if frame_paths else frame_dir
+        dest = _ensure_bin_path(pool, import_dest_bin(first, project_folder))
+    else:
+        from library.tools.execution.organise_media_pool import (
+            ensure_folder,
+        )
+        folder = pool.GetRootFolder()
+        for depth, part in enumerate(dest):
+            folder = ensure_folder(pool, folder, part, None, dest[:depth])
+        dest = folder
+    before = pool.GetCurrentFolder()
+    try:
+        pool.SetCurrentFolder(dest)
+        items = pool.ImportMedia(list(frame_paths))
+    finally:
+        if before is not None:
+            pool.SetCurrentFolder(before)
+    return items[0] if items else None
+
+
+def create_reel_timeline(pool, name: str):
+    """A reel timeline created where reels belong, nowhere else.
+
+    `CreateEmptyTimeline` puts what it makes into whatever bin is
+    CURRENT - wherever the operator last clicked - which is how reels
+    landed in motion-graphics bins. The reels bin is the decision, made
+    here rather than repaired afterwards by the organiser, and the
+    current folder is restored so the next call inherits nothing from
+    this one.
+    """
+    from library.tools import resolve_bin_layout as bins
+
+    dest = _ensure_bin_path(pool, (bins.REELS_BIN,))
+    before = pool.GetCurrentFolder()
+    try:
+        pool.SetCurrentFolder(dest)
+        timeline = pool.CreateEmptyTimeline(name)
+    finally:
+        if before is not None:
+            pool.SetCurrentFolder(before)
+    if not timeline:
+        raise ValueError(f"Failed to create timeline {name}")
+    return timeline
+
+
+def overlay_import_bin(project_folder: str, timeline_name: str,
+                       filepath: str) -> tuple[str, ...]:
+    """Where an overlay import for this timeline lands, by construction.
+
+    The render bin its KIND belongs to (a path fact off
+    `project_layout.Area`, never a name parse) under the timeline that
+    is about to place it - exactly the verdict `plan_organization`
+    reaches for a sole-placed generated clip, computed BEFORE the
+    import so the two cannot disagree. Spelled once, used by every
+    overlay import below.
+    """
+    from library.tools import resolve_bin_layout as bins
+
+    return (bins.render_bin_for_file(filepath, project_folder or ""),
+            timeline_name)
 
 
 def place_overlay_segments(pool, project, timeline, name: str, fps: float,
@@ -2620,7 +3710,10 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     for segment in segments or []:
         if project_folder:
             assert_placeable(segment["overlay_path"], project_folder)
-        item = import_pool_item(pool, segment["overlay_path"])
+        item = import_pool_item(
+            pool, segment["overlay_path"],
+            overlay_import_bin(project_folder, name,
+                               segment["overlay_path"]))
         if item is None:
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered {kind} "
@@ -2667,7 +3760,58 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             print(f"  {name}: {note}", file=sys.stderr)
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), grade_cdl=None):
+def apply_offset_specs(placements_list: Sequence[dict], fps: float,
+                       subtitle_segments, j_cut: dict = None,
+                       cutaway: dict = None) -> tuple:
+    """Apply the offset specs a build was asked for, or refuse.
+
+    The one application `build_reel_timeline` and the Fusion-manifest
+    side of a variant build both read: the join/window frame math, the
+    caption shift travelling with moved speech, and the planner calls
+    live here once, so the placements the timeline is laid from and
+    the placements a manifest is drawn from cannot drift apart.
+
+    Returns (placements, subtitle_segments, offset_links,
+    offset_reports). `subtitle_segments` travels with moved speech
+    here, BEFORE the material is read, so the caption row the plan
+    creates answers the cards actually placed.
+    """
+    offset_links: list = []
+    offset_reports: dict = {}
+    caption_notes: list = []
+    if j_cut is not None:
+        join_frame = int(round(float(j_cut["join_seconds"]) * fps))
+        lead_cut_frames = int(round(float(j_cut["lead_seconds"]) * fps))
+        subtitle_segments, caption_notes = shift_captions_for_audio_lead(
+            subtitle_segments, join_frame, lead_cut_frames, fps)
+        j_plan = plan_j_cut(placements_list, fps, join_frame,
+                            lead_cut_frames,
+                            words=j_cut.get("words", ()))
+        placements_list = j_plan.placements
+        offset_links.extend(j_plan.links)
+        offset_reports["j_cut"] = j_plan.report
+    if cutaway is not None:
+        window_seconds = cutaway["window_seconds"]
+        window_frames = (int(round(float(window_seconds[0]) * fps)),
+                         int(round(float(window_seconds[1]) * fps)))
+        c_plan = plan_cutaway(placements_list, fps,
+                              str(cutaway["hide_angle"]), window_frames,
+                              cover_words=cutaway.get("cover_words", ()))
+        placements_list = c_plan.placements
+        offset_links.extend(c_plan.links)
+        offset_reports["cutaway"] = c_plan.report
+    if offset_reports:
+        offset_reports["caption_notes"] = caption_notes
+        offset_reports["room_tone_note"] = (
+            "an offset moves the picture cut, never the room: the two "
+            "takes sit seconds apart in source, so an audible room-tone "
+            "step at the seam survives any picture treatment - listen "
+            "at the seam, and if one is heard neither version wins on "
+            "sound")
+    return placements_list, subtitle_segments, offset_links, offset_reports
+
+
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -2720,6 +3864,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     BEFORE the timeline is created, and an unresolvable one refuses
     the build rather than placing a default.
 
+    `j_cut` is an optional {"join_seconds", "lead_seconds", "words"}
+    spec (`plan_j_cut`): the audio cut moves earlier than the picture
+    cut at that join, so the ear crosses before the eye. `cutaway` is
+    an optional {"hide_angle", "window_seconds", "cover_words"} spec
+    (`plan_cutaway`): that angle's picture is hidden over the window,
+    revealing the continuous angle beneath, and the audio never moves.
+    Either spec makes the link pass strict - anything still unlinked
+    afterwards refuses the build rather than placing silently - and
+    shifts the caption cards that travel with moved speech. Both are
+    None by default, which builds exactly what this built before.
+
     `grade_cdl` is the project's declared CDL half as
     `reel_look.resolve_grade_cdl` renders it (slope/offset/power/
     saturation in the key names step 6.01 formats), or None/{}. It is
@@ -2731,6 +3886,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     rather than by convention. None means the project declares no
     look, and then this is the timeline it built before the CDL half
     existed.
+
+    `power_grade` is the project's declared PowerGrade `.drx` as
+    `reel_look.resolve_power_grade` reads it, or None. Where one is
+    declared it is THE GRADE and `grade_cdl` does not go on separately:
+    `ApplyGradeFromDRX` replaces the whole node graph, so the CDL rides
+    INSIDE it, on the node the declaration names. Measured on Reel 09,
+    2026-09-10: the CDL route on its own returned True and rendered a
+    still byte-identical to no grade at all, while the DRX route read
+    back 8 real Color page nodes and moved 28.9% of the frame.
+    `reel_look.apply_grade` is the one place that choice is made.
 
     Returns the build record: the track plan as placed, what stream
     enforcement removed, what the link pass joined, which empty rows
@@ -2750,6 +3915,17 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     ranges = reel_ranges(moment, transcript, extra_cuts=extra_cuts)
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
+
+    # ── Offset placements: the audio cut moves, the picture hides ──
+    # `plan_j_cut` moves the audio cut earlier at one join (picture
+    # untouched); `plan_cutaway` hides one angle's picture over a
+    # window (audio untouched). Both return the moved placements plus
+    # the link groups they declare, and both refuse what they cannot
+    # build - so the loop below places from the moved list and the
+    # link pass enforces what it declares.
+    (placements_list, subtitle_segments, offset_links,
+     offset_reports) = apply_offset_specs(
+        placements_list, fps, subtitle_segments, j_cut, cutaway)
 
     # ── The track plan: the material asks, timeline_layout answers ──
     # Every track index and name below comes from this plan. A-roll
@@ -2794,12 +3970,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                                "unverified": []},
         "link_groups": [], "caption_links": [], "link_warnings": [],
         "deleted_empty_tracks": [], "skipped_clips": [],
+        "offsets": offset_reports,
     }
 
     pool = project.GetMediaPool()
-    timeline = pool.CreateEmptyTimeline(name)
-    if not timeline:
-        raise ValueError(f"Failed to create timeline {name}")
+    timeline = create_reel_timeline(pool, name)
 
     project.SetCurrentTimeline(timeline)
 
@@ -2863,7 +4038,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"speech, which is exactly what it looks like when nothing "
                 f"was declared at all.")
         assert_placeable(path, project_folder)
-        card_item = import_pool_item(pool, path)
+        card_item = import_pool_item(
+            pool, path, overlay_import_bin(project_folder, name, path))
         if card_item is None:
             raise ReelBuildError(
                 f"{name}: Resolve would not import the rendered card "
@@ -2980,25 +4156,34 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # runs after this returns, which is the still recipe's CDL-first
     # order held structurally. Rendered cards sharing the picture rows
     # are matched out by source - a graphic is not footage.
-    if grade_cdl:
+    if grade_cdl or power_grade:
         from library.tools import reel_look as _grade
         footage_sources = {
             getattr(p["clip"], "source_file", "")
             for p in placements_list
             if getattr(p["clip"], "track_type", "video") == "video"}
-        cdl_record = _grade.apply_cdl(
-            timeline, track_plan, grade_cdl,
+        cdl_record = _grade.apply_grade(
+            timeline, track_plan, grade_cdl, power_grade=power_grade,
             footage_sources={s for s in footage_sources if s})
         build_record["cdl"] = cdl_record
-        print(f"  {name}: CDL {grade_cdl.get('saturation', '?')} sat on "
-              f"{len(cdl_record['applied'])} picture item(s)"
+        route = cdl_record.get("route", "cdl")
+        if route == "power_grade_drx":
+            detail = f"PowerGrade {os.path.basename(cdl_record['path'])}"
+            if cdl_record.get("cdl_node"):
+                detail += f" + CDL on node {cdl_record['cdl_node']!r}"
+        else:
+            detail = f"CDL {grade_cdl.get('saturation', '?')} sat"
+        verdict = "VERIFIED" if cdl_record.get("verified") else "UNVERIFIED"
+        print(f"  {name}: {detail} on "
+              f"{len(cdl_record['applied'])} picture item(s) [{verdict}]"
               + (f" - {len(cdl_record['warnings'])} warning(s)"
                  if cdl_record["warnings"] else ""), file=sys.stderr)
         for warning in cdl_record["warnings"]:
             print(f"  ⚠ {warning}", file=sys.stderr)
     else:
         build_record["cdl"] = {"applied": [], "skipped": [],
-                               "warnings": [],
+                               "warnings": [], "route": "none",
+                               "verified": False,
                                "basis": "no look declared - nothing graded"}
 
     # ── The declared look: punch-in on the picture, the frame over it ──
@@ -3007,6 +4192,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # speaker, per shot, and a shot with no subject measurement is left
     # unpunched rather than punched at a guess (captain, 2026-09-09:
     # a centred 2.30 put Craig out of shot entirely).
+    screen_window = None
     if look is not None:
         from library.tools import reel_look as _look
 
@@ -3073,6 +4259,22 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
               f"punch-in aimed on {aimed}/{placed_shots} shot(s) "
               f"({look['origin']})", file=sys.stderr)
 
+    # ── The captain's recorded transform overrides ──
+    # A hand move in the Inspector lives only in the project file, so
+    # a rebuild re-aims the punch-in over it. Overrides apply AFTER
+    # the aim above (or with no look at all), hold the recorded value,
+    # and re-prove coverage where the look declares a window. With no
+    # look there is no window and the read-back is the whole proof.
+    # A project that recorded none pays one file read and nothing
+    # else - the store that was never written costs nothing here.
+    held = apply_transform_overrides(
+        name, track_plan, video_row_by_angle, placements_list,
+        timeline, transcript, project_folder, width, height,
+        look=look, screen_window=screen_window)
+    if held:
+        print(f"  {name}: {held} captain's transform hold(s) in force",
+              file=sys.stderr)
+
     # Captions are PLACED here and RENDERED by step 4.05, which is the
     # pipeline's renderer. This used to carry its own `npx remotion
     # render` loop - a third implementation of the same call - and it is
@@ -3093,11 +4295,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             assert_placeable(frame_dir, project_folder)
         if frame_dir:
             paths = sequence_frame_paths(frame_dir)
-            existing = pool_item_for(pool, paths[0]) if paths else None
-            items = ([existing] if existing is not None
-                     else pool.ImportMedia(paths))
+            found = import_pool_sequence(
+                pool, paths, frame_dir, project_folder,
+                dest=overlay_import_bin(project_folder, name,
+                                        paths[0] if paths else ""))
+            items = [found] if found is not None else []
         else:
-            found = import_pool_item(pool, segment["overlay_path"])
+            found = import_pool_item(
+                pool, segment["overlay_path"],
+                overlay_import_bin(project_folder, name,
+                                   segment["overlay_path"]))
             items = [found] if found is not None else []
         if not items:
             print(f"Failed to import {segment.get('overlay_path') or frame_dir}",
@@ -3118,17 +4325,18 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         record_start, record_end = span_frames(
             segment["timeline_start"], segment["timeline_end"], fps)
         content_frames = max(record_end - record_start, 1)
-        # A tight clip is placed small and moved into position;
-        # full-canvas needs no transform. A sequence shares the mov's
-        # frame numbering, so the handle trim is the same arithmetic.
-        placement = (segment.get("tight_box") or {}).get("placement")
+        # The caption artefact rides the placement its tight box
+        # computed - read off the entry step 4.05 recorded - and the
+        # placer SETS it then READS BACK what Resolve holds. A
+        # sequence shares the mov's frame numbering, so the handle
+        # trim is the same arithmetic.
         placed, note = place_overlay_segment(
             pool, timeline, items[0],
             track_index=track_plan.caption_row().index,
             record_frame=record_start,
             source_in_frame=segment["source_in_frame"],
             source_out_frame=segment["source_in_frame"] + content_frames,
-            placement=placement,
+            placement=(segment.get("tight_box") or {}).get("placement"),
             label=segment.get("segment_id", "caption"))
         if not placed:
             print(f"Failed to place {segment.get('segment_id')}: {note}",
@@ -3161,7 +4369,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"{name}: transition elements were planned with no "
                 f"transitions row; refusing to place them on an "
                 f"unplanned row.")
-        element_item = import_pool_item(pool, placement.element_path)
+        element_item = import_pool_item(
+            pool, placement.element_path,
+            overlay_import_bin(project_folder, name,
+                               placement.element_path))
         items = [element_item] if element_item is not None else []
         if not items:
             raise ValueError(
@@ -3226,7 +4437,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # for why a second call breaks the first). Every call is read
     # back; what did not join is said rather than trusted.
     print(f"── Link Pass ──", file=sys.stderr)
-    link_record = link_reel_groups(timeline, track_plan)
+    link_record = link_reel_groups(timeline, track_plan,
+                                   offset_links=offset_links)
     build_record["link_groups"] = link_record["link_groups"]
     build_record["caption_links"] = link_record["caption_links"]
     build_record["link_warnings"] = link_record["warnings"]
@@ -3321,7 +4533,10 @@ def _write_overlay_records(review_dir: str, built_reel_names,
         return path
     os.makedirs(review_dir, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(stored, f, indent=2)
+        # Sorted keys (library/tools/stable_json.py): this record is keyed
+        # by reel name in build order, so without sorting two identical
+        # builds are different bytes and every variant merge conflicts.
+        json.dump(stored, f, indent=2, sort_keys=True)
     return path
 
 
@@ -3348,7 +4563,10 @@ def _rename_overlay_records(review_dir: str, mapping: dict) -> None:
         if old in stored:
             stored[new] = stored.pop(old)
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(stored, f, indent=2)
+        # Sorted keys (library/tools/stable_json.py): this record is keyed
+        # by reel name in build order, so without sorting two identical
+        # builds are different bytes and every variant merge conflicts.
+        json.dump(stored, f, indent=2, sort_keys=True)
 
 
 def _drop_overlay_records(review_dir: str, names) -> None:
@@ -3375,7 +4593,10 @@ def _drop_overlay_records(review_dir: str, names) -> None:
         os.remove(path)
         return
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(stored, f, indent=2)
+        # Sorted keys (library/tools/stable_json.py): this record is keyed
+        # by reel name in build order, so without sorting two identical
+        # builds are different bytes and every variant merge conflicts.
+        json.dump(stored, f, indent=2, sort_keys=True)
 
 
 def timelines_to_replace(project, target_names) -> list:
@@ -3602,7 +4823,8 @@ def _connect_resolve_project(resolve_project_name: str):
 def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          master_timeline_name: str,
                          staged_to_final: dict,
-                         organise: bool = True) -> dict:
+                         organise: bool = True,
+                         allow_drops=None) -> dict:
     """Move passing stagings onto their final timeline names.
 
     The ONLY place an approved timeline is deleted. Reachable only
@@ -3610,6 +4832,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     gate-failing build can never arrive here - structure, not
     vigilance. Per reel, in phases:
 
+    0. the staged rebuild is DIFFED against the approved original it
+       would replace, live timeline against live timeline
+       (`library/tools/reel_replace_guard.py`, issue #925). A row
+       that loses items, or a row the rebuild does not have at all,
+       REFUSES - with the exact declaration that would proceed
+       deliberately - unless the caller named that row in
+       `allow_drops`. A retiring timeline that cannot be read refuses
+       rather than passing. NOTHING is renamed before this passes, so
+       a refusal leaves every timeline exactly as it was;
     1. the approved original, where one exists, is renamed to its
        backup name - nothing is deleted and nothing is lost;
     2. the staging is renamed to the final name - each `SetName` is
@@ -3622,8 +4853,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     4. only then are the backups deleted, guarded by
        `assert_deletion_scope` against the backup set.
 
-    A fresh build - no timeline under the final name yet - skips phase
-    1 for that reel; everything else is identical, so there is one
+    A fresh build - no timeline under the final name yet - skips phases
+    0 and 1 for that reel; everything else is identical, so there is one
     swap path rather than a replacing path and a fresh path.
 
     Stale debris REFUSES: leftover staging or backup containers from
@@ -3631,7 +4862,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     Resolve before re-running. Reusing a debris container as this
     run's staging would grade one run's content as another's.
 
-    Returns `{"promoted": [final names...], "organised": ...}`.
+    `allow_drops` declares intended reductions by ROW, never by
+    blanket: `{final timeline name: [row keys]}` where a row key is
+    `"video:Semantic"` (or the bare `"Semantic"`), or a flat list of
+    `"ROW"` / `"FINAL::ROW"` specs applied to what this call promotes.
+    There is no "allow everything" value - a blanket override is the
+    same as no guard.
+
+    Returns `{"promoted": [final names...], "organised": ...,
+    "replace_reports": {final: guard report...}}`.
     """
     if not staged_to_final:
         return {"promoted": [], "organised": None}
@@ -3667,6 +4906,33 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                  timelines_to_replace(project, set(finals))}
     assert_deletion_scope(list(originals.values()), set(finals))
 
+    from library.tools import reel_replace_guard as _guard
+    try:
+        declared = _guard.parse_specs(allow_drops, finals)
+    except ValueError as bad_declaration:
+        raise ReelBuildError(
+            f"REFUSING to promote: {bad_declaration}") from bad_declaration
+    replace_reports = {}
+    try:
+        for final in finals:
+            if final not in originals:
+                continue
+            staging = staged_to_final[final]
+            retired_rows = _guard.snapshot_timeline(
+                originals[final], final, side="retiring")
+            incoming_rows = _guard.snapshot_timeline(
+                staged_found[staging], staging, side="staged")
+            replace_reports[final] = _guard.check_replacement(
+                final, staging, retired_rows, incoming_rows,
+                allowed=declared.get(final, ()))
+    except _guard.ReplaceGuardUnreadable as unreadable:
+        raise ReelBuildError(
+            f"REFUSING to promote: {unreadable} Nothing was renamed; "
+            f"the approved timelines are still in the project.") \
+            from unreadable
+    except _guard.ReplaceGuardRefused as refused:
+        raise ReelBuildError(str(refused)) from refused
+
     for final in finals:
         staging = staged_to_final[final]
         if final in originals:
@@ -3701,6 +4967,28 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     rename_plan_reels(project_folder, claimed)
     from library.tools.reel_semantic_visual import rename_record_reels
     rename_record_reels(project_folder, claimed)
+    # The render ledger binds each caption to the timeline it was
+    # rendered for, and it is read as a reference ROOT. Left naming the
+    # staging container this promotion just renamed away, every entry
+    # would pin its mov LIVE for ever against a timeline that does not
+    # exist - which is why no sweep could reclaim the 584 MB the
+    # 2026-09-10 measurement found. Never fatal: a ledger that cannot be
+    # re-pointed leaves MORE files live, which is the safe direction.
+    try:
+        from library.tools.caption_asset_gc import rename_ledger_timelines
+        from library.tools.project_layout import Area, ProjectLayout
+        renamed = rename_ledger_timelines(
+            str(ProjectLayout(project_folder).read_dir(
+                Area.SUBTITLE_SEGMENTS)),
+            claimed)
+        if renamed["renamed"]:
+            print(f"Re-pointed {renamed['renamed']} render-ledger "
+                  f"binding(s) at the promoted names", flush=True)
+    except Exception as ledger_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  render ledger not re-pointed ({ledger_failed}) - its "
+              f"entries still name the staging timeline, so their files "
+              f"stay LIVE and nothing is swept", file=_sys.stderr)
 
     backup_timelines = timelines_to_replace(project, set(backups.values()))
     assert_deletion_scope(backup_timelines, set(backups.values()))
@@ -3718,7 +5006,27 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"resolve-organize --revert "
               f"{organised['journal']['journal_path']}", flush=True)
         print(render_unplaced(organised["unplaced"]), flush=True)
-    return {"promoted": finals, "organised": organised}
+
+    # The sweep runs HERE, on every build, because this is the moment
+    # the project is settled: the reels carry their final names, the
+    # pool has just been filed, and anything still unplaced and named by
+    # no current record is a generation a previous iteration left
+    # behind. A refusal is reported and does NOT fail the build - the
+    # reels are already promoted, and declining to remove something is
+    # a good outcome (AGENTS.md 5).
+    swept = None
+    if organise:
+        from library.tools.build_sweep import render_sweep, sweep_build
+        try:
+            swept = sweep_build(project, project_folder, apply=True)
+            print(render_sweep(swept), flush=True)
+        except Exception as sweep_failed:  # noqa: BLE001
+            import sys as _sys
+            print(f"  build sweep refused ({sweep_failed}) - nothing "
+                  f"further was removed; the reels are unaffected",
+                  file=_sys.stderr)
+    return {"promoted": finals, "organised": organised, "swept": swept,
+            "replace_reports": replace_reports}
 
 
 def _organise_after_refusal(project, project_folder: str,
@@ -3825,7 +5133,8 @@ def discard_staged_record(project_folder: str, resolve_project_name: str,
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
                              name_suffix: str = "",
-                             organise: bool = True) -> dict:
+                             organise: bool = True,
+                             allow_drops=None) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
@@ -3895,6 +5204,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     a weaker gate than it had: a direct caller still has the
     conformance verifier run and still gets a raise on a defective
     build - with the approved timelines intact.
+
+    `allow_drops` declares intended reductions by ROW for the replace
+    guard (`library/tools/reel_replace_guard.py`, issue #925): a list
+    of `"ROW"` (every reel this call promotes) or `"FINAL::ROW"`
+    specs, or an already per-final `{final: [rows]}` mapping. It is
+    normalised here against the finals this call stages and carried on
+    the record as `allow_drops`, so the `verify_reels` node promotes
+    with the same declaration the build was given rather than
+    re-deriving one.
 
     The one caller that passes False is the `build_reels` node of
     `library/processes/reels`, whose process has `verify_reels` as its
@@ -4141,7 +5459,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
               f"punch-in {reel_look_decl['punch_in']}, frame "
               f"{os.path.basename(reel_look_decl['asset'])}", file=sys.stderr)
     # The project's designed film look, read ONCE beside the TV-frame
-    # declaration for the same reason: a malformed house_look must stop
+    # declaration for the same reason: a malformed series_look must stop
     # the whole build, and the Fusion pass merges it onto every
     # picture clip of every reel below. {} is a project that declares
     # no look, and then the reels carry no grade - the captain agreed
@@ -4151,11 +5469,25 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         print(f"  grade look rides the Fusion pass: "
               f"{sorted(reel_grade_look)}", file=sys.stderr)
     # The look's CDL half, read ONCE beside the Fusion half for the
-    # same reason: the project's own `style.house_look` winning
-    # whole-slot over its brand template's (`effective_house_look`).
+    # same reason: the project's own `style.series_look` winning
+    # whole-slot over its brand template's (`effective_series_look`).
     # {} is a project that declares no look, and then the reels carry
     # no CDL - the timeline each reel got before this half existed.
     reel_grade_cdl = _reel_look.resolve_grade_cdl(project_folder)
+    # The project's declared PowerGrade, read ONCE for the batch beside
+    # the two look halves and for the same reason: a refused
+    # declaration - no provenance, no file - must stop the whole build
+    # rather than the fourteenth reel. None is a project that declares
+    # none, and then the CDL half is the route exactly as before.
+    reel_power_grade = _reel_look.resolve_power_grade(project_folder)
+    if reel_power_grade:
+        print(f"  grade rides the COLOR PAGE: "
+              f"{os.path.basename(reel_power_grade['path'])}"
+              + (f", per-clip CDL on node "
+                 f"{reel_power_grade['cdl_node']!r}"
+                 if reel_power_grade.get("cdl_node")
+                 else ", DRX alone - no per-clip CDL declared"),
+              file=sys.stderr)
     if reel_grade_cdl:
         print(f"  grade CDL rides SetCDL on every picture item: "
               f"slope "
@@ -4417,6 +5749,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # the build returns, which is the still recipe's
                 # CDL-first order held structurally.
                 grade_cdl=reel_grade_cdl,
+                power_grade=reel_power_grade,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
@@ -4526,6 +5859,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
 
     organised = None
     staged_out = dict(staged_to_final)
+    # The replace guard's declaration, normalised against the finals
+    # THIS call stages - so the `verify_reels` node promotes with the
+    # same declaration the build was given rather than re-deriving one,
+    # and so the record says which rows the operator knowingly let go.
+    from library.tools import reel_replace_guard as _decl_guard
+    try:
+        declared_drops = _decl_guard.parse_specs(
+            allow_drops, list(staged_to_final))
+    except ValueError as bad_declaration:
+        raise ReelBuildError(
+            f"REFUSING to build: {bad_declaration}") from bad_declaration
     if verify:
         # Scoped to what THIS call placed - the staging containers, not
         # the approved timelines: verifying the whole project here is
@@ -4557,7 +5901,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             raise
         promoted = promote_staged_reels(
             project_folder, resolve_name, master_timeline_name,
-            dict(staged_to_final), organise=organise)
+            dict(staged_to_final), organise=organise,
+            allow_drops=declared_drops)
         organised = promoted["organised"]
         # From here the record speaks final names: what is in Resolve
         # now is the promoted timelines, and the sidecar files were
@@ -4610,6 +5955,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # full rebuild that placed one timeline.
         "reels_requested": None if wanted is None else sorted(wanted),
         "name_suffix": name_suffix,
+        # The replace guard's declaration, normalised to per-final row
+        # keys (issue #925). `{}` when the caller declared nothing -
+        # which is the common case, and is not the same as allowing.
+        # The `verify_reels` node promotes off this rather than
+        # re-deriving a declaration, so whatever the operator allowed
+        # is what the promotion honours.
+        "allow_drops": {final: sorted(rows)
+                        for final, rows in declared_drops.items()
+                        if rows},
         # Where the media pool was filed, and the journal that undoes it.
         # None when the caller declined - and when the call stopped at
         # staging (`verify=False`), where filing waits for whoever
@@ -4631,6 +5985,711 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         "picture_motion": motion_records,
     }
 
+
+
+def verify_cover_clip(source_file: str, source_in: float, source_out: float,
+                      master_clips: Sequence, transcript: dict,
+                      fps: float, require_face: bool = True):
+    """Check an unplaced source span as a cutaway cover, and place it.
+
+    A reaction cutaway needs picture the master never carried - the
+    listening angle the edit cut away from before the seam. The reel
+    builder places only from master clips, so that span arrives here
+    as an external input (AGENTS.md 3): CHECKED, never asserted. The
+    sync is derived, not taken on trust - slope-1 continuation from
+    the nearest placed clip of the same file on a picture row, and a
+    cover with no same-file placed neighbour has no sync basis and is
+    refused. Every other claim is checked too: the file exists, the
+    span is inside it and disjoint from what is already placed (no
+    double-placed frames), the transcript has the cover angle silent
+    across the derived master span (a cutaway to someone mid-sentence
+    is not a reaction), and the span itself is a locked static shot
+    (a camera that moved there is not the listening framing the reel
+    cut away from).
+
+    Returns a `TimelineClip` on the neighbour's row, carrying the
+    neighbour's framing - the same camera keeps the same crop - with
+    the derived master span. Anything unchecked raises
+    `OffsetRefused` naming it.
+    """
+    import os
+    import subprocess
+
+    from library.tools.timeline_ingest import TimelineClip
+
+    if not os.path.isabs(source_file):
+        source_file = os.path.abspath(source_file)
+    if not os.path.isfile(source_file):
+        raise OffsetRefused(
+            f"Cutaway cover {source_file}: no such file - a cover "
+            f"that is not on disk cannot be checked, so it is refused "
+            f"rather than placed.")
+    if not (float(source_out) - float(source_in) >= 1.0 / fps):
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} "
+            f"[{source_in}, {source_out}): shorter than one frame - "
+            f"nothing to reveal.")
+    if float(source_in) < 0:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} starts "
+            f"before the file - nothing to hear or see there.")
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries",
+         "format=duration:stream=width,height",
+         "-of", "default=noprint_wrappers=1", source_file],
+        capture_output=True, encoding="utf-8", check=False)
+    duration = None
+    width = height = None
+    for line in (probe.stdout or "").splitlines():
+        if line.startswith("duration="):
+            try:
+                duration = float(line.split("=", 1)[1])
+            except ValueError:
+                duration = None
+        elif line.startswith("width="):
+            try:
+                width = int(line.split("=", 1)[1])
+            except ValueError:
+                width = None
+        elif line.startswith("height="):
+            try:
+                height = int(line.split("=", 1)[1])
+            except ValueError:
+                height = None
+    if duration is None:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)}: ffprobe "
+            f"reports no duration - bounds cannot be checked, so the "
+            f"cover is refused rather than placed unchecked.")
+    if float(source_out) > duration:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} "
+            f"[{source_in}, {source_out}) overruns the file "
+            f"({duration:.2f}s) - refused rather than placed past "
+            f"the end.")
+    same_file = [
+        c for c in master_clips
+        if getattr(c, "track_type", "") == "video"
+        and os.path.abspath(getattr(c, "source_file", "")) == source_file]
+    if not same_file:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)}: no "
+            f"placed clip plays that file on any picture row, so "
+            f"there is no sync basis - the cover is refused rather "
+            f"than placed on asserted timing.")
+    for placed in same_file:
+        if (float(source_in) < float(placed.source_out)
+                and float(source_out) > float(placed.source_in)):
+            raise OffsetRefused(
+                f"Cutaway cover {os.path.basename(source_file)} "
+                f"[{source_in}, {source_out}) overlaps the placed "
+                f"span [{placed.source_in}, {placed.source_out}) - "
+                f"those frames already play, so the cover is refused "
+                f"rather than double-placed.")
+    neighbour = min(
+        same_file,
+        key=lambda c: min(abs(float(source_in) - float(c.source_out)),
+                          abs(float(c.source_in) - float(source_out))))
+    span = float(source_out) - float(source_in)
+    if float(neighbour.source_out) <= float(source_in):
+        master_start = (float(neighbour.timeline_end)
+                        + (float(source_in) - float(neighbour.source_out)))
+    else:
+        master_start = (float(neighbour.timeline_start)
+                        - (float(neighbour.source_in) - float(source_out)))
+    master_end = master_start + span
+    speaker = getattr(neighbour, "speaker", "?") or "?"
+    for segment in (transcript.get("segments") or []):
+        if str(segment.get("speaker", "")) != str(speaker):
+            continue
+        for word in (segment.get("words") or []):
+            try:
+                start, end = float(word["start"]), float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if start < master_end and end > master_start:
+                raise OffsetRefused(
+                    f"Cutaway cover {os.path.basename(source_file)} "
+                    f"over master {master_start:.2f}-{master_end:.2f}s: "
+                    f"{speaker} says {word.get('word', '?')!r} "
+                    f"({start:.2f}-{end:.2f}s) inside it - a cutaway "
+                    f"to someone mid-sentence is not a reaction. "
+                    f"Pick a span where they are listening.")
+    if width is None or height is None:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)}: ffprobe "
+            f"reports no picture size - the static check cannot run, "
+            f"so the cover is refused rather than placed unchecked.")
+    frames = _cover_frames_static(
+        source_file, float(source_in), float(source_out),
+        neighbour=float(neighbour.source_out),
+        check_face=require_face)
+    if frames["mean_luma"] < 5.0:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} "
+            f"[{source_in}, {source_out}): mean luma "
+            f"{frames['mean_luma']:.1f} - effectively black, not a "
+            f"listening shot.")
+    if frames["rim_diff"] > 3.0:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} "
+            f"[{source_in}, {source_out}): frame-rim difference "
+            f"{frames['rim_diff']:.1f}/255 - the camera moved there, "
+            f"so this is not the locked framing the reel cut away "
+            f"from. (Subject motion {frames['center_diff']:.1f} is "
+            f"reported, never refused: a listener moves.)")
+    if require_face and frames["face_shift"] is None:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} "
+            f"[{source_in}, {source_out}): {frames['face_note']} - "
+            f"the cover must carry the same face in the same "
+            f"framing, checked rather than assumed.")
+    if require_face and frames["face_shift"] > 0.20:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)} "
+            f"[{source_in}, {source_out}): the face sits "
+            f"{frames['face_shift'] * 100:.0f}% of frame width from "
+            f"where the neighbouring placed shot holds it - a "
+            f"reframed or different shot, not the listening "
+            f"framing the reel cut away from.")
+    neighbour_frames = getattr(neighbour, "source_frames", None)
+    return TimelineClip(
+        resolve_item_id=(
+            f"external-cover:{os.path.basename(source_file)}:"
+            f"{float(source_in):.3f}-{float(source_out):.3f}"),
+        track_type="video",
+        track_index=int(getattr(neighbour, "track_index", 1)),
+        track_name=str(getattr(neighbour, "track_name", speaker)),
+        speaker=str(speaker),
+        source_file=source_file,
+        source_in=float(source_in),
+        source_out=float(source_out),
+        source_in_frame=int(round(float(source_in) * fps)),
+        source_out_frame=int(round(float(source_out) * fps)),
+        source_frames=(int(neighbour_frames)
+                       if neighbour_frames is not None
+                       else int(round(duration * fps))),
+        timeline_start=master_start,
+        timeline_end=master_end,
+        name=os.path.basename(source_file),
+        transform=dict(getattr(neighbour, "transform", None) or {}),
+    )
+
+
+def _cover_frames_static(source_file: str, source_in: float,
+                         source_out: float, neighbour: float,
+                         check_face: bool = True) -> dict:
+    """The cover span is the neighbour shot, still listening.
+
+    Three frames (head, middle, tail) at a fixed 960x540, so the
+    thresholds below are resolution-independent:
+
+    - `rim_diff`: mean inter-frame difference over the outer 10% rim.
+      The rim is background for a centered subject, so it answers
+      whether the CAMERA moved. Measured floor on locked podcast
+      cameras is ~1.3/255 (compression noise); the refusal line is
+      3.0.
+    - `center_diff`: the same over the inner frame. A listener moves
+      - head, hands - so this is REPORTED, never refused.
+    - `face_shift`: the largest Haar face box (frontal, else profile)
+      in the middle cover frame versus one in the neighbour's placed
+      span, as a fraction of frame width. Same face, same framing -
+      the cover continues the shot the reel cut away from. None with
+      a note when no face reads on either side; the caller refuses,
+      because an unchecked cover is not a check. Skipped (None, no
+      note) when `check_face` is false - the test seam, so synthetic
+      fixtures without faces can still prove bounds, sync and
+      silence; production always checks.
+
+    Needs the Haar cascades (`opencv-python>=4.8,<5`), the same
+    interpreter the TV-frame look's punch-in already requires - and
+    says so rather than passing blind without them.
+    """
+    import os
+    import subprocess
+
+    import numpy as np
+
+    width, height = 960, 540
+
+    def grab(stamp):
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-ss", f"{max(stamp, 0.0):.3f}",
+             "-i", source_file, "-frames:v", "1", "-f", "rawvideo",
+             "-pix_fmt", "gray", "-s", f"{width}x{height}", "-"],
+            capture_output=True, check=False)
+        if proc.returncode != 0 or len(proc.stdout) < width * height:
+            raise OffsetRefused(
+                f"Cutaway cover {os.path.basename(source_file)}: "
+                f"ffmpeg could not read a frame at {stamp:.2f}s - "
+                f"the lock check cannot run, so the cover is refused "
+                f"rather than placed unchecked.")
+        return np.frombuffer(proc.stdout[:width * height],
+                             dtype=np.uint8).astype(float).reshape(
+                                 height, width)
+
+    span = float(source_out) - float(source_in)
+    frames = [grab(float(source_in)),
+              grab(float(source_in) + span / 2.0),
+              grab(float(source_out) - span / 4.0)]
+    rim = np.zeros((height, width), dtype=bool)
+    rim[int(height * 0.1):-int(height * 0.1),
+        int(width * 0.1):-int(width * 0.1)] = True
+    rim = ~rim
+    rim_diffs = [float(np.abs(b[rim] - a[rim]).mean())
+                 for a, b in zip(frames, frames[1:])]
+    center_diffs = [float(np.abs(b[~rim] - a[~rim]).mean())
+                    for a, b in zip(frames, frames[1:])]
+    result = {"mean_luma": float(frames[0].mean()),
+              "rim_diff": max(rim_diffs) if rim_diffs else 0.0,
+              "center_diff": max(center_diffs) if center_diffs else 0.0,
+              "face_shift": None,
+              "face_note": "face check disabled"}
+    if not check_face:
+        return result
+
+    try:
+        import cv2
+    except ImportError:
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)}: no cv2 "
+            f"in this interpreter, so no face check - run the build "
+            f"under the project's .venv, as the punch-in already "
+            f"requires.")
+    cascade_dir = getattr(cv2, "data", None) and cv2.data.haarcascades
+    front_path = (os.path.join(cascade_dir,
+                               "haarcascade_frontalface_alt2.xml")
+                  if cascade_dir else "")
+    prof_path = (os.path.join(cascade_dir, "haarcascade_profileface.xml")
+                 if cascade_dir else "")
+    if not (front_path and os.path.isfile(front_path)
+            and prof_path and os.path.isfile(prof_path)):
+        raise OffsetRefused(
+            f"Cutaway cover {os.path.basename(source_file)}: the "
+            f"Haar cascades ship absent from this cv2 "
+            f"({getattr(cv2, '__version__', '?')}) - no face check, "
+            f"so the cover is refused rather than placed unchecked.")
+
+    def face(gray):
+        import numpy as _np
+        gray_u8 = _np.clip(gray, 0, 255).astype(_np.uint8)
+        front = cv2.CascadeClassifier(front_path)
+        boxes = front.detectMultiScale(gray_u8, 1.1, 4)
+        if len(boxes) == 0:
+            prof = cv2.CascadeClassifier(prof_path)
+            boxes = prof.detectMultiScale(gray_u8, 1.1, 4)
+        if len(boxes) == 0:
+            return None
+        biggest = max(boxes, key=lambda b: b[2] * b[3])
+        return (float(biggest[0] + biggest[2] / 2) / width,
+                float(biggest[1] + biggest[3] / 2) / height)
+
+    ref = grab(float(neighbour) - 0.25)
+    cover_face, ref_face = face(frames[1]), face(ref)
+    if cover_face is None or ref_face is None:
+        result["face_note"] = (
+            "no face reads on the cover"
+            if cover_face is None else
+            "no face reads on the neighbouring placed shot")
+        return result
+    result["face_shift"] = abs(cover_face[0] - ref_face[0])
+    result["face_note"] = ""
+    return result
+
+
+def build_reel_variants(project_slug: str, reel_number: int,
+                        variants: Sequence[dict]) -> dict:
+    """Build comparison variants of one approved reel beside it.
+
+    One reel, one seam, two treatments: the caller names a suffix and
+    an offset spec per variant (`j_cut` / `cutaway` as
+    `build_reel_timeline` takes them, plus an optional `cover`
+    {"source_file", "source_in", "source_out"} span
+    `verify_cover_clip` checks onto the master clock), and each is
+    built with the SAME derivation the rebuild runs today - ranges,
+    cards, captions (namespaced per variant, so no variant renders
+    into the overlays another timeline points at), explainer,
+    semantic visuals, transition elements, look and the CURRENT
+    motion answer, reused and never re-authored. A variant that
+    differs from the approved timeline anywhere but its seam is a
+    build defect, not a comparison.
+
+    Deliberate deviations from `rebuild_reels_in_project`, each for
+    the reason the rebuild's own discipline gives:
+
+    - Built straight to the FINAL variant name, with a pre-assert
+      that no timeline holds it: there is no approved original to
+      protect, so there is nothing staging would stage FOR - but
+      anything half-placed on failure is deleted, and an occupied
+      name refuses rather than overwrites.
+    - The structural gate (`timeline_conformance.verify_timeline`,
+      the same read-back the offset tests grade) instead of the
+      plan-re-deriving verifier: the offsets are INTENTIONAL
+      deviations from the plan, so the plan gate would fail them by
+      design. A structural failure deletes the variant and raises.
+    - No plan provenance merge and no pool organise: variants are
+      not plan reels, so the plan's record must not claim them, and
+      filing would sort comparison timelines away from what they
+      compare against.
+    - Fusion comps go in exactly as the rebuild puts them (same
+      manifest call, same applier): under the look the frame row
+      spans the picture the variant really placed, so the manifest
+      is drawn from the OFFSET placements via `apply_offset_specs`,
+      never from the straight ones.
+
+    `variants` entries carry an optional `watch` string - what the
+    captain should look and listen for - recorded per variant.
+    Returns {"reel", "resolve_project_name", "variants": {final:
+    {"build_record", "conformance", "watch"}}}.
+
+    The batch is atomic: a variant that fails removes every variant
+    this call placed, because a comparison with one version in it is
+    not a comparison - same bargain the rebuild strikes with its
+    staging.
+    """
+    import os
+    import sys
+    import json
+    import yaml
+
+    try:
+        import DaVinciResolveScript as dvr
+    except ImportError:
+        os.environ["RESOLVE_SCRIPT_API"] = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+        os.environ["RESOLVE_SCRIPT_LIB"] = "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/libfusionscript.dylib"
+        if "PYTHONPATH" not in os.environ:
+            os.environ["PYTHONPATH"] = ""
+        os.environ["PYTHONPATH"] += ":" + os.environ["RESOLVE_SCRIPT_API"] + "/Modules"
+        sys.path.insert(0, os.environ["RESOLVE_SCRIPT_API"] + "/Modules")
+        import DaVinciResolveScript as dvr
+
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    from library.tools.reel_proposal import read_proposal
+    from library.tools.timeline_ingest import snapshot_timeline
+    from library.tools.project_registry import get_project
+    from library.tools.timeline_conformance import verify_timeline
+    from library.tools.timeline_layout import TrackPlan, TrackSpec
+
+    if not variants:
+        raise ReelBuildError(
+            "build_reel_variants was asked to build zero variants - "
+            "a comparison with nothing in it. Name at least one.")
+    resolve = scriptapp_preserving_locale(dvr, "Resolve")
+    pm = resolve.GetProjectManager()
+
+    if os.path.isabs(project_slug) and os.path.isdir(project_slug):
+        project_folder = project_slug
+    else:
+        proj = get_project(project_slug)
+        if not proj:
+            raise ValueError(f"Unknown project {project_slug}")
+        # NOTE: `project_root`, not `.root` - the sibling rebuild
+        # path reads a `.root` this config does not have, so a slug
+        # call of that path fails where this one works.
+        project_folder = str(proj.project_root)
+
+    with open(os.path.join(project_folder, "project.yaml")) as f:
+        config = yaml.safe_load(f)
+    resolve_config = config.get("resolve", {})
+    resolve_name = resolve_config.get("project_name",
+                                     os.path.basename(project_slug))
+    master_timeline_name = resolve_config.get("timeline_name")
+    if not master_timeline_name:
+        raise ValueError(
+            "Missing 'timeline_name' under 'resolve' in project.yaml")
+
+    project = resolve_project_exactly(pm, resolve_name)
+
+    from library.tools.reel_proposal import proposal_path as _proposal_path
+    moments = read_proposal(str(_proposal_path(project_folder)))
+    moment = next((m for m in moments if int(m.number) == int(reel_number)),
+                  None)
+    if moment is None:
+        raise ReelBuildError(
+            f"reel {reel_number}: the plan names no such moment.")
+    if str(getattr(moment.approval, "value", moment.approval)) != "approved":
+        raise ReelBuildError(
+            f"reel {reel_number}: not approved - variants compare "
+            f"treatments of an approved reel, not alternative selections.")
+
+    from library.tools.timeline_transcript import transcript_path
+    with open(transcript_path(project_folder)) as f:
+        transcript = json.load(f)
+    from library.tools.reel_proposal import snap_moment_to_speech
+    moment, _moves = snap_moment_to_speech(moment, transcript)
+
+    # The captain's recorded closer pin, on the SAME terms and in the
+    # same order as `rebuild_reels_in_project` - snap first, then
+    # redraw. A variant exists to be compared against the approved
+    # reel, so it must carry every recorded obedience that reel
+    # carries: a variant whose closer opens on different words is a
+    # comparison of two things at once, and the seam it was built to
+    # show is not the difference the captain would see.
+    #
+    # Measured 2026-09-11 on Reel 09: without this, the reaction-cutaway
+    # variant opened its closer 54 frames later than the approved reel
+    # (source 483.563s against 481.311s), which is exactly the captain's
+    # report - "another timeline which has the 8 frame cutaway to
+    # akshita, but does not have the updated cta".
+    from library.tools import captain_edits as _edits
+    try:
+        _pin_edits = _edits.load_edits(project_folder)
+    except _edits.CaptainEditError as exc:
+        raise ReelBuildError(
+            f"captain_edits cannot be read: {exc}. A recorded pin the "
+            f"build cannot read must refuse, never build silently past "
+            f"it.") from exc
+    if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
+        _redrawn, _pin_applied, _pin_held, _pin_stale = \
+            _edits.apply_closer_redraws([moment], transcript, _pin_edits)
+        moment = _redrawn[0]
+        for record in _pin_applied:
+            print(f"  Reel {record['reel']:02d}: closer "
+                  f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
+                  f"(now opens on {record['anchor_phrase']!r} - "
+                  f"{record['reason']})", file=sys.stderr)
+        for record in _pin_held:
+            print(f"  Reel {record['reel']:02d}: closer already opens on "
+                  f"{record['anchor_phrase']!r} - pin held",
+                  file=sys.stderr)
+        _edits.report_stale(_pin_stale)
+
+    from library.tools import transcript_corrections as _tc
+    keep_exclusions = _tc.keep_exclusions(project_folder)
+
+    timeline = None
+    for i in range(1, project.GetTimelineCount() + 1):
+        t = project.GetTimelineByIndex(i)
+        if t.GetName() == master_timeline_name:
+            timeline = t
+            break
+    if not timeline:
+        raise ValueError(
+            f"Could not find master timeline {master_timeline_name}")
+    master_clips = list(snapshot_timeline(timeline,
+                                          project.GetName()).clips)
+
+    existing = set()
+    for i in range(1, project.GetTimelineCount() + 1):
+        existing.add(project.GetTimelineByIndex(i).GetName())
+    finals = [built_name(moment, str(spec.get("suffix", "")))
+              for spec in variants]
+    for final in finals:
+        if final in existing:
+            raise ReelBuildError(
+                f"variant {final!r} already exists in the project - "
+                f"delete it in Resolve and re-run; a variant build "
+                f"never overwrites.")
+    if moment.timeline_name in finals:
+        raise ReelBuildError(
+            "a variant suffix that reproduces the approved name "
+            "builds OVER the captain's timeline - refused.")
+
+    fps = 24000 / 1001
+    moment_cuts = _tc.grow_cuts_over_wordless_leadin(
+        _tc.exclusion_cuts_for_span(moment.timeline_start,
+                                    moment.timeline_end,
+                                    keep_exclusions),
+        transcript)
+    ranges = reel_ranges(moment, transcript, extra_cuts=moment_cuts)
+
+    from library.tools import transition_overlay as overlay_mod
+    overlay_effect = overlay_mod.resolve_declaration({}, project_folder)
+    overlay_declared = overlay_mod.declared_overlay(overlay_effect) is not None
+    card_declarations = declared_cards(project_folder)
+    judgement = _read_judgement(project_folder)
+    brand_effect = _brand_effect(project_folder)
+    from library.tools import reel_look as _reel_look
+    reel_look_decl = _reel_look.resolve_look(project_folder, 1080, 1920)
+    # The look's CDL half rides along exactly as the rebuild carries
+    # it: no live timeline predates it either way (it is newer than
+    # Reel 09), so variants and any rebuild from today match.
+    reel_grade_cdl = _reel_look.resolve_grade_cdl(project_folder)
+    # And the PowerGrade half on the same terms. A variant exists to be
+    # compared against the approved reel, so it must carry the SAME
+    # grade route: a variant graded by CDL while the reel it is
+    # compared against is graded on the Color page is not a comparison
+    # of seams, it is a comparison of grades. `resolve_power_grade`
+    # raises on a refused declaration here exactly as it does in the
+    # rebuild - one build, one bar.
+    reel_power_grade = _reel_look.resolve_power_grade(project_folder)
+
+    # Cards are identical for every variant (same moment, same
+    # ranges): planned and rendered once, shared by all variants.
+    cards = plan_cards(moment, transcript, ranges, project_folder,
+                       fps=fps, declarations=card_declarations)
+    if cards:
+        from library.tools.full_frame_element import render_reel_cards
+        cards = render_reel_cards(cards, str(REMOTION_DIR),
+                                 card_render_dir(project_folder))
+    lead = lead_frames(cards, fps) / fps
+    base_placements = placements(ranges, master_clips, fps,
+                                 lead_frames=lead_frames(cards, fps))
+
+    # Phase one is PURE: covers checked, offset plans dry-run, for
+    # every variant before anything renders or any timeline exists.
+    # A variant that cannot be built refuses here, in seconds and
+    # with nothing placed - never after its sibling already built.
+    # (Render and Resolve writes are phase two; a failure there
+    # still removes the whole batch, per the atomicity above.)
+    checked = []
+    for spec, final in zip(variants, finals):
+        clips = list(master_clips)
+        if spec.get("cover") is not None:
+            cover = spec["cover"]
+            clips.append(verify_cover_clip(
+                cover["source_file"], float(cover["source_in"]),
+                float(cover["source_out"]), master_clips,
+                transcript, fps))
+        variant_placements = placements(
+            ranges, clips, fps, lead_frames=lead_frames(cards, fps))
+        if spec.get("j_cut") is not None:
+            plan_j_cut(
+                variant_placements, fps,
+                int(round(float(spec["j_cut"]["join_seconds"]) * fps)),
+                int(round(float(spec["j_cut"]["lead_seconds"]) * fps)),
+                words=spec["j_cut"].get("words", ()))
+        if spec.get("cutaway") is not None:
+            window = spec["cutaway"]["window_seconds"]
+            plan_cutaway(
+                variant_placements, fps,
+                str(spec["cutaway"]["hide_angle"]),
+                (int(round(float(window[0]) * fps)),
+                 int(round(float(window[1]) * fps))),
+                cover_words=spec["cutaway"].get("cover_words", ()))
+        checked.append((spec, final, clips))
+
+    built = {}
+    try:
+        for spec, final, clips in checked:
+            print(f"Building variant {final}", flush=True)
+
+            subtitle_segments = reel_subtitle_segments(
+                moment, transcript, ranges, project_folder,
+                fps=fps, width=1080, height=1920, timeline_name=final,
+                lead_seconds=lead)
+            explainer_segments, _explainer_plan = reel_explainer_segments(
+                moment, transcript, ranges, project_folder,
+                fps=fps, width=1080, height=1920,
+                judgement=judgement, brand_effect=brand_effect,
+                timeline_name=final)
+            from library.tools import reel_semantic_visual as sem_vis
+            sem_vis.write_request(moment, transcript, ranges,
+                                  project_folder, fps=fps)
+            semantic_segments, _semantic_record = sem_vis.build_for_reel(
+                moment, transcript, ranges, project_folder,
+                fps=fps, width=1080, height=1920, timeline_name=final)
+            overlay_plan = None
+            if overlay_declared:
+                overlay_plan = overlay_mod.plan_reel_overlays(
+                    overlay_effect, ranges, fps, project_folder,
+                    closer_seam_frame=_closer_seam_frame(
+                        moment, ranges, fps))
+            reel_motion = []
+            if reel_look_decl is not None:
+                spine = _reel_look.motion_spine(base_placements, fps)
+                _reel_look.write_motion_request(
+                    moment.number, final, spine,
+                    transcript.get("segments") or [], project_folder)
+                reel_motion, motion_record = _reel_look.resolve_motion(
+                    _reel_look.read_motion_answer(project_folder,
+                                                 moment.number),
+                    spine, fps)
+                motion_record["reel"] = final
+                if motion_record["basis"] == _reel_look.MOTION_AWAITING_ANSWER:
+                    print(f"  {final}: NO PICTURE MOTION - no model "
+                          f"answer on file, every shot plays still",
+                          file=sys.stderr)
+
+            build_result = build_reel_timeline(
+                project=project,
+                moment=moment,
+                master_clips=clips,
+                subtitle_segments=subtitle_segments,
+                fps=fps,
+                width=1080,
+                height=1920,
+                project_folder=project_folder,
+                transcript=transcript,
+                timeline_name=final,
+                cards=cards,
+                overlay_placements=(overlay_plan.placements
+                                    if overlay_plan else None),
+                explainer_segments=explainer_segments,
+                semantic_segments=semantic_segments,
+                look=reel_look_decl,
+                motion=reel_motion,
+                master_timeline=timeline,
+                extra_cuts=moment_cuts,
+                j_cut=spec.get("j_cut"),
+                cutaway=spec.get("cutaway"),
+                grade_cdl=reel_grade_cdl,
+                power_grade=reel_power_grade,
+            )
+            if reel_look_decl is not None:
+                manifest = _reel_look.fusion_manifest(
+                    apply_offset_specs(
+                        placements(ranges, clips, fps,
+                                   lead_frames=lead_frames(cards, fps)),
+                        fps, None, spec.get("j_cut"),
+                        spec.get("cutaway"))[0],
+                    reel_look_decl, reel_motion, fps,
+                    track_plan=build_result["track_plan"],
+                    angle_key=_angle_key)
+                if not _reel_look.apply_comps(manifest, project_folder,
+                                             resolve_name, final):
+                    raise ReelBuildError(
+                        f"{final}: the Fusion pass refused or failed - "
+                        f"a variant that lost its comps is not the "
+                        f"approved picture with a different seam.")
+
+            placed = None
+            for i in range(1, project.GetTimelineCount() + 1):
+                t = project.GetTimelineByIndex(i)
+                if t.GetName() == final:
+                    placed = t
+                    break
+            if placed is None:
+                raise ReelBuildError(
+                    f"{final}: built without error but no timeline "
+                    f"under that name reads back - refused rather "
+                    f"than reported as placed.")
+            raw = build_result["track_plan"]
+            plan = TrackPlan(
+                video_tracks=[TrackSpec(**t) for t in raw["video_tracks"]],
+                audio_tracks=[TrackSpec(**t) for t in raw["audio_tracks"]],
+                material=raw.get("material", {}))
+            report = verify_timeline(placed, plan=plan)
+            if not report.get("passed"):
+                raise ReelBuildError(
+                    f"{final}: structural conformance failed: "
+                    f"{report.get('violations')} - the variant is "
+                    f"removed rather than left beside the reel.")
+            if report.get("checks_skipped"):
+                raise ReelBuildError(
+                    f"{final}: conformance skipped "
+                    f"{report.get('checks_skipped')} - a gate that "
+                    f"did not run is not a pass.")
+            print(f"  {final}: conformance-clean "
+                  f"({len(report.get('checks_run', []))} checks)",
+                  flush=True)
+            built[final] = {"build_record": build_result,
+                            "conformance": report,
+                            "watch": spec.get("watch", "")}
+    except Exception:
+        # Atomic batch (see docstring): every variant this call placed
+        # goes, and names it never reached are tolerated by the
+        # discard. `None` for the master keeps the discard to the
+        # timelines - a variant refusal must not file the shared pool
+        # as a side effect; stray caption imports stay loose and the
+        # error says so.
+        discard_staged_reels(project, project_folder, list(built)
+                             + [f for f in finals if f not in built],
+                             None)
+        raise
+    return {"reel": moment.timeline_name,
+            "resolve_project_name": resolve_name,
+            "variants": built}
 
 
 def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str, only_reels=None) -> None:
@@ -4675,6 +6734,7 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
             plan_path=plan_path,
             transcript=transcript,
             json_path=json_path,
+            project_folder=project_folder,
             only_reels=None if only_reels is None else list(only_reels),
         )
     except Exception as e:

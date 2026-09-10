@@ -260,7 +260,7 @@ effect:
 ```
 
 **The engine states nothing.** No colour, no typeface, no duration, no motion
-character and no copy has a default, for the reason `house_look.py` was emptied
+character and no copy has a default, for the reason `series_look.py` was emptied
 (AGENTS.md 10.5). The single exception is `entrance`/`exit` defaulting to `cut` -
 the value meaning "nothing is drawn", legal under that rule's own carve-out and
 the same reading `transition_vocabulary.CUT_TYPES` gets.

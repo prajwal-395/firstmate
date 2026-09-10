@@ -35,6 +35,12 @@
         "type": "string",
         "required": false,
         "description": "Appended to the Resolve timeline name each reel is built INTO, and to the `timeline` component of every caption filename so the overlays cannot overwrite another timeline's. Absent means the plan's own name, which REPLACES the existing timeline of that name. The `--name-suffix` flag of `manage_project.py build-reels`."
+      },
+      {
+        "name": "allow_drops",
+        "type": "array",
+        "required": false,
+        "description": "Rows the replace guard may let shrink, by ROW never by blanket (issue #925). Each entry is a `ROW` spec (`video:Semantic`, or the bare `Semantic`) applying to every reel this call promotes, or a `FINAL::ROW` spec for one reel only. The `--allow-drop` flag of `manage_project.py build-reels`, repeatable. Absent means nothing is declared and any row that loses items, or vanishes, refuses the promotion."
       }
     ],
     "outputs": [
@@ -48,7 +54,8 @@
           "caption_hashes": "dict",
           "resolve_project_name": "str",
           "master_timeline_name": "str",
-          "name_suffix": "str"
+          "name_suffix": "str",
+          "allow_drops": "dict"
         }
       }
     ],

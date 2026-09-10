@@ -60,12 +60,12 @@ class TestEffectBlocks(unittest.TestCase):
         self.assertEqual(len(block.nodes), 0)
 
     def test_glow_basic(self):
-        block = fx.glow(gain=0.08)
+        block = fx.glow(gain=0.08, threshold=0.75, size=3.5)
         self.assertEqual(len(block.nodes), 1)
         self.assertIn("SoftGlow", block.nodes[0].tool_type)
 
     def test_glow_zero_skips(self):
-        block = fx.glow(gain=0.0)
+        block = fx.glow(gain=0.0, threshold=0.75, size=3.5)
         self.assertEqual(len(block.nodes), 0)
 
     def test_grain(self):
@@ -79,7 +79,8 @@ class TestEffectBlocks(unittest.TestCase):
         self.assertEqual(block.nodes[0].tool_type, "Defocus")
 
     def test_vignette(self):
-        block = fx.vignette(clip_dur=90)
+        block = fx.vignette(clip_dur=90, width=1.0, height=1.0, soft=0.35,
+                            blend=0.25)
         # Background + Ellipse + Merge
         self.assertEqual(len(block.nodes), 3)
         types = {n.tool_type for n in block.nodes if isinstance(n, FusionNode)}
@@ -160,7 +161,7 @@ class TestCompEngine(unittest.TestCase):
         comp = (CompEngine(clip_dur=90)
                 .add(fx.zoom(90, start=1.0, end=1.03))
                 .add(fx.grade(gain=1.05))
-                .add(fx.glow(gain=0.08))
+                .add(fx.glow(gain=0.08, threshold=0.75, size=3.5))
                 .serialize())
         # All three effect types present
         self.assertIn("Transform", comp)
@@ -171,7 +172,7 @@ class TestCompEngine(unittest.TestCase):
         comp = (CompEngine(clip_dur=90)
                 .add(fx.zoom(90))  # neutral — skipped
                 .add(fx.grade(gain=1.0))  # neutral — skipped
-                .add(fx.glow(gain=0.08))  # active
+                .add(fx.glow(gain=0.08, threshold=0.75, size=3.5))  # active
                 .serialize())
         # Only SoftGlow should be present (plus MediaIn/Out)
         self.assertNotIn("Transform", comp)
@@ -194,6 +195,8 @@ class TestCompEngine(unittest.TestCase):
             grade_contrast=0.04,
             grade_saturation=1.15,
             glow_gain=0.08,
+            glow_threshold=0.75,
+            glow_size=3.5,
         )
         self.assertIn("Composition {", comp)
         self.assertIn("Transform", comp)
@@ -214,10 +217,14 @@ class TestCompEngine(unittest.TestCase):
     def test_vignette_safety(self):
         """Vignette should always produce safe EllipseMask."""
         comp = (CompEngine(clip_dur=90)
-                .add(fx.vignette(clip_dur=90))
+                .add(fx.vignette(clip_dur=90, width=1.0, height=1.0, soft=0.35,
+                            blend=0.25))
                 .serialize())
-        # Must have Inverted, MaskWidth, MaskHeight, PixelAspect
-        self.assertIn("Inverted", comp)
+        # Must have Invert (the name the tool HAS - `Inverted` is
+        # silently ignored and draws a black disc), MaskWidth,
+        # MaskHeight, PixelAspect
+        self.assertIn("Invert = Input { Value = 1, },", comp)
+        self.assertNotIn("Inverted", comp)
         self.assertIn("MaskWidth", comp)
         self.assertIn("MaskHeight", comp)
         self.assertIn("PixelAspect", comp)

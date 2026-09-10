@@ -254,6 +254,40 @@ def _find_path(root, path: tuple[str, ...]):
     return folder
 
 
+def import_into_bin(pool, dest: tuple[str, ...],
+                    paths: list[str]) -> list:
+    """Import files so they LAND in the declared bin, not in CURRENT.
+
+    `CreateEmptyTimeline` and `ImportMedia` put what they make into
+    whatever bin happens to be current - wherever the operator last
+    clicked - so an import that does not choose its bin is a filing
+    decision the lottery makes. This is the one import path builders
+    use for generated overlays: the bins are ensured lookup-first
+    (never forked), the current folder is set to the destination for
+    exactly the import call, and restored afterwards even when the
+    import raises. The return is judged by the caller (AGENTS.md 5):
+    an empty answer means Resolve took nothing.
+
+    `dest` is a bin path from the root, e.g. `("06 - Subtitle
+    renders", "<reel>")` - built by the caller from
+    `resolve_bin_layout.render_bin_for_file`, the same function the
+    organiser's verdicts use, so import-time filing and the later
+    organise pass cannot disagree about where a new item belongs.
+    """
+    root = pool.GetRootFolder()
+    before_current = pool.GetCurrentFolder()
+    try:
+        folder = root
+        for depth, part in enumerate(dest):
+            folder = ensure_folder(pool, folder, part, None, dest[:depth])
+        pool.SetCurrentFolder(folder)
+        items = pool.ImportMedia(list(paths))
+        return list(items) if items else []
+    finally:
+        if before_current is not None:
+            pool.SetCurrentFolder(before_current)
+
+
 def apply_plan(project, plan: Plan, artefacts: list[Artefact],
                journal_path: str) -> dict:
     """File the pool the way the plan says, and journal every change.
@@ -544,6 +578,7 @@ def survey_project(project, project_folder: str,
     from library.tools.execution import retire_empty_bins as retire
     from library.tools.resolve_organization import (
         findings,
+        plan_dead_render_bins,
         plan_retirements,
         render_bin_census,
     )
@@ -551,21 +586,40 @@ def survey_project(project, project_folder: str,
     plan, artefacts, duplicates, recorded = plan_for_project(
         project, project_folder, master_timeline_name)
     tree = retire.read_bin_tree(project)
-    retirements = plan_retirements(artefacts, list(tree))
-    found = findings(artefacts, plan, duplicates, recorded)
+    retirements = plan_retirements(artefacts, list(tree),
+                                   project_root=project_folder)
+    _dead, declined = plan_dead_render_bins(
+        artefacts, list(tree), project_folder)
+    dead_paths = [e["path"] for e in retirements
+                  if e.get("kind") == "dead_render_bin"]
+    found = findings(artefacts, plan, duplicates, recorded,
+                     dead_paths=dead_paths)
     for entry in retirements:
-        found.append({
-            "kind": "empty_legacy_bin",
-            "name": "/".join(entry["path"]),
-            "detail": f"legacy bin {'/'.join(entry['path'])!r} stands "
-                      f"empty beside the numbered scheme - {entry['why']}",
-        })
+        if entry.get("kind") == "dead_render_bin":
+            held = len(entry.get("contents") or [])
+            found.append({
+                "kind": "dead_render_bin",
+                "name": "/".join(entry["path"]),
+                "detail": f"per-reel bin {'/'.join(entry['path'])!r} "
+                          f"names no live timeline - {entry['why']} "
+                          f"({held} item(s) retire with it)",
+            })
+        else:
+            found.append({
+                "kind": "empty_legacy_bin",
+                "name": "/".join(entry["path"]),
+                "detail": f"legacy bin {'/'.join(entry['path'])!r} stands "
+                          f"empty beside the numbered scheme - {entry['why']}",
+            })
     return {
         "findings": found,
         "unplaced": unplaced_cost(unplaced_report(artefacts, project_folder)),
-        "retirements": [dict(path=list(e["path"]), why=e["why"])
+        "retirements": [dict(path=list(e["path"]), why=e["why"],
+                             kind=e.get("kind", "legacy_shell"),
+                             contents=list(e.get("contents") or []))
                         for e in retirements],
-        "census": render_bin_census(artefacts, list(tree), retirements),
+        "census": render_bin_census(artefacts, list(tree), retirements,
+                                    declined=declined),
     }
 
 
@@ -584,6 +638,7 @@ def organise_project(project, project_folder: str,
     """
     from library.tools.execution import retire_empty_bins as retire
     from library.tools.resolve_organization import (
+        plan_dead_render_bins,
         plan_retirements,
         render_bin_census,
     )
@@ -591,18 +646,47 @@ def organise_project(project, project_folder: str,
     plan, artefacts, duplicates, _recorded = plan_for_project(
         project, project_folder, master_timeline_name)
     tree = retire.read_bin_tree(project)
-    retirements = plan_retirements(artefacts, list(tree))
+    retirements = plan_retirements(artefacts, list(tree),
+                                   project_root=project_folder)
+    _dead, declined = plan_dead_render_bins(
+        artefacts, list(tree), project_folder)
     result = {"plan": plan.as_dict(), "duplicate_bins": duplicates,
               "applied": False,
               # Read from the same pass as the plan, so the filing and
               # the count of what is unplaced cannot disagree.
               "unplaced": unplaced_cost(
                   unplaced_report(artefacts, project_folder)),
-              "retirements": [dict(path=list(e["path"]), why=e["why"])
+              "retirements": [dict(path=list(e["path"]), why=e["why"],
+                                   kind=e.get("kind", "legacy_shell"),
+                                   contents=list(e.get("contents") or []))
                               for e in retirements],
+              "declined": [dict(path=list(d["path"]), why=d["why"])
+                           for d in declined],
+              "held_for_dead_sweep": [],
               "census": render_bin_census(artefacts, list(tree),
-                                          retirements)}
+                                          retirements, declined=declined)}
     if apply:
+        # Dead bins retire WITH their contents, so the filing pass
+        # holds those moves back: re-homing a dead reel's renders to
+        # `Not placed on any timeline` first would just migrate the
+        # accumulation instead of removing it.  What is held back is
+        # reported, and the retirement below takes it with the bin -
+        # pool items only, never files.
+        dead_ids = {c["item_id"] for e in retirements
+                    if e.get("kind") == "dead_render_bin"
+                    for c in (e.get("contents") or [])}
+        held = [v for v in plan.moves if v.item_id in dead_ids]
+        if held:
+            from dataclasses import replace as _replace
+            plan = _replace(
+                plan, moves=[v for v in plan.moves
+                             if v.item_id not in dead_ids])
+        result["held_for_dead_sweep"] = [
+            {"name": v.name,
+             "bin": "/".join(
+                 next(a.folder_path for a in artefacts
+                      if a.item_id == v.item_id))}
+            for v in held]
         result["journal"] = apply_plan(
             project, plan, artefacts,
             journal_path or journal_path_for(project_folder))
@@ -610,15 +694,25 @@ def organise_project(project, project_folder: str,
         if retire_empty_shells:
             fresh, _, _, _ = read_pool(project)
             fresh_tree = retire.read_bin_tree(project)
-            fresh_plan = plan_retirements(fresh, list(fresh_tree))
+            fresh_plan = plan_retirements(fresh, list(fresh_tree),
+                                          project_root=project_folder)
+            _fresh_dead, fresh_declined = plan_dead_render_bins(
+                fresh, list(fresh_tree), project_folder)
             result["retirements"] = [
-                dict(path=list(e["path"]), why=e["why"])
+                dict(path=list(e["path"]), why=e["why"],
+                     kind=e.get("kind", "legacy_shell"),
+                     contents=list(e.get("contents") or []))
                 for e in fresh_plan]
+            result["declined"] = [
+                dict(path=list(d["path"]), why=d["why"])
+                for d in fresh_declined]
             result["census"] = render_bin_census(
-                fresh, list(fresh_tree), fresh_plan)
+                fresh, list(fresh_tree), fresh_plan,
+                declined=fresh_declined)
             result["retirement"] = retire.retire_bins(
                 project, fresh_plan,
-                retire.journal_path_for(project_folder))
+                retire.journal_path_for(project_folder),
+                project_root=project_folder)
     return result
 
 

@@ -126,133 +126,39 @@ class CompEngine:
     def from_params(cls, clip_dur: int, **params) -> str:
         """Drop-in replacement for the old generate_comp() signature.
 
-        Accepts the same keyword arguments as the original generate_comp()
-        and produces equivalent .comp output.
+        Accepts the same flat keyword arguments as the original
+        generate_comp() and DELEGATES to `comp_builder.build_effect_comp`,
+        which is the dispatch the renderer really runs
+        (`execution/apply_fusion_comps`).
+
+        It used to carry a second, hand-maintained copy of that dispatch,
+        and the two had drifted: this one still defaulted `vignette` to
+        True at blend 0.25 / soft 0.35, the exact "vignette nobody asked
+        for at a strength nobody chose" AGENTS.md 12 records as removed,
+        and it still read `glow_threshold` 0.75, `film_grain_power` 0.25
+        and the rest out of `.get` defaults. A capability is only real
+        where the renderer reads it (AGENTS.md 10.2), and a SECOND reader
+        that answers differently is the same defect wearing the other
+        face.
 
         Args:
-            clip_dur: SOURCE clip total frame count (NOT timeline duration).
+            clip_dur: SOURCE clip total frame count (NOT timeline
+                duration).
         """
-        engine = cls(
-            clip_dur,
-            width=params.get("width", 1080),
-            height=params.get("height", 1920),
-        )
+        from .comp_builder import build_effect_comp
 
-        # Fusion comps operate in the source clip's native resolution,
-        # not the timeline's. When source_res is provided, use it for
-        # ALL Background nodes (vignette, fade, transitions). The
-        # timeline scaling/letterboxing happens AFTER Fusion.
-        source_res = params.get("source_res", None)
-        if source_res:
-            res = tuple(source_res)
-        else:
-            res = (params.get("width", 1080), params.get("height", 1920))
+        source_res = params.get("source_res")
+        if not source_res:
+            source_res = (params.get("width", 1080),
+                          params.get("height", 1920))
 
-        # Zoom
-        zoom_start = params.get("zoom_start", 1.0)
-        zoom_mid = params.get("zoom_mid", 1.0)
-        zoom_end = params.get("zoom_end", 1.0)
-        pan_start = params.get("pan_start", None)
-        pan_end = params.get("pan_end", None)
+        effects = {k: v for k, v in params.items()
+                   if k not in ("source_res", "width", "height",
+                                "played_frames") and v is not None}
+        return build_effect_comp(effects, clip_dur,
+                                 source_res=tuple(source_res),
+                                 played_frames=params.get("played_frames"))
 
-        has_zoom = not (zoom_start == zoom_mid == zoom_end)
-        has_pan = pan_start is not None and pan_end is not None
-
-        if has_zoom or has_pan:
-            engine.add(fx.zoom(
-                clip_dur,
-                start=zoom_start,
-                mid=zoom_mid,
-                end=zoom_end,
-                easing=params.get("zoom_easing", DRIFT_EASING),
-                pan_start=pan_start if has_pan else None,
-                pan_end=pan_end if has_pan else None,
-            ))
-
-        # BrightnessContrast
-        grade_gain = params.get("grade_gain", 1.0)
-        grade_contrast = params.get("grade_contrast", 0.0)
-        grade_saturation = params.get("grade_saturation", 1.0)
-        if grade_gain != 1.0 or grade_contrast != 0.0 or grade_saturation != 1.0:
-            engine.add(fx.grade(
-                gain=grade_gain,
-                contrast=grade_contrast,
-                saturation=grade_saturation,
-            ))
-
-        # SoftGlow
-        glow_gain = params.get("glow_gain", 0.0)
-        if glow_gain > 0:
-            engine.add(fx.glow(
-                gain=glow_gain,
-                threshold=params.get("glow_threshold", 0.75),
-                size=params.get("glow_size", 3.5),
-            ))
-
-        # Film Grain
-        if params.get("film_grain", False):
-            engine.add(fx.grain(
-                power=params.get("film_grain_power", 0.25),
-                size=params.get("film_grain_size", 1.5),
-            ))
-
-        # Defocus
-        if params.get("defocus", False):
-            engine.add(fx.defocus(
-                size=params.get("defocus_size", 2.0),
-            ))
-
-        # Vignette
-        if params.get("vignette", True):
-            # Compute ellipse proportional to source frame.
-            # EllipseMask Width/Height are in a square normalized space,
-            # so we derive Height from the source aspect ratio.
-            default_w = 1.0
-            default_h = 1.0
-            if source_res:
-                default_h = source_res[1] / source_res[0]
-            engine.add(fx.vignette(
-                clip_dur=clip_dur,
-                width=params.get("vignette_width", default_w),
-                height=params.get("vignette_height", default_h),
-                soft=params.get("vignette_soft", 0.35),
-                blend=params.get("vignette_blend", 0.25),
-                color=params.get("vignette_color", (0.0, 0.0, 0.0)),
-                res=res,
-            ))
-
-        # Fade in/out
-        fade_in = params.get("fade_in_frames", 0)
-        fade_out = params.get("fade_out_frames", 0)
-        if fade_in > 0 or fade_out > 0:
-            engine.add(fx.fade(
-                clip_dur,
-                fade_in=fade_in,
-                fade_out=fade_out,
-                res=res,
-            ))
-
-        # Tail transition
-        tail_trans = params.get("tail_transition")
-        if tail_trans:
-            engine.add(fx.transition_tail(
-                clip_dur,
-                tail_trans,
-                params.get("tail_transition_frames", 7),
-                res=res,
-            ))
-
-        # Head transition
-        head_trans = params.get("head_transition")
-        if head_trans:
-            engine.add(fx.transition_head(
-                clip_dur,
-                head_trans,
-                params.get("head_transition_frames", 7),
-                res=res,
-            ))
-
-        return engine.serialize()
 
 
 def write_comp(path: str, content: str) -> str:

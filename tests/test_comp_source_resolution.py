@@ -20,7 +20,7 @@ import re
 
 import pytest
 
-from library.tools.custom_asset_bank import clip_asset_key
+from library.tools.custom_asset_bank import comp_asset_key
 from library.tools.fusion.comp_builder import DEFAULT_SOURCE_RES, build_effect_comp
 
 APPLY_FUSION_COMPS = (pathlib.Path(__file__).resolve().parent.parent
@@ -33,7 +33,8 @@ VERTICAL = (1080, 1920)
 
 # Every effect whose block contains a Background node.
 BACKGROUND_EFFECTS = {
-    "vignette": {"vignette": True},
+    "vignette": {"vignette": True, "vignette_blend": 0.25,
+                 "vignette_soft": 0.35},
     "fade": {"fade_in_frames": 8, "fade_out_frames": 8, "vignette": False},
     "tail_fade_to_black": {"tail_transition": "fade_to_black",
                            "tail_transition_frames": 7, "vignette": False},
@@ -74,7 +75,9 @@ def test_backgrounds_match_a_vertical_source(name):
 
 def test_an_unknown_source_falls_back_rather_than_inventing():
     """None means "could not tell" - the documented default, not a guess."""
-    comp = build_effect_comp({"vignette": True}, CLIP_DUR)
+    comp = build_effect_comp(
+        {"vignette": True, "vignette_blend": 0.25, "vignette_soft": 0.35},
+        CLIP_DUR)
     assert _background_sizes(comp) == [DEFAULT_SOURCE_RES]
 
 
@@ -82,13 +85,17 @@ def test_the_asset_bank_key_changes_with_the_source_frame():
     """Same effects, different frame - different comp, so different key.
 
     Without this a comp banked for a 1920x1080 clip would be replayed on
-    a 1080x1920 one, putting the rectangle straight back.
+    a 1080x1920 one, putting the rectangle straight back.  The key is
+    taken over the comp the builder really emitted, so this reads the
+    difference off the bytes rather than off a restatement of the
+    inputs.
     """
-    effects = {"vignette": True}
-    landscape = clip_asset_key("speech_3_seg0", effects, CLIP_DUR,
-                               source_res=LANDSCAPE)
-    vertical = clip_asset_key("speech_3_seg0", effects, CLIP_DUR,
-                              source_res=VERTICAL)
+    effects = {"vignette": True, "vignette_blend": 0.25,
+               "vignette_soft": 0.35}
+    landscape = comp_asset_key("speech_3_seg0", build_effect_comp(
+        dict(effects), CLIP_DUR, source_res=LANDSCAPE))
+    vertical = comp_asset_key("speech_3_seg0", build_effect_comp(
+        dict(effects), CLIP_DUR, source_res=VERTICAL))
     assert landscape != vertical
 
 
