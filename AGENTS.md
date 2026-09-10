@@ -254,6 +254,9 @@ Detail: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-th
 **Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.**
 Detail: `library/tools/resolve_surfaces.py`. [why](docs/RULE_EVIDENCE.md#the-two-pages-that-showed-one-frame)
 
+**A capture that did not happen RAISES** - a declined grab, a False export, or no/empty file raise `StillCaptureError`; the Deliver render is the fallback.
+Detail: `library/tools/marker_capture.py`. [why](docs/RULE_EVIDENCE.md#the-still-that-was-never-taken)
+
 ### Reading a killed build off disk
 
 **Copy the project database before opening it; never open it in place.**

@@ -7265,3 +7265,59 @@ nothing is being replaced.
 refusals, plus the declared-reduction pass, the unreadable refusal,
 and the growth/shortening passes. A guard nobody has watched fire is
 not a guard.
+
+## the-still-that-was-never-taken
+
+On 2026-09-10 a lane reported the captain's `.drx` grade moving
+599,583 pixels, 28.9% of the frame. A later lane reproduced the real
+number as 486 pixels, 0.023% - and found the cause: the
+`GrabStill` + `ExportStills` capture route RETURNS False AND WRITES NO
+FILE on this build (Resolve Studio 21.0.0b), reproduced live. All three
+numbers in the first report clustered around 600,000 px because they
+were a constant - the picture area - not a measurement. The captain was
+told something that never happened.
+
+Did it ever work here, or has it been failing throughout? It WORKED.
+The 2026-08-28 probe took True plus a file on 21.0.0b.28, and a
+2026-08-30 capture on the captain's own machine left a still record
+with a PNG on disk (`docs/workflow_integration/live_api_surface.json`,
+`still_20260830T233828Z`). So this is a regression in route STATE -
+build, project state, page or still album, not yet isolated (no live
+re-probe: a rebuild was running in the captain's project) - not a
+route that never worked. What that decides about past evidence: a
+capture that landed a non-empty file on disk with the gallery put back
+stands, whenever it ran. Suspect is everything measured off a capture
+that returned False or wrote nothing - which is exactly the shape the
+new rule refuses to return.
+
+The rule: A CAPTURE THAT DID NOT HAPPEN RAISES BY NAME.
+`marker_capture.grab_still` raises `StillCaptureError` - a
+`CaptureError`, so every existing handler still catches it - on a
+declined grab, a False export (authoritative even beside a file), no
+PNG on disk, and an empty one. The return value is evidence of nothing;
+the disk was already the authority, and now the return is too.
+
+Which routes a crew may rely on (`marker_capture`'s "WHICH CAPTURE
+ROUTES ARE TRUSTWORTHY", the table to read before choosing one): the
+gallery still is the ONLY route that returns the graded, conformed
+timeline frame - and it is untrusted until it returns, raising on all
+three failure shapes. The Deliver-page render
+(`segment_renderer.render_single_frame`, via
+`visual_qa_router.execute_frame_grab`) demonstrably worked while the
+gallery route did not; it returns None, never a path, on any failure
+and the caller turns that into a FAILED check. ffmpeg straight off a
+file is cheap and Resolve-free but reads the SOURCE frame - ungraded,
+unconformed, no comps or captions - and every helper
+(`ask_the_footage`, `verify_treatment`, `thumbnail_extractor`,
+`window_frames`, step 5.01 `grade._extract_frame`, step 6.02's helper,
+`vision_pipeline_v3`, `render_qa`, the explainer overlay probe)
+accepts a capture only with a non-empty file on disk.
+
+The caller audit named three that did not notice and were fixed in
+place (a zero-byte file counted as a picture): `ask_the_footage`,
+`verify_treatment`, `thumbnail_extractor` - plus the vision frame
+cache, which also REUSED an empty file forever - and one filed rather
+than fixed (issue #942): `look_matcher.match_clips_to_reference` answers a missing
+frame with an identity CDL, unreachable from its only caller after the
+`grade._extract_frame` fix, so changing its contract is a separate
+decision. Pinned by `tests/test_still_capture_fails_loudly.py`.

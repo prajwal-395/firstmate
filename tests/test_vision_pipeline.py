@@ -69,11 +69,14 @@ def test_extract_frames(mock_run, tmp_path):
     cache = tmp_path / "cache"
     
     def side_effect(*args, **kwargs):
-        # args[0] is the command list, the last element is the output path
+        # args[0] is the command list, the last element is the output path.
+        # A successful ffmpeg writes a real file: an empty one is a
+        # capture that did not happen (see marker_capture's WHEN THE
+        # ROUTE FAILS) and extract_frames skips it.
         cmd = args[0]
         out_path = Path(cmd[-1])
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.touch()
+        out_path.write_bytes(b"\xff\xd8\xff\xe0" + b"frame")
         return MagicMock(returncode=0)
         
     mock_run.side_effect = side_effect

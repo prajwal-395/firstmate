@@ -559,7 +559,8 @@ class TestP2ReplacedTheMeanSaturationGate:
             return MagicMock(returncode=0)
 
         with patch('subprocess.run', side_effect=side_effect), \
-                patch('os.path.exists', return_value=True):
+                patch('os.path.exists', return_value=True), \
+                patch('os.path.getsize', return_value=2048):
             return analyze_color_histogram("dummy.mp4")
 
     def test_the_saturation_floor_is_gone_from_the_histogram_threshold(self):
@@ -583,7 +584,8 @@ class TestP2ReplacedTheMeanSaturationGate:
             return MagicMock(returncode=0)
 
         with patch('subprocess.run', side_effect=side_effect), \
-                patch('os.path.exists', return_value=True):
+                patch('os.path.exists', return_value=True), \
+                patch('os.path.getsize', return_value=2048):
             result = analyze_color_histogram("dummy.mp4")
         assert not result.passed
         assert "dark" in result.detail

@@ -52,7 +52,14 @@ def _run_ffprobe(filepath, *args):
 
 
 def _extract_frame(filepath, frame_num, output_path, fps=30):
-    """Extract a single frame as PNG using ffmpeg. Returns True on success."""
+    """Extract a single frame as PNG using ffmpeg. Returns True on success.
+
+    Success means ffmpeg exited 0 AND a non-empty file is on disk - a
+    zero-byte file is a capture that did not happen (see
+    `marker_capture`'s "WHEN THE ROUTE FAILS"), and True beside one is
+    what produced a false finding on 2026-09-10.
+    """
+    import os
     timestamp = frame_num / fps
     try:
         result = subprocess.run(
@@ -61,7 +68,8 @@ def _extract_frame(filepath, frame_num, output_path, fps=30):
              '-f', 'image2', output_path],
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
         )
-        return result.returncode == 0
+        return (result.returncode == 0 and os.path.exists(output_path)
+                and os.path.getsize(output_path) > 0)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return False
 

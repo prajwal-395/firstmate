@@ -403,8 +403,11 @@ def analyze_color_histogram(video_path: str, sample_count: int = 5) -> RenderQAR
         for i, t in enumerate(sample_points):
             img_path = os.path.join(tmpdir, f'frame_{i}.png')
             subprocess.run(['ffmpeg', '-y', '-ss', str(t), '-i', video_path, '-vframes', '1', '-f', 'image2', img_path], capture_output=True, timeout=15)
-            
-            if not os.path.exists(img_path):
+
+            try:
+                if os.path.getsize(img_path) <= 0:
+                    continue
+            except OSError:
                 continue
 
             try:
@@ -2350,8 +2353,12 @@ def sample_key_frames(video_path: str, output_dir: str, timestamps: List[float] 
         out_path = os.path.join(output_dir, f"frame_{t:.2f}.png")
         cmd = ['ffmpeg', '-y', '-ss', str(t), '-i', video_path, '-vframes', '1', '-q:v', '2', out_path]
         subprocess.run(cmd, capture_output=True, timeout=15)
-        if os.path.exists(out_path):
-            extracted.append(out_path)
+        try:
+            if os.path.getsize(out_path) <= 0:
+                continue
+        except OSError:
+            continue
+        extracted.append(out_path)
             
     return extracted
 

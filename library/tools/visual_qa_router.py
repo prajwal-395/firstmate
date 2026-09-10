@@ -300,6 +300,14 @@ def execute_frame_grab(resolve, project, timeline,
     orchestrating LLM calls gallery_stills.grab_and_export directly using
     the prompt from request.prompt.
 
+    This is the trustworthy fallback route: it renders through the
+    Deliver page rather than the gallery (which failed silently on
+    2026-09-10 - see `marker_capture`'s "WHEN THE ROUTE FAILS" and
+    "WHICH CAPTURE ROUTES ARE TRUSTWORTHY" before choosing one).
+    A failed render, extraction, or empty file returns None - never a
+    path - and the caller turns that into a FAILED check, never a
+    passing measurement.
+
     Returns a FrameGrabResult with the base64 image and a VisualQACheck
     stub (passed=None, to be filled by the analyzer).
     """

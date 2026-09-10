@@ -945,6 +945,11 @@ def measure_render(overlay_path: str, frame: int = -1) -> dict:
             raise ExplainerError(
                 f"could not read a frame of {overlay_path}: "
                 f"{result.stderr[:200]}")
+        if os.path.getsize(still) <= 0:
+            raise ExplainerError(
+                f"could not read a frame of {overlay_path}: ffmpeg "
+                "exited 0 but left an empty file - a capture that did "
+                "not happen (see marker_capture's WHEN THE ROUTE FAILS).")
         alpha = np.array(Image.open(still).convert("RGBA"))[..., 3]
 
     height, width = alpha.shape

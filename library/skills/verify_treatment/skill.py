@@ -64,7 +64,8 @@ def capture_window_stills(source_file: str, source_fps: float,
             )
         except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
             continue
-        if result.returncode == 0 and os.path.exists(path):
+        if (result.returncode == 0 and os.path.exists(path)
+                and os.path.getsize(path) > 0):
             stills.append({"path": path,
                            "timeline_frame": int(round(moment * fps)),
                            "timestamp_seconds": round(moment, 3)})

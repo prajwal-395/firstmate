@@ -61,7 +61,9 @@ directory.
 
 `ExportStills` RETURNS True.  It also returned True in the run where the
 file was wanted, so the return value is not evidence: the PNG is checked
-on disk, and a True with no file is reported as a failure.
+on disk, and a True with no file is reported as a failure.  A False
+return is a failure even when a file IS on disk - see "WHEN THE ROUTE
+FAILS" below.
 
 `Timeline.GrabStill()` LEAVES THE STILL IN THE GALLERY, in the current
 still album, and it PERSISTS - Resolve saves the project immediately
@@ -70,6 +72,58 @@ would leave the captain a gallery full of stills to clean up.
 `GalleryStillAlbum.DeleteStills([still])` returns True and the album goes
 back to the count it had; the button always does this, and reports the
 before/after count so a leak cannot go quiet.
+
+── WHEN THE ROUTE FAILS ────────────────────────────────────────────
+
+On 2026-09-10 a lane reported the captain's `.drx` grade moving
+599,583 pixels, 28.9% of the frame.  A later lane reproduced the real
+number as 486 pixels, 0.023% - and found the cause: the
+`GrabStill` + `ExportStills` capture route RETURNS False AND WRITES NO
+FILE on this build (Resolve Studio 21.0.0b), reproduced live.  All three
+numbers in the first report clustered around 600,000 px because they
+were a constant - the picture area - not a measurement.  The captain
+was told something that never happened.
+
+What is known: the failure shape is `ExportStills` returning False
+with nothing on disk, on Resolve Studio 21.0.0b - where the 2026-08-28
+probe above, on 21.0.0b.28, got True and a file.  What is NOT yet
+isolated: whether the difference is the build, the project state, the
+page, or the still album.  A rebuild was running in the captain's
+project when this was written, so no live re-probe was attempted here
+(switching timelines would disturb it); the isolation matrix is open
+work, not a silent assumption.
+
+The rule this produced: A CAPTURE THAT DID NOT HAPPEN RAISES BY NAME.
+`grab_still` raises `StillCaptureError` - a `CaptureError`, so every
+existing `except CaptureError` still catches it - on all three failure
+shapes: `GrabStill` declining (False/None), `ExportStills` returning
+False, no PNG on disk, and a zero-byte PNG.  A caller must never
+receive a value it can average from a capture that failed.
+
+── WHICH CAPTURE ROUTES ARE TRUSTWORTHY ────────────────────────────
+
+Three routes capture a frame in this repo.  Choose by what you need,
+and know what each one proves:
+
+* `grab_still` here (gallery `GrabStill` + `ExportStills`): the ONLY
+  route that returns the GRADED, CONFORMED timeline frame - the picture
+  the captain is looking at.  Untrusted until it returns: it raises
+  `StillCaptureError` unless the PNG is on disk and non-empty.  It
+  writes into the captain's gallery (put back afterwards) and saves
+  the project, so it never runs unattended on a project a rebuild is
+  using.
+* `segment_renderer.render_single_frame` (Deliver-page render plus an
+  ffmpeg PNG extraction): the trustworthy fallback.  It renders through
+  the Deliver page rather than the gallery, returns None (never a
+  path) when the render, the extraction, or the non-empty check fails,
+  and `visual_qa_router.execute_frame_grab` turns that None into a
+  FAILED check with the reason - never a passing measurement.
+* ffmpeg straight off a source or render file (`ask_the_footage`,
+  `verify_treatment`, `thumbnail_extractor`, `window_frames`,
+  step 5.01 `grade._extract_frame`): cheap seeks, no Resolve, but the
+  SOURCE frame - ungraded, unconformed, no comps or captions.  Every
+  one of these accepts a capture only when the file exists AND is
+  non-empty; a zero-byte file reads as a failure, never as a picture.
 
 MARKERS AND `customData`, measured:
 `Timeline.AddMarker(frame, colour, name, note, duration, customData)`
@@ -185,6 +239,20 @@ never asked to name a folder."""
 
 class CaptureError(RuntimeError):
     """The capture could not be completed, with a reason to show."""
+
+
+class StillCaptureError(CaptureError):
+    """The still was not captured: the instrument failed, not the scene.
+
+    Raised - never a return value - on all three failure shapes of the
+    `GrabStill` + `ExportStills` route: `GrabStill` declining, `ExportStills`
+    returning False, and no (or empty) file on disk.  A subclass of
+    `CaptureError`, so every existing `except CaptureError` still catches
+    it; the distinct name is what lets a test - and a caller that must
+    tell "no picture" from "bad position" - pin the capture failure
+    itself.  See "WHEN THE ROUTE FAILS" in the module docstring for the
+    2026-09-10 false finding this exists because of.
+    """
 
 
 # ── The playhead ────────────────────────────────────────────────────
@@ -372,19 +440,31 @@ def grab_still(timeline, project, destination: Path) -> StillResult:
 
     still = timeline.GrabStill()
     if not still:
-        raise CaptureError(
-            "Resolve declined to grab a still at the playhead. It grabs "
+        raise StillCaptureError(
+            "Resolve declined to grab a still at the playhead (it returned "
+            f"{still!r}). It grabs "
             "from the current video clip, so the playhead has to be over "
             "one."
         )
     scratch = Path(tempfile.mkdtemp(prefix="vep_still_"))
     try:
         exported = album.ExportStills([still], str(scratch), "frame", STILL_FORMAT)
+        if not exported:
+            # The return is authoritative on failure even though it is
+            # not evidence of success: on 2026-09-10 this route returned
+            # False and wrote nothing (Resolve Studio 21.0.0b), and the
+            # lane that trusted the disk alone reported the picture area
+            # as a measurement.  A False return raises even if a file
+            # happens to be there - it is not this call's file.
+            raise StillCaptureError(
+                f"ExportStills returned {exported!r}: the still was not "
+                "exported, so there is no picture to measure."
+            )
         names = sorted(p.name for p in scratch.iterdir())
         pngs = sorted(scratch.glob(f"*.{STILL_FORMAT}"))
         if not pngs:
             # ExportStills returned something; the disk is the authority.
-            raise CaptureError(
+            raise StillCaptureError(
                 f"ExportStills returned {exported!r} but wrote no "
                 f"{STILL_FORMAT} into {scratch}: {names or 'nothing at all'}."
             )
@@ -403,7 +483,7 @@ def grab_still(timeline, project, destination: Path) -> StillResult:
         after = len(album.GetStills() or [])
 
     if destination.stat().st_size <= 0:
-        raise CaptureError(f"The exported still {destination} is empty.")
+        raise StillCaptureError(f"The exported still {destination} is empty.")
     result = StillResult(
         path=destination, gallery_album=album_name,
         stills_before=before, stills_after=after,

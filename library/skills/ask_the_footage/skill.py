@@ -37,7 +37,13 @@ SKILL_NAME = "ask_the_footage"
 
 def capture_still(video_path: str, timestamp: float,
                   output_path: str) -> bool:
-    """Capture one still from a file with ffmpeg. No Resolve needed."""
+    """Capture one still from a file with ffmpeg. No Resolve needed.
+
+    True only when ffmpeg succeeded AND a non-empty file is on disk:
+    a zero-byte file is a capture that did not happen, and handing it
+    to the model (or counting it as a still) repeats the 2026-09-10
+    false finding - see `marker_capture`'s "WHEN THE ROUTE FAILS".
+    """
     try:
         result = subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{timestamp:.3f}",
@@ -46,7 +52,9 @@ def capture_still(video_path: str, timestamp: float,
             capture_output=True, text=True, encoding="utf-8",
             errors="replace", timeout=60, check=False,
         )
-        return result.returncode == 0 and os.path.exists(output_path)
+        return (result.returncode == 0
+                and os.path.exists(output_path)
+                and os.path.getsize(output_path) > 0)
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return False
 

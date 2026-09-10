@@ -68,8 +68,12 @@ def test_analyze_color_histogram(mock_run):
         return MagicMock(returncode=0)
         
     mock_run.side_effect = side_effect
-    
-    with patch('os.path.exists', return_value=True):
+
+    # The extraction mock writes nothing, so getsize is pinned to a real
+    # file: an empty capture is skipped, never measured (see
+    # marker_capture's WHEN THE ROUTE FAILS).
+    with patch('os.path.exists', return_value=True), \
+            patch('os.path.getsize', return_value=2048):
         res = analyze_color_histogram("dummy.mp4")
         assert res.passed
         assert len(res.value) == 5

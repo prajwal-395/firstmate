@@ -261,7 +261,13 @@ def stops_between(a, b):
 
 
 def _extract_frame(video_path: str) -> str:
-    """Extract a single frame from video for color analysis."""
+    """Extract a single frame from video for color analysis.
+
+    Returns "" when the capture did not happen - including a zero-byte
+    file, which ffmpeg can leave behind with a zero exit (see
+    `marker_capture`'s "WHEN THE ROUTE FAILS").  The caller skips such
+    clips rather than matching them to an identity CDL.
+    """
     import tempfile
     if not os.path.exists(video_path):
         return ""
@@ -272,6 +278,8 @@ def _extract_frame(video_path: str) -> str:
             ['ffmpeg', '-y', '-v', 'quiet', '-i', video_path, '-vframes', '1', '-q:v', '2', path],
             check=True
         )
+        if not os.path.exists(path) or os.path.getsize(path) <= 0:
+            raise ValueError(f"ffmpeg left no frame at {path}")
         return path
     except Exception:
         if os.path.exists(path):

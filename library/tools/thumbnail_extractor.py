@@ -19,6 +19,27 @@ def _thumbnails_dir(project_dir: str) -> Path:
     return ProjectLayout(project_dir).write_dir(Area.THUMBNAILS)
 
 
+def _cached_url(thumbs: Path, filename: str) -> str:
+    """The dashboard URL when a usable thumbnail is already cached.
+
+    Usable means non-empty: a zero-byte file is a capture that did not
+    happen (see `marker_capture`'s "WHEN THE ROUTE FAILS"), so it is
+    removed and the thumbnail is re-extracted rather than served.
+    """
+    output_path = thumbs / filename
+    if output_path.exists():
+        try:
+            if output_path.stat().st_size > 0:
+                return f"/thumbnails/{filename}"
+        except OSError:
+            pass
+        try:
+            output_path.unlink()
+        except OSError:
+            pass
+    return ""
+
+
 def extract_thumbnail(
     video_path: str,
     output_path: str,
@@ -27,7 +48,9 @@ def extract_thumbnail(
 ) -> bool:
     """Extract a single thumbnail frame from a video file.
 
-    Returns True if successful.
+    Returns True if successful - which means a non-empty file on disk.
+    A zero-byte file is a capture that did not happen (see
+    `marker_capture`'s "WHEN THE ROUTE FAILS") and reads as failure.
     """
     try:
         cmd = [
@@ -42,8 +65,9 @@ def extract_thumbnail(
         result = subprocess.run(
             cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
-        return result.returncode == 0 and os.path.exists(output_path)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return (result.returncode == 0 and os.path.exists(output_path)
+                and os.path.getsize(output_path) > 0)
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
         return False
 
 
@@ -64,8 +88,9 @@ def extract_clip_thumbnail(
     safe_id = clip_id.replace("/", "_").replace(" ", "_")
     output_path = thumbs / f"{safe_id}.jpg"
 
-    if output_path.exists():
-        return f"/thumbnails/{safe_id}.jpg"
+    cached = _cached_url(thumbs, f"{safe_id}.jpg")
+    if cached:
+        return cached
 
     success = extract_thumbnail(video_path, str(output_path), timestamp_s, width)
     if success:
@@ -130,22 +155,19 @@ def extract_timestamp_thumbnail(
     ts_label = f"{timestamp_s:.1f}".replace(".", "_")
     suffix = f"_{label}" if label else ""
     filename = f"{safe_id}_t{ts_label}{suffix}.jpg"
-    output_path = thumbs / filename
 
-    if output_path.exists():
-        return f"/thumbnails/{filename}"
+    cached = _cached_url(thumbs, filename)
+    if cached:
+        return cached
 
-    success = extract_thumbnail(video_path, str(output_path), timestamp_s)
+    success = extract_thumbnail(video_path, str(thumbs / filename), timestamp_s)
     if success:
         return f"/thumbnails/{filename}"
     return ""
 
 
 def get_thumbnail_url(project_dir: str, clip_id: str) -> str:
-    """Get the thumbnail URL for a clip if it exists."""
+    """Get the thumbnail URL for a clip if a usable one is cached."""
     thumbs = _thumbnails_dir(project_dir)
     safe_id = clip_id.replace("/", "_").replace(" ", "_")
-    output_path = thumbs / f"{safe_id}.jpg"
-    if output_path.exists():
-        return f"/thumbnails/{safe_id}.jpg"
-    return ""
+    return _cached_url(thumbs, f"{safe_id}.jpg")

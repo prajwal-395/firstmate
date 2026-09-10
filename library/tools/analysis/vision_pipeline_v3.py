@@ -478,7 +478,15 @@ def probe_clip(clip_path):
 # ═══════════════════════════════════════════════════════════════════════
 
 def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTERVAL_S):
-    """Extract frames at a fixed interval. Returns list of {timestamp, path}."""
+    """Extract frames at a fixed interval. Returns list of {timestamp, path}.
+
+    Only non-empty files are returned: a failed extraction (ffmpeg error
+    or a zero-byte file, which ffmpeg can leave behind with a zero exit)
+    is SKIPPED, never handed to the vision pass as a frame - see
+    `marker_capture`'s "WHEN THE ROUTE FAILS".  An empty file is also
+    re-extracted rather than reused, so one bad run does not poison the
+    cache for every later one.
+    """
     frame_dir = cache_dir / clip_path.stem / "frames"
     frame_dir.mkdir(parents=True, exist_ok=True)
 
@@ -489,20 +497,45 @@ def extract_frames(clip_path, duration, cache_dir, interval_s=COARSE_FRAME_INTER
         timestamp = min(i * interval_s, duration - 0.1)
         out_path = frame_dir / f"frame_{i:04d}.jpg"
 
-        if not out_path.exists():
-            subprocess.run(
+        if not _usable_frame(out_path):
+            result = subprocess.run(
                 ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
                  "-vframes", "1", "-q:v", "2", str(out_path)],
                 capture_output=True,
             )
+            if not _usable_frame(out_path):
+                # A nonzero exit OR an empty file: either way there is no
+                # frame here, and leaving the husk would poison the cache.
+                _drop_frame(out_path)
 
-        if out_path.exists():
+        if _usable_frame(out_path):
             frames.append({
                 "timestamp": round(timestamp, 3),
                 "path": str(out_path),
             })
 
     return frames
+
+
+def _usable_frame(out_path) -> bool:
+    """A capture that happened: on disk and non-empty.
+
+    The one predicate every frame cache in this module reads, so a
+    zero-byte file is re-extracted rather than reused and never returned
+    as a frame.  See `marker_capture`'s "WHEN THE ROUTE FAILS".
+    """
+    try:
+        return out_path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _drop_frame(out_path) -> None:
+    """Remove a failed extraction so it cannot poison the cache."""
+    try:
+        out_path.unlink()
+    except OSError:
+        pass
 
 
 def extract_detail_frames(clip_path, cache_dir, ranges, fps=DETAIL_FPS):
@@ -532,14 +565,16 @@ def extract_detail_frames(clip_path, cache_dir, ranges, fps=DETAIL_FPS):
             timestamp = range_start + (i / max(n_frames - 1, 1)) * range_dur
             out_path = frame_dir / f"detail_{frame_counter:04d}.jpg"
 
-            if not out_path.exists():
-                subprocess.run(
+            if not _usable_frame(out_path):
+                result = subprocess.run(
                     ["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(clip_path),
                      "-vframes", "1", "-q:v", "2", str(out_path)],
                     capture_output=True,
                 )
+                if not _usable_frame(out_path):
+                    _drop_frame(out_path)
 
-            if out_path.exists():
+            if _usable_frame(out_path):
                 range_frames.append({
                     "timestamp": round(timestamp, 3),
                     "path": str(out_path),
