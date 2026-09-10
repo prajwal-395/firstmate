@@ -2667,7 +2667,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             print(f"  {name}: {note}", file=sys.stderr)
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = ()):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), grade_cdl=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -2719,6 +2719,18 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     what a test passes.  Either way every angle's stream is resolved
     BEFORE the timeline is created, and an unresolvable one refuses
     the build rather than placing a default.
+
+    `grade_cdl` is the project's declared CDL half as
+    `reel_look.resolve_grade_cdl` renders it (slope/offset/power/
+    saturation in the key names step 6.01 formats), or None/{}. It is
+    applied here, in process, onto every footage picture item - after
+    the picture is placed and before this function returns, while the
+    Fusion pass runs afterwards in its own process. That is the v04
+    still's own order (`data/vep-grade-variants/report.md` section 2:
+    CDL first as SetCDL, then the Fusion chain), held structurally
+    rather than by convention. None means the project declares no
+    look, and then this is the timeline it built before the CDL half
+    existed.
 
     Returns the build record: the track plan as placed, what stream
     enforcement removed, what the link pass joined, which empty rows
@@ -2958,6 +2970,36 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 print(f"  ✗ A{dest_row} "
                       f"{os.path.basename(c.source_file)}: nothing of "
                       f"this angle's speech remains here", file=sys.stderr)
+
+    # ── The declared CDL: the look's hue half, on the footage ──
+    # Step 6.01 applies this on the master through TimelineItem.SetCDL
+    # and the reels path had no SetCDL call at all - so a reel carried
+    # the Fusion four (texture and falloff) but not the slope/offset/
+    # power/saturation that carries the colour split itself. Applied
+    # here, in process, right after placement: the caller's Fusion pass
+    # runs after this returns, which is the still recipe's CDL-first
+    # order held structurally. Rendered cards sharing the picture rows
+    # are matched out by source - a graphic is not footage.
+    if grade_cdl:
+        from library.tools import reel_look as _grade
+        footage_sources = {
+            getattr(p["clip"], "source_file", "")
+            for p in placements_list
+            if getattr(p["clip"], "track_type", "video") == "video"}
+        cdl_record = _grade.apply_cdl(
+            timeline, track_plan, grade_cdl,
+            footage_sources={s for s in footage_sources if s})
+        build_record["cdl"] = cdl_record
+        print(f"  {name}: CDL {grade_cdl.get('saturation', '?')} sat on "
+              f"{len(cdl_record['applied'])} picture item(s)"
+              + (f" - {len(cdl_record['warnings'])} warning(s)"
+                 if cdl_record["warnings"] else ""), file=sys.stderr)
+        for warning in cdl_record["warnings"]:
+            print(f"  ⚠ {warning}", file=sys.stderr)
+    else:
+        build_record["cdl"] = {"applied": [], "skipped": [],
+                               "warnings": [],
+                               "basis": "no look declared - nothing graded"}
 
     # ── The declared look: punch-in on the picture, the frame over it ──
     # The punch-in is the Edit-page transform, which is what the
@@ -4108,6 +4150,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     if reel_grade_look:
         print(f"  grade look rides the Fusion pass: "
               f"{sorted(reel_grade_look)}", file=sys.stderr)
+    # The look's CDL half, read ONCE beside the Fusion half for the
+    # same reason: the project's own `style.house_look` winning
+    # whole-slot over its brand template's (`effective_house_look`).
+    # {} is a project that declares no look, and then the reels carry
+    # no CDL - the timeline each reel got before this half existed.
+    reel_grade_cdl = _reel_look.resolve_grade_cdl(project_folder)
+    if reel_grade_cdl:
+        print(f"  grade CDL rides SetCDL on every picture item: "
+              f"slope "
+              f"{reel_grade_cdl['slope_r']:.4f}/"
+              f"{reel_grade_cdl['slope_g']:.4f}/"
+              f"{reel_grade_cdl['slope_b']:.4f}, "
+              f"sat {reel_grade_cdl['saturation']:.4f}", file=sys.stderr)
     # What the model read of each reel, and what the project declares.
     # Both are read ONCE for the batch: the judgement is one file and the
     # declaration is one project, and re-reading either per reel would be
@@ -4357,6 +4412,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # on projects whose catalog predates stream recording.
                 master_timeline=timeline,
                 extra_cuts=moment_cuts,
+                # The look's CDL half, applied inside the build right
+                # after placement - the Fusion pass below runs after
+                # the build returns, which is the still recipe's
+                # CDL-first order held structurally.
+                grade_cdl=reel_grade_cdl,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,

@@ -33,12 +33,15 @@ This module is that route, and it adds no look of its own:
   with a manifest built from the reel's own placements.  Process
   isolation (AGENTS.md 5) is why it runs as a subprocess: the timeline
   was created in the calling process.
-- The GRADE rides the same comps: `resolve_grade_look` renders the
-  project's own `style.house_look` to the Fusion parameter names and
-  `fusion_manifest` merges it onto every picture clip, so pivot
-  contrast, glow, grain and vignette - the nodes no scriptable Color
-  page call can reach - travel with the switch animation and the
-  drift rather than replacing them.
+- The GRADE rides two halves, the way step 6.01 delivers it on the
+  master: `resolve_grade_cdl` renders the project's own
+  `style.house_look` to the SetCDL values and `apply_cdl` lands them
+  on every footage picture item (Color page node 1, CDL-first per the
+  v04 still recipe), while `resolve_grade_look` renders the Fusion
+  half (pivot contrast, glow, grain, vignette - the nodes no
+  scriptable Color page call can reach) and `fusion_manifest` merges
+  it onto every picture clip, so both halves travel with the switch
+  animation and the drift rather than replacing them.
 
 Under the look each speaker keeps their own picture row
 ------------------------------------------------------
@@ -131,6 +134,30 @@ def resolve_look(project_folder: str, frame_width: int = 0,
     return look
 
 
+def _template_style(project_folder: str):
+    """This project's brand template style, or None.
+
+    One spelling for the two grade-half resolvers below: both read the
+    project's own `project.yaml` for the template name and return its
+    `style` as the mapping `effective_house_look` reads. A project that
+    names no template, or whose file is absent, resolves to None - and
+    then the project's own declaration (or its absence) is the answer.
+    """
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if os.path.exists(project_yaml):
+        import yaml
+        from library.tools.brand_registry import resolve_project_template
+        with open(project_yaml, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+        named = ((config.get("pipeline") or {}).get("brand_template") or "")
+        if named:
+            template = resolve_project_template(named)
+            style = getattr(template, "style", None)
+            if style is not None:
+                return {"house_look": getattr(style, "house_look", None)}
+    return None
+
+
 def resolve_grade_look(project_folder: str) -> dict:
     """This project's designed film look as Fusion effect parameters.
 
@@ -150,23 +177,135 @@ def resolve_grade_look(project_folder: str) -> dict:
         resolve_look as resolve_house_look,
     )
 
-    template_style = None
-    project_yaml = os.path.join(project_folder, "project.yaml")
-    if os.path.exists(project_yaml):
-        import yaml
-        from library.tools.brand_registry import resolve_project_template
-        with open(project_yaml, "r", encoding="utf-8") as handle:
-            config = yaml.safe_load(handle) or {}
-        named = ((config.get("pipeline") or {}).get("brand_template") or "")
-        if named:
-            template = resolve_project_template(named)
-            style = getattr(template, "style", None)
-            if style is not None:
-                template_style = {
-                    "house_look": getattr(style, "house_look", None)}
     look = resolve_house_look(
-        effective_house_look(template_style, project_folder))
+        effective_house_look(_template_style(project_folder),
+                             project_folder))
     return dict(look.fusion()) if look is not None else {}
+
+
+def resolve_grade_cdl(project_folder: str) -> dict:
+    """This project's CDL half, in the key names the renderer reads.
+
+    The same declaration `resolve_grade_look` reads - the project's own
+    `style.house_look` winning whole-slot over its brand template's
+    (`effective_house_look`) - rendered by `DeclaredLook.cdl()` to the
+    `slope_r`...`saturation` keys step 6.01 formats onto the master.
+    `{}` where nothing is declared, and `{}` grades nothing.
+
+    The DECLARED look only: no per-clip exposure normalisation and no
+    colourist correction. Those are per master clip (step 5.01 folds
+    them into each clip's own CDL), and a reel re-cuts the footage into
+    different ranges - there is no clip they could follow. A malformed
+    declaration RAISES, for the same reason the Fusion half does.
+    """
+    from library.tools.house_look import (
+        effective_house_look,
+        resolve_look as resolve_house_look,
+    )
+
+    look = resolve_house_look(
+        effective_house_look(_template_style(project_folder),
+                             project_folder))
+    return dict(look.cdl()) if look is not None else {}
+
+
+CDL_NODE_INDEX = "1"
+"""The Color page node `apply_cdl` writes: PR 870 established SetCDL
+lands on node 1, on the master and therefore here."""
+
+
+def apply_cdl(timeline, track_plan, cdl_values: dict,
+              footage_sources=()) -> dict:
+    """SetCDL on every footage picture item, the way 6.01 does it.
+
+    One item, one `SetCDL` with `NodeIndex` 1 and the four terms as
+    4-decimal strings - at 3 the offsets, the smallest numbers in a
+    CDL, lose part of the shadow tint (6.01's own comment). A falsy
+    return falls back to `SetClipProperty`, the same route 6.01 takes;
+    a clip neither route reaches is RECORDED, never raised: one clip's
+    grade failing must not stop the reel, and the warning names it.
+
+    WHAT gets it: footage picture items on the plan's a-roll rows,
+    matched by source path or basename against `footage_sources` (the
+    placements' own source files). A rendered card shares the first
+    picture row but is a graphic, not footage - the look's CDL would
+    tint it, and the master path never grades one either, because its
+    CDL loop only reaches clips its per-clip table names. The frame
+    overlay and the captions ride other rows and are never visited.
+
+    WHEN it runs is the v04 still's own order
+    (`data/vep-grade-variants/report.md` section 2): CDL first, as
+    SetCDL on the timeline item, then the Fusion chain. The caller
+    applies this inside `build_reel_timeline` - after the picture is
+    placed and before it returns - while the Fusion pass runs
+    afterwards in its own process, so CDL-before-Fusion holds
+    structurally rather than by convention.
+
+    WHERE A DRX WOULD GO: a GUI-built grade travels as
+    `color.power_grade_drx` in the project's own project.yaml, applied
+    per clip with `GetNodeGraph().ApplyGradeFromDRX` - which REPLACES
+    the whole node graph, including the node SetCDL just wrote, so on
+    the master a declared DRX is the grade rather than an addition to
+    it. Adopting that route on reels means calling `apply_power_grade`
+    per footage picture item at this same point (replacing this call,
+    not joining it); keeping the CDL in this one function is what
+    keeps that adoption a swap rather than surgery.
+    """
+    record: Dict[str, Any] = {"applied": [], "skipped": [],
+                                "warnings": []}
+    if not cdl_values:
+        record["basis"] = "no look declared - nothing graded"
+        return record
+    slope = (f"{cdl_values.get('slope_r', 1.0):.4f} "
+             f"{cdl_values.get('slope_g', 1.0):.4f} "
+             f"{cdl_values.get('slope_b', 1.0):.4f}")
+    offset = (f"{cdl_values.get('offset_r', 0.0):.4f} "
+              f"{cdl_values.get('offset_g', 0.0):.4f} "
+              f"{cdl_values.get('offset_b', 0.0):.4f}")
+    power = (f"{cdl_values.get('power_r', 1.0):.4f} "
+             f"{cdl_values.get('power_g', 1.0):.4f} "
+             f"{cdl_values.get('power_b', 1.0):.4f}")
+    saturation = f"{cdl_values.get('saturation', 1.0):.4f}"
+    sources = {str(s) for s in (footage_sources or ())}
+    basenames = {s.rsplit("/", 1)[-1].lower() for s in sources}
+    for row in picture_rows(track_plan).values():
+        try:
+            items = timeline.GetItemListInTrack("video", row) or []
+        except Exception:
+            continue
+        for item in items:
+            try:
+                pool_item = item.GetMediaPoolItem()
+                path = (pool_item.GetClipProperty("File Path")
+                        if pool_item is not None else "")
+                name = (pool_item.GetClipProperty("File Name")
+                        if pool_item is not None else "") or item.GetName()
+            except Exception:
+                path, name = "", ""
+            short = (name or (path or "?").rsplit("/", 1)[-1])
+            if not path or (path not in sources
+                            and short.lower() not in basenames):
+                record["skipped"].append(
+                    f"{short}: not placed footage - no CDL")
+                continue
+            try:
+                landed = item.SetCDL({
+                    "NodeIndex": CDL_NODE_INDEX,
+                    "Slope": slope,
+                    "Offset": offset,
+                    "Power": power,
+                    "Saturation": saturation,
+                })
+                if not landed:
+                    item.SetClipProperty("Slope", slope)
+                    item.SetClipProperty("Offset", offset)
+                    item.SetClipProperty("Power", power)
+                    item.SetClipProperty("Saturation", saturation)
+            except Exception as exc:
+                record["warnings"].append(f"SetCDL failed on {short}: {exc}")
+                continue
+            record["applied"].append(short)
+    return record
 
 
 def _picture(placements: Sequence[dict]) -> List[dict]:
