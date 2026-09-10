@@ -4066,6 +4066,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         print(f"TV-frame look declared by {reel_look_decl['origin']}: "
               f"punch-in {reel_look_decl['punch_in']}, frame "
               f"{os.path.basename(reel_look_decl['asset'])}", file=sys.stderr)
+    # The project's designed film look, read ONCE beside the TV-frame
+    # declaration for the same reason: a malformed house_look must stop
+    # the whole build, and the Fusion pass merges it onto every
+    # picture clip of every reel below. {} is a project that declares
+    # no look, and then the reels carry no grade - the captain agreed
+    # the Fusion route, and agreement covers what was declared.
+    reel_grade_look = _reel_look.resolve_grade_look(project_folder)
+    if reel_grade_look:
+        print(f"  grade look rides the Fusion pass: "
+              f"{sorted(reel_grade_look)}", file=sys.stderr)
     # What the model read of each reel, and what the project declares.
     # Both are read ONCE for the batch: the judgement is one file and the
     # declaration is one project, and re-reading either per reel would be
@@ -4350,7 +4360,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         lead_frames=lead_frames(cards, 24000/1001)),
                     reel_look_decl, reel_motion, 24000/1001,
                     track_plan=build_result["track_plan"],
-                    angle_key=_angle_key)
+                    angle_key=_angle_key,
+                    grade_look=reel_grade_look)
                 if not _look.apply_comps(manifest, project_folder,
                                          resolve_name, name):
                     raise ReelBuildError(

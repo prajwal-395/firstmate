@@ -296,7 +296,17 @@ class fx:
     ) -> EffectBlock:
         """BrightnessContrast color correction.
 
-        Skips if all values are neutral (gain=1, contrast=0, sat=1).
+        `contrast` arrives in the declaration's pivot-gain units - 0.0
+        is neutral, the units the v04 stills were rendered in and the
+        units `DeclaredLook.fusion()` emits. Fusion's own tool takes
+        1.0 as neutral (below it the picture collapses toward
+        mid-grey), so the node carries `1.0 + contrast`: emitting the
+        declaration verbatim ships a flat frame
+        (`data/vep-grade-variants/report.md` 4.1).
+
+        Skips if all values are neutral (gain=1, contrast=0, sat=1) -
+        the skip stays on the declaration, never on the translated
+        tool value.
         """
         if gain == 1.0 and contrast == 0.0 and saturation == 1.0:
             return EffectBlock(nodes=[], input_name="", output_name="")
@@ -304,7 +314,7 @@ class fx:
         name = _next_name("BrightnessContrast")
         bc = FusionNode(name, "BrightnessContrast")
         bc.set_input("Gain", gain)
-        bc.set_input("Contrast", contrast)
+        bc.set_input("Contrast", 1.0 + contrast)
         bc.set_input("Saturation", saturation)
         bc.pos = (220, 0)
 

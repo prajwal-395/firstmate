@@ -33,6 +33,12 @@ This module is that route, and it adds no look of its own:
   with a manifest built from the reel's own placements.  Process
   isolation (AGENTS.md 5) is why it runs as a subprocess: the timeline
   was created in the calling process.
+- The GRADE rides the same comps: `resolve_grade_look` renders the
+  project's own `style.house_look` to the Fusion parameter names and
+  `fusion_manifest` merges it onto every picture clip, so pivot
+  contrast, glow, grain and vignette - the nodes no scriptable Color
+  page call can reach - travel with the switch animation and the
+  drift rather than replacing them.
 
 Under the look each speaker keeps their own picture row
 ------------------------------------------------------
@@ -123,6 +129,44 @@ def resolve_look(project_folder: str, frame_width: int = 0,
     if look is not None and frame_width and frame_height:
         assert_frameable(look, frame_width, frame_height)
     return look
+
+
+def resolve_grade_look(project_folder: str) -> dict:
+    """This project's designed film look as Fusion effect parameters.
+
+    The same declaration step 5.01 resolves - the project's own
+    `style.house_look` winning whole-slot over its brand template's
+    (`effective_house_look`) - rendered to the parameter names
+    `build_effect_comp` dispatches on (`DeclaredLook.fusion()`).
+    `{}` where nothing is declared, and `{}` means no comp is drawn
+    for the look's sake at all.
+
+    A malformed declaration RAISES rather than shipping reels missing
+    a grade somebody asked for. Read once per build, beside
+    `resolve_look`, for the same reason.
+    """
+    from library.tools.house_look import (
+        effective_house_look,
+        resolve_look as resolve_house_look,
+    )
+
+    template_style = None
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if os.path.exists(project_yaml):
+        import yaml
+        from library.tools.brand_registry import resolve_project_template
+        with open(project_yaml, "r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+        named = ((config.get("pipeline") or {}).get("brand_template") or "")
+        if named:
+            template = resolve_project_template(named)
+            style = getattr(template, "style", None)
+            if style is not None:
+                template_style = {
+                    "house_look": getattr(style, "house_look", None)}
+    look = resolve_house_look(
+        effective_house_look(template_style, project_folder))
+    return dict(look.fusion()) if look is not None else {}
 
 
 def _picture(placements: Sequence[dict]) -> List[dict]:
@@ -830,7 +874,8 @@ def _reel_row_for(placement: dict, rows: Dict[str, int],
 
 def fusion_manifest(placements: Sequence[dict], look: dict,
                     motion: Sequence[dict], fps: float,
-                    track_plan=None, angle_key=None) -> dict:
+                    track_plan=None, angle_key=None,
+                    grade_look: Optional[dict] = None) -> dict:
     """The manifest `apply_fusion_comps` reads for one reel.
 
     Only the keys that pass actually reads: `tracks.V{row}.clips` in
@@ -846,6 +891,13 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
     picture, so the motion join by `target_block_position` is
     unchanged.  No plan means the legacy single-row shape: all clips
     on V1.
+
+    `grade_look` is the project's designed film look as
+    `resolve_grade_look` renders it (pivot contrast, glow, grain,
+    vignette - the nodes no scriptable Color page call can reach).
+    It is merged onto every picture clip with `setdefault`, the
+    compile_manifest rule: a value the motion plan states wins over
+    the look's, and None means no grade rides the reels at all.
     """
     picture = _picture(placements)
     rows = picture_rows(track_plan)
@@ -869,6 +921,14 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
         for label, effects in power_effects(
                 look, clip_label(0), clip_label(len(picture) - 1)).items():
             per_clip.setdefault(label, {}).update(effects)
+
+    # The designed film look (grade node_3 + node_4). Merged BEFORE
+    # the motion join: a value the motion plan states wins, the
+    # compile_manifest rule, unchanged.
+    for index in range(len(picture)):
+        effect = per_clip.setdefault(clip_label(index), {})
+        for key, value in (grade_look or {}).items():
+            effect.setdefault(key, value)
 
     # The drift, joined to the clip it covers by the shot position the
     # plan targeted - the same join `compile_manifest` makes by seconds,
