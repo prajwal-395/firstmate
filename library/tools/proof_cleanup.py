@@ -13,6 +13,14 @@ license to delete timelines, and this module cannot be pointed at
 anything else - a name that is not authorised here, or that the
 captain protected, refuses before anything is read further.
 
+A second brief extends the same authority to the positioning lane's
+scratch (2026-09-10): *"and then you can clean up all of the bins and
+old assets and timelines after that"*, sequenced after the
+positioning work landed - `POSITIONING_SCRATCH_PREFIX` plus the one
+expired `(pre-rebuild backup)`.  Same rules, same journal, same
+protected verification; `discover_scratch_timelines` enumerates what
+is present so a second run finds nothing and refuses nothing.
+
 Why this is not in `resolve_organization`
 -----------------------------------------
 Because organising must never delete, and
@@ -81,6 +89,33 @@ MERGE_DEMO_TIMELINE = "Reel 09 - your-website-is-only-20-percent (firstmate-merg
 same category as the proof artefact, same rules.  Any bin it created
 is confirmed off the live pool the same way."""
 
+POSITIONING_SCRATCH_PREFIX = (
+    "Reel 09 - your-website-is-only-20-percent (positioning-")
+"""The positioning lane's own scratch timelines, by prefix family.
+
+The captain, verbatim, sequencing this after the positioning work
+landed (2026-09-10): *"and then you can clean up all of the bins and
+old assets and timelines after that"* - his third clutter report that
+day, *"so you are not confusing the user as well when they enter and
+try using the project"*.  Those sentences are the authority, and they
+cover the lane's eight proof timelines - `(positioning-proof)` through
+`(positioning-proof-6)` plus its two sibling probes
+(`(positioning-freshprobe)`, `(positioning-instant)`) - enumerated off
+the live pool rather than trusted from the lane's report.  Scoped to
+this reel's parenthesised variant: a near match lands elsewhere, so
+anything outside the family still refuses.
+"""
+
+PRE_REBUILD_BACKUP_TIMELINE = (
+    "Reel 09 - your-website-is-only-20-percent (final) (pre-rebuild backup)")
+"""The rebuild lane's safety net, expired once the rebuild landed and
+the captain's hand edits were captured.  Same brief as above, which
+authorises `(pre-rebuild backup)` leftovers by class; this pool holds
+exactly this one, so it is named exactly.  Removing it touches no
+protected timeline - `(final)` keeps its 35 hand-positioned items -
+and the plan below still verifies all four protected timelines plus
+the master first."""
+
 AUTHORISED_DEMO_TIMELINES = frozenset([
     CAPTAINS_PROOF_TIMELINE,
     MERGE_DEMO_TIMELINE,
@@ -95,11 +130,15 @@ def is_authorised_demo(name: str) -> bool:
 
     Firstmate's proof timelines by prefix (`SOP Proof...` - proof
     builds version and suffix theirs), crew demo timelines by exact
-    membership above.  Classification of our own artefacts is not
-    addressing the captain's work; anything else refuses.
+    membership above, and the positioning lane's scratch by its
+    parenthesised family plus the one expired pre-rebuild backup.
+    Classification of our own artefacts is not addressing the
+    captain's work; anything else refuses.
     """
     return (name or "").startswith(PROOF_PREFIX) \
-        or name in AUTHORISED_DEMO_TIMELINES
+        or (name or "").startswith(POSITIONING_SCRATCH_PREFIX) \
+        or name in AUTHORISED_DEMO_TIMELINES \
+        or name == PRE_REBUILD_BACKUP_TIMELINE
 
 
 class ProofRemovalRefused(Exception):
@@ -127,6 +166,22 @@ def discover_proof_bins(
         if len(p) == 2 and p[0] in allowed_tops
         and (p[1].startswith(PROOF_PREFIX)
              or p[1] in AUTHORISED_DEMO_TIMELINES))
+
+
+def discover_scratch_timelines(
+        artefacts: Sequence[Artefact]) -> list[str]:
+    """Authorised scratch timelines PRESENT in this pool, in name order.
+
+    The runner removes what this returns and skips what it does not:
+    a second consecutive run returns nothing, which is the idempotence
+    proof - no moves, no removals, and no refusal for work already done.
+    Protected timelines and the master never match the scratch family,
+    and a pool that lost one still refuses inside `plan_proof_removal`.
+    """
+    return sorted(
+        a.name for a in artefacts
+        if a.kind == "timeline" and is_authorised_demo(a.name)
+        and a.name not in PROTECTED_TIMELINES)
 
 
 def plan_proof_removal(

@@ -171,9 +171,23 @@ def remove_proof(project, plan: dict, journal_path: str) -> dict:
 
 
 def journal_path_for(project_folder: str, when: str | None = None) -> str:
-    """Where THIS proof removal's journal goes. One file per run."""
+    """Where THIS proof removal's journal goes. One file per run.
+
+    Suffixed past a collision: removals seconds apart share a
+    second-granularity stamp, and the second journal must not
+    overwrite the first - measured 2026-09-10, when nine consecutive
+    removals landed in five journal files.  The stamp stays
+    human-readable; only the disambiguator is appended.
+    """
     import os
 
     stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(project_folder, "pipeline_output", "review",
-                        f"{JOURNAL_PREFIX}_{stamp}.json")
+    candidate = os.path.join(project_folder, "pipeline_output", "review",
+                             f"{JOURNAL_PREFIX}_{stamp}.json")
+    sibling = 2
+    while os.path.exists(candidate):
+        candidate = os.path.join(
+            project_folder, "pipeline_output", "review",
+            f"{JOURNAL_PREFIX}_{stamp}_{sibling}.json")
+        sibling += 1
+    return candidate

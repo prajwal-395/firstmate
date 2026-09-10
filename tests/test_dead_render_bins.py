@@ -26,9 +26,12 @@ from library.tools.execution import retire_empty_bins as retire
 from library.tools.proof_cleanup import (
     CAPTAINS_PROOF_TIMELINE,
     MERGE_DEMO_TIMELINE,
+    POSITIONING_SCRATCH_PREFIX,
+    PRE_REBUILD_BACKUP_TIMELINE,
     PROTECTED_TIMELINES,
     ProofRemovalRefused,
     discover_proof_bins,
+    discover_scratch_timelines,
     plan_proof_removal,
 )
 from library.tools.resolve_organization import (
@@ -416,6 +419,77 @@ def test_discover_lists_an_exact_named_demo_bin():
     artefacts = demo_pool()
     found = discover_proof_bins(artefacts, tree_of(artefacts))
     assert (bins.SUBTITLES_BIN, MERGE_DEMO_TIMELINE) in found
+
+
+# --------------------------------------- the positioning-lane scratch
+
+
+POSITIONING_NAMES = [
+    "Reel 09 - your-website-is-only-20-percent (positioning-proof)",
+    "Reel 09 - your-website-is-only-20-percent (positioning-proof-6)",
+    "Reel 09 - your-website-is-only-20-percent (positioning-freshprobe)",
+    "Reel 09 - your-website-is-only-20-percent (positioning-instant)",
+]
+
+
+def scratch_pool():
+    """The cleanup brief in miniature: the lane's scratch timelines sit
+    in Source footage with no caption bins of their own, the expired
+    pre-rebuild backup beside the protected timelines."""
+    artefacts = [
+        timeline("t-master", MASTER),
+        timeline("t-backup", PRE_REBUILD_BACKUP_TIMELINE,
+                 folder=(bins.REELS_BIN, "Unrecorded")),
+    ]
+    for i, name in enumerate(POSITIONING_NAMES):
+        artefacts.append(timeline(f"t-s{i}", name,
+                                  folder=("Source footage",)))
+    for i, name in enumerate(sorted(PROTECTED_TIMELINES)):
+        artefacts.append(timeline(f"t-p{i}", name,
+                                  folder=(bins.REELS_BIN, "Current plan")))
+    return artefacts
+
+
+def test_the_positioning_scratch_plans_timeline_only_with_untouched():
+    assert all(n.startswith(POSITIONING_SCRATCH_PREFIX)
+               for n in POSITIONING_NAMES)
+    artefacts = scratch_pool()
+    for name in POSITIONING_NAMES + [PRE_REBUILD_BACKUP_TIMELINE]:
+        plan = plan_proof_removal(
+            artefacts, tree_of(artefacts), timeline_name=name,
+            bin_names=[], project_root=PROJECT_ROOT,
+            master_name=MASTER)
+        assert plan["timeline"]["name"] == name
+        assert plan["bins"] == []
+        assert sorted(u["name"] for u in plan["verified_untouched"]) == \
+            sorted(PROTECTED_TIMELINES | {MASTER})
+
+
+def test_the_positioning_scratch_refuses_outside_the_family():
+    artefacts = scratch_pool()
+    for name in ["Reel 09 - your-website-is-only-20-percent (rebuild staging)",
+                 "Reel 09 - your-website-is-only-20-percent (positioning-proof",
+                 LIVE]:
+        with pytest.raises(ProofRemovalRefused):
+            plan_proof_removal(
+                artefacts, tree_of(artefacts), timeline_name=name,
+                bin_names=[], project_root=PROJECT_ROOT,
+                master_name=MASTER)
+
+
+def test_discover_scratch_lists_what_is_present_in_name_order():
+    artefacts = scratch_pool()
+    assert discover_scratch_timelines(artefacts) == sorted(
+        POSITIONING_NAMES + [PRE_REBUILD_BACKUP_TIMELINE])
+
+
+def test_discover_scratch_is_empty_when_the_scratch_is_gone():
+    """The idempotence case: a second run finds nothing to remove, so it
+    removes nothing and refuses nothing."""
+    artefacts = [a for a in scratch_pool()
+                 if a.name not in POSITIONING_NAMES
+                 and a.name != PRE_REBUILD_BACKUP_TIMELINE]
+    assert discover_scratch_timelines(artefacts) == []
 
 
 # ------------------------------------------------------- the executor
@@ -811,3 +885,23 @@ def test_apply_holds_dead_contents_back_and_retires_bin_with_them(tmp_path):
     assert result["retirement"]["retired"] == [
         f"{bins.SUBTITLES_BIN}/{DEAD}"]
     assert result["retirement"]["removed_items"] == 1
+
+
+def test_proof_journals_never_share_a_path(tmp_path):
+    """Nine removals seconds apart journalled nine records, not five:
+    the stamp collides, so the path disambiguates instead of
+    overwriting."""
+    from library.tools.execution import remove_proof
+
+    first = remove_proof.journal_path_for(
+        str(tmp_path), when="20260910T215238Z")
+    Path(first).parent.mkdir(parents=True, exist_ok=True)
+    Path(first).write_text("{}", encoding="utf-8")
+    second = remove_proof.journal_path_for(
+        str(tmp_path), when="20260910T215238Z")
+    assert second != first
+    assert second.endswith("_2.json")
+    Path(second).write_text("{}", encoding="utf-8")
+    third = remove_proof.journal_path_for(
+        str(tmp_path), when="20260910T215238Z")
+    assert third.endswith("_3.json")
