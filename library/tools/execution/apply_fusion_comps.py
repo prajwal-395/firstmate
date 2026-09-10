@@ -74,10 +74,11 @@ from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
 
 try:
-    from library.tools.treatment_verify import verify_and_undo
+    from library.tools.treatment_verify import (
+        verify_and_undo, verify_and_undo_drift)
     from library.tools import pipeline_skills as _skills
 except ImportError:  # pragma: no cover - script entry point
-    from treatment_verify import verify_and_undo
+    from treatment_verify import verify_and_undo, verify_and_undo_drift
     import pipeline_skills as _skills
 
 # Both entry points again: as a script the package path does not exist.
@@ -512,6 +513,37 @@ def apply_fusion_comps(manifest, project_folder,
                         f"{row['treatment']} failed "
                         f"({row['failure']}) - undone, the picture keeps "
                         f"what the footage had",
+                        file=sys.stderr,
+                    )
+
+            # A drift that draws nothing is the TV switch-off again: a
+            # planned slow_zoom the viewer never sees, keyed flat over
+            # everything rendered. Looked at here, where the played
+            # horizon is known, and undone the same way - while a
+            # constant reframe is SAID and kept, never failed.
+            #
+            # Guarded by `has_zoom`, read BEFORE `normalize_effects`
+            # above: the normalizer injects all-1.0 zoom defaults where
+            # the plan armed nothing, and those defaults are not a
+            # drift to judge - checking them would fail every still
+            # shot in the pipeline.
+            if has_zoom:
+                effects, drift_row = verify_and_undo_drift(
+                    effects, clip_dur, played, source_res=source_res)
+                treatment_report.append({"label": label, "where": where,
+                                         **drift_row})
+                if drift_row["undone"]:
+                    print(
+                        f"  ! [{where}] {label}: drift failed "
+                        f"({drift_row['failure']}) - undone, the picture "
+                        f"keeps what the footage had",
+                        file=sys.stderr,
+                    )
+                elif not drift_row["motion_over_time"]:
+                    print(
+                        f"  . [{where}] {label}: drift is a constant "
+                        f"reframe, not motion over time - kept, "
+                        f"no framing moves",
                         file=sys.stderr,
                     )
 

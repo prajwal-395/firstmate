@@ -34,6 +34,15 @@ half (``library/skills/verify_treatment``): recorded, never enforced
 The undo is ``remove_treatment``: dropping the key (and its timing)
 rebuilds the exact untreated bytes, which the applier does when a
 verdict fails - and the proof is string equality, not an assertion.
+
+The same before/after question is asked of a Ken Burns drift by
+``verify_drift``: a planned ``slow_zoom_in`` / ``slow_zoom_out`` whose
+``zoom_start`` equals its ``zoom_end`` resolves (values are taste and
+are never bounded at plan time) and reaches ``fx.zoom``, which builds
+an empty block - so the manifest records drift the viewer never sees.
+Sampling the Transform Size spline at the first and last rendered
+frames says whether the framing actually moved; a drift that did not
+is undone by ``remove_drift`` the same way a failing treatment is.
 """
 
 from __future__ import annotations
@@ -49,6 +58,12 @@ TREATMENT_KEYS = ("tv_power_head", "tv_power_tail")
 #: eased ramp takes is 0.010926. Same epsilon `transition_frames` uses,
 #: so "changed" means the same thing in both modules.
 EPSILON = 1e-6
+
+#: The zoom/pan keys a Ken Burns drift travels as. One enumeration
+#: beside `TREATMENT_KEYS`: a key spelled twice is this repository's
+#: dominant bug class (AGENTS.md 10.1).
+DRIFT_KEYS = ("zoom_start", "zoom_mid", "zoom_end",
+              "pan_start", "pan_end")
 
 
 class UnknownTreatment(ValueError):
@@ -427,6 +442,205 @@ def verify_and_undo(effects: dict, clip_dur: int,
             "elapsed_seconds": verdict.get("elapsed_seconds"),
         })
     return final, rows
+
+
+def drift_armed(effects: Optional[dict]) -> bool:
+    """Whether this clip carries any drift key at all."""
+    return any(k in (effects or {}) for k in DRIFT_KEYS)
+
+
+def remove_drift(effects: dict) -> Dict[str, Any]:
+    """Drop a drift and nothing else: the undo.
+
+    Returns a new dict; the input is untouched. A drift that drew
+    nothing built an empty zoom block, so rebuilding from the result
+    yields the exact undrifted bytes - proven by string equality in
+    `tests/test_drift_draws.py`, not asserted.
+    """
+    return {k: v for k, v in (effects or {}).items()
+            if k not in DRIFT_KEYS}
+
+
+def _drift_values(effects: dict) -> Tuple[float, float, float, Any]:
+    """(zoom_start, zoom_mid, zoom_end, pan_end), read as `fx.zoom` reads
+    them: every zoom defaulting to 1.0, the pan defaulting to absent."""
+    params = effects or {}
+    start = params.get("zoom_start", 1.0)
+    mid = params.get("zoom_mid", 1.0)
+    end = params.get("zoom_end", 1.0)
+    return start, mid, end, params.get("pan_end")
+
+
+def verify_drift(effects: dict, clip_dur: int,
+                 played_frames: Optional[int] = None,
+                 source_res: Optional[tuple] = None) -> Dict[str, Any]:
+    """The before/after verdict for one clip's Ken Burns drift.
+
+    Builds the drift's own comp, evaluates its Transform Size spline
+    over the rendered frames, and samples the framing at the first and
+    last of them: a drift moved when those two values differ. Gates
+    one way:
+
+    - ``drew_nothing``: drift keys are armed but the picture never
+      moves - equal zooms with no pan (``fx.zoom`` builds an empty
+      block), or values describing motion the comp carries no Size
+      animation for (a name the renderer does not dispatch on).
+
+    A constant reframe (all three zooms equal but off 1.0, or a static
+    ``pan_end`` recentre) PASSES with ``motion_over_time`` False: the
+    picture changed, so failing it would be a gate failing correct
+    output (AGENTS.md 10.4). The promise of motion unkept is receipted
+    for the model to read, never enforced here.
+
+    Callers pass the plan's effects BEFORE `normalize_effects`: the
+    normalizer injects all-1.0 zoom defaults where nothing was armed,
+    and those defaults are byte-identical to an explicit no-motion
+    plan - judging them would fail every still shot.
+    """
+    t0 = time.perf_counter()
+    if not drift_armed(effects):
+        return {
+            "treatment": "drift",
+            "passed": True,
+            "failure": None,
+            "armed_nothing": True,
+            "motion_over_time": False,
+            "played_frames": played_frames,
+            "elapsed_seconds": round(time.perf_counter() - t0, 3),
+        }
+
+    # Judge the bytes the renderer writes: the applier runs
+    # `normalize_effects` before building (defaulting `zoom_mid` to the
+    # midpoint), so a manifest carrying only start/end still animates
+    # through the middle. Verifying un-normalized values would fail a
+    # drift the renderer draws.
+    from library.tools.fusion.comp_builder import normalize_effects
+
+    normalized = dict(effects or {})
+    normalize_effects(normalized, True)
+    start, mid, end, pan_end = _drift_values(normalized)
+    if start == mid == end:
+        if start != 1.0 or pan_end is not None:
+            return {
+                "treatment": "drift",
+                "passed": True,
+                "failure": None,
+                "armed_nothing": False,
+                "motion_over_time": False,
+                "played_frames": played_frames,
+                "start_value": float(start),
+                "end_value": float(start),
+                "changed_count": 0,
+                "detail": ("a constant reframe, not motion: it draws "
+                           "but the framing never moves"),
+                "elapsed_seconds": round(time.perf_counter() - t0, 3),
+            }
+        return {
+            "treatment": "drift",
+            "passed": False,
+            "failure": "drew_nothing",
+            "armed_nothing": False,
+            "motion_over_time": False,
+            "played_frames": played_frames,
+            "start_value": 1.0,
+            "end_value": 1.0,
+            "changed_count": 0,
+            "detail": ("drift keys are armed but every zoom is 1.0 "
+                       "with no pan: fx.zoom builds an empty block, "
+                       "so 0 rendered frames move"),
+            "elapsed_seconds": round(time.perf_counter() - t0, 3),
+        }
+
+    first, last, horizon = _played_horizon(clip_dur, effects or {},
+                                           played_frames)
+    played = (last - first + 1) if played_frames is None else int(
+        played_frames)
+    played = max(1, played)
+
+    alone = {k: v for k, v in normalized.items()
+             if k in DRIFT_KEYS + ("source_in_frame", "source_out_frame")}
+    comp = build_treated(alone, clip_dur, source_res, played_frames)
+    curves = evaluate_comp(comp, played)
+    sizes = {n: v for n, v in curves.items() if n.endswith("Size")}
+    if not sizes:
+        return {
+            "treatment": "drift",
+            "passed": False,
+            "failure": "drew_nothing",
+            "armed_nothing": False,
+            "motion_over_time": False,
+            "played_frames": played,
+            "horizon": horizon,
+            "start_value": None,
+            "end_value": None,
+            "changed_count": 0,
+            "detail": ("the values describe motion but the comp "
+                       "carries no Size animation for it"),
+            "elapsed_seconds": round(time.perf_counter() - t0, 3),
+        }
+
+    # The alone comp carries one zoom block; take the widest spline so
+    # a second Size curve elsewhere can never mask a flat drift.
+    name = max(sizes, key=lambda n: max(sizes[n]) - min(sizes[n]))
+    values = sizes[name]
+    first_value = values[0]
+    last_value = values[min(played, len(values)) - 1]
+    changed = [f for f in range(min(played, len(values)))
+               if abs(values[f] - first_value) > EPSILON]
+    motion = abs(last_value - first_value) > EPSILON
+    return {
+        "treatment": "drift",
+        "passed": motion,
+        "failure": None if motion else "drew_nothing",
+        "armed_nothing": False,
+        "motion_over_time": motion,
+        "played_frames": played,
+        "horizon": horizon,
+        "start_value": round(first_value, 6),
+        "end_value": round(last_value, 6),
+        "changed_count": len(changed),
+        "changed_frames": changed,
+        "detail": (None if motion else
+                   "the Size spline is flat over everything rendered"),
+        "elapsed_seconds": round(time.perf_counter() - t0, 3),
+    }
+
+
+def verify_and_undo_drift(effects: dict, clip_dur: int,
+                          played_frames: Optional[int],
+                          source_res: Optional[tuple] = None
+                          ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """Check an armed drift; drop it when it drew nothing. The undo.
+
+    Returns `(final_effects, row)`: `row` is None where no drift key
+    is armed, so the applier writes no receipt for a still shot. A
+    failing drift is removed and the picture returns to what it was;
+    the row says so. Never raises for bad values: a render must
+    survive its decorations, loudly rather than either silently or
+    not at all.
+    """
+    if not drift_armed(effects):
+        return dict(effects or {}), None
+    verdict = verify_drift(dict(effects or {}), clip_dur,
+                           played_frames=played_frames,
+                           source_res=source_res)
+    undone = not verdict.get("passed")
+    final = remove_drift(effects) if undone else dict(effects or {})
+    row = {
+        "treatment": "drift",
+        "passed": bool(verdict.get("passed")),
+        "failure": verdict.get("failure"),
+        "undone": undone,
+        "played_frames": verdict.get("played_frames"),
+        "horizon": verdict.get("horizon"),
+        "start_value": verdict.get("start_value"),
+        "end_value": verdict.get("end_value"),
+        "changed_count": verdict.get("changed_count"),
+        "motion_over_time": verdict.get("motion_over_time"),
+        "detail": verdict.get("detail"),
+        "elapsed_seconds": verdict.get("elapsed_seconds"),
+    }
+    return final, row
 
 
 def _edge(curves: Dict[str, List[float]], name: str, frame: int,
