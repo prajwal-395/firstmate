@@ -496,6 +496,26 @@ enough that a three-shot reel decodes 36 frames rather than thousands.
 """
 
 
+class SubjectProbeUnavailable(RuntimeError):
+    """The subject could not even be looked for: no face detector.
+
+    Raised - never returned as None - when this interpreter cannot load
+    the Haar cascade (`load_face_cascade` answers None: no cv2, or an
+    OpenCV 5 whose `CascadeClassifier` is gone).  None from
+    `measure_subject_in_window` means "frames were read and no face was
+    measured", which under the TV-frame look leaves the shot uncropped -
+    and an uncropped shot inside the television's screen is black the
+    F12 gate is guaranteed to refuse.  Returning None here turned an
+    incapacitated probe into six identical identity transforms and a
+    6x F12 gate failure that named the symptom (Reel 09, 2026-09-09:
+    system python's cv2 5.0.0 shadowed the pinned 4.x, so every shot
+    measured nothing).  A measurement that could not be taken must say
+    so - the same line `render_qa.measure_face_intact` draws with its
+    "No Haar cascade available" warning - so the caller can refuse the
+    build instead of shipping staging the gate will delete.
+    """
+
+
 @dataclass(frozen=True)
 class SubjectPoint:
     """Where the subject sits in the SOURCE frame, both axes, 0..1.
@@ -524,16 +544,24 @@ class SubjectPoint:
 
 
 def measure_subject_in_window(video_path: str, source_in: float,
-                              source_out: float,
-                              samples: int = SUBJECT_PROBE_SAMPLES,
-                              cascade=None) -> Optional["SubjectPoint"]:
+                               source_out: float,
+                               samples: int = SUBJECT_PROBE_SAMPLES,
+                               cascade=None) -> Optional["SubjectPoint"]:
     """The subject's position over one played window, or None.
 
-    None means the footage does not support an answer - no detector on
-    this machine, no decodable frames, or too few detections - and a
-    caller that gets None must NOT punch in.  That is the whole contract:
-    an unaimed punch-in is a guess about where the person is, and the
-    captain's ruling is to refuse rather than guess.
+    None means the footage does not support an answer - no decodable
+    frames, or too few detections - and a caller that gets None must NOT
+    punch in.  That is the whole contract: an unaimed punch-in is a guess
+    about where the person is, and the captain's ruling is to refuse
+    rather than guess.
+
+    A missing DETECTOR is not None: it raises `SubjectProbeUnavailable`.
+    None would read as "no face in this shot" and the caller would leave
+    the shot uncropped, which under the TV-frame look is black inside
+    the screen on every item - the identical-rectangle F12 failure.  An
+    environment that cannot look must say so before any frame is
+    decoded, so the build refuses with the cause instead of shipping
+    staging the gate deletes.
 
     Frames are decoded with ffmpeg at evenly spaced points inside the
     window rather than read from a cached index, because the index is
@@ -546,7 +574,21 @@ def measure_subject_in_window(video_path: str, source_in: float,
         return None
     cascade = load_face_cascade() if cascade is None else cascade
     if cascade is None:
-        return None
+        try:
+            import cv2
+            cv2_version = getattr(cv2, "__version__", "unknown")
+            has_classifier = hasattr(cv2, "CascadeClassifier")
+        except ImportError:
+            cv2_version = "not installed"
+            has_classifier = False
+        raise SubjectProbeUnavailable(
+            "no face detector in this interpreter "
+            f"(cv2 {cv2_version}, "
+            f"CascadeClassifier {'present' if has_classifier else 'absent'}): "
+            "the reels punch-in cannot be aimed, and an unaimed shot "
+            "under the TV-frame look leaves black inside the screen. "
+            "Run the build under the project's .venv "
+            "(opencv-python>=4.8,<5, which ships the Haar cascade).")
     try:
         import cv2
     except ImportError:

@@ -2364,6 +2364,176 @@ def _source_frame_size(item):
         return None
 
 
+def _held_property(item, prop: str):
+    """What Resolve actually holds for one transform property, or None.
+
+    None means the read-back itself is unavailable - a proxy that does
+    not serve `GetProperty`, an exception, a null read - and the caller
+    falls back to judging the `SetProperty` return, the old behaviour,
+    rather than refusing a placement it cannot see.  No `hasattr`:
+    always True on Resolve's proxies, invented names included
+    (AGENTS.md 5).  Same contract as
+    `overlay_placement._read_back`, spelled here because that one is
+    private to the caption path.
+    """
+    try:
+        read = item.GetProperty(prop)
+    except Exception:  # noqa: BLE001 - judged below, not raised
+        return None
+    if read is None:
+        return None
+    try:
+        return float(read)
+    except (TypeError, ValueError):
+        return None
+
+
+def assert_punch_took(name: str, item, source_file: str, properties: dict,
+                      source_size, frame_width: int, frame_height: int,
+                      screen_window) -> None:
+    """Raise unless the transform Resolve HOLDS covers the screen window.
+
+    PR 862's discipline, applied to the punch-in: `SetProperty` returns
+    True past Resolve's silent Pan/Tilt clamp and reads back the clamp,
+    so judging the return alone reports a clamped picture placed while
+    it sits off the screen.  On a punch-in the same lie reads at the
+    gate as black inside the television - Reel 09's 6x F12, 2026-09-09,
+    where every item delivered the identical identity rect because the
+    aim never took.  What matters is not what was asked for, it is what
+    is held, so the held transform is graded against the window with
+    the same predicate F12 grades with
+    (`reel_look.uncovered_window_edges`).
+
+    Read-back unavailable on every property falls back to the
+    `SetProperty` return the caller already judged - refusing a
+    placement that cannot be seen would trade an ungradeable item for
+    a missing one, the same line `overlay_placement` draws.
+    """
+    from library.tools import reel_look as _look
+    from library.tools.reel_framing import delivered_picture
+
+    held = {key: _held_property(item, key) for key in properties}
+    if all(value is None for value in held.values()):
+        return
+    effective = {key: (held[key] if held[key] is not None
+                       else float(properties[key]))
+                 for key in properties}
+    delivered = delivered_picture(
+        source_size[0], source_size[1],
+        frame_width, frame_height, effective)
+    bands = _look.uncovered_window_edges(delivered, screen_window)
+    if bands:
+        held_desc = ", ".join(
+            f"{key}={held[key]:g}" if held[key] is not None
+            else f"{key}=unreadable" for key in properties)
+        raise _look.PunchInLeavesBlack(
+            f"{name}: the punch-in did not take on "
+            f"{os.path.basename(source_file)} - Resolve holds "
+            f"{held_desc} and the picture is {delivered.rect} "
+            f"against the screen window "
+            f"({screen_window[0]:.0f}, {screen_window[1]:.0f}, "
+            f"{screen_window[2]:.0f}, {screen_window[3]:.0f}): "
+            f"{', '.join(bands)}. A picture that does not reach the "
+            f"edges of the screen shows the set's own background "
+            f"through it.")
+
+
+def aim_picture_row(name: str, look: dict, screen_window,
+                    frame_width: int, frame_height: int,
+                    row_items, row_places,
+                    measure=None, size_of=None) -> int:
+    """Aim one picture row's punch-in, shot by shot, and prove it took.
+
+    `row_items` are the row's timeline items in play order, `row_places`
+    the placements that landed on it sorted by record frame - the two
+    zip, so each punch-in is aimed at its own shot's speaker.  `measure`
+    defaults to `subject_framing.measure_subject_in_window` and
+    `size_of` to `_source_frame_size`; both are parameters so tests can
+    drive this with fakes instead of Resolve and footage.
+
+    Returns how many shots were aimed.  A shot with no subject
+    measurement plays uncropped rather than punched at a guess
+    (captain, 2026-09-09: a centred 2.30 put Craig out of shot
+    entirely) and is SAID.  Two failures raise instead of shipping a
+    timeline the gate is guaranteed to delete:
+
+    - the probe itself is incapacitated (`SubjectProbeUnavailable` -
+      no face detector in this interpreter) becomes a `ReelLookRefused`
+      naming the shot, because every shot would land uncropped and the
+      6x identical-rectangle F12 that follows names only the symptom;
+    - a transform Resolve did not hold (`assert_punch_took`) raises
+      `PunchInLeavesBlack`, the same refusal the computed-properties
+      post-condition raises, now grading what is HELD.
+    """
+    import sys
+
+    from library.tools import reel_look as _look
+    from library.tools.subject_framing import (
+        SubjectProbeUnavailable, measure_subject_in_window)
+
+    if measure is None:
+        measure = measure_subject_in_window
+    if size_of is None:
+        size_of = _source_frame_size
+    aimed = 0
+    for index, item in enumerate(row_items):
+        if index >= len(row_places):
+            break
+        place = row_places[index]
+        source_file = place["clip"].source_file
+        try:
+            subject = measure(
+                source_file, place["source_in"], place["source_out"])
+        except SubjectProbeUnavailable as exc:
+            raise _look.ReelLookRefused(
+                f"{name}: the punch-in cannot be aimed on "
+                f"{os.path.basename(source_file)} "
+                f"({place['source_in']:.2f}-{place['source_out']:.2f}s) - "
+                f"{exc}") from exc
+        source_size = size_of(item)
+        if source_size is None:
+            raise ReelBuildError(
+                f"{name}: Resolve reports no resolution for "
+                f"{os.path.basename(source_file)}, so the punch-in "
+                f"cannot be aimed and must not be guessed at.")
+        properties = _look.punch_in_properties(
+            look, subject, source_size[0], source_size[1],
+            frame_width, frame_height, window=screen_window)
+        if properties is None:
+            print(f"  {name}: NO PUNCH-IN on "
+                  f"{os.path.basename(source_file)} "
+                  f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
+                  f"- {_look.PUNCH_IN_REFUSED_NO_SUBJECT if subject is None else _look.PUNCH_IN_REFUSED_NOT_A_CLOSE_UP}"
+                  f": an unaimed crop is a guess about where the "
+                  f"speaker is. The shot plays uncropped.",
+                  file=sys.stderr)
+            continue
+        for key, value in properties.items():
+            # Judged by what it RETURNS (AGENTS.md 5) - and then READ
+            # BACK (`assert_punch_took` below), because the return is a
+            # lie past Resolve's silent clamp (PR 862).
+            if not item.SetProperty(key, value):
+                raise ReelBuildError(
+                    f"{name}: Resolve refused {key}={value} on "
+                    f"{item.GetName()!r}. The look declares a punch-in "
+                    f"and a clip that did not take it plays at a "
+                    f"different size to the ones beside it.")
+        assert_punch_took(name, item, source_file, properties,
+                          source_size, frame_width, frame_height,
+                          screen_window)
+        aimed += 1
+        print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
+              f"(declared {look['punch_in']}, screen window needs "
+              f"{_look.window_zoom_for(look, source_size, frame_width, frame_height):.4f}) "
+              f"aimed at "
+              f"subject x={subject.center_x} y={subject.center_y} "
+              f"({subject.detected}/{subject.samples} frames) on "
+              f"{os.path.basename(source_file)} -> Pan "
+              f"{properties['Pan']}, Tilt {properties['Tilt']}",
+              file=sys.stderr)
+    return aimed
+
+
 def pool_item_for(pool, filepath: str):
     """The media pool item for *filepath*, or None if it is not there yet.
 
@@ -2797,7 +2967,6 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # a centred 2.30 put Craig out of shot entirely).
     if look is not None:
         from library.tools import reel_look as _look
-        from library.tools.subject_framing import measure_subject_in_window
 
         # The rectangle the picture has to cover: the frame's own
         # transparent window, in timeline pixels. NOT the delivery
@@ -2822,49 +2991,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 and video_row_by_angle.get(_angle_key(p["clip"]))
                 == aroll_row.index]
             row_places.sort(key=lambda p: p["snapped_record"])
-            for index, item in enumerate(row_items):
-                if index >= len(row_places):
-                    break
-                place = row_places[index]
-                source_file = place["clip"].source_file
-                subject = measure_subject_in_window(
-                    source_file, place["source_in"], place["source_out"])
-                source_size = _source_frame_size(item)
-                if source_size is None:
-                    raise ReelBuildError(
-                        f"{name}: Resolve reports no resolution for "
-                        f"{os.path.basename(source_file)}, so the punch-in "
-                        f"cannot be aimed and must not be guessed at.")
-                properties = _look.punch_in_properties(
-                    look, subject, source_size[0], source_size[1],
-                    width, height, window=screen_window)
-                if properties is None:
-                    print(f"  {name}: NO PUNCH-IN on "
-                          f"{os.path.basename(source_file)} "
-                          f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
-                          f"- {_look.PUNCH_IN_REFUSED_NO_SUBJECT if subject is None else _look.PUNCH_IN_REFUSED_NOT_A_CLOSE_UP}"
-                          f": an unaimed crop is a guess about where the "
-                          f"speaker is. The shot plays uncropped.",
-                          file=sys.stderr)
-                    continue
-                for key, value in properties.items():
-                    # Judged by what it RETURNS (AGENTS.md 5).
-                    if not item.SetProperty(key, value):
-                        raise ReelBuildError(
-                            f"{name}: Resolve refused {key}={value} on "
-                            f"{item.GetName()!r}. The look declares a punch-in "
-                            f"and a clip that did not take it plays at a "
-                            f"different size to the ones beside it.")
-                aimed += 1
-                print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
-                      f"(declared {look['punch_in']}, screen window needs "
-                      f"{_look.window_zoom_for(look, source_size, width, height):.4f}) "
-                      f"aimed at "
-                      f"subject x={subject.center_x} y={subject.center_y} "
-                      f"({subject.detected}/{subject.samples} frames) on "
-                      f"{os.path.basename(source_file)} -> Pan "
-                      f"{properties['Pan']}, Tilt {properties['Tilt']}",
-                      file=sys.stderr)
+            aimed += aim_picture_row(
+                name, look, screen_window, width, height,
+                row_items, row_places)
 
         runs = _look.frame_runs(placements_list, fps)
         # The frame goes on as a RENDERED overlay, through the same
