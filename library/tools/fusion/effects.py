@@ -49,10 +49,11 @@ keeps the headline and points here.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from .nodes import BezierSpline, FusionNode
+from .nodes import EASING_FUNCTIONS, BezierSpline, FusionNode
 from .played_window import assert_ramp_fits, played_range
 
 
@@ -90,6 +91,27 @@ BACKDROP_BLUR_SIZE = 24.0
 #: `tests/test_transition_vocabulary.py` asserts it - the whole defect was
 #: four vocabularies drifting apart with nothing comparing them.
 DRAWABLE_TRANSITIONS = ("fade_to_black", "zoom_blur", "defocus", "flash")
+
+
+#: The drift ramp's timing curve. A Ken Burns drift eases in and out
+#: (captain, reel 09, 2026-09-10: "smooth ease in and out for those
+#: punches in and out") - a linear ramp on a seconds-long push reads as
+#: someone zooming, not as a camera moving. One of EASING_FUNCTIONS'
+#: names; a plan may name another per shot through `zoom_easing`.
+DRIFT_EASING = "Sine"
+
+
+def _is_midpoint(start: float, mid: float, end: float) -> bool:
+    """Whether `mid` says nothing the endpoints do not already say.
+
+    A drift resolves with `zoom_mid` defaulted to the midpoint (see
+    `comp_builder.normalize_effects`), so the ramp is fully described
+    by start/end plus the easing curve. An off-midpoint `mid` is a
+    punch shape (`zoom_emphasis`: push to a peak, settle back) that no
+    single ramp can express, so it keeps the three-point spline.
+    """
+    return math.isclose(mid, (start + end) / 2.0,
+                        rel_tol=1e-9, abs_tol=1e-9)
 
 
 def _unknown_transition_message(ttype) -> str:
@@ -135,6 +157,7 @@ class fx:
         start: float = 1.0,
         mid: float = 1.0,
         end: float = 1.0,
+        easing: str = DRIFT_EASING,
         pan_start: Optional[tuple] = None,
         pan_end: Optional[tuple] = None,
         source_in: Optional[int] = None,
@@ -142,12 +165,28 @@ class fx:
     ) -> EffectBlock:
         """Animated Ken Burns zoom with optional pan offset.
 
+        Two shapes, chosen by what `mid` says. When `mid` is the
+        midpoint of `start`/`end` the move is a DRIFT: one eased ramp
+        from `start` to `end`, baked per frame with
+        `BezierSpline.sampled(easing=...)` and linearized, so what
+        Resolve holds IS the curve - Resolve ignores the Linear flags,
+        and without explicit handles it would re-smooth the ramp into
+        something else (the flags lesson in `nodes.linearize`). When
+        `mid` sits off the midpoint the move is a PUNCH
+        (`zoom_emphasis`): start -> peak -> end on a three-point
+        spline, unchanged.
+
         Creates a Transform node with BezierSpline-animated Size
-        (3-point: start -> mid -> end) and optional static Center offset.
+        and optional static Center offset.
 
         ``source_in`` / ``source_out`` are the first and last source
         frames the timeline plays.  Keyframes are placed within this
         window.  When omitted the whole source (0..clip_dur-1) is used.
+
+        ``easing`` is one of `nodes.EASING_FUNCTIONS`' names; an
+        unknown name raises rather than falling back, because a
+        fallback curve would substitute taste. It is read only on the
+        drift path - a punch keeps its three points whatever it says.
 
         NOTE: pan_start is accepted for forward-compatibility but animated
         Center drift is not currently implemented. Fusion's animated Point
@@ -173,23 +212,44 @@ class fx:
             # Keyframes in the comp's own frames, which are the
             # PLAYED frames numbered from zero.
             first, last = played_range(clip_dur, source_in, source_out)
-            seg_dur = last - first
-            mid_frame = first + seg_dur // 2
-            third = seg_dur // 3
 
             spline_name = f"{tf_name}Size"
-            spline = BezierSpline(spline_name)
+            if _is_midpoint(start, mid, end):
+                # A drift: one eased ramp, baked per frame. `sampled`
+                # writes Linear flags that Resolve ignores, so the
+                # spline is linearized into explicit handles - the
+                # easing is verified in the serialized comp, never in
+                # the flags.
+                if easing not in EASING_FUNCTIONS:
+                    raise ValueError(
+                        f"Unknown drift easing {easing!r}: choose one of "
+                        f"{', '.join(sorted(EASING_FUNCTIONS))}."
+                    )
+                spline = BezierSpline.sampled(
+                    spline_name,
+                    start_frame=first, end_frame=last,
+                    easing=easing,
+                    scale=end - start, offset=start,
+                    color=(233, 217, 11),
+                )
+                spline.linearize()
+            else:
+                # A punch: the three-point spline, peak at the middle.
+                seg_dur = last - first
+                mid_frame = first + seg_dur // 2
+                third = seg_dur // 3
+                spline = BezierSpline(spline_name)
 
-            rh0 = start + (mid - start) * 0.33
-            lh_end = end + (mid - end) * 0.33
+                rh0 = start + (mid - start) * 0.33
+                lh_end = end + (mid - end) * 0.33
 
-            spline.add_key(first, start, rh=(first + third, round(rh0, 4)))
-            spline.add_key(
-                mid_frame, mid,
-                lh=(mid_frame - third, mid),
-                rh=(mid_frame + third, mid),
-            )
-            spline.add_key(last, end, lh=(last - third, round(lh_end, 4)))
+                spline.add_key(first, start, rh=(first + third, round(rh0, 4)))
+                spline.add_key(
+                    mid_frame, mid,
+                    lh=(mid_frame - third, mid),
+                    rh=(mid_frame + third, mid),
+                )
+                spline.add_key(last, end, lh=(last - third, round(lh_end, 4)))
 
             tf.set_input("Size", spline)
             nodes.append(spline)
@@ -844,8 +904,9 @@ class fx:
                 color=(255, 255, 255),
             )
             crop.set_input(edge, spline)
-            # sampled() bakes Linear flags; serialize() linearizes them
-            # into explicit handles (Resolve ignores the flags).
+            # sampled() bakes Linear flags; CompEngine.serialize()
+            # auto-linearizes them into explicit handles (Resolve ignores
+            # the flags).
             crop_splines.append(spline)
         crop.pos = (110, 0)
 

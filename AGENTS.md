@@ -215,7 +215,7 @@ Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Fusion .comp files - NEVER
 
-**Six things that must NEVER appear in a Fusion .comp**: `ApplyMode` in a Merge node (SIGSEGV), `Path {}` beside a Merge (black output), `BlendClone` (silently ignored), a Background with no `GlobalOut` (stops rendering mid-clip), DirectionalBlur `Length` over 5 (artifacts and edge tiling), and transition zoom over 1.04.
+**Six things that must NEVER appear in a Fusion .comp**: `ApplyMode` in a Merge node (SIGSEGV), `Path {}` beside a Merge (black output), `BlendClone` (silently ignored), a Background with no `GlobalOut` (stops rendering mid-clip), DirectionalBlur `Length` over 5 (artifacts and edge tiling), and Transform Size past 1.15.
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Fusion .comp files - ALWAYS

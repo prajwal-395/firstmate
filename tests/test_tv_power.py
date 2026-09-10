@@ -199,8 +199,8 @@ def test_tail_still_closes_to_the_shared_guard():
 
 
 def test_animated_size_peak_stays_inside_the_ceiling():
-    """AGENTS.md §5 refuses an animated Transform Size past 1.04; the
-    dot shrinks FROM 1.0, so the peak is exactly 1.0."""
+    """`nodes.MAX_ANIMATED_ZOOM` refuses an animated Transform Size past
+    1.15; the dot shrinks FROM 1.0, so the peak is exactly 1.0."""
     comp = build_effect_comp({"tv_power_tail": True}, 300)
     assert "PowerDot1Size" in comp
 

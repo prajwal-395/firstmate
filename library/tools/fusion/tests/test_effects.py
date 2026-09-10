@@ -253,12 +253,12 @@ class TestCompEngine(unittest.TestCase):
         comp.serialize()  # Should not raise
 
     def test_transform_size_safety_spline_fail(self):
-        """A composition with a Transform.Size animated via spline peaking at 1.06 raises ValueError"""
+        """A composition with a Transform.Size animated via spline peaking at 1.16 raises ValueError"""
         from fusion.nodes import FusionComp
         comp = FusionComp(duration=90)
         
         spline = BezierSpline("Transform1Size")
-        spline.add_key(0, 1.0).add_key(45, 1.06).add_key(90, 1.0)
+        spline.add_key(0, 1.0).add_key(45, 1.16).add_key(90, 1.0)
         
         transform = FusionNode("Transform1", "Transform")
         transform.set_input("Size", spline)
@@ -266,15 +266,15 @@ class TestCompEngine(unittest.TestCase):
         comp.add_node(spline).add_node(transform)
         with self.assertRaises(ValueError) as ctx:
             comp.serialize()
-        self.assertIn("Transform zoom (Size) animated peak 1.06 > 1.04", str(ctx.exception))
+        self.assertIn("Transform zoom (Size) animated peak 1.16 > 1.15", str(ctx.exception))
 
     def test_transform_size_safety_spline_pass(self):
-        """A composition with a Transform.Size animated via spline peaking at 1.03 passes"""
+        """A composition with a Transform.Size animated via spline peaking at 1.10 passes"""
         from fusion.nodes import FusionComp
         comp = FusionComp(duration=90)
         
         spline = BezierSpline("Transform1Size")
-        spline.add_key(0, 1.0).add_key(45, 1.03).add_key(90, 1.0)
+        spline.add_key(0, 1.0).add_key(45, 1.10).add_key(90, 1.0)
         
         transform = FusionNode("Transform1", "Transform")
         transform.set_input("Size", spline)

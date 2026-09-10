@@ -65,6 +65,20 @@ EPSILON = 1e-6
 DRIFT_KEYS = ("zoom_start", "zoom_mid", "zoom_end",
               "pan_start", "pan_end")
 
+#: Drift metadata that shapes the curve but arms nothing on its own:
+#: `zoom_easing` with no zoom values draws an empty block, so a still
+#: shot carrying it must NOT arm the gate - but where a drift IS armed
+#: the verdict must judge the curve the comp actually renders, easing
+#: included. Read wherever the drift is built or undone, never for
+#: arming.
+DRIFT_CURVE_KEYS = ("zoom_easing",)
+
+#: A drift whose Size curve never leaves the straight line between its
+#: endpoints by more than this reads as linear to the viewer: 0.001 Size
+#: units is about a pixel at 1080p. Below it the curve IS a ramp for
+#: every purpose the captain judges; above it the drift eases.
+EASED_THRESHOLD = 1e-3
+
 
 class UnknownTreatment(ValueError):
     """A treatment key this module has no window or neutral map for."""
@@ -465,7 +479,7 @@ def remove_drift(effects: dict) -> Dict[str, Any]:
     `tests/test_drift_draws.py`, not asserted.
     """
     return {k: v for k, v in (effects or {}).items()
-            if k not in DRIFT_KEYS}
+            if k not in DRIFT_KEYS + DRIFT_CURVE_KEYS}
 
 
 def _drift_values(effects: dict) -> Tuple[float, float, float, Any]:
@@ -498,6 +512,15 @@ def verify_drift(effects: dict, clip_dur: int,
     picture changed, so failing it would be a gate failing correct
     output (AGENTS.md 10.4). The promise of motion unkept is receipted
     for the model to read, never enforced here.
+
+    Where the drift moves, the verdict also carries its SHAPE, sampled
+    off the serialized comp - the bytes Resolve holds, never the spline
+    object's flags: ``mid_value`` (the Size at the middle rendered
+    frame), ``max_linear_deviation`` (how far any rendered frame sits
+    from the straight line between the endpoints) and ``eased``
+    (whether that deviation clears ``EASED_THRESHOLD``). A linear ramp
+    and a cubic ease share endpoints, so endpoints alone cannot tell
+    them apart; the shape is REPORTED, never gated.
 
     Callers pass the plan's effects BEFORE `normalize_effects`: the
     normalizer injects all-1.0 zoom defaults where nothing was armed,
@@ -565,7 +588,8 @@ def verify_drift(effects: dict, clip_dur: int,
     played = max(1, played)
 
     alone = {k: v for k, v in normalized.items()
-             if k in DRIFT_KEYS + ("source_in_frame", "source_out_frame")}
+             if k in DRIFT_KEYS + DRIFT_CURVE_KEYS
+             + ("source_in_frame", "source_out_frame")}
     comp = build_treated(alone, clip_dur, source_res, played_frames)
     curves = evaluate_comp(comp, played)
     sizes = {n: v for n, v in curves.items() if n.endswith("Size")}
@@ -590,11 +614,24 @@ def verify_drift(effects: dict, clip_dur: int,
     # a second Size curve elsewhere can never mask a flat drift.
     name = max(sizes, key=lambda n: max(sizes[n]) - min(sizes[n]))
     values = sizes[name]
+    rendered = min(played, len(values))
     first_value = values[0]
-    last_value = values[min(played, len(values)) - 1]
-    changed = [f for f in range(min(played, len(values)))
+    last_value = values[rendered - 1]
+    changed = [f for f in range(rendered)
                if abs(values[f] - first_value) > EPSILON]
     motion = abs(last_value - first_value) > EPSILON
+    # The shape between the endpoints, off the serialized keys - what
+    # Resolve holds. The straight line is between the first and last
+    # RENDERED values, so a ramp cut short by the pool-to-timeline
+    # mismatch is still judged on what plays.
+    mid_value = values[rendered // 2]
+    if rendered > 1:
+        span = last_value - first_value
+        max_linear_deviation = max(
+            abs(values[f] - (first_value + span * f / (rendered - 1)))
+            for f in range(rendered))
+    else:
+        max_linear_deviation = 0.0
     return {
         "treatment": "drift",
         "passed": motion,
@@ -605,6 +642,9 @@ def verify_drift(effects: dict, clip_dur: int,
         "horizon": horizon,
         "start_value": round(first_value, 6),
         "end_value": round(last_value, 6),
+        "mid_value": round(mid_value, 6),
+        "max_linear_deviation": round(max_linear_deviation, 6),
+        "eased": bool(max_linear_deviation > EASED_THRESHOLD),
         "changed_count": len(changed),
         "changed_frames": changed,
         "detail": (None if motion else
@@ -642,6 +682,9 @@ def verify_and_undo_drift(effects: dict, clip_dur: int,
         "horizon": verdict.get("horizon"),
         "start_value": verdict.get("start_value"),
         "end_value": verdict.get("end_value"),
+        "mid_value": verdict.get("mid_value"),
+        "max_linear_deviation": verdict.get("max_linear_deviation"),
+        "eased": verdict.get("eased"),
         "changed_count": verdict.get("changed_count"),
         "motion_over_time": verdict.get("motion_over_time"),
         "detail": verdict.get("detail"),

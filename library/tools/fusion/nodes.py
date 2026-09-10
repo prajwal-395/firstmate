@@ -59,6 +59,15 @@ EASING_FUNCTIONS = {
     "Quart": ease_quart,
 }
 
+#: Largest animated Transform Size (picture zoom) this pipeline writes.
+#: Was 1.04 ("too aggressive, breaks immersion" - taste, never measured);
+#: raised for the reel-09 Ken Burns intensity request (captain, 2026-09-10:
+#: the 0.04 drift gap is "barely noticeable", and every stronger value was
+#: REFUSED at comp build). A drift multiplies the punch-in underneath
+#: (2.30 x 1.10 = 2.53x total), so this stays a backstop against runaway
+#: values, not a chosen look - the plan's own magnitudes travel untouched.
+MAX_ANIMATED_ZOOM = 1.15
+
 
 # ─── BezierSpline ────────────────────────────────────────────
 
@@ -211,9 +220,17 @@ class BezierSpline:
         This method sets explicit handle coordinates that force the
         spline to interpolate linearly between each pair of keyframes.
 
+        Handles are ABSOLUTE (frame, value) points - the same
+        convention DaVinci's own presets ship
+        (e.g. ``[2] = { 0.017, LH = { 1.667, 0.015 }, ... }`` straddles
+        key 2) and this repo's hand-written fade fixture pins
+        (``[0] = { 1.0, RH = { 4, 0.6667 } }``).  An earlier revision
+        wrote relative deltas instead, which Resolve reads as points
+        near frame zero at near-zero values.
+
         For a linear segment from keyframe A (f_a, v_a) to B (f_b, v_b):
-          A.RH = ( (f_b - f_a) / 3,  (v_b - v_a) / 3 )
-          B.LH = ( -(f_b - f_a) / 3, -(v_b - v_a) / 3 )
+          A.RH = (f_a + (f_b - f_a) / 3, v_a + (v_b - v_a) / 3)
+          B.LH = (f_b - (f_b - f_a) / 3, v_b - (v_b - v_a) / 3)
 
         Call after all add_key() calls, before serialize().
         Returns self for chaining.
@@ -226,13 +243,13 @@ class BezierSpline:
                 prev = kfs[i - 1]
                 df = kf.frame - prev.frame
                 dv = kf.value - prev.value
-                kf.lh = (-df / 3.0, -dv / 3.0)
+                kf.lh = (kf.frame - df / 3.0, kf.value - dv / 3.0)
             # Right handle — based on segment to next keyframe
             if i < len(kfs) - 1:
                 nxt = kfs[i + 1]
                 df = nxt.frame - kf.frame
                 dv = nxt.value - kf.value
-                kf.rh = (df / 3.0, dv / 3.0)
+                kf.rh = (kf.frame + df / 3.0, kf.value + dv / 3.0)
         return self
 
     def serialize(self, indent: str = "\t\t") -> str:
@@ -618,7 +635,7 @@ class FusionComp:
                                     "Creates artifacts and edge tiling."
                                 )
 
-            # Transform zoom (Size) <= 1.04
+            # Transform zoom (Size) <= MAX_ANIMATED_ZOOM
             if n.tool_type == "Transform" and "Size" in n.inputs:
                 inp = n.inputs["Size"]
                 if isinstance(inp, dict) and inp.get("_type") == "sourceop":
@@ -627,9 +644,9 @@ class FusionComp:
                         spline = splines[spline_name]
                         if spline.keyframes:
                             max_val = max(kf.value for kf in spline.keyframes)
-                            if max_val > 1.04:
+                            if max_val > MAX_ANIMATED_ZOOM:
                                 raise ValueError(
-                                    f"{n.name}: Transform zoom (Size) animated peak {max_val} > 1.04. "
+                                    f"{n.name}: Transform zoom (Size) animated peak {max_val} > {MAX_ANIMATED_ZOOM}. "
                                     "Too aggressive, breaks immersion."
                                 )
 

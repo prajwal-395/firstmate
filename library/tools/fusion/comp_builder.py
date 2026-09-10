@@ -24,7 +24,7 @@ keeps the headline and points here.
 - Never use `BlendClone`; it is silently ignored.  Use `Tools = {`.
 - Never omit `GlobalOut` on Background nodes: it stops rendering mid-clip.
 - Never set DirectionalBlur `Length` greater than 5: it creates artifacts and edge tiling.
-- Never set transition zoom greater than 1.04: it is too aggressive and breaks immersion.
+- Never set animated Transform zoom (Size) past `nodes.MAX_ANIMATED_ZOOM` (1.15): it is too aggressive and breaks immersion.
 
 - Always set `Inverted = Input { Value = 1, }` on EllipseMask for vignettes.
 - Always include `MaskWidth`, `MaskHeight` and `PixelAspect` on EllipseMask.
@@ -35,7 +35,7 @@ keeps the headline and points here.
 - **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.** Read it off the MediaPoolItem's `Resolution` and do NOT swap it for rotation - Fusion gets the stored frame.
 """
 
-from .effects import fx
+from .effects import DRIFT_EASING, fx
 from .engine import CompEngine
 
 
@@ -125,6 +125,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             start=effects.get('zoom_start', 1.0),
             mid=effects.get('zoom_mid', 1.0),
             end=effects.get('zoom_end', 1.0),
+            easing=effects.get('zoom_easing', DRIFT_EASING),
             pan_start=effects.get('pan_start'),
             pan_end=effects.get('pan_end'),
             source_in=src_in,

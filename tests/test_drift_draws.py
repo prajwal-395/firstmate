@@ -82,7 +82,8 @@ def test_a_push_in_moves_start_to_end():
 
 def test_a_pull_out_moves_the_other_way():
     # Peaks stay under the comp validator's animated-Size cap
-    # (`fusion/nodes.py`: peak > 1.04 is refused as too aggressive).
+    # (`fusion/nodes.py`: peak > MAX_ANIMATED_ZOOM is refused as too
+    # aggressive).
     verdict = tv.verify_drift(
         {"zoom_start": 1.04, "zoom_mid": 1.02, "zoom_end": 1.0,
          "source_in_frame": 0, "source_out_frame": 90},

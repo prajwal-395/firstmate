@@ -21,7 +21,7 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from .effects import EffectBlock, _reset_counters, fx
+from .effects import DRIFT_EASING, EffectBlock, _reset_counters, fx
 from .nodes import BezierSpline, FusionComp, FusionNode
 
 
@@ -164,6 +164,7 @@ class CompEngine:
                 start=zoom_start,
                 mid=zoom_mid,
                 end=zoom_end,
+                easing=params.get("zoom_easing", DRIFT_EASING),
                 pan_start=pan_start if has_pan else None,
                 pan_end=pan_end if has_pan else None,
             ))
