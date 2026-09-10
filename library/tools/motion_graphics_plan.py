@@ -312,7 +312,7 @@ def overlapping_pairs(moments: List[dict]) -> List[dict]:
     there is no layout pass that could have separated them.
 
     Found by compositing every reachable element over a real reel frame
-    (`data/vep-animation-completeness/`): the title ran through the
+    (`data/vep-animation-completeness/` in the firstmate home): the title ran through the
     context stamp and the channel bug, the quote card through the lower
     third and the stat callout, and the step counter through the progress
     bar. Nine elements, four collisions, and every one of them passed

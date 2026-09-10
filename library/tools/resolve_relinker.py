@@ -7,10 +7,10 @@ management workflow. When files are migrated, run this to relink.
 Usage:
     # As a module
     from library.tools.resolve_relinker import relink_project
-    relink_project("geo-podcast")
+    relink_project("my-show")
 
     # As CLI
-    python3 -m library.tools.resolve_relinker geo-podcast
+    python3 -m library.tools.resolve_relinker my-show
     python3 -m library.tools.resolve_relinker --scan  # just detect, don't fix
 """
 import sys

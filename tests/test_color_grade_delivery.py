@@ -402,15 +402,15 @@ def test_every_brand_template_parses_and_declares_no_look():
 def test_a_project_declared_look_reaches_the_cdl(tmp_path):
     """Scope is the project's own config: `style.house_look` in
     project.yaml wins over the brand template's slot, whole-slot, so
-    lucie/geo-podcast can carry v04 without forking its template. On the
+    a project can carry its own look without forking its template. On the
     old code this read the template only, and the project's declaration
     never reached a pixel."""
     from library.steps.step_5_01_color_grade.post_bridge import (
         resolve_color_grade,
     )
 
-    v04 = {
-        "name": "v04_teal_split",
+    test_look = {
+        "name": "test_look",
         "cdl": {"slope": [1.03, 1.0, 0.96],
                 "offset": [-0.01, 0.005, 0.02],
                 "power": [1.0, 1.0, 1.0], "saturation": 1.12},
@@ -420,7 +420,7 @@ def test_a_project_declared_look_reaches_the_cdl(tmp_path):
         "vignette": {"blend": 0.35, "soft": 0.3},
     }
     (tmp_path / "project.yaml").write_text(
-        yaml.safe_dump({"name": "t", "style": {"house_look": v04}}))
+        yaml.safe_dump({"name": "t", "style": {"house_look": test_look}}))
     data = {
         "a_roll_assignments": [{
             "spine_block_position": 1, "clip_id": "c1",
@@ -439,9 +439,9 @@ def test_a_project_declared_look_reaches_the_cdl(tmp_path):
         "subject_grades": [],
     }
     spec = resolve_color_grade(data)["color_grade_spec"]
-    assert spec["house_look"] == "v04_teal_split"
+    assert spec["house_look"] == "test_look"
     cdl = spec["per_clip_adjustments"][0]["cdl_values"]
-    assert cdl == resolve_look(v04).cdl()
+    assert cdl == resolve_look(test_look).cdl()
     assert cdl["slope_r"] == pytest.approx(1.03)
     assert cdl["saturation"] == pytest.approx(1.12)
     assert spec["fusion_look"]["grade_contrast"] == pytest.approx(0.12)

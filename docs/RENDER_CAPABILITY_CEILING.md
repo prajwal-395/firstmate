@@ -125,7 +125,8 @@ names this rule, so the operator sees which rule cost them the element.
 
 ## 3. What the real-reel composite found that no demo card could
 
-`data/vep-animation-completeness/all_elements_over_real_reel.png` is every
+`data/vep-animation-completeness/all_elements_over_real_reel.png` in the
+firstmate home is every
 reachable element at once, over a real reel frame at delivery size. It shows
 something nine separate demo renders could not: **elements at different
 anchors draw straight through each other.**
@@ -154,7 +155,8 @@ and that is the captain's, once.
 
 ## 4. Remotion Bits and its MCP server - evaluated
 
-Flagged in `data/vep-graphics-fidelity/report.md` as reachable and
+Flagged in `data/vep-graphics-fidelity/report.md` in the firstmate home as
+reachable and
 unevaluated. It is evaluated now, and **three of that report's claims about
 it are wrong.**
 

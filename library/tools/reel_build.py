@@ -4532,7 +4532,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # what made one reel cost 49 gradings, and grading eighteen
         # untouched timelines against the current plan is how a clean
         # single-reel build failed on findings it never touched
-        # (data/vep-rebuild-verify/report.md 3.5). `None` is unreachable
+        # (data/vep-rebuild-verify/report.md in the firstmate home, 3.5). `None` is unreachable
         # here - `built_reel_names` is a list, possibly empty - and an
         # empty one is refused inside `verify_built_reels` rather than
         # passing on nothing.

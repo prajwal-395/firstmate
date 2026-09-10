@@ -319,7 +319,8 @@ against an absence would fail every correct reel.
 ## 7. Rendered, and looked at
 
 Composited over a **real reel frame at real size**, not a demo card and not a
-generated background. Evidence and reproduction: `data/vep-explainer-video/`.
+generated background. Evidence and reproduction: `data/vep-explainer-video/`
+in the firstmate home.
 
 **The reel.** Field-test episode, reel 21,
 `however-good-the-website-is-its-a-fifth`, 84.3 seconds. Its claim, in the

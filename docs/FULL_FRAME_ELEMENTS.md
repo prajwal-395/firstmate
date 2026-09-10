@@ -72,7 +72,8 @@ Measured on this lane, project `geo-podcast`, reel 07: 1080x1920, 53 frames at
 23.976, ProRes 4444, `yuva444p12le`, **alpha min = 255 on every sampled frame**,
 15.5 MB, rendered in about 6 seconds.
 
-`data/vep-graphics-fidelity/report.md` already found the renderer is not the
+`data/vep-graphics-fidelity/report.md` in the firstmate home already found
+the renderer is not the
 limit. That holds when the element IS the frame: the only thing that changes is
 that the render is **opaque**, and that is a one-flag difference (see §4).
 
@@ -337,7 +338,8 @@ the replace decision, not a threshold anyone chose. Its seconds are counted into
 
 ## 6. What was rendered, and what looking at it found
 
-All evidence for this lane is in `data/vep-fullscreen-animation/`.
+All evidence for this lane is in `data/vep-fullscreen-animation/` in the
+firstmate home.
 
 **The card, on real reel data.** Project `geo-podcast`, reel 07
 (`number-one-on-google-invisible-to-ai`), the opening line quoted verbatim from
@@ -379,7 +381,8 @@ same timeline.
 
 Asked for by firstmate: PR #602 built typewriter, glitch and a per-digit counter
 and composited them over a **generated fractal**. Composited instead over a real
-reel frame at real size (`data/vep-fullscreen-animation/pr602_over_real_*.png`),
+reel frame at real size (`data/vep-fullscreen-animation/pr602_over_real_*.png`
+in the firstmate home),
 they read very differently:
 
 | frame | what is on screen | ink ON PICTURE |

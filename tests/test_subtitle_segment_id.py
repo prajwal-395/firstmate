@@ -30,7 +30,7 @@ from library.tools.subtitle_segment_id import (
 
 def _binding(**overrides):
     base = dict(
-        timeline="GEO Podcast - Synced",
+        timeline="Studio Chat - Synced",
         speaker="Akshita",
         block_position="body_1",
         source_clip_id="clip_003",
@@ -44,7 +44,7 @@ def _binding(**overrides):
 # ── The collision the captain reported ───────────────────────────────
 
 def test_the_same_block_on_two_timelines_does_not_collide():
-    master = _binding(timeline="GEO Podcast - Synced")
+    master = _binding(timeline="Studio Chat - Synced")
     reel = _binding(timeline="Reel 01 - geography")
     assert segment_identifier(master) != segment_identifier(reel)
 
@@ -83,7 +83,7 @@ def test_a_bigger_number_would_not_have_fixed_it():
     """Two segments differing ONLY in ordinal collided before; two
     differing only in TIMELINE are what actually collided in the field.
     A wider ordinal separates the first and not the second."""
-    master = _binding(timeline="GEO Podcast - Synced", block_position="body_1")
+    master = _binding(timeline="Studio Chat - Synced", block_position="body_1")
     reel = _binding(timeline="Reel 01 - geography", block_position="body_1")
     assert master["block_position"] == reel["block_position"]
     assert segment_identifier(master) != segment_identifier(reel)
@@ -92,7 +92,7 @@ def test_a_bigger_number_would_not_have_fixed_it():
 def test_the_name_carries_speaker_and_timeline_readably():
     name = segment_identifier(_binding())
     assert "akshita" in name
-    assert "geo-podcast-synced" in name
+    assert "studio-chat-synced" in name
 
 
 # ── Absence is recorded, never dropped ───────────────────────────────
@@ -143,8 +143,8 @@ def test_binding_keys_are_the_whole_enumeration():
 # ── Which timeline a render belongs to ───────────────────────────────
 
 def test_a_measured_spine_names_its_own_timeline():
-    spine = {"derived_from": {"timeline": "GEO Podcast - Synced"}}
-    assert timeline_scope(spine) == "GEO Podcast - Synced"
+    spine = {"derived_from": {"timeline": "Studio Chat - Synced"}}
+    assert timeline_scope(spine) == "Studio Chat - Synced"
 
 
 def test_a_declaration_is_used_when_nothing_was_measured():
@@ -156,8 +156,8 @@ def test_a_declaration_is_used_when_nothing_was_measured():
 def test_a_measurement_beats_a_declaration():
     from types import SimpleNamespace
     config = SimpleNamespace(resolve=SimpleNamespace(timeline_name="Main Edit"))
-    spine = {"derived_from": {"timeline": "GEO Podcast - Synced"}}
-    assert timeline_scope(spine, project_config=config) == "GEO Podcast - Synced"
+    spine = {"derived_from": {"timeline": "Studio Chat - Synced"}}
+    assert timeline_scope(spine, project_config=config) == "Studio Chat - Synced"
 
 
 def test_no_timeline_name_is_invented():

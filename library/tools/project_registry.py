@@ -17,7 +17,7 @@ Usage:
     catalog = scan_projects()
 
     # Get a specific project
-    config = get_project("geo-podcast")
+    config = get_project("my-show")
 
     # Create a new project
     config = create_project("my-vlog", name="Beltline Vlog", client="personal")

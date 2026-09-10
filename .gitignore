@@ -68,6 +68,16 @@ library/steps/step_6_01_render/drp_exports/
 projects/
 Lucie Podcast/
 
+# ─── Lane reports (per-task, per-project - never the repo) ──────
+# A lane's report.md, stills and measurements belong with the lane:
+# the firstmate home keeps them under data/<task-id>/, and a project
+# keeps its own outputs under its own directory. A lane report is
+# valuable to THAT project, not to every future user of this pipeline,
+# and rendered frames of a client's footage must never be committed.
+# Conclusions that generalise belong in docs/RULE_EVIDENCE.md with
+# their measurements, not as a report directory here.
+data/
+
 # ─── Build / temp artifacts ─────────────────────────────────
 *.log
 /tmp/

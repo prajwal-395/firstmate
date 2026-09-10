@@ -357,12 +357,12 @@ class fx:
         """BrightnessContrast color correction.
 
         `contrast` arrives in the declaration's pivot-gain units - 0.0
-        is neutral, the units the v04 stills were rendered in and the
+        is neutral, the units the reference stills were rendered in and the
         units `DeclaredLook.fusion()` emits. Fusion's own tool takes
         1.0 as neutral (below it the picture collapses toward
         mid-grey), so the node carries `1.0 + contrast`: emitting the
         declaration verbatim ships a flat frame
-        (`data/vep-grade-variants/report.md` 4.1).
+        (`data/vep-grade-variants/report.md` in the firstmate home, 4.1).
 
         Skips if all values are neutral (gain=1, contrast=0, sat=1) -
         the skip stays on the declaration, never on the translated

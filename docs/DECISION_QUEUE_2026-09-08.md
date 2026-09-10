@@ -342,8 +342,8 @@ because any number that passes your reference passes 001 too."
 - `reel-5-gate-failure` - STILL THEIRS, narrowed. Reel 05 was rebuilt in
   place and its caption defects are gone, but the gate refused it again,
   now for QB-CTA-ABSENT: the approved plan declares `call_to_action:
-  null` and the bar demands a closer (`data/vep-rebuild-nineteen/report.md`
-  via #715). The ask is now: approve a closing passage (then rebuild that
+   null` and the bar demands a closer (`data/vep-rebuild-nineteen/report.md`
+   in the firstmate home via #715). The ask is now: approve a closing passage (then rebuild that
   reel alone), or leave the approved timeline, which stands untouched.
 - `grounding-choice` - STILL THEIRS. Face-seeded grading needs no choice;
   generic objects (laptop) still need one of three routes. Nothing landed

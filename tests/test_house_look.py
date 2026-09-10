@@ -410,6 +410,6 @@ def test_a_malformed_project_declaration_is_refused(tmp_path):
 
     (tmp_path / "project.yaml").write_text(
         yaml.safe_dump({"name": "t",
-                        "style": {"house_look": "v04_teal_split"}}))
+                        "style": {"house_look": "a_named_look"}}))
     with pytest.raises(LookDeclarationError):
         project_house_look(str(tmp_path))

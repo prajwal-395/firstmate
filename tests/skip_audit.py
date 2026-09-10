@@ -214,6 +214,23 @@ ENVIRONMENT_CONDITIONS = (
         capability="mlx_vlm",
         install_hint="pip install mlx mlx_vlm  (Apple Silicon only)",
     ),
+    EnvironmentCondition(
+        pattern=r"needs the captain's project stills at",
+        false_when="the firstmate home holds "
+                   "data/vep-grade-variants-to-choose-from/ with the "
+                   "rendered grade-variant stills - the measured reference "
+                   "the pixel proofs compare against, present on the "
+                   "machine that ran the grade lane",
+        # The stills are the calibration target, not repo contents: a
+        # lane's rendered frames that this repository must not carry.
+        # The skip fires only where the lane output is absent, so it is
+        # narrowing, and the pixel proofs still run - and can still
+        # fail - where the reference is present.
+        capability="grade_reference_stills",
+        install_hint="run the grade-variants lane, or copy its "
+                     "data/vep-grade-variants-to-choose-from/ stills into "
+                     "the firstmate home",
+    ),
 )
 
 

@@ -17,11 +17,13 @@ Three things have to be true for the split to reach the picture:
    else does - not rendered cards sharing the picture rows, not the frame
    overlay, not the captions.
 3. The full look proves in decoded pixels against
-   `data/vep-grade-variants/v04_teal_split.jpg`: the Fusion four alone
+   `data/vep-grade-variants-to-choose-from/v04_teal_split.jpg` in the
+   firstmate home: the Fusion four alone
    reach the still's luminance, and the CDL moves the COLOUR statistics
    toward the still's - warm skin (R-B) over teal shadows (B-R).
    The CDL-versus-Fusion ordering is CDL first, established from PR 866's
-   recipe (`data/vep-grade-variants/report.md` section 2: "Grade order:
+   recipe (`data/vep-grade-variants-to-choose-from/report.md` in the
+   firstmate home, section 2: "Grade order:
    CDL first (as SetCDL on the timeline item), then the Fusion chain in
    node order") - not assumed.
 """
@@ -40,12 +42,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from library.tools import reel_look
 from library.tools.house_look import LookDeclarationError
 
-# Verbatim from lucie/geo-podcast project.yaml `style.house_look`.
-# Copied here rather than read from the project so the test never
-# reaches a real project (AGENTS.md 8) - the same copy
-# test_reel_grade_through_fusion.py carries for the Fusion half.
-V04 = {
-    "name": "v04_teal_split",
+# A declared look's magnitudes, fixed here so the test never reaches a
+# real project (AGENTS.md 8) - the same copy
+# test_reel_grade_through_fusion.py carries for the Fusion half. The
+# values exercise the machinery; the name is deliberately not any
+# project's chosen look.
+TEST_LOOK = {
+    "name": "test_look",
     "cdl": {
         "slope": [1.03, 1.0, 0.96],
         "offset": [-0.01, 0.005, 0.02],
@@ -71,7 +74,7 @@ def _write_project(path, style=None, template=None):
 # ── 1. The CDL half resolves from the project's own declaration ──────────
 
 def test_resolve_grade_cdl_reads_the_project_cdl(tmp_path):
-    _write_project(tmp_path, style=V04)
+    _write_project(tmp_path, style=TEST_LOOK)
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.03)
     assert cdl["slope_g"] == pytest.approx(1.0)
@@ -92,7 +95,7 @@ def test_resolve_grade_cdl_project_wins_whole_slot_over_template(
         tmp_path, monkeypatch):
     """Half a look from each of two sources is a look nobody designed:
     the project's declaration replaces the template's slot entirely."""
-    project_look = dict(V04)
+    project_look = dict(TEST_LOOK)
     project_look["cdl"] = {
         "slope": [1.10, 1.0, 0.90],
         "offset": [0.0, 0.0, 0.0],
@@ -103,7 +106,7 @@ def test_resolve_grade_cdl_project_wins_whole_slot_over_template(
     monkeypatch.setattr(
         "library.tools.brand_registry.resolve_project_template",
         lambda name: SimpleNamespace(
-            style=SimpleNamespace(house_look=V04)))
+            style=SimpleNamespace(house_look=TEST_LOOK)))
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.10)
     assert cdl["slope_b"] == pytest.approx(0.90)
@@ -114,7 +117,7 @@ def test_resolve_grade_cdl_falls_back_to_the_template(tmp_path, monkeypatch):
     monkeypatch.setattr(
         "library.tools.brand_registry.resolve_project_template",
         lambda name: SimpleNamespace(
-            style=SimpleNamespace(house_look=V04)))
+            style=SimpleNamespace(house_look=TEST_LOOK)))
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.03)
 
@@ -184,7 +187,7 @@ def _two_row_plan():
     ]}
 
 
-V04_CDL = {
+TEST_LOOK_CDL = {
     "slope_r": 1.03, "slope_g": 1.0, "slope_b": 0.96,
     "offset_r": -0.01, "offset_g": 0.005, "offset_b": 0.02,
     "power_r": 1.0, "power_g": 1.0, "power_b": 1.0,
@@ -196,7 +199,7 @@ def test_apply_cdl_grades_footage_on_every_picture_row():
     footage = [_FakeItem("/footage/a.mxf"), _FakeItem("/footage/b.mxf")]
     timeline = _FakeTimeline({1: footage[:1], 2: footage[1:], 3: []})
     record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(V04_CDL),
+        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
         footage_sources={"/footage/a.mxf", "/footage/b.mxf"})
     assert record["warnings"] == []
     assert sorted(record["applied"]) == ["a.mxf", "b.mxf"]
@@ -218,7 +221,7 @@ def test_apply_cdl_skips_rendered_cards_on_the_picture_rows():
     footage = _FakeItem("/footage/a.mxf")
     timeline = _FakeTimeline({1: [footage, card], 2: []})
     record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(V04_CDL),
+        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
         footage_sources={"/footage/a.mxf"})
     assert record["applied"] == ["a.mxf"]
     assert card.cdl_calls == []
@@ -229,7 +232,7 @@ def test_apply_cdl_leaves_non_picture_rows_alone():
     frame = _FakeItem("/renders/tv_frame.mov", name="frame")
     timeline = _FakeTimeline({1: [], 2: [], 3: [frame]})
     record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(V04_CDL),
+        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
         footage_sources={"/renders/tv_frame.mov"})
     assert record["applied"] == []
     assert frame.cdl_calls == []
@@ -250,7 +253,7 @@ def test_apply_cdl_falls_back_the_way_the_master_does():
     footage = _FakeItem("/footage/a.mxf", cdl_result=False)
     timeline = _FakeTimeline({1: [footage]})
     record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(V04_CDL),
+        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
         footage_sources={"/footage/a.mxf"})
     assert record["applied"] == ["a.mxf"]
     assert footage.prop_calls["Slope"] == "1.0300 1.0000 0.9600"
@@ -267,16 +270,17 @@ def test_apply_cdl_records_a_failure_without_stopping_the_reel():
     footage = _Boom("/footage/a.mxf")
     timeline = _FakeTimeline({1: [footage]})
     record = reel_look.apply_cdl(
-        timeline, _two_row_plan(), dict(V04_CDL),
+        timeline, _two_row_plan(), dict(TEST_LOOK_CDL),
         footage_sources={"/footage/a.mxf"})
     assert record["applied"] == []
     assert len(record["warnings"]) == 1
     assert "a.mxf" in record["warnings"][0]
 
 
-# ── 3. The full v04 look in decoded pixels ───────────────────────────────
+# ── 3. The full declared look in decoded pixels ─────────────────────────
 #
-# The still recipe is `data/vep-grade-variants/report.md` section 2: CDL
+# The still recipe is `data/vep-grade-variants-to-choose-from/report.md`
+# in the firstmate home, section 2: CDL
 # first (as SetCDL on the timeline item), then the Fusion chain in node
 # order - pivot contrast, glow, grain, vignette. The Fusion nodes are
 # approximated in numpy exactly as that section describes them (Glow =
@@ -337,7 +341,7 @@ def _recipe_vignette(x, blend, soft):
 
 
 def _recipe_full(x, cdl, fusion, cdl_first=True):
-    """The v04 still's grade order: CDL first, then the Fusion chain in
+    """The reference still's grade order: CDL first, then the Fusion chain in
     node order (report.md s2). `cdl_first=False` renders the reverse -
     a different picture, which is why the order is established rather
     than assumed."""
@@ -356,11 +360,27 @@ def _recipe_full(x, cdl, fusion, cdl_first=True):
     return x
 
 
+# The lane output the pixel proofs compare against. It lives with the
+# lane - `data/vep-grade-variants-to-choose-from/` in the firstmate
+# home - never in this repo, so a machine without it SKIPS these
+# proofs (naming this path) rather than erroring or passing silent.
+GRADE_VARIANTS_DIR = (
+    "/Users/prajwal/Documents/work_stuff/firstmate/data/"
+    "vep-grade-variants-to-choose-from")
+
+
 def _stills():
     from PIL import Image
 
-    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    variant = os.path.join(repo, "data", "vep-grade-variants")
+    variant = GRADE_VARIANTS_DIR
+    missing = [name for name in ("v00_neutral.jpg", "v04_teal_split.jpg")
+               if not os.path.exists(os.path.join(variant, name))]
+    if missing:
+        pytest.skip(
+            "needs the captain's project stills at "
+            f"{variant} - {', '.join(missing)} absent there "
+            "(data/vep-grade-variants-to-choose-from/ in the firstmate "
+            "home, the machine that ran the grade lane)")
     window = (slice(260, 1661), slice(18, 1061))  # report.md s2
     neutral = (np.asarray(Image.open(
         os.path.join(variant, "v00_neutral.jpg"))).astype(float) / 255.0)[window]
@@ -380,12 +400,12 @@ def _masks(neutral):
 
 
 def test_full_look_reaches_the_still_in_decoded_pixels(tmp_path):
-    """The declared v04 values, applied CDL-first with the Fusion four,
+    """The declared look values, applied CDL-first with the Fusion four,
     land on the still: MAE in the single digits inside the picture
     window (the Fusion-only half already proved ~5.5; the CDL must not
     push the picture away from it)."""
 
-    _write_project(tmp_path, style=V04)
+    _write_project(tmp_path, style=TEST_LOOK)
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     look = reel_look.resolve_grade_look(str(tmp_path))
     fusion = {"contrast": look["grade_contrast"],
@@ -403,14 +423,15 @@ def test_full_look_reaches_the_still_in_decoded_pixels(tmp_path):
 
 
 def test_full_look_carries_the_colour_split_not_just_luminance():
-    """PR 866 measured the split the captain picked v04 FOR: warm skin
+    """PR 866 measured the warm-skin-over-teal split the grade was picked
+    for: warm skin
     over teal shadows (skin R +9.9 / B -4.3, shadow B +4.3 / R -1.1).
     The full look's skin R-B warmth and shadow B-R separation land
     within a few levels of the still's."""
 
     neutral, still = _stills()
     skin, shadow = _masks(neutral)
-    cdl = dict(V04_CDL)
+    cdl = dict(TEST_LOOK_CDL)
     fusion = {"contrast": 0.12, "glow_gain": 0.20, "glow_threshold": 0.72,
               "glow_size": 3.5, "grain_power": 0.35,
               "vignette_blend": 0.35, "vignette_soft": 0.30}
@@ -447,7 +468,7 @@ def test_shadow_separation_comes_from_the_cdl_not_the_fusion():
     neutral_sep = _separation(neutral, shadow)
     fusion_sep = _separation(fusion_only(neutral), shadow)
     full_sep = _separation(
-        _recipe_full(neutral, dict(V04_CDL), fusion, cdl_first=True), shadow)
+        _recipe_full(neutral, dict(TEST_LOOK_CDL), fusion, cdl_first=True), shadow)
     still_sep = _separation(still, shadow)
     # The Fusion four move the shadows' B-R separation by under a level
     # from the neutral - the split is not in that half.
@@ -472,7 +493,7 @@ def test_cdl_fusion_order_is_a_different_picture():
     fusion = {"contrast": 0.12, "glow_gain": 0.20, "glow_threshold": 0.72,
               "glow_size": 3.5, "grain_power": 0.35,
               "vignette_blend": 0.35, "vignette_soft": 0.30}
-    first = _recipe_full(neutral, dict(V04_CDL), fusion, cdl_first=True)
-    last = _recipe_full(neutral, dict(V04_CDL), fusion, cdl_first=False)
+    first = _recipe_full(neutral, dict(TEST_LOOK_CDL), fusion, cdl_first=True)
+    last = _recipe_full(neutral, dict(TEST_LOOK_CDL), fusion, cdl_first=False)
     mean_shift = float(np.abs(first - last).mean() * 255)
     assert mean_shift > 0.1

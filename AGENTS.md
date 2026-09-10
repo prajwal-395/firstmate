@@ -197,7 +197,7 @@ Detail: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.**
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. A True past a silent clamp still lies - read back. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.**
 Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.

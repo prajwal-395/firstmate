@@ -6682,3 +6682,100 @@ declared evidence. `select_reels` was deliberately NOT migrated on top
 of it: the record makes the migration conditional on the mechanism and
 defers it past the live field test, and a migration folded into a live
 test is the collision this task's out-of-scope list exists to prevent.
+
+## the-true-return-that-lied
+
+Reel 09, 2026-09-09: the staging the build gate deleted carried six
+items at the identity transform, each delivering (0, 656, 1080, 1264)
+against a screen window of (18, 260, 1061, 1661). The aim HAD run and
+`SetProperty` had returned True on every call - past Resolve's silent
+Pan/Tilt clamp, which holds the value at 4x the frame and reports
+success. A True return past a clamp is not a transform that took.
+
+The discipline, applied in `aim_picture_row`
+(`library/tools/reel_build.py`) under PR 862's rule: what was ASKED is
+judged by the return, and what is HELD is graded against the window
+with the same predicate the gate grades with
+(`reel_look.uncovered_window_edges`). A transform that did not take
+raises `PunchInLeavesBlack` at placement - never as six identical
+findings after a full build. `tight_box` holds the same line: every
+SetProperty is still judged by its return (`library/tools/tight_box.py`).
+Pinned by `tests/test_punch_in_readback.py`.
+
+## the-probe-that-could-not-run
+
+The same Reel 09 gate failure had a second cause underneath the first.
+The aim never ran on any shot: system python's cv2 5.0.0 ships no
+`CascadeClassifier`, so `measure_subject_in_window` answered None for
+every shot without decoding a frame, `punch_in_properties` refused
+every shot, and the placer left all six items unpunched. The gate named
+the symptom; the cause was an incapacitated probe the build never
+mentioned.
+
+None from this function means "frames were read and no face was
+measured" - genuine absence, which leaves the shot uncropped under the
+refuse-rather-than-guess ruling. A detector that could not even be
+loaded is a different fact and raises `SubjectProbeUnavailable` naming
+the interpreter's cv2, before any frame is decoded, so the caller
+refuses the build with the cause instead of shipping staging the gate
+deletes. The same line `render_qa.measure_face_intact` draws with its
+"No Haar cascade available" warning: a measurement that could not be
+taken must say so. Pinned by
+`tests/test_subject_probe_unavailable.py`.
+
+## the-name-that-said-where-instead-of-what
+
+The captain, 2026-09-04: rendered overlays were named
+`sub_block_<block_position>` - an ordinal within one spine, written
+into a directory that is per PROJECT and not per timeline. A master
+and a reel both have a `body_1`, so one overwrote the other, and no
+part of the name said whose speech it captioned or which span of
+source audio it came from.
+
+`segment_identifier` (`library/tools/subtitle_segment_id.py`) renders
+as `sub_<timeline>_<speaker>_<block>_<span_ms>_<digest>`: readable
+left to right, unique on the right. An identity key carries what the
+content IS, never where it sits or how long it plays - and what is
+absent is NAMED, not omitted: an unnamed timeline renders as
+`notimeline` rather than inventing one, because an unnamed timeline
+that collides is a visible bug and a made-up name that does not is a
+silent one. `assert_named_timeline` and `assert_unique_segment_names`
+are the two guards that make collision unrepresentable rather than
+merely documented. Pinned by `tests/test_subtitle_segment_id.py`.
+
+## scratch-held-what-live-timelines-play
+
+`scratch/` is declared safe to throw away at any moment, including
+mid-run (`Kind.SCRATCH`). Yet two things the reel builder places on
+live timelines were rendered into it: TV-frame overlays
+(`reel_look.frame_overlay_segments` into `scratch/reel_look/frame_overlays/`)
+and full-frame cards (`reel_build.card_render_dir` into
+`scratch/reel_cards/`). Measured 2026-09-09: five overlays, 1.5 GB,
+every one of them on V2 of a live reel timeline, read off the live
+Resolve database. So the declaration was a lie for those paths, and
+anything trusting it - a cleaner, a re-run, a disk sweep - takes the
+picture off live timelines.
+
+The artefacts are not scratch, so the placement path stops referencing
+scratch: every overlay and every card is PROMOTED into a step-owned
+OUTPUT area (`Area.REEL_FRAME_OVERLAYS` / `Area.REEL_CARDS`, both
+`build_reels`' own directories under `pipeline_output/steps/`) and the
+durable copy is what gets imported and placed. Recorded where the next
+contributor meets it in `library/tools/reel_placed_assets.py`.
+
+## the-operation-that-answered-unasked
+
+A post-bridge operation takes three things - the step's inputs, its
+pre-bridge's output, and the model's answer - and an operation gathers
+only the first. Resolving one without the model's keys would produce a
+confident answer to a question nobody was asked, so it is REFUSED by
+name instead: `operations.py` names exactly which keys the model owes
+the step (`missing_model_answer`) and states the two ways out - supply
+them as overrides, or run the step so the runner asks the model.
+
+The same ruling at run scope: the summary reports SUCCESS only when
+the whole DAG is complete and `failed_steps` is empty in the project
+ledger - not just the steps one invocation touched
+(`library/processes/edit_video/run_pipeline.py`) - and a detector
+names steps that report success while emitting nothing usable. A build
+that owes an unanswered model request must not report success.

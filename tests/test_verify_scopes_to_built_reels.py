@@ -13,9 +13,10 @@ own machine.
 Worse than slow: the untouched timelines are graded against the
 CURRENT plan, which describes different reels, so a clean single-reel
 build failed on findings from timelines it never touched - 94 of 121
-errors in `data/vep-rebuild-verify/report.md` 3.5, and 28
+errors in `data/vep-rebuild-verify/report.md` in the firstmate home, 3.5,
+and 28
 `NO-REFERENCE` + `PLAN-MISMATCH` errors on previous batches' reels in
-`data/vep-harvest/report.md`.
+`data/vep-harvest/report.md` in the firstmate home.
 
 Which side is wrong
 -------------------

@@ -16,15 +16,15 @@ Usage (from pipeline code):
         get_resolve_project_state,
     )
 
-    config = get_project("geo-podcast")
+    config = get_project("my-show")
     ensure_resolve_project(config)  # loads/creates the Resolve project
     import_project_media(config)    # imports raw/ into media pool
 
 Usage (standalone CLI):
-    python3 -m library.tools.resolve_project_sync check geo-podcast
-    python3 -m library.tools.resolve_project_sync open geo-podcast
-    python3 -m library.tools.resolve_project_sync import-media geo-podcast
-    python3 -m library.tools.resolve_project_sync export geo-podcast
+    python3 -m library.tools.resolve_project_sync check my-show
+    python3 -m library.tools.resolve_project_sync open my-show
+    python3 -m library.tools.resolve_project_sync import-media my-show
+    python3 -m library.tools.resolve_project_sync export my-show
 """
 
 import json

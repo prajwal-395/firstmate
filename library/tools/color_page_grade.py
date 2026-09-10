@@ -44,7 +44,7 @@ How a DRX reaches a run:
 
       color:
         power_grade_drx:
-          path: "brand_assets/v04_teal_split.drx"  # project-relative
+          path: "brand_assets/example_look.drx"  # project-relative
           provenance:
             source: "Built in the Resolve GUI from ..."
             authorised_by: "captain, 2026-09-10"

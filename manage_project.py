@@ -11,16 +11,16 @@ in PIPELINE_PROJECTS_ROOT (default: ~/Documents/content_stuff/video_projects).
 
 Usage:
     python3 manage_project.py list
-    python3 manage_project.py list --client lucie --status in_progress
+    python3 manage_project.py list --client personal --status in_progress
     python3 manage_project.py new my-vlog --name "Beltline Vlog"
-    python3 manage_project.py new geo-podcast --name "GEO Podcast" --client lucie
-    python3 manage_project.py status geo-podcast
+    python3 manage_project.py new my-show --name "My Show" --client personal
+    python3 manage_project.py status my-show
     python3 manage_project.py status "/abs/path/to/a/project"
-    python3 manage_project.py run geo-podcast
-    python3 manage_project.py run geo-podcast --from creative_direction
-    python3 manage_project.py dashboard geo-podcast
+    python3 manage_project.py run my-show
+    python3 manage_project.py run my-show --from creative_direction
+    python3 manage_project.py dashboard my-show
     python3 manage_project.py dashboard "/abs/path/to/a/project"
-    python3 manage_project.py archive geo-podcast
+    python3 manage_project.py archive my-show
     python3 manage_project.py init-root
 
 Only `run` needs the ML virtual environment; see ML_DEPENDENT_COMMANDS.
@@ -312,8 +312,8 @@ def cmd_init_root(args):
             "```\n"
             "video_projects/\n"
             "  my-vlog/               # flat\n"
-            "  lucie/                  # client group\n"
-            "    geo-podcast/\n"
+            "  acme/                  # client group\n"
+            "    my-podcast/\n"
             "    monthly-recap/\n"
             "```\n"
         )

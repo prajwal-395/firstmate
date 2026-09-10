@@ -1,8 +1,8 @@
-"""v04 through Fusion on the reels path, at the project's declared values.
+"""A declared look through Fusion on the reels path, at declared values.
 
 The captain approved the Fusion route for the four nodes no scriptable
 Color page call can reach (pivot contrast, glow, grain, vignette), and
-their numbers live in the project's own `project.yaml` under
+their numbers live in a project's own `project.yaml` under
 `style.house_look` - contrast 0.12, glow 0.20/0.72/3.5, grain 0.35/1.5,
 vignette 0.35/0.30.
 
@@ -10,11 +10,11 @@ Two things have to be true for those numbers to reach the picture:
 
 1. The comp must carry what Fusion's own tool means by them. The
    declaration says contrast in pivot-gain units (0 is neutral, the same
-   units the v04 stills were rendered in); Fusion's BrightnessContrast
+   units the reference stills were rendered in); Fusion's BrightnessContrast
    tool takes 1.0 as neutral, with values below it collapsing the image
    toward mid-grey. Emitting 0.12 verbatim ships a flat frame, which is
-   the check `data/vep-grade-variants/report.md` section 4.1 asks the
-   follow-up to make before writing anything.
+   the check `data/vep-grade-variants/report.md` in the firstmate home,
+   section 4.1, asks the follow-up to make before writing anything.
 2. The reels path must merge the look onto every picture clip. Step
    5.04 merges `fusion_look` onto every V1/V2 clip of the master, but
    the reel manifest (`reel_look.fusion_manifest`) carried only the
@@ -35,12 +35,11 @@ from library.tools import reel_look
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.house_look import resolve_look
 
-# Verbatim from lucie/geo-podcast project.yaml `style.house_look`.
-# Copied here rather than read from the project so the test never
-# reaches a real project (AGENTS.md 8) - the reel-09 audit beside it
-# reads the real file and asserts these are the values it carries.
-V04 = {
-    "name": "v04_teal_split",
+# A declared look's magnitudes, fixed here so the test never reaches a
+# real project (AGENTS.md 8). The values exercise the machinery; the
+# name is deliberately not any project's chosen look.
+TEST_LOOK = {
+    "name": "test_look",
     "cdl": {
         "slope": [1.03, 1.0, 0.96],
         "offset": [-0.01, 0.005, 0.02],
@@ -99,8 +98,8 @@ def test_zero_contrast_still_draws_no_grade_node():
     assert "BrightnessContrast" not in comp
 
 
-def test_v04_fusion_half_draws_all_four_nodes_at_declared_values():
-    look = resolve_look(V04)
+def test_declared_look_fusion_half_draws_all_four_nodes_at_declared_values():
+    look = resolve_look(TEST_LOOK)
     comp = build_effect_comp(dict(look.fusion()), 120)
     assert "BrightnessContrast" in comp
     assert "Contrast = Input { Value = 1.12, }," in comp
@@ -116,7 +115,7 @@ def test_v04_fusion_half_draws_all_four_nodes_at_declared_values():
 # ── 2. The reels path merges the grade onto every picture row ─────────────
 
 def test_reel_manifest_merges_grade_onto_both_picture_rows():
-    grade = resolve_look(V04).fusion()
+    grade = resolve_look(TEST_LOOK).fusion()
     placements = [
         _placement("/a.mxf", 0, 5.0, track_index=1),
         _placement("/b.mxf", 120, 5.0, track_index=2),
@@ -138,7 +137,7 @@ def test_reel_manifest_merges_grade_onto_both_picture_rows():
 
 
 def test_reel_grade_composes_with_drift_rather_than_replacing_it():
-    grade = resolve_look(V04).fusion()
+    grade = resolve_look(TEST_LOOK).fusion()
     placements = [_placement("/a.mxf", 0, 10.0)]
     motion = [{"target_block_position": 0, "effect_type": "slow_zoom_in",
                "params": {"zoom_start": 1.0, "zoom_end": 1.04}}]
@@ -154,7 +153,7 @@ def test_reel_grade_composes_with_drift_rather_than_replacing_it():
 def test_reel_grade_never_overwrites_a_planned_value():
     """The compile_manifest rule, unchanged: a value the planner asked
     for wins over the look's."""
-    grade = resolve_look(V04).fusion()
+    grade = resolve_look(TEST_LOOK).fusion()
     placements = [_placement("/a.mxf", 0, 10.0)]
     motion = [{"target_block_position": 0, "effect_type": "slow_zoom_in",
                "params": {"zoom_start": 1.0, "zoom_end": 1.04,
@@ -183,7 +182,7 @@ def test_no_grade_look_means_no_grade_keys_on_reels():
 
 def test_resolve_grade_look_reads_the_project_declaration(tmp_path):
     (tmp_path / "project.yaml").write_text(
-        yaml.safe_dump({"name": "t", "style": {"house_look": V04}}))
+        yaml.safe_dump({"name": "t", "style": {"house_look": TEST_LOOK}}))
     grade = reel_look.resolve_grade_look(str(tmp_path))
     assert grade["grade_contrast"] == pytest.approx(0.12)
     assert grade["glow_gain"] == pytest.approx(0.20)
