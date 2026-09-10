@@ -780,24 +780,89 @@ def _step_4_03_post_bridge():
     return module
 
 
+def picture_rows(track_plan) -> Dict[str, int]:
+    """{angle key: reel video row index} for every a-roll row the plan mints.
+
+    `track_plan` is `timeline_layout`'s answer - the live TrackPlan or
+    its serializable form as recorded in the build record - never a
+    hardcoded V1/V2 beside it.  Empty when no plan is given, which is
+    the single-camera shape: one picture row, V1.
+    """
+    if track_plan is None:
+        return {}
+    from library.tools import timeline_layout as _layout
+
+    if isinstance(track_plan, dict):
+        rows = [t for t in track_plan.get("video_tracks", [])
+                if t.get("role") == _layout.A_ROLL]
+        return {str(t.get("occupant")): int(t.get("index")) for t in rows}
+    return {str(t.occupant): int(t.index)
+            for t in track_plan.aroll_rows()}
+
+
+def _reel_row_for(placement: dict, rows: Dict[str, int],
+                  first_row: int, angle_key) -> int:
+    """The reel video row one picture placement's comp travels on.
+
+    Read off the plan's rows by the placement's angle - the same join
+    the builder places the picture by.  A placement whose angle the
+    plan does not name (a layer the builder skipped) rides the first
+    picture row, where the pass's source-path match leaves it
+    unvisited exactly as before: misassignment skips, never
+    misapplies.
+    """
+    key = None
+    if angle_key is not None:
+        try:
+            key = angle_key(placement.get("clip"))
+        except Exception:
+            key = None
+    else:
+        try:
+            key = str(int(getattr(placement.get("clip"), "track_index",
+                                  "")))
+        except (TypeError, ValueError):
+            key = None
+    if key is not None and key in rows:
+        return rows[key]
+    return first_row
+
+
 def fusion_manifest(placements: Sequence[dict], look: dict,
-                    motion: Sequence[dict], fps: float) -> dict:
+                    motion: Sequence[dict], fps: float,
+                    track_plan=None, angle_key=None) -> dict:
     """The manifest `apply_fusion_comps` reads for one reel.
 
-    Only the keys that pass actually reads: `tracks.V1.clips` in placed
-    order (matched to timeline items by full source path) and
+    Only the keys that pass actually reads: `tracks.V{row}.clips` in
+    placed order (matched to timeline items by full source path) and
     `fusion_effects.per_clip` keyed by label.  Building a whole assembly
     manifest here would be a second compile_manifest.
+
+    The clips are grouped by the plan's a-roll rows - one entry per
+    picture row the layout owner minted, never V1 alone.  Before the
+    per-speaker ruling every reel had one picture row and V1-only was
+    harmless; now a drift planned for a V2 shot must travel on V2 or
+    the pass never visits it.  Labels stay positional over the whole
+    picture, so the motion join by `target_block_position` is
+    unchanged.  No plan means the legacy single-row shape: all clips
+    on V1.
     """
     picture = _picture(placements)
-    clips = []
+    rows = picture_rows(track_plan)
+    first_row = min(rows.values()) if rows else 1
+    by_row: Dict[int, list] = {}
     for index, p in enumerate(picture):
-        clips.append({
+        row = (_reel_row_for(p, rows, first_row, angle_key) if rows
+               else 1)
+        by_row.setdefault(row, []).append((index, p))
+    tracks: Dict[str, dict] = {}
+    for row in sorted(by_row):
+        tracks[f"V{row}"] = {"clips": [{
             "label": clip_label(index),
             "source_file": p["clip"].source_file,
             "source_in": p["source_in"],
             "source_out": p["source_out"],
-        })
+        } for index, p in by_row[row]]}
 
     per_clip: Dict[str, dict] = {}
     if picture:
@@ -817,7 +882,7 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
         effect.update(spec.get("params", {}))
 
     return {
-        "tracks": {"V1": {"clips": clips}},
+        "tracks": tracks,
         "fusion_effects": {"per_clip": per_clip, "transitions": []},
     }
 

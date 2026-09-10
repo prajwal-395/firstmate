@@ -68,6 +68,24 @@ FUSION_COMP_TRACKS = (1, 2)
 TRANSITION_TRACK = 1
 
 
+def _manifest_video_rows(manifest: dict) -> list[int]:
+    """Every Vn row the manifest declares clips on, in numeric order.
+
+    The layout owner mints picture rows per angle, so a two-angle reel
+    declares V1 and V2 and a future three-angle one declares V3 - the
+    pass must walk what the manifest declares rather than stop at the
+    two rows above, or the next layout change strands a row the same
+    way V1-only stranded V2. Audio rows (A1, ...) never match: only a
+    leading V counts.
+    """
+    tracks = manifest.get("tracks", {}) or {}
+    rows = []
+    for key in tracks:
+        if len(key) > 1 and key[0] == "V" and key[1:].isdigit():
+            rows.append(int(key[1:]))
+    return sorted(rows)
+
+
 def fusion_comp_tracks(manifest: dict) -> list[tuple[int, list, bool]]:
     """(track_index, clip specs, whether transitions apply) per track.
 
@@ -76,8 +94,10 @@ def fusion_comp_tracks(manifest: dict) -> list[tuple[int, list, bool]]:
     about the mechanism rather than about one manifest.
     """
     tracks = manifest.get("tracks", {}) or {}
+    indexes = sorted(set(FUSION_COMP_TRACKS)
+                     | set(_manifest_video_rows(manifest)))
     out = []
-    for index in FUSION_COMP_TRACKS:
+    for index in indexes:
         clips = (tracks.get(f"V{index}", {}) or {}).get("clips", []) or []
         out.append((index, clips, index == TRANSITION_TRACK))
     return out

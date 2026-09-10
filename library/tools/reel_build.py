@@ -4337,13 +4337,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # planned.
             if reel_look_decl is not None:
                 from library.tools import reel_look as _look
+                # The plan this reel was placed from, so the manifest's
+                # clips ride the same per-angle rows the picture sits on:
+                # a drift planned for a V2 shot must travel on V2, and
+                # the rows come from the layout owner rather than a
+                # hardcoded V1 beside it.
                 manifest = _look.fusion_manifest(
                     placements(
                         reel_ranges(moment, transcript,
                                     extra_cuts=moment_cuts), master_clips,
                         24000/1001,
                         lead_frames=lead_frames(cards, 24000/1001)),
-                    reel_look_decl, reel_motion, 24000/1001)
+                    reel_look_decl, reel_motion, 24000/1001,
+                    track_plan=build_result["track_plan"],
+                    angle_key=_angle_key)
                 if not _look.apply_comps(manifest, project_folder,
                                          resolve_name, name):
                     raise ReelBuildError(

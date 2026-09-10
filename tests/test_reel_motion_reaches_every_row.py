@@ -1,0 +1,290 @@
+"""A treatment planned for a clip on ANY picture row must reach that clip.
+
+Found 2026-09-10 on Reel 09: the motion answer planned drift on four
+shots, but the reel Fusion manifest reached V1 only, so the two drifts
+on V2 (shots 0 and 5, Craig's picture row) never reached a comp and
+never even reached verification - the receipt read clips_checked = 2
+of 4 planned. Before the per-speaker ruling every reel had one picture
+row and V1-only was harmless; the manifest did not follow the layout.
+
+The defect is not "V2 was forgotten", it is "the manifest assumed one
+row" - so this test builds a two-angle reel through the layout owner's
+own answer (`timeline_layout.plan_layout`) and proves every planned
+drift draws, on both rows. It fails on the old code: the old
+`fusion_manifest` takes no plan and emits V1 alone, so the V2 specs
+are missing and the V2 items get no comp.
+"""
+import importlib
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+REPO = Path(__file__).resolve().parents[1]
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+
+from library.tools import reel_look
+from library.tools.execution.fusion_tracks import (
+    fusion_comp_tracks,
+    reachable_effect_labels,
+)
+from library.tools.pipeline_skills import read_receipts
+from library.tools.timeline_layout import plan_layout
+
+
+class _Clip:
+    def __init__(self, source_file, track_index, speaker):
+        self.source_file = source_file
+        self.track_type = "video"
+        self.track_index = track_index
+        self.timeline_start = 0.0
+        self.source_in = 0.0
+        self.speaker = speaker
+
+
+def _placement(source_file, track_index, record_frame, speaker, fps=24.0):
+    seconds = 5.0
+    return {
+        "clip": _Clip(source_file, track_index, speaker),
+        "source_in": 0.0,
+        "source_out": seconds,
+        "record": record_frame / fps,
+        "snapped_record": record_frame,
+        "speaker": speaker,
+    }
+
+
+def _two_angle_plan():
+    """The Reel 09 shape: Akshita on V1, Craig on V2, the set above."""
+    return plan_layout({
+        "angles": [
+            {"key": "1", "label": "Akshita",
+             "speech_name": "Akshita CH1", "program_channel": 1},
+            {"key": "2", "label": "Craig",
+             "speech_name": "Craig CH1", "program_channel": 1},
+        ],
+        "has_broll": False,
+        "has_frame": True,
+        "caption_spans": [],
+        "has_transitions": False,
+        "has_explainer": False,
+        "has_semantic": False,
+        "mg_spans": [],
+        "has_generators": False,
+        "timed_text_spans": [],
+        "music_spans": [],
+        "sfx_spans": [],
+    })
+
+
+def _angle_key(clip):
+    return str(int(clip.track_index))
+
+
+def _placements():
+    # The Reel 09 arrangement: the outer shots ride Craig's row (V2),
+    # the inner two Akshita's (V1).
+    return [
+        _placement("/tmp/cr0.mxf", 2, 0, "Craig"),
+        _placement("/tmp/ak1.mxf", 1, 120, "Akshita"),
+        _placement("/tmp/ak2.mxf", 1, 240, "Akshita"),
+        _placement("/tmp/cr3.mxf", 2, 360, "Craig"),
+    ]
+
+
+def _motion(count=4):
+    return [{
+        "target_block_position": i,
+        "effect_type": "slow_zoom_in",
+        "params": {"zoom_start": 1.0, "zoom_mid": 1.02,
+                   "zoom_end": 1.04},
+    } for i in range(count)]
+
+
+def _manifest():
+    return reel_look.fusion_manifest(
+        _placements(), {"power": {}}, _motion(), 24.0,
+        track_plan=_two_angle_plan().serializable(),
+        angle_key=_angle_key)
+
+
+def test_manifest_groups_clips_by_the_plan_rows():
+    manifest = _manifest()
+    labels = {row: [c["label"] for c in spec["clips"]]
+              for row, spec in manifest["tracks"].items()}
+    assert labels == {
+        "V1": [reel_look.clip_label(1), reel_look.clip_label(2)],
+        "V2": [reel_look.clip_label(0), reel_look.clip_label(3)],
+    }
+
+
+def test_the_live_plan_answers_the_same_rows():
+    serializable = _manifest()["tracks"]
+    live = reel_look.fusion_manifest(
+        _placements(), {"power": {}}, _motion(), 24.0,
+        track_plan=_two_angle_plan(), angle_key=_angle_key)["tracks"]
+    assert live == serializable
+
+
+def test_every_planned_treatment_is_reachable():
+    manifest = _manifest()
+    per_clip = manifest["fusion_effects"]["per_clip"]
+    assert len(per_clip) == 4
+    assert set(per_clip) <= reachable_effect_labels(manifest)
+
+
+def test_the_pass_walks_both_picture_rows():
+    rows = {index: [c["label"] for c in clips]
+            for index, clips, _ in fusion_comp_tracks(_manifest())}
+    assert rows[1] == [reel_look.clip_label(1), reel_look.clip_label(2)]
+    assert rows[2] == [reel_look.clip_label(0), reel_look.clip_label(3)]
+
+
+# ── The pass itself, driven against a fake Resolve ────────────────────
+
+class _FakeMediaPoolItem:
+    def __init__(self, path, frames=600, fps="24", resolution="1080x1920"):
+        self._props = {
+            "File Path": path, "Frames": str(frames),
+            "FPS": fps, "Resolution": resolution,
+        }
+
+    def GetClipProperty(self, key=None):
+        return self._props if key is None else self._props.get(key, "")
+
+
+class _FakeComp:
+    def GetToolList(self):
+        class _Tool:
+            def __init__(self, regid):
+                self._regid = regid
+
+            def GetAttrs(self):
+                return {"TOOLS_RegID": self._regid}
+
+            def Delete(self):
+                return True
+        return {1: _Tool("MediaIn"), 2: _Tool("Merge"), 3: _Tool("MediaOut")}
+
+    def AddTool(self, _name):
+        class _Dummy:
+            def Delete(self):
+                return True
+        return _Dummy()
+
+    def FindTool(self, _name):
+        return None
+
+
+class _FakeTimelineItem:
+    def __init__(self, path, start, end):
+        self.mpi = _FakeMediaPoolItem(path)
+        self.imported = []
+        self._start, self._end = start, end
+
+    def GetMediaPoolItem(self):
+        return self.mpi
+
+    def GetStart(self):
+        return self._start
+
+    def GetEnd(self):
+        return self._end
+
+    def GetDuration(self):
+        return self._end - self._start
+
+    def GetFusionCompNameList(self):
+        return ["Composition 1"] if self.imported else []
+
+    def DeleteFusionCompByName(self, _name):
+        self.imported = []
+        return True
+
+    def ImportFusionComp(self, path):
+        with open(path, encoding="utf-8") as f:
+            self.imported.append(f.read())
+        return _FakeComp()
+
+    def GetFusionCompByName(self, _name):
+        return _FakeComp()
+
+
+class _FakeTimeline:
+    def __init__(self, items_by_track):
+        self.items_by_track = items_by_track
+
+    def GetSetting(self, _key):
+        return "24"
+
+    def GetItemListInTrack(self, _kind, index):
+        return self.items_by_track.get(index, [])
+
+
+class _FakeResolve:
+    def __init__(self, timeline):
+        self._timeline = timeline
+
+    def GetProjectManager(self):
+        return self
+
+    def GetCurrentProject(self):
+        return self
+
+    def GetCurrentTimeline(self):
+        return self._timeline
+
+    def OpenPage(self, _name):
+        return True
+
+
+class _FakeDvr:
+    def __init__(self, timeline):
+        self.timeline = timeline
+
+    def scriptapp(self, _name):
+        return _FakeResolve(self.timeline)
+
+
+@pytest.fixture
+def fusion_module():
+    module = importlib.import_module(
+        "library.tools.execution.apply_fusion_comps")
+    return importlib.reload(module)
+
+
+def _timeline():
+    return _FakeTimeline({
+        1: [_FakeTimelineItem("/tmp/ak1.mxf", 120, 240),
+            _FakeTimelineItem("/tmp/ak2.mxf", 240, 360)],
+        2: [_FakeTimelineItem("/tmp/cr0.mxf", 0, 120),
+            _FakeTimelineItem("/tmp/cr3.mxf", 360, 480)],
+    })
+
+
+def test_drift_on_each_row_gets_a_comp_and_draws(fusion_module,
+                                                 monkeypatch, tmp_path):
+    """The Reel 09 receipt shape, closed: four planned, four checked."""
+    timeline = _timeline()
+    monkeypatch.setattr(fusion_module, "dvr", _FakeDvr(timeline))
+
+    assert fusion_module.apply_fusion_comps(
+        json.loads(json.dumps(_manifest())), str(tmp_path)) is True
+
+    for row in (1, 2):
+        for item in timeline.items_by_track[row]:
+            assert item.imported, (
+                f"{item.mpi.GetClipProperty('File Path')} got no comp - "
+                f"its planned drift never reached the picture")
+
+    result = read_receipts(str(tmp_path), "render")["verify_treatment"][
+        "result"]
+    assert result["clips_checked"] == len(result["rows"])
+    drift_rows = [r for r in result["rows"] if "motion_over_time" in r]
+    assert {r["label"] for r in drift_rows} == {
+        reel_look.clip_label(i) for i in range(4)}
+    assert all(r["motion_over_time"] for r in drift_rows), (
+        "a planned drift that moves no frame is the shipped defect")
+    assert not any(r["undone"] for r in drift_rows)
