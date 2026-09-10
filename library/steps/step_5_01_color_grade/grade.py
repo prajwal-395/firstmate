@@ -28,6 +28,7 @@ import json
 import math
 import os
 import subprocess
+import sys
 
 from library.tools.color_correction import (
     ASSESSMENT_FIELD,
@@ -476,6 +477,7 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
     # A reference frame REPLACES the declared look's CDL half.
     clip_frames = {}
     cdl_matches = {}
+    reference_match_error = ""
     if reference_image:
         for entry in entries:
             source_file = resolved_source(entry, project_folder)
@@ -485,8 +487,15 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
         try:
             from library.tools.look_matcher import match_clips_to_reference
             cdl_matches = match_clips_to_reference(reference_image, clip_frames)
-        except ImportError:
-            pass
+        except Exception as exc:
+            # The reference replaces the declared look's CDL, so grading
+            # without it is a different grade. Fall back to the declared
+            # look (the pre-existing direction) but SAY SO on the record -
+            # a silent fallback ships the captain's reference nowhere.
+            reference_match_error = f"{type(exc).__name__}: {exc}"
+            print(f"WARNING: reference look match failed "
+                  f"({reference_match_error}); grading from the declared "
+                  f"look instead.", file=sys.stderr)
         for frame_path in clip_frames.values():
             if os.path.exists(frame_path):
                 os.remove(frame_path)
@@ -608,6 +617,12 @@ def define_color_grade(shot_list: dict, project_folder: str = "",
             "as it was shot, with whatever correction the colourist made "
             "underneath it."
         )
+    if reference_match_error:
+        look_notes += (
+            " The captain's reference frame could not be matched "
+            f"({reference_match_error}), so no clip below carries a "
+            "reference-match CDL: every clip is graded from the declared "
+            "look instead.")
 
     return {
         "color_grade_spec": {

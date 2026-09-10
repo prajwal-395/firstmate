@@ -465,3 +465,27 @@ def test_an_unlicensed_drx_is_refused_even_when_staged(tmp_path):
     with pytest.raises(ColorPageGradeError) as excinfo:
         resolve_color_page_grade(str(tmp_path))
     assert "provenance" in str(excinfo.value)
+
+
+def test_an_unmatchable_reference_is_said_not_silently_dropped(tmp_path):
+    """A reference frame nobody can measure must not grade from fiction.
+
+    `analyze_frame_colors` used to return a plausible neutral statistic
+    for any failure, which the grade then applied as an "AI Look Match
+    CDL". Now the match refuses, the clips fall back to the declared
+    look, and `look_notes` says the reference went nowhere - the same
+    sentence the record would owe for any other skipped captain input.
+    """
+    bad_ref = tmp_path / "reference.png"
+    bad_ref.write_bytes(b"not an image")
+    with patch("library.steps.step_5_01_color_grade.grade.measure_luma",
+               return_value=dict(MEASURED)):
+        spec = define_color_grade(
+            {"entries": [{"track": "V1", "clip_id": "c1", "entry_id": "e1",
+                          "source_file": "f1.mov"}]},
+            project_folder="proj",
+            reference_image=str(bad_ref),
+        )["color_grade_spec"]
+    assert "could not be matched" in spec["look_notes"]
+    assert all("AI Look Match" not in a["notes"]
+               for a in spec["per_clip_adjustments"])

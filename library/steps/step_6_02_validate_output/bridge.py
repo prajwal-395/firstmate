@@ -26,7 +26,7 @@ import traceback
 # Import new QA modules
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.project_layout import Area, ProjectLayout
-from library.tools.render_qa import run_full_render_qa
+from library.tools.render_qa import RenderQAResult, run_full_render_qa
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
 
@@ -266,6 +266,14 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     except Exception as e:
         print(f"Error running render_qa: {e}", file=sys.stderr)
         traceback.print_exc()
+        # A QA toolkit that did not run must not read as a passing one:
+        # every individual measurement fails closed on its own error, so
+        # the aggregate does the same. The render is UNVALIDATED, and the
+        # verdict says so instead of reporting pass with zero measurements.
+        qa_results = [RenderQAResult(
+            "render_qa", False, str(e), None, "error",
+            f"Render QA did not run ({type(e).__name__}: {e}) - no "
+            f"automated check measured this render")]
 
     # Subtitle QA
     subtitles = assembly_manifest.get("subtitles", [])
@@ -343,6 +351,13 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             if not r.passed:
                 audio_check["pass"] = False
                 audio_check["issues"].append(r.detail)
+        elif r.metric == "render_qa":
+            # The toolkit itself failed - fail the technical check so the
+            # verdict and distribution_ready reflect an unvalidated render
+            # rather than a measured one.
+            if not r.passed:
+                tech_check["pass"] = False
+                tech_check["issues"].append(r.detail)
                 
     checks["technical"] = tech_check
     checks["framing"] = framing_check
