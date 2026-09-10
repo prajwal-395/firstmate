@@ -182,6 +182,41 @@ def test_power_timings_travel_with_the_look(tmp_path):
     assert resolved["power"]["switch_on"]["expand_frames"] == 6
 
 
+def test_declared_collapse_travels_with_the_look(tmp_path):
+    """The softened depth is declarable, not compiled: a project names
+    it under power.switch_on and the resolved look carries it to the
+    comp builder."""
+    asset = _asset(tmp_path)
+    folder = _project(tmp_path, {"tv_frame": {
+        "asset": asset,
+        "power": {"switch_on": {"collapse_crop": 0.30}},
+    }})
+    resolved = resolve_tv_frame(folder, None)
+    assert resolved["power"]["switch_on"]["collapse_crop"] == 0.30
+
+
+def test_undeclared_power_carries_no_timings(tmp_path):
+    """No power declaration means no timings on the look: the softened
+    default applies where the timings MERGE (reel_look and
+    compile_manifest seed from the module), not here."""
+    asset = _asset(tmp_path)
+    folder = _project(tmp_path, {"tv_frame": {"asset": asset}})
+    resolved = resolve_tv_frame(folder, None)
+    assert resolved["power"] == {}
+
+
+def test_collapse_at_the_guard_raises(tmp_path):
+    """0.5 closes the crop entirely - the one-frame flash - so a
+    project declaring it is refused, naming the declaration."""
+    asset = _asset(tmp_path)
+    folder = _project(tmp_path, {"tv_frame": {
+        "asset": asset,
+        "power": {"switch_on": {"collapse_crop": 0.5}},
+    }})
+    with pytest.raises(ValueError):
+        resolve_tv_frame(folder, None)
+
+
 def test_v1_zoom_is_absolute_not_multiplied():
     """Under the frame the bezel IS the framing: the reference shows
     Zoom 2.30 flat, so the punch replaces the conform zoom rather than

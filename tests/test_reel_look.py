@@ -171,6 +171,20 @@ def test_power_effects_land_on_the_first_and_last_picture():
     assert "tv_power_tail" not in effects[reel_look.clip_label(0)]
 
 
+def test_reel_head_timing_carries_the_softened_depth():
+    """The head timing the reels ship holds the declared collapse -
+    the softened default undeclared, a project's own value declared."""
+    effects = reel_look.power_effects(
+        {"power": {}}, reel_look.clip_label(0), reel_look.clip_label(2))
+    head = effects[reel_look.clip_label(0)]["tv_power_head_timing"]
+    assert head["collapse_crop"] == 0.40
+    declared = reel_look.power_effects(
+        {"power": {"switch_on": {"collapse_crop": 0.49}}},
+        reel_look.clip_label(0), reel_look.clip_label(2))
+    assert (declared[reel_look.clip_label(0)]["tv_power_head_timing"]
+            ["collapse_crop"] == 0.49)
+
+
 def test_declared_zoom_multiplies_the_projects_own_framing():
     assert reel_look.declared_zoom_over(1.0, None) == 1.0
     assert reel_look.declared_zoom_over(

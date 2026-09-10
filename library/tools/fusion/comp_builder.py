@@ -217,6 +217,7 @@ def build_effect_comp(effects: dict, clip_dur: int,
             line_frames=timing['line_frames'],
             expand_frames=timing['expand_frames'],
             bloom_frames=timing['bloom_frames'],
+            collapse_crop=timing['collapse_crop'],
             source_in=src_in, source_out=src_out,
             played_frames=played_frames,
         ))

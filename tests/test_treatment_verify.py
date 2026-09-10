@@ -28,6 +28,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
+import pytest
+
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.tv_power import switch_off_frames, switch_on_frames
 
@@ -107,10 +109,13 @@ def test_head_opens_and_holds_neutral():
     # the declared 18-frame animation, all inside its window.
     assert verdict["changed_frames"] == list(range(0, 18))
     assert verdict["window"] == [0, 18]
-    # The strike really is a sliver: 2% kept on frame 0. A measurement,
+    # The softened strike keeps a fifth of the picture on frame 0, not
+    # the old 2% sliver (captain's 2026-09-10 ruling).  A measurement,
     # not a judgement (AGENTS.md 10.5) - reported, never computed into
     # the verdict.
-    assert verdict["min_kept_fraction"] < 0.05
+    assert verdict["min_kept_fraction"] == pytest.approx(0.20)
+    # ... while the strike gain is untouched: the flash still reads.
+    assert verdict["max_gain"] == pytest.approx(2.2)
 
 
 def test_short_clip_head_never_settles_and_fails():
@@ -374,3 +379,94 @@ def test_applier_undoes_a_tail_with_no_room_and_receipts_it(
     banked = glob.glob(str(tmp_path / "assets" / "fusion_presets" / "clip_0_*.comp"))
     assert len(banked) == 1
     assert "PowerCrop" not in open(banked[0]).read()
+
+
+def test_head_samples_decode_the_opening_not_the_number():
+    """The evidence is decoded off the comp: kept picture and gain at
+    the frames the captain judges (0/2/5/10/18).  The softened default
+    holds a fifth through the strike, opens over the same ramp, and
+    settles where it always did."""
+    from library.tools import treatment_verify as tv
+
+    assert tv.HEAD_JUDGE_FRAMES == (0, 2, 5, 10, 18)
+    rows = {r["frame"]: r for r in tv.sample_head_frames(
+        dict(HEAD), CLIP_DUR)}
+    assert rows[0]["kept_fraction"] == pytest.approx(0.20)
+    assert rows[2]["kept_fraction"] == pytest.approx(0.20)
+    assert rows[0]["gain"] == pytest.approx(2.2)
+    # The ramp opens to full picture and the bloom settles by 18 -
+    # softening the strike moved neither.
+    assert rows[10]["kept_fraction"] == pytest.approx(1.0)
+    assert rows[18] == {"frame": 18, "kept_fraction": 1.0, "gain": 1.0}
+
+
+def test_current_shallower_and_shorter_decode_differently():
+    """Shallower and shorter are not the same fix, and the table shows
+    it: the old strike keeps 2% through frame 2, the softened one keeps
+    a fifth, and the shortened one is already half open by frame 5.
+    Either variant leaves frame 18 neutral - the bloom question,
+    answered rather than asserted."""
+    from library.tools import treatment_verify as tv
+
+    current = {"tv_power_head": True, "tv_power_head_timing": {
+        **switch_on_frames(), "collapse_crop": 0.49}}
+    shorter = {"tv_power_head": True, "tv_power_head_timing": {
+        **switch_on_frames(), "line_frames": 2, "collapse_crop": 0.49}}
+
+    def by_frame(effects):
+        return {r["frame"]: r
+                for r in tv.sample_head_frames(effects, CLIP_DUR)}
+
+    old, new, quick = (by_frame(current), by_frame(dict(HEAD)),
+                       by_frame(shorter))
+    # How FAR it closes: 2% vs a fifth, held through frame 2 either way.
+    assert old[0]["kept_fraction"] == pytest.approx(0.02)
+    assert new[0]["kept_fraction"] == pytest.approx(0.20)
+    assert quick[0]["kept_fraction"] == pytest.approx(0.02)
+    assert quick[2]["kept_fraction"] == pytest.approx(0.02)
+    # How LONG it stays closed: the shortened hold is already opening
+    # at frame 5 while the 4-frame holds are not.
+    assert quick[5]["kept_fraction"] > new[5]["kept_fraction"]
+    assert new[5]["kept_fraction"] > old[5]["kept_fraction"]
+    # The strike gain is untouched on all three: the flash still reads.
+    assert {old[0]["gain"], new[0]["gain"], quick[0]["gain"]} == {2.2}
+    # And every variant settles: frame 18 is neutral picture throughout.
+    for table in (old, new, quick):
+        assert table[18] == {"frame": 18, "kept_fraction": 1.0,
+                             "gain": 1.0}
+
+
+def test_softened_head_samples_identically_on_both_picture_rows():
+    """V1 Akshita and V2 Craig: the Fusion pass reaches both rows
+    (PR 874), so the head the captain judged is the head both rows
+    draw.  Same timing in, same decoded frames out - per clip, per
+    row, off the bytes the renderer writes."""
+    from library.tools import treatment_verify as tv
+    from library.tools.execution.fusion_tracks import (
+        fusion_comp_tracks, reachable_effect_labels)
+
+    manifest = {
+        "tracks": {
+            "V1": {"clips": [{"label": "reel_picture_akshita",
+                              "source_file": "akshita.mov"}]},
+            "V2": {"clips": [{"label": "reel_picture_craig",
+                              "source_file": "craig.mov"}]},
+        },
+        "fusion_effects": {"per_clip": {
+            "reel_picture_akshita": dict(HEAD),
+            "reel_picture_craig": dict(HEAD),
+        }},
+    }
+    # The pass visits both rows - this is what stranded V2 before.
+    visited = [index for index, clips, _ in fusion_comp_tracks(manifest)
+               if clips]
+    assert visited == [1, 2]
+    labels = reachable_effect_labels(manifest)
+    assert {"reel_picture_akshita", "reel_picture_craig"} <= labels
+
+    per_clip = manifest["fusion_effects"]["per_clip"]
+    v1 = tv.sample_head_frames(per_clip["reel_picture_akshita"], 600)
+    v2 = tv.sample_head_frames(per_clip["reel_picture_craig"], 600)
+    assert v1 == v2
+    assert {r["frame"]: r for r in v1}[0]["kept_fraction"] == pytest.approx(
+        0.20)

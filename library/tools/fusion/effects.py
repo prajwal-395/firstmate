@@ -768,6 +768,7 @@ class fx:
         line_frames: int = 4,
         expand_frames: int = 6,
         bloom_frames: int = 8,
+        collapse_crop: Optional[float] = None,
         strike_gain: float = 2.2,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
@@ -783,9 +784,12 @@ class fx:
         strike spike and its decay.
 
         Every count is declared in ``library/tools/tv_power.py`` - the
-        defaults here repeat that module's values so the block stays
-        usable on its own, and ``comp_builder`` passes the resolved
-        declaration through.  All-zero phases return an empty block.
+        frame defaults here repeat that module's values so the block
+        stays usable on its own, and ``comp_builder`` passes the resolved
+        declaration through.  ``collapse_crop`` is the depth the crop
+        holds at the strike (0.40 keeps a fifth of the picture); None
+        resolves to the module's declared default at call time, so the
+        two cannot drift apart.  All-zero phases return an empty block.
 
         ``played_frames`` is how many frames the timeline really renders
         for this clip.  The source span ``played_range`` derives can be
@@ -799,7 +803,10 @@ class fx:
         half gets: a ramp longer than its clip never reaches neutral, so
         drawing it holds the effect across the whole clip.
         """
-        from library.tools.tv_power import COLLAPSE_CROP
+        from library.tools.tv_power import SWITCH_ON_COLLAPSE_CROP
+
+        if collapse_crop is None:
+            collapse_crop = SWITCH_ON_COLLAPSE_CROP
 
         total = line_frames + expand_frames + bloom_frames
         if total <= 0:
@@ -822,8 +829,8 @@ class fx:
                 f"{crop_name}{edge[-3:]}",
                 start_frame=line_end, end_frame=expand_end,
                 easing="Linear", reverse=True,
-                scale=COLLAPSE_CROP, offset=0.0,
-                hold_before=COLLAPSE_CROP, hold_after=last,
+                scale=collapse_crop, offset=0.0,
+                hold_before=collapse_crop, hold_after=last,
                 color=(255, 255, 255),
             )
             crop.set_input(edge, spline)

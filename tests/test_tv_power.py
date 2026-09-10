@@ -23,12 +23,16 @@ from library.tools.tv_power import (
     SWITCH_OFF_DECAY_FRAMES,
     SWITCH_OFF_DOT_FRAMES,
     SWITCH_ON_BLOOM_FRAMES,
+    SWITCH_ON_COLLAPSE_CROP,
+    SWITCH_ON_COLLAPSE_MAX,
+    SWITCH_ON_COLLAPSE_MIN,
     SWITCH_ON_EXPAND_FRAMES,
     SWITCH_ON_LINE_FRAMES,
     switch_off_frames,
     switch_off_total,
     switch_on_frames,
     switch_on_total,
+    validate_collapse,
     validate_timing,
 )
 from library.tools.fusion.comp_builder import build_effect_comp
@@ -39,6 +43,9 @@ def test_switch_on_is_three_phases_totalling_18_frames():
     assert (SWITCH_ON_LINE_FRAMES, SWITCH_ON_EXPAND_FRAMES,
             SWITCH_ON_BLOOM_FRAMES) == (4, 6, 8)
     assert switch_on_total() == 18
+    # The depth travels in the mapping but is not a length: changing
+    # the look must not move the window.
+    assert switch_on_total({**switch_on_frames(), "collapse_crop": 0.1}) == 18
 
 
 def test_switch_off_is_three_phases_totalling_18_frames():
@@ -49,16 +56,58 @@ def test_switch_off_is_three_phases_totalling_18_frames():
 
 def test_collapse_stops_short_of_fully_closed():
     """0.49, not 0.5: a fully closed crop flashes uncropped on some
-    Resolve builds."""
+    Resolve builds.  This is the SWITCH-OFF's depth, unjudged and
+    unchanged."""
     assert COLLAPSE_CROP == 0.49
     assert DOT_SIZE == 0.05
+
+
+def test_switch_on_holds_a_fifth_not_a_sliver():
+    """The captain's 2026-09-10 ruling: keep the effect, soften the
+    opening sliver.  0.40 keeps a fifth of the picture where 0.49 kept
+    2%: the strike still reads (from the untouched 2.2x gain spike),
+    the opening frame shows picture, and the 0.5 guard keeps ten times
+    the margin (0.10 vs 0.01)."""
+    assert SWITCH_ON_COLLAPSE_CROP == 0.40
+    assert 1.0 - 2 * SWITCH_ON_COLLAPSE_CROP == pytest.approx(0.20)
+    assert switch_on_frames()["collapse_crop"] == 0.40
 
 
 def test_timing_override_merges_over_defaults():
     timing = validate_timing(
         {"switch_on": {"line_frames": 2}}, "test", half="both")
     assert timing == {"switch_on": {
-        "line_frames": 2, "expand_frames": 6, "bloom_frames": 8}}
+        "line_frames": 2, "expand_frames": 6, "bloom_frames": 8,
+        "collapse_crop": 0.40}}
+
+
+def test_declared_collapse_merges_as_a_float_not_frames():
+    """A project declares the depth the way it declares the lengths -
+    and it must survive as a fraction, never int() to 0."""
+    timing = validate_timing(
+        {"switch_on": {"collapse_crop": 0.49}}, "test", half="both")
+    assert timing["switch_on"]["collapse_crop"] == 0.49
+
+
+def test_collapse_bounds_raise_naming_the_source():
+    """0.5 closes the crop entirely (the one-frame flash); negative and
+    non-numeric are mistakes, not looks.  All raise, none clamp."""
+    for bad in (0.5, 0.9, -0.1, "shallow", True, None):
+        with pytest.raises((ValueError, TypeError)):
+            validate_collapse(bad, "test")
+    assert validate_collapse(0.0, "test") == 0.0
+    assert validate_collapse(0.49, "test") == 0.49
+    with pytest.raises(ValueError):
+        validate_timing(
+            {"switch_on": {"collapse_crop": 0.5}}, "test", half="both")
+
+
+def test_collapse_is_not_a_switch_off_key():
+    """The switch-off is unjudged: naming a depth there refuses loudly
+    rather than travelling to a reader that does not exist."""
+    with pytest.raises(ValueError):
+        validate_timing(
+            {"switch_off": {"collapse_crop": 0.3}}, "test", half="both")
 
 
 def test_unknown_half_raises():
@@ -114,10 +163,39 @@ def test_custom_timing_reaches_the_comp():
     comp = build_effect_comp(
         {"tv_power_head": True,
          "tv_power_head_timing": {"line_frames": 2, "expand_frames": 6,
-                                  "bloom_frames": 8}},
+                                  "bloom_frames": 8,
+                                  "collapse_crop": 0.40}},
         300)
-    # Line holds 0..2 instead of the default 0..4.
-    assert "[2] = { 0.49" in comp
+    # Line holds 0..2 instead of the default 0..4, at the declared depth.
+    assert "[2] = { 0.4" in comp
+
+
+def test_default_head_comp_holds_a_fifth():
+    """The softened opening is drawn, not just declared: the default
+    head holds 0.4 at the strike, keeping a fifth of the picture."""
+    comp = build_effect_comp({"tv_power_head": True}, 300)
+    assert "[4] = { 0.4" in comp
+    assert "[4] = { 0.49" not in comp
+
+
+def test_old_strike_stays_declarable():
+    """0.49 was a look, and a project that wants it back says so in
+    one key - the engine did not remove the number, it moved it into
+    the declaration."""
+    comp = build_effect_comp(
+        {"tv_power_head": True,
+         "tv_power_head_timing": {**switch_on_frames(),
+                                  "collapse_crop": 0.49}},
+        300)
+    assert "[4] = { 0.49" in comp
+
+
+def test_tail_still_closes_to_the_shared_guard():
+    """The switch-off is untouched: its collapse still meets at 0.49
+    even though the head now opens from 0.40."""
+    comp = build_effect_comp({"tv_power_tail": True}, 300)
+    assert "0.49" in comp
+    assert "0.4," not in comp and "[0] = { 0.4" not in comp
 
 
 def test_animated_size_peak_stays_inside_the_ceiling():

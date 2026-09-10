@@ -90,8 +90,15 @@ def timing_for(key: str, effects: dict) -> Dict[str, int]:
 
 
 def treatment_total(key: str, effects: dict) -> int:
-    """How many frames this treatment's animation spans, by declaration."""
-    return sum(int(v) for v in timing_for(key, effects).values())
+    """How many frames this treatment's animation spans, by declaration.
+
+    Sums the phase LENGTHS only: the head's timing carries
+    ``collapse_crop`` (a depth, not a length), and adding a crop
+    fraction to a frame count would move the window every time the
+    look changes.
+    """
+    return sum(int(v) for k, v in timing_for(key, effects).items()
+               if k.endswith("_frames"))
 
 
 def treatment_window(key: str, effects: dict, first: int,
@@ -653,7 +660,7 @@ def _edge(curves: Dict[str, List[float]], name: str, frame: int,
 
 
 def _kept_series(curves: Dict[str, List[float]],
-                 played: int) -> List[float]:
+                  played: int) -> List[float]:
     """Fraction of picture height the crop pair keeps, per frame."""
     tops = [n for n in curves if n.endswith("Top")]
     bots = [n for n in curves if n.endswith("tom")]
@@ -667,3 +674,44 @@ def _kept_series(curves: Dict[str, List[float]],
                   default=0.0)
         out.append(max(0.0, 1.0 - top - bot))
     return out
+
+
+#: The head frames the captain judges a power-on opening on: the
+#: strike (0), inside the hold (2), the hold-to-ramp edge (5), the
+#: ramp open (10), and the bloom settled (18).  One enumeration, so a
+#: report and a test cannot sample different frames.
+HEAD_JUDGE_FRAMES = (0, 2, 5, 10, 18)
+
+
+def sample_head_frames(effects: dict, clip_dur: int,
+                       frames=HEAD_JUDGE_FRAMES,
+                       played_frames: Optional[int] = None
+                       ) -> List[Dict[str, Any]]:
+    """What the switch-on draws at the judged frames: decoded, not asserted.
+
+    Builds the head's own comp (the bytes the renderer writes), evaluates
+    its splines, and reports per frame how much picture height the crop
+    keeps and how hot the gain spike is.  The head is a Crop plus a
+    BrightnessContrast and nothing else, so those two numbers ARE the
+    opening - no Resolve, no footage, no model needed.  A variant that
+    changes the look changes this table; a variant that does not, does
+    not.
+    """
+    alone = build_alone("tv_power_head", effects or {}, clip_dur,
+                        played_frames)
+    need = max(frames) + 1 if frames else 1
+    played = max(int(played_frames) if played_frames else need, need)
+    curves = evaluate_comp(alone, played)
+    kept = _kept_series(curves, played)
+    names = [n for n in curves if n.endswith("Gain")]
+    rows = []
+    for f in frames:
+        gain = (max(curves[n][f] for n in names)
+                if names and all(len(curves[n]) > f for n in names)
+                else 1.0)
+        rows.append({
+            "frame": int(f),
+            "kept_fraction": round(kept[f] if f < len(kept) else 1.0, 4),
+            "gain": round(float(gain), 4),
+        })
+    return rows

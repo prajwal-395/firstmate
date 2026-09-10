@@ -97,9 +97,39 @@ SWITCH_ON_STRIKE_GAIN = 2.2
 SWITCH_OFF_DOT_GAIN = 2.5
 """BrightnessContrast gain at the switch-off dot, before the decay."""
 
-# How far the picture collapses.  CropTop/CropBottom meet at 0.49, not
-# 0.5: a fully closed crop is a divide-by-nothing some Resolve builds
-# render as a one-frame flash of the uncropped picture.
+# How far the SWITCH-ON closes at the strike.  CropTop/CropBottom meet
+# at 0.40, keeping a fifth of the picture - not 0.49's 2% sliver.
+#
+# Why 0.40, recorded 2026-09-10 after the captain judged the sliver
+# opening ("keep the effect, soften the opening sliver"): the strike
+# reads from the gain spike (2.2x, untouched), so the crop no longer
+# needs to close to a line to sell it; an 80% collapse still reads as
+# a switch while the opening frame shows picture, not black.  0.49 was
+# a RENDER guard (stop short of 0.5, where some Resolve builds flash
+# the uncropped picture), never a look - and 0.40 keeps ten times that
+# guard's margin (0.10 vs 0.01).  The phase lengths are untouched, so
+# the bloom still settles by frame 18 and every window gate holds.
+#
+# A project changes it through its own ``tv_frame`` declaration
+# (``power: {switch_on: {collapse_crop: ...}}``); 0.49 stays available
+# to any project that wants the old strike back.  The switch-OFF keeps
+# the shared COLLAPSE_CROP below: the captain has not judged that half.
+SWITCH_ON_COLLAPSE_CROP = 0.40
+"""The CropTop/CropBottom value the switch-on holds before it opens."""
+
+# The bounds a declared switch-on depth is held to.  0.0 is a pure
+# gain flash with no collapse - coherent, so allowed.  0.5 is the
+# divide-by-nothing the COLLAPSE_CROP comment guards against, so the
+# bound is exclusive: 0.5 itself raises rather than degrading into a
+# one-frame flash of uncropped picture.
+SWITCH_ON_COLLAPSE_MIN = 0.0
+SWITCH_ON_COLLAPSE_MAX = 0.5
+
+# How far the SWITCH-OFF collapses.  CropTop/CropBottom meet at 0.49,
+# not 0.5: a fully closed crop is a divide-by-nothing some Resolve
+# builds render as a one-frame flash of the uncropped picture.  This
+# half is UNJUDGED - the captain has not ruled on the switch-off - so
+# its depth stays exactly where it was.
 COLLAPSE_CROP = 0.49
 """The CropTop/CropBottom value of the fully collapsed line."""
 
@@ -109,12 +139,21 @@ DOT_SIZE = 0.05
 """The uniform Transform Size of the switch-off dot."""
 
 
-def switch_on_frames(line=None, expand=None, bloom=None) -> dict:
-    """The switch-on timing as data, with declared defaults fillable."""
+def switch_on_frames(line=None, expand=None, bloom=None,
+                     collapse_crop=None) -> dict:
+    """The switch-on timing as data, with declared defaults fillable.
+
+    ``collapse_crop`` is the depth, not a length: how far the picture
+    closes at the strike (0.40 keeps a fifth).  It travels in this
+    mapping so a project declares it the same way it declares the
+    phase lengths - but it is NOT summed into the total.
+    """
     return {
         "line_frames": SWITCH_ON_LINE_FRAMES if line is None else int(line),
         "expand_frames": SWITCH_ON_EXPAND_FRAMES if expand is None else int(expand),
         "bloom_frames": SWITCH_ON_BLOOM_FRAMES if bloom is None else int(bloom),
+        "collapse_crop": (SWITCH_ON_COLLAPSE_CROP if collapse_crop is None
+                          else float(collapse_crop)),
     }
 
 
@@ -128,15 +167,48 @@ def switch_off_frames(collapse=None, dot=None, decay=None) -> dict:
 
 
 def switch_on_total(timing: dict | None = None) -> int:
-    """Total switch-on length in frames (18 by default: 0.6 s at 30 fps)."""
+    """Total switch-on length in frames (18 by default: 0.6 s at 30 fps).
+
+    Sums the phase LENGTHS only: ``collapse_crop`` is a depth, and
+    adding a crop fraction to a frame count would move the window every
+    time the look changes.
+    """
     t = timing or switch_on_frames()
-    return int(t["line_frames"]) + int(t["expand_frames"]) + int(t["bloom_frames"])
+    return (int(t["line_frames"]) + int(t["expand_frames"])
+            + int(t["bloom_frames"]))
 
 
 def switch_off_total(timing: dict | None = None) -> int:
     """Total switch-off length in frames (18 by default: 0.6 s at 30 fps)."""
     t = timing or switch_off_frames()
     return int(t["collapse_frames"]) + int(t["dot_frames"]) + int(t["decay_frames"])
+
+
+def validate_collapse(value, source: str) -> float:
+    """A declared switch-on depth as a crop fraction, or raise.
+
+    Out of range is a mistake, not something to clamp: 0.5 and above
+    is the divide-by-nothing COLLAPSE_CROP guards against (some
+    Resolve builds flash the uncropped picture there), and clamping
+    ``collapse_crop: 0.9`` down to it would ship exactly that flash.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(
+            f"tv power switch_on.collapse_crop in {source} must be a "
+            f"number between {SWITCH_ON_COLLAPSE_MIN} and "
+            f"{SWITCH_ON_COLLAPSE_MAX} (exclusive), got "
+            f"{type(value).__name__}: {value!r}"
+        )
+    depth = float(value)
+    if not (SWITCH_ON_COLLAPSE_MIN <= depth < SWITCH_ON_COLLAPSE_MAX):
+        raise ValueError(
+            f"tv power switch_on.collapse_crop in {source} must be "
+            f"between {SWITCH_ON_COLLAPSE_MIN} and "
+            f"{SWITCH_ON_COLLAPSE_MAX} (exclusive), got {depth!r}: "
+            f"0.5 closes the crop entirely, which some Resolve builds "
+            f"render as a one-frame flash of the uncropped picture."
+        )
+    return depth
 
 
 def validate_timing(value, source: str, half: str) -> dict:
@@ -176,6 +248,9 @@ def validate_timing(value, source: str, half: str) -> dict:
                     f"tv power {key!r} in {source} names unknown timing "
                     f"{k!r}; known: {sorted(defaults)}"
                 )
+            if k == "collapse_crop":
+                merged[k] = validate_collapse(v, source)
+                continue
             if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
                 raise ValueError(
                     f"tv power {key}.{k} in {source} must be a non-negative "
