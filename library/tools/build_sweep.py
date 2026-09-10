@@ -85,11 +85,25 @@ class SweepRefused(Exception):
 
 
 def journal_path_for(project_folder: str, when: str | None = None) -> str:
-    """Where this sweep's journal goes. One file per sweep, never reused."""
+    """Where this sweep's journal goes. One file per sweep, never reused.
+
+    Suffixed past a collision: consecutive sweeps share a
+    second-granularity stamp, and the second journal must not
+    overwrite the first - measured 2026-09-10, when this lane's
+    verify-twice run landed its empty second pass on top of the
+    first pass's 102-file record.  Same disambiguator
+    `library/tools/execution/remove_proof.py` uses.
+    """
     stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     layout = ProjectLayout(project_folder)
-    return str(layout.write_path(
+    candidate = str(layout.write_path(
         Area.QUARANTINE, f"build_sweep_{stamp}.json"))
+    sibling = 2
+    while os.path.exists(candidate):
+        candidate = str(layout.write_path(
+            Area.QUARANTINE, f"build_sweep_{stamp}_{sibling}.json"))
+        sibling += 1
+    return candidate
 
 
 def _area_dirs(project_folder: str) -> list[tuple[Area, str]]:
@@ -144,8 +158,16 @@ def sweep_files(project_folder: str, db_paths: list[str],
         result = gc.mark(project_folder, asset_dir, roots)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         layout = ProjectLayout(project_folder)
+        # Suffixed past a collision, like the journal above: a
+        # verify-twice run must not land its second mark on the first.
         mark_path = str(layout.write_path(
             Area.QUARANTINE, f"mark_{area.value}_{stamp}.json"))
+        sibling = 2
+        while os.path.exists(mark_path):
+            mark_path = str(layout.write_path(
+                Area.QUARANTINE,
+                f"mark_{area.value}_{stamp}_{sibling}.json"))
+            sibling += 1
         result.write_json(mark_path)
         entry = {
             "area": area.value,
@@ -161,7 +183,8 @@ def sweep_files(project_folder: str, db_paths: list[str],
         if apply and result.orphans:
             try:
                 record = gc.sweep(mark_path, project_folder=project_folder,
-                                  fresh_roots=roots)
+                                  fresh_roots=roots,
+                                  manifest_tag=area.value)
             except gc.SweepRefused as refused:
                 raise SweepRefused(
                     f"{area.value}: {refused}") from refused

@@ -21,6 +21,20 @@ expired `(pre-rebuild backup)`.  Same rules, same journal, same
 protected verification; `discover_scratch_timelines` enumerates what
 is present so a second run finds nothing and refuses nothing.
 
+A third brief retires the two superseded Reel 09 timelines
+(2026-09-10): *"can you go through and clean up the timelines and
+associated assets and bins that are not the main reel 9 timeline?
+(and obviously the geo podcast synced timeline)"* - with the
+captain's screenshot showing his three remaining Reel 09 timelines.
+`SUPERSEDED_REEL_TIMELINES` names the two that go, `(final)` and the
+master are the two that stay, and `plan_superseded_removal` proves
+the same per-bin facts as the proof path before anything runs.
+These two names stay in `PROTECTED_TIMELINES` so the proof path
+still refuses them; the superseded path is the only one that may
+take them, by exact name, and it verifies `(final)` plus the master
+untouched instead of the whole protected set - the other superseded
+timeline is already gone on the second of the two removals.
+
 Why this is not in `resolve_organization`
 -----------------------------------------
 Because organising must never delete, and
@@ -55,7 +69,7 @@ is the half that deletes.
 """
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 
 from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_organization import (
@@ -124,6 +138,42 @@ AUTHORISED_DEMO_TIMELINES = frozenset([
 Exact names only (AGENTS.md 5): a near match lands elsewhere, so a
 suffixed or reworded variant is not a member and refuses."""
 
+SUPERSEDED_PLAIN_TIMELINE = \
+    "Reel 09 - your-website-is-only-20-percent"
+SUPERSEDED_REACTION_TIMELINE = (
+    "Reel 09 - your-website-is-only-20-percent (reaction-cutaway)")
+SUPERSEDED_REEL_TIMELINES = frozenset([
+    SUPERSEDED_PLAIN_TIMELINE,
+    SUPERSEDED_REACTION_TIMELINE,
+])
+"""The two superseded Reel 09 timelines the captain authorised
+removing, by EXACT name, under his 2026-09-10 cleanup brief (*"can
+you go through and clean up the timelines and associated assets and
+bins that are not the main reel 9 timeline? (and obviously the geo
+podcast synced timeline)"*, with the screenshot of his three
+remaining Reel 09 timelines).
+
+The plain one is superseded by `(final)`; the reaction-cutaway is
+the variant he chose FROM, whose chosen content `(final)` already
+carries.  Both share media with `(final)`, so the plan proves every
+removal candidate unreferenced by anything that survives before it
+goes - the same per-bin proof the proof path runs, through the same
+shared core.  Exact names only (AGENTS.md 5).
+
+These two stay members of `PROTECTED_TIMELINES` above, so the proof
+path still refuses them: only `plan_superseded_removal` may take
+them, and it answers to `(final)` plus the master instead.
+"""
+
+FINAL_REEL_TIMELINE = \
+    "Reel 09 - your-website-is-only-20-percent (final)"
+"""The main Reel 09 timeline: the one the captain hand-repositioned
+and is happy with, holding his 27 hand-positioned overlays.  The
+superseded path verifies this present and untouched around every
+removal; it is the same string `PROTECTED_TIMELINES` already holds,
+named here so the superseded path does not depend on that set's
+membership."""
+
 
 def is_authorised_demo(name: str) -> bool:
     """Is this timeline name one the captain authorised removing?
@@ -139,6 +189,16 @@ def is_authorised_demo(name: str) -> bool:
         or (name or "").startswith(POSITIONING_SCRATCH_PREFIX) \
         or name in AUTHORISED_DEMO_TIMELINES \
         or name == PRE_REBUILD_BACKUP_TIMELINE
+
+
+def is_authorised_superseded(name: str) -> bool:
+    """Is this timeline name one of the two superseded Reel 09
+    timelines the captain authorised removing?
+
+    Exact membership in `SUPERSEDED_REEL_TIMELINES` only (AGENTS.md
+    5): `(final)`, the master and every near variant refuse.
+    """
+    return name in SUPERSEDED_REEL_TIMELINES
 
 
 class ProofRemovalRefused(Exception):
@@ -184,32 +244,72 @@ def discover_scratch_timelines(
         and a.name not in PROTECTED_TIMELINES)
 
 
-def plan_proof_removal(
+def discover_superseded_timelines(
+        artefacts: Sequence[Artefact]) -> list[str]:
+    """Authorised superseded timelines PRESENT in this pool, in name order.
+
+    The runner removes what this returns and skips what it does not:
+    a second consecutive run returns nothing, which is the idempotence
+    proof - no moves, no removals, and no refusal for work already done.
+    `(final)` and the master are never members, so they never match.
+    """
+    return sorted(
+        a.name for a in artefacts
+        if a.kind == "timeline" and is_authorised_superseded(a.name))
+
+
+def discover_superseded_bins(
+        artefacts: Sequence[Artefact],
+        bin_paths: Sequence[Sequence[str]],
+        timeline_name: str) -> list[tuple[str, ...]]:
+    """The doomed timeline's own per-reel bins, for the operator to confirm.
+
+    Read-only: every depth-2 bin under a render top (current or
+    legacy) whose leaf names the doomed timeline exactly.  The
+    operator passes chosen ones back as exact `--proof-bin` names;
+    nothing here deletes.
+    """
+    known: set[tuple[str, ...]] = {tuple(p) for p in bin_paths}
+    for artefact in artefacts:
+        folder = tuple(artefact.folder_path)
+        for depth in range(1, len(folder) + 1):
+            known.add(folder[:depth])
+    allowed_tops = set(RENDER_TOP_BINS) | set(LEGACY_CLIP_BINS)
+    return sorted(
+        p for p in known
+        if len(p) == 2 and p[0] in allowed_tops and p[1] == timeline_name)
+
+
+def _plan_removal(
         artefacts: Sequence[Artefact],
         bin_paths: Sequence[Sequence[str]],
         *,
         timeline_name: str,
         bin_names: Iterable[str],
         project_root: str,
-        master_name: str) -> dict:
-    """The proof timeline and bins to remove, proven before anything runs.
+        master_name: str,
+        authorised: Callable[[str], bool],
+        foreign_hint: str,
+        bin_why: str,
+        untouched_names: frozenset[str]) -> dict:
+    """The shared core behind both removal plans.
 
-    Pure: takes the artefacts off `read_pool` and the full bin tree,
-    returns `{"timeline": ..., "bins": [...], "verified_untouched":
-    [...]}`.  Raises `ProofRemovalRefused` on anything unproven -
-    including a protected name, a non-proof name, a timeline or bin
-    that is not in the pool, and bin contents that are not all
-    unplaced generated clips.
+    Every fact is proven before anything runs: the name is
+    authorised and not one of the kept timelines, the timeline is in
+    the pool as a timeline, every named bin exists under a render top
+    and holds only unplaced pipeline-generated clips - or clips
+    placed only on the timeline going down with the bin - and every
+    kept timeline is verified present and untouched.  Raises
+    `ProofRemovalRefused` on anything unproven.
     """
-    if timeline_name in PROTECTED_TIMELINES or timeline_name == master_name:
+    if timeline_name in untouched_names or timeline_name == master_name:
         raise ProofRemovalRefused(
             f"{timeline_name!r} is protected - this path never removes "
             f"it. Nothing was removed.")
-    if not is_authorised_demo(timeline_name):
+    if not authorised(timeline_name):
         raise ProofRemovalRefused(
-            f"{timeline_name!r} is not a captain-authorised demo "
-            f"artefact (firstmate proof, or an exact authorised demo "
-            f"name). This path removes those only. Nothing was removed.")
+            f"{timeline_name!r} is not a captain-authorised {foreign_hint}. "
+            f"This path removes those only. Nothing was removed.")
 
     timelines = [a for a in artefacts
                  if a.kind == "timeline" and a.name == timeline_name]
@@ -271,10 +371,8 @@ def plan_proof_removal(
                 f"stand under {bin_name!r}. Nothing was removed.")
         planned_bins.append({
             "path": path,
-            "why": (f"firstmate's proof caption bin for "
-                    f"{timeline_name!r}, removed under the captain's "
-                    f"2026-09-10 authority; "
-                    f"{len(subtree)} item(s) go with it"),
+            "why": (bin_why.format(timeline_name=timeline_name,
+                                   count=len(subtree))),
             "contents": [{"item_id": a.item_id, "name": a.name,
                           "file_path": a.file_path,
                           "folder": "/".join(a.folder_path)}
@@ -282,7 +380,7 @@ def plan_proof_removal(
         })
 
     untouched = []
-    for name in sorted(PROTECTED_TIMELINES | {master_name}):
+    for name in sorted(untouched_names | {master_name}):
         present = [a for a in artefacts
                    if a.kind == "timeline" and a.name == name]
         if not present:
@@ -300,3 +398,66 @@ def plan_proof_removal(
         "bins": planned_bins,
         "verified_untouched": untouched,
     }
+
+
+def plan_proof_removal(
+        artefacts: Sequence[Artefact],
+        bin_paths: Sequence[Sequence[str]],
+        *,
+        timeline_name: str,
+        bin_names: Iterable[str],
+        project_root: str,
+        master_name: str) -> dict:
+    """The proof timeline and bins to remove, proven before anything runs.
+
+    Pure: takes the artefacts off `read_pool` and the full bin tree,
+    returns `{"timeline": ..., "bins": [...], "verified_untouched":
+    [...]}`.  Raises `ProofRemovalRefused` on anything unproven -
+    including a protected name, a non-proof name, a timeline or bin
+    that is not in the pool, and bin contents that are not all
+    unplaced generated clips.
+    """
+    return _plan_removal(
+        artefacts, bin_paths,
+        timeline_name=timeline_name, bin_names=bin_names,
+        project_root=project_root, master_name=master_name,
+        authorised=is_authorised_demo,
+        foreign_hint="demo artefact (firstmate proof, or an exact "
+                     "authorised demo name)",
+        bin_why=("firstmate's proof caption bin for {timeline_name!r}, "
+                 "removed under the captain's 2026-09-10 authority; "
+                 "{count} item(s) go with it"),
+        untouched_names=PROTECTED_TIMELINES)
+
+
+def plan_superseded_removal(
+        artefacts: Sequence[Artefact],
+        bin_paths: Sequence[Sequence[str]],
+        *,
+        timeline_name: str,
+        bin_names: Iterable[str],
+        project_root: str,
+        master_name: str) -> dict:
+    """One superseded Reel 09 timeline and its per-reel bins, proven.
+
+    Same shape and same proof as `plan_proof_removal`, under the
+    captain's 2026-09-10 cleanup brief (*"can you go through and clean
+    up the timelines and associated assets and bins that are not the
+    main reel 9 timeline? (and obviously the geo podcast synced
+    timeline)"*).  Only the two exact `SUPERSEDED_REEL_TIMELINES`
+    names are authorised; `(final)` and the master are verified
+    present and untouched around the removal, and every bin content
+    still played by a surviving timeline refuses - which is what
+    proves media shared with `(final)` stays.
+    """
+    return _plan_removal(
+        artefacts, bin_paths,
+        timeline_name=timeline_name, bin_names=bin_names,
+        project_root=project_root, master_name=master_name,
+        authorised=is_authorised_superseded,
+        foreign_hint="superseded reel (one of the two exact "
+                     "captain-authorised Reel 09 timeline names)",
+        bin_why=("superseded reel's per-reel bin for {timeline_name!r}, "
+                 "removed under the captain's 2026-09-10 cleanup "
+                 "authority; {count} item(s) go with it"),
+        untouched_names=frozenset([FINAL_REEL_TIMELINE]))

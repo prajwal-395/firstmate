@@ -25,14 +25,22 @@ from library.tools import resolve_bin_layout as bins
 from library.tools.execution import retire_empty_bins as retire
 from library.tools.proof_cleanup import (
     CAPTAINS_PROOF_TIMELINE,
+    FINAL_REEL_TIMELINE,
     MERGE_DEMO_TIMELINE,
     POSITIONING_SCRATCH_PREFIX,
     PRE_REBUILD_BACKUP_TIMELINE,
     PROTECTED_TIMELINES,
+    SUPERSEDED_PLAIN_TIMELINE,
+    SUPERSEDED_REACTION_TIMELINE,
+    SUPERSEDED_REEL_TIMELINES,
     ProofRemovalRefused,
     discover_proof_bins,
     discover_scratch_timelines,
+    discover_superseded_bins,
+    discover_superseded_timelines,
+    is_authorised_superseded,
     plan_proof_removal,
+    plan_superseded_removal,
 )
 from library.tools.resolve_organization import (
     Artefact,
@@ -490,6 +498,165 @@ def test_discover_scratch_is_empty_when_the_scratch_is_gone():
                  if a.name not in POSITIONING_NAMES
                  and a.name != PRE_REBUILD_BACKUP_TIMELINE]
     assert discover_scratch_timelines(artefacts) == []
+
+
+# ----------------------------------- the two superseded Reel 09 timelines
+
+
+def superseded_pool():
+    """The captain's screenshot in miniature: `(final)` and the master
+    stay; the plain superseded reel and the reaction-cutaway variant go,
+    each with its own per-reel leaf under 06 and 07 holding only media
+    placed on the doomed timeline - plus one caption `(final)` still
+    plays, which must refuse."""
+    artefacts = [
+        timeline("t-master", MASTER,
+                 folder=("04 - Master",)),
+        timeline("t-final", FINAL_REEL_TIMELINE,
+                 folder=(bins.REELS_BIN, "Unrecorded")),
+        timeline("t-plain", SUPERSEDED_PLAIN_TIMELINE,
+                 folder=(bins.REELS_BIN, "Current plan")),
+        timeline("t-reaction", SUPERSEDED_REACTION_TIMELINE,
+                 folder=(bins.REELS_BIN, "Unrecorded")),
+        clip("c-plain-sub", "sub_plain.mov",
+             path=generated("plain.mov"),
+             placed_by=[SUPERSEDED_PLAIN_TIMELINE],
+             folder=(bins.SUBTITLES_BIN, SUPERSEDED_PLAIN_TIMELINE)),
+        clip("c-plain-mg", "mg_plain.mov",
+             path=generated("plain_mg.mov"),
+             placed_by=[SUPERSEDED_PLAIN_TIMELINE],
+             folder=(bins.MOTION_GRAPHICS_BIN, SUPERSEDED_PLAIN_TIMELINE)),
+        clip("c-reaction-sub", "sub_reaction.mov",
+             path=generated("reaction.mov"),
+             placed_by=[SUPERSEDED_REACTION_TIMELINE],
+             folder=(bins.SUBTITLES_BIN, SUPERSEDED_REACTION_TIMELINE)),
+        clip("c-reaction-mg", "vox_reaction.mov",
+             path=generated("reaction_mg.mov"),
+             placed_by=[SUPERSEDED_REACTION_TIMELINE],
+             folder=(bins.MOTION_GRAPHICS_BIN, SUPERSEDED_REACTION_TIMELINE)),
+        clip("c-final-sub", "sub_final.mov",
+             path=generated("final.mov"),
+             placed_by=[FINAL_REEL_TIMELINE],
+             folder=(bins.SUBTITLES_BIN, FINAL_REEL_TIMELINE)),
+    ]
+    return artefacts
+
+
+def superseded_bins(doomed):
+    return [f"{bins.SUBTITLES_BIN}/{doomed}",
+            f"{bins.MOTION_GRAPHICS_BIN}/{doomed}"]
+
+
+def test_the_superseded_names_are_exact_and_kept_is_final():
+    assert SUPERSEDED_REEL_TIMELINES == frozenset([
+        SUPERSEDED_PLAIN_TIMELINE, SUPERSEDED_REACTION_TIMELINE])
+    assert FINAL_REEL_TIMELINE == LIVE
+    assert is_authorised_superseded(SUPERSEDED_PLAIN_TIMELINE)
+    assert is_authorised_superseded(SUPERSEDED_REACTION_TIMELINE)
+    assert not is_authorised_superseded(FINAL_REEL_TIMELINE)
+    assert not is_authorised_superseded(MASTER)
+    assert not is_authorised_superseded(SUPERSEDED_PLAIN_TIMELINE + " 2")
+
+
+def test_each_superseded_timeline_plans_with_its_bins_and_the_kept():
+    artefacts = superseded_pool()
+    for doomed in sorted(SUPERSEDED_REEL_TIMELINES):
+        plan = plan_superseded_removal(
+            artefacts, tree_of(artefacts), timeline_name=doomed,
+            bin_names=superseded_bins(doomed),
+            project_root=PROJECT_ROOT, master_name=MASTER)
+        assert plan["timeline"]["name"] == doomed
+        assert sorted("/".join(b["path"]) for b in plan["bins"]) == \
+            sorted(superseded_bins(doomed))
+        assert sorted(u["name"] for u in plan["verified_untouched"]) == \
+            sorted([FINAL_REEL_TIMELINE, MASTER])
+
+
+def test_the_superseded_path_refuses_the_kept_and_the_master():
+    artefacts = superseded_pool()
+    for name in [FINAL_REEL_TIMELINE, MASTER]:
+        with pytest.raises(ProofRemovalRefused):
+            plan_superseded_removal(
+                artefacts, tree_of(artefacts), timeline_name=name,
+                bin_names=[], project_root=PROJECT_ROOT,
+                master_name=MASTER)
+
+
+def test_the_superseded_path_refuses_near_variants_and_absent():
+    artefacts = superseded_pool()
+    for name in [SUPERSEDED_PLAIN_TIMELINE + " 2",
+                 SUPERSEDED_REACTION_TIMELINE.replace("(", "").replace(
+                     ")", ""),
+                 "Reel 09 - your-website-is-only-20-percent (rebuild staging)",
+                 CAPTAINS_PROOF_TIMELINE]:
+        with pytest.raises(ProofRemovalRefused):
+            plan_superseded_removal(
+                artefacts, tree_of(artefacts), timeline_name=name,
+                bin_names=[], project_root=PROJECT_ROOT,
+                master_name=MASTER)
+
+
+def test_the_superseded_path_refuses_a_bin_final_still_plays():
+    """The shared-media case: a caption `(final)` still plays refuses,
+    even inside the doomed timeline's own leaf."""
+    artefacts = superseded_pool() + [
+        clip("c-shared", "shared.mov", path=generated("shared.mov"),
+             placed_by=[SUPERSEDED_PLAIN_TIMELINE, FINAL_REEL_TIMELINE],
+             folder=(bins.SUBTITLES_BIN, SUPERSEDED_PLAIN_TIMELINE)),
+    ]
+    with pytest.raises(ProofRemovalRefused, match="still placed"):
+        plan_superseded_removal(
+            artefacts, tree_of(artefacts),
+            timeline_name=SUPERSEDED_PLAIN_TIMELINE,
+            bin_names=[f"{bins.SUBTITLES_BIN}/{SUPERSEDED_PLAIN_TIMELINE}"],
+            project_root=PROJECT_ROOT, master_name=MASTER)
+
+
+def test_the_superseded_path_refuses_when_final_or_master_is_missing():
+    artefacts = [a for a in superseded_pool() if a.name != FINAL_REEL_TIMELINE]
+    with pytest.raises(ProofRemovalRefused, match="protected timeline"):
+        plan_superseded_removal(
+            artefacts, tree_of(artefacts),
+            timeline_name=SUPERSEDED_PLAIN_TIMELINE,
+            bin_names=superseded_bins(SUPERSEDED_PLAIN_TIMELINE),
+            project_root=PROJECT_ROOT, master_name=MASTER)
+
+
+def test_the_proof_path_still_refuses_the_superseded_names():
+    """The two stay in PROTECTED_TIMELINES, so the proof path never
+    takes them - only the superseded path may."""
+    artefacts = superseded_pool()
+    for doomed in SUPERSEDED_REEL_TIMELINES:
+        with pytest.raises(ProofRemovalRefused):
+            plan_proof_removal(
+                artefacts, tree_of(artefacts), timeline_name=doomed,
+                bin_names=[], project_root=PROJECT_ROOT,
+                master_name=MASTER)
+
+
+def test_discover_superseded_lists_what_is_present_in_name_order():
+    artefacts = superseded_pool()
+    assert discover_superseded_timelines(artefacts) == sorted(
+        SUPERSEDED_REEL_TIMELINES)
+    assert discover_superseded_bins(
+        artefacts, tree_of(artefacts),
+        SUPERSEDED_PLAIN_TIMELINE) == [
+        (bins.SUBTITLES_BIN, SUPERSEDED_PLAIN_TIMELINE),
+        (bins.MOTION_GRAPHICS_BIN, SUPERSEDED_PLAIN_TIMELINE)]
+
+
+def test_discover_superseded_is_empty_when_both_are_gone():
+    """The idempotence case: a second run finds nothing to remove, so it
+    removes nothing and refuses nothing.  The bins go down with their
+    timelines, so the gone pool holds neither."""
+    artefacts = [a for a in superseded_pool()
+                 if a.name not in SUPERSEDED_REEL_TIMELINES
+                 and not (len(a.folder_path) == 2
+                          and a.folder_path[1] in SUPERSEDED_REEL_TIMELINES)]
+    assert discover_superseded_timelines(artefacts) == []
+    assert discover_superseded_bins(
+        artefacts, tree_of(artefacts),
+        SUPERSEDED_PLAIN_TIMELINE) == []
 
 
 # ------------------------------------------------------- the executor

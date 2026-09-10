@@ -338,3 +338,37 @@ def test_the_swept_areas_are_only_derivable_render_outputs():
             f"{area.value} is {spec.kind}, so its files are not "
             f"guaranteed derivable by a re-run and must not be swept")
         assert area in build_sweep.REGENERATE
+
+
+def test_sweep_journals_never_share_a_path(tmp_path):
+    """Two sweeps stamped in the same second journal twice, not once:
+    this lane's verify-twice run landed its empty second pass on top
+    of the first pass's 102-file record.  Same disambiguator
+    `library/tools/execution/remove_proof.py` uses."""
+    first = build_sweep.journal_path_for(
+        str(tmp_path), when="20260910T221628Z")
+    os.makedirs(os.path.dirname(first), exist_ok=True)
+    with open(first, "w", encoding="utf-8") as handle:
+        handle.write("{}")
+    second = build_sweep.journal_path_for(
+        str(tmp_path), when="20260910T221628Z")
+    assert second != first
+    assert second.endswith("_2.json")
+
+
+def test_consecutive_sweep_marks_never_share_a_path(tmp_path):
+    """Marks are written on every pass, orphans or not - so the second
+    pass's mark must not land on the first pass's."""
+    project = str(tmp_path)
+    asset_dir = _asset_dir(project)
+    _write(os.path.join(asset_dir, "sub_tl_a_1_1-2_bbbbbbbb.mov"))
+    _ledger(asset_dir, [])
+    db = _database(os.path.join(project, "db", "Project.db"),
+                   placed=[], timelines=[REEL_A])
+    first = build_sweep.sweep_files(project, [db], apply=True)["areas"][0]
+    assert first["moved_count"] == 1
+    second = build_sweep.sweep_files(project, [db], apply=True)["areas"][0]
+    assert second["moved"] == []
+    assert second["mark_path"] != first["mark_path"]
+    assert os.path.isfile(first["mark_path"])
+    assert os.path.isfile(second["mark_path"])

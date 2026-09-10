@@ -1312,7 +1312,8 @@ def write_mark_report(result: MarkResult,
 
 def sweep(mark_path: str, project_folder: str = "",
           db_paths: list[str] | None = None,
-          fresh_roots: list[RootResult] | None = None) -> dict:
+          fresh_roots: list[RootResult] | None = None,
+          manifest_tag: str = "") -> dict:
     """Move a marked orphan set to quarantine.
 
     Refuses (moving NOTHING) when the mark file cannot be read, when
@@ -1323,7 +1324,13 @@ def sweep(mark_path: str, project_folder: str = "",
     everything under it as unreachable.
 
     The full manifest is written BEFORE anything moves, and every
-    moved path - small records included - is in it.
+    moved path - small records included - is in it.  `manifest_tag`
+    names the swept area in the manifest filename (the build sweep
+    passes one per area); without it the legacy untagged name is
+    kept.  Either way the name is suffixed past a collision, because
+    two areas swept in the same second - measured 2026-09-10, when
+    the motion-graphics manifest landed on the subtitle one - must
+    not share a file.
     """
     project_folder = project_folder or ""
     try:
@@ -1392,7 +1399,13 @@ def sweep(mark_path: str, project_folder: str = "",
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     dest_base = _quarantine_base(project_folder, stamp)
-    manifest_path = str(dest_base.parent / f"sweep_{stamp}_manifest.md")
+    tag = f"{manifest_tag}_" if manifest_tag else ""
+    manifest_path = str(dest_base.parent / f"sweep_{tag}{stamp}_manifest.md")
+    sibling = 2
+    while os.path.exists(manifest_path):
+        manifest_path = str(
+            dest_base.parent / f"sweep_{tag}{stamp}_{sibling}_manifest.md")
+        sibling += 1
     moved = []
     for asset in orphans:
         if not os.path.exists(asset.path):

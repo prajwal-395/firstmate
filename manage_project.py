@@ -523,12 +523,22 @@ def cmd_resolve_organize(args):
         from library.tools.execution.retire_empty_bins import read_bin_tree
         from library.tools.proof_cleanup import (
             discover_proof_bins,
+            discover_superseded_bins,
+            is_authorised_superseded,
             plan_proof_removal,
+            plan_superseded_removal,
         )
         artefacts, _, _, _ = read_pool(project)
         tree = read_bin_tree(project)
+        if is_authorised_superseded(args.remove_proof):
+            plan_fn = plan_superseded_removal
+            candidate_bins = discover_superseded_bins(
+                artefacts, list(tree), args.remove_proof)
+        else:
+            plan_fn = plan_proof_removal
+            candidate_bins = discover_proof_bins(artefacts, list(tree))
         if not args.proof_bin:
-            candidates = discover_proof_bins(artefacts, list(tree))
+            candidates = candidate_bins
             if candidates and not args.timeline_only:
                 print("  Proof/demo caption bins in this pool - pass the "
                       "ones to remove back with --proof-bin:")
@@ -546,7 +556,7 @@ def cmd_resolve_organize(args):
                 print("  No proof/demo caption bins in this pool - "
                       "removing the timeline alone.")
         try:
-            plan = plan_proof_removal(
+            plan = plan_fn(
                 artefacts, list(tree),
                 timeline_name=args.remove_proof,
                 bin_names=args.proof_bin,
@@ -1378,7 +1388,9 @@ def main():
     p_rorg.add_argument("--remove-proof", metavar="TIMELINE", default=None,
                          help="Delete a captain-authorised demo timeline "
                               "(firstmate proof or exact authorised demo "
-                              "name) with its caption bins. IRREVERSIBLE; "
+                              "name) - or one of the two captain-authorised "
+                              "superseded Reel 09 timelines - with its "
+                              "caption bins. IRREVERSIBLE; "
                               "refuses protected timelines. Each bin must "
                               "be passed explicitly with --proof-bin")
     p_rorg.add_argument("--proof-bin", metavar="BIN", action="append",

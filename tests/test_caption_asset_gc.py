@@ -684,3 +684,63 @@ def test_empty_plan_stamps_an_empty_ledger(tmp_path):
                        if r.name == "pipeline:render_subtitles")
     assert render_root.status == "ok"
     assert render_root.paths == set()
+
+
+def test_sweep_manifests_carry_their_area_and_never_share_a_path(tmp_path):
+    """Two areas swept in the same second used to share one manifest
+    filename - the motion-graphics record overwrote the subtitle one
+    (measured 2026-09-10: 82 subtitle files survived only as loose
+    files in quarantine).  The tag separates areas; the suffix
+    separates repeats.  The clock is frozen so the shared stamp is
+    certain, not likely."""
+    import datetime as datetime_mod
+    from unittest import mock
+
+    frozen = datetime_mod.datetime(2026, 9, 10, 22, 16, 28,
+                                   tzinfo=datetime_mod.timezone.utc)
+
+    class _Frozen(datetime_mod.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return frozen
+
+    project = str(tmp_path)
+    asset_dir = _populate(_asset_dir(project))
+    live_mov = os.path.join(asset_dir, _mov_names()[2])
+    roots = [_ok_root("resolve:test", {live_mov})]
+    with mock.patch("library.tools.caption_asset_gc.datetime", _Frozen):
+        first_mark = mark(project, asset_dir, roots)
+        first_path = os.path.join(project, "mark_a.json")
+        first_mark.write_json(first_path)
+        sub = sweep(first_path, project_folder=project,
+                    fresh_roots=roots, manifest_tag="subtitle_segments")
+        assert "subtitle_segments" in os.path.basename(
+            sub["manifest_path"])
+        assert os.path.isfile(sub["manifest_path"])
+
+        other_mark = mark(project, asset_dir, roots)
+        other_path = os.path.join(project, "mark_b.json")
+        other_mark.write_json(other_path)
+        mg = sweep(other_path, project_folder=project,
+                   fresh_roots=roots,
+                   manifest_tag="motion_graphics_segments")
+        assert mg["manifest_path"] != sub["manifest_path"]
+        assert os.path.isfile(sub["manifest_path"]), \
+            "the second area's manifest must not overwrite the first's"
+
+        _write(os.path.join(
+            asset_dir,
+            "sub_tl_akshita_9_90000-92000_eeeeeeee.mov"), size=500)
+        repeat_mark = mark(project, asset_dir, roots)
+        repeat_path = os.path.join(project, "mark_c.json")
+        repeat_mark.write_json(repeat_path)
+        repeat = sweep(repeat_path, project_folder=project,
+                       fresh_roots=roots,
+                       manifest_tag="subtitle_segments")
+        assert repeat["manifest_path"] != sub["manifest_path"]
+        assert repeat["manifest_path"].endswith("_2_manifest.md")
+        assert os.path.isfile(sub["manifest_path"])
+        with open(repeat["manifest_path"], encoding="utf-8") as handle:
+            repeat_manifest = handle.read()
+        for path in repeat["moved"]:
+            assert path in repeat_manifest

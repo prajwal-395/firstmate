@@ -6,6 +6,11 @@ on a timeline's pool item DELETES THE TIMELINE - the catastrophic
 failure mode everywhere else, and the intended act here, under the
 captain's verbatim 2026-09-10 authority (*"yeah clean that up"*) for
 the `SOP Proof_...` bin and the `SOP Proof_min-canvas-rail` timeline.
+The same file also executes `plan_superseded_removal` plans, under
+the captain's separate verbatim 2026-09-10 cleanup brief for the two
+superseded Reel 09 timelines - the plan carries which authority
+proven it, and the guard below accepts exactly those two names
+beside the proof artefacts.
 
 What is re-proven at the moment of the call
 -------------------------------------------
@@ -35,6 +40,7 @@ from library.tools.proof_cleanup import (
     PROTECTED_TIMELINES,
     ProofRemovalRefused,
     is_authorised_demo,
+    is_authorised_superseded,
 )
 
 JOURNAL_PREFIX = "resolve_remove_proof"
@@ -46,8 +52,9 @@ def remove_proof(project, plan: dict, journal_path: str) -> dict:
     from library.tools.execution.retire_empty_bins import read_bin_tree
 
     timeline = plan["timeline"]
-    if (timeline["name"] in PROTECTED_TIMELINES
-            or not is_authorised_demo(timeline["name"])):
+    superseded = is_authorised_superseded(timeline["name"])
+    if ((timeline["name"] in PROTECTED_TIMELINES and not superseded)
+            or (not is_authorised_demo(timeline["name"]) and not superseded)):
         raise ProofRemovalRefused(
             f"{timeline['name']!r} is protected or not an authorised "
             f"demo artefact - the plan was not proven. Nothing was "
