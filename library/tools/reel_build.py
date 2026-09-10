@@ -5264,7 +5264,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         proj = get_project(project_slug)
         if not proj:
             raise ValueError(f"Unknown project {project_slug}")
-        project_folder = proj.root
+        project_folder = str(proj.project_root)
     
     with open(os.path.join(project_folder, "project.yaml")) as f:
         config = yaml.safe_load(f)

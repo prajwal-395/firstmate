@@ -281,3 +281,55 @@ def test_rebuild_reels_skip_captions(mock_run_verif, mock_resolve_style, mock_sn
     mock_build.assert_called_once()
     assert mock_build.call_args[1]["subtitle_segments"] is None
 
+
+@patch("library.tools.project_registry.get_project")
+@patch("library.tools.reel_build.build_reel_timeline")
+@patch("library.tools.resolve_locale.scriptapp_preserving_locale")
+@patch("library.tools.reel_build.resolve_project_exactly")
+@patch("library.tools.reel_proposal.read_proposal")
+@patch("library.tools.timeline_ingest.snapshot_timeline")
+@patch("library.tools.subtitle_style.resolve_subtitle_style")
+@patch("library.tools.reel_conformance_verifier.run_verification")
+def test_rebuild_reels_by_slug_resolves_the_project_folder(
+        mock_run_verif, mock_resolve_style, mock_snapshot, mock_read_prop,
+        mock_resolve_proj, mock_scriptapp, mock_build, mock_get_project,
+        mock_project_env):
+    """A slug resolves through `ProjectConfig.project_root` (issue #895).
+
+    The slug branch read `proj.root`, which `ProjectConfig` never had -
+    wrong since #507 - so any slug call raised `AttributeError` while
+    every caller and test passed an absolute folder and never touched
+    the branch.  If this fails, the branch is reaching past the config's
+    real attribute again.
+    """
+    from types import SimpleNamespace
+    mock_get_project.return_value = SimpleNamespace(
+        project_root=mock_project_env)
+
+    moment = MagicMock()
+    moment.approval = "approved"
+    moment.timeline_name = "Reel 01"
+    moment.timeline_start = 0.0
+    moment.timeline_end = 10.0
+    mock_read_prop.return_value = [moment]
+
+    mock_proj = _ResolveProject([MASTER])
+    mock_resolve_proj.return_value = mock_proj
+    mock_build.side_effect = _placing(mock_proj)
+    mock_run_verif.return_value = 0
+
+    rebuild_reels_in_project("some-slug", organise=ORGANISE)
+
+    mock_get_project.assert_called_once_with("some-slug")
+    mock_build.assert_called_once()
+    assert mock_proj.names() == [MASTER, "Reel 01"]
+
+
+def test_rebuild_reels_unknown_slug_is_refused():
+    """An unknown slug raises `ValueError`, not `AttributeError`."""
+    from unittest.mock import patch as _patch
+    with _patch("library.tools.project_registry.get_project",
+                return_value=None):
+        with pytest.raises(ValueError, match="Unknown project"):
+            rebuild_reels_in_project("no-such-slug", organise=ORGANISE)
+

@@ -48,11 +48,33 @@ def tools_imported_by(step_dir: Path) -> set:
     helper that read only the long spelling would refuse every operation
     owned by 5 of 29 steps, and the failure would look like a Ruling 1
     violation rather than like a bug in the test.
+
+    THE SECOND TRAP, measured 2026-09-10: `step_4_01_plan_subtitles`
+    does `from library.tools import captain_edits` (PR #857).  A version
+    of this     helper that maps a bare-package import to a match-everything
+    wildcard would accept EVERY tools module for that step, and
+    `test_the_rule_refuses_a_tool_the_owning_step_does_not_import`
+    failed on a clean base proving exactly that.  There is no
+    `library/tools/__init__.py` - it is a namespace package - so
+    `from library.tools import NAME` can only bind the SUBMODULE, and
+    the helper records `tools.NAME` precisely.  A name with no such
+    submodule on disk keeps the permissive `tools` wildcard rather
+    than falsely refusing what the helper cannot resolve.
     """
     mods = set()
     for path in step_dir.glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.ImportFrom) and node.module:
+                if node.module in ("tools", "library.tools"):
+                    for alias in node.names:
+                        if alias.name == "*":
+                            mods.add("tools")
+                        elif (TOOLS / f"{alias.name}.py").is_file() or (
+                                TOOLS / alias.name).is_dir():
+                            mods.add(f"tools.{alias.name}")
+                        else:
+                            mods.add("tools")
+                    continue
                 named = [node.module]
             elif isinstance(node, ast.Import):
                 named = [a.name for a in node.names]
@@ -229,6 +251,25 @@ def test_the_rule_refuses_a_tool_the_owning_step_does_not_import():
     from library.tools.music_bed import resolve_bed
     planted = _Planted("planted.bed", "step_4_01_plan_subtitles", resolve_bed)
     assert "does not import" in (violation(planted) or "")
+
+
+def test_the_package_spelling_imports_the_named_submodule_only():
+    """The bare-package spelling is precise, not a wildcard (2026-09-10).
+
+    `step_4_01_plan_subtitles` does `from library.tools import
+    captain_edits` (PR #857): the gate must see the submodule the step
+    really uses without waving through every other tools module.  If
+    this fails, `tools_imported_by` has regressed to the match-everything
+    reading and the refusal test above passes only by accident.
+    """
+    from library.tools.captain_edits import apply_caption_fixes
+    found = tools_imported_by(STEPS / "step_4_01_plan_subtitles")
+    assert "tools.captain_edits" in found
+    assert "tools" not in found, (
+        "a bare `tools` wildcard is present, so any tools module would "
+        "pass the gate for this step")
+    assert violation(_Planted("legal.pkg", "step_4_01_plan_subtitles",
+                              apply_caption_fixes)) is None
 
 
 def test_the_rule_refuses_reaching_into_another_steps_body():
