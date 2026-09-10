@@ -4967,6 +4967,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     rename_plan_reels(project_folder, claimed)
     from library.tools.reel_semantic_visual import rename_record_reels
     rename_record_reels(project_folder, claimed)
+    from library.tools.reel_semantic_visual import rename_span_record_reels
+    rename_span_record_reels(project_folder, claimed)
     # The render ledger binds each caption to the timeline it was
     # rendered for, and it is read as a reference ROOT. Left naming the
     # staging container this promotion just renamed away, every entry
@@ -5105,6 +5107,8 @@ def discard_staged_reels(project, project_folder: str,
     drop_plan_reels(project_folder, staging)
     from library.tools.reel_semantic_visual import drop_record_reels
     drop_record_reels(project_folder, staging)
+    from library.tools.reel_semantic_visual import drop_span_record_reels
+    drop_span_record_reels(project_folder, staging)
     _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
@@ -5442,6 +5446,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     card_declarations = declared_cards(project_folder)
     explainer_plans = []
     semantic_records = []
+    span_records = []
     # The project's TV-frame declaration, read ONCE for the same reason
     # the cards are: a malformed declaration must stop the whole build
     # rather than the twelfth reel of nineteen. None is a project that
@@ -5639,6 +5644,18 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 timeline_name=name)
             semantic_records.append(semantic_record)
 
+            # The span picture plan: what the MODEL says each beat of
+            # this reel's speech SHOWS. Resolved and RECORDED here, in
+            # the V6 record's own convention
+            # (`library/tools/reel_semantic_visual.py`), for the
+            # conformance gate (F23) to grade against. Nothing places
+            # the moments yet - the placer needs its own change - so an
+            # all-refused plan must read as a refusal, never as a
+            # decision for no pictures.
+            span_records.append(sem_vis.span_record_for_build(
+                moment, transcript, ranges, project_folder,
+                fps=24000 / 1001, timeline_name=name))
+
             # RECORD what was placed. Derived at build time and previously
             # written down nowhere, which is why the verifier could re-derive
             # a different grouping a day later and grade against it.
@@ -5833,6 +5850,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     from library.tools.reel_semantic_visual import (
         write_records as _write_semantic_records)
     _write_semantic_records(project_folder, semantic_records)
+
+    # What each reel's span picture plan resolved to, INCLUDING the
+    # reels with none. MERGED per reel, for the same reason as the V6
+    # records above: a partial (`only`) build must not delete the
+    # record of the reels it did not touch, or F23 would grade those
+    # timelines against an absence.
+    from library.tools.reel_semantic_visual import (
+        write_span_records as _write_span_records)
+    _write_span_records(project_folder, span_records)
 
     # Record which plan we built from, so the verifier can detect
     # if the plan changes before verification runs.

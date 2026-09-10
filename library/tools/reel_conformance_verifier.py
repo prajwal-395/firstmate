@@ -83,6 +83,7 @@ from library.tools.explainer_plan import EXPLAINER_TRACK, RENDER_PREFIX
 from library.tools.reel_semantic_visual import (
     RENDER_PREFIX as SEMANTIC_RENDER_PREFIX)
 from library.tools.reel_semantic_visual import SEMANTIC_TRACK
+from library.tools.reel_semantic_visual import SPAN_EVERY_EVENT_DROPPED
 from library.tools.frame_utils import span_frames
 from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
 from library.tools.reel_exchange import LENGTH_GUIDANCE
@@ -129,6 +130,17 @@ class FindingClass:
     # recorded segment with no placed item is a plan that did not reach
     # the timeline. F22 is what reads both.
     F22 = "F22"  # ENCODING: the semantic visuals, against the record the build wrote
+
+    # 2026-09-09: the SPAN picture plan, against the record the build
+    # wrote. `resolve_span_plan` distinguishes a model that looked and
+    # chose stillness (`span_no_events_planned` - a decision) from a
+    # model whose every beat was REFUSED
+    # (`span_every_event_dropped` - the absence of a decision
+    # surviving). Nothing read that difference, so an all-refused plan
+    # built green and silent. F23 refuses the second and passes the
+    # first: a reel whose every planned picture was refused must not
+    # build green and silently.
+    F23 = "F23"  # PLANNING: an all-refused span picture plan
 
     # Plan quality gates (not from the audit, from the captain's list)
     PQ_LENGTH = "PQ-LENGTH"       # outside the 45-90s PREFERENCE (warning)
@@ -3122,6 +3134,52 @@ def check_semantic_visuals(reel_name: str,
     return findings
 
 
+def check_span_plan(reel_name: str,
+                    planned: Optional[dict]) -> List[Finding]:
+    """F23: an all-refused span picture plan is a REFUSED plan, not a still reel.
+
+    `planned` is the entry `reel_semantic_visual.read_span_records`
+    returns for this reel - **read from what the build recorded, never
+    re-derived**.
+
+    Two outcomes that look identical if you only count moments both
+    reach different verdicts here, and that is the whole of this check:
+
+    - `span_no_events_planned`: the model looked and chose stillness -
+      a decision. Passes.
+    - `span_every_event_dropped`: the model proposed pictures and every
+      one was REFUSED - the absence of a decision surviving. Fails:
+      a reel whose every planned picture was refused must not build
+      green and silently.
+
+    Given no recorded plan at all this returns NOTHING rather than
+    guessing: a reel built before span planning existed has no record,
+    and grading it against an absence would fail every correct reel.
+    A plan the model filled (`span_events_planned`) also passes here:
+    nothing places the moments yet, so there is no placement to grade
+    them against - the placer, when it lands, adds that half.
+    """
+    if planned is None:
+        return []
+    if planned.get("basis") != SPAN_EVERY_EVENT_DROPPED:
+        return []
+    proposed = planned.get("proposed", len(planned.get("entries") or []))
+    reasons = sorted({str(d.get("reason") or "?")
+                      for d in (planned.get("dropped") or [])})
+    return [Finding(
+        finding_class=FindingClass.F23, reel=reel_name,
+        message=(
+            f"the model planned {proposed} span picture beat(s) and "
+            f"every one was refused ({', '.join(reasons)}). An "
+            f"all-refused plan is not a decision for no pictures - "
+            f"the reel builds still, and silently, unless this refuses it"),
+        severity="error",
+        detail={"basis": SPAN_EVERY_EVENT_DROPPED,
+                "proposed": proposed,
+                "resolved": planned.get("resolved", 0),
+                "drop_reasons": reasons})]
+
+
 def check_subtitle_styling(reel_name: str,
                            caption_items: Sequence[TimelineItem],
                            video_items: Sequence[TimelineItem],
@@ -3845,6 +3903,7 @@ def verify_reel(plan: ReelPlan,
                 planned_overlays: Optional[Sequence[dict]] = None,
                 explainer_plan: Optional[dict] = None,
                 semantic_plan: Optional[dict] = None,
+                span_plan: Optional[dict] = None,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result.
 
@@ -4161,6 +4220,11 @@ def verify_reel(plan: ReelPlan,
     # grading a pre-semantic build against an absence.
     findings.extend(check_semantic_visuals(
         plan.reel_name, timeline.semantic_items, semantic_plan, fps))
+
+    # F23: the span picture plan, against the record the build wrote.
+    # Passing None means "no record", which returns nothing rather than
+    # grading a pre-span build against an absence.
+    findings.extend(check_span_plan(plan.reel_name, span_plan))
 
     # Compute summary numbers
     one_frame_holes = sum(
@@ -5182,6 +5246,15 @@ def run_verification(
         record_for_reel as semantic_record_for_reel)
     semantic_records = read_semantic_records(
         project_folder) if project_folder else {}
+    # What the build recorded about each reel's span picture plan. Read
+    # ONCE and read from the BUILD's own record; `{}` when no build
+    # ever wrote one, which makes F23 silent rather than confident.
+    from library.tools.reel_semantic_visual import (
+        read_span_records as read_span_plan_records)
+    from library.tools.reel_semantic_visual import (
+        span_record_for_reel as span_plan_record_for_reel)
+    span_plan_records = read_span_plan_records(
+        project_folder) if project_folder else {}
     if declared_intent is not None:
         print(f"Declared framing_intent: {declared_intent} "
               f"(crop factor {declared_crop_factor})", file=err)
@@ -5255,7 +5328,9 @@ def run_verification(
                 planned_overlays=overlay_plans.get(name),
                 explainer_plan=plan_for_reel(explainer_plans, name),
                 semantic_plan=semantic_record_for_reel(
-                    semantic_records, name))
+                    semantic_records, name),
+                span_plan=span_plan_record_for_reel(
+                    span_plan_records, name))
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

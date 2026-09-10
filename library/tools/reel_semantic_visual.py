@@ -585,11 +585,11 @@ def drop_record_reels(project_folder: str, names) -> None:
 #   follow the subdivision; the anchor search and every refusal below
 #   read per-segment words and bounds, so they are unchanged.
 # - The resolved moments have no consumer yet: no renderer reads span
-#   beats and no verifier grades them, so this section writes no record
-#   file. A declared output with no reader is refused by
-#   `library/tools/output_contract.py`, and a record nobody grades would
-#   be exactly that. The moments carry reel seconds, so the placer that
-#   arrives can read them directly.
+#   beats, so this section writes no PLACEMENT - but it writes a RECORD.
+#   `write_span_records` files each reel's resolved plan under
+#   `pipeline_output/review/span_visual_plans.json`, in the V6 record's
+#   own convention, and the conformance verifier grades it (F23). A
+#   record the verifier reads is not a declared output with no reader.
 #
 # What the planner decides is WHAT IS SHOWN, never the look: `shows`
 # names the noun illustrated, in free text, and the schema carries no
@@ -1135,3 +1135,207 @@ def resolve_span_plan(plan: Any, *, segment_words: Sequence[Sequence[dict]],
     else:
         resolved.basis = SPAN_NO_EVENTS_PLANNED
     return resolved
+
+
+# ── The span's own record: the resolved plan, where the pipeline reads it ──
+#
+# The V6 `PLAN_FILENAME` convention exactly - same REVIEW area, same
+# `{"format": ..., "plans": [...]}` envelope, same merge-per-reel write
+# (a partial build must not delete the reels it did not touch), same
+# read/rename/drop helpers for the staging round-trip - with a payload
+# of its own. A span moment (segment, shows, anchor window, event_start)
+# is not an overlay segment (timeline_start, total_frames, elements),
+# so the per-reel rows differ while everything around them matches:
+# the convention generalises, the shape does not.
+#
+# The verifier (F23) is the reader, so this is not a declared output
+# with no reader. The placer is deliberately not one yet: moments carry
+# `shows` as free-text provenance (the V6 `subject` discipline - travelled,
+# never read), and rendering that as on-screen copy would make the engine
+# draw model free text as artwork; segments need look values the planner
+# refuses to emit, which must arrive by project declaration; and turning
+# event instants into windows would choose coverage PR 776's tiling
+# guarantees already own. A placer needs its own change carrying those
+# three decisions - half of one here would mis-place silently.
+#
+# `tests/test_reel_span_record.py`.
+
+SPAN_PLAN_FILENAME = "span_visual_plans.json"
+"""Where the build RECORDS each reel's resolved span plan, per project.
+
+Read back by the conformance check (F23) rather than re-derived, for
+the reason `docs/CHROMA_KEY_TRANSITIONS_MEASURED.md` §4 gives: a
+re-derived plan is only the build's plan while nothing changed in
+between.
+"""
+
+
+def _span_record(reel_name: str, basis: str, entries: list, resolved=None,
+                 dropped=(), moments=None) -> dict:
+    """One reel's span-plan record, in the shape F23 grades."""
+    assert basis in SPAN_BASES, f"{basis!r} is not a span basis: {SPAN_BASES}"
+    if resolved is not None and not dropped:
+        dropped = resolved.dropped
+    record: Dict[str, Any] = {
+        "reel": reel_name,
+        "basis": basis,
+        "entries": entries if isinstance(entries, list) else [],
+        "dropped": [
+            d.as_record() if isinstance(d, SpanDropped) else dict(d)
+            for d in (dropped or [])],
+        "moments": [dict(m) for m in (
+            moments if moments is not None
+            else (resolved.moments if resolved is not None else []))],
+    }
+    if resolved is not None:
+        record["resolved"] = len(resolved.moments)
+        record["proposed"] = resolved.proposed
+    else:
+        record["resolved"] = len(record["moments"])
+        record["proposed"] = len(record["entries"])
+    return record
+
+
+def span_record_for_build(moment, transcript: dict, ranges, project_folder: str,
+                          fps: float, timeline_name: str = "") -> dict:
+    """Resolve one reel's span plan and return its record. Pure: no Resolve.
+
+    The ask is written fresh on every build from the moment, the
+    transcript and these same ranges (the V6 `write_request` discipline);
+    the answer is read off the response file when a model has written
+    one. No request - the reel speaks no timed words - and no answer
+    both record SPAN_NOT_PLANNED: neither is a decision for no pictures.
+    An answered-but-empty plan records SPAN_NO_EVENTS_PLANNED, which IS
+    one, and F23 grades the two differently.
+    """
+    reel_number = int(moment.number)
+    name = timeline_name or getattr(moment, "timeline_name", "")
+    request_path = write_span_request(
+        moment, transcript, ranges, project_folder, fps=fps)
+    if not request_path:
+        return _span_record(
+            name, SPAN_NOT_PLANNED, [],
+            dropped=[SpanDropped(
+                element="(unresolved)",
+                reason="no_word_timings_to_anchor_against",
+                detail=(f"no timed words in {len(list(ranges or []))} "
+                        f"keep range(s), so no beat has a window"))])
+    answer = read_span_answer(project_folder, reel_number)
+    if answer is None:
+        print(f"  {name}: NO SPAN PICTURES - no model answer on file "
+              f"({span_request_stem(reel_number)}.json), recording "
+              f"{SPAN_NOT_PLANNED}", file=sys.stderr)
+        return _span_record(name, SPAN_NOT_PLANNED, [])
+    resolved = resolve_span_plan(
+        answer, segment_words=span_segment_words(ranges, transcript),
+        ranges=ranges, asked=True)
+    for dropped in resolved.dropped:
+        print(f"  {name}: span beat dropped ({dropped.reason}) "
+              f"{dropped.element}: {dropped.detail}", file=sys.stderr)
+    if not resolved.moments and resolved.proposed:
+        print(f"  {name}: SPAN PLAN REFUSED - the model planned "
+              f"{resolved.proposed} beat(s) and every one was refused",
+              file=sys.stderr)
+    return _span_record(name, resolved.basis, answer, resolved=resolved)
+
+
+def span_plans_path(project_folder: str) -> str:
+    """Where the merged per-reel span records live."""
+    from library.tools.project_layout import Area, ProjectLayout
+    return os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.REVIEW)),
+        SPAN_PLAN_FILENAME)
+
+
+def write_span_records(project_folder: str, records: Sequence[dict]) -> str:
+    """Merge this build's span records into the stored file, per reel.
+
+    The V6 `write_records` merge exactly: every reel THIS build touched
+    is replaced by what it resolved - or by its empty basis, when it
+    resolved none - and every other reel's record is left exactly as it
+    was. Overwriting the file would delete the record of the reels a
+    partial (`only`) build did not touch, and F23 would then grade those
+    timelines against an absence.
+    """
+    path = span_plans_path(project_folder)
+    stored: Dict[str, Any] = {"format": "span_visual_plans/1",
+                              "plans": []}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                stored = json.load(handle) or stored
+        except (OSError, ValueError):
+            stored = {"format": "span_visual_plans/1", "plans": []}
+    touched = {str(r.get("reel")) for r in (records or ())}
+    kept = [p for p in (stored.get("plans") or [])
+            if str(p.get("reel")) not in touched]
+    kept.extend(records or [])
+    stored["plans"] = kept
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(stored, handle, indent=2)
+    return path
+
+
+def read_span_records(project_folder: str) -> dict:
+    """What the build recorded, or `{}` when it recorded nothing."""
+    path = span_plans_path(project_folder)
+    if not os.path.isfile(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def span_record_for_reel(records: Optional[dict], reel_name: str) -> Optional[dict]:
+    """The recorded span plan for one reel by NAME, or None.
+
+    None means "this build recorded nothing for this reel", which is
+    what a reel built before span planning existed looks like, and F23
+    returns nothing rather than grading against an absence.
+    """
+    for record in ((records or {}).get("plans") or []):
+        if str(record.get("reel")) == str(reel_name):
+            return record
+    return None
+
+
+def rename_span_record_reels(project_folder: str, mapping: dict) -> None:
+    """Rename `plans[].reel` fields, staging -> final.
+
+    The staging half of promotion, mirroring `rename_record_reels`: the
+    verifier graded the staging against this file, and after promotion
+    the same resolutions live under the final name.
+    """
+    if not mapping:
+        return
+    path = span_plans_path(project_folder)
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        stored = json.load(handle) or {}
+    for record in (stored.get("plans") or []):
+        if record.get("reel") in mapping:
+            record["reel"] = mapping[record["reel"]]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(stored, handle, indent=2)
+
+
+def drop_span_record_reels(project_folder: str, names) -> None:
+    """Remove span records for the named reels.
+
+    The gate-fail half of a refused staging: no baseline may survive
+    for a container that is about to be deleted, or F23 would grade the
+    surviving approved timeline against a refused build's resolutions.
+    """
+    drop = set(names or ())
+    if not drop:
+        return
+    path = span_plans_path(project_folder)
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        stored = json.load(handle) or {}
+    stored["plans"] = [p for p in (stored.get("plans") or [])
+                       if str(p.get("reel")) not in drop]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(stored, handle, indent=2)
