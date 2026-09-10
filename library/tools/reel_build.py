@@ -3951,6 +3951,38 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         repaired.append(fixed)
     moments = repaired
 
+    # The captain's recorded closer pins, applied to APPROVED moments in
+    # memory - the file keeps exactly what they ruled on, like the
+    # repair above. Selection draws pinned starts on new proposals; a
+    # stored proposal predates the pin, so the build redraws it on the
+    # way through rather than rebuilding the old start the captain
+    # struck. Applying a recorded pin is obedience, not re-decision
+    # (the standing of keep exclusions since PR 865), and the redrawn
+    # span is checked like a new one before it moves. A malformed pin
+    # file REFUSES rather than building silently past it; a pin no
+    # approved closer answers is reported, never silent.
+    from library.tools import captain_edits as _edits
+    try:
+        _pin_edits = _edits.load_edits(project_folder)
+    except _edits.CaptainEditError as exc:
+        raise ReelBuildError(
+            f"captain_edits cannot be read: {exc}. A recorded pin the "
+            f"build cannot read must refuse, never build silently past "
+            f"it.") from exc
+    if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
+        moments, _pin_applied, _pin_held, _pin_stale = \
+            _edits.apply_closer_redraws(moments, transcript, _pin_edits)
+        for record in _pin_applied:
+            print(f"  Reel {record['reel']:02d}: closer "
+                  f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
+                  f"(now opens on {record['anchor_phrase']!r} - "
+                  f"{record['reason']})", file=sys.stderr)
+        for record in _pin_held:
+            print(f"  Reel {record['reel']:02d}: closer already opens on "
+                  f"{record['anchor_phrase']!r} - pin held",
+                  file=sys.stderr)
+        _edits.report_stale(_pin_stale)
+
     # The captain's recorded strikes, read ONCE for the batch: the same
     # store `select_reels` enforces on new proposals, applied here to
     # APPROVED moments as cuts inside their own ranges. Selection never

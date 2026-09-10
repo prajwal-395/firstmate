@@ -27,6 +27,7 @@ built, and `reel_proposal.assert_approved` is the gate that holds it.
 
 from __future__ import annotations
 
+import sys
 from typing import List
 
 
@@ -178,6 +179,45 @@ def resolve(llm_output: dict, data: dict) -> dict:
     from dataclasses import replace
     moments = [replace(m, number=idx) for idx, m in enumerate(moments, 1)]
 
+    # The captain's recorded closer pins
+    # (`library/tools/captain_edits.py`, `redraw_closer`): a shared
+    # closer the captain ruled must open on earlier words is redrawn on
+    # every regenerated proposal, so selection cannot re-emit the old
+    # start. Applied after enrich (identification reads the closer's
+    # measured opening words) and before validation (the redrawn span
+    # is checked like a new span). An unappliable pin is reported,
+    # never silent - and never fatal to the batch: a reel the pin
+    # cannot reach keeps its span with the reason.
+    closer_redraws = {"applied": [], "held": [], "stale": []}
+    if project_folder:
+        try:
+            from library.tools import captain_edits as _edits
+            _all = _edits.load_edits(project_folder)
+            if any(e.get("kind") == "redraw_closer" for e in _all):
+                moments, _applied, _held, _stale = \
+                    _edits.apply_closer_redraws(moments, transcript, _all)
+                closer_redraws = {"applied": _applied, "held": _held,
+                                  "stale": _stale}
+                for record in _applied:
+                    print(
+                        f"  Captain edit: reel {record['reel']}'s closer "
+                        f"{record['was'][0]:.3f}-{record['was'][1]:.3f}s "
+                        f"now opens on {record['anchor_phrase']!r} "
+                        f"({record['now'][0]:.3f}s) - "
+                        f"{record['reason']}",
+                        file=sys.stderr)
+                for record in _held:
+                    print(
+                        f"  Captain edit: reel {record['reel']}'s closer "
+                        f"already opens on "
+                        f"{record['anchor_phrase']!r} - pin held",
+                        file=sys.stderr)
+                if _stale:
+                    _edits.report_stale(_stale)
+        except Exception as exc:  # noqa: BLE001 - pins never break selection
+            print(f"WARNING: closer pins could not apply ({exc}); "
+                  f"continuing without them.", file=sys.stderr)
+
     if moments:
         # The fallback duration is the furthest second any moment plays,
         # which is not always a body end: a closer may come from later in
@@ -218,6 +258,7 @@ def resolve(llm_output: dict, data: dict) -> dict:
             "considered": considered,
             "undetermined": undetermined,
             "dropped": dropped,
+            "captain_closer_redraws": closer_redraws,
             "approval": (
                 "every moment is PROPOSED. Nothing is built until the "
                 "captain approves it - see reel_proposal.assert_approved."

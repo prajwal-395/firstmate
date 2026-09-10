@@ -689,17 +689,24 @@ def _check_captain_edits(value, context: Context) -> str:
         import re as _re
 
         haystack = _re.sub(r"\s+", " ",
-                           _re.sub(r"[^\w\s']", "", speech.lower()))
+                            _re.sub(r"[^\w\s']", "", speech.lower()))
         for index, edit in enumerate(edits):
-            anchor = captain_edits.normalize(edit["anchor_phrase"])
-            if anchor not in haystack:
-                raise ExternalStateError(
-                    f"captain_edits[{index}] anchors to "
-                    f"{edit['anchor_phrase']!r}, and those words are in "
-                    f"no speech the pipeline has measured. A supplied "
-                    f"caption fix that no longer corresponds to its "
-                    f"speech is drift, not an edit - re-anchor it to "
-                    f"words the reel still says, or drop it.")
+            phrases = [edit["anchor_phrase"]]
+            if edit.get("kind") == "redraw_closer":
+                # Both ends of a pin must still be spoken: the words
+                # the closer must open on, and the opening identifying
+                # which closer moves (it stays inside the redrawn span).
+                phrases.append(edit["from_phrase"])
+            for phrase in phrases:
+                anchor = captain_edits.normalize(phrase)
+                if anchor not in haystack:
+                    raise ExternalStateError(
+                        f"captain_edits[{index}] anchors to "
+                        f"{phrase!r}, and those words are in "
+                        f"no speech the pipeline has measured. A supplied "
+                        f"caption fix that no longer corresponds to its "
+                        f"speech is drift, not an edit - re-anchor it to "
+                        f"words the reel still says, or drop it.")
         return (f"{len(edits)} edit(s), every anchor still spoken by "
                 f"the measured speech")
     kinds = {}

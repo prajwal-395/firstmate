@@ -51,7 +51,43 @@ frame fields) from the surviving durations, so picture and sound move
 together. A caption fix changes TEXT ONLY - timings untouched - and
 re-derives what depends on the text (`word_count`, `emphasis_words`).
 
-`tests/test_captain_edits.py`.
+Redrawing a closer
+-------------------
+Keep exclusions can only REMOVE seconds, so no existing mechanism can
+EXTEND a closer backwards - the shared call to action [321.61, 328.23]
+opened mid-sentence ("we're calling the lucy visibility system ...")
+and the captain ruled 2026-09-10 it must open on "it's exactly why
+we've been building this platform we're calling ...", at 319.358 with
+the end fixed at 328.231. That pin is a `redraw_closer` edit, and it
+lives HERE rather than in `transcript_corrections` for one reason: a
+correction is a fact about the world, everywhere and forever ("the
+audio transcribed as Lucy is Lucie"), while where one shared closer
+starts is a decision about THIS ONE PIECE - an edit, anchored to
+spoken words like every other edit here, refusing timecode pins by
+construction. A closer pinned to 319.358 breaks the moment anything
+upstream re-times; the words survive.
+
+A pin names both ends in words: `anchor_phrase` (what the closer must
+open on) and `from_phrase` (what it opens on now). The second is
+REQUIRED, not courtesy: without it the pin would redraw every closer
+in the batch, including invitations the captain never heard, and the
+only thing stopping that overreach would be remembering not to. The
+shared span is identified by what it SAYS, never by its seconds.
+
+Two layers enforce it, the same shape keep exclusions take: step 3.04
+redraws regenerated proposals, and the reel build redraws approved
+moments in memory (the file keeps what the captain ruled on, exactly
+like the word-edge repair beside it). Applying a recorded pin to an
+approved moment is obedience, not re-decision - the approved-moment
+guard stops the ENGINE re-deciding a range under the captain, and the
+pin IS the captain's judgement with their reason. The extension adds
+seconds where an exclusion only removes them, so the added seconds are
+checked like a new span: real speech inside, whole segments at both
+edges (the end never moves), and no overlap with the reel's own body,
+which would play those seconds twice. Anything failing that is
+reported LOUDLY and that reel keeps its span.
+
+`tests/test_closer_redraw.py`.
 """
 
 from __future__ import annotations
@@ -64,9 +100,11 @@ from pathlib import Path
 CAPTAIN_EDITS_KEY = "captain_edits"
 """The state key, and the file name: `<project>/external/captain_edits.json`."""
 
-KINDS = ("caption_fix", "drop_fragment")
+KINDS = ("caption_fix", "drop_fragment", "redraw_closer")
 """The complete vocabulary. `caption_fix` rewrites caption text;
-`drop_fragment` removes the speech (and so the picture) that says it."""
+`drop_fragment` removes the speech (and so the picture) that says it;
+`redraw_closer` moves a shared closer's start to the anchor's words,
+end fixed."""
 
 
 class CaptainEditError(ValueError):
@@ -125,6 +163,23 @@ def validate_edits(value) -> list:
                 raise CaptainEditError(
                     f"{label} is a caption_fix with no 'replacement'. "
                     f"Name what the caption should read.")
+        if kind == "redraw_closer":
+            opening = edit.get("from_phrase")
+            if not isinstance(opening, str) or not normalize(opening):
+                raise CaptainEditError(
+                    f"{label} is a redraw_closer with no 'from_phrase'. "
+                    f"A pin must name WHICH closer it moves, in the "
+                    f"words that closer opens on now - without it the "
+                    f"pin would redraw every closer in the batch, "
+                    f"including invitations the captain never heard.")
+            for field in ("new_start", "new_end", "from_start",
+                          "from_end", "start", "end"):
+                if field in edit:
+                    raise CaptainEditError(
+                        f"{label} carries {field!r}: a closer pinned to "
+                        f"a timecode breaks the moment anything upstream "
+                        f"re-times. Name the opening in spoken words "
+                        f"(`anchor_phrase`, `from_phrase`) instead.")
         reason = edit.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise CaptainEditError(
@@ -330,6 +385,216 @@ def _rederive_timings(blocks: list) -> None:
         cursor += dur
 
 
+# ── Closer redraws: a shared start, pinned to spoken words ──────────
+
+def _word_stream(transcript: dict) -> list:
+    """Every timed word in transcript order: `(token, start, end)`.
+
+    Across segments, because an anchor ("... this platform we're
+    calling ...") may start in one ASR row and finish in the next.
+    Untimed words cannot place a boundary and are not offered as
+    evidence that one lands anywhere - the same rule the proposal gate
+    applies.
+    """
+    stream = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                start, end = float(word["start"]), float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            token = normalize(str(word.get("word") or ""))
+            if token and end > start:
+                stream.append((token, start, end))
+    return stream
+
+
+def _run_starts(stream: list, phrase: str) -> list:
+    """Indices where `phrase` occurs as an ordered token run."""
+    needle = _tokens(phrase)
+    if not needle:
+        return []
+    haystack = [token for token, _, _ in stream]
+    n = len(needle)
+    return [i for i in range(len(haystack) - n + 1)
+            if haystack[i:i + n] == needle]
+
+
+def _closer_opening_tokens(transcript: dict, cta_start: float,
+                           cta_end: float, count: int) -> list:
+    """The first `count` tokens the closer plays, from timed words.
+
+    Falls back to segment text where no words were timed: a closer
+    with no word timings can still be IDENTIFIED by what it says,
+    while only a timed occurrence can MOVE its start.
+    """
+    stream = _word_stream(transcript)
+    inside = [token for token, start, _ in stream
+              if start >= cta_start - 1e-6 and start < cta_end - 1e-6]
+    if len(inside) >= count:
+        return inside[:count]
+    words: list = []
+    for segment in (transcript or {}).get("segments") or ():
+        try:
+            seg_start = float(segment.get("timeline_start") or 0.0)
+            seg_end = float(segment.get("timeline_end") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if seg_end > cta_start and seg_start < cta_end:
+            words.extend(_tokens(str(segment.get("text") or "")))
+    return words[:count]
+
+
+def apply_closer_redraws(moments: list, transcript: dict,
+                         edits: list) -> tuple:
+    """Move pinned closers' starts to their anchors' words. Returns
+    `(moments, applied, held, stale)`.
+
+    `applied` names each redrawn reel with its old and new span (the
+    end never moves); `held` names reels already opening on the anchor
+    - the second rebuild reports here, which is how "persisted through
+    iterations" reads rather than as a stale pin; `stale` carries every
+    pin that could not redraw, LOUDLY: an anchor the transcript no
+    longer speaks, an extension that would overlap the reel's own body
+    and play seconds twice, or an anchor no longer sitting on a clean
+    segment edge. A reel closing on a different invitation is none of
+    these - untouched, and the pin is not stale for it.
+    """
+    from dataclasses import replace as _replace
+
+    redraws = [e for e in (edits or [])
+               if e.get("kind") == "redraw_closer"]
+    if not redraws:
+        return list(moments or []), [], [], []
+    try:
+        from library.tools.reel_proposal import enrich as _enrich
+        from library.tools.reel_proposal import (
+            snap_to_speech as _snap)
+    except ImportError:
+        _enrich, _snap = None, None
+    out = list(moments or [])
+    applied, held, stale = [], [], []
+    stream = _word_stream(transcript or {})
+    for edit in redraws:
+        anchor, opening = edit["anchor_phrase"], edit["from_phrase"]
+        anchor_tokens = _tokens(anchor)
+        opening_tokens = _tokens(opening)
+        anchor_at = _run_starts(stream, anchor)
+        if not anchor_at:
+            stale.append(
+                {"kind": "redraw_closer", "anchor_phrase": anchor,
+                 "reason": (
+                     f"STALE: closer pin for {anchor!r} no longer "
+                     f"applies - those words are spoken nowhere in "
+                     f"this transcript. The passage was reworded, "
+                     f"re-transcribed, or removed. Original request: "
+                     f"{edit.get('reason', '')}".strip())})
+            continue
+        for index, moment in enumerate(out):
+            cta = getattr(moment, "call_to_action", None)
+            if cta is None:
+                continue
+            cta_start = float(cta.timeline_start)
+            cta_end = float(cta.timeline_end)
+            head = _closer_opening_tokens(
+                transcript, cta_start, cta_end, len(opening_tokens))
+            if head != opening_tokens:
+                if _closer_opening_tokens(
+                        transcript, cta_start, cta_end,
+                        len(anchor_tokens)) == anchor_tokens:
+                    held.append(
+                        {"reel": int(moment.number),
+                         "span": [round(cta_start, 3),
+                                  round(cta_end, 3)],
+                         "anchor_phrase": anchor,
+                         "reason": (
+                             f"already opens on {anchor!r} - the pin "
+                             f"is in force, nothing moved")})
+                continue
+            # The nearest occurrence to the closer it opens: a sentence
+            # spoken twice is still pinned where THIS closer is, and
+            # the alternates are named rather than silently dropped.
+            starts = sorted(
+                (stream[i][1] for i in anchor_at),
+                key=lambda s: abs(s - cta_start))
+            new_start = starts[0]
+            was = [round(cta_start, 3), round(cta_end, 3)]
+            body_start = float(moment.timeline_start)
+            body_end = float(moment.timeline_end)
+            if new_start >= cta_end:
+                stale.append(
+                    {"kind": "redraw_closer", "reel": int(moment.number),
+                     "anchor_phrase": anchor,
+                     "reason": (
+                         f"CANNOT APPLY on reel {int(moment.number)}: "
+                         f"the anchor {anchor!r} sits at {new_start:.3f}s, "
+                         f"past this closer's end at {cta_end:.3f}s. "
+                         f"Original request: "
+                         f"{edit.get('reason', '')}".strip())})
+                continue
+            if max(new_start, body_start) < min(cta_end, body_end) - 1e-9:
+                stale.append(
+                    {"kind": "redraw_closer", "reel": int(moment.number),
+                     "anchor_phrase": anchor,
+                     "reason": (
+                         f"CANNOT APPLY on reel {int(moment.number)}: "
+                         f"extending this closer back to {new_start:.3f}s "
+                         f"would overlap its own body "
+                         f"({body_start:.2f}-{body_end:.2f}s) by "
+                         f"{min(cta_end, body_end) - max(new_start, body_start):.2f}s, "
+                         f"so the reel would play those seconds twice. "
+                         f"Original request: "
+                         f"{edit.get('reason', '')}".strip())})
+                continue
+            if _snap is not None:
+                snapped = _snap(new_start, cta_end, transcript or {})
+                if abs(snapped[1] - cta_end) > 1e-6:
+                    stale.append(
+                        {"kind": "redraw_closer",
+                         "reel": int(moment.number),
+                         "anchor_phrase": anchor,
+                         "reason": (
+                             f"CANNOT APPLY on reel {int(moment.number)}: "
+                             f"the redrawn span would not hold its end at "
+                             f"{cta_end:.3f}s (snaps to {snapped[1]:.3f}s) "
+                             f"and the end never moves. Original request: "
+                             f"{edit.get('reason', '')}".strip())})
+                    continue
+                if abs(snapped[0] - new_start) > 1e-6:
+                    stale.append(
+                        {"kind": "redraw_closer",
+                         "reel": int(moment.number),
+                         "anchor_phrase": anchor,
+                         "reason": (
+                             f"CANNOT APPLY on reel {int(moment.number)}: "
+                             f"the anchor {anchor!r} at {new_start:.3f}s no "
+                             f"longer sits on a clean segment edge (snaps "
+                             f"to {snapped[0]:.3f}s) - the transcript "
+                             f"re-segmented around it. Re-anchor to words "
+                             f"the transcript still bounds. Original "
+                             f"request: "
+                             f"{edit.get('reason', '')}".strip())})
+                    continue
+            redrawn = _replace(
+                moment,
+                call_to_action=_replace(cta, timeline_start=new_start))
+            # The measured text must describe the NEW span, or the bar
+            # reads a report about seconds the reel no longer opens on.
+            out[index] = _enrich(redrawn, transcript) if _enrich else redrawn
+            record = {
+                "reel": int(moment.number), "was": was,
+                "now": [round(new_start, 3), round(cta_end, 3)],
+                "anchor_phrase": anchor, "from_phrase": opening,
+                "reason": edit.get("reason", "")}
+            if len(starts) > 1:
+                record["alternates_not_taken"] = [
+                    round(s, 3) for s in starts[1:]]
+            applied.append(record)
+    return out, applied, held, stale
+
+
 # ── The captain reads what is in force ───────────────────────────────
 
 def describe_edits(edits: list) -> list:
@@ -351,6 +616,11 @@ def describe_edits(edits: list) -> list:
                 f"{number}. Removed: the passage saying {anchor!r} is "
                 f"cut from this video, and everything after it moves "
                 f"up - {reason}")
+        elif kind == "redraw_closer":
+            lines.append(
+                f"{number}. Redrawn: the closer opening on "
+                f"{edit.get('from_phrase', '')!r} now opens on "
+                f"{anchor!r}, end fixed - {reason}")
         else:
             lines.append(f"{number}. {kind}: {anchor!r} - {reason}")
     for line in lines:
