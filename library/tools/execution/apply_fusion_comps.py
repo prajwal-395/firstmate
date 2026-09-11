@@ -491,12 +491,36 @@ def apply_fusion_comps(manifest, project_folder,
                 played = int(get_duration() or 0) or None
             except (TypeError, ValueError):
                 played = None
+            # A treatment nobody declared may be undone: it was the
+            # look's own offer and the picture is fine without it. One
+            # the project DECLARED may not - an element the captain
+            # asked for by name that silently does not draw is the
+            # defect `library/tools/reel_ending.py` exists to end, and
+            # it is what dropped Reel 13's switch-off twice. The plan
+            # says which is which (`<key>_declared`), read BEFORE the
+            # undo strips the key.
+            declared_treatments = {
+                key for key in list(effects)
+                if key.endswith("_declared") and effects.get(key)}
             effects, tv_rows = verify_and_undo(
                 effects, clip_dur, played, source_res=source_res)
             for row in tv_rows:
                 treatment_report.append({"label": label, "where": where,
                                          **row})
                 if row["undone"]:
+                    if f"{row['treatment']}_declared" in declared_treatments:
+                        raise RuntimeError(
+                            f"REFUSING to build: [{where}] {label} "
+                            f"declares the treatment "
+                            f"{row['treatment']!r} and it will not draw "
+                            f"here ({row['failure']}) over "
+                            f"{played or clip_dur} played frame(s). A "
+                            f"declared element that is undone leaves a "
+                            f"reel missing the thing that was asked "
+                            f"for, with one line in a build log - so "
+                            f"the build stops instead. Give it room "
+                            f"(reel_ending's tail_hold) or withdraw the "
+                            f"declaration.")
                     print(
                         f"  ! [{where}] {label}: treatment "
                         f"{row['treatment']} failed "

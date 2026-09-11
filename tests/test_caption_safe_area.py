@@ -45,7 +45,10 @@ from library.tools.safe_area import (  # noqa: E402
     safe_area_for_format,
     safe_area_profile,
 )
-from library.tools.subtitle_style import resolve_subtitle_style  # noqa: E402
+from library.tools.subtitle_style import (  # noqa: E402
+    CAPTION_LIFT_PX,
+    resolve_subtitle_style,
+)
 
 FRAME_W = 1080
 FRAME_H = 1920
@@ -187,7 +190,13 @@ def test_the_step_runs_the_fitter_on_a_real_invocation():
         encoding="utf-8", cwd=PROJECT_ROOT)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     plan = json.loads(proc.stdout)["subtitle_plan"]
-    assert plan["style"]["safeArea"]["bottom"] == 320
+    # The platform's own bottom inset is 320 (`safe_area.py`); the
+    # caption row sits CAPTION_LIFT_PX above it and these are the
+    # CAPTION props, so the lift is the number that reaches the
+    # renderer. Written against the constant rather than today's value:
+    # it was 11 before #979 corrected it to 1, and a test spelling the
+    # number fails on the next correction instead of grading it.
+    assert plan["style"]["safeArea"]["bottom"] == 320 + CAPTION_LIFT_PX
     assert plan["style"]["captionMaxWidth"] == 840
     # The fitter's own report. It only ever prints when it measured a
     # card too wide for the frame, which is what the grouper could not
@@ -298,8 +307,15 @@ def test_an_unbreakable_word_is_shrunk_rather_than_clipped():
 
 def test_consumer_subtitle_style_resolves_the_inset():
     props = resolve_subtitle_style({}, {})
-    assert props["safeArea"] == safe_area_for_format(
-        "vertical_1080x1920").as_props()
+    platform = safe_area_for_format("vertical_1080x1920").as_props()
+    # Every inset is the platform's, EXCEPT the bottom: the caption row
+    # sits CAPTION_LIFT_PX above it, and that lift is the whole reason
+    # these props are not the platform's own
+    # (`library/tools/subtitle_style.py`).
+    assert props["safeArea"] == {**platform,
+                                 "bottom": platform["bottom"]
+                                 + CAPTION_LIFT_PX}
+    # `captionMaxWidth` derives from the UNLIFTED left/right insets.
     assert props["captionMaxWidth"] == 840
 
 

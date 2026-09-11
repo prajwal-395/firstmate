@@ -3288,6 +3288,106 @@ def aim_picture_row(name: str, look: dict, screen_window,
     return aimed
 
 
+def _with_freeze(placements_list, freeze, fps: float) -> list:
+    """The picture placements plus the declared hold, in play order.
+
+    The Fusion manifest is built from a FRESH `placements()` call
+    outside `build_reel_timeline`, so the hold the build rendered has
+    to be joined back on here - otherwise `power_effects` arms the tail
+    element on the live tail it was moved off, and the freeze plays
+    with nothing drawn over it. `None` returns the list unchanged,
+    which is every reel that declares no freeze.
+    """
+    if freeze is None:
+        return list(placements_list)
+    from library.tools import reel_ending as _ending_owner
+
+    return list(placements_list) + [
+        _ending_owner.freeze_placement(freeze, fps)]
+
+
+def _inherit_freeze_treatment(name: str, timeline, track_plan,
+                              video_row_by_angle: dict, freeze) -> dict:
+    """Give the held frame the treatment of the shot it holds.
+
+    A freeze is the ending shot's LAST FRAME, so it must draw like that
+    frame. Two things decide how a picture item draws and neither is
+    safe to recompute for a one-frame hold:
+
+    * the punch-in TRANSFORM. The aim is a face probe on the clip's own
+      pixels, and the captain's `transform_override` is anchored to
+      SPOKEN WORDS - a held frame speaks none, so it would keep its
+      computed aim while the shot beside it holds a hand value. Reel 13
+      would have jumped from Pan -12 to Pan 46 on its final frames.
+    * the GRADE. `CopyGrades` moves the Color-page nodes across whole,
+      which is the only reading that cannot drift from the shot's.
+
+    Both are judged by what Resolve RETURNS, and the transform is read
+    back after it is set (AGENTS.md 5). Returns the record - what was
+    inherited and what was read back - so the build can say it rather
+    than assume it.
+    """
+    import sys
+
+    row = video_row_by_angle.get(str(freeze.track_index))
+    record = {"row": row, "held_from": freeze.held_from,
+              "frames": freeze.duration_frames, "properties": {},
+              "grades_copied": False}
+    if row is None:
+        raise ReelBuildError(
+            f"{name}: the freeze tail names master row "
+            f"{freeze.track_index} and that row is no reel angle, so "
+            f"the hold has nowhere to sit.")
+    items = timeline.GetItemListInTrack("video", row) or []
+    if len(items) < 2:
+        raise ReelBuildError(
+            f"{name}: the freeze tail was placed on V{row} but that row "
+            f"carries {len(items)} item(s) - there is no shot in front "
+            f"of the hold to inherit from.")
+    held, shot = items[-1], items[-2]
+    source = held.GetMediaPoolItem()
+    if source is None or (source.GetClipProperty("File Path") or "") \
+            != freeze.rendered_path:
+        raise ReelBuildError(
+            f"{name}: the last item on V{row} is not the freeze tail "
+            f"this build rendered, so nothing here knows which item to "
+            f"give the shot's treatment to. Refusing rather than "
+            f"grading the wrong clip.")
+    wanted = shot.GetProperty() or {}
+    for key in ("ZoomX", "ZoomY", "Pan", "Tilt", "RotationAngle",
+                "AnchorPointX", "AnchorPointY", "CropLeft", "CropRight",
+                "CropTop", "CropBottom", "FlipX", "FlipY"):
+        if key not in wanted:
+            continue
+        held.SetProperty(key, wanted[key])
+    got = held.GetProperty() or {}
+    for key in ("ZoomX", "Pan", "Tilt"):
+        if key not in wanted:
+            continue
+        want, have = float(wanted[key]), float(got.get(key, "nan"))
+        record["properties"][key] = {"wanted": want, "read_back": have}
+        if abs(want - have) > 0.01:
+            raise ReelBuildError(
+                f"{name}: the freeze tail would not take the shot's "
+                f"{key}: set {want}, reads back {have}. A hold that "
+                f"draws differently from the frame it holds is a jump "
+                f"cut on the last frames of the reel.")
+    # `CopyGrades` returns False where Resolve declines; a hold with the
+    # shot's framing and someone else's grade is the same jump in colour.
+    record["grades_copied"] = bool(shot.CopyGrades([held]))
+    if not record["grades_copied"]:
+        print(f"  ! {name}: Resolve declined to copy the ending shot's "
+              f"grade onto the freeze tail - the hold keeps the "
+              f"timeline's own grade and may not match the frame it "
+              f"holds", file=sys.stderr)
+    print(f"  {name}: freeze tail inherits the ending shot on V{row} - "
+          + ", ".join(f"{k} {v['read_back']}"
+                      for k, v in record["properties"].items())
+          + (", grade copied" if record["grades_copied"]
+             else ", GRADE NOT COPIED"), file=sys.stderr)
+    return record
+
+
 def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                               placements_list: list, timeline, transcript: dict,
                               project_folder: str, width: int, height: int,
@@ -3854,7 +3954,7 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -3975,6 +4075,59 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
      offset_reports) = apply_offset_specs(
         placements_list, fps, subtitle_segments, j_cut, cutaway)
 
+    # ── The declared FREEZE tail ──
+    # `library/tools/reel_ending.py`. A declared `tail_hold: freeze`
+    # holds the ending shot's LAST FRAME for exactly as long as the
+    # tail element needs, so the animation begins after the last word
+    # instead of over it (the captain's ruling of 2026-09-11, taken
+    # over letting the switch-off run across his closing line).
+    #
+    # It joins `placements_list` HERE, before the track plan and
+    # before anything places or measures the picture, so it is a
+    # picture clip to every pass that follows: the placer puts it on
+    # the same angle's row, `frame_runs` carries the TV frame over it,
+    # and `reel_look.power_effects` arms the element on it because it
+    # is the last picture clip of that row. Audio is NOT extended - a
+    # freeze is picture only, and the voice plays to its natural end.
+    freeze_tail = None
+    if ending is not None:
+        from library.tools import reel_ending as _ending_owner
+
+        freeze_tail = _ending_owner.plan_freeze(
+            [p for p in placements_list
+             if getattr(p["clip"], "track_type", "video") == "video"],
+            ending, fps, look=look)
+    if freeze_tail is not None:
+        from library.tools.project_layout import Area, ProjectLayout
+        from library.tools.reel_placed_assets import (
+            assert_placeable as _assert_placeable,
+            promote_to_durable as _promote,
+        )
+
+        freeze_tail = _ending_owner.render_freeze(
+            freeze_tail,
+            os.path.join(str(ProjectLayout(project_folder).read_dir(
+                Area.SCRATCH)), "reel_ending", "freeze"),
+            fps)
+        # Promoted out of scratch before anything points at it, the
+        # rule every placed artefact follows: a timeline pointing under
+        # scratch/ points at files a cleaner may throw away.
+        import dataclasses as _dc
+
+        freeze_tail = _dc.replace(
+            freeze_tail,
+            rendered_path=_promote(freeze_tail.rendered_path,
+                                   project_folder, Area.REEL_CARDS))
+        _assert_placeable(freeze_tail.rendered_path, project_folder)
+        placements_list.append(
+            _ending_owner.freeze_placement(freeze_tail, fps))
+        print(f"  {timeline_name or moment.timeline_name}: freeze tail "
+              f"holds frame {freeze_tail.held_source_seconds:.3f}s of "
+              f"{os.path.basename(freeze_tail.held_from)} for "
+              f"{freeze_tail.duration_frames}f at reel frame "
+              f"{freeze_tail.reel_start_frame}, {freeze_tail.element} "
+              f"draws over it", file=sys.stderr)
+
     # ── The track plan: the material asks, timeline_layout answers ──
     # Every track index and name below comes from this plan. A-roll
     # gets one video row per master picture row and speech one audio
@@ -4019,9 +4172,30 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         "link_groups": [], "caption_links": [], "link_warnings": [],
         "deleted_empty_tracks": [], "skipped_clips": [],
         "offsets": offset_reports,
+        # The declared hold, so the Fusion pass places the tail element
+        # on it without re-deriving what this build already rendered.
+        "freeze": freeze_tail,
     }
 
     pool = project.GetMediaPool()
+
+    # The freeze tail's artefact goes into the pool BEFORE the picture
+    # loop asks for it: that loop finds media by path with
+    # `pool_item_for` and SKIPS what it cannot find, with one line on
+    # stderr - which is exactly the silent loss this owner exists to
+    # end. An import Resolve declines refuses the build instead.
+    if freeze_tail is not None:
+        if import_pool_item(
+                pool, freeze_tail.rendered_path,
+                overlay_import_bin(project_folder, name,
+                                   freeze_tail.rendered_path)) is None:
+            raise ReelBuildError(
+                f"{name}: Resolve would not import the freeze tail "
+                f"{freeze_tail.rendered_path!r}. The reel's declared "
+                f"ending holds a frame this build cannot place, so it "
+                f"refuses rather than ending on the live tail and "
+                f"calling that the declaration.")
+
     timeline = create_reel_timeline(pool, name)
 
     project.SetCurrentTimeline(timeline)
@@ -4323,6 +4497,21 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if held:
         print(f"  {name}: {held} captain's transform hold(s) in force",
               file=sys.stderr)
+
+    # ── The freeze inherits the shot it holds ──
+    # A freeze IS the ending shot's last frame, so it must look exactly
+    # like that frame: same punch-in transform, same grade. Its own aim
+    # would be recomputed from a face probe and its own grade applied
+    # from the same template, and either could land a pixel or a shade
+    # off - which a viewer reads as a jump cut at the very last moment.
+    # Inherited rather than recomputed, and READ BACK (AGENTS.md 5).
+    # This is also why a word-anchored hold cannot reach it: the held
+    # frame speaks nothing, so `freeze_placement` gives it an empty
+    # master span and the shot's value arrives here instead.
+    if freeze_tail is not None:
+        inherited = _inherit_freeze_treatment(
+            name, timeline, track_plan, video_row_by_angle, freeze_tail)
+        build_record["freeze_tail"] = inherited
 
     # Captions are PLACED here and RENDERED by step 4.05, which is the
     # pipeline's renderer. This used to carry its own `npx remotion
@@ -4928,8 +5117,16 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     There is no "allow everything" value - a blanket override is the
     same as no guard.
 
+    Every marker on a retiring timeline is READ before phase 1, and
+    the ones whose picture still plays in the replacement are placed
+    onto it after phase 2. One that cannot be placed is named, with
+    the captain's own words, on stderr. Whether markers SHOULD always
+    be carried stays an open product question; that a promotion must
+    not discard them in silence does not.
+
     Returns `{"promoted": [final names...], "organised": ...,
-    "replace_reports": {final: guard report...}}`.
+    "replace_reports": {final: guard report...},
+    "markers": {final: {"carried": [...], "uncarried": [...]}}}`.
     """
     if not staged_to_final:
         return {"promoted": [], "organised": None}
@@ -4972,6 +5169,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         raise ReelBuildError(
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
     replace_reports = {}
+    # The captain's typed notes, read off each RETIRING timeline before
+    # anything is renamed (`library/tools/marker_carry.py`). Promotion
+    # replaces the timeline object, so its markers go with it - which
+    # is how three notes on Reel 09 became "0 note(s)" with nothing
+    # saying so. Read here, reported below by name, and carried where
+    # the picture under them still plays in the replacement.
+    from library.tools import marker_carry as _markers
+    carried_markers = {}
     try:
         for final in finals:
             if final not in originals:
@@ -4984,7 +5189,22 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             replace_reports[final] = _guard.check_replacement(
                 final, staging, retired_rows, incoming_rows,
                 allowed=declared.get(final, ()))
+            notes = _markers.read_markers(originals[final], final)
+            if notes:
+                keep, lost = _markers.plan_carry(
+                    notes, staged_found[staging])
+                # SAID before the rename, so a promotion about to
+                # discard the captain's words has already said which
+                # even if the rename below refuses.
+                _markers.report(final, keep, lost)
+                carried_markers[final] = {"carried": keep,
+                                          "uncarried": lost}
     except _guard.ReplaceGuardUnreadable as unreadable:
+        raise ReelBuildError(
+            f"REFUSING to promote: {unreadable} Nothing was renamed; "
+            f"the approved timelines are still in the project.") \
+            from unreadable
+    except _markers.MarkerCarryUnreadable as unreadable:
         raise ReelBuildError(
             f"REFUSING to promote: {unreadable} Nothing was renamed; "
             f"the approved timelines are still in the project.") \
@@ -5012,6 +5232,11 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"{[backups[f] for f in finals if f in originals]} - "
                 f"rename it back in Resolve and re-run.")
         print(f"Promoted {staging} to {final}", flush=True)
+        notes = carried_markers.get(final)
+        if notes and notes["carried"]:
+            declined = _markers.place(staged_found[staging],
+                                      notes["carried"])
+            notes["declined"] = declined
 
     import os
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
@@ -5101,7 +5326,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                   f"further was removed; the reels are unaffected",
                   file=_sys.stderr)
     return {"promoted": finals, "organised": organised, "swept": swept,
-            "replace_reports": replace_reports}
+            "replace_reports": replace_reports,
+            "markers": carried_markers}
 
 
 def _organise_after_refusal(project, project_folder: str,
@@ -5628,6 +5854,25 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # rather than the fourteenth reel. None is a project that declares
     # none, and then the CDL half is the route exactly as before.
     reel_power_grade = _reel_look.resolve_power_grade(project_folder)
+    # Where each reel ENDS and what draws over its tail
+    # (`library/tools/reel_ending.py`), and the captain's caption-only
+    # timing (`library/tools/caption_timing.py`). Both read ONCE here
+    # for the reason every declaration above is: a malformed one must
+    # stop the whole build before a timeline exists, not the twelfth
+    # reel of nineteen. `[]`/None is a project that declares neither,
+    # and then every reel below is built exactly as it was before
+    # either owner existed.
+    from library.tools import caption_timing as _caption_timing
+    from library.tools import reel_ending as _reel_ending
+    _endings = _reel_ending.load_endings(project_folder)
+    _caption_pins = _caption_timing.load_pins(project_folder)
+    if _endings:
+        print(f"  {len(_endings)} declared reel ending(s): "
+              + ", ".join(f"{e['reel']} -> {e.get('tail_element', 'none')}"
+                          for e in _endings), file=sys.stderr)
+    if _caption_pins:
+        print(f"  {len(_caption_pins)} declared caption-timing pin(s)",
+              file=sys.stderr)
     if reel_power_grade:
         print(f"  grade rides the COLOR PAGE: "
               f"{os.path.basename(reel_power_grade['path'])}"
@@ -5771,6 +6016,35 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           flush=True)
                 _edits.report_stale(_rt_stale)
 
+            # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`),
+            # on the same ranges seam and directly after the trims: an
+            # ending is a decision about the last keep range, so it
+            # lands before cards, captions and placements derive from
+            # it, exactly as the trims do. An ending only ever removes
+            # seconds - which is what stops a reel acquiring the next
+            # speaker while asking for room at its close.
+            _ending_decl = _reel_ending.resolve_ending(project_folder, name)
+            if _ending_decl is not None:
+                ranges, _end_record = _reel_ending.apply_ending(
+                    ranges,
+                    placements(ranges, master_clips, 24000 / 1001),
+                    transcript, _ending_decl, 24000 / 1001)
+                _reel_ending.report(_end_record)
+                # The declared tail element must have a shot long
+                # enough to draw in. Checked HERE, where the answer is
+                # a refusal naming both counts, rather than at comp
+                # time where `treatment_verify` would undo it to
+                # stderr and the reel would ship without it.
+                fits = _reel_ending.assert_tail_fits(
+                    [p for p in placements(ranges, master_clips,
+                                           24000 / 1001)
+                     if getattr(p["clip"], "track_type", "video")
+                     == "video"],
+                    _ending_decl, 24000 / 1001, look=reel_look_decl)
+                print(f"  Ending: tail element {fits['element']} needs "
+                      f"{fits['tail_frames']}f, ending shot plays "
+                      f"{fits['shot_frames']}f", flush=True)
+
             # Full-frame elements FIRST, because a head card decides where
             # every other thing on this reel starts. Planned and rendered
             # before anything is placed, so a declaration that cannot be
@@ -5796,6 +6070,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 moment, transcript, ranges, project_folder,
                 fps=24000 / 1001, width=1080, height=1920, timeline_name=name,
                 lead_seconds=lead)
+
+            # The captain's caption-only timing
+            # (`library/tools/caption_timing.py`), applied to the
+            # RENDERED segments and before anything places them. Not a
+            # `span_retime`: those hold picture spans, and a card moved
+            # off the picture under it is a class that vocabulary
+            # cannot say. Reel 13's closer cards died twice for it.
+            if subtitle_segments is not None and _caption_pins:
+                (subtitle_segments, _cap_applied, _cap_short,
+                 _cap_stale) = _caption_timing.apply_pins(
+                    subtitle_segments, _caption_pins, 24000 / 1001)
+                _caption_timing.report(_cap_applied, _cap_short,
+                                       _cap_stale)
 
             # The animated explainer. A project that declares none gets
             # `([], plan)` with the plan saying `not_declared`, and the
@@ -5848,10 +6135,18 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             #   moved - exactly the defect that was invisible before.
             if subtitle_segments:
                 entries = getattr(subtitle_segments, "caption_entries", None)
+                spine = getattr(subtitle_segments, "spine", None)
+                if entries and _caption_pins:
+                    # The hash answers "what was said and WHEN in the
+                    # reel", so it must describe the PINNED timings -
+                    # otherwise the verifier, re-deriving them through
+                    # the same owner, reads a pin as a changed card
+                    # grouping and refuses to grade caption durations.
+                    entries = _caption_timing.retime_entries(
+                        entries, spine, _caption_pins, 24000 / 1001)[0]
                 if entries:
                     from library.tools.plan_provenance import caption_content_hash
                     caption_hashes[name] = caption_content_hash(entries)
-                spine = getattr(subtitle_segments, "spine", None)
                 if spine:
                     from library.tools.plan_provenance import footage_binding_hash
                     try:
@@ -5958,6 +6253,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # span_retime pins. Recomputing from the moment would
                 # un-trim them.
                 ranges=ranges,
+                # WHERE THIS REEL ENDS, and what draws over its tail -
+                # including a declared freeze, which the build renders
+                # and places as the ending shot's held last frame.
+                ending=_ending_decl,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
@@ -5988,15 +6287,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 manifest = _look.fusion_manifest(
                     # The TRIMMED ranges, for the reason the motion spine
                     # above states: a recompute from the moment un-trims
-                    # the captain's pins.
-                    placements(
-                        ranges, master_clips,
-                        24000/1001,
-                        lead_frames=lead_frames(cards, 24000/1001)),
+                    # the captain's pins. Plus the declared FREEZE, which
+                    # is a picture clip on the ending shot's row and the
+                    # last one there - so the tail element is armed on
+                    # the held frames rather than on the live tail.
+                    _with_freeze(
+                        placements(
+                            ranges, master_clips,
+                            24000/1001,
+                            lead_frames=lead_frames(cards, 24000/1001)),
+                        build_result.get("freeze"), 24000/1001),
                     reel_look_decl, reel_motion, 24000/1001,
                     track_plan=build_result["track_plan"],
                     angle_key=_angle_key,
-                    grade_look=reel_grade_look)
+                    grade_look=reel_grade_look,
+                    # The declared ending owns the tail element; no
+                    # declaration keeps the unconditional arm.
+                    ending=_reel_ending.resolve_ending(
+                        project_folder, name))
                 if not _look.apply_comps(manifest, project_folder,
                                          resolve_name, name):
                     raise ReelBuildError(

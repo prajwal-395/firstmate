@@ -99,6 +99,21 @@ class FakeTimeline:
     def GetItemListInTrack(self, kind, index):
         return []
 
+    # Promotion reads the captain's markers off the retiring timeline
+    # before anything is renamed (`library/tools/marker_carry.py`), and
+    # REFUSES a timeline whose markers it cannot see - so a fake that
+    # cannot answer for them is a fake of a different object.
+    def GetStartFrame(self):
+        return 0
+
+    def GetMarkers(self):
+        return dict(getattr(self, "_markers", {}))
+
+    def AddMarker(self, frame, color, name, note, duration, custom=""):
+        self.added_markers = getattr(self, "added_markers", [])
+        self.added_markers.append((frame, color, name, note))
+        return True
+
 
 class FakeProject:
     """A Resolve project whose pool really creates, renames and deletes."""

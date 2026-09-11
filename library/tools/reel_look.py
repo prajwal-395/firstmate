@@ -955,7 +955,7 @@ def assert_covers_window(properties, source_width: int, source_height: int,
 
 
 def power_effects(look: dict, first_label: str,
-                  last_label: str) -> Dict[str, dict]:
+                  last_label: str, ending=None) -> Dict[str, dict]:
     """The switch-on / switch-off comp keys, per clip label.
 
     The same two keys `compile_manifest` sets on the master, resolved the
@@ -963,6 +963,15 @@ def power_effects(look: dict, first_label: str,
     declaration states.  The animation runs on the picture, not on the
     set - so it lands on the first and last FOOTAGE clip, never on the
     frame asset.
+
+    `ending` is the reel's DECLARED ending
+    (`library/tools/reel_ending.py`) or None.  Where one is declared it
+    owns the tail: the element it names is what draws there, and a
+    declaration of `none` draws nothing.  Without a declaration this
+    arms the switch-off on whatever clip sorts last, which is what it
+    has always done - and is exactly how Reel 13 armed an 18-frame
+    animation onto a 12-frame shot that had no business being the
+    ending at all.
     """
     from library.tools.tv_power import switch_off_frames, switch_on_frames
 
@@ -975,8 +984,15 @@ def power_effects(look: dict, first_label: str,
     out: Dict[str, dict] = {}
     out.setdefault(first_label, {}).update(
         {"tv_power_head": True, "tv_power_head_timing": head})
-    out.setdefault(last_label, {}).update(
-        {"tv_power_tail": True, "tv_power_tail_timing": tail})
+    if ending is None:
+        out.setdefault(last_label, {}).update(
+            {"tv_power_tail": True, "tv_power_tail_timing": tail})
+        return out
+    from library.tools import reel_ending as _ending
+
+    keys = _ending.tail_effects(ending, look)
+    if keys:
+        out.setdefault(last_label, {}).update(keys)
     return out
 
 
@@ -1241,7 +1257,8 @@ def _reel_row_for(placement: dict, rows: Dict[str, int],
 def fusion_manifest(placements: Sequence[dict], look: dict,
                     motion: Sequence[dict], fps: float,
                     track_plan=None, angle_key=None,
-                    grade_look: Optional[dict] = None) -> dict:
+                    grade_look: Optional[dict] = None,
+                    ending=None) -> dict:
     """The manifest `apply_fusion_comps` reads for one reel.
 
     Only the keys that pass actually reads: `tracks.V{row}.clips` in
@@ -1264,6 +1281,9 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
     It is merged onto every picture clip with `setdefault`, the
     compile_manifest rule: a value the motion plan states wins over
     the look's, and None means no grade rides the reels at all.
+
+    `ending` is the reel's declared ending or None; it decides what
+    draws over the LAST picture clip (`power_effects` above).
     """
     picture = _picture(placements)
     rows = picture_rows(track_plan)
@@ -1285,7 +1305,8 @@ def fusion_manifest(placements: Sequence[dict], look: dict,
     per_clip: Dict[str, dict] = {}
     if picture:
         for label, effects in power_effects(
-                look, clip_label(0), clip_label(len(picture) - 1)).items():
+                look, clip_label(0), clip_label(len(picture) - 1),
+                ending=ending).items():
             per_clip.setdefault(label, {}).update(effects)
 
     # The designed film look (grade node_3 + node_4). Merged BEFORE

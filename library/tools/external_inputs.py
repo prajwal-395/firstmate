@@ -880,6 +880,71 @@ def _alias_hint(key: str) -> str:
     return ""
 
 
+#: Files under `external/` that are DECLARATIONS, not supplied state.
+#:
+#: Two conventions share this one directory and they are different
+#: things. Supplied STATE stands in for a step's output and carries
+#: `key`/`source`/`value`, so `CHECKS` above can judge it against the
+#: run. A DECLARATION is a standing decision about the project - where
+#: the captain's overlays sit, where a reel ends, how a caption card is
+#: timed - read by the module that OWNS it rather than handed to any
+#: step, and it carries `version` plus that owner's own field.
+#:
+#: Measured 2026-09-11 on `lucie/geo-podcast`: `external_inputs.load`
+#: globs the whole directory, so the moment the captain's
+#: `overlay_intent.json` was written there every `build-reels` on that
+#: project refused at input gathering with "declares key None" - a
+#: message about a contract that file was never written to. Three
+#: owners had landed declarations into a directory a fourth module
+#: verifies.
+#:
+#: They are NOT skipped, because a check that does not exist is not a
+#: check that passes (the rule `verify` states above). Each is checked
+#: HERE, by its owner's own reader, so a malformed declaration still
+#: refuses the run at the same moment and in the owner's own words -
+#: and then it is left out of the supplied state, because it is not
+#: state.
+DECLARATIONS = {
+    "overlay_intent": ("library.tools.overlay_intent", "load_intent"),
+    "mix_intent": ("library.tools.mix_intent", "load_intent"),
+    "placed_assets": ("library.tools.placed_assets", "load_assets"),
+    "reel_ending": ("library.tools.reel_ending", "load_endings"),
+    "caption_timing": ("library.tools.caption_timing", "load_pins"),
+}
+
+
+def check_declaration(stem: str, project_folder) -> str:
+    """Read one declaration with its OWNER's reader. Raises its error.
+
+    Returns the one-line account of what was checked, so a run can say
+    it looked - a gate that only speaks when it fails reads as absent.
+    """
+    import importlib
+
+    module_name, reader = DECLARATIONS[stem]
+    value = getattr(importlib.import_module(module_name), reader)(
+        str(project_folder))
+    return f"{len(value)} entr{'y' if len(value) == 1 else 'ies'}"
+
+
+def checked_declarations(project_folder) -> Dict[str, str]:
+    """Every declaration in the project's external area, checked.
+
+    `{stem: what was checked}`. Raises the OWNER's error for a
+    malformed one, unchanged: the owner wrote the clearest available
+    message about its own file and this module must not restate it.
+    """
+    try:
+        directory = external_dir(project_folder)
+    except (KeyError, ValueError):
+        return {}
+    if not directory.is_dir():
+        return {}
+    return {path.stem: check_declaration(path.stem, project_folder)
+            for path in sorted(directory.glob(f"*{SUFFIX}"))
+            if path.stem in DECLARATIONS}
+
+
 def verify(path: Path, context: Context) -> Supplied:
     """One file, checked. Raises `ExternalStateError` with the reason."""
     try:
@@ -888,6 +953,15 @@ def verify(path: Path, context: Context) -> Supplied:
         raise ExternalStateError(f"{path} cannot be read: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise ExternalStateError(f"{path} is not valid JSON: {exc}") from exc
+
+    if path.stem in DECLARATIONS:
+        module_name, reader = DECLARATIONS[path.stem]
+        raise ExternalStateError(
+            f"{path.name} is a DECLARATION, not supplied state: it is "
+            f"read by {module_name} ({reader}) and carries 'version' "
+            f"plus that owner's own field, never 'key'/'source'/"
+            f"'value'. Check it with `check_declaration`; `load` does "
+            f"that and leaves it out of the supplied state.")
 
     if not isinstance(document, dict):
         raise ExternalStateError(
@@ -956,6 +1030,11 @@ def load(project_folder, state: Optional[Mapping] = None
                       state=state or {})
     supplied: Dict[str, Supplied] = {}
     for path in sorted(directory.glob(f"*{SUFFIX}")):
+        if path.stem in DECLARATIONS:
+            # Checked by its owner, and then NOT supplied: a standing
+            # decision about the project is not a step's output.
+            check_declaration(path.stem, project_folder)
+            continue
         entry = verify(path, context)
         supplied[entry.key] = entry
     return supplied

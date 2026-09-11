@@ -1,6 +1,6 @@
 """The depth router refuses display-layer fixes for every class.
 
-For each of the ten edit classes: the owner is named, every display
+For each edit class: the owner is named, every display
 layer refuses with the owner and the deep path in the message, the
 owning layer passes, and an unknown class refuses too. `flag` is the
 loud variant for contexts where raising would break a live run.
@@ -11,8 +11,11 @@ import pytest
 from library.tools import edit_depth
 
 
-def test_ten_classes_all_routed():
-    assert len(edit_depth.classes()) == 10
+def test_every_class_is_routed():
+    """Named for what it checks, not for today's count - a name carrying
+    the number goes stale on the next class and fails for itself rather
+    than for the thing it guards."""
+    assert edit_depth.classes(), "edit_depth names no classes at all"
     for name in edit_depth.classes():
         owner = edit_depth.owner_of(name)
         assert owner["layer"] and owner["store"] and owner["module"]

@@ -1175,12 +1175,17 @@ def report_stale(records: list) -> list:
 def transcript_path(project_folder) -> Path:
     """The measured transcript, where the anchors resolve.
 
-    The same file the reel build reads (`reel_build` joins it
-    inline) - a pin recorded against other words than these is
-    drift, so the record commands check correspondence here at
-    write time rather than failing the next build."""
-    return (Path(str(project_folder)) / "pipeline_output" / "scratch"
-            / "timeline_transcript" / "transcript.json")
+    The same file the reel build reads - a pin recorded against other
+    words than these is drift, so the record commands check
+    correspondence here at write time rather than failing the next
+    build.  DELEGATED rather than composed: `timeline_transcript` owns
+    where its own output lands, and a second spelling here is a second
+    answer to "where does the transcript live"
+    (`tests/test_operations.py`)."""
+    from library.tools.timeline_transcript import (
+        transcript_path as _owner_path)
+
+    return _owner_path(project_folder)
 
 
 def load_transcript(project_folder):

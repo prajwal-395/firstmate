@@ -16,8 +16,8 @@ fix landing on a display-only layer. The pre-run coherence gate
 it compares each layer against the one it derives from on every run
 and flags divergence loudly.
 
-The ten classes, and where each lives
--------------------------------------
+The twelve classes, and where each lives
+----------------------------------------
 1. `wording` - OWNS: the transcript root, `learned_context`
    correction enforced by `transcript_corrections.apply_to_document`
    (deterministic) plus prompt routing to model-authored copy.
@@ -77,6 +77,21 @@ The ten classes, and where each lives
     step that owns the decision (17 routed, ambiguous/unrouted
     reported never forced); `marker_resolution` records the answer.
     DISPLAYS: marker files, ROUTED-NOTES.md.
+11. `ending` - OWNS: `external/reel_ending.json`, read by
+    `library/tools/reel_ending.py` and applied at the reel's RANGES
+    seam. Where a reel stops and what draws over its tail were
+    properties of nothing: a tail extension was the only vocabulary
+    for "give the ending room", and on Reel 13 it crossed a master
+    cut, admitted twelve frames of the next speaker, and took the
+    switch-off with it. An ending TRUNCATES and never extends.
+    DISPLAYS: the reel's last timeline items, the tail comp.
+12. `caption_timing` - OWNS: `external/caption_timing.json`, read by
+    `library/tools/caption_timing.py` and applied to the rendered
+    caption segments before they are placed. `clip_timing` above
+    silently meant PICTURE timing: `span_retime` holds keep-range
+    edges and has no word for a card moved off the picture under it.
+    Beside it rather than inside it, for the reasons that module's
+    docstring measures. DISPLAYS: caption timings on the timeline.
 
 `tests/test_edit_depth.py`.
 """
@@ -155,6 +170,18 @@ OWNERS = {
         "module": "library/tools/marker_routing.py",
         "shared": False,
     },
+    "ending": {
+        "layer": "declared reel_ending, applied at the ranges seam",
+        "store": "external/reel_ending.json",
+        "module": "library/tools/reel_ending.py",
+        "shared": False,
+    },
+    "caption_timing": {
+        "layer": "declared caption_timing pins, applied pre-placement",
+        "store": "external/caption_timing.json",
+        "module": "library/tools/caption_timing.py",
+        "shared": False,
+    },
 }
 
 #: Layers that merely display each class. A fix landing on one of
@@ -176,6 +203,8 @@ DISPLAYS = {
                      "rendered mix"),
     "mg_content": ("rendered segments", "V6 timeline items"),
     "marker_feedback": ("marker files", "ROUTED-NOTES.md"),
+    "ending": ("timeline tail items", "tail comp", "reel duration"),
+    "caption_timing": ("caption timings", "timeline caption items"),
 }
 
 #: The deep path, in one line each: what the fixer does instead.
@@ -211,6 +240,17 @@ DEEP_PATH = {
     "marker_feedback": "type the note on the timeline and let "
                        "marker_routing deliver it to the owning step; "
                        "never hand-apply what a step decides.",
+    "ending": "declare it in external/reel_ending.json (ends_on "
+              "anchor_phrase plus the tail_element that draws over "
+              "it); the build truncates the last range to that shot "
+              "and refuses when the shot cannot hold the element. "
+              "Never extend a keep range to make tail room - that is "
+              "what admitted the next speaker.",
+    "caption_timing": "declare it in external/caption_timing.json "
+                      "(scope by the source audio the card captions, "
+                      "adjust with offset_frames/head_frames/"
+                      "tail_frames); span_retime holds picture spans "
+                      "and cannot say this.",
 }
 
 
@@ -306,6 +346,30 @@ REFUSAL_REACHABILITY = {
                  "judgement is the 4.06 review gate's, not a diff's, and "
                  "this entry states the boundary instead of claiming it.",
     },
+    "ending": {
+        "reachable": True,
+        "where": "the declared ending is applied at the ranges seam "
+                 "every build and SAYS what it truncated or held; a "
+                 "declaration anchored on words the reel no longer "
+                 "plays reports STALE, and a tail element the ending "
+                 "shot cannot hold REFUSES by name rather than being "
+                 "undone at comp time the way Reel 13's was. A hand "
+                 "trim of the last timeline item with no declaration "
+                 "is UNREACHABLE (no file carrier): the rebuild "
+                 "re-cuts the ranges and the trim is gone, announced "
+                 "only by the declaration that is absent.",
+    },
+    "caption_timing": {
+        "reachable": True,
+        "where": "the pins are applied to the rendered segments every "
+                 "build and each verdict prints; a pin matching no card "
+                 "reports STALE, and a pin trimming a card out of "
+                 "existence refuses. A hand-dragged caption item with "
+                 "no pin is UNREACHABLE (no file carrier): the placer "
+                 "re-places from the plan's seconds and the drag dies "
+                 "silently, which is how Reel 13's closers were lost "
+                 "twice.",
+    },
     "marker_feedback": {
         "reachable": True,
         "where": "already loud without a witness: a hand-applied note "
@@ -331,7 +395,7 @@ def reachability(edit_class: str) -> dict:
 
 
 def classes() -> list:
-    """The ten edit classes, in canonical order."""
+    """The twelve edit classes, in canonical order."""
     return list(OWNERS)
 
 
@@ -401,7 +465,7 @@ def flag_display_edit(edit_class: str, layer: str,
 def main(argv=None) -> int:
     """`python3 -m library.tools.edit_depth <verb>`:
 
-    `list` - the ten classes with owners and displays.
+    `list` - the twelve classes with owners and displays.
     `route <class> <layer>` - owning or display (exit 2 on display).
     """
     import argparse

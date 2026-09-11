@@ -23,6 +23,20 @@ from library.tools import layer_coherence
 MATRIX = []
 
 
+class _SimpleShot:
+    """The two fields `reel_build.placements` reads off a master clip."""
+
+    def __init__(self, timeline_start, timeline_end, track_index=1,
+                 speaker="A", source_in=50.0):
+        self.timeline_start = timeline_start
+        self.timeline_end = timeline_end
+        self.track_index = track_index
+        self.speaker = speaker
+        self.source_in = source_in
+        self.track_type = "video"
+        self.source_file = "/f/shot.mov"
+
+
 def _row(edit_class, shallow_outcome):
     line = f"ROW {edit_class}: shallow -> {shallow_outcome}"
     print(line)
@@ -208,11 +222,97 @@ def test_row_marker_feedback_already_loud():
          "FLAGGED (note stays open; routing vocabulary hit)")
 
 
-def test_matrix_covers_all_ten_classes():
-    assert len(MATRIX) == 10, f"only {len(MATRIX)} rows vetted"
-    assert [m[0] for m in MATRIX] == edit_depth.classes()
+def test_row_ending_refuses_an_element_that_cannot_draw(tmp_path):
+    """No file display carries a reel's ending - a hand trim of the last
+    timeline item dies on rebuild with nothing to fingerprint. What IS
+    loud is the build: an element the ending shot cannot hold refuses by
+    name with both counts, and an anchor whose words the reel no longer
+    plays reports STALE rather than silently changing nothing."""
+    from library.tools import reel_build
+    from library.tools import reel_ending
+
+    ending = {"reel": "R", "ends_on": {"anchor_phrase": "beta gamma"},
+              "tail_element": "tv_power_tail", "reason": "vetting"}
+    with pytest.raises(reel_ending.TailElementHasNoRoom) as refusal:
+        reel_ending.assert_tail_fits(
+            [{"source_in": 0.0, "source_out": 12 / 24.0}], ending, 24.0)
+    message = str(refusal.value)
+    assert "19 frames" in message and "plays 12" in message
+    assert "tail_hold: freeze" in message
+
+    transcript = {"segments": [{
+        "text": "alpha beta gamma",
+        "words": [{"word": w, "start": 10.0 + i * 0.5,
+                   "end": 10.4 + i * 0.5, "timed": True}
+                  for i, w in enumerate(("alpha", "beta", "gamma"))]}]}
+    shot = _SimpleShot(10.0, 11.5)
+    ranges = [(10.0, 11.5)]
+    probe = reel_build.placements(ranges, [shot], 24.0)
+    _, record = reel_ending.apply_ending(
+        ranges, probe, transcript,
+        {**ending, "ends_on": {"anchor_phrase": "words never said"}}, 24.0)
+    assert len(record["stale"]) == 1
+    assert "STALE" in record["stale"][0]["reason"]
+    assert edit_depth.reachability("ending")["reachable"] is True
+    _row("ending",
+         "REFUSED (element with no room names both counts) + STALE "
+         "(anchor the reel no longer plays)")
+
+
+def test_row_caption_timing_refuses_and_reports_stale():
+    """Same shape: a hand-dragged caption card has no file carrier, and
+    the placer re-places from the plan's seconds. What IS loud is the
+    pin - one matching no card reports STALE, one trimming a card out of
+    existence refuses."""
+    from library.tools import caption_timing
+
+    card = {"segment_id": "sub_a_c_500780-504042",
+            "binding": {"speaker": "akshita", "source_clip_id": "c",
+                        "source_start": 500.78, "source_end": 504.042},
+            "timeline_start": 1600 / 24.0, "timeline_end": 1678 / 24.0}
+    _, applied, _, stale = caption_timing.apply_pins(
+        [card], [{"scope": {"speaker": "craig"}, "offset_frames": 3,
+                  "reason": "words that moved"}], 24.0)
+    assert not applied and len(stale) == 1
+    assert "STALE" in stale[0]["reason"]
+    with pytest.raises(caption_timing.CaptionTimingError) as refusal:
+        caption_timing.apply_pins(
+            [card], [{"scope": {"source_start": 500.78},
+                      "head_frames": 999, "reason": "too far"}], 24.0)
+    assert "draws nothing" in str(refusal.value)
+    assert edit_depth.reachability("caption_timing")["reachable"] is True
+    _row("caption_timing",
+         "STALE (pin matching no card) + REFUSED (pin that would trim a "
+         "card out of existence)")
+
+
+def test_matrix_covers_every_edit_class():
+    """One row per class, DERIVED from the canonical list.
+
+    Named for what it checks rather than for today's count: it was
+    `..._all_ten_classes` and went stale the moment an eleventh class
+    landed, which is a test failing for its own name rather than for
+    the thing it guards. It still FAILS when a new class has no row -
+    that is its whole job - but it now says WHICH class is unvetted
+    instead of printing two list diffs, and order is not load-bearing.
+    """
+    rows = [m[0] for m in MATRIX]
+    classes = edit_depth.classes()
+    assert len(rows) == len(set(rows)), (
+        f"a class is vetted twice: {sorted(rows)}")
+    missing = [name for name in classes if name not in rows]
+    assert not missing, (
+        f"{len(missing)} edit class(es) lose a shallow change with no "
+        f"row vetting it: {', '.join(missing)}. Add a row that runs the "
+        f"REAL witness for each, or state per class what the user sees "
+        f"instead (AGENTS.md 10.4).")
+    unknown = [name for name in rows if name not in classes]
+    assert not unknown, (
+        f"row(s) for classes `edit_depth` does not name: "
+        f"{', '.join(unknown)}")
     print("\nSHALLOW-LOUD MATRIX (after: PR 976 said LOST x8)")
-    for edit_class, shallow in MATRIX:
+    for edit_class, shallow in sorted(MATRIX,
+                                      key=lambda r: classes.index(r[0])):
         print(f"  {edit_class:16s} shallow: {shallow}")
 
 

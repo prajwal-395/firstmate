@@ -1,4 +1,4 @@
-"""The vetting matrix: ten rows, each a real shallow edit + rebuild.
+"""The vetting matrix: one row per edit class, each a real shallow edit + rebuild.
 
 For every edit class this lane claims an owner for, this test makes
 the shallow fix on a display layer, runs the owning computation, and
@@ -298,10 +298,103 @@ def test_row_10_marker_feedback(tmp_path):
          "PERSISTS via routing (vocabulary hit + recorded answer)")
 
 
-def test_matrix_covers_all_ten_classes():
-    assert len(MATRIX) == 10, f"only {len(MATRIX)} rows vetted"
-    assert [m[0] for m in MATRIX] == edit_depth.classes()
+def test_row_11_ending(tmp_path):
+    from types import SimpleNamespace
+
+    from library.tools import reel_build
+    from library.tools import reel_ending
+
+    transcript = {"segments": [{
+        "text": "alpha beta gamma delta",
+        "words": _words("alpha", "beta", "gamma", "delta")}]}
+    # Two master shots, back to back. The reel's plan reaches 0.6s into
+    # the SECOND one, which is how Reel 13 grew twelve frames of Craig.
+    shot_a = SimpleNamespace(timeline_start=10.0, timeline_end=11.5,
+                             source_in=50.0, track_index=1, speaker="A")
+    shot_b = SimpleNamespace(timeline_start=11.5, timeline_end=13.0,
+                             source_in=80.0, track_index=2, speaker="B")
+    ranges = [(10.0, 12.1)]
+    probe = reel_build.placements(ranges, [shot_a, shot_b], 24.0)
+    # Shallow: trim the last item by hand in Resolve. The next rebuild
+    # re-cuts the ranges from the plan and the second shot is back.
+    assert len(probe) == 2 and probe[-1]["clip"] is shot_b
+    shallow = "LOST on rebuild (ranges re-cut; next shot returns)"
+    # Deep: declare the ending. The last range truncates to the shot
+    # that speaks the anchor, and a second run holds it.
+    ending = {"reel": "R", "ends_on": {"anchor_phrase": "beta gamma"},
+              "tail_element": "tv_power_tail", "reason": "vetting row 11"}
+    trimmed, record = reel_ending.apply_ending(
+        ranges, probe, transcript, ending, 24.0)
+    assert trimmed == [(10.0, 11.5)] and len(record["applied"]) == 1
+    again = reel_build.placements(trimmed, [shot_a, shot_b], 24.0)
+    assert len(again) == 1 and again[-1]["clip"] is shot_a
+    _, second = reel_ending.apply_ending(
+        trimmed, again, transcript, ending, 24.0)
+    assert len(second["held"]) == 1 and not second["applied"]
+    # And the switch-off it declares now has a shot long enough to draw
+    # in, which is the half that was silently undone before.
+    fits = reel_ending.assert_tail_fits(again, ending, 24.0)
+    # Frames of CLIP: one more than the 18-frame ramp, because a hold
+    # of exactly the ramp's length is undone as `never_settles`.
+    assert fits["fits"] and fits["tail_frames"] == 19
+    _row(11, "ending",
+         shallow, "PERSISTS via declaration (truncates, holds, tail fits)")
+
+
+def test_row_12_caption_timing(tmp_path):
+    from library.tools import caption_timing
+
+    fps = 24000 / 1001
+    card = {"segment_id": "sub_a_c_500780-504042",
+            "binding": {"speaker": "akshita", "source_clip_id": "c",
+                        "source_start": 500.78, "source_end": 504.042},
+            "timeline_start": 1600 / fps, "timeline_end": 1678 / fps}
+    # Shallow: drag the card seven frames later in Resolve. The placer
+    # re-places from the plan's seconds, so the drag is gone.
+    shallow = "LOST on rebuild (placer re-places from plan seconds)"
+    # And span_retime, the clip_timing owner, has no word for it: its
+    # vocabulary is a keep-range EDGE and it refuses an extension.
+    assert "offset" not in edit_depth.DEEP_PATH["clip_timing"]
+    # Deep: a caption pin, scoped by the source audio the card captions.
+    pins = [{"scope": {"speaker": "akshita",
+                       "source_start_at_or_after": 500.0},
+             "offset_frames": 7, "reason": "vetting row 12"}]
+    moved, applied, short, stale = caption_timing.apply_pins(
+        [card], pins, fps)
+    assert not short and not stale and len(applied) == 1
+    assert applied[0]["now"] == [1607, 1685]
+    # A rebuild re-renders the same card at the same plan seconds and
+    # the pin moves it again - which is what surviving means here.
+    again, applied2, _, _ = caption_timing.apply_pins([card], pins, fps)
+    assert applied2[0]["now"] == applied[0]["now"]
+    _row(12, "caption_timing", shallow,
+         "PERSISTS via pin (source-anchored offset, re-applied)")
+
+
+def test_matrix_covers_every_edit_class():
+    """One row per class, DERIVED from the canonical list.
+
+    Named for what it checks rather than for today's count: a name
+    carrying the number goes stale the moment a class is added, and a
+    test that fails for its own name teaches people to edit the number
+    rather than vet the class. It still FAILS when a new class has no
+    row - that is its job - and now names the class that is missing.
+    """
+    rows = [m[0] for m in MATRIX]
+    classes = edit_depth.classes()
+    assert len(rows) == len(set(rows)), (
+        f"a class is vetted twice: {sorted(rows)}")
+    missing = [name for name in classes if name not in rows]
+    assert not missing, (
+        f"{len(missing)} edit class(es) have no vetted shallow/deep "
+        f"pair: {', '.join(missing)}. Add a row that makes the REAL "
+        f"shallow edit and shows the REAL deep fix surviving a rebuild.")
+    unknown = [name for name in rows if name not in classes]
+    assert not unknown, (
+        f"row(s) for classes `edit_depth` does not name: "
+        f"{', '.join(unknown)}")
     print("\nDEPTH VETTING MATRIX")
-    for edit_class, shallow, deep in MATRIX:
+    for edit_class, shallow, deep in sorted(
+            MATRIX, key=lambda r: classes.index(r[0])):
         print(f"  {edit_class:16s} shallow: {shallow}")
         print(f"  {'':16s} deep:    {deep}")

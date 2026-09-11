@@ -119,6 +119,22 @@ def played_length(
     return last - first + 1
 
 
+def frames_for_ramp(dur_frames: int) -> int:
+    """How many frames of CLIP a ramp of `dur_frames` needs to draw.
+
+    The inverse of `assert_ramp_fits`, and kept beside it so the two
+    cannot disagree: that check refuses when `dur_frames > last - first`,
+    so a ramp needs one frame more of clip than of ramp - the frame it
+    starts neutral on, plus every frame it moves over.
+
+    Measured 2026-09-11 on Reel 13's freeze tail: an 18-frame switch-off
+    on an 18-frame hold fails `treatment_verify` as `never_settles` and
+    is undone, while 19 frames passes. A caller minting room for a ramp
+    asks here rather than adding one itself.
+    """
+    return int(dur_frames) + 1
+
+
 def assert_ramp_fits(
     dur_frames: int,
     first: int,

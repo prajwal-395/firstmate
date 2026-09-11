@@ -57,6 +57,11 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from library.tools.timeline_transcript import (
+    SCRATCH_SUBDIR as _TRANSCRIPT_SUBDIR,
+    TRANSCRIPT_FILENAME as _TRANSCRIPT_FILENAME,
+)
+
 #: The ledger, at the project root beside `pipeline_run.json`:
 #: runner-owned run state, written by snapshot, read by check.
 LEDGER_FILENAME = "display_drift.json"
@@ -65,6 +70,14 @@ LEDGER_FILENAME = "display_drift.json"
 #: sha string and is still read (size then prints as unknown).
 LEDGER_VERSION = 2
 
+#: The timeline transcript, named by its OWN module rather than spelled
+#: again here: `timeline_transcript` owns what that file is called and
+#: which scratch subdirectory holds it, and a witness that spells them
+#: itself goes blind the day either is renamed
+#: (`tests/test_operations.py`).
+_TRANSCRIPT_DISPLAY = (
+    f"pipeline_output/scratch/{_TRANSCRIPT_SUBDIR}/{_TRANSCRIPT_FILENAME}")
+
 #: Display roots fingerprinted, relative to the project folder.
 #: The live proposal only - timestamped copies are history.
 DISPLAY_ROOTS = (
@@ -72,13 +85,13 @@ DISPLAY_ROOTS = (
     "subtitle_overlays",
     "pipeline_output/steps",
     "pipeline_output/review/reel_proposals_v2.json",
-    "pipeline_output/scratch/timeline_transcript/transcript.json",
+    _TRANSCRIPT_DISPLAY,
 )
 
 #: Exact filenames (not directories) among the roots above.
 _SINGLE_FILES = {
     "pipeline_output/review/reel_proposals_v2.json",
-    "pipeline_output/scratch/timeline_transcript/transcript.json",
+    _TRANSCRIPT_DISPLAY,
 }
 
 #: Suffixes worth witnessing. Renders (`.mp4`, `.mov`, stills) are

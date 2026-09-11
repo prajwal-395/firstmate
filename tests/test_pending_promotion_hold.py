@@ -411,9 +411,15 @@ class FakeRowItem:
 
 
 class FakeRowTimeline:
-    def __init__(self, name, video=(), audio=()):
+    def __init__(self, name, video=(), audio=(), markers=None):
         self._name = name
         self._rows = {"video": list(video), "audio": list(audio)}
+        # Promotion reads the captain's markers off the retiring
+        # timeline before it renames anything
+        # (`library/tools/marker_carry.py`), so a fake that cannot
+        # answer for its markers is a fake of a different object.
+        self._markers = dict(markers or {})
+        self.added_markers = []
 
     def GetName(self): return self._name
     def SetName(self, name):
@@ -424,6 +430,11 @@ class FakeRowTimeline:
         return self._rows[kind][index - 1][0]
     def GetItemListInTrack(self, kind, index):
         return self._rows[kind][index - 1][1]
+    def GetStartFrame(self): return 0
+    def GetMarkers(self): return dict(self._markers)
+    def AddMarker(self, frame, color, name, note, duration, custom=""):
+        self.added_markers.append((frame, color, name, note))
+        return True
 
 
 class FakeResolveProject:

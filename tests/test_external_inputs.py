@@ -926,3 +926,80 @@ def test_a_step_that_hands_nothing_to_anybody_is_never_read_as_supplied():
     everything = {key for keys in run_scope.routed_state_keys(dag).values()
                   for key in keys}
     assert not (silent & set(run_scope.supplied_producers(dag, everything)))
+
+
+# ── Declarations share the directory and are NOT supplied state ────
+
+def test_a_declaration_is_checked_by_its_owner_and_not_supplied(tmp_path):
+    """Measured 2026-09-11 on `lucie/geo-podcast`: the moment the
+    captain's `overlay_intent.json` was written into `external/`, every
+    `build-reels` on that project refused at input gathering with
+    "declares key None" - a message about a contract that file was
+    never written to. A declaration is read by its OWNER."""
+    import json as _json
+
+    from library.tools import external_inputs
+
+    root = tmp_path / "project"
+    external = root / "external"
+    external.mkdir(parents=True)
+    (external / "reel_ending.json").write_text(_json.dumps({
+        "version": 1,
+        "endings": [{"reel": "Reel 13", "tail_element": "tv_power_tail",
+                     "ends_on": {"anchor_phrase": "in our bio"},
+                     "reason": "captain 2026-09-11"}]}), encoding="utf-8")
+    assert external_inputs.checked_declarations(root) == {
+        "reel_ending": "1 entry"}
+    # Checked, and then left OUT of the supplied state: a standing
+    # decision about the project is not a step's output.
+    assert external_inputs.load(root, {}) == {}
+
+
+def test_a_malformed_declaration_still_refuses_in_its_owners_words(tmp_path):
+    import json as _json
+
+    from library.tools import external_inputs
+    from library.tools import reel_ending
+
+    root = tmp_path / "project"
+    external = root / "external"
+    external.mkdir(parents=True)
+    (external / "reel_ending.json").write_text(_json.dumps({
+        "version": 1,
+        "endings": [{"reel": "Reel 13", "reason": "r"}]}), encoding="utf-8")
+    with pytest.raises(reel_ending.ReelEndingError, match="no ends_on"):
+        external_inputs.load(root, {})
+
+
+def test_verify_names_the_owner_rather_than_the_wrong_contract(tmp_path):
+    import json as _json
+
+    from library.tools import external_inputs
+
+    root = tmp_path / "project"
+    external = root / "external"
+    external.mkdir(parents=True)
+    path = external / "overlay_intent.json"
+    path.write_text(_json.dumps({"version": 1, "targets": {}}),
+                    encoding="utf-8")
+    context = external_inputs.Context(project_folder=root, state={})
+    with pytest.raises(external_inputs.ExternalStateError) as excinfo:
+        external_inputs.verify(path, context)
+    message = str(excinfo.value)
+    assert "is a DECLARATION" in message
+    assert "library.tools.overlay_intent" in message
+    assert "declares key" not in message
+
+
+def test_every_declaration_names_a_reader_that_exists():
+    """A registry row pointing at a reader nobody wrote would refuse
+    every project that carries that file."""
+    import importlib
+
+    from library.tools import external_inputs
+
+    for stem, (module_name, reader) in (
+            external_inputs.DECLARATIONS.items()):
+        module = importlib.import_module(module_name)
+        assert callable(getattr(module, reader)), (
+            f"{stem} names {module_name}.{reader}, which is not callable")

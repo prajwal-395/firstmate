@@ -119,6 +119,11 @@ VALID_POSITIONS = ("bottom", "center", "top")
 #: short-form UI map) and motion graphics were never corrected this
 #: way, so neither moves. `captionMaxWidth` still derives from the
 #: unlifted left/right insets.
+#: AGENTS.md 10.2 carried this row as a NUMBER. #979 corrected the
+#: value here and not there, so the index and the code disagreed until
+#: 2026-09-11; the index now names the constant and the superseded
+#: headline is kept verbatim on the next line, which is where it lives:
+#: Captions sit 11px above the safe-area bottom inset (`CAPTION_LIFT_PX`).
 CAPTION_LIFT_PX = 1
 
 

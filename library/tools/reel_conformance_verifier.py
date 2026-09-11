@@ -364,6 +364,21 @@ class ReelPlan:
     """Bad takes removed (from reel_build.Cut)."""
     keep_ranges: Tuple[Tuple[float, float], ...] = ()
     call_to_action: Optional[Tuple[float, float]] = None
+    held_frames: int = 0
+    """Frames the declared FREEZE tail holds, from no keep range.
+
+    Picture the viewer watches that the ranges do not describe, the
+    same case a full-frame card is (`library/tools/reel_ending.py`).
+    """
+    declared_short_captions: Tuple[Tuple[int, int], ...] = ()
+    """Cards a caption-timing PIN left under the readability floor.
+
+    `((start_frame, frames), ...)`. F7 reports these instead of
+    failing them: the captain shortened them himself and recorded why,
+    and a gate that fails correct output is no more coverage than one
+    that cannot fail (AGENTS.md 10.4). Every other short card still
+    FAILS.
+    """
     """The closing CTA range on the MASTER, which may come from anywhere
     in the episode and is the LAST of `keep_ranges`.  Recorded separately
     because the checks that read reel BOUNDARIES want the body span and
@@ -907,6 +922,7 @@ def check_plan_describes_timeline(reel_name: str,
                                  total_frames: int,
                                  fps: float,
                                  card_frames: int = 0,
+                                 held_frames: int = 0,
                                  ) -> List[Finding]:
     """Refuse F4 when the RE-DERIVED plan is not the plan that was built.
 
@@ -950,6 +966,12 @@ def check_plan_describes_timeline(reel_name: str,
     refuse F4 as "not the plan that built this reel". Zero for every
     project that declares none.
 
+    `held_frames` is the declared FREEZE tail
+    (`library/tools/reel_ending.py`), and it is the same case for the
+    same reason: the hold is picture the viewer watches, it comes from
+    no keep range, and left out it refuses every reel that declares
+    one. Zero for every project that declares none.
+
     `total_frames` is the PICTURE extent - V1/V2 to the timeline origin -
     never the whole-timeline GetEndFrame minus GetStartFrame. The plan
     under test describes picture only, and the caption layer it does not
@@ -971,7 +993,7 @@ def check_plan_describes_timeline(reel_name: str,
     # the builder's arithmetic, not an approximation of it.
     planned_frames = sum(
         round(end * fps) - round(start * fps)
-        for start, end in keep_ranges) + int(card_frames)
+        for start, end in keep_ranges) + int(card_frames) + int(held_frames)
     if planned_frames == total_frames:
         return []
     delta = total_frames - planned_frames
@@ -2030,6 +2052,7 @@ def check_short_captions(reel_name: str,
                          caption_cards: Sequence[dict],
                          fps: float,
                          min_duration_seconds: float = MIN_CAPTION_DISPLAY_SECONDS,
+                         declared_short: Sequence[Tuple[int, int]] = (),
                          ) -> List[Finding]:
     """F7: a placed caption item under the readability floor FAILS.
 
@@ -2059,38 +2082,58 @@ def check_short_captions(reel_name: str,
     and in never authoring a sub-second keep - never in a warning that
     calls a flash acceptable because nothing could lengthen it.
 
+    There is ONE exemption and it is not a grouping fact: a card the
+    project DECLARED short in `external/caption_timing.json`. The
+    captain trimmed Reel 13's last closer card to three frames himself
+    and recorded why, and a gate that FAILS correct output is no more
+    coverage than one that cannot fail (AGENTS.md 10.4). Such a card is
+    REPORTED as a warning naming the declaration - never silently
+    passed, and never counted in `short_captions`. `declared_short` is
+    `((start_frame, frames), ...)` from the plan's own retime
+    (`_retime_planned_captions`), so nothing but a recorded pin can
+    reach it: a flash the grouper authored still fails, which is every
+    case this check was written for.
+
     Measured in FRAMES off the placed item, not seconds off the plan:
     the caller passes the cards built from `timeline.caption_items`,
     whose `frames` is the placed `duration_frames`.
     """
     findings: List[Finding] = []
     floor_frames = int(math.ceil(min_duration_seconds * fps))
+    declared = {(int(start), int(count)) for start, count in declared_short}
 
     for i, card in enumerate(caption_cards):
-        duration = _card_end(card) - \
-                   card.get("reel_start", card.get("start_seconds", 0))
+        start_seconds = card.get("reel_start", card.get("start_seconds", 0))
+        duration = _card_end(card) - start_seconds
         frames = card.get("frames")
         if frames is None:
             frames = int(round(duration * fps))
-        if frames < floor_frames:
-            findings.append(Finding(
-                finding_class=FindingClass.F7,
-                reel=reel_name,
-                message=(
-                    f"caption card {i+1} '{card.get('text', '')[:30]}' "
-                    f"is {frames} frames ({duration:.3f}s), under the "
-                    f"{min_duration_seconds}s readability floor "
-                    f"({floor_frames} frames at {fps:.3f}fps)"),
-                severity="error",
-                detail={
-                    "caption_index": i,
-                    "duration_seconds": round(duration, 3),
-                    "duration_frames": frames,
-                    "text": card.get("text", "")[:60],
-                    "minimum_seconds": min_duration_seconds,
-                    "minimum_frames": floor_frames,
-                },
-            ))
+        if frames >= floor_frames:
+            continue
+        start_frame = int(round(float(start_seconds) * fps))
+        was_declared = (start_frame, int(frames)) in declared
+        findings.append(Finding(
+            finding_class=FindingClass.F7,
+            reel=reel_name,
+            message=(
+                f"caption card {i+1} '{card.get('text', '')[:30]}' "
+                f"is {frames} frames ({duration:.3f}s), under the "
+                f"{min_duration_seconds}s readability floor "
+                f"({floor_frames} frames at {fps:.3f}fps)"
+                + (" - DECLARED that length in "
+                   "external/caption_timing.json, so it is reported "
+                   "rather than failed" if was_declared else "")),
+            severity="warning" if was_declared else "error",
+            detail={
+                "caption_index": i,
+                "duration_seconds": round(duration, 3),
+                "duration_frames": frames,
+                "text": card.get("text", "")[:60],
+                "minimum_seconds": min_duration_seconds,
+                "minimum_frames": floor_frames,
+                "declared": was_declared,
+            },
+        ))
 
     return findings
 
@@ -2752,8 +2795,18 @@ def check_delivered_framing(reel_name: str,
     from library.tools import reel_look as _look
     declared_crop_factor = _look.declared_zoom_over(declared_crop_factor, look)
     frame_by_item = _look.frame_overlay_items(video_items, look)
+    # A declared FREEZE tail is excluded on the same terms as the frame
+    # overlay, and stated here rather than left to read as a catalog
+    # gap: a hold is a copy of a frame this check already graded as the
+    # shot, it is in no catalog, and `reel_build._inherit_freeze_
+    # treatment` refuses it outright if it draws differently from the
+    # frame it holds - a stronger guarantee than this one, not a
+    # weaker.
+    from library.tools import reel_ending as _ending
+    freeze_by_item = _ending.freeze_items(video_items)
     footage = [i for i in video_items
-               if i.track_index in (1, 2) and id(i) not in frame_by_item]
+               if i.track_index in (1, 2) and id(i) not in frame_by_item
+               and id(i) not in freeze_by_item]
     unreadable: List[str] = []
     # One finding per distinct disagreement, not per item: 34 clips of one
     # source all conform the same way, and 34 copies of one sentence is a
@@ -3951,7 +4004,8 @@ def verify_reel(plan: ReelPlan,
     not_this_plan = check_plan_describes_timeline(
         plan.reel_name, plan_ranges, picture_frames, fps,
         card_frames=(0 if span_present
-                     else sum(c.duration_frames for c in plan.cards)))
+                     else sum(c.duration_frames for c in plan.cards)),
+        held_frames=plan.held_frames)
     findings.extend(not_this_plan)
     if not not_this_plan:
         findings.extend(check_item_count(
@@ -4143,7 +4197,8 @@ def verify_reel(plan: ReelPlan,
     # gate its siblings use.
     if have_reference and placed_cards:
         findings.extend(check_short_captions(
-            plan.reel_name, placed_cards, fps))
+            plan.reel_name, placed_cards, fps,
+            declared_short=plan.declared_short_captions))
     if timeline.video_items or timeline.audio_items:
         findings.extend(check_short_av_items(
             plan.reel_name, timeline.video_items, timeline.audio_items,
@@ -4385,6 +4440,21 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
     )
 
 
+def _reel_look_declaration(project_folder: str):
+    """The project's TV-frame look, or None - for the tail element's own
+    timings, which a project may redeclare through it."""
+    if not project_folder:
+        return None
+    try:
+        from library.tools import reel_look as _reel_look
+
+        return _reel_look.resolve_look(project_folder, 1080, 1920)
+    except Exception:  # noqa: BLE001 - a look this module cannot read is
+        # not this module's refusal to make: the BUILD refuses on it, and
+        # the element's own declared timings are the answer meanwhile.
+        return None
+
+
 def _derive_plan_from_master(
     reel_name: str,
     reel_number: int,
@@ -4460,6 +4530,24 @@ def _derive_plan_from_master(
 
     # Compute placements from master clips
     master_clips = master_snapshot.picture_clips()
+
+    # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`), re-derived
+    # with the same code the build used and at the same seam - after
+    # the closer is appended and before cards, captions and placements
+    # read the ranges. This function's own premise: a reel cannot be
+    # built to one rule and checked against another. Without it the
+    # re-derived plan still reaches past the master's cut and
+    # PLAN-MISMATCH reports the truncated picture as a defect.
+    ending_declaration = None
+    if project_folder:
+        from library.tools import reel_ending as _ending
+
+        ending_declaration = _ending.resolve_ending(project_folder,
+                                                    reel_name)
+        if ending_declaration is not None:
+            kr, _ending_record = _ending.apply_ending(
+                kr, compute_placements(kr, master_clips, fps),
+                transcript or {}, ending_declaration, fps)
     # `fps` is REQUIRED: `placements` computes each clip's record frame
     # from it (PR #524), and calling without it raised on every run -
     # `verify_built_reels` caught the TypeError and re-raised it as
@@ -4495,6 +4583,22 @@ def _derive_plan_from_master(
               else compute_placements(kr, master_clips, fps,
                                       lead_frames=lead_frames))
 
+    # The declared FREEZE, re-derived with the owner's own planner:
+    # the hold is a picture clip on the ending shot's row, so a plan
+    # that leaves it out reports the reel as one item and 18 frames
+    # longer than "the plan" and PLAN-MISMATCH refuses the whole
+    # grading. Re-derived, never rendered - the verifier reads.
+    freeze_plan = None
+    if ending_declaration is not None and placed:
+        from library.tools import reel_ending as _ending
+
+        freeze_plan = _ending.plan_freeze(
+            placed, ending_declaration, fps,
+            look=_reel_look_declaration(project_folder))
+        if freeze_plan is not None:
+            placed = list(placed) + [
+                _ending.freeze_placement(freeze_plan, fps)]
+
     planned_placements = tuple(
         PlannedPlacement(
             track_index=p["track_index"],
@@ -4515,8 +4619,13 @@ def _derive_plan_from_master(
     # ranges - so adding the body again would report every span-built
     # reel at twice its length.
     card_seconds = sum(c.duration_frames for c in cards) / fps if cards else 0.0
+    # A held frame occupies reel time exactly as a card does: the
+    # viewer watches it, so leaving it out reports the reel short.
+    freeze_seconds = (freeze_plan.duration_frames / fps
+                      if freeze_plan is not None else 0.0)
     plan_seconds = (card_seconds if span_present
-                    else sum(b - a for a, b in kr) + card_seconds)
+                    else sum(b - a for a, b in kr) + card_seconds
+                    ) + freeze_seconds
     plan_frames = plan_seconds * fps
     lead_seconds = lead_frames / fps if fps else 0.0
 
@@ -4524,6 +4633,7 @@ def _derive_plan_from_master(
     # zero. The reason travels with the plan so the finding can name it.
     captions: Tuple[PlannedCaption, ...] = ()
     captions_unavailable: Optional[str] = None
+    declared_short: Tuple[Tuple[int, int], ...] = ()
     if moment is None:
         captions_unavailable = (
             "no proposal moment was matched to this timeline, so there is "
@@ -4532,7 +4642,7 @@ def _derive_plan_from_master(
     try:
         if captions_unavailable:
             raise CaptionsUnavailable(captions_unavailable)
-        captions = _derive_planned_captions(
+        captions, declared_short = _derive_planned_captions(
             moment, kr, transcript, fps, project_folder,
             lead_seconds=lead_seconds)
     except CaptionsUnavailable as unavailable:
@@ -4553,6 +4663,9 @@ def _derive_plan_from_master(
         cuts=cuts,
         keep_ranges=tuple(kr),
         call_to_action=closer,
+        held_frames=(freeze_plan.duration_frames
+                     if freeze_plan is not None else 0),
+        declared_short_captions=declared_short,
     )
 
 
@@ -4623,8 +4736,10 @@ def _derive_planned_captions(
     fps: float,
     project_folder: str = "",
     lead_seconds: float = 0.0,
-) -> Tuple[PlannedCaption, ...]:
-    """The caption cards the plan says this reel should carry.
+) -> Tuple[Tuple[PlannedCaption, ...], Tuple[Tuple[int, int], ...]]:
+    """The caption cards the plan says this reel should carry, and the
+    ones a caption-timing PIN deliberately left under the readability
+    floor.
 
     Asked of the PIPELINE, for the same reason `_derive_plan_from_master`
     re-derives placements from `reel_build`: a reel cannot be built to one
@@ -4720,7 +4835,55 @@ def _derive_planned_captions(
             block_position=position,
             block_end_seconds=block_end.get(position),
         ))
-    return tuple(cards)
+    return _retime_planned_captions(tuple(cards), spine, fps,
+                                    project_folder)
+
+
+def _retime_planned_captions(cards, spine: dict, fps: float,
+                             project_folder: str):
+    """Apply the project's caption-timing pins to the DERIVED plan.
+
+    With the owner's own applier rather than a second copy of its rule
+    (`library/tools/caption_timing.py`), for this module's standing
+    reason: a reel cannot be built to one rule and checked against
+    another. Without this, F2/F14 report every pinned card as "planned
+    and never placed" - the pin moved the placement and the verifier
+    was still expecting the unpinned frame.
+
+    Returns `(cards, declared_short)`. `declared_short` is
+    `((start_frame, frames), ...)` for the cards a pin left under the
+    readability floor - F7 reads it to tell a flash the captain
+    DECLARED, with a recorded reason, from one a grouper authored
+    behind everyone's back. A project that declares no pins gets its
+    cards back untouched and nothing declared.
+    """
+    if not project_folder or not cards:
+        return cards, ()
+    from library.tools import caption_timing as _caption_timing
+
+    pins = _caption_timing.load_pins(project_folder)
+    if not pins:
+        return cards, ()
+    # The OWNER's join and the OWNER's applier, on the shape step 4.01
+    # emits - so the plan the verifier derives and the plan the build
+    # recorded are retimed by one piece of code.
+    entries = [{"spine_block_position": card.block_position,
+                "timeline_start": card.start_seconds,
+                "timeline_end": card.end_seconds}
+               for card in cards]
+    moved, _applied, short, _stale = _caption_timing.retime_entries(
+        entries, spine, pins, fps)
+    out = []
+    for card, probe in zip(cards, moved):
+        start = float(probe["timeline_start"])
+        end = float(probe["timeline_end"])
+        out.append(dataclasses.replace(
+            card, start_seconds=start, end_seconds=end,
+            frames=max(int(round((end - start) * fps)), 1)))
+    declared_short = tuple(
+        (int(row["now"][0]), int(row["now"][1] - row["now"][0]))
+        for row in short)
+    return tuple(out), declared_short
 
 
 def _find_master_picture_holes(master_snapshot) -> List[dict]:

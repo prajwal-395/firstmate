@@ -414,6 +414,9 @@ These hold across steps and cost a full audit cycle each. Do not undo them.
 Index required keys directly so a rename fails loudly; never `.get()` a default for a key a contract promises. [why - and the known disagreements](docs/RULE_EVIDENCE.md#key-name-mismatches)
 Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
+**An edit lands at the layer that OWNS it; an ending only TRUNCATES; a promotion NAMES a marker it cannot carry.**
+Detail: `library/tools/edit_depth.py` - twelve classes, twelve owners.
+
 **A declared output has a READER.** `library/tools/output_contract.py`. [why](docs/RULE_EVIDENCE.md#the-outputs-nobody-read)
 
 **A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
@@ -524,7 +527,7 @@ Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVID
 **Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
-**Captions sit 11px above the safe-area bottom inset (`CAPTION_LIFT_PX`).**
+**Captions sit `CAPTION_LIFT_PX` above the safe-area bottom inset.**
 Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-caption-lift-is-eleven-pixels)
 
 **Reconstruct a grouping with `fits_in_box`, never `fits`.**
