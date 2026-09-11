@@ -121,6 +121,59 @@ def test_the_fragment_joins_the_sentence_the_punctuation_names():
                             "For google it gave a list from 2023"]
 
 
+def test_a_head_fragment_falls_back_to_the_previous_sentence():
+    """Reel 31's case: "Yeah." after "Authority and trust.".
+
+    The previous block ends a sentence, so the punctuation reading says
+    the fragment heads the next one - but the next block is the closer
+    off another clip, so forward is impossible. Leaving it alone authors
+    a 2-frame flash card F7 fails. The previous side plays straight on
+    (same speaker, same clip, 101ms), so the fragment closes the
+    sentence it follows instead. Forward keeps priority: this only fires
+    when the punctuated side cannot take it.
+    """
+    transcript = {"segments": [
+        row("Akshita", "Authority and trust.",
+            81.901, 83.42, "cam_a", 4830.045),
+        row("Akshita", "Yeah.", 83.521, 83.621, "cam_a", 4831.665),
+        row("Akshita", "Let us do the work for you.",
+            83.621, 84.7, "cam_b", 3673.531),
+    ]}
+    spine = spine_for_reel(Moment(81.0, 85.0), transcript)
+
+    assert texts(spine) == ["Authority and trust. Yeah.",
+                            "Let us do the work for you."]
+    assert spine["fragment_blocks_merged"] == 1
+    assert spine["fragment_blocks_unmerged"] == []
+    block = spine["structure"][0]
+    assert block["timeline_end"] - block["timeline_start"] \
+        >= MIN_CAPTION_DISPLAY_SECONDS
+
+
+def test_a_head_fragment_with_neither_side_connected_is_left_alone():
+    """The fallback's other direction: previous ends a sentence, the next
+    block is another clip, AND the previous side is cut too.
+
+    Nothing continuous can take the fragment, so it stays and is named -
+    a short card the run says aloud rather than one it invents continuity
+    for.
+    """
+    transcript = {"segments": [
+        row("Akshita", "Authority and trust.",
+            81.901, 83.42, "cam_a", 4830.045),
+        # Same reel seconds, but 3 seconds later in the SOURCE: a cut.
+        row("Akshita", "Yeah.", 83.521, 83.621, "cam_a", 4834.665),
+        row("Akshita", "Let us do the work for you.",
+            83.621, 84.7, "cam_b", 3673.531),
+    ]}
+    spine = spine_for_reel(Moment(81.0, 85.0), transcript)
+
+    assert texts(spine) == ["Authority and trust.", "Yeah.",
+                            "Let us do the work for you."]
+    assert spine["fragment_blocks_merged"] == 0
+    assert spine["fragment_blocks_unmerged"] == ["Yeah."]
+
+
 # ── It does NOT fire, and says which ones it left ───────────────────
 
 def test_a_fragment_is_left_alone_across_a_cut_and_is_named():

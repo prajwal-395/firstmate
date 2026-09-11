@@ -809,6 +809,21 @@ def _merge_fragment_blocks(blocks: list[dict]) -> tuple[list[dict], dict]:
         if opens_a_sentence and _plays_straight_on(block, following):
             pending.append(block)
             continue
+        if opens_a_sentence and _plays_straight_on(previous, block):
+            # The punctuation reading says this fragment heads the next
+            # sentence, but that side is disconnected - a different
+            # speaker, a different clip, or a cut in between - while the
+            # previous side plays straight on. Measured on reel 31:
+            # "Yeah." follows "Authority and trust." on the same clip
+            # 101ms later, yet the following block is the closer off
+            # another clip, so forward is impossible and leaving the
+            # fragment alone authors a 2-frame flash card F7 fails.
+            # Forward keeps priority - this only fires when the
+            # punctuated side cannot take it - and both sides
+            # disconnected still leaves the fragment alone, named.
+            result[-1] = _absorb(previous, block, fragment_leads=False)
+            merged += 1
+            continue
 
         # Its sentence continues onto a side nothing connects it to -
         # a different speaker, a different clip, or a cut in between.
