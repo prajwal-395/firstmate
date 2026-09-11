@@ -1,14 +1,15 @@
 """A hand edit to a display file announces itself before it dies.
 
-Seven edit classes lose a shallow fix SILENTLY: the owning
+Eight edit classes lose a shallow fix SILENTLY: the owning
 computation regenerates the display and the hand value vanishes
 without a word. Refusal is not reachable there - the pipeline
 cannot intercept a value typed into a file it is about to
 overwrite, and it cannot read a hand move inside Resolve's project
 database at all. What IS reachable is a witness: fingerprint every
 display file the pipeline writes, and at the next pre-run, name
-every file that changed since the pipeline wrote it, with the
-owning class and the deep path. A loud loss is survivable; a
+every file that changed since the pipeline wrote it, with both
+values (snapshot hash and size against today's) plus the owning
+class and the deep path. A loud loss is survivable; a
 silent one is the defect this module closes.
 
 Lifecycle (explicit, because the alternative blesses hand edits)
@@ -40,6 +41,10 @@ witness them. For those two classes the refusal function
 (`edit_depth.refuse_display_edit`) is the mechanism, consulted by
 whoever routes the edit - and the coherence informational section
 shows what the live timelines currently say without grading them.
+Which classes those are, and what the user sees instead where even
+a flag cannot run (`picture_position`), is stated per class in
+`edit_depth.REFUSAL_REACHABILITY` - no class is reported as covered
+because it was hard.
 
 `tests/test_display_drift.py`.
 """
@@ -56,7 +61,9 @@ from datetime import datetime, timezone
 #: runner-owned run state, written by snapshot, read by check.
 LEDGER_FILENAME = "display_drift.json"
 
-LEDGER_VERSION = 1
+#: Version 2 records `{sha, size}` per file; version 1 recorded the bare
+#: sha string and is still read (size then prints as unknown).
+LEDGER_VERSION = 2
 
 #: Display roots fingerprinted, relative to the project folder.
 #: The live proposal only - timestamped copies are history.
@@ -76,8 +83,12 @@ _SINGLE_FILES = {
 
 #: Suffixes worth witnessing. Renders (`.mp4`, `.mov`, stills) are
 #: excluded deliberately: they are heavy, and their sources (the
-#: payloads and plans) are fingerprinted instead.
-WITNESSED_SUFFIXES = (".json", ".srt", ".vtt", ".ass", ".otio", ".txt")
+#: payloads and plans) are fingerprinted instead. Generated Fusion
+#: `.comp` files ARE witnessed: they are text, they are the look's
+#: file carrier (`look_grade`), and a hand edit to one dies on the
+#: next comp build.
+WITNESSED_SUFFIXES = (".json", ".srt", ".vtt", ".ass", ".otio", ".txt",
+                      ".comp")
 
 #: Never fingerprinted, even under a witnessed root.
 SKIPPED_DIRS = ("backups", "llm_requests", "llm_responses", "exports",
@@ -99,17 +110,24 @@ def _classes_for(relpath: str) -> list:
         return ["wording"]
     if "motion_graphic" in relpath or "timed_text" in relpath:
         return ["mg_content"]
-    if "overlay_intent" in relpath:
-        return ["overlay_position"]
+    if relpath.endswith(".comp") or "carrier" in relpath:
+        return ["look_grade"]
+    # Owner stores (`external/overlay_intent.json`,
+    # `external/captain_edits.json`, `external/mix_intent.json`,
+    # `external/placed_assets.json`) are deliberately unmapped: they
+    # are the declarations the pipeline READS, and flagging the
+    # captain's own deep-path edit as drift would punish the fix this
+    # witness exists to route toward. This function only ever sees
+    # files the pipeline WROTE (see `display_files`), so a branch for
+    # one would be dead as well as wrong.
     if "box.json" in relpath or "props.json" in relpath:
         return ["overlay_position"]
-    if "mix_intent" in relpath or relpath.endswith(".otio"):
+    if relpath.endswith(".otio"):
         return ["audio_levels"]
-    if "placed_assets" in relpath or "assembly_manifest" in relpath:
-        return ["assets"]
-    if "captain_edits" in relpath:
-        return ["picture_position"]
     if "manifest.json" in relpath:
+        # `assembly_manifest.json` matches here too (it ends in
+        # `manifest.json`): one file carries structure, assets and
+        # timing on the same clips, so the flag names every owner.
         return ["structure", "assets", "clip_timing"]
     if "reel_proposal" in relpath or "select_reels" in relpath:
         return ["structure"]
@@ -133,6 +151,11 @@ def _sha(path: str) -> str:
         for chunk in iter(lambda: handle.read(65536), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _fingerprint(path: str) -> dict:
+    """Both values the witness compares: content hash and byte size."""
+    return {"sha": _sha(path), "size": os.path.getsize(path)}
 
 
 def display_files(project_folder: str) -> list:
@@ -165,8 +188,8 @@ def snapshot(project_folder: str) -> dict:
     files = {}
     for relpath in display_files(project_folder):
         try:
-            files[relpath] = _sha(os.path.join(str(project_folder),
-                                               relpath))
+            files[relpath] = _fingerprint(
+                os.path.join(str(project_folder), relpath))
         except OSError:
             continue
     ledger = {"version": LEDGER_VERSION, "files": files,
@@ -200,14 +223,21 @@ def check(project_folder: str) -> dict:
                 "baseline": False}
     known = ledger.get("files", {}) if isinstance(ledger, dict) else {}
     drifted, vanished = [], []
-    for relpath, old_sha in known.items():
+    details: dict = {}
+    for relpath, old in known.items():
+        # Version 1 ledgers record the bare sha string; version 2
+        # records `{sha, size}`. Both read.
+        old_sha = old.get("sha") if isinstance(old, dict) else old
+        old_size = old.get("size") if isinstance(old, dict) else None
         full = os.path.join(str(project_folder), relpath)
         if not os.path.isfile(full):
             vanished.append(relpath)
             continue
         try:
-            if _sha(full) != old_sha:
+            current = _fingerprint(full)
+            if current["sha"] != old_sha:
                 drifted.append(relpath)
+                details[relpath] = (old_sha, old_size, current)
         except OSError:
             vanished.append(relpath)
     if drifted or vanished:
@@ -216,14 +246,22 @@ def check(project_folder: str) -> dict:
               "step replaces these values - route via the deep path "
               "instead:", file=sys.stderr)
         for relpath in drifted:
+            old_sha, old_size, current = details[relpath]
+            old_desc = (f"{str(old_sha)[:12]}"
+                        + (f", {old_size} bytes" if old_size is not None
+                           else ", size unknown (v1 snapshot)"))
+            print(f"  ~ {relpath}", file=sys.stderr)
+            print(f"      was {old_desc} -> now "
+                  f"{current['sha'][:12]}, {current['size']} bytes",
+                  file=sys.stderr)
             for edit_class in _classes_for(relpath):
                 try:
                     deep = edit_depth.DEEP_PATH[edit_class]
                 except KeyError:
                     deep = ("no classified owner - name one before "
                             "editing")
-                print(f"  ~ {relpath} [{edit_class}]", file=sys.stderr)
-                print(f"      deep path: {deep}", file=sys.stderr)
+                print(f"      [{edit_class}] deep path: {deep}",
+                      file=sys.stderr)
         for relpath in vanished:
             print(f"  - {relpath} (gone since snapshot)",
                   file=sys.stderr)

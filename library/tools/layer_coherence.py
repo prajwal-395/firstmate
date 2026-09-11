@@ -391,6 +391,28 @@ def _timeline_derived(project_folder: str, corrections: list) -> list:
     return rows
 
 
+def _deep_path_for(row_class: str) -> str:
+    """The owning-layer route for a divergence row, or "".
+
+    Every flagged row names both values (found/should-be at the call
+    site); this names what KEEPS the fix, so the flag is a routing and
+    not just a complaint. `pins` is the shared anchor class for
+    clip_timing/picture_position/audio_levels/structure pins - the
+    route is re-anchoring to words the transcript still speaks.
+    """
+    from library.tools import edit_depth
+
+    if row_class in edit_depth.DEEP_PATH:
+        return edit_depth.DEEP_PATH[row_class]
+    if row_class == "pins":
+        return ("re-anchor the pin to words the transcript still "
+                "speaks, or re-record it - a span_retime, "
+                "transform_override, mix_intent or redraw_closer pin "
+                "naming seconds nothing says any more (see "
+                "edit_depth.DEEP_PATH per class).")
+    return ""
+
+
 def main(argv=None) -> int:
     """`python3 -m library.tools.layer_coherence <project_folder>`."""
     import argparse
@@ -413,6 +435,9 @@ def main(argv=None) -> int:
                   f"{row.get('should_be', '')!r}")
             if row.get("context"):
                 print(f"    {row['context']}")
+            deep = _deep_path_for(str(row.get("class", key)))
+            if deep:
+                print(f"    deep path: {deep}")
     if report["informational"]:
         print(f"--- timeline-derived (informational, not graded): "
               f"{len(report['informational'])} ---")

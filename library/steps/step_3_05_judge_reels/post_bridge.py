@@ -96,6 +96,19 @@ def resolve(llm_output: dict, data: dict) -> dict:
             if int(row.get("reel", -1)) == number:
                 runs_for = float(row.get("runs_for_seconds") or 0.0)
                 break
+        # Recorded spelling corrections BEFORE the quote check (the
+        # 3.04 keep-exclusion precedent): the entry's quotes and the
+        # reel words get the same deterministic transform, so grounding
+        # is preserved while spelling is corrected - a reader who wrote
+        # the corrected spelling against a stale transcript is no
+        # longer refused for it, and one who wrote the old spelling
+        # against a clean transcript is corrected rather than refused.
+        _pair = {"entry": entry, "words": words}
+        from library.tools.display_respell import apply_post_pass
+        apply_post_pass(
+            _pair, (data or {}).get("project_folder") or "",
+            f"judge_reels post-bridge (reel {number} reading)")
+        entry, words = _pair["entry"], _pair["words"]
         reading = read_one(entry, words, runs_for)
         if reading.refused:
             refused.append({"reel": number, "why": list(reading.ungrounded),

@@ -5465,6 +5465,14 @@ def run_verification(
     # ── Write JSON ───────────────────────────────────────────────────
     if json_path:
         json_data = report.as_dict()
+        # Recorded spelling corrections on the regenerated verdicts
+        # (the 3.04 keep-exclusion precedent): verdict and finding
+        # texts quoting speech the correction respelt carry the
+        # corrected spelling, deterministically. Codes and severities
+        # are not text and never move.
+        from library.tools.display_respell import apply_post_pass
+        apply_post_pass(json_data, project_folder or "",
+                        "conformance verifier (conformance_report)")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump(json_data, f, indent=2, default=str)
         print(f"JSON written to {json_path}", file=err)

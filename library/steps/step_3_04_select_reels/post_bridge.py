@@ -260,7 +260,7 @@ def resolve(llm_output: dict, data: dict) -> dict:
              f"{transcript_path(project_folder)}." if project_folder else "")
 
     return {
-        "reel_selection": {
+        "reel_selection": _respelt_selection({
             "moments": [m.as_dict() for m in moments],
             "considered": considered,
             "undetermined": undetermined,
@@ -271,8 +271,22 @@ def resolve(llm_output: dict, data: dict) -> dict:
                 "captain approves it - see reel_proposal.assert_approved."
                 + where
             ),
-        }
+        }, project_folder),
     }
+
+
+def _respelt_selection(selection: dict, project_folder: str) -> dict:
+    """Recorded spelling corrections, enforced on the regenerated
+    selection (the keep-exclusion precedent in this same file):
+    measured previews and closer texts plus the model's own reasons
+    carry the corrected spelling deterministically, even when the
+    transcript copy this run read predates the correction. Identity
+    keys (slugs) and decision anchors never move
+    (`library/tools/display_respell.py`)."""
+    from library.tools.display_respell import apply_post_pass
+    apply_post_pass(selection, project_folder or "",
+                    "select_reels post-bridge (reel_selection)")
+    return selection
 
 
 def main():

@@ -25,6 +25,7 @@ of the way first.
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 
@@ -77,6 +78,57 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             "no project_folder, so there is nowhere in the project layout "
             "to write the OTIO")
         return report
+
+    # The captain's declared levels (`external/mix_intent.json`,
+    # `library/tools/mix_intent.py`): held post-plan and stamped
+    # declared, through the one applier every path shares. No
+    # declaration and the targets below are the plan's own, exactly as
+    # before - a project that declares nothing gets the mix it always
+    # got, byte for byte.
+    from library.tools import mix_intent as _intent
+    try:
+        _pins = _intent.load_intent(project_folder)
+    except _intent.MixIntentError as exc:
+        raise RuntimeError(
+            f"mix_intent cannot be honoured: {exc}. A declared level "
+            f"the build cannot read must refuse, never mix past it.")
+    if _pins:
+        from library.tools.timeline_transcript import (
+            transcript_path as _transcript_path)
+        _transcript: dict = {}
+        try:
+            _transcript_file = str(_transcript_path(project_folder))
+            if os.path.isfile(_transcript_file):
+                with open(_transcript_file, encoding="utf-8") as handle:
+                    _transcript = json.load(handle)
+        except (OSError, ValueError):
+            _transcript = {}
+        if not isinstance(_transcript, dict) or not (
+                _transcript.get("segments")):
+            raise RuntimeError(
+                "mix_intent declares levels but no transcript is on "
+                "file: pins anchor to spoken words, so without measured "
+                "speech the build cannot honour them. Transcribe first "
+                "(`python3 -m library.tools.timeline_transcript "
+                "<project> --write`).")
+        targets, _applied, _skipped, _stale = (
+            _intent.apply_declared_mix(
+                targets, manifest, _transcript, _pins, fps=fps))
+        for row in _applied:
+            print(f"  mix intent: {row['label']} holds "
+                  f"{row['level_db']:.1f}dB over "
+                  f"{row['master_span'][0]:.2f}-"
+                  f"{row['master_span'][1]:.2f}s "
+                  f"({row['anchor_phrase']!r}) - {row['reason']}",
+                  file=sys.stderr)
+        for row in _skipped:
+            print(f"  mix intent SKIPPED {row.get('label', '?')}: "
+                  f"{row.get('reason', '')}", file=sys.stderr)
+        for row in _stale:
+            print(f"  mix intent STALE {row.get('anchor_phrase', '?')}: "
+                  f"{row.get('reason', '')}", file=sys.stderr)
+        report["mix_intent"] = {"applied": _applied,
+                                "skipped": _skipped, "stale": _stale}
 
     layout = ProjectLayout(project_folder)
     name = timeline.GetName()

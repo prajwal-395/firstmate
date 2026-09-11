@@ -2331,6 +2331,45 @@ def compile_manifest(out_dir: str) -> dict:
         "tv_frame": tv_look,
     }
 
+    # ── Captain-placed cards (external/placed_assets.json) ──
+    # A card the captain laid by hand is a decision about THIS video, so
+    # it is declared per project and carried here - after assembly, so
+    # the card rides the same V1 clip shape a declared bookend rides,
+    # and BEFORE validation, so every gate judges it (coverage,
+    # no-B-roll-over-cards, render QA). A head card shifts every
+    # timeline-anchored position later (`shift_all_timelines`); the A1
+    # chorus is re-derived from V1 beside it, for the same reason it
+    # was derived the first time. No declaration and this is the
+    # manifest it always built, byte for byte.
+    try:
+        from library.tools import placed_assets as _placed
+        _declared_cards = _placed.load_assets(_project_root)
+    except _placed.PlacedAssetError as exc:
+        raise ValueError(
+            f"placed_assets cannot be honoured: {exc}. A declared card "
+            f"the compile cannot read must refuse, never compile past "
+            f"it.") from exc
+    except (KeyError, ValueError):
+        # No external-inputs area the layout knows: no declaration, and
+        # the manifest below is the one this always built.
+        _declared_cards = []
+    if _declared_cards:
+        _carry = _placed.carry_into_manifest(
+            manifest, _declared_cards, fps=fps)
+        for row in _carry["carried"]:
+            print(f"  placed {row['slot']} card {row['label']!r} "
+                  f"{row['span'][0]:.3f}-{row['span'][1]:.3f}s - "
+                  f"{row['reason']}", file=sys.stderr)
+        if _carry["refused"]:
+            raise ValueError(
+                "placed_assets refused:\n  - " + "\n  - ".join(
+                    f"{row.get('label', '?')}: {row.get('reason', '')}"
+                    for row in _carry["refused"]))
+        manifest["tracks"]["A1"]["clips"] = sorted(
+            (c for c in manifest["tracks"]["V1"]["clips"]
+             if not c.get("video_only")),
+            key=lambda c: c["timeline_in"])
+
     _apply_manifest_qa_checks(manifest)
 
     # No frame of the finished video may be black for want of a clip.

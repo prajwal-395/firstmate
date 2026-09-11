@@ -1059,6 +1059,61 @@ def retime_placements(placements_list: list, transcript: dict,
     return placements_list, applied, held, stale
 
 
+def retime_ranges(ranges: list, spans: list, transcript: dict,
+                  edits: list, fps: float = 24000 / 1001) -> tuple:
+    """Trim keep ranges per recorded `span_retime` pins. Returns
+    `(ranges, applied, held, stale)`.
+
+    The builder seam `retime_placements` cannot take: captions,
+    explainers, overlays and the placements themselves all derive from
+    the keep `ranges`, so trimming placements after captions were
+    planned from untrimmed ranges plays trimmed picture under
+    untrimmed cards. This trims the ranges FIRST, from a placements
+    probe the caller builds over them - every downstream reader then
+    sees the trimmed shape, and picture and captions move together.
+
+    `spans` are placements-like dicts carrying `master` ranges over
+    the same clock as `ranges` (the reel builder's `placements()`
+    entries). They are COPIED, never mutated: the probe is matching
+    evidence, not the build. The union of the trimmed masters is
+    merged back to ranges with a one-frame epsilon - a trim that opens
+    an interior gap SPLITS the range rather than bridging it, so
+    removed seconds stay removed. No pins, or pins matching nothing
+    trimmable, returns the ranges unchanged.
+    """
+    retimes = [e for e in (edits or [])
+               if e.get("kind") == "span_retime"]
+    if not retimes:
+        return list(ranges or []), [], [], []
+    probe = [dict(span) for span in (spans or [])]
+    for entry, original in zip(probe, spans or []):
+        master = original.get("master")
+        if master is not None:
+            try:
+                entry["master"] = (float(master[0]), float(master[1]))
+            except (TypeError, ValueError, IndexError):
+                pass
+    _, applied, held, stale = retime_placements(
+        probe, transcript, edits, fps=fps)
+    if not applied:
+        return list(ranges or []), applied, held, stale
+    masters = sorted(
+        (float(entry["master"][0]), float(entry["master"][1]))
+        for entry in probe
+        if isinstance(entry.get("master"), (list, tuple)))
+    merged: list = []
+    epsilon = 1.5 / float(fps)
+    for start, end in masters:
+        if end <= start:
+            continue
+        if merged and start <= merged[-1][1] + epsilon:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+    return ([(round(start, 3), round(end, 3)) for start, end in merged],
+            applied, held, stale)
+
+
 # ── The captain reads what is in force ───────────────────────────────
 
 def describe_edits(edits: list) -> list:

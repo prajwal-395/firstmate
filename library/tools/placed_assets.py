@@ -174,6 +174,112 @@ def _shift_clip(clip: dict, seconds: float, fps: float) -> None:
             clip[key] += int(round(seconds * fps))
 
 
+def _shift_seconds(entry: dict, seconds: float, *keys: str) -> None:
+    """Move every present timeline-position key later by `seconds`."""
+    for key in keys:
+        if key in entry and isinstance(entry[key], (int, float)):
+            entry[key] = round(float(entry[key]) + seconds, 3)
+
+
+def _shift_frames(entry: dict, seconds: float, fps: float,
+                  *keys: str) -> None:
+    for key in keys:
+        if key in entry and isinstance(entry[key], int):
+            entry[key] += int(round(seconds * fps))
+
+
+def shift_all_timelines(manifest: dict, seconds: float,
+                        fps: float = 30.0) -> None:
+    """Move EVERY timeline-anchored position in a manifest later.
+
+    A head card shifts the picture; the plan must ride with it or every
+    subtitle, transition, effect and duck lands one card early. Tracks,
+    spine records and bed automation are the load-bearing three, and
+    everything else naming compiled seconds follows: subtitle cards
+    (with their word timings and frames), rendered overlay segments
+    (placement moves, file content does not), transitions' compiled cut
+    points (the planner's ORIGINAL coordinate is history and stands),
+    VFX windows, generator overlays, timed-text segments and the
+    cohesion record. Durations, source ranges and labels never move.
+    In place.
+    """
+    tracks = manifest.get("tracks") or {}
+    # A1 aliases V1's clip dicts (the compile derives speech audio from
+    # the picture clips), so shift each clip object once: a second pass
+    # over the alias would move the same seconds twice.
+    seen: set = set()
+    for track in tracks.values():
+        for clip in (track or {}).get("clips", []) or []:
+            if isinstance(clip, dict) and id(clip) not in seen:
+                seen.add(id(clip))
+                _shift_clip(clip, seconds, fps)
+    for block in manifest.get("_spine_blocks", []) or []:
+        if isinstance(block, dict):
+            _shift_seconds(block, seconds, "timeline_start",
+                           "timeline_end")
+    automation = ((manifest.get("audio_mix") or {})
+                  .get("music_automation", [])) or []
+    for entry in automation:
+        if isinstance(entry, dict):
+            _shift_seconds(entry, seconds, "timeline_start",
+                           "timeline_end")
+    for sub in manifest.get("subtitles", []) or []:
+        if not isinstance(sub, dict):
+            continue
+        _shift_seconds(sub, seconds, "timeline_start", "timeline_end")
+        _shift_frames(sub, seconds, fps, "timeline_start_frame",
+                      "timeline_end_frame")
+        for word in sub.get("words", []) or []:
+            if isinstance(word, dict):
+                _shift_seconds(word, seconds, "start", "end")
+    for overlay_key in ("subtitle_overlay", "motion_graphics_overlay"):
+        overlay = manifest.get(overlay_key) or {}
+        for segment in overlay.get("segments", []) or []:
+            if isinstance(segment, dict):
+                _shift_seconds(segment, seconds, "timeline_start",
+                               "timeline_end")
+    timed = manifest.get("timed_text_overlay") or {}
+    _timed_segments = (timed.get("segments", []) if isinstance(timed, dict)
+                       else [])
+    for segment in _timed_segments or []:
+        if isinstance(segment, dict):
+            _shift_seconds(segment, seconds, "timeline_start",
+                           "timeline_end")
+    for transition in manifest.get("transitions", []) or []:
+        if isinstance(transition, dict):
+            _shift_seconds(transition, seconds, "cut_point_timeline")
+    for entry in manifest.get("vfx", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        _shift_seconds(entry, seconds, "timeline_start", "timeline_end")
+        _shift_frames(entry, seconds, fps, "timeline_start_frame",
+                      "timeline_end_frame")
+    for entry in manifest.get("generator_overlays", []) or []:
+        if isinstance(entry, dict):
+            _shift_seconds(entry, seconds, "timeline_start",
+                           "timeline_end")
+    cohesion = manifest.get("cohesion_adjustments") or {}
+    if isinstance(cohesion, dict):
+        for bucket in ("applied", "not_applied"):
+            for record in cohesion.get(bucket, []) or []:
+                _shift_position_keys(record, seconds)
+
+
+def _shift_position_keys(node, seconds: float) -> None:
+    """Shift compiled-timeline positions inside a free-form record."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key in ("timeline_start", "timeline_end",
+                       "cut_point_timeline", "timeline_in",
+                       "timeline_out") and isinstance(value, (int, float)):
+                node[key] = round(float(value) + seconds, 3)
+            else:
+                _shift_position_keys(value, seconds)
+    elif isinstance(node, list):
+        for value in node:
+            _shift_position_keys(value, seconds)
+
+
 def carry_into_manifest(manifest: dict, assets: list,
                         fps: float = 30.0) -> dict:
     """Append the captain's cards to an assembled manifest. In place.
@@ -203,29 +309,19 @@ def carry_into_manifest(manifest: dict, assets: list,
         slot = asset["slot"]
         name = (asset.get("label") or os.path.basename(path))
         if slot == "head":
-            for track in tracks.values():
-                for clip in (track or {}).get("clips", []) or []:
-                    if isinstance(clip, dict):
-                        _shift_clip(clip, duration, fps)
             # The plan rides the same seconds the picture does: spine
             # blocks and the bed automation shift with the clips, or
-            # every subtitle and every duck lands one card early.
-            for block in manifest.get("_spine_blocks", []) or []:
-                if not isinstance(block, dict):
-                    continue
-                for key in ("timeline_start", "timeline_end"):
-                    if isinstance(block.get(key), (int, float)):
-                        block[key] = round(float(block[key])
-                                           + duration, 3)
-            automation = ((manifest.get("audio_mix") or {})
-                          .get("music_automation", [])) or []
-            for entry in automation:
-                if not isinstance(entry, dict):
-                    continue
-                for key in ("timeline_start", "timeline_end"):
-                    if isinstance(entry.get(key), (int, float)):
-                        entry[key] = round(float(entry[key])
-                                           + duration, 3)
+            # every subtitle and every duck lands one card early - and
+            # so does every transition cut point, VFX window and
+            # rendered overlay segment (`shift_all_timelines`). Fusion
+            # transition indices count V1 clips, and the card takes
+            # index 0, so each moves down one with the clip it tails.
+            shift_all_timelines(manifest, duration, fps)
+            for entry in ((manifest.get("fusion_effects") or {})
+                          .get("transitions", [])) or []:
+                if isinstance(entry, dict) and isinstance(
+                        entry.get("after_clip"), int):
+                    entry["after_clip"] += 1
             timeline_in, timeline_out = 0.0, duration
         else:
             end = 0.0

@@ -157,7 +157,7 @@ def build_context(data: dict) -> dict:
         if inside:
             candidate["repetition_inside"] = inside
 
-    return {
+    out = {
         # The turn STRUCTURE, and no longer the words.  A turn's text is
         # exactly its segments' texts joined by a space - on the field
         # test, 47,975 characters against the segments' 47,182 plus the
@@ -180,6 +180,15 @@ def build_context(data: dict) -> dict:
         ANSWERER: answerer,
         "who_leads_was_inferred": why,
     }
+    # Recorded spelling corrections, enforced on the regenerated
+    # measurements (the 3.04 keep-exclusion precedent): a candidate
+    # quoting speech the correction respelt carries the corrected
+    # spelling, deterministically, even when the transcript copy this
+    # run read predates it. Identity keys (slugs, paths) never move.
+    from library.tools.display_respell import apply_post_pass
+    apply_post_pass(out, (data or {}).get("project_folder") or "",
+                    "select_reels bridge (reel_candidates)")
+    return out
 
 
 def main():

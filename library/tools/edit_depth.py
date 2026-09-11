@@ -214,6 +214,122 @@ DEEP_PATH = {
 }
 
 
+#: For each class, whether a TRUE refusal is reachable and where - or,
+#: where it is not, what the user sees instead. A refusal needs a
+#: consultation: code that runs between the hand and the loss. File
+#: displays get one (the pre-run drift witness and the coherence gate,
+#: both print-only: a stale display announces itself every run but never
+#: stops an unrelated build). Resolve-side displays - a moved timeline
+#: item, a hand-graded node - have no file carrier the pipeline wrote,
+#: so no consultation runs there at all: the loss is silent by
+#: construction, and what follows names the deep path that WOULD have
+#: kept the edit, which is the most a router can do where it cannot
+#: run. No class is reported as covered because it was hard: the two
+#: `unreachable` rows below say so outright.
+REFUSAL_REACHABILITY = {
+    "wording": {
+        "reachable": True,
+        "where": "pre-run display-drift witness (file changed since "
+                 "snapshot) + layer-coherence wording scan (heard form "
+                 "surviving in a regenerated display), both naming found "
+                 "and should-be with the deep path, every run.",
+    },
+    "clip_timing": {
+        "reachable": True,
+        "where": "pre-run drift witness on spine/caption/manifest files "
+                 "+ coherence pin-anchor check (a pin matching nothing "
+                 "reports STALE). Timeline trims with no pin have no "
+                 "carrier: the rebuild recomputes ranges and the trim is "
+                 "gone, announced only by the pin that is absent.",
+    },
+    "overlay_position": {
+        "reachable": True,
+        "where": "pre-run drift witness on overlay file displays. A moved "
+                 "timeline Transform itself is UNREACHABLE (no file "
+                 "carrier): the placer recomputes from the probe and the "
+                 "move dies silently on rebuild unless transcribed into "
+                 "external/overlay_intent.json by hand first.",
+    },
+    "picture_position": {
+        "reachable": False,
+        "why": "every display is Resolve-side (timeline Transform, "
+               "punch-in props): the pipeline wrote no file a hand move "
+               "touches, so no witness can fingerprint it.",
+        "instead": "the deep path is capturable "
+                   "(captain_edits capture-transform reads the value out "
+                   "of the live timeline) or recordable (record-transform); "
+                   "the build holds it post-aim and re-proves coverage. "
+                   "An uncaptured move is lost on rebuild, and this entry "
+                   "is the statement that no flag announces it.",
+    },
+    "look_grade": {
+        "reachable": True,
+        "where": "refuse_display_edit raises by consultation wherever an "
+                 "edit is routed (proven), + drift witness on generated "
+                 ".comp files. Hand-graded Color nodes themselves are "
+                 "UNREACHABLE (no file carrier): the next build applies "
+                 "template/CDL/.drx over them, so the grade dies silently "
+                 "unless declared in the template or supplied as .drx.",
+    },
+    "structure": {
+        "reachable": True,
+        "where": "pre-run drift witness on manifest/proposal files + the "
+                 "replace-guard diff at promote time (an undeclared row "
+                 "loss refuses). A re-cut live timeline itself is "
+                 "UNREACHABLE (no file carrier): approval freezes reels, "
+                 "and the guard - not a re-judgement here - is what holds "
+                 "them.",
+    },
+    "assets": {
+        "reachable": True,
+        "where": "pre-run drift witness on manifest/pool file displays + "
+                 "coherence declared-asset check (media on disk, card in "
+                 "the manifest) + compile refusal for missing media. A "
+                 "hand-laid pool/timeline item with no declaration is "
+                 "rebuilt without, announced only by the declaration that "
+                 "is absent.",
+    },
+    "audio_levels": {
+        "reachable": True,
+        "where": "pre-run drift witness on .otio/file displays + "
+                 "coherence pin-anchor check + the post-plan hold report "
+                 "at delivery time. A moved Fairlight fader itself is "
+                 "UNREACHABLE (no file carrier): it dies on the next OTIO "
+                 "delivery unless pinned in external/mix_intent.json.",
+    },
+    "mg_content": {
+        "reachable": True,
+        "where": "pre-run drift witness on motion-graphics payload files "
+                 "+ coherence wording scan where copy quotes speech, both "
+                 "with both values and the deep path. Copy invented "
+                 "outright has no source to compare against: that "
+                 "judgement is the 4.06 review gate's, not a diff's, and "
+                 "this entry states the boundary instead of claiming it.",
+    },
+    "marker_feedback": {
+        "reachable": True,
+        "where": "already loud without a witness: a hand-applied note "
+                 "bypasses routing, the note stays open in the resolution "
+                 "ledger and ROUTED-NOTES.md, and the next routing run "
+                 "shows it unanswered while the hand change dies on "
+                 "rebuild.",
+    },
+}
+
+
+def reachability(edit_class: str) -> dict:
+    """How a shallow fix in this class gets loud, or the statement that
+    it cannot. Raises `EditDepthError` for an unknown class - an
+    unclassified edit has no proven owner and no proven witness."""
+    try:
+        return REFUSAL_REACHABILITY[edit_class]
+    except KeyError:
+        raise EditDepthError(
+            f"unknown edit class {edit_class!r}: one of "
+            f"{', '.join(REFUSAL_REACHABILITY)}. An edit nobody "
+            f"classified is an edit with no witness.") from None
+
+
 def classes() -> list:
     """The ten edit classes, in canonical order."""
     return list(OWNERS)

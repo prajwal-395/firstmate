@@ -104,6 +104,12 @@ def build_context(data: dict) -> dict:
         # not being shown - but carried so the post-bridge can say who
         # was never offered.
         out["reels_not_readable"] = unreadable
+    # Recorded spelling corrections on the regenerated lines (the 3.04
+    # keep-exclusion precedent): the reader reads corrected words even
+    # when the transcript copy this run read predates the correction.
+    from library.tools.display_respell import apply_post_pass
+    apply_post_pass(out, (data or {}).get("project_folder") or "",
+                    "judge_reels bridge (reels_to_read)")
     return out
 
 

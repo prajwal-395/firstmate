@@ -3840,7 +3840,7 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -3941,7 +3941,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # `extra_cuts` are the captain's recorded strikes for this moment:
     # the placer reads the SAME ranges the caption pass planned from,
     # so picture and captions cannot disagree about what plays.
-    ranges = reel_ranges(moment, transcript, extra_cuts=extra_cuts)
+    # `ranges` arrives precomputed where the caller already trimmed the
+    # captain's span_retime pins out of it (the rebuild loop and the
+    # variant path) - recomputing from the moment here would un-trim
+    # them and place seconds nothing downstream planned for.
+    if ranges is None:
+        ranges = reel_ranges(moment, transcript, extra_cuts=extra_cuts)
     lead = lead_frames(cards, fps)
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
@@ -5707,6 +5712,43 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 current_staging = None
                 continue
 
+            # The captain's recorded trims (`span_retime`,
+            # `library/tools/captain_edits.py`): applied to the RANGES,
+            # before cards, captions, explainers, overlays and placements
+            # derive from them. Trimming placements after captions were
+            # planned from untrimmed ranges plays trimmed picture under
+            # untrimmed cards - the ranges are the one shape everything
+            # reads, so the trim lands here and nowhere else.
+            try:
+                from library.tools import captain_edits as _edits
+                _all_edits = _edits.load_edits(project_folder)
+            except Exception as exc:
+                raise ReelBuildError(
+                    f"  {name}: captain_edits cannot be read: {exc}. A "
+                    f"recorded trim the build cannot read must refuse, "
+                    f"never build silently past it.")
+            if any(e.get("kind") == "span_retime" for e in _all_edits):
+                ranges, _rt_applied, _rt_held, _rt_stale = (
+                    _edits.retime_ranges(
+                        ranges,
+                        placements(ranges, master_clips,
+                                   24000 / 1001),
+                        transcript, _all_edits, fps=24000 / 1001))
+                for record in _rt_applied:
+                    print(f"  Captain edit: span {record['span_index']}'s "
+                          f"{record['edge']} trimmed "
+                          f"{record['was'][0]:.3f}-{record['was'][1]:.3f}s "
+                          f"to {record['now'][0]:.3f}-"
+                          f"{record['now'][1]:.3f}s onto "
+                          f"{record['anchor_phrase']!r} - "
+                          f"{record['reason']}", flush=True)
+                for record in _rt_held:
+                    print(f"  Captain edit: span {record['span_index']}'s "
+                          f"{record['edge']} already sits on "
+                          f"{record['anchor_phrase']!r} - pin held",
+                          flush=True)
+                _edits.report_stale(_rt_stale)
+
             # Full-frame elements FIRST, because a head card decides where
             # every other thing on this reel starts. Planned and rendered
             # before anything is placed, so a declaration that cannot be
@@ -5832,9 +5874,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             if reel_look_decl is not None:
                 from library.tools import reel_look as _look
                 spine = _look.motion_spine(
-                    placements(reel_ranges(moment, transcript,
-                                           extra_cuts=moment_cuts),
-                               master_clips,
+                    # The TRIMMED ranges, not a recompute from the moment:
+                    # a recompute un-trims the captain's span_retime pins
+                    # and plans motion for seconds the reel no longer
+                    # plays.
+                    placements(ranges, master_clips,
                                24000/1001, lead_frames=lead_frames(cards, 24000/1001)),
                     24000/1001)
                 _look.write_motion_request(
@@ -5887,6 +5931,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # rebuild keeps their corrections.
                 overlay_intent=overlay_intent,
                 power_grade=reel_power_grade,
+                # The ranges the captions, overlays and explainers above
+                # were planned from - already trimmed of the captain's
+                # span_retime pins. Recomputing from the moment would
+                # un-trim them.
+                ranges=ranges,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
@@ -5915,9 +5964,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # the rows come from the layout owner rather than a
                 # hardcoded V1 beside it.
                 manifest = _look.fusion_manifest(
+                    # The TRIMMED ranges, for the reason the motion spine
+                    # above states: a recompute from the moment un-trims
+                    # the captain's pins.
                     placements(
-                        reel_ranges(moment, transcript,
-                                    extra_cuts=moment_cuts), master_clips,
+                        ranges, master_clips,
                         24000/1001,
                         lead_frames=lead_frames(cards, 24000/1001)),
                     reel_look_decl, reel_motion, 24000/1001,
@@ -6660,6 +6711,27 @@ def build_reel_variants(project_slug: str, reel_number: int,
         transcript)
     ranges = reel_ranges(moment, transcript, extra_cuts=moment_cuts)
 
+    # The captain's recorded trims, same seam as the rebuild loop:
+    # variants compare seams, so every variant is cut from the same
+    # trimmed ranges the approved reel was built from. `_pin_edits`
+    # is the load above: one read, both pin kinds.
+    if any(e.get("kind") == "span_retime" for e in _pin_edits):
+        ranges, _vrt_applied, _vrt_held, _vrt_stale = (
+            _edits.retime_ranges(
+                ranges, placements(ranges, master_clips, fps),
+                transcript, _pin_edits, fps=fps))
+        for record in _vrt_applied:
+            print(f"  Captain edit: span {record['span_index']}'s "
+                  f"{record['edge']} trimmed onto "
+                  f"{record['anchor_phrase']!r} - "
+                  f"{record['reason']}", flush=True)
+        for record in _vrt_held:
+            print(f"  Captain edit: span {record['span_index']}'s "
+                  f"{record['edge']} already sits on "
+                  f"{record['anchor_phrase']!r} - pin held",
+                  flush=True)
+        _edits.report_stale(_vrt_stale)
+
     from library.tools import transition_overlay as overlay_mod
     overlay_effect = overlay_mod.resolve_declaration({}, project_folder)
     overlay_declared = overlay_mod.declared_overlay(overlay_effect) is not None
@@ -6792,6 +6864,10 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 cutaway=spec.get("cutaway"),
                 grade_cdl=reel_grade_cdl,
                 power_grade=reel_power_grade,
+                # The trimmed ranges every variant plan above was drawn
+                # from - recomputing from the moment would un-trim the
+                # captain's pins.
+                ranges=ranges,
             )
             if reel_look_decl is not None:
                 manifest = _reel_look.fusion_manifest(
