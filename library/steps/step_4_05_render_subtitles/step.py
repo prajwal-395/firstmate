@@ -322,7 +322,15 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
                 raise _TightFailed(
                     f"probe render failed: "
                     f"{(error or '').strip()[:300] or 'render failed'}")
-            probe_frames = extract_frames(probe_mov_path, probe_tmpdir)
+            # A probe that cannot be DECODED fails the segment, never
+            # escapes as TightBoxMismatch: the one caller owns entries,
+            # not exceptions (measured 2026-09-10 - a stub renderer
+            # writing bytes let it escape past the _TightFailed catch).
+            try:
+                probe_frames = extract_frames(
+                    probe_mov_path, probe_tmpdir)
+            except TightBoxMismatch as exc:
+                raise _TightFailed(str(exc)) from exc
         try:
             union = ink_union_of_frames(probe_frames)
         except TightBoxMismatch as exc:
@@ -817,14 +825,23 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                 # the clamp gate, or the delivery format may have
                 # changed since. A refused restore re-renders measured
                 # below, which carries the card full canvas instead.
+                #
+                # The import sits ABOVE the try, never inside it: the
+                # except below names TightBoxMismatch, and an import
+                # that only runs after a successful open leaves the
+                # name unbound on exactly the path this comment
+                # describes - a missing sidecar - turning the intended
+                # fall-through into UnboundLocalError (measured
+                # 2026-09-10, Reel 26 reusing a Reel 09 render whose
+                # sidecar predates the box-sidecar mechanism).
+                from library.tools.tight_box import (
+                    TightBoxMismatch,
+                    restore_reused_placement,
+                )
                 try:
                     with open(_box_sidecar_path(
                             out_dir, segment_name)) as handle:
                         sidecar = json.load(handle)
-                    from library.tools.tight_box import (
-                        TightBoxMismatch,
-                        restore_reused_placement,
-                    )
                     tight = restore_reused_placement(
                         sidecar, props,
                         tuple(resolve_delivery_format(

@@ -100,7 +100,20 @@ STEP_RECORD_NAMES = ("output.json", "summary.md", RENDER_LEDGER_NAME)
 
 _DIGEST_RE = re.compile(r"_([0-9a-f]{8})$")
 
-_SIBLING_SUFFIXES = ("_props.json", "_reuse_key.txt", "_tight_box.json")
+_SIBLING_SUFFIXES = ("_props.json", "_reuse_key.txt", "_tight_box.json",
+                       "_box.json")
+"""Suffixed companions that live while their mov lives.
+
+`_box.json` is the current carriage's placement record
+(`tight_box`'s box sidecar, written beside the tight `.mov`); it
+belongs to `<owner>.mov` directly, unlike `_tight_box.json`, which
+belongs to `<owner>_tight.mov` and is matched first below - a name
+ending in `_tight_box.json` also ends in `_box.json`, so the order
+here is load-bearing. Measured 2026-09-10: without this entry every
+rebuild's sweep quarantined the live captions' sidecars as
+`unknown`, and the next build's reuse fell through to a full
+measured re-render per caption - the treadmill that made the
+missing-sidecar path the common one."""
 
 
 class SweepRefused(Exception):

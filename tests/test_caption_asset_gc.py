@@ -181,6 +181,37 @@ def test_siblings_follow_their_mov(tmp_path):
     assert "mov" in by_path[lone].reason.lower()
 
 
+def test_box_sidecar_is_a_sibling_of_its_mov(tmp_path):
+    """The tight box sidecar lives while its mov lives.
+
+    Measured 2026-09-10: the sweep quarantined Reel 26's thirteen live
+    captions' `_box.json` sidecars as `unknown` - the suffix set knew
+    the previous carriage (`_tight_box.json`) but not the current one -
+    and the next build's reuse fell through to a full measured
+    re-render per caption. A sidecar whose mov is live is live; one
+    whose mov is orphaned follows it; a lone one is an orphan.
+    """
+    project = str(tmp_path)
+    asset_dir = _populate(_asset_dir(project))
+    live_mov = os.path.join(asset_dir, _mov_names()[2])
+    live_box = live_mov[:-4] + "_box.json"
+    _write(live_box, size=100)
+    orphan_mov = os.path.join(asset_dir, _mov_names()[0])
+    orphan_box = orphan_mov[:-4] + "_box.json"
+    _write(orphan_box, size=100)
+    lone_box = os.path.join(
+        asset_dir, "sub_tl_akshita_9_90000-92000_dddddddd_box.json")
+    _write(lone_box, size=100)
+    roots = [_ok_root("resolve:test", {live_mov})]
+    result = mark(project, asset_dir, roots)
+    by_path = {a.path: a for a in result.assets}
+    assert by_path[live_box].status == LIVE
+    assert by_path[live_box].kind == "sibling"
+    assert by_path[orphan_box].status == ORPHAN
+    assert by_path[lone_box].status == ORPHAN
+    assert by_path[lone_box].kind == "lone-sibling"
+
+
 def test_reachability_beats_name_and_age(tmp_path):
     """An old, oddly-named asset in the reference set stays LIVE.
 

@@ -559,3 +559,46 @@ def test_a_malformed_declaration_raises(tmp_path):
                                      "  speaker_subtitle_styles: 'nope'\n")
     with pytest.raises(TypeError):
         project_speaker_styles(folder)
+
+
+def test_caption_row_sits_eleven_pixels_above_the_safe_area():
+    """The +11px the captain hand-corrected on Reel 09, as a rule.
+
+    Measured 2026-09-10: all 22 Reel 09 captions corrected uniformly
+    from computed Tilt -1744.0 to -1700.0 - 44 units, exactly 11
+    delivery pixels at the 480-pixel tight-canvas floor - and reels 26
+    (13 captions) and 30 (35 captions) computed -1744.0 on all 48 with
+    no declared intent, with Deliver stills confirming the ~11px gap
+    on pixels. The design row was systematically low, so the probe
+    props carry the lift: the safe-area profile itself (platform fact)
+    does not move, the other three insets do not move, and
+    captionMaxWidth still derives from the unlifted left/right.
+    """
+    from library.tools.subtitle_style import CAPTION_LIFT_PX, SUBTITLE_STYLES
+    from library.tools.safe_area import resolve_safe_area
+    assert CAPTION_LIFT_PX == 11
+    profile = resolve_safe_area()
+    props = SUBTITLE_STYLES["default_subtitles"].resolve()
+    area = props["safeArea"]
+    assert area["bottom"] == profile.bottom + CAPTION_LIFT_PX
+    assert area["top"] == profile.top
+    assert area["left"] == profile.left
+    assert area["right"] == profile.right
+    assert props["captionMaxWidth"] == profile.centered_usable_width
+
+
+def test_forty_four_tilt_units_are_eleven_pixels_at_the_floor():
+    """The arithmetic the lift encodes, pinned where it is derived.
+
+    `placement_for_box` inverts the measured Resolve relation shift_y
+    = -Tilt * placed_H / timeline_H: on a 1080x1920 timeline a
+    480-tall canvas moves a quarter delivery pixel per Tilt unit, so
+    the captain's 44-unit correction is 11.0px and a canvas centred at
+    full-frame y 1385 reads Tilt -1700.0 while the old design row
+    (centre 1396) reads -1744.0.
+    """
+    from library.tools.tight_box import placement_for_box
+    assert placement_for_box(840, 480, 540.0, 1385.0, 1080, 1920) == {
+        "scaling": 1, "pan": 0.0, "tilt": -1700.0}
+    assert placement_for_box(840, 480, 540.0, 1396.0, 1080, 1920) == {
+        "scaling": 1, "pan": 0.0, "tilt": -1744.0}

@@ -175,3 +175,74 @@ def test_reused_segments_pair_back_to_the_same_files(reel_run):
             == [s["overlay_path"] for s in first])
     for segment in second:
         assert os.path.isfile(segment["overlay_path"])
+
+
+def test_tight_reuse_without_sidecar_falls_through_to_measured(tmp_path):
+    """A key hit with no box sidecar re-measures instead of crashing.
+
+    Measured 2026-09-10: Reel 26 reuses a Reel 09 render (same words,
+    same drawing digest) whose box sidecar predates the sidecar
+    mechanism. The open failed BEFORE the `TightBoxMismatch` import
+    inside the try ran, so the except naming it raised
+    UnboundLocalError - the "falls through to a fresh measured
+    render" path had never been exercised (every reuse test above
+    holds the geometry at full, so the tight branch never runs).
+
+    The stub renderer writes bytes no probe can decode, so the
+    fall-through honestly FAILS the segment here; in production the
+    probe decodes and the segment re-renders measured. What is pinned
+    is the fall-through itself: no exception escapes, and the entry
+    says failed rather than reused.
+    """
+    from library.steps.step_4_05_render_subtitles import step as seg_step
+    from library.tools.subtitle_segment_id import (
+        segment_binding,
+        segment_identifier,
+    )
+
+    engine = _Renderer()
+    out_dir = str(tmp_path)
+    props = {
+        "durationInFrames": 60,
+        "subtitles": [{"text": "alpha bravo"}],
+        "fontFamily": "Montserrat",
+        "_block_position": "body_1",
+        "_timeline_start": 20.0,
+        "_timeline_end": 22.5,
+        "_speaker": "Craig",
+        "_source_clip_id": "clip_001",
+        "_source_start": 100.0,
+        "_source_end": 102.5,
+    }
+    binding = segment_binding(
+        timeline="Reel 01",
+        speaker=props["_speaker"],
+        block_position=props["_block_position"],
+        source_clip_id=props["_source_clip_id"],
+        source_start=props["_source_start"],
+        source_end=props["_source_end"])
+    name = segment_identifier(
+        binding, seg_step._drawing_digest(props, "tight", "video"))
+    key = seg_step._reuse_key(props, REMOTION, "tight", "video")
+    assert key, "the real remotion tree must fingerprint for this test"
+    with open(os.path.join(out_dir, f"{name}.mov"), "wb") as handle:
+        handle.write(b"pixels")
+    with open(os.path.join(out_dir, f"{name}_reuse_key.txt"), "w",
+              encoding="utf-8") as handle:
+        handle.write(key)
+    assert not os.path.exists(
+        os.path.join(out_dir, f"{name}_box.json")), (
+        "the sidecar must be absent: its absence is the case under test")
+
+    entry = render_one_segment(
+        dict(props), out_dir, "Reel 01", remotion_dir=REMOTION,
+        reuse=True, renderer=engine,
+        overlay_geometry="tight", overlay_container="video",
+        project_folder="")
+
+    assert entry["provenance"] == "failed", (
+        f"the stub probe cannot decode, so the fall-through must "
+        f"report failed, not {entry['provenance']!r}")
+    assert "UnboundLocalError" not in str(entry.get("failure", ""))
+    assert engine.calls >= 1, (
+        "the fall-through must attempt a fresh measured render")
