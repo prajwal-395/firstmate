@@ -1,0 +1,3302 @@
+{
+ "segments": [
+  {
+   "start": 0.031,
+   "end": 3.113,
+   "text": " And that's what happened with that company, why they came back as a healthcare company.",
+   "words": [
+    {
+     "word": "And",
+     "start": 0.031,
+     "end": 0.091,
+     "score": 0.0
+    },
+    {
+     "word": "that's",
+     "start": 0.111,
+     "end": 0.251,
+     "score": 0.576
+    },
+    {
+     "word": "what",
+     "start": 0.271,
+     "end": 0.411,
+     "score": 0.867
+    },
+    {
+     "word": "happened",
+     "start": 0.431,
+     "end": 0.591,
+     "score": 0.454
+    },
+    {
+     "word": "with",
+     "start": 0.611,
+     "end": 0.711,
+     "score": 0.214
+    },
+    {
+     "word": "that",
+     "start": 0.751,
+     "end": 0.891,
+     "score": 0.854
+    },
+    {
+     "word": "company,",
+     "start": 0.951,
+     "end": 1.232,
+     "score": 0.901
+    },
+    {
+     "word": "why",
+     "start": 1.252,
+     "end": 1.352,
+     "score": 0.996
+    },
+    {
+     "word": "they",
+     "start": 1.392,
+     "end": 1.532,
+     "score": 0.897
+    },
+    {
+     "word": "came",
+     "start": 1.552,
+     "end": 1.732,
+     "score": 0.892
+    },
+    {
+     "word": "back",
+     "start": 1.772,
+     "end": 1.952,
+     "score": 0.95
+    },
+    {
+     "word": "as",
+     "start": 2.012,
+     "end": 2.092,
+     "score": 0.477
+    },
+    {
+     "word": "a",
+     "start": 2.132,
+     "end": 2.172,
+     "score": 0.509
+    },
+    {
+     "word": "healthcare",
+     "start": 2.272,
+     "end": 2.692,
+     "score": 0.789
+    },
+    {
+     "word": "company.",
+     "start": 2.732,
+     "end": 3.113,
+     "score": 0.846
+    }
+   ],
+   "avg_logprob": -0.07868122250180352
+  },
+  {
+   "start": 3.493,
+   "end": 5.234,
+   "text": "And not an accounting software company, yes.",
+   "words": [
+    {
+     "word": "And",
+     "start": 3.493,
+     "end": 3.573,
+     "score": 0.941
+    },
+    {
+     "word": "not",
+     "start": 3.613,
+     "end": 3.753,
+     "score": 0.859
+    },
+    {
+     "word": "an",
+     "start": 3.793,
+     "end": 3.833,
+     "score": 0.813
+    },
+    {
+     "word": "accounting",
+     "start": 3.873,
+     "end": 4.213,
+     "score": 0.902
+    },
+    {
+     "word": "software",
+     "start": 4.233,
+     "end": 4.593,
+     "score": 0.775
+    },
+    {
+     "word": "company,",
+     "start": 4.633,
+     "end": 5.014,
+     "score": 0.92
+    },
+    {
+     "word": "yes.",
+     "start": 5.034,
+     "end": 5.234,
+     "score": 0.729
+    }
+   ],
+   "avg_logprob": -0.07868122250180352
+  },
+  {
+   "start": 5.514,
+   "end": 9.456,
+   "text": "And that's one of the reasons why that company got called a healthcare company.",
+   "words": [
+    {
+     "word": "And",
+     "start": 5.514,
+     "end": 5.614,
+     "score": 0.758
+    },
+    {
+     "word": "that's",
+     "start": 5.634,
+     "end": 5.834,
+     "score": 0.909
+    },
+    {
+     "word": "one",
+     "start": 5.914,
+     "end": 5.994,
+     "score": 0.863
+    },
+    {
+     "word": "of",
+     "start": 6.014,
+     "end": 6.054,
+     "score": 0.931
+    },
+    {
+     "word": "the",
+     "start": 6.074,
+     "end": 6.154,
+     "score": 0.8
+    },
+    {
+     "word": "reasons",
+     "start": 6.194,
+     "end": 6.535,
+     "score": 0.819
+    },
+    {
+     "word": "why",
+     "start": 6.595,
+     "end": 6.835,
+     "score": 0.783
+    },
+    {
+     "word": "that",
+     "start": 7.015,
+     "end": 7.255,
+     "score": 0.902
+    },
+    {
+     "word": "company",
+     "start": 7.355,
+     "end": 7.695,
+     "score": 0.933
+    },
+    {
+     "word": "got",
+     "start": 7.735,
+     "end": 7.915,
+     "score": 0.884
+    },
+    {
+     "word": "called",
+     "start": 7.955,
+     "end": 8.255,
+     "score": 0.9
+    },
+    {
+     "word": "a",
+     "start": 8.275,
+     "end": 8.295,
+     "score": 0.0
+    },
+    {
+     "word": "healthcare",
+     "start": 8.656,
+     "end": 9.076,
+     "score": 0.819
+    },
+    {
+     "word": "company.",
+     "start": 9.136,
+     "end": 9.456,
+     "score": 0.863
+    }
+   ],
+   "avg_logprob": -0.07868122250180352
+  },
+  {
+   "start": 9.656,
+   "end": 22.103,
+   "text": "Yeah, so they had a case study on their case studies page about a healthcare client and someone's LinkedIn bio showed like healthcare startup a couple years ago, and then they had some other directory listing for something healthcare related.",
+   "words": [
+    {
+     "word": "Yeah,",
+     "start": 9.656,
+     "end": 9.896,
+     "score": 0.657
+    },
+    {
+     "word": "so",
+     "start": 9.936,
+     "end": 10.036,
+     "score": 0.477
+    },
+    {
+     "word": "they",
+     "start": 10.056,
+     "end": 10.196,
+     "score": 0.913
+    },
+    {
+     "word": "had",
+     "start": 10.236,
+     "end": 10.457,
+     "score": 0.907
+    },
+    {
+     "word": "a",
+     "start": 10.577,
+     "end": 10.637,
+     "score": 0.839
+    },
+    {
+     "word": "case",
+     "start": 10.697,
+     "end": 10.937,
+     "score": 0.725
+    },
+    {
+     "word": "study",
+     "start": 10.957,
+     "end": 11.357,
+     "score": 0.688
+    },
+    {
+     "word": "on",
+     "start": 11.957,
+     "end": 12.017,
+     "score": 0.83
+    },
+    {
+     "word": "their",
+     "start": 12.057,
+     "end": 12.178,
+     "score": 0.886
+    },
+    {
+     "word": "case",
+     "start": 12.198,
+     "end": 12.338,
+     "score": 0.495
+    },
+    {
+     "word": "studies",
+     "start": 12.358,
+     "end": 12.658,
+     "score": 0.755
+    },
+    {
+     "word": "page",
+     "start": 12.698,
+     "end": 13.178,
+     "score": 0.878
+    },
+    {
+     "word": "about",
+     "start": 13.398,
+     "end": 13.558,
+     "score": 0.99
+    },
+    {
+     "word": "a",
+     "start": 13.578,
+     "end": 13.598,
+     "score": 0.844
+    },
+    {
+     "word": "healthcare",
+     "start": 13.658,
+     "end": 14.059,
+     "score": 0.763
+    },
+    {
+     "word": "client",
+     "start": 14.079,
+     "end": 14.599,
+     "score": 0.84
+    },
+    {
+     "word": "and",
+     "start": 14.679,
+     "end": 14.759,
+     "score": 0.951
+    },
+    {
+     "word": "someone's",
+     "start": 14.799,
+     "end": 15.139,
+     "score": 0.792
+    },
+    {
+     "word": "LinkedIn",
+     "start": 15.259,
+     "end": 15.599,
+     "score": 0.765
+    },
+    {
+     "word": "bio",
+     "start": 15.639,
+     "end": 16.14,
+     "score": 0.881
+    },
+    {
+     "word": "showed",
+     "start": 16.24,
+     "end": 16.46,
+     "score": 0.762
+    },
+    {
+     "word": "like",
+     "start": 16.48,
+     "end": 16.62,
+     "score": 0.883
+    },
+    {
+     "word": "healthcare",
+     "start": 16.68,
+     "end": 17.1,
+     "score": 0.786
+    },
+    {
+     "word": "startup",
+     "start": 17.12,
+     "end": 17.4,
+     "score": 0.708
+    },
+    {
+     "word": "a",
+     "start": 17.42,
+     "end": 17.44,
+     "score": 0.982
+    },
+    {
+     "word": "couple",
+     "start": 17.5,
+     "end": 17.721,
+     "score": 0.886
+    },
+    {
+     "word": "years",
+     "start": 17.761,
+     "end": 18.001,
+     "score": 0.814
+    },
+    {
+     "word": "ago,",
+     "start": 18.081,
+     "end": 18.401,
+     "score": 0.904
+    },
+    {
+     "word": "and",
+     "start": 18.721,
+     "end": 18.801,
+     "score": 0.87
+    },
+    {
+     "word": "then",
+     "start": 18.841,
+     "end": 18.961,
+     "score": 0.887
+    },
+    {
+     "word": "they",
+     "start": 19.001,
+     "end": 19.141,
+     "score": 0.922
+    },
+    {
+     "word": "had",
+     "start": 19.161,
+     "end": 19.301,
+     "score": 0.7
+    },
+    {
+     "word": "some",
+     "start": 19.321,
+     "end": 19.441,
+     "score": 0.931
+    },
+    {
+     "word": "other",
+     "start": 19.481,
+     "end": 19.662,
+     "score": 0.869
+    },
+    {
+     "word": "directory",
+     "start": 19.722,
+     "end": 20.182,
+     "score": 0.894
+    },
+    {
+     "word": "listing",
+     "start": 20.242,
+     "end": 20.682,
+     "score": 0.804
+    },
+    {
+     "word": "for",
+     "start": 20.762,
+     "end": 20.882,
+     "score": 0.963
+    },
+    {
+     "word": "something",
+     "start": 20.942,
+     "end": 21.222,
+     "score": 0.974
+    },
+    {
+     "word": "healthcare",
+     "start": 21.262,
+     "end": 21.643,
+     "score": 0.798
+    },
+    {
+     "word": "related.",
+     "start": 21.683,
+     "end": 22.103,
+     "score": 0.98
+    }
+   ],
+   "avg_logprob": -0.07868122250180352
+  },
+  {
+   "start": 22.423,
+   "end": 35.231,
+   "text": " So basically, even though they're not a health care company at all, because health care was mentioned a couple of times, but in a very fragmented and wrong way, AI did take that, hallucinate, and spit out the information that it wanted to.",
+   "words": [
+    {
+     "word": "So",
+     "start": 22.423,
+     "end": 22.563,
+     "score": 0.881
+    },
+    {
+     "word": "basically,",
+     "start": 22.583,
+     "end": 23.163,
+     "score": 0.94
+    },
+    {
+     "word": "even",
+     "start": 23.264,
+     "end": 23.424,
+     "score": 0.751
+    },
+    {
+     "word": "though",
+     "start": 23.464,
+     "end": 23.604,
+     "score": 0.917
+    },
+    {
+     "word": "they're",
+     "start": 23.624,
+     "end": 23.824,
+     "score": 0.773
+    },
+    {
+     "word": "not",
+     "start": 23.844,
+     "end": 23.984,
+     "score": 0.727
+    },
+    {
+     "word": "a",
+     "start": 24.004,
+     "end": 24.024,
+     "score": 0.957
+    },
+    {
+     "word": "health",
+     "start": 24.084,
+     "end": 24.284,
+     "score": 0.599
+    },
+    {
+     "word": "care",
+     "start": 24.324,
+     "end": 24.604,
+     "score": 0.739
+    },
+    {
+     "word": "company",
+     "start": 24.784,
+     "end": 25.125,
+     "score": 0.951
+    },
+    {
+     "word": "at",
+     "start": 25.325,
+     "end": 25.425,
+     "score": 0.983
+    },
+    {
+     "word": "all,",
+     "start": 25.545,
+     "end": 25.725,
+     "score": 0.893
+    },
+    {
+     "word": "because",
+     "start": 25.785,
+     "end": 26.105,
+     "score": 0.844
+    },
+    {
+     "word": "health",
+     "start": 26.265,
+     "end": 26.445,
+     "score": 0.506
+    },
+    {
+     "word": "care",
+     "start": 26.465,
+     "end": 26.646,
+     "score": 0.762
+    },
+    {
+     "word": "was",
+     "start": 26.666,
+     "end": 26.786,
+     "score": 0.841
+    },
+    {
+     "word": "mentioned",
+     "start": 26.826,
+     "end": 27.106,
+     "score": 0.788
+    },
+    {
+     "word": "a",
+     "start": 27.126,
+     "end": 27.146,
+     "score": 0.998
+    },
+    {
+     "word": "couple",
+     "start": 27.186,
+     "end": 27.426,
+     "score": 0.703
+    },
+    {
+     "word": "of",
+     "start": 27.446,
+     "end": 27.506,
+     "score": 0.75
+    },
+    {
+     "word": "times,",
+     "start": 27.546,
+     "end": 27.886,
+     "score": 0.921
+    },
+    {
+     "word": "but",
+     "start": 28.006,
+     "end": 28.227,
+     "score": 0.669
+    },
+    {
+     "word": "in",
+     "start": 28.767,
+     "end": 28.847,
+     "score": 0.962
+    },
+    {
+     "word": "a",
+     "start": 28.887,
+     "end": 28.927,
+     "score": 0.527
+    },
+    {
+     "word": "very",
+     "start": 28.967,
+     "end": 29.267,
+     "score": 0.851
+    },
+    {
+     "word": "fragmented",
+     "start": 29.387,
+     "end": 30.008,
+     "score": 0.85
+    },
+    {
+     "word": "and",
+     "start": 30.128,
+     "end": 30.228,
+     "score": 0.695
+    },
+    {
+     "word": "wrong",
+     "start": 30.248,
+     "end": 30.528,
+     "score": 0.698
+    },
+    {
+     "word": "way,",
+     "start": 30.568,
+     "end": 30.848,
+     "score": 0.93
+    },
+    {
+     "word": "AI",
+     "start": 31.228,
+     "end": 31.388,
+     "score": 0.364
+    },
+    {
+     "word": "did",
+     "start": 31.468,
+     "end": 31.629,
+     "score": 0.896
+    },
+    {
+     "word": "take",
+     "start": 31.669,
+     "end": 31.869,
+     "score": 0.789
+    },
+    {
+     "word": "that,",
+     "start": 31.909,
+     "end": 32.109,
+     "score": 0.668
+    },
+    {
+     "word": "hallucinate,",
+     "start": 32.149,
+     "end": 32.889,
+     "score": 0.818
+    },
+    {
+     "word": "and",
+     "start": 33.109,
+     "end": 33.249,
+     "score": 0.624
+    },
+    {
+     "word": "spit",
+     "start": 33.39,
+     "end": 33.59,
+     "score": 0.894
+    },
+    {
+     "word": "out",
+     "start": 33.61,
+     "end": 33.71,
+     "score": 0.685
+    },
+    {
+     "word": "the",
+     "start": 33.73,
+     "end": 33.79,
+     "score": 0.965
+    },
+    {
+     "word": "information",
+     "start": 33.83,
+     "end": 34.39,
+     "score": 0.942
+    },
+    {
+     "word": "that",
+     "start": 34.49,
+     "end": 34.63,
+     "score": 0.874
+    },
+    {
+     "word": "it",
+     "start": 34.65,
+     "end": 34.71,
+     "score": 0.532
+    },
+    {
+     "word": "wanted",
+     "start": 34.75,
+     "end": 35.011,
+     "score": 0.869
+    },
+    {
+     "word": "to.",
+     "start": 35.051,
+     "end": 35.231,
+     "score": 0.863
+    }
+   ],
+   "avg_logprob": -0.046346384618017405
+  },
+  {
+   "start": 35.611,
+   "end": 38.072,
+   "text": "So the information is there, just the wrong ones.",
+   "words": [
+    {
+     "word": "So",
+     "start": 35.611,
+     "end": 36.031,
+     "score": 0.78
+    },
+    {
+     "word": "the",
+     "start": 36.151,
+     "end": 36.231,
+     "score": 0.934
+    },
+    {
+     "word": "information",
+     "start": 36.271,
+     "end": 36.732,
+     "score": 0.968
+    },
+    {
+     "word": "is",
+     "start": 36.792,
+     "end": 36.872,
+     "score": 0.692
+    },
+    {
+     "word": "there,",
+     "start": 36.892,
+     "end": 37.132,
+     "score": 0.777
+    },
+    {
+     "word": "just",
+     "start": 37.192,
+     "end": 37.332,
+     "score": 0.99
+    },
+    {
+     "word": "the",
+     "start": 37.372,
+     "end": 37.452,
+     "score": 0.826
+    },
+    {
+     "word": "wrong",
+     "start": 37.492,
+     "end": 37.752,
+     "score": 0.709
+    },
+    {
+     "word": "ones.",
+     "start": 37.892,
+     "end": 38.072,
+     "score": 0.807
+    }
+   ],
+   "avg_logprob": -0.046346384618017405
+  },
+  {
+   "start": 38.413,
+   "end": 41.154,
+   "text": "And while it did hallucinate, it did connect the dots.",
+   "words": [
+    {
+     "word": "And",
+     "start": 38.413,
+     "end": 38.613,
+     "score": 0.735
+    },
+    {
+     "word": "while",
+     "start": 39.133,
+     "end": 39.313,
+     "score": 0.911
+    },
+    {
+     "word": "it",
+     "start": 39.353,
+     "end": 39.393,
+     "score": 0.884
+    },
+    {
+     "word": "did",
+     "start": 39.413,
+     "end": 39.513,
+     "score": 0.979
+    },
+    {
+     "word": "hallucinate,",
+     "start": 39.533,
+     "end": 40.074,
+     "score": 0.805
+    },
+    {
+     "word": "it",
+     "start": 40.174,
+     "end": 40.214,
+     "score": 0.974
+    },
+    {
+     "word": "did",
+     "start": 40.254,
+     "end": 40.394,
+     "score": 0.858
+    },
+    {
+     "word": "connect",
+     "start": 40.434,
+     "end": 40.714,
+     "score": 0.934
+    },
+    {
+     "word": "the",
+     "start": 40.734,
+     "end": 40.814,
+     "score": 0.865
+    },
+    {
+     "word": "dots.",
+     "start": 40.834,
+     "end": 41.154,
+     "score": 0.923
+    }
+   ],
+   "avg_logprob": -0.046346384618017405
+  },
+  {
+   "start": 41.875,
+   "end": 45.417,
+   "text": "So it got it right, but it's not necessarily AI's fault.",
+   "words": [
+    {
+     "word": "So",
+     "start": 41.875,
+     "end": 42.015,
+     "score": 0.738
+    },
+    {
+     "word": "it",
+     "start": 42.075,
+     "end": 42.155,
+     "score": 0.952
+    },
+    {
+     "word": "got",
+     "start": 42.175,
+     "end": 42.375,
+     "score": 0.981
+    },
+    {
+     "word": "it",
+     "start": 42.435,
+     "end": 42.515,
+     "score": 0.262
+    },
+    {
+     "word": "right,",
+     "start": 42.615,
+     "end": 42.975,
+     "score": 0.918
+    },
+    {
+     "word": "but",
+     "start": 43.035,
+     "end": 43.315,
+     "score": 0.891
+    },
+    {
+     "word": "it's",
+     "start": 43.556,
+     "end": 43.696,
+     "score": 0.812
+    },
+    {
+     "word": "not",
+     "start": 43.756,
+     "end": 43.896,
+     "score": 0.943
+    },
+    {
+     "word": "necessarily",
+     "start": 43.956,
+     "end": 44.576,
+     "score": 0.913
+    },
+    {
+     "word": "AI's",
+     "start": 44.716,
+     "end": 45.097,
+     "score": 0.67
+    },
+    {
+     "word": "fault.",
+     "start": 45.157,
+     "end": 45.417,
+     "score": 0.774
+    }
+   ],
+   "avg_logprob": -0.046346384618017405
+  },
+  {
+   "start": 45.437,
+   "end": 47.478,
+   "text": "This is an information problem.",
+   "words": [
+    {
+     "word": "This",
+     "start": 45.437,
+     "end": 45.597,
+     "score": 0.826
+    },
+    {
+     "word": "is",
+     "start": 45.657,
+     "end": 46.377,
+     "score": 0.854
+    },
+    {
+     "word": "an",
+     "start": 46.397,
+     "end": 46.437,
+     "score": 0.004
+    },
+    {
+     "word": "information",
+     "start": 46.517,
+     "end": 47.058,
+     "score": 0.936
+    },
+    {
+     "word": "problem.",
+     "start": 47.098,
+     "end": 47.478,
+     "score": 0.889
+    }
+   ],
+   "avg_logprob": -0.046346384618017405
+  },
+  {
+   "start": 47.837,
+   "end": 48.317,
+   "text": " Absolutely.",
+   "words": [
+    {
+     "word": "Absolutely.",
+     "start": 47.837,
+     "end": 48.317,
+     "score": 0.895
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 48.357,
+   "end": 49.517,
+   "text": "This is not AI's fault.",
+   "words": [
+    {
+     "word": "This",
+     "start": 48.357,
+     "end": 48.477,
+     "score": 0.889
+    },
+    {
+     "word": "is",
+     "start": 48.537,
+     "end": 48.577,
+     "score": 0.997
+    },
+    {
+     "word": "not",
+     "start": 48.637,
+     "end": 48.757,
+     "score": 0.878
+    },
+    {
+     "word": "AI's",
+     "start": 48.837,
+     "end": 49.117,
+     "score": 0.463
+    },
+    {
+     "word": "fault.",
+     "start": 49.177,
+     "end": 49.517,
+     "score": 0.77
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 49.637,
+   "end": 54.738,
+   "text": "Everything that you're doing has like your company's information has to be aligned with what you want.",
+   "words": [
+    {
+     "word": "Everything",
+     "start": 49.637,
+     "end": 50.057,
+     "score": 0.84
+    },
+    {
+     "word": "that",
+     "start": 50.097,
+     "end": 50.278,
+     "score": 0.795
+    },
+    {
+     "word": "you're",
+     "start": 50.378,
+     "end": 50.598,
+     "score": 0.666
+    },
+    {
+     "word": "doing",
+     "start": 50.658,
+     "end": 51.098,
+     "score": 0.866
+    },
+    {
+     "word": "has",
+     "start": 51.358,
+     "end": 51.558,
+     "score": 0.921
+    },
+    {
+     "word": "like",
+     "start": 51.698,
+     "end": 51.838,
+     "score": 0.967
+    },
+    {
+     "word": "your",
+     "start": 51.858,
+     "end": 51.998,
+     "score": 0.752
+    },
+    {
+     "word": "company's",
+     "start": 52.038,
+     "end": 52.478,
+     "score": 0.883
+    },
+    {
+     "word": "information",
+     "start": 52.518,
+     "end": 53.098,
+     "score": 0.843
+    },
+    {
+     "word": "has",
+     "start": 53.158,
+     "end": 53.318,
+     "score": 0.895
+    },
+    {
+     "word": "to",
+     "start": 53.358,
+     "end": 53.418,
+     "score": 0.76
+    },
+    {
+     "word": "be",
+     "start": 53.458,
+     "end": 53.538,
+     "score": 0.969
+    },
+    {
+     "word": "aligned",
+     "start": 53.578,
+     "end": 53.898,
+     "score": 0.698
+    },
+    {
+     "word": "with",
+     "start": 53.918,
+     "end": 54.058,
+     "score": 0.781
+    },
+    {
+     "word": "what",
+     "start": 54.098,
+     "end": 54.238,
+     "score": 0.746
+    },
+    {
+     "word": "you",
+     "start": 54.258,
+     "end": 54.398,
+     "score": 0.792
+    },
+    {
+     "word": "want.",
+     "start": 54.438,
+     "end": 54.738,
+     "score": 0.879
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 54.858,
+   "end": 62.98,
+   "text": "And if you have all these sources that are contradicting or having false information or even vague information, AI will take that, connect the dots.",
+   "words": [
+    {
+     "word": "And",
+     "start": 54.858,
+     "end": 54.958,
+     "score": 0.829
+    },
+    {
+     "word": "if",
+     "start": 54.998,
+     "end": 55.058,
+     "score": 0.94
+    },
+    {
+     "word": "you",
+     "start": 55.098,
+     "end": 55.239,
+     "score": 0.893
+    },
+    {
+     "word": "have",
+     "start": 55.279,
+     "end": 55.539,
+     "score": 0.903
+    },
+    {
+     "word": "all",
+     "start": 55.579,
+     "end": 55.739,
+     "score": 0.708
+    },
+    {
+     "word": "these",
+     "start": 55.779,
+     "end": 55.979,
+     "score": 0.684
+    },
+    {
+     "word": "sources",
+     "start": 56.199,
+     "end": 56.619,
+     "score": 0.792
+    },
+    {
+     "word": "that",
+     "start": 56.659,
+     "end": 56.779,
+     "score": 0.944
+    },
+    {
+     "word": "are",
+     "start": 56.819,
+     "end": 56.919,
+     "score": 0.697
+    },
+    {
+     "word": "contradicting",
+     "start": 56.959,
+     "end": 57.659,
+     "score": 0.908
+    },
+    {
+     "word": "or",
+     "start": 57.959,
+     "end": 58.039,
+     "score": 0.92
+    },
+    {
+     "word": "having",
+     "start": 58.099,
+     "end": 58.479,
+     "score": 0.764
+    },
+    {
+     "word": "false",
+     "start": 58.679,
+     "end": 58.939,
+     "score": 0.858
+    },
+    {
+     "word": "information",
+     "start": 58.999,
+     "end": 59.559,
+     "score": 0.894
+    },
+    {
+     "word": "or",
+     "start": 59.599,
+     "end": 59.659,
+     "score": 0.96
+    },
+    {
+     "word": "even",
+     "start": 59.699,
+     "end": 59.859,
+     "score": 0.823
+    },
+    {
+     "word": "vague",
+     "start": 59.899,
+     "end": 60.119,
+     "score": 0.809
+    },
+    {
+     "word": "information,",
+     "start": 60.139,
+     "end": 60.72,
+     "score": 0.881
+    },
+    {
+     "word": "AI",
+     "start": 61.2,
+     "end": 61.36,
+     "score": 0.754
+    },
+    {
+     "word": "will",
+     "start": 61.42,
+     "end": 61.6,
+     "score": 0.832
+    },
+    {
+     "word": "take",
+     "start": 61.64,
+     "end": 61.82,
+     "score": 0.825
+    },
+    {
+     "word": "that,",
+     "start": 61.88,
+     "end": 62.1,
+     "score": 0.93
+    },
+    {
+     "word": "connect",
+     "start": 62.16,
+     "end": 62.46,
+     "score": 0.914
+    },
+    {
+     "word": "the",
+     "start": 62.5,
+     "end": 62.58,
+     "score": 0.976
+    },
+    {
+     "word": "dots.",
+     "start": 62.62,
+     "end": 62.98,
+     "score": 0.925
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 63.26,
+   "end": 64.3,
+   "text": "And that's not its fault.",
+   "words": [
+    {
+     "word": "And",
+     "start": 63.26,
+     "end": 63.4,
+     "score": 0.563
+    },
+    {
+     "word": "that's",
+     "start": 63.5,
+     "end": 63.68,
+     "score": 0.912
+    },
+    {
+     "word": "not",
+     "start": 63.72,
+     "end": 63.84,
+     "score": 0.767
+    },
+    {
+     "word": "its",
+     "start": 63.9,
+     "end": 64.0,
+     "score": 0.821
+    },
+    {
+     "word": "fault.",
+     "start": 64.02,
+     "end": 64.3,
+     "score": 0.83
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 64.76,
+   "end": 66.721,
+   "text": "Your information ecosystem is not good.",
+   "words": [
+    {
+     "word": "Your",
+     "start": 64.76,
+     "end": 64.9,
+     "score": 0.627
+    },
+    {
+     "word": "information",
+     "start": 64.92,
+     "end": 65.341,
+     "score": 0.918
+    },
+    {
+     "word": "ecosystem",
+     "start": 65.381,
+     "end": 66.021,
+     "score": 0.813
+    },
+    {
+     "word": "is",
+     "start": 66.281,
+     "end": 66.361,
+     "score": 0.512
+    },
+    {
+     "word": "not",
+     "start": 66.401,
+     "end": 66.521,
+     "score": 0.8
+    },
+    {
+     "word": "good.",
+     "start": 66.541,
+     "end": 66.721,
+     "score": 0.921
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 66.961,
+   "end": 67.841,
+   "text": "Search didn't change.",
+   "words": [
+    {
+     "word": "Search",
+     "start": 66.961,
+     "end": 67.141,
+     "score": 0.897
+    },
+    {
+     "word": "didn't",
+     "start": 67.181,
+     "end": 67.421,
+     "score": 0.862
+    },
+    {
+     "word": "change.",
+     "start": 67.461,
+     "end": 67.841,
+     "score": 0.894
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 68.081,
+   "end": 68.941,
+   "text": "The question changed.",
+   "words": [
+    {
+     "word": "The",
+     "start": 68.081,
+     "end": 68.181,
+     "score": 0.848
+    },
+    {
+     "word": "question",
+     "start": 68.201,
+     "end": 68.541,
+     "score": 0.888
+    },
+    {
+     "word": "changed.",
+     "start": 68.581,
+     "end": 68.941,
+     "score": 0.768
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 69.001,
+   "end": 71.762,
+   "text": "And whoever understands best will get the answer.",
+   "words": [
+    {
+     "word": "And",
+     "start": 69.001,
+     "end": 69.081,
+     "score": 0.865
+    },
+    {
+     "word": "whoever",
+     "start": 69.121,
+     "end": 69.461,
+     "score": 0.83
+    },
+    {
+     "word": "understands",
+     "start": 69.781,
+     "end": 70.282,
+     "score": 0.852
+    },
+    {
+     "word": "best",
+     "start": 70.362,
+     "end": 70.642,
+     "score": 0.954
+    },
+    {
+     "word": "will",
+     "start": 70.882,
+     "end": 71.062,
+     "score": 0.81
+    },
+    {
+     "word": "get",
+     "start": 71.082,
+     "end": 71.222,
+     "score": 0.63
+    },
+    {
+     "word": "the",
+     "start": 71.262,
+     "end": 71.342,
+     "score": 0.898
+    },
+    {
+     "word": "answer.",
+     "start": 71.422,
+     "end": 71.762,
+     "score": 0.797
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 72.162,
+   "end": 75.363,
+   "text": "And that's why we've been building the Lucy visibility system for months.",
+   "words": [
+    {
+     "word": "And",
+     "start": 72.162,
+     "end": 72.262,
+     "score": 0.861
+    },
+    {
+     "word": "that's",
+     "start": 72.322,
+     "end": 72.462,
+     "score": 0.861
+    },
+    {
+     "word": "why",
+     "start": 72.482,
+     "end": 72.582,
+     "score": 0.882
+    },
+    {
+     "word": "we've",
+     "start": 72.622,
+     "end": 72.762,
+     "score": 0.906
+    },
+    {
+     "word": "been",
+     "start": 72.802,
+     "end": 72.922,
+     "score": 0.87
+    },
+    {
+     "word": "building",
+     "start": 72.962,
+     "end": 73.362,
+     "score": 0.764
+    },
+    {
+     "word": "the",
+     "start": 73.482,
+     "end": 73.562,
+     "score": 0.901
+    },
+    {
+     "word": "Lucy",
+     "start": 73.622,
+     "end": 73.882,
+     "score": 0.765
+    },
+    {
+     "word": "visibility",
+     "start": 73.902,
+     "end": 74.442,
+     "score": 0.939
+    },
+    {
+     "word": "system",
+     "start": 74.482,
+     "end": 74.822,
+     "score": 0.807
+    },
+    {
+     "word": "for",
+     "start": 74.862,
+     "end": 75.002,
+     "score": 0.887
+    },
+    {
+     "word": "months.",
+     "start": 75.042,
+     "end": 75.363,
+     "score": 0.86
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 75.823,
+   "end": 77.583,
+   "text": "And if you want to see how your brand appears,",
+   "words": [
+    {
+     "word": "And",
+     "start": 75.823,
+     "end": 76.003,
+     "score": 0.709
+    },
+    {
+     "word": "if",
+     "start": 76.103,
+     "end": 76.143,
+     "score": 1.0
+    },
+    {
+     "word": "you",
+     "start": 76.183,
+     "end": 76.263,
+     "score": 0.999
+    },
+    {
+     "word": "want",
+     "start": 76.303,
+     "end": 76.403,
+     "score": 0.878
+    },
+    {
+     "word": "to",
+     "start": 76.423,
+     "end": 76.483,
+     "score": 0.747
+    },
+    {
+     "word": "see",
+     "start": 76.503,
+     "end": 76.623,
+     "score": 0.672
+    },
+    {
+     "word": "how",
+     "start": 76.663,
+     "end": 76.723,
+     "score": 1.0
+    },
+    {
+     "word": "your",
+     "start": 76.763,
+     "end": 76.883,
+     "score": 0.884
+    },
+    {
+     "word": "brand",
+     "start": 76.903,
+     "end": 77.123,
+     "score": 0.927
+    },
+    {
+     "word": "appears,",
+     "start": 77.163,
+     "end": 77.583,
+     "score": 0.944
+    }
+   ],
+   "avg_logprob": -0.05648551117151211
+  },
+  {
+   "start": 78.03,
+   "end": 78.849,
+   "text": " you should go check it out.",
+   "words": [
+    {
+     "word": "you",
+     "start": 78.03,
+     "end": 78.091,
+     "score": 0.218
+    },
+    {
+     "word": "should",
+     "start": 78.112,
+     "end": 78.255,
+     "score": 0.988
+    },
+    {
+     "word": "go",
+     "start": 78.276,
+     "end": 78.358,
+     "score": 0.754
+    },
+    {
+     "word": "check",
+     "start": 78.398,
+     "end": 78.562,
+     "score": 0.847
+    },
+    {
+     "word": "it",
+     "start": 78.603,
+     "end": 78.665,
+     "score": 0.413
+    },
+    {
+     "word": "out.",
+     "start": 78.705,
+     "end": 78.849,
+     "score": 0.966
+    }
+   ],
+   "avg_logprob": -0.05428028106689453
+  },
+  {
+   "start": 78.951,
+   "end": 79.647,
+   "text": "The link's in our bio.",
+   "words": [
+    {
+     "word": "The",
+     "start": 78.951,
+     "end": 79.053,
+     "score": 0.208
+    },
+    {
+     "word": "link's",
+     "start": 79.094,
+     "end": 79.238,
+     "score": 0.653
+    },
+    {
+     "word": "in",
+     "start": 79.258,
+     "end": 79.34,
+     "score": 0.518
+    },
+    {
+     "word": "our",
+     "start": 79.36,
+     "end": 79.442,
+     "score": 0.246
+    },
+    {
+     "word": "bio.",
+     "start": 79.463,
+     "end": 79.647,
+     "score": 0.59
+    }
+   ],
+   "avg_logprob": -0.05428028106689453
+  }
+ ],
+ "word_segments": [
+  {
+   "word": "And",
+   "start": 0.031,
+   "end": 0.091,
+   "score": 0.0
+  },
+  {
+   "word": "that's",
+   "start": 0.111,
+   "end": 0.251,
+   "score": 0.576
+  },
+  {
+   "word": "what",
+   "start": 0.271,
+   "end": 0.411,
+   "score": 0.867
+  },
+  {
+   "word": "happened",
+   "start": 0.431,
+   "end": 0.591,
+   "score": 0.454
+  },
+  {
+   "word": "with",
+   "start": 0.611,
+   "end": 0.711,
+   "score": 0.214
+  },
+  {
+   "word": "that",
+   "start": 0.751,
+   "end": 0.891,
+   "score": 0.854
+  },
+  {
+   "word": "company,",
+   "start": 0.951,
+   "end": 1.232,
+   "score": 0.901
+  },
+  {
+   "word": "why",
+   "start": 1.252,
+   "end": 1.352,
+   "score": 0.996
+  },
+  {
+   "word": "they",
+   "start": 1.392,
+   "end": 1.532,
+   "score": 0.897
+  },
+  {
+   "word": "came",
+   "start": 1.552,
+   "end": 1.732,
+   "score": 0.892
+  },
+  {
+   "word": "back",
+   "start": 1.772,
+   "end": 1.952,
+   "score": 0.95
+  },
+  {
+   "word": "as",
+   "start": 2.012,
+   "end": 2.092,
+   "score": 0.477
+  },
+  {
+   "word": "a",
+   "start": 2.132,
+   "end": 2.172,
+   "score": 0.509
+  },
+  {
+   "word": "healthcare",
+   "start": 2.272,
+   "end": 2.692,
+   "score": 0.789
+  },
+  {
+   "word": "company.",
+   "start": 2.732,
+   "end": 3.113,
+   "score": 0.846
+  },
+  {
+   "word": "And",
+   "start": 3.493,
+   "end": 3.573,
+   "score": 0.941
+  },
+  {
+   "word": "not",
+   "start": 3.613,
+   "end": 3.753,
+   "score": 0.859
+  },
+  {
+   "word": "an",
+   "start": 3.793,
+   "end": 3.833,
+   "score": 0.813
+  },
+  {
+   "word": "accounting",
+   "start": 3.873,
+   "end": 4.213,
+   "score": 0.902
+  },
+  {
+   "word": "software",
+   "start": 4.233,
+   "end": 4.593,
+   "score": 0.775
+  },
+  {
+   "word": "company,",
+   "start": 4.633,
+   "end": 5.014,
+   "score": 0.92
+  },
+  {
+   "word": "yes.",
+   "start": 5.034,
+   "end": 5.234,
+   "score": 0.729
+  },
+  {
+   "word": "And",
+   "start": 5.514,
+   "end": 5.614,
+   "score": 0.758
+  },
+  {
+   "word": "that's",
+   "start": 5.634,
+   "end": 5.834,
+   "score": 0.909
+  },
+  {
+   "word": "one",
+   "start": 5.914,
+   "end": 5.994,
+   "score": 0.863
+  },
+  {
+   "word": "of",
+   "start": 6.014,
+   "end": 6.054,
+   "score": 0.931
+  },
+  {
+   "word": "the",
+   "start": 6.074,
+   "end": 6.154,
+   "score": 0.8
+  },
+  {
+   "word": "reasons",
+   "start": 6.194,
+   "end": 6.535,
+   "score": 0.819
+  },
+  {
+   "word": "why",
+   "start": 6.595,
+   "end": 6.835,
+   "score": 0.783
+  },
+  {
+   "word": "that",
+   "start": 7.015,
+   "end": 7.255,
+   "score": 0.902
+  },
+  {
+   "word": "company",
+   "start": 7.355,
+   "end": 7.695,
+   "score": 0.933
+  },
+  {
+   "word": "got",
+   "start": 7.735,
+   "end": 7.915,
+   "score": 0.884
+  },
+  {
+   "word": "called",
+   "start": 7.955,
+   "end": 8.255,
+   "score": 0.9
+  },
+  {
+   "word": "a",
+   "start": 8.275,
+   "end": 8.295,
+   "score": 0.0
+  },
+  {
+   "word": "healthcare",
+   "start": 8.656,
+   "end": 9.076,
+   "score": 0.819
+  },
+  {
+   "word": "company.",
+   "start": 9.136,
+   "end": 9.456,
+   "score": 0.863
+  },
+  {
+   "word": "Yeah,",
+   "start": 9.656,
+   "end": 9.896,
+   "score": 0.657
+  },
+  {
+   "word": "so",
+   "start": 9.936,
+   "end": 10.036,
+   "score": 0.477
+  },
+  {
+   "word": "they",
+   "start": 10.056,
+   "end": 10.196,
+   "score": 0.913
+  },
+  {
+   "word": "had",
+   "start": 10.236,
+   "end": 10.457,
+   "score": 0.907
+  },
+  {
+   "word": "a",
+   "start": 10.577,
+   "end": 10.637,
+   "score": 0.839
+  },
+  {
+   "word": "case",
+   "start": 10.697,
+   "end": 10.937,
+   "score": 0.725
+  },
+  {
+   "word": "study",
+   "start": 10.957,
+   "end": 11.357,
+   "score": 0.688
+  },
+  {
+   "word": "on",
+   "start": 11.957,
+   "end": 12.017,
+   "score": 0.83
+  },
+  {
+   "word": "their",
+   "start": 12.057,
+   "end": 12.178,
+   "score": 0.886
+  },
+  {
+   "word": "case",
+   "start": 12.198,
+   "end": 12.338,
+   "score": 0.495
+  },
+  {
+   "word": "studies",
+   "start": 12.358,
+   "end": 12.658,
+   "score": 0.755
+  },
+  {
+   "word": "page",
+   "start": 12.698,
+   "end": 13.178,
+   "score": 0.878
+  },
+  {
+   "word": "about",
+   "start": 13.398,
+   "end": 13.558,
+   "score": 0.99
+  },
+  {
+   "word": "a",
+   "start": 13.578,
+   "end": 13.598,
+   "score": 0.844
+  },
+  {
+   "word": "healthcare",
+   "start": 13.658,
+   "end": 14.059,
+   "score": 0.763
+  },
+  {
+   "word": "client",
+   "start": 14.079,
+   "end": 14.599,
+   "score": 0.84
+  },
+  {
+   "word": "and",
+   "start": 14.679,
+   "end": 14.759,
+   "score": 0.951
+  },
+  {
+   "word": "someone's",
+   "start": 14.799,
+   "end": 15.139,
+   "score": 0.792
+  },
+  {
+   "word": "LinkedIn",
+   "start": 15.259,
+   "end": 15.599,
+   "score": 0.765
+  },
+  {
+   "word": "bio",
+   "start": 15.639,
+   "end": 16.14,
+   "score": 0.881
+  },
+  {
+   "word": "showed",
+   "start": 16.24,
+   "end": 16.46,
+   "score": 0.762
+  },
+  {
+   "word": "like",
+   "start": 16.48,
+   "end": 16.62,
+   "score": 0.883
+  },
+  {
+   "word": "healthcare",
+   "start": 16.68,
+   "end": 17.1,
+   "score": 0.786
+  },
+  {
+   "word": "startup",
+   "start": 17.12,
+   "end": 17.4,
+   "score": 0.708
+  },
+  {
+   "word": "a",
+   "start": 17.42,
+   "end": 17.44,
+   "score": 0.982
+  },
+  {
+   "word": "couple",
+   "start": 17.5,
+   "end": 17.721,
+   "score": 0.886
+  },
+  {
+   "word": "years",
+   "start": 17.761,
+   "end": 18.001,
+   "score": 0.814
+  },
+  {
+   "word": "ago,",
+   "start": 18.081,
+   "end": 18.401,
+   "score": 0.904
+  },
+  {
+   "word": "and",
+   "start": 18.721,
+   "end": 18.801,
+   "score": 0.87
+  },
+  {
+   "word": "then",
+   "start": 18.841,
+   "end": 18.961,
+   "score": 0.887
+  },
+  {
+   "word": "they",
+   "start": 19.001,
+   "end": 19.141,
+   "score": 0.922
+  },
+  {
+   "word": "had",
+   "start": 19.161,
+   "end": 19.301,
+   "score": 0.7
+  },
+  {
+   "word": "some",
+   "start": 19.321,
+   "end": 19.441,
+   "score": 0.931
+  },
+  {
+   "word": "other",
+   "start": 19.481,
+   "end": 19.662,
+   "score": 0.869
+  },
+  {
+   "word": "directory",
+   "start": 19.722,
+   "end": 20.182,
+   "score": 0.894
+  },
+  {
+   "word": "listing",
+   "start": 20.242,
+   "end": 20.682,
+   "score": 0.804
+  },
+  {
+   "word": "for",
+   "start": 20.762,
+   "end": 20.882,
+   "score": 0.963
+  },
+  {
+   "word": "something",
+   "start": 20.942,
+   "end": 21.222,
+   "score": 0.974
+  },
+  {
+   "word": "healthcare",
+   "start": 21.262,
+   "end": 21.643,
+   "score": 0.798
+  },
+  {
+   "word": "related.",
+   "start": 21.683,
+   "end": 22.103,
+   "score": 0.98
+  },
+  {
+   "word": "So",
+   "start": 22.423,
+   "end": 22.563,
+   "score": 0.881
+  },
+  {
+   "word": "basically,",
+   "start": 22.583,
+   "end": 23.163,
+   "score": 0.94
+  },
+  {
+   "word": "even",
+   "start": 23.264,
+   "end": 23.424,
+   "score": 0.751
+  },
+  {
+   "word": "though",
+   "start": 23.464,
+   "end": 23.604,
+   "score": 0.917
+  },
+  {
+   "word": "they're",
+   "start": 23.624,
+   "end": 23.824,
+   "score": 0.773
+  },
+  {
+   "word": "not",
+   "start": 23.844,
+   "end": 23.984,
+   "score": 0.727
+  },
+  {
+   "word": "a",
+   "start": 24.004,
+   "end": 24.024,
+   "score": 0.957
+  },
+  {
+   "word": "health",
+   "start": 24.084,
+   "end": 24.284,
+   "score": 0.599
+  },
+  {
+   "word": "care",
+   "start": 24.324,
+   "end": 24.604,
+   "score": 0.739
+  },
+  {
+   "word": "company",
+   "start": 24.784,
+   "end": 25.125,
+   "score": 0.951
+  },
+  {
+   "word": "at",
+   "start": 25.325,
+   "end": 25.425,
+   "score": 0.983
+  },
+  {
+   "word": "all,",
+   "start": 25.545,
+   "end": 25.725,
+   "score": 0.893
+  },
+  {
+   "word": "because",
+   "start": 25.785,
+   "end": 26.105,
+   "score": 0.844
+  },
+  {
+   "word": "health",
+   "start": 26.265,
+   "end": 26.445,
+   "score": 0.506
+  },
+  {
+   "word": "care",
+   "start": 26.465,
+   "end": 26.646,
+   "score": 0.762
+  },
+  {
+   "word": "was",
+   "start": 26.666,
+   "end": 26.786,
+   "score": 0.841
+  },
+  {
+   "word": "mentioned",
+   "start": 26.826,
+   "end": 27.106,
+   "score": 0.788
+  },
+  {
+   "word": "a",
+   "start": 27.126,
+   "end": 27.146,
+   "score": 0.998
+  },
+  {
+   "word": "couple",
+   "start": 27.186,
+   "end": 27.426,
+   "score": 0.703
+  },
+  {
+   "word": "of",
+   "start": 27.446,
+   "end": 27.506,
+   "score": 0.75
+  },
+  {
+   "word": "times,",
+   "start": 27.546,
+   "end": 27.886,
+   "score": 0.921
+  },
+  {
+   "word": "but",
+   "start": 28.006,
+   "end": 28.227,
+   "score": 0.669
+  },
+  {
+   "word": "in",
+   "start": 28.767,
+   "end": 28.847,
+   "score": 0.962
+  },
+  {
+   "word": "a",
+   "start": 28.887,
+   "end": 28.927,
+   "score": 0.527
+  },
+  {
+   "word": "very",
+   "start": 28.967,
+   "end": 29.267,
+   "score": 0.851
+  },
+  {
+   "word": "fragmented",
+   "start": 29.387,
+   "end": 30.008,
+   "score": 0.85
+  },
+  {
+   "word": "and",
+   "start": 30.128,
+   "end": 30.228,
+   "score": 0.695
+  },
+  {
+   "word": "wrong",
+   "start": 30.248,
+   "end": 30.528,
+   "score": 0.698
+  },
+  {
+   "word": "way,",
+   "start": 30.568,
+   "end": 30.848,
+   "score": 0.93
+  },
+  {
+   "word": "AI",
+   "start": 31.228,
+   "end": 31.388,
+   "score": 0.364
+  },
+  {
+   "word": "did",
+   "start": 31.468,
+   "end": 31.629,
+   "score": 0.896
+  },
+  {
+   "word": "take",
+   "start": 31.669,
+   "end": 31.869,
+   "score": 0.789
+  },
+  {
+   "word": "that,",
+   "start": 31.909,
+   "end": 32.109,
+   "score": 0.668
+  },
+  {
+   "word": "hallucinate,",
+   "start": 32.149,
+   "end": 32.889,
+   "score": 0.818
+  },
+  {
+   "word": "and",
+   "start": 33.109,
+   "end": 33.249,
+   "score": 0.624
+  },
+  {
+   "word": "spit",
+   "start": 33.39,
+   "end": 33.59,
+   "score": 0.894
+  },
+  {
+   "word": "out",
+   "start": 33.61,
+   "end": 33.71,
+   "score": 0.685
+  },
+  {
+   "word": "the",
+   "start": 33.73,
+   "end": 33.79,
+   "score": 0.965
+  },
+  {
+   "word": "information",
+   "start": 33.83,
+   "end": 34.39,
+   "score": 0.942
+  },
+  {
+   "word": "that",
+   "start": 34.49,
+   "end": 34.63,
+   "score": 0.874
+  },
+  {
+   "word": "it",
+   "start": 34.65,
+   "end": 34.71,
+   "score": 0.532
+  },
+  {
+   "word": "wanted",
+   "start": 34.75,
+   "end": 35.011,
+   "score": 0.869
+  },
+  {
+   "word": "to.",
+   "start": 35.051,
+   "end": 35.231,
+   "score": 0.863
+  },
+  {
+   "word": "So",
+   "start": 35.611,
+   "end": 36.031,
+   "score": 0.78
+  },
+  {
+   "word": "the",
+   "start": 36.151,
+   "end": 36.231,
+   "score": 0.934
+  },
+  {
+   "word": "information",
+   "start": 36.271,
+   "end": 36.732,
+   "score": 0.968
+  },
+  {
+   "word": "is",
+   "start": 36.792,
+   "end": 36.872,
+   "score": 0.692
+  },
+  {
+   "word": "there,",
+   "start": 36.892,
+   "end": 37.132,
+   "score": 0.777
+  },
+  {
+   "word": "just",
+   "start": 37.192,
+   "end": 37.332,
+   "score": 0.99
+  },
+  {
+   "word": "the",
+   "start": 37.372,
+   "end": 37.452,
+   "score": 0.826
+  },
+  {
+   "word": "wrong",
+   "start": 37.492,
+   "end": 37.752,
+   "score": 0.709
+  },
+  {
+   "word": "ones.",
+   "start": 37.892,
+   "end": 38.072,
+   "score": 0.807
+  },
+  {
+   "word": "And",
+   "start": 38.413,
+   "end": 38.613,
+   "score": 0.735
+  },
+  {
+   "word": "while",
+   "start": 39.133,
+   "end": 39.313,
+   "score": 0.911
+  },
+  {
+   "word": "it",
+   "start": 39.353,
+   "end": 39.393,
+   "score": 0.884
+  },
+  {
+   "word": "did",
+   "start": 39.413,
+   "end": 39.513,
+   "score": 0.979
+  },
+  {
+   "word": "hallucinate,",
+   "start": 39.533,
+   "end": 40.074,
+   "score": 0.805
+  },
+  {
+   "word": "it",
+   "start": 40.174,
+   "end": 40.214,
+   "score": 0.974
+  },
+  {
+   "word": "did",
+   "start": 40.254,
+   "end": 40.394,
+   "score": 0.858
+  },
+  {
+   "word": "connect",
+   "start": 40.434,
+   "end": 40.714,
+   "score": 0.934
+  },
+  {
+   "word": "the",
+   "start": 40.734,
+   "end": 40.814,
+   "score": 0.865
+  },
+  {
+   "word": "dots.",
+   "start": 40.834,
+   "end": 41.154,
+   "score": 0.923
+  },
+  {
+   "word": "So",
+   "start": 41.875,
+   "end": 42.015,
+   "score": 0.738
+  },
+  {
+   "word": "it",
+   "start": 42.075,
+   "end": 42.155,
+   "score": 0.952
+  },
+  {
+   "word": "got",
+   "start": 42.175,
+   "end": 42.375,
+   "score": 0.981
+  },
+  {
+   "word": "it",
+   "start": 42.435,
+   "end": 42.515,
+   "score": 0.262
+  },
+  {
+   "word": "right,",
+   "start": 42.615,
+   "end": 42.975,
+   "score": 0.918
+  },
+  {
+   "word": "but",
+   "start": 43.035,
+   "end": 43.315,
+   "score": 0.891
+  },
+  {
+   "word": "it's",
+   "start": 43.556,
+   "end": 43.696,
+   "score": 0.812
+  },
+  {
+   "word": "not",
+   "start": 43.756,
+   "end": 43.896,
+   "score": 0.943
+  },
+  {
+   "word": "necessarily",
+   "start": 43.956,
+   "end": 44.576,
+   "score": 0.913
+  },
+  {
+   "word": "AI's",
+   "start": 44.716,
+   "end": 45.097,
+   "score": 0.67
+  },
+  {
+   "word": "fault.",
+   "start": 45.157,
+   "end": 45.417,
+   "score": 0.774
+  },
+  {
+   "word": "This",
+   "start": 45.437,
+   "end": 45.597,
+   "score": 0.826
+  },
+  {
+   "word": "is",
+   "start": 45.657,
+   "end": 46.377,
+   "score": 0.854
+  },
+  {
+   "word": "an",
+   "start": 46.397,
+   "end": 46.437,
+   "score": 0.004
+  },
+  {
+   "word": "information",
+   "start": 46.517,
+   "end": 47.058,
+   "score": 0.936
+  },
+  {
+   "word": "problem.",
+   "start": 47.098,
+   "end": 47.478,
+   "score": 0.889
+  },
+  {
+   "word": "Absolutely.",
+   "start": 47.837,
+   "end": 48.317,
+   "score": 0.895
+  },
+  {
+   "word": "This",
+   "start": 48.357,
+   "end": 48.477,
+   "score": 0.889
+  },
+  {
+   "word": "is",
+   "start": 48.537,
+   "end": 48.577,
+   "score": 0.997
+  },
+  {
+   "word": "not",
+   "start": 48.637,
+   "end": 48.757,
+   "score": 0.878
+  },
+  {
+   "word": "AI's",
+   "start": 48.837,
+   "end": 49.117,
+   "score": 0.463
+  },
+  {
+   "word": "fault.",
+   "start": 49.177,
+   "end": 49.517,
+   "score": 0.77
+  },
+  {
+   "word": "Everything",
+   "start": 49.637,
+   "end": 50.057,
+   "score": 0.84
+  },
+  {
+   "word": "that",
+   "start": 50.097,
+   "end": 50.278,
+   "score": 0.795
+  },
+  {
+   "word": "you're",
+   "start": 50.378,
+   "end": 50.598,
+   "score": 0.666
+  },
+  {
+   "word": "doing",
+   "start": 50.658,
+   "end": 51.098,
+   "score": 0.866
+  },
+  {
+   "word": "has",
+   "start": 51.358,
+   "end": 51.558,
+   "score": 0.921
+  },
+  {
+   "word": "like",
+   "start": 51.698,
+   "end": 51.838,
+   "score": 0.967
+  },
+  {
+   "word": "your",
+   "start": 51.858,
+   "end": 51.998,
+   "score": 0.752
+  },
+  {
+   "word": "company's",
+   "start": 52.038,
+   "end": 52.478,
+   "score": 0.883
+  },
+  {
+   "word": "information",
+   "start": 52.518,
+   "end": 53.098,
+   "score": 0.843
+  },
+  {
+   "word": "has",
+   "start": 53.158,
+   "end": 53.318,
+   "score": 0.895
+  },
+  {
+   "word": "to",
+   "start": 53.358,
+   "end": 53.418,
+   "score": 0.76
+  },
+  {
+   "word": "be",
+   "start": 53.458,
+   "end": 53.538,
+   "score": 0.969
+  },
+  {
+   "word": "aligned",
+   "start": 53.578,
+   "end": 53.898,
+   "score": 0.698
+  },
+  {
+   "word": "with",
+   "start": 53.918,
+   "end": 54.058,
+   "score": 0.781
+  },
+  {
+   "word": "what",
+   "start": 54.098,
+   "end": 54.238,
+   "score": 0.746
+  },
+  {
+   "word": "you",
+   "start": 54.258,
+   "end": 54.398,
+   "score": 0.792
+  },
+  {
+   "word": "want.",
+   "start": 54.438,
+   "end": 54.738,
+   "score": 0.879
+  },
+  {
+   "word": "And",
+   "start": 54.858,
+   "end": 54.958,
+   "score": 0.829
+  },
+  {
+   "word": "if",
+   "start": 54.998,
+   "end": 55.058,
+   "score": 0.94
+  },
+  {
+   "word": "you",
+   "start": 55.098,
+   "end": 55.239,
+   "score": 0.893
+  },
+  {
+   "word": "have",
+   "start": 55.279,
+   "end": 55.539,
+   "score": 0.903
+  },
+  {
+   "word": "all",
+   "start": 55.579,
+   "end": 55.739,
+   "score": 0.708
+  },
+  {
+   "word": "these",
+   "start": 55.779,
+   "end": 55.979,
+   "score": 0.684
+  },
+  {
+   "word": "sources",
+   "start": 56.199,
+   "end": 56.619,
+   "score": 0.792
+  },
+  {
+   "word": "that",
+   "start": 56.659,
+   "end": 56.779,
+   "score": 0.944
+  },
+  {
+   "word": "are",
+   "start": 56.819,
+   "end": 56.919,
+   "score": 0.697
+  },
+  {
+   "word": "contradicting",
+   "start": 56.959,
+   "end": 57.659,
+   "score": 0.908
+  },
+  {
+   "word": "or",
+   "start": 57.959,
+   "end": 58.039,
+   "score": 0.92
+  },
+  {
+   "word": "having",
+   "start": 58.099,
+   "end": 58.479,
+   "score": 0.764
+  },
+  {
+   "word": "false",
+   "start": 58.679,
+   "end": 58.939,
+   "score": 0.858
+  },
+  {
+   "word": "information",
+   "start": 58.999,
+   "end": 59.559,
+   "score": 0.894
+  },
+  {
+   "word": "or",
+   "start": 59.599,
+   "end": 59.659,
+   "score": 0.96
+  },
+  {
+   "word": "even",
+   "start": 59.699,
+   "end": 59.859,
+   "score": 0.823
+  },
+  {
+   "word": "vague",
+   "start": 59.899,
+   "end": 60.119,
+   "score": 0.809
+  },
+  {
+   "word": "information,",
+   "start": 60.139,
+   "end": 60.72,
+   "score": 0.881
+  },
+  {
+   "word": "AI",
+   "start": 61.2,
+   "end": 61.36,
+   "score": 0.754
+  },
+  {
+   "word": "will",
+   "start": 61.42,
+   "end": 61.6,
+   "score": 0.832
+  },
+  {
+   "word": "take",
+   "start": 61.64,
+   "end": 61.82,
+   "score": 0.825
+  },
+  {
+   "word": "that,",
+   "start": 61.88,
+   "end": 62.1,
+   "score": 0.93
+  },
+  {
+   "word": "connect",
+   "start": 62.16,
+   "end": 62.46,
+   "score": 0.914
+  },
+  {
+   "word": "the",
+   "start": 62.5,
+   "end": 62.58,
+   "score": 0.976
+  },
+  {
+   "word": "dots.",
+   "start": 62.62,
+   "end": 62.98,
+   "score": 0.925
+  },
+  {
+   "word": "And",
+   "start": 63.26,
+   "end": 63.4,
+   "score": 0.563
+  },
+  {
+   "word": "that's",
+   "start": 63.5,
+   "end": 63.68,
+   "score": 0.912
+  },
+  {
+   "word": "not",
+   "start": 63.72,
+   "end": 63.84,
+   "score": 0.767
+  },
+  {
+   "word": "its",
+   "start": 63.9,
+   "end": 64.0,
+   "score": 0.821
+  },
+  {
+   "word": "fault.",
+   "start": 64.02,
+   "end": 64.3,
+   "score": 0.83
+  },
+  {
+   "word": "Your",
+   "start": 64.76,
+   "end": 64.9,
+   "score": 0.627
+  },
+  {
+   "word": "information",
+   "start": 64.92,
+   "end": 65.341,
+   "score": 0.918
+  },
+  {
+   "word": "ecosystem",
+   "start": 65.381,
+   "end": 66.021,
+   "score": 0.813
+  },
+  {
+   "word": "is",
+   "start": 66.281,
+   "end": 66.361,
+   "score": 0.512
+  },
+  {
+   "word": "not",
+   "start": 66.401,
+   "end": 66.521,
+   "score": 0.8
+  },
+  {
+   "word": "good.",
+   "start": 66.541,
+   "end": 66.721,
+   "score": 0.921
+  },
+  {
+   "word": "Search",
+   "start": 66.961,
+   "end": 67.141,
+   "score": 0.897
+  },
+  {
+   "word": "didn't",
+   "start": 67.181,
+   "end": 67.421,
+   "score": 0.862
+  },
+  {
+   "word": "change.",
+   "start": 67.461,
+   "end": 67.841,
+   "score": 0.894
+  },
+  {
+   "word": "The",
+   "start": 68.081,
+   "end": 68.181,
+   "score": 0.848
+  },
+  {
+   "word": "question",
+   "start": 68.201,
+   "end": 68.541,
+   "score": 0.888
+  },
+  {
+   "word": "changed.",
+   "start": 68.581,
+   "end": 68.941,
+   "score": 0.768
+  },
+  {
+   "word": "And",
+   "start": 69.001,
+   "end": 69.081,
+   "score": 0.865
+  },
+  {
+   "word": "whoever",
+   "start": 69.121,
+   "end": 69.461,
+   "score": 0.83
+  },
+  {
+   "word": "understands",
+   "start": 69.781,
+   "end": 70.282,
+   "score": 0.852
+  },
+  {
+   "word": "best",
+   "start": 70.362,
+   "end": 70.642,
+   "score": 0.954
+  },
+  {
+   "word": "will",
+   "start": 70.882,
+   "end": 71.062,
+   "score": 0.81
+  },
+  {
+   "word": "get",
+   "start": 71.082,
+   "end": 71.222,
+   "score": 0.63
+  },
+  {
+   "word": "the",
+   "start": 71.262,
+   "end": 71.342,
+   "score": 0.898
+  },
+  {
+   "word": "answer.",
+   "start": 71.422,
+   "end": 71.762,
+   "score": 0.797
+  },
+  {
+   "word": "And",
+   "start": 72.162,
+   "end": 72.262,
+   "score": 0.861
+  },
+  {
+   "word": "that's",
+   "start": 72.322,
+   "end": 72.462,
+   "score": 0.861
+  },
+  {
+   "word": "why",
+   "start": 72.482,
+   "end": 72.582,
+   "score": 0.882
+  },
+  {
+   "word": "we've",
+   "start": 72.622,
+   "end": 72.762,
+   "score": 0.906
+  },
+  {
+   "word": "been",
+   "start": 72.802,
+   "end": 72.922,
+   "score": 0.87
+  },
+  {
+   "word": "building",
+   "start": 72.962,
+   "end": 73.362,
+   "score": 0.764
+  },
+  {
+   "word": "the",
+   "start": 73.482,
+   "end": 73.562,
+   "score": 0.901
+  },
+  {
+   "word": "Lucy",
+   "start": 73.622,
+   "end": 73.882,
+   "score": 0.765
+  },
+  {
+   "word": "visibility",
+   "start": 73.902,
+   "end": 74.442,
+   "score": 0.939
+  },
+  {
+   "word": "system",
+   "start": 74.482,
+   "end": 74.822,
+   "score": 0.807
+  },
+  {
+   "word": "for",
+   "start": 74.862,
+   "end": 75.002,
+   "score": 0.887
+  },
+  {
+   "word": "months.",
+   "start": 75.042,
+   "end": 75.363,
+   "score": 0.86
+  },
+  {
+   "word": "And",
+   "start": 75.823,
+   "end": 76.003,
+   "score": 0.709
+  },
+  {
+   "word": "if",
+   "start": 76.103,
+   "end": 76.143,
+   "score": 1.0
+  },
+  {
+   "word": "you",
+   "start": 76.183,
+   "end": 76.263,
+   "score": 0.999
+  },
+  {
+   "word": "want",
+   "start": 76.303,
+   "end": 76.403,
+   "score": 0.878
+  },
+  {
+   "word": "to",
+   "start": 76.423,
+   "end": 76.483,
+   "score": 0.747
+  },
+  {
+   "word": "see",
+   "start": 76.503,
+   "end": 76.623,
+   "score": 0.672
+  },
+  {
+   "word": "how",
+   "start": 76.663,
+   "end": 76.723,
+   "score": 1.0
+  },
+  {
+   "word": "your",
+   "start": 76.763,
+   "end": 76.883,
+   "score": 0.884
+  },
+  {
+   "word": "brand",
+   "start": 76.903,
+   "end": 77.123,
+   "score": 0.927
+  },
+  {
+   "word": "appears,",
+   "start": 77.163,
+   "end": 77.583,
+   "score": 0.944
+  },
+  {
+   "word": "you",
+   "start": 78.03,
+   "end": 78.091,
+   "score": 0.218
+  },
+  {
+   "word": "should",
+   "start": 78.112,
+   "end": 78.255,
+   "score": 0.988
+  },
+  {
+   "word": "go",
+   "start": 78.276,
+   "end": 78.358,
+   "score": 0.754
+  },
+  {
+   "word": "check",
+   "start": 78.398,
+   "end": 78.562,
+   "score": 0.847
+  },
+  {
+   "word": "it",
+   "start": 78.603,
+   "end": 78.665,
+   "score": 0.413
+  },
+  {
+   "word": "out.",
+   "start": 78.705,
+   "end": 78.849,
+   "score": 0.966
+  },
+  {
+   "word": "The",
+   "start": 78.951,
+   "end": 79.053,
+   "score": 0.208
+  },
+  {
+   "word": "link's",
+   "start": 79.094,
+   "end": 79.238,
+   "score": 0.653
+  },
+  {
+   "word": "in",
+   "start": 79.258,
+   "end": 79.34,
+   "score": 0.518
+  },
+  {
+   "word": "our",
+   "start": 79.36,
+   "end": 79.442,
+   "score": 0.246
+  },
+  {
+   "word": "bio.",
+   "start": 79.463,
+   "end": 79.647,
+   "score": 0.59
+  }
+ ]
+}

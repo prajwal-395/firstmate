@@ -126,13 +126,48 @@ def sequence_frame_paths(frame_dir: str) -> list[str]:
             if name.endswith(".png")]
 
 
+def _intent_reason(draw_intent: Optional[dict],
+                   placement: Optional[dict],
+                   held_values: dict) -> str:
+    """Whether the HELD Pan/Tilt draw where `draw_intent` says.
+
+    The stored value is judged by the PICTURE it produces, never
+    against another clip's number: a full-frame overlay at Tilt 0 and
+    a tight overlay at Tilt -870 draw in the same place, so the same
+    intent accepts both, while a stale-carriage -1700 is refused
+    however cleanly it reads back.
+
+    A `draw_intent` this cannot read is NOT silently skipped - a
+    verification that quietly declines to run is the gate that cannot
+    fail (AGENTS.md 10.4).  It is reported as unverified.
+    """
+    if not draw_intent:
+        return ""
+    from library.tools.tight_box import verify_ink_against_intent
+    try:
+        canvas_w, canvas_h = (float(v) for v in draw_intent["canvas"])
+        full_w, full_h = (int(v) for v in draw_intent["frame"])
+        ink = tuple(float(v) for v in draw_intent["ink_in_canvas"])
+        want = tuple(float(v) for v in draw_intent["intent_box"])
+    except (KeyError, TypeError, ValueError) as exc:
+        return (f"draw intent is unreadable ({exc}), so where this "
+                f"overlay draws was NOT verified")
+    held = dict(placement or {})
+    for prop, key in (("Pan", "pan"), ("Tilt", "tilt")):
+        if prop in held_values:
+            held[key] = held_values[prop]
+    return verify_ink_against_intent(canvas_w, canvas_h, held, ink, want,
+                                     full_w, full_h)
+
+
 def apply_placement_transform(timeline, track_index: int,
                               record_frame: int,
                               placement: Optional[dict],
                               label: str = "",
                               kind: Optional[str] = None,
                               segment_id: Optional[str] = None,
-                              intent: Optional[dict] = None) -> str:
+                              intent: Optional[dict] = None,
+                              draw_intent: Optional[dict] = None) -> str:
     """Move an already-placed overlay clip onto its tight box.
 
     `placement` is None for a full-canvas clip (nothing to do), else
@@ -151,6 +186,18 @@ def apply_placement_transform(timeline, track_index: int,
     reel explainer/semantic-visual placer in `reel_build` used to do
     this lookup separately, and two lookups for "the item just placed"
     are two chances to transform a neighbour.
+
+    `draw_intent`, where the caller can say what the overlay is FOR,
+    is checked last and is the only check that is not circular:
+    `{"canvas": (w, h), "ink_in_canvas": (x0, y0, x1, y1),
+    "intent_box": (x0, y0, x1, y1), "frame": (w, h)}`, all in pixels.
+    The HELD Pan/Tilt are turned back into the picture they draw
+    (`tight_box.verify_ink_against_intent`) and compared with that
+    box.  A read-back alone cannot see a value computed under a
+    superseded draw relation - it reads back exactly what was set -
+    which is how Reel 28 shipped 18 captions stored at Tilt -1700
+    that draw 415px below the frame while every gate passed.  An
+    overlay WITHOUT `draw_intent` behaves exactly as before.
     """
     from library.tools.overlay_intent import resolve as resolve_intent
 
@@ -225,12 +272,19 @@ def apply_placement_transform(timeline, track_index: int,
                     continue
         except Exception:  # noqa: BLE001 - read back off placed_item
             reader = placed_item
+        held_values = {}
         for prop, value in pending:
             held = _read_back(reader, prop)
-            if held is not None and abs(held - value) > READBACK_TOLERANCE:
+            if held is None:
+                continue
+            held_values[prop] = held
+            if abs(held - value) > READBACK_TOLERANCE:
                 refused.append(
                     f"{prop}={value} (Resolve holds {held:g} - "
                     f"clamped, the overlay is not where the box says)")
+        reason = _intent_reason(draw_intent, placement, held_values)
+        if reason:
+            refused.append(reason)
     if refused:
         return (f"{name}: placed, but Resolve refused "
                 f"{', '.join(refused)}")
@@ -246,7 +300,9 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           label: str = "",
                           kind: Optional[str] = None,
                           segment_id: Optional[str] = None,
-                          intent: Optional[dict] = None) -> tuple[bool, str]:
+                          intent: Optional[dict] = None,
+                          draw_intent: Optional[dict] = None,
+                          ) -> tuple[bool, str]:
     """Place one overlay clip and, where asked, transform it.
 
     `placement` is None for a full-canvas clip, else the
@@ -274,4 +330,5 @@ def place_overlay_segment(media_pool, timeline, pool_item,
 
     return True, apply_placement_transform(
         timeline, track_index, record_frame, placement, label,
-        kind=kind, segment_id=segment_id, intent=intent)
+        kind=kind, segment_id=segment_id, intent=intent,
+        draw_intent=draw_intent)

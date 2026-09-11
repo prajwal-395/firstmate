@@ -309,6 +309,112 @@ def placement_for_box(canvas_w: float, canvas_h: float,
     }
 
 
+#: How far the ink of a correctly placed overlay may sit from the
+#: position intent names, in DELIVERY-FRAME pixels.
+#:
+#: Measured 2026-09-11 on Reel 13, whose 27 caption overlays are the
+#: only set on this project verified correct against an exported still:
+#: their ink bottoms land 1572..1594 against a nominal caption row of
+#: 1589 (1920 - the 320 safe-area bottom inset - `CAPTION_LIFT_PX`), a
+#: spread of 22px, because the shadow reach and each card's own
+#: rounding move the ink a few pixels per card.  24 clears that spread
+#: and nothing else: the defect this exists to catch misses by
+#: HUNDREDS (Reel 28's stale-carriage captions draw 407..422px below
+#: the frame), so the band never has to be argued about.
+INTENT_TOLERANCE_PX = 24.0
+
+
+def canvas_screen_origin(canvas_w: float, canvas_h: float,
+                         placement: dict | None,
+                         full_w: int, full_h: int) -> tuple:
+    """Where a STORED Pan/Tilt actually puts a canvas, in frame pixels.
+
+    The strict inverse of `placement_for_box`, and the reason it
+    exists: a stored Pan/Tilt means nothing on its own.  Pan/Tilt move
+    a clip by a fraction of its OWN canvas, not of the frame - the
+    shift is `value * (canvas_dim / frame_dim) * G` - so an overlay
+    already rendered full-frame is in position at 0 while the same
+    caption on a 480-tall tight canvas needs Tilt -870 to reach the
+    same screen row.  Both are honest; the Inspector number is only
+    readable with the clip's own resolution beside it.
+
+    `placement` None is a full-canvas clip: no transform, so the
+    canvas sits centred at native pixels, which for a full-frame
+    canvas is the frame itself.
+
+    Returns `(x0, y0)`, the canvas's top-left in frame coordinates.
+    """
+    gain = draw_gain(full_w, full_h)
+    pan = float((placement or {}).get("pan") or 0.0)
+    tilt = float((placement or {}).get("tilt") or 0.0)
+    shift_x = pan * (canvas_w / float(full_w)) * gain
+    shift_y = -tilt * (canvas_h / float(full_h)) * gain
+    return (full_w / 2.0 - canvas_w / 2.0 + shift_x,
+            full_h / 2.0 - canvas_h / 2.0 + shift_y)
+
+
+def ink_screen_box(canvas_w: float, canvas_h: float,
+                   placement: dict | None,
+                   ink_in_canvas: tuple,
+                   full_w: int, full_h: int) -> tuple:
+    """Where an artefact's own ink lands on screen, in frame pixels.
+
+    `ink_in_canvas` is `(x0, y0, x1, y1)` in the artefact's OWN pixels
+    - what `ink_union_of_frames` measures, or `(0, 0, w, h)` for an
+    artefact whose whole canvas is the subject.
+
+    This is the one quantity two overlays of DIFFERENT carriage can be
+    compared on.  A full-frame artefact at Pan/Tilt 0 returns its ink
+    unchanged; a tight artefact returns its ink translated by
+    `canvas_screen_origin`.  Comparing the two clips' STORED numbers
+    instead is meaningless, which is the mistake this replaces.
+    """
+    ox, oy = canvas_screen_origin(canvas_w, canvas_h, placement,
+                                  full_w, full_h)
+    x0, y0, x1, y1 = (float(v) for v in ink_in_canvas)
+    return (ox + x0, oy + y0, ox + x1, oy + y1)
+
+
+def verify_ink_against_intent(canvas_w: float, canvas_h: float,
+                              placement: dict | None,
+                              ink_in_canvas: tuple,
+                              intent_box: tuple,
+                              full_w: int, full_h: int,
+                              tolerance_px: float = INTENT_TOLERANCE_PX,
+                              ) -> str:
+    """Whether a stored placement DRAWS where intent says, as a reason.
+
+    `intent_box` is `(x0, y0, x1, y1)` in delivery-frame pixels: where
+    this artefact's ink is meant to land.  Returns `""` when it does,
+    else the reason, naming the error in FRAME PIXELS.
+
+    A read-back judges "did Resolve hold the number I set", which is
+    true of a number computed under a superseded relation just as it
+    is of a correct one - Reel 28's captions stored Tilt -1700 from
+    the pre-2026-09-11 single-gain arithmetic, read back -1700, were
+    reported placed, and draw 415px below the frame.  This judges the
+    PICTURE the stored value produces against what the overlay was
+    for, so a stale carriage is refused and a mixed one is not: a
+    full-frame overlay at 0 and a tight overlay at -870 both verify
+    against the same intent, because they draw in the same place.
+    """
+    got = ink_screen_box(canvas_w, canvas_h, placement, ink_in_canvas,
+                         full_w, full_h)
+    want = tuple(float(v) for v in intent_box)
+    dx = ((got[0] + got[2]) - (want[0] + want[2])) / 2.0
+    dy = ((got[1] + got[3]) - (want[1] + want[3])) / 2.0
+    if abs(dx) <= tolerance_px and abs(dy) <= tolerance_px:
+        return ""
+    off_frame = (got[1] >= full_h or got[3] <= 0
+                 or got[0] >= full_w or got[2] <= 0)
+    return (f"draws at ({got[0]:.0f},{got[1]:.0f})-({got[2]:.0f},"
+            f"{got[3]:.0f}) but intent is ({want[0]:.0f},{want[1]:.0f})-"
+            f"({want[2]:.0f},{want[3]:.0f}): off by {dx:+.0f},{dy:+.0f}px "
+            f"on a {full_w}x{full_h} frame from a {canvas_w:.0f}x"
+            f"{canvas_h:.0f} canvas"
+            + (" - ENTIRELY OUTSIDE THE FRAME" if off_frame else ""))
+
+
 def tighten_subtitle_props(props: dict,
                            project_folder: str = "") -> TightBox | None:
     """The tight canvas for one segment's full-canvas props, or None.
