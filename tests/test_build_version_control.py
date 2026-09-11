@@ -258,17 +258,40 @@ def test_reel_promotion_without_names_declines(tmp_path):
     assert "no promoted timelines" in report["reason"]
 
 
-def test_reel_promotion_on_wrong_project_records_and_never_raises(
+def test_reel_promotion_commits_the_declarations_when_the_snapshot_fails(
         tmp_path, monkeypatch):
+    """A snapshot the build could not take must NOT swallow the commit.
+
+    Measured 2026-09-11 on the captain's project: the snapshot half
+    returned early on any Resolve trouble - closed, busy, another
+    project open - and the declarations, run state and step outputs
+    already on disk went uncommitted with it. A declaration nothing in
+    git remembers is one that goes missing the next time somebody edits
+    the file, which is the failure this whole store exists to stop.
+    """
     bvc.init_project_repo(str(tmp_path))
+    (tmp_path / "external").mkdir()
+    (tmp_path / "external" / "reel_ending.json").write_text(
+        '{"version": 1, "endings": []}', encoding="utf-8")
     project = _promotion_project(name="Something else")
     monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
                         _FakeDvr(_FakeResolve(project)))
+
     report = bvc.record_reel_promotion(
         str(tmp_path), "Podcast (field test)", ["Reel 28"])
-    assert report["committed"] is False
-    assert "Something else" in report["reason"]
+
+    assert report["committed"] is True
     assert report["snapshots"] == []
+    # The failure is NAMED rather than dropped, in the report and in
+    # the commit message - so a reader of the log can tell which
+    # commits have no timeline snapshot behind them.
+    assert "Something else" in report["snapshot_failed"]
+    assert "snapshot failed" in report["reason"]
+    log = subprocess.run(["git", "log", "-1", "--format=%B"],
+                         cwd=str(tmp_path), capture_output=True,
+                         text=True, encoding="utf-8", check=False)
+    assert "NO TIMELINE SNAPSHOT" in log.stdout
+    assert "external/reel_ending.json" in report["files"]
 
 
 def test_reel_promotion_snapshots_each_timeline_then_commits(

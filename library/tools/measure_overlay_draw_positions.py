@@ -21,13 +21,19 @@ if os.environ.get("REPO"):
 elif str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 from library.tools.safe_area import safe_area_for_frame
-from library.tools.subtitle_style import CAPTION_LIFT_PX
+from library.tools.subtitle_style import (
+    CAPTION_LIFT_PX, caption_row_px, project_caption_row)
 from library.tools.tight_box import draw_gain
 
 import numpy as np
 from PIL import Image
 
 CAP, DIRS, OUT = sys.argv[1], sys.argv[2].split(","), sys.argv[3]
+#: Optional 4th argument: the PROJECT whose caption row these overlays
+#: were rendered to. Without it this grades against the engine's own
+#: row, which is the wrong ruler for any project that declares one -
+#: it would report every correctly placed caption as 220px out.
+PROJECT = sys.argv[4] if len(sys.argv) > 4 else None
 
 d = json.load(open(CAP))
 TW = int(d["timeline_settings"]["timelineResolutionWidth"])
@@ -38,8 +44,20 @@ TH = int(d["timeline_settings"]["timelineResolutionHeight"])
 GAIN = draw_gain(TW, TH)
 # The caption row the engine intends: frame bottom, minus the safe-area
 # bottom inset for this frame size, lifted by CAPTION_LIFT_PX.
-# On 1080x1920 that is 1920 - 320 - 11 = 1589.
+# On 1080x1920 that is 1920 - 320 - 1 = 1599.
+#
+# A project may DECLARE its own row instead
+# (`subtitle_style.project_caption_row`), and then that is the ruler:
+# the captain names a place on the delivered frame and every carriage
+# computes its transform from it, so grading against the engine's row
+# would measure the declaration rather than the placement.
 INTENT_BOTTOM = TH - safe_area_for_frame(TW, TH).bottom - CAPTION_LIFT_PX
+INTENT_SOURCE = "engine"
+if PROJECT:
+    declared_row = project_caption_row(PROJECT)
+    if declared_row is not None:
+        INTENT_BOTTOM = caption_row_px(declared_row, TH)
+        INTENT_SOURCE = f"project ({declared_row})"
 
 def find(name):
     for root in DIRS:
@@ -98,6 +116,7 @@ for t in d["tracks"]:
         rows.append(r)
 
 json.dump({"timeline": d["timeline"], "frame": [TW, TH], "draw_gain": GAIN,
-           "intent_caption_bottom": INTENT_BOTTOM, "overlays": rows},
+           "intent_caption_bottom": INTENT_BOTTOM,
+           "intent_row_source": INTENT_SOURCE, "overlays": rows},
           open(OUT, "w", encoding="utf-8"), indent=2)
 print("wrote", OUT, "rows", len(rows))

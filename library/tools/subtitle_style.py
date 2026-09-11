@@ -124,18 +124,55 @@ VALID_POSITIONS = ("bottom", "center", "top")
 #: 2026-09-11; the index now names the constant and the superseded
 #: headline is kept verbatim on the next line, which is where it lives:
 #: Captions sit 11px above the safe-area bottom inset (`CAPTION_LIFT_PX`).
+#:
+#: AGENTS.md 10.2's headline moved here on 2026-09-11, when a project
+#: gained the right to DECLARE its own caption row and the index line
+#: stopped being true on its own. The engine's rule is unchanged where
+#: no project declares one, so it is kept verbatim:
+#: Captions sit `CAPTION_LIFT_PX` above the safe-area bottom inset.
 CAPTION_LIFT_PX = 1
 
+#: What a project declares to put its caption row somewhere else, as a
+#: FRACTION of the delivery frame's height measured from the top. A
+#: place on the delivered picture, not a stored transform: a full-frame
+#: caption and a 480-tall tight one need different Pan/Tilt numbers for
+#: the same row, and every value downstream is COMPUTED from this one.
+CAPTION_ROW_KEY = "caption_row"
 
-def _lifted_props(safe_area: SafeAreaInsets) -> Dict[str, int]:
+#: What `pipeline.subtitle_position` may declare. Complete, and checked
+#: on read, for the reason `TYPOGRAPHY_KEYS` is.
+POSITION_KEYS = (CAPTION_ROW_KEY, "reason")
+
+
+def caption_row_px(row: float, frame_h: int) -> int:
+    """A declared caption row as a pixel row of the delivery frame."""
+    return int(round(float(row) * int(frame_h)))
+
+
+def _lifted_props(safe_area: SafeAreaInsets,
+                  row_px: Optional[int] = None,
+                  frame_h: Optional[int] = None) -> Dict[str, int]:
     """The safe-area props captions render from, with the row lifted.
 
     Only the bottom inset moves, and only here: the profile in
     `safe_area.py` stays the platform's own numbers, `captionMaxWidth`
     is derived from the unlifted left/right, and motion graphics read
     the profile directly, so no other layer follows the captions up.
+
+    `row_px` is a project's DECLARED caption row
+    (`project_caption_row`), and where one is declared it replaces the
+    lift rather than adding to it: the project is naming the row, so
+    the engine's own lift is not a second opinion to stack on top.
+    The inset is the distance from the frame's bottom edge to that row,
+    which is what the overlay positions against - so one declared place
+    moves the render, and the tight-box placement follows it because
+    that placement is read off the render's own ink rather than
+    computed beside it.
     """
     props = safe_area.as_props()
+    if row_px is not None and frame_h:
+        props["bottom"] = max(int(frame_h) - int(row_px), 0)
+        return props
     props["bottom"] = props["bottom"] + CAPTION_LIFT_PX
     return props
 
@@ -193,6 +230,8 @@ class SubtitleStyle:
         typography: Optional[Dict[str, Any]] = None,
         color_palette: Optional[List[str]] = None,
         safe_area: Optional[SafeAreaInsets] = None,
+        caption_row_px: Optional[int] = None,
+        frame_h: Optional[int] = None,
     ) -> Dict[str, Any]:
         """The concrete props `SubtitleOverlay` reads.
 
@@ -236,7 +275,7 @@ class SubtitleStyle:
             # position against whichever edge `position` names - with
             # the caption row lifted by CAPTION_LIFT_PX above the
             # bottom inset. See that constant for the measurement.
-            "safeArea": _lifted_props(safe_area),
+            "safeArea": _lifted_props(safe_area, caption_row_px, frame_h),
             # A caption box is CENTRED, so it runs into the nearer edge
             # first and can only be twice that distance wide.
             "captionMaxWidth": safe_area.centered_usable_width,
@@ -361,6 +400,73 @@ def project_subtitle_typography(
     return declared
 
 
+def project_caption_row(project_folder: Optional[str]) -> Optional[float]:
+    """`pipeline.subtitle_position.caption_row` off a project.yaml, or None.
+
+    The captain's ruling of 2026-09-11, after looking at Reel 28:
+    *"all of the subtitles were positioned at y=-870 but the subtitles
+    were not in the right place, and in actuality positioning them
+    closer to y=-420 is around where the subtitles should actually
+    be."*
+
+    Measured, that is not a stored-number complaint.  The engine's own
+    row (`safe_area` bottom inset lifted by `CAPTION_LIFT_PX`, 1599 on
+    a 1080x1920 frame) is where exactly ONE reel in the field test
+    draws - the only one rebuilt since that row took its current value
+    - and the other four sit together 220px above it.  The row is a
+    per-series look, so it belongs to the PROJECT (AGENTS.md 14), and
+    the engine keeps stating none.
+
+    Declared as a FRACTION of the delivery frame from the top, so it
+    survives a change of delivery format, and every stored transform
+    downstream is computed from it.  None means the project declares
+    none and the engine's own row applies exactly as before.
+
+    A malformed declaration RAISES, the same reasoning
+    `project_subtitle_typography` states: a caption position silently
+    dropped is a caption the editor believes shipped.
+    """
+    from library.tools.brand_registry import project_pipeline_block
+
+    block = project_pipeline_block(project_folder)
+    if "subtitle_position" not in block:
+        return None
+    declared = block.get("subtitle_position")
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        raise TypeError(
+            f"pipeline.subtitle_position in {project_folder}/project.yaml "
+            f"must be a mapping carrying {CAPTION_ROW_KEY!r}, got "
+            f"{type(declared).__name__}: {declared!r}")
+    unknown = sorted(set(declared) - set(POSITION_KEYS))
+    if unknown:
+        raise ValueError(
+            f"pipeline.subtitle_position in {project_folder}/project.yaml "
+            f"declares {unknown}, which nothing reads. It takes "
+            f"{list(POSITION_KEYS)}.")
+    if CAPTION_ROW_KEY not in declared:
+        raise ValueError(
+            f"pipeline.subtitle_position in {project_folder}/project.yaml "
+            f"names no {CAPTION_ROW_KEY!r}. A position block that states "
+            f"no row moves nothing, which reads as a declaration that "
+            f"was honoured.")
+    try:
+        row = float(declared[CAPTION_ROW_KEY])
+    except (TypeError, ValueError) as bad:
+        raise TypeError(
+            f"pipeline.subtitle_position.{CAPTION_ROW_KEY} in "
+            f"{project_folder}/project.yaml must be a number, got "
+            f"{declared[CAPTION_ROW_KEY]!r}") from bad
+    if not 0.0 < row < 1.0:
+        raise ValueError(
+            f"pipeline.subtitle_position.{CAPTION_ROW_KEY} is {row}: it "
+            f"is a FRACTION of the delivery frame measured from the top, "
+            f"so it lies strictly between 0 and 1. A pixel row would put "
+            f"the captions off the frame.")
+    return row
+
+
 def project_speaker_styles(
         project_folder: Optional[str]) -> Optional[Dict[str, Dict[str, Any]]]:
     """`pipeline.speaker_subtitle_styles` off a project.yaml, or None.
@@ -446,10 +552,23 @@ def resolve_subtitle_style(
     style = get_subtitle_style(name)
     typography = dict(brand_style.get("typography") or {})
     typography.update(project_subtitle_typography(project_folder) or {})
+    # The project's DECLARED caption row, if it names one. Resolved
+    # here, where the delivery format already is, so one place on the
+    # frame reaches the render and every stored transform downstream
+    # is computed from it rather than typed beside it.
+    from library.tools.delivery_format import (
+        delivery_format_name, resolve_format_name)
+
+    _frame_w, frame_h = resolve_format_name(
+        delivery_format_name(project_folder))
+    declared_row = project_caption_row(project_folder)
     resolved = style.resolve(
         typography=typography or None,
         color_palette=brand_style.get("color_palette"),
         safe_area=resolve_safe_area(project_folder),
+        caption_row_px=(None if declared_row is None
+                        else caption_row_px(declared_row, frame_h)),
+        frame_h=frame_h,
     )
     # Last, over everything: the project's per-speaker look. Applied
     # after the brand so a speaker's declared accent wins, and checked

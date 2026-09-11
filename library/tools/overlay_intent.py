@@ -151,6 +151,55 @@ def load_intent(project_folder=None,
     return parse_intent(body, source=path)
 
 
+#: How far a declared pin may sit from the computation before the
+#: disagreement is REPORTED, in stored Pan/Tilt units.
+#:
+#: Not a veto and not a tolerance on correctness - a pin exists to
+#: disagree, and it still wins. This is the threshold past which it may
+#: not win in SILENCE. One unit is half a delivery pixel on a 480-tall
+#: tight canvas under the measured 2x gain, so 8 units is ~4px: below
+#: that the two answers are the same place and saying so is noise.
+INTENT_DISAGREEMENT_UNITS = 8.0
+
+
+def disagreement(placement: Optional[dict],
+                 computed: Optional[dict],
+                 key: str = "") -> str:
+    """Why a declared placement differs from the computed one, or "".
+
+    The defect this closes, 2026-09-11: nineteen caption pins recorded
+    during one rebuild encoded a position that a later fix superseded.
+    They outranked the computation by design and said nothing, so the
+    only way to discover that a pin had gone stale was to look at the
+    picture and disbelieve it. Measured on this project they turned out
+    to be inert as well - no current caption id matched them - which is
+    the other half of the same silence: a pin that matches NOTHING is
+    as quiet as one that matches wrongly.
+
+    A pin may still win. It may not win without saying what it
+    overruled.
+    """
+    if not placement or not computed:
+        return ""
+    parts = []
+    for name in ("pan", "tilt", "scaling"):
+        try:
+            declared, derived = float(placement[name]), float(computed[name])
+        except (KeyError, TypeError, ValueError):
+            continue
+        gap = declared - derived
+        if abs(gap) >= INTENT_DISAGREEMENT_UNITS:
+            parts.append(f"{name} {declared:g} declared vs {derived:g} "
+                         f"computed ({gap:+g})")
+    if not parts:
+        return ""
+    return (f"declared intent{f' {key!r}' if key else ''} OVERRULES the "
+            f"computation: {'; '.join(parts)}. The pin wins - that is "
+            f"what a pin is for - but a pin recorded from a state a "
+            f"later fix superseded looks exactly like this, so check it "
+            f"is still the position you want.")
+
+
 def resolve(kind: Optional[str], segment_id: Optional[str],
             computed: Optional[dict],
             intent: Optional[dict]) -> Tuple[Optional[dict], str]:
@@ -162,6 +211,10 @@ def resolve(kind: Optional[str], segment_id: Optional[str],
     provenance is `"declared"` or `"computed"` - the placer records
     which won, so a timeline can later say why each graphic sits
     where it does.
+
+    A declared placement that materially disagrees with the
+    computation is REPORTED to stderr by `disagreement` on the way
+    past. It still wins; it no longer wins quietly.
     """
     targets = intent or {}
     key = None
@@ -171,7 +224,29 @@ def resolve(kind: Optional[str], segment_id: Optional[str],
         key = kind
     if key is not None:
         placement = dict(targets[key])
+        note = disagreement(placement, computed, key)
+        if note:
+            import sys
+            print(f"  {note}", file=sys.stderr, flush=True)
         return placement, "declared"
     if computed is None:
         return None, "computed"
     return dict(computed), "computed"
+
+
+def unmatched(intent: Optional[dict], seen_ids) -> list:
+    """Declared target keys that matched NO overlay on this build.
+
+    A pin nobody matched is not honoured and not refused - it simply
+    does nothing, and does it silently. Nineteen of them sat in this
+    project's `overlay_intent.json` encoding a superseded caption
+    position while every caption on every reel was placed by the
+    computation; nothing said the file had stopped applying.
+
+    `CAPTION_KIND` is excluded: a kind default that matched nothing on
+    one reel is not stale, it just had no caption to place there.
+    """
+    targets = intent or {}
+    seen = set(seen_ids or ())
+    return sorted(key for key in targets
+                  if key != CAPTION_KIND and key not in seen)

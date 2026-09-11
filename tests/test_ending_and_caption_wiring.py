@@ -88,13 +88,22 @@ def test_the_declared_ending_reaches_the_fusion_pass():
         __import__("library.tools.reel_look", fromlist=["x"])
         .fusion_manifest)
     assert "ending=ending" in source
-    body = SOURCE[SOURCE.index("def rebuild_reels_in_project"):]
-    manifest_at = body.index("_look.fusion_manifest(")
-    window = body[manifest_at:manifest_at + 1200]
-    assert "ending=" in window
+    # Read off the CALL, not off a window of characters after it: a
+    # window measures how much comment sits between the call and its
+    # keyword, which is not the thing being checked and moved this
+    # test from passing to failing on a comment edit (2026-09-11).
+    manifest = next(
+        call for call in ast.walk(_function("rebuild_reels_in_project"))
+        if isinstance(call, ast.Call)
+        and ast.unparse(call.func).endswith("fusion_manifest"))
+    assert "ending" in {kw.arg for kw in manifest.keywords}, (
+        "the fusion pass is no longer handed the reel's ending, so the "
+        "tail element is back to whichever clip sorts last")
     # And the declared FREEZE joins the manifest's picture, or the tail
     # element arms on the live tail the hold was moved off.
-    assert "_with_freeze(" in window
+    assert any(isinstance(inner, ast.Call)
+               and ast.unparse(inner.func).endswith("_with_freeze")
+               for inner in ast.walk(manifest))
 
 
 def test_the_tail_element_decides_what_draws_over_the_tail():

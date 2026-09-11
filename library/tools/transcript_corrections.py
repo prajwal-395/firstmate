@@ -57,7 +57,27 @@ the build cannot honour (the whole body gone) skips the reel with
 the reason rather than building an empty timeline, and the no-split
 rule holds at both layers: one reel in, one reel out, fewer seconds.
 
-`tests/test_transcript_corrections.py`.
+And its INVERSE, a third shape
+------------------------------
+A keep exclusion says seconds stay OUT.  Nothing said seconds stay IN,
+and on 2026-09-11 the captain needed exactly that, at frame 270 of
+Reel 01: *"this cut here on craig is a little jarring and does't
+actually make sense, it's better to just not cut out those few words
+inbetween"*.  What he was looking at was the take cutter's work, not a
+boundary: Craig's rhetorical *"geo geo geo"* measured as a repeated
+take at 0.667 similarity, and four words - "got to get into" - were
+removed from the middle of one sentence.
+
+A keep INSISTENCE (`record_keep_insistence`) records those seconds, and
+it is enforced at the BUILD only: `reel_build.reel_ranges` withdraws
+any take cut overlapping them and SAYS which insistence did it.  It
+routes to `build_reels` rather than `select_reels` for the same reason
+- an exclusion moves a window selection draws, an insistence withdraws
+a cut only the builder makes.  Neither changes what the scan MEASURED;
+the scan still reports what it saw.
+
+`tests/test_transcript_corrections.py`,
+`tests/test_keep_insistence.py`.
 """
 
 from __future__ import annotations
@@ -68,6 +88,7 @@ from library.tools import learned_context
 
 SPELLING = "transcript_spelling"
 KEEP_EXCLUSION = "keep_exclusion"
+KEEP_INSISTENCE = "keep_insistence"
 
 #: Steps whose model-authored copy must spell it right. Transcript
 #: corrections route `read_by: ["*"]` - every planning step - because a
@@ -76,6 +97,13 @@ KEEP_EXCLUSION = "keep_exclusion"
 #: step that draws the boundaries they move.
 SPELLING_READERS = [learned_context.GLOBAL]
 KEEP_READERS = ["select_reels"]
+
+#: A keep INSISTENCE is a build-time answer to a build-time measurement
+#: - the take cutter's, which selection does not run - so it routes to
+#: the step that builds rather than the step that draws windows. An
+#: exclusion moves a boundary and is selection's business; an
+#: insistence withdraws a cut and is the builder's.
+INSIST_READERS = ["build_reels"]
 
 _APPLIED_KEY = "transcript_corrections_applied"
 
@@ -130,6 +158,49 @@ def record_keep_exclusion(project_folder: str, start: float, end: float,
         detail=reason.strip())
 
 
+def record_keep_insistence(project_folder: str, start: float, end: float,
+                           reason: str) -> dict:
+    """Timeline seconds the captain says STAY IN: no take cut may drop them.
+
+    The exclusion's inverse, and the captain asked for it in those
+    words on 2026-09-11, at frame 270 of Reel 01: *"this cut here on
+    craig is a little jarring and does't actually make sense, it's
+    better to just not cut out those few words inbetween"*.
+
+    The cut he was looking at came from `reel_build.redundant_takes`,
+    which measured Craig's rhetorical *"geo geo geo"* as a repeated
+    take and removed the four words before it - "got to get into" -
+    out of the middle of one sentence.  Nothing in the vocabulary
+    could say "leave that alone": a keep EXCLUSION removes seconds and
+    there was no shape that keeps them.
+
+    So this is the same store, a third shape, enforced where the cut is
+    made rather than where windows are drawn.  It is deliberately NOT a
+    change to the cutter's own measurement: the scan still says what it
+    saw, and a run says which of its cuts a recorded insistence
+    withdrew (`reel_build.reel_ranges`).  A withdrawal nobody can see
+    is a content change nobody can see.
+    """
+    start, end = float(start), float(end)
+    if not end > start:
+        raise learned_context.LearnedContextError(
+            f"a keep insistence of {start}..{end} is not a range.")
+    if not (reason or "").strip():
+        raise learned_context.LearnedContextError(
+            "a keep insistence with no reason is refused, for the same "
+            "cause a reasonless spelling correction is.")
+    return learned_context.record(
+        project_folder, kind=learned_context.CORRECTION,
+        statement=(
+            f'Keep insistence: timeline {start:.2f}..{end:.2f}s STAYS IN - '
+            f'no automatic take cut may drop these seconds. The words were '
+            f'measured as a repeated take and they are not one.'),
+        read_by=list(INSIST_READERS),
+        source={"correction_type": KEEP_INSISTENCE, "start": start,
+                "end": end},
+        detail=reason.strip())
+
+
 # ── Reading ───────────────────────────────────────────────────────────
 
 def _typed(project_folder: str, want: str) -> list:
@@ -176,6 +247,44 @@ def keep_exclusions(project_folder: str) -> list:
                            "end": end,
                            "reason": str(learning.get("detail") or "")})
     return exclusions
+
+
+def keep_insistences(project_folder: str) -> list:
+    """Every active keep insistence: timeline seconds that stay IN."""
+    insisted = []
+    for learning in _typed(project_folder, KEEP_INSISTENCE):
+        source = learning.get("source") or {}
+        try:
+            start, end = float(source["start"]), float(source["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not end > start:
+            continue
+        insisted.append({"id": learning.get("id", ""), "start": start,
+                         "end": end,
+                         "reason": str(learning.get("detail") or "")})
+    return insisted
+
+
+def insisted_spans_for_span(start: float, end: float,
+                            insistences: list) -> list:
+    """Insisted seconds inside one span, as `(start, end, id)` triples.
+
+    Clipped to `[start, end]` and in order, the shape
+    `exclusion_cuts_for_span` returns - so the builder joins both
+    kinds to a moment the same way, and the id travels so a run can
+    SAY which insistence withdrew which cut.
+    """
+    out = []
+    for insistence in insistences or ():
+        try:
+            a, b = float(insistence["start"]), float(insistence["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        lo, hi = max(a, float(start)), min(b, float(end))
+        if hi > lo:
+            out.append((lo, hi, str(insistence.get("id", ""))))
+    return sorted(out)
 
 
 # ── The deterministic spelling pass ───────────────────────────────────

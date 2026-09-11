@@ -4496,6 +4496,19 @@ def _derive_plan_from_master(
     kr = [(span_start, span_end)]
     if transcript:
         cuts_list = redundant_takes(span_start, span_end, transcript)
+        # The captain's recorded keep INSISTENCES withdraw take cuts,
+        # and they must be withdrawn HERE too: a reel cannot be built
+        # to one rule and checked against another, and without this
+        # every withdrawn cut reads as a plan mismatch on the seconds
+        # he asked to keep.
+        if project_folder:
+            from library.tools import transcript_corrections as _insist
+            from library.tools.reel_build import withdraw_insisted_cuts
+            cuts_list, _ = withdraw_insisted_cuts(
+                cuts_list,
+                _insist.insisted_spans_for_span(
+                    span_start, span_end,
+                    _insist.keep_insistences(project_folder)))
         cuts = tuple(cuts_list)
         kr = compute_keep_ranges(span_start, span_end, cuts_list)
         # The captain's recorded strikes, cut the same way the builder
@@ -4542,8 +4555,15 @@ def _derive_plan_from_master(
     if project_folder:
         from library.tools import reel_ending as _ending
 
-        ending_declaration = _ending.resolve_ending(project_folder,
-                                                    reel_name)
+        # The MOMENT and the TRANSCRIPT travel for the same reason the
+        # rest of this re-derivation does: a reel with no pin still
+        # ends somewhere, because it INHERITS an ending from the call
+        # to action it closes on. Resolving without them here would
+        # re-derive a plan with no freeze in it and report every
+        # inheriting reel's held frame as an item the plan does not
+        # have.
+        ending_declaration = _ending.resolve_ending(
+            project_folder, reel_name, moment, transcript or {})
         if ending_declaration is not None:
             kr, _ending_record = _ending.apply_ending(
                 kr, compute_placements(kr, master_clips, fps),

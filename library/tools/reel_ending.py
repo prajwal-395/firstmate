@@ -104,6 +104,49 @@ plays to its natural end and the held frames carry whatever silence
 follows, because a stretched voice is a different edit and nobody
 asked for one.
 
+The freeze belongs to the CALL TO ACTION, not to a list of reels
+--------------------------------------------------------------
+Reel 13 was the first reel to get the freeze and it got it from a
+hand-written entry.  Four more reels then arrived with the same
+complaint, and the captain's instruction on two of them is what
+decides the shape here: *"this change needs to be applied to all other
+reels that currently also use this CTA **or will be using this CTA**"*.
+
+Four more entries would satisfy four reels and fail that sentence, so
+the freeze is INHERITED instead: `cta_default_ending` gives it to any
+reel whose plan closes on a `reel_proposal.CallToAction`, and a
+per-reel entry in `external/reel_ending.json` exists to OVERRIDE that,
+never to supply it.  A reel planned tomorrow, on a CTA nobody has
+written a pin for, closes the way Reel 13 does.
+
+It hangs on the TYPE, not on a passage or a speaker, because measuring
+the plan showed there is no single passage to hang it on.  The four
+reels complained about close on THREE different call-to-action
+passages and Reel 13 on a fourth; Reel 28's closer is CRAIG.  What all
+five share is that each closes on a `CallToAction` - and that type's
+own docstring says why it is the only home available: *"the episode's
+CTAs are where they are: six of them, scattered, and every reel has to
+end on one"*.  A reel whose plan declares none (three of this
+episode's thirty-one moments) inherits nothing and builds exactly as
+it did before.
+
+Two things are inherited, because the captain named TWO faults
+--------------------------------------------------------------
+*"the last bit of akshita's audio is cut off **and also** the tv off
+animation occurs while she is still talking"*.  They are separate, and
+measuring the footage says so: Reel 28's closing audio is clean and
+only its animation is wrong, while Reels 01, 23 and 30 end at
+`call_to_action.timeline_end` 341.270s - exactly where WhisperX labels
+the end of "bio." - with the sound of that word still at 1307 RMS on
+the last frame they play.
+
+So a reel closing on a call to action inherits BOTH: the freeze
+(`CTA_TAIL_HOLD`), and the closing BREATH (`closing_breath_end`),
+which plays the trailing silence the aligner's word boundary cut off.
+
+`tests/test_reel_ending_cta_default.py` is the gate: it fails the
+moment a newly planned reel stops inheriting the freeze.
+
 What this module deliberately cannot say
 ----------------------------------------
 It cannot hold a shot PAST the master's own cut to make tail room.  The
@@ -150,6 +193,43 @@ TAIL_ELEMENTS = ("tv_power_tail", "none")
 #: is a magnitude and neither is taste: one is the absence of a hold,
 #: the other takes its length from the element it serves.
 TAIL_HOLDS = ("none", "freeze")
+
+#: What a reel INHERITS from the call to action it closes on, and the
+#: only place these two values are stated. A per-reel declaration in
+#: `external/reel_ending.json` OVERRIDES them; it does not supply them.
+CTA_TAIL_ELEMENT = "tv_power_tail"
+CTA_TAIL_HOLD = "freeze"
+
+#: How many of the call to action's closing words anchor the inherited
+#: ending. Long enough to name one moment in a 44-minute episode, short
+#: enough to survive a re-cut of the words before it. Eleven is what the
+#: captain's own Reel 13 declaration wrote by hand.
+CTA_ANCHOR_WORDS = 11
+
+#: The fewest words an inherited anchor may be built from. Below this
+#: the phrase names too little to be sure which saying of it the reel
+#: closes on, and the CTA is not used as an anchor at all.
+CTA_ANCHOR_MINIMUM = 3
+
+#: Why every reel closing on a call to action inherits the freeze.
+#: Recorded in the ending itself, the same way a hand-written one
+#: records its reason, so a reader of a build has the ruling in front of
+#: them rather than a bare `source: call_to_action`.
+CTA_DEFAULT_REASON = (
+    "captain 2026-09-11, on Reels 01, 23, 31 and 28: \"the ending here "
+    "comes in too early. the last bit of akshita's audio is cut off and "
+    "also the tv off animation occurs while she is still talking, not "
+    "after, so you need to fix that\" - and, on Reel 13 where the freeze "
+    "was already in: \"the way you fixed the CTA here is correct and how "
+    "i want it, can you extrapolate similar fixes to all of the other "
+    "places where i have said the ending cuts in too early\". The "
+    "instruction that makes this a default rather than four entries is "
+    "his own: \"this change needs to be applied to all other reels that "
+    "currently also use this CTA OR WILL BE USING THIS CTA\". So the "
+    "freeze is a property of closing on a call to action, inherited by "
+    "every reel that does - including reels nobody has planned yet - "
+    "and a per-reel declaration exists to override it."
+)
 
 
 class ReelEndingError(ValueError):
@@ -264,8 +344,8 @@ def load_endings(project_folder: str) -> list:
     return validate_endings(document.get("endings"))
 
 
-def resolve_ending(project_folder: str, reel_name: str):
-    """The declared ending for one reel, or None.
+def declared_ending(project_folder: str, reel_name: str):
+    """The HAND-WRITTEN ending for one reel, or None.
 
     Matched by PREFIX so a staging container
     (`... (scratch x) (rebuild staging)`) resolves to the same
@@ -279,6 +359,162 @@ def resolve_ending(project_folder: str, reel_name: str):
                 ending["reel"]):
             return ending
     return None
+
+
+# ── The ending a reel inherits from its call to action ─────────────
+
+def _cta_anchor_words(cta, transcript) -> list:
+    """The call to action's own CLOSING words, as anchor tokens.
+
+    Read off the TRANSCRIPT over the CTA's own span wherever there is
+    one, and only off `cta.text` when there is not.  The two are not
+    always the same string: measured on this episode, the CTA at
+    1168.34-1177.58s reads "the Lucy visibility system" in `text` and
+    "the lucie visibility system" in the transcript the anchor is
+    matched against, so a phrase taken from `text` would have named
+    words no span speaks.  `text` is the fallback rather than the
+    source for exactly that reason.
+    """
+    from library.tools.captain_edits import _span_word_tokens, _tokens
+
+    spoken = []
+    if transcript:
+        try:
+            spoken = _span_word_tokens(transcript,
+                                       float(cta["timeline_start"]),
+                                       float(cta["timeline_end"]))
+        except (KeyError, TypeError, ValueError):
+            spoken = []
+    if len(spoken) < CTA_ANCHOR_MINIMUM:
+        spoken = _tokens(str(cta.get("text") or ""))
+    if len(spoken) < CTA_ANCHOR_MINIMUM:
+        return []
+    return spoken[-CTA_ANCHOR_WORDS:]
+
+
+def call_to_action_of(moment) -> Optional[dict]:
+    """One reel plan moment's call to action as a plain mapping, or None.
+
+    `library/tools/reel_proposal.CallToAction` is where a CTA is
+    defined, and its own docstring is why this has a single home:
+    *"the episode's CTAs are where they are: six of them, scattered,
+    and every reel has to end on one"*.  A moment carrying one closes
+    on it; `None` is a reel that ends where its body ends.
+
+    Takes the dataclass or the dict it serialises to, because the
+    build reads `ReelMoment` objects and the verifier and the tests
+    read the recorded plan.
+    """
+    if moment is None:
+        return None
+    cta = (moment.get("call_to_action") if isinstance(moment, dict)
+           else getattr(moment, "call_to_action", None))
+    if cta is None:
+        return None
+    if not isinstance(cta, dict):
+        cta = {"timeline_start": getattr(cta, "timeline_start", None),
+               "timeline_end": getattr(cta, "timeline_end", None),
+               "text": getattr(cta, "text", "") or "",
+               "speaker": getattr(cta, "speaker", "") or ""}
+    # The span must be REAL NUMBERS, not merely present. A stand-in
+    # object answers every attribute with something truthy, and an
+    # ending built from one anchors on the repr of a mock and then
+    # freezes a reel that places no picture. `is None` is not the
+    # question; "is this a span" is.
+    try:
+        start = float(cta["timeline_start"])
+        end = float(cta["timeline_end"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not end > start:
+        return None
+    text = cta.get("text")
+    return {"timeline_start": start, "timeline_end": end,
+            "text": text if isinstance(text, str) else "",
+            "speaker": (cta.get("speaker")
+                        if isinstance(cta.get("speaker"), str) else "")}
+
+
+def cta_default_ending(reel_name: str, moment, transcript=None):
+    """The ending a reel INHERITS from the call to action it closes on.
+
+    This is the shape the captain asked for on 2026-09-11 and the
+    reason this is not four entries in `external/reel_ending.json`:
+    *"this change needs to be applied to all other reels that
+    currently also use this CTA or will be using this CTA"*.  A reel
+    that is planned tomorrow, on a CTA nobody has recorded a pin for,
+    closes the same way - because what it inherits from is the CTA it
+    closes on, not a list of reel names.
+
+    It is deliberately NOT keyed to a passage, a speaker or a span.
+    Measured across this episode's plan: the four reels the captain
+    complained about close on THREE DIFFERENT call-to-action passages
+    (Reels 01 and 23 on Akshita's 333.80-341.27s, Reel 31 on her
+    1855.84-1865.28s, Reel 28 on CRAIG's 809.69-819.13s) and the
+    accepted reference, Reel 13, on a fourth.  There is no one span
+    to hang this on; what they share is that each closes on a
+    `CallToAction`, which is the thing that has a single home.
+
+    Returns None for a reel whose plan declares no call to action -
+    three of this episode's thirty-one moments - and such a reel
+    builds exactly as it did before this default existed.
+    """
+    cta = call_to_action_of(moment)
+    if cta is None:
+        return None
+    anchor = _cta_anchor_words(cta, transcript)
+    if not anchor:
+        return None
+    speaker = str(cta.get("speaker") or "").strip()
+    ending = {
+        "reel": reel_name,
+        "ends_on": {"anchor_phrase": " ".join(anchor)},
+        "tail_element": CTA_TAIL_ELEMENT,
+        "tail_hold": CTA_TAIL_HOLD,
+        "reason": CTA_DEFAULT_REASON,
+        # INHERITED, and it says so: a build that prints its endings
+        # must be able to tell the captain which of them he wrote.
+        "source": "call_to_action",
+        "cta": {"timeline_start": float(cta["timeline_start"]),
+                "timeline_end": float(cta["timeline_end"]),
+                # Recorded, never READ, by anything that decides the
+                # hold: the mechanism must not know who closes. Reel
+                # 28 closes on Craig and takes the same path Reel 13's
+                # Akshita does.
+                "speaker": speaker},
+    }
+    # Through the same structural check a hand-written one passes, so a
+    # default that is malformed fails here rather than at the seam.
+    validate_endings([ending])
+    return ending
+
+
+def is_inherited(ending) -> bool:
+    """Whether this ending came from the CTA rather than from a pin."""
+    return (ending or {}).get("source") == "call_to_action"
+
+
+def resolve_ending(project_folder: str, reel_name: str, moment=None,
+                   transcript=None):
+    """The ending for one reel: the DECLARED one, else the INHERITED one.
+
+    A per-reel entry in `external/reel_ending.json` wins outright.
+    That is the whole relationship between the two: the declaration
+    exists to OVERRIDE what closing on a call to action already gives
+    a reel, never to supply it.  Reel 13's entry is the example - it
+    is still needed, because its plan's last range reaches past the
+    shot that speaks its closing words and only a pin can say where
+    that reel ends.
+
+    Called without `moment` this is the old behaviour exactly:
+    declarations only.  Every caller that has a plan moment passes it,
+    and a caller that does not is reading something other than a reel
+    build.
+    """
+    declared = declared_ending(project_folder, reel_name)
+    if declared is not None:
+        return declared
+    return cta_default_ending(reel_name, moment, transcript)
 
 
 # ── The tail element ───────────────────────────────────────────────
@@ -578,6 +814,66 @@ def assert_tail_fits(picture_placements, ending, fps: float,
     return measured
 
 
+# ── The breath after the closing words ─────────────────────────────
+
+def _next_word_start(transcript: dict, after: float):
+    """When the next timed word is SPOKEN after `after`, or None.
+
+    Timed words only, the rule `captain_edits._span_word_tokens`
+    states: an untimed word cannot place anything.
+    """
+    soonest = None
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                start = float(word["start"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if start > after + 1e-6 and (soonest is None or start < soonest):
+                soonest = start
+    return soonest
+
+
+def closing_breath_end(transcript: dict, words_end: float,
+                       shot_end: float) -> float:
+    """Where a reel closing on its call to action stops: the CTA's BREATH.
+
+    The captain, 2026-09-11, on Reels 01, 23 and 31: *"the last bit of
+    akshita's audio is cut off"*.  Measured on the footage and he is
+    literally right - and it is a SECOND fault, not the switch-off
+    wearing another description.  Reels 01, 23 and 30 close on
+    `call_to_action.timeline_end` 341.270s, which is exactly where
+    WhisperX labels the end of "bio.", and the sound of that word is
+    still at 1307 RMS on the last frame they play.  It takes four more
+    frames to reach the noise floor.  The accepted reference, Reel 13,
+    escaped it only by accident: its last range had been over-extended
+    and was truncated back to the ending SHOT's end, which happens to
+    sit seven frames later.
+
+    So an aligner's word boundary is not where the word stops being
+    heard, and a reel that ends on one clips its own closer.  The
+    breath is the silence AFTER the closing words, and it is bounded
+    twice - by the ending shot's own end, and by the next thing
+    anybody says.  Neither bound is a number anybody tuned, neither
+    can admit the next shot, and neither can admit the next word.
+
+    This is the view the proposal layer already takes of the same
+    seconds: `reel_proposal._widen_to_segments` keeps a boundary that
+    sits in clean silence because pulling it back "deletes a tail
+    breath the proposer meant (a switch-off animation's room, a word's
+    last frame)".
+
+    Where the episode has nothing after the closing words at all, the
+    shot's own end is the only bound there is, and it is the answer.
+    """
+    following = _next_word_start(transcript, words_end)
+    if following is None:
+        return float(shot_end)
+    return min(float(shot_end), float(following))
+
+
 # ── Applying: the ranges seam ──────────────────────────────────────
 
 def apply_ending(ranges, spans, transcript: dict, ending,
@@ -595,10 +891,19 @@ def apply_ending(ranges, spans, transcript: dict, ending,
     declaration passes the ranges through untouched and reports
     nothing.
 
-    An ending only ever REMOVES seconds.  The last range's new end is
-    `min(its current end, the ending shot's own end)`, so a
+    A DECLARED ending only ever REMOVES seconds.  The last range's new
+    end is `min(its current end, the ending shot's own end)`, so a
     declaration can never admit the next shot - which is the whole
     defect this owner exists for.
+
+    An INHERITED ending may also move that end OUT, into the call to
+    action's own trailing silence (`closing_breath_end`), and is
+    bounded by the same shot end plus the next spoken word.  The bound
+    is what matters, not the direction: neither reading can admit the
+    next shot and the outward one cannot admit the next word either.
+    A declaration is still truncate-only, because a pin is somebody
+    saying where a reel ends and taking them at their word is the
+    point of writing one.
     """
     empty = {"applied": [], "held": [], "stale": []}
     if not ending or not ranges:
@@ -621,25 +926,52 @@ def apply_ending(ranges, spans, transcript: dict, ending,
             # phrase said twice ends the reel on the later saying,
             # which is the one the reel was cut to close on.
             shot_end = float(getattr(clip, "timeline_end", master[1]))
+    inherited = is_inherited(ending)
     if shot_end is None:
         empty["stale"].append({
             "kind": "ending", "reel": ending["reel"],
-            "anchor_phrase": phrase,
+            "anchor_phrase": phrase, "source": ending.get("source", ""),
             "reason": (
-                f"STALE: the declared ending for {ending['reel']!r} "
-                f"anchors on {phrase!r} and those words are in no "
-                f"placed span. The passage was reworded or re-cut out "
-                f"of this reel, so the reel ends where its plan ends "
-                f"and this declaration changed nothing. Original "
-                f"request: {ending.get('reason', '')}".strip())})
+                (f"The ending {ending['reel']!r} inherits from its call "
+                 f"to action anchors on {phrase!r} and those words are "
+                 f"in no placed span, so the reel ends where its plan "
+                 f"ends. The FREEZE still applies - the hold is planned "
+                 f"from the shot the reel closes on, not from the "
+                 f"anchor.")
+                if inherited else
+                (f"STALE: the declared ending for {ending['reel']!r} "
+                 f"anchors on {phrase!r} and those words are in no "
+                 f"placed span. The passage was reworded or re-cut out "
+                 f"of this reel, so the reel ends where its plan ends "
+                 f"and this declaration changed nothing. Original "
+                 f"request: {ending.get('reason', '')}").strip())})
         return list(ranges), empty
 
     out = [tuple(r) for r in ranges]
     start, end = out[-1]
+    # TRUNCATION first, and it is unconditional: the last range may
+    # never reach past the shot that speaks the closing words, which is
+    # the defect this owner exists for.
     new_end = min(float(end), shot_end)
+    breath = None
+    if inherited:
+        # Then the BREATH. A reel that closes on a call to action plays
+        # that call to action's own trailing silence, because an
+        # aligner's word boundary is not where the word stops being
+        # heard (`closing_breath_end`). Bounded by the shot's own end
+        # and by the next thing anybody says, so this can no more
+        # admit the next shot than the truncation above can - it is
+        # the same bound, read the other way.
+        breath = closing_breath_end(transcript, new_end, shot_end)
+        new_end = max(new_end, breath)
     record = {"kind": "ending", "reel": ending["reel"],
               "anchor_phrase": phrase,
+              "source": ending.get("source", ""),
               "tail_element": ending.get("tail_element", "none"),
+              "tail_hold": tail_hold(ending),
+              "shot_end": round(float(shot_end), 3),
+              "breath_end": (None if breath is None
+                             else round(float(breath), 3)),
               "was": [round(float(start), 3), round(float(end), 3)],
               "now": [round(float(start), 3), round(new_end, 3)],
               "reason": ending.get("reason", "")}
@@ -661,17 +993,57 @@ def apply_ending(ranges, spans, transcript: dict, ending,
 
 
 def report(record: dict) -> None:
-    """Print one ending verdict the way the pin owners print theirs."""
+    """Print one ending verdict the way the pin owners print theirs.
+
+    An INHERITED ending says so on every line.  A build that prints
+    "Ending: ..." for a reel nobody wrote a pin for would otherwise
+    read as a declaration the captain has forgotten making, and the
+    first thing he would do is go looking for it in a file that does
+    not name that reel.
+    """
+    def _origin(row) -> str:
+        return ("inherited from the call to action it closes on"
+                if row.get("source") == "call_to_action"
+                else "declared")
+
+    def _why(row) -> str:
+        # A HAND-WRITTEN reason is per reel and is the whole point of
+        # printing it. The inherited one is the same paragraph for
+        # every reel that closes on a CTA, and a build of nineteen
+        # would print it nineteen times - which is how an operator
+        # learns to skip the ending lines.
+        if row.get("source") == "call_to_action":
+            return ""
+        return f" - {row.get('reason', '')}"
+
     for row in record.get("applied", ()):
+        moved = ("truncated" if row["now"][1] < row["was"][1]
+                 # An inherited ending plays the call to action's own
+                 # trailing silence, so it can move the end OUT as well
+                 # as in - never past the shot, never into the next
+                 # word. Said in the verb, so a reader is not told
+                 # "truncated to" a larger number.
+                 else "extended into the closing breath to")
         print(f"  Ending: {row['reel']} ends on {row['anchor_phrase']!r} "
               f"- last range {row['was'][0]:.3f}-{row['was'][1]:.3f}s "
-              f"truncated to {row['now'][0]:.3f}-{row['now'][1]:.3f}s, "
-              f"tail element {row['tail_element']} - {row['reason']}",
+              f"{moved} {row['now'][0]:.3f}-{row['now'][1]:.3f}s "
+              f"(ending shot ends {row.get('shot_end')}s), "
+              f"tail element {row['tail_element']}, hold "
+              f"{row.get('tail_hold', 'none')} "
+              f"({_origin(row)}){_why(row)}",
               flush=True)
     for row in record.get("held", ()):
         print(f"  Ending: {row['reel']} already ends on "
-              f"{row['anchor_phrase']!r} - declaration held, tail "
-              f"element {row['tail_element']}", flush=True)
+              f"{row['anchor_phrase']!r} - {_origin(row)}, tail element "
+              f"{row['tail_element']}, hold "
+              f"{row.get('tail_hold', 'none')}", flush=True)
     import sys
     for row in record.get("stale", ()):
-        print(f"  {row['reason']}", file=sys.stderr, flush=True)
+        # An inherited ending whose anchor found nothing changed
+        # nothing and REMOVED nothing: the freeze is still planned.
+        # That is an ordinary outcome, and printing it beside real
+        # failures on stderr would teach a reader to skim both.
+        if row.get("source") == "call_to_action":
+            print(f"  Ending: {row['reason']}", flush=True)
+        else:
+            print(f"  {row['reason']}", file=sys.stderr, flush=True)

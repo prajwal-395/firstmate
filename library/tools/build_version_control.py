@@ -377,11 +377,21 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
     Call after `promote_staged_reels`, on both promotion paths (the
     in-build promote and the verify_reels-node promote).  Never raises:
     a record that breaks the build is worse than no record, so every
-    failure is returned as `committed: False` with a reason.  The
-    snapshots land under `pipeline_output/review/` (on the allow-list)
-    as `<timeline>.timeline.json`, in the serializer's git-diffable
-    shape - source/record in-out, transform, markers - beside the
-    declaration the build read, so a later diff answers what moved.
+    failure is returned as `committed: False` with a reason.
+
+    A snapshot failure COMMITS ANYWAY, naming the failure in the
+    message.  It used to return without committing, which meant a build
+    run with Resolve closed, busy, or showing another project left the
+    captain's declarations uncommitted - and a declaration nothing in
+    git remembers is one that goes missing the next time somebody edits
+    the file.  The snapshot is the nice-to-have; the declarations, the
+    run state and the step outputs are the record.
+
+    The snapshots land under `pipeline_output/review/` (on the
+    allow-list) as `<timeline>.timeline.json`, in the serializer's
+    git-diffable shape - source/record in-out, transform, markers -
+    beside the declaration the build read, so a later diff answers what
+    moved.
     """
     report: dict = {"committed": False, "reason": "", "files": [],
                     "snapshots": []}
@@ -457,7 +467,35 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
                         project.SetCurrentTimeline(candidate)
                         break
     except Exception as exc:
-        report["reason"] = f"snapshot failed: {exc!r}"
+        # COMMIT ANYWAY. The snapshot is the nice-to-have half; the
+        # declarations, the run state and the step outputs on disk are
+        # the record the store exists for, and they are already
+        # written. Returning here left them uncommitted whenever
+        # Resolve was closed, busy or showing another project - the
+        # failure mode that loses a captain's declaration, because the
+        # next rebuild reads the file and nothing in git remembers it
+        # ever differed. The failure is carried into the commit
+        # MESSAGE rather than dropped, so a reader of the log can see
+        # which commits have no timeline snapshot behind them.
+        report["snapshot_failed"] = f"{exc!r}"
+        message = (message or (
+            "reels build: " + ", ".join(names)
+            + f"\n\nPromoted into the Resolve project "
+              f"{resolve_project_name!r}.")) + (
+            f"\n\nNO TIMELINE SNAPSHOT in this commit: reading the "
+            f"promoted timelines back out of Resolve failed ({exc!r}). "
+            f"The declarations and run state are committed anyway - "
+            f"they are what a rebuild reads, and leaving them "
+            f"uncommitted is how a declaration goes missing.")
+        result = commit_build(project_folder, message)
+        report.update(result)
+        if not report.get("committed"):
+            report["reason"] = (
+                f"snapshot failed ({exc!r}) and the commit that should "
+                f"have gone ahead anyway did not: "
+                f"{result.get('reason', 'unknown')}")
+        else:
+            report["reason"] = f"snapshot failed: {exc!r}; committed anyway"
         return report
     if message is None:
         message = ("reels build: "

@@ -524,10 +524,10 @@ Detail: `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manif
 **Every frame of the timeline must show a clip.**
 Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#undeclared-black)
 
-**Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.**
+**Overlay geometry comes from the safe area, and captions are grouped by measured pixels.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
 
-**Captions sit `CAPTION_LIFT_PX` above the safe-area bottom inset.**
+**The caption row is DECLARED, or `CAPTION_LIFT_PX` above the safe-area inset.**
 Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-caption-lift-is-eleven-pixels)
 
 **Reconstruct a grouping with `fits_in_box`, never `fits`.**

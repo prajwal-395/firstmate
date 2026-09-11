@@ -1824,8 +1824,35 @@ def closer_repeats(moment, transcript: dict) -> List[dict]:
     return out
 
 
+def withdraw_insisted_cuts(cuts: Sequence["Cut"],
+                           insisted: Sequence[tuple]) -> tuple:
+    """Take cuts the captain's keep insistences withdraw.
+
+    Returns `(kept_cuts, withdrawn)` where `withdrawn` is
+    `[(cut, insistence_id), ...]` - so a run can SAY which recorded
+    insistence removed which cut rather than silently building
+    different seconds (`transcript_corrections.record_keep_insistence`).
+
+    A cut is withdrawn when the seconds it DROPS overlap insisted
+    seconds at all.  Partial is enough: a cut that removes half of
+    what the captain said to keep still removes it.
+    """
+    kept, withdrawn = [], []
+    for cut in cuts or ():
+        hit = next(
+            (ident for lo, hi, ident in (insisted or ())
+             if _overlaps(cut.dropped_start, cut.dropped_end, lo, hi) > 0),
+            None)
+        if hit is None:
+            kept.append(cut)
+        else:
+            withdrawn.append((cut, hit))
+    return kept, withdrawn
+
+
 def reel_ranges(moment, transcript: dict,
-                extra_cuts: Sequence[tuple] = ()) -> List[Tuple[float, float]]:
+                extra_cuts: Sequence[tuple] = (),
+                insisted_spans: Sequence[tuple] = ()) -> List[Tuple[float, float]]:
     """Every master range this reel plays, IN THE ORDER IT PLAYS THEM.
 
     The body first, with its bad takes cut out of it, and then the
@@ -1852,9 +1879,21 @@ def reel_ranges(moment, transcript: dict,
     to re-record. The closer is always placed whole: a strike
     overlapping it is not applied here, and the captain picks another
     closer.
+
+    `insisted_spans` are the captain's recorded keep INSISTENCES
+    overlapping this moment, as `(start, end, id)` triples
+    (`transcript_corrections.insisted_spans_for_span`). They withdraw
+    take cuts rather than making them - the opposite direction to
+    `extra_cuts`, and the only vocabulary for "that repetition is not
+    a repeated take, leave it alone". Empty (the default) builds
+    exactly what this built before.
     """
     cuts = redundant_takes(moment.timeline_start, moment.timeline_end,
                            transcript)
+    # BEFORE the wholeness guard: a withdrawn cut is a cut that is not
+    # being made, so judging it for wholeness would refuse a build over
+    # an edit nobody is applying.
+    cuts, _withdrawn = withdraw_insisted_cuts(cuts, insisted_spans)
     # The cut list is checked against the transcript's own runs before it
     # becomes the reel's shape, so a producer that bypassed
     # `redundant_takes` cannot strand a fragment silently.  Take cuts
@@ -5700,7 +5739,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # past it: quiet non-application is the defect this exists to end.
     from library.tools import transcript_corrections as _tc
     keep_exclusions = _tc.keep_exclusions(project_folder)
-        
+    # And the INVERSE: seconds the captain says stay IN, which withdraw
+    # take cuts rather than making them. Read beside the strikes, for
+    # the same reason - a declaration the store cannot supply must
+    # refuse the batch, not the twelfth reel.
+    keep_insistences = _tc.keep_insistences(project_folder)
+
     timeline = None
     for i in range(1, project.GetTimelineCount() + 1):
         t = project.GetTimelineByIndex(i)
@@ -5922,6 +5966,21 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                       f"recorded by the captain, applied at build so an "
                       f"approved range is honoured rather than re-decided",
                       flush=True)
+            # And the seconds the captain says STAY IN, withdrawing take
+            # cuts rather than making them. SAID with the cut it removed
+            # and the words that cut would have dropped: a withdrawal
+            # nobody can see is a content change nobody can see.
+            moment_insisted = _tc.insisted_spans_for_span(
+                moment.timeline_start, moment.timeline_end,
+                keep_insistences)
+            for _cut, _ident in withdraw_insisted_cuts(
+                    redundant_takes(moment.timeline_start,
+                                    moment.timeline_end, transcript),
+                    moment_insisted)[1]:
+                print(f"  keep insistence {_ident} WITHDRAWS the take cut "
+                      f"at {_cut.dropped_start:.2f}-{_cut.dropped_end:.2f}s "
+                      f"({_cut.speaker}): those words stay in - "
+                      f"{_cut.dropped_text[:80]!r}", flush=True)
             # A repetition this build is LEAVING IN, and why, said where the
             # operator is already looking. Silence here is what let reel 03
             # be rebuilt worse at the open than the timeline it replaced.
@@ -5964,7 +6023,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"whole", flush=True)
             try:
                 ranges = reel_ranges(moment, transcript,
-                                     extra_cuts=moment_cuts)
+                                     extra_cuts=moment_cuts,
+                                     insisted_spans=moment_insisted)
             except ExclusionWipesBody as wiped:
                 # Dropped WITH the reason, never split and never emptied:
                 # the strike covers the whole body, so there is no reel
@@ -6023,7 +6083,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # it, exactly as the trims do. An ending only ever removes
             # seconds - which is what stops a reel acquiring the next
             # speaker while asking for room at its close.
-            _ending_decl = _reel_ending.resolve_ending(project_folder, name)
+            #
+            # The MOMENT and the TRANSCRIPT travel because a reel with
+            # no pin still has an ending: it INHERITS one from the call
+            # to action it closes on (`reel_ending.cta_default_ending`),
+            # which is how the captain's "or will be using this CTA"
+            # reaches a reel nobody has declared anything for.
+            _ending_decl = _reel_ending.resolve_ending(
+                project_folder, name, moment, transcript)
             if _ending_decl is not None:
                 ranges, _end_record = _reel_ending.apply_ending(
                     ranges,
@@ -6301,10 +6368,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     track_plan=build_result["track_plan"],
                     angle_key=_angle_key,
                     grade_look=reel_grade_look,
-                    # The declared ending owns the tail element; no
-                    # declaration keeps the unconditional arm.
+                    # The reel's ending owns the tail element, declared
+                    # or inherited from its call to action. Resolved
+                    # with the SAME moment and transcript the ranges
+                    # seam used: two answers to "where does this reel
+                    # end" would arm the element on a clip the build
+                    # did not freeze.
                     ending=_reel_ending.resolve_ending(
-                        project_folder, name))
+                        project_folder, name, moment, transcript))
                 if not _look.apply_comps(manifest, project_folder,
                                          resolve_name, name):
                     raise ReelBuildError(
@@ -7004,6 +7075,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
 
     from library.tools import transcript_corrections as _tc
     keep_exclusions = _tc.keep_exclusions(project_folder)
+    keep_insistences = _tc.keep_insistences(project_folder)
 
     timeline = None
     for i in range(1, project.GetTimelineCount() + 1):
@@ -7039,7 +7111,10 @@ def build_reel_variants(project_slug: str, reel_number: int,
                                     moment.timeline_end,
                                     keep_exclusions),
         transcript)
-    ranges = reel_ranges(moment, transcript, extra_cuts=moment_cuts)
+    ranges = reel_ranges(
+        moment, transcript, extra_cuts=moment_cuts,
+        insisted_spans=_tc.insisted_spans_for_span(
+            moment.timeline_start, moment.timeline_end, keep_insistences))
 
     # The captain's recorded trims, same seam as the rebuild loop:
     # variants compare seams, so every variant is cut from the same

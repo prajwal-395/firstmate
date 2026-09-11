@@ -1211,6 +1211,53 @@ def cmd_build_reels(args):
             print(f"{op.name}: {result.status}", file=sys.stderr)
             _report_reel_verification(result.payload)
 
+    # ══════════════════════════════════════════════════════════════
+    # THE CLOSING COMMIT (library/tools/build_version_control.py)
+    # ══════════════════════════════════════════════════════════════
+    # The per-build commit fires INSIDE the promoting node, and this
+    # loop writes that node's own output to pipeline_data.json AFTER
+    # the node returns - so the last node's record could never be in
+    # the commit it belongs to. Measured 2026-09-11 on the captain's
+    # project: HEAD was "reels build: Reel 13" and the working tree
+    # was dirty with exactly `step_outputs.verify_reels.
+    # reel_verification.organised`, the bin organisation the commit
+    # ran too early to see. A store that is dirty after every build
+    # teaches a reader to ignore its dirtiness, which is how a hand
+    # edit goes missing.
+    #
+    # So the run closes its own record, here, where the state write
+    # it completes lives. `clean` is the ordinary answer once the
+    # node's commit already covered everything.
+    _commit_run_tail(project_folder)
+
+
+def _commit_run_tail(project_folder: str) -> None:
+    """Commit whatever the run's final state write left uncommitted.
+
+    Never raises and never fails the build: a record that breaks a
+    build is worse than no record, the rule the per-build hook already
+    follows.
+    """
+    try:
+        from library.tools import build_version_control as bvc
+        record = bvc.commit_build(
+            project_folder,
+            "reels build: closing record\n\n"
+            "The per-build commit runs inside the promoting node, "
+            "before the runner writes that node's own output to "
+            "pipeline_data.json. This is the run closing its own "
+            "record so the store is clean when it ends.")
+        if record.get("committed"):
+            print(f"── Version control: closing commit {record['commit']} "
+                  f"({len(record.get('files', []))} file(s)) ──",
+                  file=sys.stderr)
+        elif record.get("reason") not in ("clean", "no-repo"):
+            print(f"  closing version-control commit not made: "
+                  f"{record.get('reason', 'unknown')}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  closing version-control commit failed: {exc!r} - the "
+              f"reels are built and unaffected", file=sys.stderr)
+
 
 def _report_reel_verification(payload) -> None:
     """Say WHICH plan and WHICH timelines the verify node graded.

@@ -117,11 +117,20 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
                     f"position: it reads back cleanly and sits "
                     f"where nothing intended"),
             })
+    # Pins that matched NO clip in this pass. Not honoured and not
+    # refused - they simply do nothing, and did it silently for
+    # nineteen caption pins on the field test while every caption was
+    # placed by the computation. REPORTED, never a finding: a pin for a
+    # segment this reel does not carry is an ordinary thing.
+    from library.tools.overlay_intent import unmatched as unmatched_intent
+
     return {
         "passed": not findings,
         "checked": checked,
         "findings": findings,
         "skipped": skipped,
+        "unmatched_intent": unmatched_intent(
+            intent, [c.get("segment_id") for c in clips]),
     }
 
 
