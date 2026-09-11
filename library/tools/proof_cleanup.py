@@ -72,6 +72,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 
 from library.tools import resolve_bin_layout as bins
+from library.tools import staging_holds as holds
 from library.tools.resolve_organization import (
     LEGACY_CLIP_BINS,
     RENDER_TOP_BINS,
@@ -237,11 +238,51 @@ def discover_scratch_timelines(
     proof - no moves, no removals, and no refusal for work already done.
     Protected timelines and the master never match the scratch family,
     and a pool that lost one still refuses inside `plan_proof_removal`.
+
+    This enumerates by NAME only and knows no project folder, so it
+    cannot see pending-promotion holds: a runner that sweeps off this
+    list alone re-opens issue #971. Enumerate the declined half with
+    `declined_held_scratch_timelines` and PRINT it - a sweep that
+    declined to remove something says what and why - and let
+    `plan_proof_removal` refuse the held ones loudly before anything
+    runs.
     """
     return sorted(
         a.name for a in artefacts
         if a.kind == "timeline" and is_authorised_demo(a.name)
         and a.name not in PROTECTED_TIMELINES)
+
+
+def declined_held_scratch_timelines(
+        artefacts: Sequence[Artefact],
+        project_folder: str) -> list[dict]:
+    """Authorised scratch timelines a hold keeps, with what each awaits.
+
+    The declined half of `discover_scratch_timelines`: every
+    sweep-eligible scratch timeline under a pending-promotion hold,
+    in name order, each as `{"name", "awaiting", "taken_at", "age",
+    "reason"}`. A runner prints these as DECLINED lines beside what
+    it removes - skipping them silently is the accumulation bug the
+    captain has already reported three times wearing a new shape.
+    An unreadable holds file propagates `HoldsUnreadable`: refusing
+    to judge is the safe direction, and the message says how to
+    proceed.
+    """
+    present = {a.name for a in artefacts
+               if a.kind == "timeline" and is_authorised_demo(a.name)
+               and a.name not in PROTECTED_TIMELINES}
+    held = holds.read_holds(project_folder)
+    declined = []
+    for name in sorted(present & set(held)):
+        entry = held[name]
+        declined.append({
+            "name": name,
+            "awaiting": entry.get("awaiting"),
+            "taken_at": entry.get("taken_at", ""),
+            "age": holds.hold_age(entry),
+            "reason": entry.get("reason", ""),
+        })
+    return declined
 
 
 def discover_superseded_timelines(
@@ -300,7 +341,12 @@ def _plan_removal(
     and holds only unplaced pipeline-generated clips - or clips
     placed only on the timeline going down with the bin - and every
     kept timeline is verified present and untouched.  Raises
-    `ProofRemovalRefused` on anything unproven.
+    `ProofRemovalRefused` on anything unproven -
+    including a protected name, a non-proof name, a timeline or bin
+    that is not in the pool, and bin contents that are not all
+    unplaced generated clips - and on a timeline under a
+    pending-promotion hold (`library/tools/staging_holds.py`, issue
+    #971), naming the promotion it awaits.
     """
     if timeline_name in untouched_names or timeline_name == master_name:
         raise ProofRemovalRefused(
@@ -310,6 +356,19 @@ def _plan_removal(
         raise ProofRemovalRefused(
             f"{timeline_name!r} is not a captain-authorised {foreign_hint}. "
             f"This path removes those only. Nothing was removed.")
+
+    # A pending promotion is not disposable scratch, even when it
+    # wears a scratch-shaped name (issue #971: Reel 13's verified
+    # marker fix, swept at 04:46Z before it was ever promoted). The
+    # hold names the promotion it awaits and how long it has waited;
+    # the refusal carries all of it, because a sweep that declined
+    # to remove something says what and why. An unreadable holds
+    # file refuses here too - it reads exactly like "nothing is
+    # protected" - via `read_holds`, before anything is proven.
+    held = holds.read_holds(project_root)
+    if timeline_name in held:
+        raise ProofRemovalRefused(
+            holds.refusal_message(timeline_name, held[timeline_name]))
 
     timelines = [a for a in artefacts
                  if a.kind == "timeline" and a.name == timeline_name]

@@ -5032,6 +5032,17 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     if backup_timelines:
         pool.DeleteTimelines(backup_timelines)
 
+    # The promotion happened - the staging containers are now the
+    # approved timelines under their final names - so their pending
+    # holds go (issue #971). Released AFTER the renames, so a failed
+    # promotion keeps every hold; and BEFORE the organise/sweep
+    # below, which is tidying, not promotion. A suffix verification
+    # build keeps its suffixed-final hold: that container still
+    # awaits a human promotion decision, and only an explicit
+    # release (or a later promotion naming it as staging) ends it.
+    from library.tools import staging_holds as _holds
+    _holds.release_holds(project_folder, list(staged_to_final.values()))
+
     organised = None
     if organise:
         from library.tools.execution.organise_media_pool import (
@@ -5134,6 +5145,13 @@ def discard_staged_reels(project, project_folder: str,
     assert_deletion_scope(found, set(staging))
     if found:
         project.GetMediaPool().DeleteTimelines(found)
+    # The gate refused, so nothing here is pending promotion any more:
+    # release the named holds whether or not the timelines were still
+    # in the project (issue #971). A hold for a name this call never
+    # staged is a no-op release, so variant-final names reaching this
+    # path cannot unprotect anything.
+    from library.tools import staging_holds as _holds
+    _holds.release_holds(project_folder, staging)
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     from library.tools.plan_provenance import drop_reel_entries
     drop_reel_entries(review_dir, staging)
@@ -5492,6 +5510,32 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"{sorted(t.GetName() for t in stale_backups)}. They hold "
             f"approved content a previous run moved aside. Restore or "
             f"delete them in Resolve and re-run.")
+
+    # Pending-promotion holds (issue #971): every staging container
+    # this call is about to place is held against the cleanup sweep
+    # until promotion or discard releases it - a verified staging
+    # that is never promoted must survive tidying, and a timeline
+    # with a scratch-shaped name that no plan claims is exactly what
+    # the sweep would otherwise take. On a suffix build the suffixed
+    # final is held too: the build promotes INTO it, and it then sits
+    # pending a human promotion decision no automatic step ends.
+    # Approved finals of ordinary builds are never held - no sweep
+    # may take them anyway. Taken up front, so even a crash between
+    # staging and promotion leaves the protection, not the hole; a
+    # rebuild re-takes the same names and the window restarts.
+    from library.tools import staging_holds as _holds
+    for _final, _staging in staged_to_final.items():
+        _holds.take_hold(
+            project_folder, _staging, awaiting=_final,
+            reason="staged rebuild awaiting promotion",
+            taken_by="rebuild_reels_in_project")
+    if name_suffix:
+        for _target in sorted(target_names):
+            _holds.take_hold(
+                project_folder, _target, awaiting=None,
+                reason=("suffix verification build - awaiting an "
+                        "explicit promotion decision"),
+                taken_by="rebuild_reels_in_project")
 
     # The project's transition-element declaration, resolved ONCE - the
     # element is measured here rather than per reel, so a declaration

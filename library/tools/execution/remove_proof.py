@@ -42,6 +42,7 @@ from library.tools.proof_cleanup import (
     is_authorised_demo,
     is_authorised_superseded,
 )
+from library.tools import staging_holds as holds
 
 JOURNAL_PREFIX = "resolve_remove_proof"
 
@@ -69,6 +70,22 @@ def remove_proof(project, plan: dict, journal_path: str) -> dict:
         "bins": [],
         "removed_items": [],
     }
+    # Re-proven LIVE, like every other fact here: the plan is a claim
+    # about an earlier moment, and a hold taken between plan and
+    # apply - a build staging while the operator sweeps - must still
+    # refuse (issue #971). The project folder is read off the journal
+    # path (`<project>/pipeline_output/review/<journal>`); a folder
+    # with no holds file reads as no holds, which is the old
+    # behaviour exactly. A journal path too shallow to name a
+    # project carries no project to check and skips this one
+    # re-proof - every journal this module writes names the project.
+    parents = Path(journal_path).parents
+    if len(parents) > 2:
+        live_holds = holds.read_holds(str(parents[2]))
+        if timeline["name"] in live_holds:
+            raise ProofRemovalRefused(
+                holds.refusal_message(timeline["name"],
+                                      live_holds[timeline["name"]]))
     try:
         artefacts, _, _, _ = read_pool(project)
         by_id = {a.item_id: a for a in artefacts}

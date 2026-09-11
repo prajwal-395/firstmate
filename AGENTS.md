@@ -270,6 +270,9 @@ Detail: `library/tools/orphan_removal.py`.
 **Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.**
 Detail: `library/tools/build_sweep.py`.
 
+**A staged timeline awaiting promotion is HELD: the sweep refuses a held name, loudly.**
+Detail: `library/tools/staging_holds.py`.
+
 ### Markers and timeline items
 
 `timeline.AddMarker()` and `timeline.GetItemListInTrack()`; patterns in `timeline_item_markers`.
