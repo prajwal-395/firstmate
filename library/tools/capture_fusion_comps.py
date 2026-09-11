@@ -1,6 +1,19 @@
-"""READ-ONLY: read Fusion comps off a live timeline. Never AddTool."""
-import json, sys, os
-sys.path.insert(0, os.environ["REPO"])
+"""READ-ONLY: read Fusion comps off a live timeline. Never AddTool.
+
+Kept in the pipeline (moved out of a per-project captures/ drop zone):
+reading every comp tool-by-tool off an arbitrary named timeline is
+reusable diagnosis tooling with no project constants baked in.
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if os.environ.get("REPO"):
+    sys.path.insert(0, os.environ["REPO"])
+elif str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 import DaVinciResolveScript as dvr
 from library.tools.resolve_locale import scriptapp_preserving_locale
 

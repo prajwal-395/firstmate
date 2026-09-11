@@ -111,6 +111,15 @@ ALLOW_LIST = [
     "/pipeline_output/review/**",
     "/marker_feedback/",
     "/marker_feedback/**",
+    # Hand-edit evidence moved out of the pipeline repo (its captures/
+    # drop zone held the captain's live timeline state until it was
+    # moved here, beside the reels it describes).  Text state,
+    # transcripts, measurements and the inventory - plus the two stills
+    # that are the evidence behind the positioning findings.  Named
+    # evidence, not renders, which is why those two frames are
+    # versioned while every other binary stays out.
+    "/timeline_captures/",
+    "/timeline_captures/**",
     "/pipeline_output/provenance/",
     "/pipeline_output/provenance/**",
     # Quarantine: the mark and sweep records only, never the moved

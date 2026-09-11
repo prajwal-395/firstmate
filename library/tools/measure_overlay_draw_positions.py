@@ -1,15 +1,45 @@
-"""Where every overlay on a captured timeline actually DRAWS, from pixels."""
-import json, subprocess, sys, os, tempfile
+"""Where every overlay on a captured timeline actually DRAWS, from pixels.
+
+Kept in the pipeline (moved out of a per-project captures/ drop zone):
+given any `capture_timeline.py` state file plus search roots for the
+overlay artefacts, it reports each overlay's canvas, stored transform,
+ink box inside its own artefact, and where that ink lands on the
+delivery frame against the caption-row intent.  The gain and the intent
+row are read off the engine's own constants for the capture's frame
+size - never hardcoded for one incident's 1080x1920 reels.
+"""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if os.environ.get("REPO"):
+    sys.path.insert(0, os.environ["REPO"])
+elif str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from library.tools.safe_area import safe_area_for_frame
+from library.tools.subtitle_style import CAPTION_LIFT_PX
+from library.tools.tight_box import draw_gain
+
 import numpy as np
 from PIL import Image
 
 CAP, DIRS, OUT = sys.argv[1], sys.argv[2].split(","), sys.argv[3]
-GAIN = 2.0            # measured draw gain on 1080x1920 (tight_box.DRAW_GAIN_1080x1920)
-INTENT_BOTTOM = 1589  # 1920 - safe bottom inset 320 - CAPTION_LIFT_PX 11
 
 d = json.load(open(CAP))
 TW = int(d["timeline_settings"]["timelineResolutionWidth"])
 TH = int(d["timeline_settings"]["timelineResolutionHeight"])
+
+# The measured draw gain for THIS capture's frame
+# (tight_box.draw_gain: 2.0 on the probed 1080x1920, 1.0 elsewhere).
+GAIN = draw_gain(TW, TH)
+# The caption row the engine intends: frame bottom, minus the safe-area
+# bottom inset for this frame size, lifted by CAPTION_LIFT_PX.
+# On 1080x1920 that is 1920 - 320 - 11 = 1589.
+INTENT_BOTTOM = TH - safe_area_for_frame(TW, TH).bottom - CAPTION_LIFT_PX
 
 def find(name):
     for root in DIRS:

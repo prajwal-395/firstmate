@@ -2,8 +2,13 @@
 
 Investigated 2026-09-11 against the live Resolve project "Podcast (field test)".
 Nothing was written to `Reel 13`.  The complete live state of that timeline is
-captured in [`captures/reel13-live-20260911/`](../captures/reel13-live-20260911/)
-and in a second copy outside the repo.
+captured in `timeline_captures/reel13-live-20260911/` of the geo-podcast
+project repo - moved out of this repo's `captures/` drop zone, because
+project data lives with the project and never in the pipeline.  The
+capture tooling that produced it (`capture_timeline.py`,
+`capture_fusion_comps.py`, `measure_overlay_draw_positions.py`) lives
+in `library/tools/`; the guard refusing a recommit is
+`library/tools/project_data_guard.py`.
 
 ---
 

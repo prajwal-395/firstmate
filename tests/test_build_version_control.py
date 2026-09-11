@@ -52,6 +52,7 @@ TEXT_FILES = [
     "pipeline_output/review/channel.json",
     "pipeline_output/review/reel_variants.json",
     "marker_feedback/pull.json",
+    "timeline_captures/reel13-live-20260911/reel13_live_state.json",
     "pipeline_output/provenance/p.json",
     "pipeline_output/quarantine/mark_20240101.json",
     "pipeline_output/quarantine/mark_20240101.md",

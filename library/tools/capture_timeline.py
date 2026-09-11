@@ -1,6 +1,26 @@
-"""READ-ONLY capture of a live Resolve timeline. Writes nothing to Resolve."""
-import json, sys, os
-sys.path.insert(0, os.environ["REPO"])
+"""READ-ONLY capture of a live Resolve timeline. Writes nothing to Resolve.
+
+Kept in the pipeline (moved out of a per-project captures/ drop zone):
+dumping a timeline's full item state is reusable diagnosis tooling for any
+Resolve timeline, and this script takes the timeline name and output path
+as arguments with no project constants baked in.
+
+Run as:
+
+    RESOLVE_SCRIPT_API=... RESOLVE_SCRIPT_LIB=... \
+      PYTHONPATH="$RESOLVE_SCRIPT_API/Modules" \
+      python3 -m library.tools.capture_timeline "<timeline name>" out.json
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+if os.environ.get("REPO"):
+    sys.path.insert(0, os.environ["REPO"])
+elif str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 import DaVinciResolveScript as dvr
 from library.tools.resolve_locale import scriptapp_preserving_locale
 
