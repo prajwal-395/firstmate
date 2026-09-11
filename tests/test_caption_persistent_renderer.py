@@ -6,7 +6,8 @@ process, one bundle, many cards - with zero callers, while step 4.05's
 this exact swap as its intended design. This file pins the wiring:
 
 * the step offers the persistent renderer BESIDE the subprocess one,
-  and the default is still the subprocess one;
+  and the default is the persistent one (captain's ruling, 2026-09-09);
+  the per-card subprocess path is the loud startup fallback;
 * the persistent renderer builds LAZILY - a pass that draws nothing
   pays nothing;
 * the two failure kinds stay distinct: a bad card returns
@@ -108,9 +109,14 @@ def test_the_default_renderer_is_now_the_persistent_one(monkeypatch,
             pass
 
     monkeypatch.setattr(r405, "PersistentCaptionRenderer", _Stub)
+    # Full-canvas carrying: the stubs write undecodable bytes, and the
+    # tight default would try to DECODE the probe off them. What is
+    # pinned here is WHICH renderer is built, not the tight path - so
+    # the carrying is explicit rather than left to the project default.
     out = r405.render_subtitle_overlays(
         plan, spine, project_folder=str(tmp_path),
-        remotion_dir=REMOTION)
+        remotion_dir=REMOTION,
+        overlay_geometry="full", overlay_container="video")
     assert len(built) == 1 and built[0] == REMOTION
     assert out["subtitle_overlay"]["renderer"] == "persistent"
 
@@ -135,9 +141,12 @@ def test_the_subprocess_path_stays_selectable(monkeypatch, tmp_path):
             pass
 
     monkeypatch.setattr(r405, "SubprocessRenderer", _Stub)
+    # Full-canvas carrying, as above: the stub draws bytes, not video,
+    # and what is pinned here is that the old path stays selectable.
     out = r405.render_subtitle_overlays(
         plan, spine, project_folder=str(tmp_path),
-        remotion_dir=REMOTION, renderer_kind="subprocess")
+        remotion_dir=REMOTION, renderer_kind="subprocess",
+        overlay_geometry="full", overlay_container="video")
     assert len(built) == 1 and built[0] == REMOTION
     assert out["subtitle_overlay"]["renderer"] == "subprocess"
     assert "renderer_fallback" not in out["subtitle_overlay"]
@@ -342,9 +351,13 @@ def test_a_renderer_that_cannot_start_falls_back_loudly(monkeypatch,
 
     monkeypatch.setattr(r405, "PersistentCaptionRenderer", _CannotStart)
     monkeypatch.setattr(r405, "SubprocessRenderer", _Subprocess)
+    # Full-canvas carrying: both stand-ins draw bytes, not video, and
+    # the tight default would try to decode a probe off them. The
+    # fallback being pinned is startup selection, not the tight path.
     out = r405.render_subtitle_overlays(
         plan, spine, project_folder=str(tmp_path),
-        remotion_dir=REMOTION)
+        remotion_dir=REMOTION,
+        overlay_geometry="full", overlay_container="video")
 
     overlay = out["subtitle_overlay"]
     assert overlay["available"] is True
@@ -423,3 +436,207 @@ def test_the_serve_path_renders_prores_4444_like_the_cli_path():
         os.path.join(REMOTION, "render-batch.mjs")).read())
     assert 'codec: "prores"' in script
     assert 'proResProfile: "4444"' in script
+
+
+# ── The unit-level default: one shared bundle-once renderer ──────────
+#
+# The pass-level default above is not where real caption work happens:
+# region redos, reel fixes and agent-driven renders reach
+# `render_one_segment` directly, and that unit built a fresh
+# per-card subprocess renderer per call - the shape that rendered 136
+# cards at 18.2s each on 2026-09-11 with no banner and no record. These
+# pin that the unit shares one bundle-once engine per process instead.
+
+def _unit_props(block=1, text="alpha", frames=30):
+    return {"_block_position": block, "_timeline_start": 0.0,
+            "_timeline_end": 1.0, "_source_in_frame": 0,
+            "_source_out_frame": frames, "_speaker": None,
+            "_source_clip_id": "clip_001", "_source_start": 0.0,
+            "_source_end": 1.0, "durationInFrames": frames, "fps": 30,
+            "width": 1080, "height": 1920, "style": {},
+            "subtitles": [{"text": text}]}
+
+
+def _unit_dirs(tmp_path):
+    rdir = str(tmp_path / "remotion")
+    os.makedirs(rdir)
+    out_dir = str(tmp_path / "out")
+    os.makedirs(out_dir)
+    return rdir, out_dir
+
+
+def test_unit_renders_without_a_renderer_share_one_engine(
+        monkeypatch, tmp_path, capsys):
+    """Two cards, no explicit renderer: ONE engine built, announced once.
+
+    Reverting the unit default to a per-call subprocess turns this red:
+    two cards would build two engines (or, with real node, draw real
+    pixels through two bundles instead of one)."""
+    r405._reset_shared_caption_renderers()
+    try:
+        built = []
+
+        class _Shared:
+            def __init__(self, remotion_dir):
+                built.append(remotion_dir)
+
+            def render(self, props_path, overlay_path, sequence=False):
+                with open(overlay_path, "wb") as handle:
+                    handle.write(b"pixels")
+                return True, ""
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(r405, "PersistentCaptionRenderer", _Shared)
+        rdir, out_dir = _unit_dirs(tmp_path)
+        first = r405.render_one_segment(
+            _unit_props(1, "alpha"), out_dir, "tl", remotion_dir=rdir,
+            overlay_geometry="full")
+        second = r405.render_one_segment(
+            _unit_props(2, "bravo"), out_dir, "tl", remotion_dir=rdir,
+            overlay_geometry="full")
+        assert first["provenance"] == "rendered"
+        assert second["provenance"] == "rendered"
+        assert len(built) == 1, (
+            f"two cards must share one engine, built: {built}")
+        assert "shared bundle-once" in capsys.readouterr().err
+    finally:
+        r405._reset_shared_caption_renderers()
+
+
+def test_unit_shared_start_failure_falls_back_loudly_and_once(
+        monkeypatch, tmp_path, capsys):
+    """A shared engine that never started falls back per-card, loudly.
+
+    In a process without node this is today's behavior exactly - and it
+    must SAY SO once, not per card, and must not retry the dead engine
+    on the second card."""
+    r405._reset_shared_caption_renderers()
+    try:
+        from library.tools.remotion_batch import RendererUnavailable
+        attempts = []
+
+        class _CannotStart:
+            def __init__(self, remotion_dir):
+                pass
+
+            def render(self, props_path, overlay_path, sequence=False):
+                attempts.append(overlay_path)
+                raise RendererUnavailable(
+                    "could not start the renderer: boom")
+
+            def close(self):
+                pass
+
+        drawn = []
+
+        class _Sub:
+            def __init__(self, remotion_dir):
+                pass
+
+            def render(self, props_path, overlay_path, sequence=False):
+                drawn.append(overlay_path)
+                with open(overlay_path, "wb") as handle:
+                    handle.write(b"pixels")
+                return True, ""
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(r405, "PersistentCaptionRenderer", _CannotStart)
+        monkeypatch.setattr(r405, "SubprocessRenderer", _Sub)
+        rdir, out_dir = _unit_dirs(tmp_path)
+        first = r405.render_one_segment(
+            _unit_props(1, "alpha"), out_dir, "tl", remotion_dir=rdir,
+            overlay_geometry="full")
+        second = r405.render_one_segment(
+            _unit_props(2, "bravo"), out_dir, "tl", remotion_dir=rdir,
+            overlay_geometry="full")
+        assert first["provenance"] == "rendered"
+        assert second["provenance"] == "rendered"
+        assert len(attempts) == 1, (
+            "the dead shared engine is tried once, not per card")
+        assert len(drawn) == 2
+        err = capsys.readouterr().err
+        assert "FALLBACK" in err and "shared bundle-once" in err
+    finally:
+        r405._reset_shared_caption_renderers()
+
+
+def test_unit_shared_death_after_serving_raises(monkeypatch, tmp_path):
+    """A shared engine that drew and then died is a mid-run death: it
+    RAISES rather than degrading quietly onto the slow path."""
+    r405._reset_shared_caption_renderers()
+    try:
+        from library.tools.remotion_batch import RendererUnavailable
+        calls = []
+
+        class _DiesSecond:
+            def __init__(self, remotion_dir):
+                pass
+
+            def render(self, props_path, overlay_path, sequence=False):
+                calls.append(overlay_path)
+                if len(calls) > 1:
+                    raise RendererUnavailable(
+                        "the renderer process exited (code -9)")
+                with open(overlay_path, "wb") as handle:
+                    handle.write(b"pixels")
+                return True, ""
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(r405, "PersistentCaptionRenderer", _DiesSecond)
+        rdir, out_dir = _unit_dirs(tmp_path)
+        first = r405.render_one_segment(
+            _unit_props(1, "alpha"), out_dir, "tl", remotion_dir=rdir,
+            overlay_geometry="full")
+        assert first["provenance"] == "rendered"
+        with pytest.raises(RendererUnavailable):
+            r405.render_one_segment(
+                _unit_props(2, "bravo"), out_dir, "tl", remotion_dir=rdir,
+                overlay_geometry="full")
+    finally:
+        r405._reset_shared_caption_renderers()
+
+
+def test_unit_frames_carrying_stays_per_card_subprocess(
+        monkeypatch, tmp_path, capsys):
+    """A sequence the bundle-once renderer cannot draw stays per-card -
+    and the persistent factory is never even built."""
+    r405._reset_shared_caption_renderers()
+    try:
+        def _boom_factory(remotion_dir):
+            raise AssertionError(
+                "frames must never build the persistent renderer")
+
+        drawn = []
+
+        class _SeqSub:
+            def __init__(self, remotion_dir):
+                drawn.append(remotion_dir)
+
+            def render(self, props_path, overlay_path, sequence=False):
+                assert sequence is True
+                os.makedirs(overlay_path, exist_ok=True)
+                for i in range(30):
+                    open(os.path.join(
+                        overlay_path, f"frame-{i:02d}.png"), "wb").close()
+                return True, ""
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(r405, "PersistentCaptionRenderer", _boom_factory)
+        monkeypatch.setattr(r405, "SubprocessRenderer", _SeqSub)
+        rdir, out_dir = _unit_dirs(tmp_path)
+        out = r405.render_one_segment(
+            _unit_props(1, "alpha"), out_dir, "tl", remotion_dir=rdir,
+            overlay_geometry="full", overlay_container="frames")
+        assert out["provenance"] == "rendered"
+        assert len(drawn) == 1
+        assert "frame-sequence" in capsys.readouterr().err
+    finally:
+        r405._reset_shared_caption_renderers()

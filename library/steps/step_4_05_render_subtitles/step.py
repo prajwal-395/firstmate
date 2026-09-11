@@ -54,6 +54,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from generate_remotion_props import generate_subtitle_props_per_block
@@ -505,6 +506,149 @@ class PersistentCaptionRenderer:
         return False        # never swallow the exception that got us here
 
 
+# ── The unit-level default: one shared bundle-once renderer ──
+#
+# `render_subtitle_overlays` builds ONE engine for the whole pass, but
+# most real caption work never enters that pass: region redos, reel
+# fixes and agent-driven renders reach `render_one_segment` directly
+# (the `subtitles.render_segment` operation), and that unit defaulted
+# to a fresh `SubprocessRenderer` PER CALL - a fresh node, bundle and
+# browser for the probe AND for the main render of every card, with no
+# banner and no record anywhere. Measured 2026-09-11 on the session's
+# own cards: that is the shape that rendered 136 cards at 18.2s each.
+# The persistent default has to live HERE, not only on the pass.
+_SHARED_CAPTION_ENGINES: dict = {}
+"""One `_SharedPersistentEngine` per process per remotion dir."""
+
+_SHARED_CAPTION_ENGINES_LOCK = threading.Lock()
+
+_SHARED_CAPTION_NOTES: set = set()
+"""One-time notes this process already printed. Loud once, never per card."""
+
+
+def _note_once(key: str, message: str) -> None:
+    """Print a renderer note on stderr the first time per process."""
+    if key not in _SHARED_CAPTION_NOTES:
+        _SHARED_CAPTION_NOTES.add(key)
+        print(message, file=sys.stderr)
+
+
+def _reset_shared_caption_renderers() -> None:
+    """Close and forget every shared unit renderer. Tests only.
+
+    Production never calls this: a process shares its bundle until it
+    exits, and a started inner renderer is closed by its own atexit
+    backstop (`library/tools/remotion_batch.py`).
+    """
+    for holder in list(_SHARED_CAPTION_ENGINES.values()):
+        closer = getattr(holder, "close", None)
+        if callable(closer):
+            closer()
+    _SHARED_CAPTION_ENGINES.clear()
+    _SHARED_CAPTION_NOTES.clear()
+
+
+class _SharedPersistentEngine:
+    """One bundle-once renderer shared by every unit render in this process.
+
+    The same two-method seam (`render` / `close`), so `render_one_segment`
+    cannot tell it apart from a renderer built for one pass. The adapter
+    inside builds lazily - constructing this starts nothing, and a process
+    whose cards all reuse pays no bundle - and a started inner renderer
+    rides its own atexit backstop, so nothing here needs closing for the
+    browser to die with the process.
+
+    The two failure kinds stay distinct, with the pass-level rule applied
+    per process instead of per pass: a startup failure (the shared
+    renderer never drew - `RendererUnavailable` before `_served`) falls
+    back to per-call subprocess LOUDLY and once, because in a process
+    without node that is today's behavior exactly. Anything later is a
+    mid-run death and RAISES, for the same reason the orchestrator stops
+    the pass rather than marching every remaining card into a closed pipe.
+    """
+
+    def __init__(self, remotion_dir: str):
+        self._remotion_dir = remotion_dir
+        self._engine = None
+        self._served = 0
+        self._dead = False
+
+    def _ensure(self):
+        if self._engine is None:
+            self._engine = PersistentCaptionRenderer(self._remotion_dir)
+        return self._engine
+
+    def render(self, props_path: str, overlay_path: str,
+               sequence: bool = False):
+        if self._dead:
+            return SubprocessRenderer(self._remotion_dir).render(
+                props_path, overlay_path, sequence=sequence)
+        try:
+            ok, error = self._ensure().render(
+                props_path, overlay_path, sequence=sequence)
+        except RendererUnavailable as exc:
+            if self._served:
+                raise
+            self._dead = True
+            closer = getattr(self._engine, "close", None)
+            if callable(closer):
+                closer()
+            self._engine = None
+            reason = str(exc).strip() \
+                or "the persistent renderer could not start"
+            _note_once(
+                "shared-persistent-fallback",
+                "FALLBACK: the shared bundle-once caption renderer could "
+                f"not START ({reason}); this process renders per-card - "
+                "a fresh browser and a fresh bundle for every card. "
+                "This run is SLOWER but the pixels are identical.")
+            return SubprocessRenderer(self._remotion_dir).render(
+                props_path, overlay_path, sequence=sequence)
+        self._served += 1
+        return ok, error
+
+    def close(self) -> None:
+        """Idempotent, like the renderer it holds."""
+        if self._engine is not None:
+            closer = getattr(self._engine, "close", None)
+            if callable(closer):
+                closer()
+            self._engine = None
+
+
+def _default_unit_engine(remotion_dir: str, container: str):
+    """The renderer a unit-level render uses when the caller passed none.
+
+    Video shares ONE bundle-once renderer per process per remotion dir,
+    announced once on stderr so a later log can say which path a session
+    took - the record the 2026-09-11 session never left. An explicit
+    `renderer` still wins over this, everywhere.
+    """
+    if container == "frames":
+        # The bundle-once renderer stitches video and cannot draw a frame
+        # sequence; a sequence reported as drawn would be success reported
+        # while the work did not happen. Per-call subprocess is today's
+        # behavior here, kept, and said once per process.
+        _note_once(
+            "shared-persistent-frames",
+            "note: frame-sequence carrying cannot use the shared "
+            "bundle-once renderer; this process renders sequences "
+            "per-card.")
+        return SubprocessRenderer(remotion_dir)
+    key = os.path.abspath(remotion_dir)
+    with _SHARED_CAPTION_ENGINES_LOCK:
+        holder = _SHARED_CAPTION_ENGINES.get(key)
+        if holder is None:
+            holder = _SharedPersistentEngine(remotion_dir)
+            _SHARED_CAPTION_ENGINES[key] = holder
+    _note_once(
+        "shared-persistent",
+        "caption renderer: one shared bundle-once process serves every "
+        f"card rendered in this process ({remotion_dir}); pass an "
+        "explicit renderer to use your own.")
+    return holder
+
+
 def _superseded_generations(out_dir: str, overlay_path: str) -> list:
     """Older generations of the card just rendered, still on disk.
 
@@ -560,6 +704,15 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     overlay, and stale-but-reported-fresh is the defect class this
     refactor exists to remove.  A caller asking for a region, or asking
     for reuse outright, opts in.
+
+    Without an explicit `renderer` the unit shares the process-wide
+    bundle-once engine: one node process, one bundle, every card this
+    process renders - announced once on stderr, so a later log says
+    which path a session took. A frame-sequence carrying (`frames`)
+    cannot use it and renders per-card, said once; a shared engine
+    that never started falls back per-card loudly and once, while one
+    that dies mid-run raises rather than degrading silently. An
+    explicit renderer still wins over all of this.
 
     A skip requires BOTH the overlay and its recorded reuse key to be on
     disk and to match - never mere presence.  The filename carries the
@@ -880,7 +1033,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     probe_frames = None
     probe_union = None
     if geometry == "tight":
-        probe_engine = renderer or SubprocessRenderer(remotion_dir)
+        probe_engine = renderer or _default_unit_engine(
+            remotion_dir, container)
         try:
             tight, probe_tmpdir, probe_frames, probe_union = \
                 _probe_tight_box(
@@ -922,7 +1076,10 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # Render.  WHICH cards render and what comes back is this function's
     # business; HOW one card is turned into pixels is the renderer's, and
     # the two are deliberately separable - see `SubprocessRenderer`.
-    engine = renderer or SubprocessRenderer(remotion_dir)
+    # Without an explicit renderer the unit shares the process-wide
+    # bundle-once engine (`_default_unit_engine`), so a caller rendering
+    # card by card still pays one bundle, not one per card.
+    engine = renderer or _default_unit_engine(remotion_dir, container)
     ok, error = engine.render(props_path, overlay_path,
                               sequence=is_frames)
     if not ok:
