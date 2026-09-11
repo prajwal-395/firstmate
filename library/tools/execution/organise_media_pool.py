@@ -641,6 +641,7 @@ def organise_project(project, project_folder: str,
         plan_dead_render_bins,
         plan_retirements,
         render_bin_census,
+        scratch_report,
     )
 
     plan, artefacts, duplicates, _recorded = plan_for_project(
@@ -663,6 +664,12 @@ def organise_project(project, project_folder: str,
               "declined": [dict(path=list(d["path"]), why=d["why"])
                            for d in declined],
               "held_for_dead_sweep": [],
+              # Read from the same pass as the plan, so the report
+              # cannot disagree with the filing about which scratches
+              # are where. Said on every run: a scratch that outlives
+              # its promotion is reported by name instead of waiting
+              # to be discovered by the captain.
+              "scratch": scratch_report(artefacts, project_folder),
               "census": render_bin_census(artefacts, list(tree),
                                           retirements, declined=declined)}
     if apply:

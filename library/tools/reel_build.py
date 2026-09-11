@@ -115,6 +115,7 @@ import os
 
 from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
+from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_lock import assert_current_timeline
 from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
@@ -3651,10 +3652,23 @@ def create_reel_timeline(pool, name: str):
     here rather than repaired afterwards by the organiser, and the
     current folder is restored so the next call inherits nothing from
     this one.
+
+    A staging or scratch timeline is NEVER created in the reels bin:
+    it goes to the dedicated scratch bin
+    (`resolve_bin_layout.SCRATCH_BIN`), outside every bin the captain
+    reviews - measured 2026-09-11, when three `(scratch fm-restore...)
+    (rebuild staging)` timelines sat in `05 - Reels` beside the
+    captain's own Reel 13 and took their feedback marker. This function
+    is the choke point every build places through (`build_reel_timeline`
+    below is the only caller), so one branch here covers every build
+    path rather than a patch per call site.
     """
     from library.tools import resolve_bin_layout as bins
 
-    dest = _ensure_bin_path(pool, (bins.REELS_BIN,))
+    if bins.is_scratch_timeline(name):
+        dest = _ensure_bin_path(pool, (bins.SCRATCH_BIN,))
+    else:
+        dest = _ensure_bin_path(pool, (bins.REELS_BIN,))
     before = pool.GetCurrentFolder()
     try:
         pool.SetCurrentFolder(dest)
@@ -4743,8 +4757,13 @@ def built_name(moment, name_suffix: str = "") -> str:
     return f"{moment.timeline_name}{name_suffix}"
 
 
-STAGING_SUFFIX = " (rebuild staging)"
+STAGING_SUFFIX = bins.STAGING_TIMELINE_SUFFIX
 """What a rebuild is placed INTO before the gate passes.
+
+An alias, not a declaration: `resolve_bin_layout` owns the spelling
+so the build and the bin layout cannot drift apart - the layout uses
+it to recognise a staging timeline and route it to the scratch bin.
+See `STAGING_TIMELINE_SUFFIX` for the contract.
 
 The container a reel is graded in is never the approved timeline it
 may replace: the build stages into `<final>{STAGING_SUFFIX}`, the
@@ -5052,6 +5071,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     if organise:
         from library.tools.execution.organise_media_pool import (
             organise_project, render_unplaced)
+        from library.tools.resolve_organization import (
+            render_scratch_report)
         organised = organise_project(
             project, project_folder, master_timeline_name, apply=True)
         print(f"Filed {len(organised['journal']['moves'])} media-pool "
@@ -5059,6 +5080,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"resolve-organize --revert "
               f"{organised['journal']['journal_path']}", flush=True)
         print(render_unplaced(organised["unplaced"]), flush=True)
+        print(render_scratch_report(organised["scratch"]), flush=True)
 
     # The sweep runs HERE, on every build, because this is the moment
     # the project is settled: the reels carry their final names, the

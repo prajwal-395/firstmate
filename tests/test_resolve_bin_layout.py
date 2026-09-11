@@ -36,7 +36,8 @@ def test_timeline_bins_say_they_hold_no_files():
     assert {b.name for b in timelines_only} == {
         "04 - Master", "05 - Reels", "05 - Reels/Archive",
         "05 - Reels/Current plan", "05 - Reels/Earlier plans",
-        "05 - Reels/Proof", "05 - Reels/Unrecorded"}
+        "05 - Reels/Proof", "05 - Reels/Unrecorded",
+        "09 - Firstmate scratch"}
     for b in timelines_only:
         assert "only in resolve" in b.purpose.lower().replace("resolve,", "resolve"), (
             f"{b.name} holds timelines and must say they live only in Resolve")

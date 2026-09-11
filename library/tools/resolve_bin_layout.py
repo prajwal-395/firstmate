@@ -77,6 +77,52 @@ reels. A timeline firstmate built to prove the timeline SOP
 (`SOP Proof_...`) is not one of the captain's cuts, and its captions
 landing beside theirs is what made the pool read as one flat mess."""
 
+SCRATCH_BIN = "09 - Firstmate scratch"
+"""Where a staging or scratch timeline is CREATED, never among the
+captain's reels. Measured 2026-09-11: three `(scratch fm-restore...)
+(rebuild staging)` timelines sat in `05 - Reels` beside the captain's
+own Reel 13, one level shallower than it, and the captain placed
+feedback on a throwaway. A scratch is never the newest thing next to
+a deliverable when it cannot be created next to one:
+`reel_build.create_reel_timeline` routes every scratch-named timeline
+here, and the organiser files a scratch-named timeline found anywhere
+else back here. Outside every bin the captain reviews, by construction
+rather than by tidying afterwards.
+
+Top-level and last in the numbered sort, so it sits below the
+deliverables (`08 - Exports`) rather than between the captain's bins.
+Timelines live only in Resolve, so like the reels bins it mirrors no
+single Area; the renders a scratch places still file by which timeline
+places them, under the render bins.
+"""
+
+STAGING_TIMELINE_SUFFIX = " (rebuild staging)"
+"""What a rebuild is placed INTO before the gate passes. The single
+canonical spelling: `reel_build.STAGING_SUFFIX` aliases this, so the
+build and the bin layout cannot drift apart."""
+
+SCRATCH_NAME_MARKER = "(scratch "
+"""The other half of the scratch family: hand-made restore scratches
+(`... (scratch fm-restore) (rebuild staging)`) carry this alongside
+the staging suffix above. Names get hand-edited, so the BIN is the
+authority once placed - this marker only decides where a CREATION
+lands, beside the suffix."""
+
+
+def is_scratch_timeline(name: str) -> bool:
+    """Is this timeline name a staging or scratch container?
+
+    The creation-side classifier: `create_reel_timeline` routes these
+    to `SCRATCH_BIN`, and the organiser files them back there when
+    found elsewhere. Keyed on the name because nothing else
+    distinguishes a new staging timeline; keyed NARROWLY (the staging
+    suffix, the scratch marker) because a hand-edited name must not
+    sweep a deliverable in - and because the bin, not the name, is the
+    authority for what is already placed.
+    """
+    return (name or "").endswith(STAGING_TIMELINE_SUFFIX) \
+        or SCRATCH_NAME_MARKER in (name or "")
+
 SUBTITLES_BIN = "06 - Subtitle renders"
 MOTION_GRAPHICS_BIN = "07 - Motion graphics"
 SOURCE_BIN = "Source footage"
@@ -191,6 +237,13 @@ BINS: tuple[Bin, ...] = (
         "lifetime as the subtitle bin."),
     Bin(("08 - Exports",), Area.EXPORTS,
         "Finished renders handed to the captain. What the run is for."),
+    Bin((SCRATCH_BIN,), None,
+        "Staging and scratch timelines firstmate builds before promotion. "
+        "Timelines live only in Resolve, so this bin mirrors no Area - "
+        "it is where a throwaway sits so it is never the newest thing "
+        "beside a deliverable. The build creates here, never in the "
+        "reels bins; the organiser files a scratch found elsewhere back "
+        "here."),
 )
 
 BIN_PATHS = tuple(b.path for b in BINS)

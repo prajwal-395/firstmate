@@ -149,6 +149,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from library.tools import resolve_bin_layout as bins
+from library.tools import staging_holds as holds
 
 BIN_REELS = bins.REELS_BIN
 """Alias, not a declaration: `resolve_bin_layout` owns every bin path
@@ -174,6 +175,10 @@ per-timeline bins, and the second place a dead reel's leaf can stand."""
 BIN_PROOF = bins.REELS_PROOF_BIN
 """Leaf name of the bin firstmate's proof timelines file under. An
 alias like the rest."""
+
+BIN_SCRATCH = bins.SCRATCH_BIN
+"""The dedicated scratch bin staging timelines are created in and
+filed back to. An alias like the rest: `resolve_bin_layout` owns it."""
 
 CURRENT = "current"
 EARLIER = "earlier"
@@ -227,12 +232,14 @@ def timeline_folder_managed(folder: Sequence[str]) -> bool:
 TIMELINE_BINS = frozenset(
     [(BIN_REELS, STATE_BINS[state]) for state in STATES]
     + [(BIN_REELS, BIN_PROOF), (BIN_REELS,)]
+    + [(BIN_SCRATCH,)]
     + [(LEGACY_REELS_BIN, bins.REEL_STATE_BINS[state])
        for state in STATES]
     + [(LEGACY_REELS_BIN,)])
 """The only bins a reel timeline is ever filed OUT of: root (unfiled),
-the canonical state and proof bins, the canonical reels root, and the
-retired scheme's equivalents of the state bins and root.
+the canonical state and proof bins, the canonical reels root, the
+scratch bin, and the retired scheme's equivalents of the state bins
+and root.
 
 A timeline sitting anywhere else - `Reels/Fully approved`, a review
 bin, an archive - is where a HUMAN put it, and the plan emits no
@@ -408,6 +415,12 @@ def plan_organization(artefacts: Sequence[Artefact],
                 dest = (BIN_REELS, BIN_PROOF)
                 why = ("firstmate's proof timeline, filed apart from the "
                        "captain's reels")
+                state = None
+            elif bins.is_scratch_timeline(a.name):
+                dest = (BIN_SCRATCH,)
+                why = ("a staging or scratch timeline, filed in the "
+                       "dedicated scratch bin outside the reels bins - "
+                       "never the newest thing next to a deliverable")
                 state = None
             else:
                 state, why = states[a.name]
@@ -630,6 +643,111 @@ def unplaced_report(artefacts: Sequence[Artefact],
         "shared_with_placed": tuple(p for p in paths if p in placed_paths),
         "bins": tuple(holding),
     }
+
+
+def scratch_report(artefacts: Sequence[Artefact],
+                   project_folder: str) -> dict:
+    """Staging and scratch timelines still in the pool, and which of
+    them have outlived their promotion.
+
+    Measured 2026-09-11: three `(scratch fm-restore...) (rebuild
+    staging)` timelines sat in `05 - Reels` until the captain found
+    them - no run had ever said they were still there. So every run
+    says: `present` names them all, `held` are pending a promotion the
+    holds file records (with what each awaits and how long it has
+    waited), and `outlived` are under no hold - their promotion, if it
+    ever happens, already did, and they are clutter the next run will
+    name again rather than discover by accident.
+
+    `misplaced` are scratch timelines sitting anywhere but the scratch
+    bin - the placement the build guarantees and the plan repairs, said
+    here by name and bin so a hand-duplicated scratch is noticed on the
+    run that finds it, not the review that trips over it.
+
+    Nothing here deletes: a scratch beside a pending promotion is
+    exactly what the holds guard (`library/tools/staging_holds.py`)
+    keeps, and removing any other timeline by name needs the captain's
+    authority for that name (`library/tools/proof_cleanup.py`), not a
+    second sweep. The safe automatic removal the sweep already owns is
+    the holds-aware proof path; this report drives the operator to it
+    rather than duplicating it.
+
+    An unreadable holds file does not read as empty: `held` and
+    `outlived` stay unknown and `holds_unreadable` carries the refusal
+    loudly, while `present` and `misplaced` - which need no holds - are
+    still reported. The plan and the filing never depend on this; the
+    report is advisory, so a corrupt holds file degrades the report
+    rather than refusing the organise.
+    """
+    present = sorted(
+        a.name for a in artefacts
+        if a.kind == "timeline" and bins.is_scratch_timeline(a.name))
+    misplaced = sorted(
+        {(a.name, "/".join(a.folder_path) or "(root)")
+         for a in artefacts
+         if a.kind == "timeline" and bins.is_scratch_timeline(a.name)
+         and tuple(a.folder_path) != (BIN_SCRATCH,)})
+    try:
+        held_entries = holds.read_holds(project_folder)
+    except holds.HoldsUnreadable as unreadable:
+        return {"present": present, "held": [], "outlived": [],
+                "misplaced": misplaced,
+                "holds_unreadable": str(unreadable)}
+    present_set = set(present)
+    held = sorted(
+        ({"name": name,
+          "awaiting": (held_entries[name] or {}).get("awaiting"),
+          "age": holds.hold_age(held_entries[name])}
+         for name in present_set & set(held_entries)),
+        key=lambda entry: entry["name"])
+    outlived = sorted(present_set - set(held_entries))
+    return {"present": present, "held": held, "outlived": outlived,
+            "misplaced": misplaced, "holds_unreadable": ""}
+
+
+def render_scratch_report(report: dict) -> str:
+    """The scratch timelines, in the sentences an operator has to read.
+
+    Said on every organise and every build, even when there is nothing
+    to say: a run that names its scratches is one the captain never
+    has to audit by hand.
+    """
+    if report.get("holds_unreadable"):
+        lines = [
+            f"  Staging holds unreadable: {report['holds_unreadable']}",
+        ]
+        if report.get("present"):
+            lines.append(
+                "  Scratch timelines still in the pool (hold status "
+                "unknown until the holds file is inspected): "
+                + ", ".join(repr(n) for n in report["present"]) + ".")
+        return "\n".join(lines)
+    if not report.get("present"):
+        return ("  No staging or scratch timelines in the pool - nothing "
+                "is waiting on a promotion and nothing outlived one.")
+    lines = []
+    for name, folder in report.get("misplaced", []):
+        lines.append(
+            f"  Scratch timeline {name!r} sits in "
+            f"{folder!r}, not the scratch bin "
+            f"{BIN_SCRATCH!r} - the organiser files it back; "
+            f"a scratch beside a deliverable is where misplaced "
+            f"feedback comes from.")
+    for entry in report.get("held", []):
+        awaiting = entry.get("awaiting")
+        waits = (f"awaiting promotion to {awaiting!r}"
+                 if awaiting else "awaiting an explicit promotion decision")
+        lines.append(
+            f"  Scratch timeline {entry['name']!r} is HELD - {waits} "
+            f"({entry.get('age', '')} ago). The sweep keeps it until "
+            f"promotion releases the hold.")
+    for name in report.get("outlived", []):
+        lines.append(
+            f"  Scratch timeline {name!r} is still here under NO "
+            f"pending-promotion hold - it outlived its purpose. Promote "
+            f"it, or remove it by hand; the sweep never takes an "
+            f"unlisted name silently.")
+    return "\n".join(lines)
 
 
 def pool_tree_report(artefacts: Sequence[Artefact]) -> str:
