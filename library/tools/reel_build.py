@@ -5187,8 +5187,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        REFUSES - with the exact declaration that would proceed
        deliberately - unless the caller named that row in
        `allow_drops`. A retiring timeline that cannot be read refuses
-       rather than passing. NOTHING is renamed before this passes, so
-       a refusal leaves every timeline exactly as it was;
+       rather than passing. The diff is PER REEL: a reel that passes
+       promotes while a refused sibling stays staged, so one refusal
+       can never discard work that passed (the 2026-09-11 round lost
+       three buildable reels this way). NOTHING for a passing reel is
+       held back by a failing one, and nothing for a refused reel is
+       renamed - its staging, baselines and hold remain, and the
+       refusal names only itself;
     1. the approved original, where one exists, is renamed to its
        backup name - nothing is deleted and nothing is lost;
     2. the staging is renamed to the final name - each `SetName` is
@@ -5226,7 +5231,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
 
     Returns `{"promoted": [final names...], "organised": ...,
     "replace_reports": {final: guard report...},
+    "refused": {final: refusal text...},
     "markers": {final: {"carried": [...], "uncarried": [...]}}}`.
+
+    A partial refusal still RAISES - automation must not read it as
+    clean - after the passing reels have fully promoted (renames,
+    sidecars, holds, filing). The raise names only the refused
+    reel(s) with their guard text, lists what already promoted, and
+    states that the refused stagings remain in the project with
+    their baselines and holds intact for a deliberate re-run.
     """
     if not staged_to_final:
         return {"promoted": [], "organised": None}
@@ -5269,6 +5282,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         raise ReelBuildError(
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
     replace_reports = {}
+    refused = {}
     # The captain's typed notes, read off each RETIRING timeline before
     # anything is renamed (`library/tools/marker_carry.py`). Promotion
     # replaces the timeline object, so its markers go with it - which
@@ -5277,11 +5291,11 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # the picture under them still plays in the replacement.
     from library.tools import marker_carry as _markers
     carried_markers = {}
-    try:
-        for final in finals:
-            if final not in originals:
-                continue
-            staging = staged_to_final[final]
+    for final in finals:
+        if final not in originals:
+            continue
+        staging = staged_to_final[final]
+        try:
             retired_rows = _guard.snapshot_timeline(
                 originals[final], final, side="retiring")
             incoming_rows = _guard.snapshot_timeline(
@@ -5299,20 +5313,21 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 _markers.report(final, keep, lost)
                 carried_markers[final] = {"carried": keep,
                                           "uncarried": lost}
-    except _guard.ReplaceGuardUnreadable as unreadable:
-        raise ReelBuildError(
-            f"REFUSING to promote: {unreadable} Nothing was renamed; "
-            f"the approved timelines are still in the project.") \
-            from unreadable
-    except _markers.MarkerCarryUnreadable as unreadable:
-        raise ReelBuildError(
-            f"REFUSING to promote: {unreadable} Nothing was renamed; "
-            f"the approved timelines are still in the project.") \
-            from unreadable
-    except _guard.ReplaceGuardRefused as refused:
-        raise ReelBuildError(str(refused)) from refused
+        except _guard.ReplaceGuardUnreadable as unreadable:
+            refused[final] = (
+                f"REFUSING to promote {final!r}: {unreadable} Nothing "
+                f"for this reel was renamed; its approved timeline is "
+                f"still in the project.")
+        except _markers.MarkerCarryUnreadable as unreadable:
+            refused[final] = (
+                f"REFUSING to promote {final!r}: {unreadable} Nothing "
+                f"for this reel was renamed; its approved timeline is "
+                f"still in the project.")
+        except _guard.ReplaceGuardRefused as guard_refused:
+            refused[final] = str(guard_refused)
+    ok_finals = [final for final in finals if final not in refused]
 
-    for final in finals:
+    for final in ok_finals:
         staging = staged_to_final[final]
         if final in originals:
             if not originals[final].SetName(backups[final]):
@@ -5322,14 +5337,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                     f"was deleted and the staging {staging!r} is "
                     f"untouched - re-run once Resolve allows renames.")
             print(f"Retired {final} to {backups[final]}", flush=True)
-    for final in finals:
+    for final in ok_finals:
         staging = staged_to_final[final]
         if not staged_found[staging].SetName(final):
             raise ReelBuildError(
                 f"REFUSING to promote: Resolve would not rename staging "
                 f"{staging!r} to {final!r}. The approved content is "
                 f"safe under "
-                f"{[backups[f] for f in finals if f in originals]} - "
+                f"{[backups[f] for f in ok_finals if f in originals]} - "
                 f"rename it back in Resolve and re-run.")
         print(f"Promoted {staging} to {final}", flush=True)
         notes = carried_markers.get(final)
@@ -5343,16 +5358,30 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # The baselines were filed under the staging containers the gate
     # graded; the claim is renamed to the final names, which carry the
     # same cards over the same footage. `{old: new}` throughout.
-    claimed = {staging: final for final, staging in staged_to_final.items()}
+    # Scoped to the reels that actually promoted: a refused reel's
+    # staging, baselines and hold stay exactly as they were, so the
+    # refusal can be re-driven deliberately without rebuilding what
+    # already landed.
+    promoted_claimed = {staged_to_final[final]: final
+                        for final in ok_finals}
+    if not ok_finals:
+        lines = [
+            f"REFUSING to promote {len(refused)} reel(s): "
+            f"{sorted(refused)}. Nothing was renamed; the approved "
+            f"timelines are still in the project."]
+        for final in finals:
+            if final in refused:
+                lines.append(refused[final])
+        raise ReelBuildError("\n".join(lines))
     from library.tools.plan_provenance import rename_reel_entries
-    rename_reel_entries(review_dir, claimed)
-    _rename_overlay_records(review_dir, claimed)
+    rename_reel_entries(review_dir, promoted_claimed)
+    _rename_overlay_records(review_dir, promoted_claimed)
     from library.tools.explainer_plan import rename_plan_reels
-    rename_plan_reels(project_folder, claimed)
+    rename_plan_reels(project_folder, promoted_claimed)
     from library.tools.reel_semantic_visual import rename_record_reels
-    rename_record_reels(project_folder, claimed)
+    rename_record_reels(project_folder, promoted_claimed)
     from library.tools.reel_semantic_visual import rename_span_record_reels
-    rename_span_record_reels(project_folder, claimed)
+    rename_span_record_reels(project_folder, promoted_claimed)
     # The render ledger binds each caption to the timeline it was
     # rendered for, and it is read as a reference ROOT. Left naming the
     # staging container this promotion just renamed away, every entry
@@ -5366,7 +5395,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         renamed = rename_ledger_timelines(
             str(ProjectLayout(project_folder).read_dir(
                 Area.SUBTITLE_SEGMENTS)),
-            claimed)
+            promoted_claimed)
         if renamed["renamed"]:
             print(f"Re-pointed {renamed['renamed']} render-ledger "
                   f"binding(s) at the promoted names", flush=True)
@@ -5376,8 +5405,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"entries still name the staging timeline, so their files "
               f"stay LIVE and nothing is swept", file=_sys.stderr)
 
-    backup_timelines = timelines_to_replace(project, set(backups.values()))
-    assert_deletion_scope(backup_timelines, set(backups.values()))
+    promoted_backups = {backups[final] for final in ok_finals}
+    backup_timelines = timelines_to_replace(project, promoted_backups)
+    assert_deletion_scope(backup_timelines, promoted_backups)
     if backup_timelines:
         pool.DeleteTimelines(backup_timelines)
 
@@ -5385,12 +5415,16 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # approved timelines under their final names - so their pending
     # holds go (issue #971). Released AFTER the renames, so a failed
     # promotion keeps every hold; and BEFORE the organise/sweep
-    # below, which is tidying, not promotion. A suffix verification
-    # build keeps its suffixed-final hold: that container still
-    # awaits a human promotion decision, and only an explicit
+    # below, which is tidying, not promotion. A refused reel's hold
+    # stays: its staging is still pending, and the sweep must keep
+    # refusing it loudly rather than sweeping it. A suffix
+    # verification build keeps its suffixed-final hold: that container
+    # still awaits a human promotion decision, and only an explicit
     # release (or a later promotion naming it as staging) ends it.
     from library.tools import staging_holds as _holds
-    _holds.release_holds(project_folder, list(staged_to_final.values()))
+    _holds.release_holds(
+        project_folder,
+        [staged_to_final[final] for final in ok_finals])
 
     organised = None
     if organise:
@@ -5425,9 +5459,33 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             print(f"  build sweep refused ({sweep_failed}) - nothing "
                   f"further was removed; the reels are unaffected",
                   file=_sys.stderr)
-    return {"promoted": finals, "organised": organised, "swept": swept,
+    if refused:
+        _raise_partial_promotion(finals, ok_finals, refused)
+    return {"promoted": ok_finals, "organised": organised, "swept": swept,
             "replace_reports": replace_reports,
+            "refused": dict(refused),
             "markers": carried_markers}
+
+
+def _raise_partial_promotion(finals, ok_finals, refused) -> None:
+    """The refusal half of a partially promoted batch, naming only itself.
+
+    The passing reels already fully promoted above (renames, sidecars,
+    holds, filing) before this raises, so nothing that passed is
+    discarded because a sibling failed. Each refused reel's staging
+    container, baselines and hold remain in place for a deliberate
+    re-run.
+    """
+    lines = [
+        f"Promoted {len(ok_finals)} reel(s): {sorted(ok_finals)}. "
+        f"REFUSING to promote {len(refused)} reel(s): "
+        f"{sorted(refused)}. The refused staging containers remain in "
+        f"the project with their baselines and holds; their approved "
+        f"timelines are untouched."]
+    for final in finals:
+        if final in refused:
+            lines.append(refused[final])
+    raise ReelBuildError("\n".join(lines))
 
 
 def _organise_after_refusal(project, project_folder: str,
@@ -5776,6 +5834,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"captain_edits cannot be read: {exc}. A recorded pin the "
             f"build cannot read must refuse, never build silently past "
             f"it.") from exc
+    _pin_applied: list = []
     if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
         moments, _pin_applied, _pin_held, _pin_stale = \
             _edits.apply_closer_redraws(moments, transcript, _pin_edits)
@@ -5868,6 +5927,71 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"{sorted(t.GetName() for t in stale_backups)}. They hold "
             f"approved content a previous run moved aside. Restore or "
             f"delete them in Resolve and re-run.")
+
+    # Measure before building: the cross-reel census runs FIRST, on
+    # every multi-reel build, whether or not anyone remembers. It reads
+    # the existing final timelines this call is about to replace -
+    # read-only, minutes - and PRINTS where the same kind of element
+    # sits in materially different places, which is the signal a
+    # decision is owed before the build, not after (2026-09-11: the
+    # caption row census existed only after a build, a refusal and a
+    # discard). Advisory only, never a refusal: a legitimate difference
+    # is allowed and a build must not be hostage to a warning.
+    try:
+        from library.tools import reel_prebuild_census as _census
+        prebuild_census = _census.report_prebuild(
+            project, list(staged_to_final))
+    except Exception as census_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  pre-build census unavailable ({census_failed}) - "
+              f"building without it", file=_sys.stderr)
+        prebuild_census = {"unavailable": str(census_failed)}
+
+    # Proof in proportion to the edit: what verification THIS build
+    # owes, computed from real state and SAID before anything is
+    # placed (`library/tools/proof_scope.py`). A new plan, a run with
+    # shared-state declarations, or a census that disagreed earns the
+    # full burden; a re-run of the recorded plan earns stills for the
+    # reels without prior proof and no post-build census past the
+    # pre-build report above. Guidance, never a gate: it prints and
+    # records, it cannot fail. The kind never scales - stills are real
+    # pixels, never read-backs, at every level.
+    try:
+        from library.tools import proof_scope as _proof_scope
+        _shared_declarations: list = []
+        if allow_drops:
+            _shared_declarations.append("allow-drops declared")
+        if keep_insistences:
+            _shared_declarations.append(
+                f"{len(keep_insistences)} keep insistence(s) recorded")
+        if keep_exclusions:
+            _shared_declarations.append(
+                f"{len(keep_exclusions)} keep exclusion(s) recorded")
+        if _pin_applied:
+            _shared_declarations.append(
+                f"{len(_pin_applied)} closer redraw(s) applied")
+        if overlay_intent:
+            _shared_declarations.append("overlay intent pins recorded")
+        _proof_inputs = _proof_scope.build_inputs(
+            os.path.join(project_folder, "pipeline_output", "review"),
+            proposal_path, list(staged_to_final))
+        proof_scope_record = _proof_scope.report_scope(
+            _proof_scope.scope_for_build(
+                reels=list(staged_to_final),
+                plan_is_new=bool(_proof_inputs["plan_is_new"]),
+                shared_declarations=_shared_declarations,
+                disagreement_reported=bool(
+                    (prebuild_census or {}).get("disagreements")),
+                reels_without_prior_proof=list(
+                    _proof_inputs["reels_without_prior_proof"])))
+    except Exception as scope_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  proof scope unavailable ({scope_failed}) - prove fully",
+              file=_sys.stderr)
+        proof_scope_record = {"level": "FULL",
+                              "stills": list(staged_to_final),
+                              "census": "full",
+                              "reasons": ["scope could not be computed"]}
 
     # Pending-promotion holds (issue #971): every staging container
     # this call is about to place is held against the cleanup sweep
@@ -6665,6 +6789,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # left empty (`library/tools/reel_look.py`, MOTION_BASES).
         "look": reel_look_decl,
         "picture_motion": motion_records,
+        # What verification this build owes, computed pre-build from
+        # real state (`library/tools/proof_scope.py`) - FULL for a new
+        # mechanism, stills-for-changed-regions for a re-run. Guidance
+        # the build printed, never a gate.
+        "proof_scope": proof_scope_record,
     }
 
 

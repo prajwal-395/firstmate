@@ -20,13 +20,42 @@ not):
 
 - a row of the retiring timeline that the incoming one does not have
   at all (a whole feature class gone);
-- a row the incoming one holds FEWER items on.
+- a row the incoming one holds FEWER items on, unless it reads as a
+  JOIN (below).
 
-Frame totals are REPORTED per row, never a trigger: a shortened cut
-holds the same items over fewer frames, and that must pass. Grain
-removed and a j-cut deleted likewise move no item count, which is why
-a count trigger is not a nuisance for the legitimate reductions the
-captain actually makes.
+Frame totals are REPORTED per row, and join the trigger as the join
+half: a shortened cut holds the same items over fewer frames, and
+that must pass. Grain removed and a j-cut deleted likewise move no
+item count, which is why a count trigger is not a nuisance for the
+legitimate reductions the captain actually makes.
+
+A join is not a loss
+--------------------
+Keep insistence `lc-0004` withdrew a take cut, so two adjacent Craig
+clips placed as two items became one item placed over MORE frames -
+and the count trigger read the merge as content lost. A count drop
+with the frames kept or grown is a merge, not a deletion, PROVIDED
+every retired item's name still plays on the incoming row: names are
+the source-coverage proxy this snapshot carries (name plus span is
+already the diff's whole identity - `_item_identity` - and reel rows
+carry source names, so two halves of one source share one name while
+a dropped cover like `LC4932 cover` has one nothing else carries).
+
+So a row with fewer incoming items is a JOIN, and passes undeclared,
+exactly when the incoming row holds at least as many frames AND
+every distinct retired name still occurs among the incoming items.
+Both halves are load-bearing, and the round's own cutaway is the
+counter-example that proves frames alone are not enough: that loss
+went 3 items to 2 over EQUAL frames (hole closed), so a frames-only
+rule would have waved a real deletion through. Names refuse it.
+
+What this still cannot see, stated plainly: a substitution that keeps
+every name and grows the frames - one same-named item's seconds
+swapped for another's - passes. Timeline spans cannot tell those
+seconds apart; the guard never saw source ranges, before or now, so
+this is the standing limit of a span-based diff, not a new hole.
+A same-name substitution that SHRINKS the frames still refuses on
+the count drop without join cover.
 
 What a declared reduction looks like
 ------------------------------------
@@ -188,6 +217,29 @@ def _declared(key: str, name: str, allowed: set) -> bool:
     return key in allowed or name in allowed
 
 
+def _is_join(old: dict, new: dict) -> bool:
+    """Whether a row's item-count drop reads as a merge, not a deletion.
+
+    `old` and `new` are one row's snapshot halves (`snapshot_timeline`
+    rows: `items` of name/start/end/duration, plus `count` and
+    `frames`). A withdrawn take cut merges two adjacent placements
+    into one continuous one: fewer items, at least as many frames
+    (the restored seconds are back in), every retired name still on
+    the row. All three must hold - the cutaway loss this guard first
+    caught proves frames alone are not sufficient (3 items to 2 over
+    equal frames, with `LC4932 cover` gone), and names alone are not
+    either (a shrunken same-named row keeps every name while losing
+    seconds).
+    """
+    if new["count"] >= old["count"]:
+        return False
+    if (new["frames"] or 0) < (old["frames"] or 0):
+        return False
+    incoming_names = {entry["name"] for entry in new["items"]}
+    return all(entry["name"] in incoming_names
+               for entry in old["items"])
+
+
 def parse_specs(raw, finals) -> dict:
     """Raw caller specs to the per-final mapping the check reads.
 
@@ -250,11 +302,18 @@ def check_replacement(final: str, staging: str, retired: dict,
     """
     allowed = set(allowed or ())
     verdicts = diff_rows(retired, incoming)
+    for verdict in verdicts:
+        old, new = retired[verdict["key"]], incoming.get(verdict["key"])
+        verdict["joined"] = bool(
+            new is not None and not verdict["lost_row"] and _is_join(old, new))
     reduced = [verdict for verdict in verdicts
-               if verdict["lost_row"]
-               or verdict["incoming_count"] < verdict["retired_count"]]
+               if (verdict["lost_row"]
+                   or verdict["incoming_count"] < verdict["retired_count"])
+               and not verdict["joined"]]
     losses = [verdict for verdict in reduced
               if not _declared(verdict["key"], verdict["name"], allowed)]
+    joined_keys = sorted({verdict["key"] for verdict in verdicts
+                          if verdict["joined"]})
     covered = sorted({verdict["key"] for verdict in reduced
                       if _declared(verdict["key"], verdict["name"], allowed)})
     reduced_keys = ({verdict["key"] for verdict in reduced}
@@ -265,6 +324,7 @@ def check_replacement(final: str, staging: str, retired: dict,
         "staging": staging,
         "rows": verdicts,
         "allowed": covered,
+        "joined": joined_keys,
         "declared_unused": unused,
         "refused": bool(losses),
     }

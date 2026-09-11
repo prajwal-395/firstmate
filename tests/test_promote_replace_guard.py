@@ -321,6 +321,82 @@ def test_fresh_build_with_no_original_skips_the_diff(project_dir):
     assert promoted["replace_reports"] == {}
 
 
+def _join_timelines():
+    """The lc-0004 shape: keep insistence withdrew a take cut, so two
+    adjacent Craig placements became one continuous one - 2 items to 1
+    over MORE frames (the restored seconds are back in)."""
+    retired = FakeTimeline(FINAL, video=[
+        ("Craig", [FakeItem("Craig", 0, 100),
+                   FakeItem("Craig", 100, 190)]),
+        ("Subtitles", [FakeItem("card 1", 0, 190)]),
+    ])
+    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
+        ("Craig", [FakeItem("Craig", 0, 203)]),
+        ("Subtitles", [FakeItem("card 1", 0, 203)]),
+    ])
+    return retired, staging
+
+
+def test_a_join_passes_undeclared_and_says_so(project_dir):
+    """2 items to 1 with frames gained and every name still playing is
+    a merge, not a deletion - the lc-0004 refusal must not fire."""
+    retired, staging = _join_timelines()
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    promoted = _promote(resolve, project_dir, {FINAL: staging.GetName()})
+
+    assert promoted["promoted"] == [FINAL]
+    report = promoted["replace_reports"][FINAL]
+    assert report["refused"] is False
+    assert report["joined"] == ["video:Craig"]
+    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+
+
+def test_a_loss_that_gains_frames_still_refuses(project_dir):
+    """The counter-example frames alone cannot catch: the cover is gone
+    and the surviving clip grew past the old row total - frames gained,
+    content lost. Names are the load-bearing half, so this refuses."""
+    retired = FakeTimeline(FINAL, video=[
+        ("Akshita", [FakeItem("Craig A", 0, 100),
+                      FakeItem("LC4932 cover", 100, 124)]),
+    ])
+    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
+        ("Akshita", [FakeItem("Craig A", 0, 140)]),
+    ])
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    with pytest.raises(ReelBuildError) as refused:
+        _promote(resolve, project_dir, {FINAL: staging.GetName()})
+
+    message = str(refused.value)
+    assert "video:Akshita" in message
+    assert "2 item(s) -> 1" in message
+    assert "LC4932 cover" in message
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, FINAL, staging.GetName()])
+    assert resolve.deleted == []
+
+
+def test_a_same_name_shrink_still_refuses(project_dir):
+    """Names alone are not sufficient either: every name survives but
+    the row lost seconds, so no join cover and the guard refuses."""
+    retired = FakeTimeline(FINAL, video=[
+        ("Craig", [FakeItem("Craig", 0, 100),
+                   FakeItem("Craig", 100, 190)]),
+    ])
+    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
+        ("Craig", [FakeItem("Craig", 0, 150)]),
+    ])
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    with pytest.raises(ReelBuildError, match="video:Craig"):
+        _promote(resolve, project_dir, {FINAL: staging.GetName()})
+
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, FINAL, staging.GetName()])
+    assert resolve.deleted == []
+
+
 def test_specs_fan_out_globally_or_scope_to_one_reel():
     """The caller shape: `ROW` covers every promoted reel, `FINAL::ROW`
     covers one - and there is no spelling for 'allow everything'."""
