@@ -26,12 +26,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from library.tools.marker_feedback import (  # noqa: E402
     DISCARD_ENV,
     MarkerNote,
+    MarkerWriteError,
     ResolveUnavailable,
     UnpulledMarkers,
     assert_markers_pulled,
     connect_resolve,
     frames_to_timecode,
     guard_timeline_deletion,
+    place_reply_marker,
     pull,
     pulled_files,
     read_notes,
@@ -467,3 +469,51 @@ def test_the_wrapper_restores_ctype_and_leaves_numeric_alone():
     assert scriptapp_preserving_locale(Vandal()) == "connected:Resolve"
     assert locale.setlocale(locale.LC_CTYPE) == before_ctype
     assert locale.setlocale(locale.LC_NUMERIC) == before_numeric
+
+
+# ── The green reply ─────────────────────────────────────────────────
+
+
+def test_reply_marker_lands_green_and_reads_back(scratch_timeline):
+    """The captain's channel: one green marker stating the ask and the
+    response, written for a reader and verified by read-back."""
+    start = int(scratch_timeline.GetStartFrame())
+    frame = start + 10
+    record = place_reply_marker(
+        scratch_timeline, frame, "Green",
+        "reply: tail breath holds",
+        "You asked for room after her last word; the closer now ends "
+        "in silence.")
+    assert record["frame"] == frame
+    assert record["color"] == "Green"
+    note = _note(read_notes(scratch_timeline), "room after her last word")
+    assert note.color == "Green"
+    assert note.frame == frame
+
+
+def test_reply_marker_past_the_end_is_refused_not_placed(scratch_timeline):
+    """Resolve ACCEPTS past-the-end frames, so the bounds check is ours:
+    the write must refuse before anything lands."""
+    end = int(scratch_timeline.GetEndFrame())
+    with pytest.raises(MarkerWriteError):
+        place_reply_marker(scratch_timeline, end + 50, "Green",
+                           "past the end", "must not land")
+    assert end + 50 - int(scratch_timeline.GetStartFrame()) \
+        not in (scratch_timeline.GetMarkers() or {})
+
+
+def test_reply_marker_refuses_an_empty_name(scratch_timeline):
+    start = int(scratch_timeline.GetStartFrame())
+    with pytest.raises(MarkerWriteError):
+        place_reply_marker(scratch_timeline, start + 12, "Green", "", "x")
+    assert 12 not in (scratch_timeline.GetMarkers() or {})
+
+
+def test_reply_marker_on_an_occupied_frame_is_refused(scratch_timeline):
+    start = int(scratch_timeline.GetStartFrame())
+    assert scratch_timeline.AddMarker(14, "Blue", "his", "stays", 1, "") is True
+    with pytest.raises(MarkerWriteError):
+        place_reply_marker(scratch_timeline, start + 14, "Green",
+                           "mine", "must not overwrite his")
+    back = (scratch_timeline.GetMarkers() or {})[14]
+    assert (back.get("name"), back.get("color")) == ("his", "Blue")

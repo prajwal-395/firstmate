@@ -6027,6 +6027,27 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             if staged_to_final[final] in track_plans}
         built_reel_names = list(final_names)
         staged_out = {}
+        # ══════════════════════════════════════════════════════
+        # VERSION-CONTROL RECORD (per-project git repo)
+        # ══════════════════════════════════════════════════════
+        # The 6.01 hook never fired for reels, so no reel build ever
+        # committed its baseline (measured 2026-09-11). Snapshot each
+        # promoted timeline beside the declaration it was built from
+        # and commit, on both promotion paths. Never fails the build.
+        try:
+            from library.tools import build_version_control as _bvc
+            _vc = _bvc.record_reel_promotion(
+                project_folder, resolve_name, list(final_names))
+            if _vc.get("committed"):
+                print(f"── Version control: committed {_vc['commit']} "
+                      f"({len(_vc.get('files', []))} file(s)) ──",
+                      flush=True)
+            else:
+                print(f"  version-control record not committed: "
+                      f"{_vc.get('reason', 'unknown')}", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  version-control record failed: {exc!r} - "
+                  f"the reels are promoted and unaffected", flush=True)
 
     return {
         "timelines_built": built_reel_names,

@@ -7,6 +7,9 @@ catches it being swallowed into the repo.
 
 import json
 import subprocess
+import sys
+
+import pytest
 
 from library.tools import build_version_control as bvc
 
@@ -164,3 +167,138 @@ def test_record_without_project_folder_declines():
     report = bvc.record_finished_timeline(object(), object(), "", "cut_01")
     assert report["committed"] is False
     assert "project_folder" in report["reason"]
+
+
+# ── The reels promotion record ─────────────────────────────────────
+#
+# The 6.01 hook never fired for reels, so no reel build committed its
+# baseline (measured 2026-09-11). `record_reel_promotion` closes that:
+# one snapshot per promoted timeline beside the declaration, then the
+# commit. These pin the decline paths and the snapshot-then-commit
+# shape; a Resolve that is absent or on another project records the
+# reason instead of raising.
+
+
+class _FakeTimeline:
+    def __init__(self, name):
+        self._name = name
+
+    def GetName(self):
+        return self._name
+
+
+class _FakeProject:
+    def __init__(self, name, timelines):
+        self._name = name
+        self._timelines = list(timelines)
+        self._current = self._timelines[0]
+
+    def GetName(self):
+        return self._name
+
+    def GetTimelineCount(self):
+        return len(self._timelines)
+
+    def GetTimelineByIndex(self, index):
+        return self._timelines[index - 1]
+
+    def GetCurrentTimeline(self):
+        return self._current
+
+    def SetCurrentTimeline(self, timeline):
+        self._current = timeline
+        return True
+
+
+class _FakeManager:
+    def __init__(self, project):
+        self._project = project
+
+    def GetCurrentProject(self):
+        return self._project
+
+
+class _FakeResolve:
+    def __init__(self, project):
+        self._project = project
+
+    def GetProjectManager(self):
+        return _FakeManager(self._project)
+
+
+class _FakeDvr:
+    def __init__(self, resolve):
+        self._resolve = resolve
+
+    def scriptapp(self, name):
+        return self._resolve
+
+
+def _promotion_project(name="Podcast (field test)"):
+    project = _FakeProject(name, [
+        _FakeTimeline("GEO Podcast - Synced"),
+        _FakeTimeline("Reel 28 - the-nail-salon-query-google-cant-answer"),
+    ])
+    return project
+
+
+def test_reel_promotion_without_repo_declines(tmp_path):
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)", ["Reel 28"])
+    assert report["committed"] is False
+    assert report["reason"] == "no-repo"
+
+
+def test_reel_promotion_without_names_declines(tmp_path):
+    bvc.init_project_repo(str(tmp_path))
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)", [])
+    assert report["committed"] is False
+    assert "no promoted timelines" in report["reason"]
+
+
+def test_reel_promotion_on_wrong_project_records_and_never_raises(
+        tmp_path, monkeypatch):
+    bvc.init_project_repo(str(tmp_path))
+    project = _promotion_project(name="Something else")
+    monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
+                        _FakeDvr(_FakeResolve(project)))
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)", ["Reel 28"])
+    assert report["committed"] is False
+    assert "Something else" in report["reason"]
+    assert report["snapshots"] == []
+
+
+def test_reel_promotion_snapshots_each_timeline_then_commits(
+        tmp_path, monkeypatch):
+    bvc.init_project_repo(str(tmp_path))
+    project = _promotion_project()
+    monkeypatch.setitem(sys.modules, "DaVinciResolveScript",
+                        _FakeDvr(_FakeResolve(project)))
+    import library.tools.timeline_serializer as ser
+    seen = []
+
+    def _fake_serialize(resolve_mock=None):
+        seen.append(resolve_mock.GetProjectManager()
+                    .GetCurrentProject().GetCurrentTimeline().GetName())
+        return {"schema_version": "1.0", "timeline": seen[-1]}
+
+    monkeypatch.setattr(ser, "serialize_timeline_state", _fake_serialize)
+    report = bvc.record_reel_promotion(
+        str(tmp_path), "Podcast (field test)",
+        ["Reel 28 - the-nail-salon-query-google-cant-answer", "Nope"])
+    assert report["committed"] is True
+    assert report["missing"] == ["Nope"]
+    assert seen == ["Reel 28 - the-nail-salon-query-google-cant-answer"]
+    snapshot = (tmp_path / "pipeline_output" / "review" /
+                "Reel_28_-_the-nail-salon-query-google-cant-answer"
+                ".timeline.json")
+    assert snapshot.is_file()
+    assert json.loads(snapshot.read_text(encoding="utf-8"))["timeline"] == \
+        "Reel 28 - the-nail-salon-query-google-cant-answer"
+    # The commit holds the snapshot, and the open timeline is restored.
+    assert "pipeline_output/review/Reel_28" in "\n".join(report["files"])
+    assert project.GetCurrentTimeline().GetName() == "GEO Podcast - Synced"
+    log = _git(tmp_path, "log", "--oneline")
+    assert log.strip() != ""

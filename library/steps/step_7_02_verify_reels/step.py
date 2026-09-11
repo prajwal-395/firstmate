@@ -157,6 +157,27 @@ def verify_reels(data: dict) -> dict:
             staged, allow_drops=recorded)
         organised = promoted["organised"]
         timelines_verified = list(promoted["promoted"])
+        # The 6.01 hook never fired for reels, so no reel build ever
+        # committed its baseline (measured 2026-09-11). Snapshot each
+        # promoted timeline beside the declaration it was built from
+        # and commit. Never fails the gate.
+        import sys as _sys_vc
+        try:
+            from library.tools import build_version_control as _bvc
+            _vc = _bvc.record_reel_promotion(
+                project_folder, resolve_project_name,
+                list(promoted["promoted"]))
+            if _vc.get("committed"):
+                print(f"── Version control: committed {_vc['commit']} "
+                      f"({len(_vc.get('files', []))} file(s)) ──",
+                      file=_sys_vc.stderr)
+            else:
+                print(f"  version-control record not committed: "
+                      f"{_vc.get('reason', 'unknown')}", file=_sys_vc.stderr)
+        except Exception as exc:  # noqa: BLE001
+            print(f"  version-control record failed: {exc!r} - "
+                  f"the reels are promoted and unaffected",
+                  file=_sys_vc.stderr)
     else:
         timelines_verified = list(timelines_built)
 

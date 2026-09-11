@@ -1,0 +1,69 @@
+{
+ "project": "Podcast (field test)",
+ "captured_at": "20260911T030842Z",
+ "timelines": [
+  {
+   "name": "GEO Podcast - Synced",
+   "markers": 0,
+   "items": 334,
+   "pull_notes": 0,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/GEO_Podcast_-_Synced.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 09 - your-website-is-only-20-percent (final)",
+   "markers": 0,
+   "items": 41,
+   "pull_notes": 1,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_09_-_your-website-is-only-20-percent__final_.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 26 - write-for-the-question-your-customer-ask",
+   "markers": 0,
+   "items": 21,
+   "pull_notes": 0,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_26_-_write-for-the-question-your-customer-ask.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 30 - your-google-business-profile-and-the-map",
+   "markers": 0,
+   "items": 47,
+   "pull_notes": 0,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_30_-_your-google-business-profile-and-the-map.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 01 - geo-is-comprehension-not-position",
+   "markers": 1,
+   "items": 26,
+   "pull_notes": 1,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_01_-_geo-is-comprehension-not-position.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 13 - the-accounting-firm-ai-called-healthcare",
+   "markers": 1,
+   "items": 45,
+   "pull_notes": 1,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_13_-_the-accounting-firm-ai-called-healthcare.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 23 - why-small-business-wins-on-ai",
+   "markers": 0,
+   "items": 45,
+   "pull_notes": 0,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_23_-_why-small-business-wins-on-ai.20260911T030843Z.markers.json"
+  },
+  {
+   "name": "Reel 28 - the-nail-salon-query-google-cant-answer",
+   "markers": 1,
+   "items": 32,
+   "pull_notes": 1,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_28_-_the-nail-salon-query-google-cant-answer.20260911T030844Z.markers.json"
+  },
+  {
+   "name": "Reel 31 - is-there-a-way-to-game-ai",
+   "markers": 1,
+   "items": 51,
+   "pull_notes": 1,
+   "pull_file": "/Users/prajwal/Documents/content_stuff/video_projects/lucie/geo-podcast/marker_feedback/Reel_31_-_is-there-a-way-to-game-ai.20260911T030844Z.markers.json"
+  }
+ ]
+}

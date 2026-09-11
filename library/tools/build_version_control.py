@@ -354,6 +354,115 @@ def write_build_record(project_folder: str, timeline_name: str,
     return written
 
 
+def record_reel_promotion(project_folder: str, resolve_project_name: str,
+                          final_names, message: str | None = None) -> dict:
+    """Snapshot each promoted reel timeline and commit the per-build record.
+
+    The reels flow (step 7.01/7.02) never called the 6.01 hook
+    (`record_finished_timeline`), so every reel built since PR 920
+    committed nothing and no baseline exists to diff the captain's
+    hand edits against. Measured 2026-09-11: the project repo holds
+    one hand-made capture (Reel 09 (final), c79c681) and no reel build
+    ever committed through the hook.
+
+    Call after `promote_staged_reels`, on both promotion paths (the
+    in-build promote and the verify_reels-node promote).  Never raises:
+    a record that breaks the build is worse than no record, so every
+    failure is returned as `committed: False` with a reason.  The
+    snapshots land under `pipeline_output/review/` (on the allow-list)
+    as `<timeline>.timeline.json`, in the serializer's git-diffable
+    shape - source/record in-out, transform, markers - beside the
+    declaration the build read, so a later diff answers what moved.
+    """
+    report: dict = {"committed": False, "reason": "", "files": [],
+                    "snapshots": []}
+    if not project_folder:
+        report["reason"] = "no project_folder, so nowhere to record"
+        return report
+    if not (Path(project_folder) / ".git").exists():
+        report["reason"] = "no-repo"
+        return report
+    names = [n for n in (final_names or []) if n]
+    if not names:
+        report["reason"] = "no promoted timelines named"
+        return report
+    try:
+        import sys
+        repo = Path(__file__).resolve().parents[2]
+        if str(repo) not in sys.path:
+            sys.path.insert(0, str(repo))
+        from library.tools.resolve_locale import (
+            scriptapp_preserving_locale)
+        sys.path.append(os.path.join(
+            os.environ.get(
+                "RESOLVE_SCRIPT_API",
+                "/Library/Application Support/Blackmagic Design/"
+                "DaVinci Resolve/Developer/Scripting"), "Modules"))
+        os.environ.setdefault(
+            "RESOLVE_SCRIPT_LIB",
+            "/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/"
+            "Libraries/Fusion/fusionscript.so")
+        import DaVinciResolveScript as dvr
+        resolve = scriptapp_preserving_locale(dvr, "Resolve")
+        if not resolve:
+            raise RuntimeError("Resolve is not running")
+        project = resolve.GetProjectManager().GetCurrentProject()
+        if not project or project.GetName() != resolve_project_name:
+            raise RuntimeError(
+                f"Resolve has {project.GetName()!r} open, not "
+                f"{resolve_project_name!r} - refusing to snapshot "
+                f"another project's timelines")
+        from library.tools.timeline_serializer import (
+            serialize_timeline_state)
+        review_dir = Path(project_folder) / "pipeline_output" / "review"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        previous = project.GetCurrentTimeline()
+        previous_name = previous.GetName() if previous else ""
+        try:
+            for name in names:
+                target = None
+                for index in range(1, project.GetTimelineCount() + 1):
+                    candidate = project.GetTimelineByIndex(index)
+                    if candidate and candidate.GetName() == name:
+                        target = candidate
+                        break
+                if target is None:
+                    report.setdefault("missing", []).append(name)
+                    continue
+                project.SetCurrentTimeline(target)
+                state = serialize_timeline_state(resolve_mock=resolve)
+                safe = "".join(
+                    c if c.isalnum() or c in "-_." else "_"
+                    for c in name) or "timeline"
+                path = review_dir / f"{safe}.timeline.json"
+                path.write_text(json.dumps(state, indent=2,
+                                           sort_keys=True,
+                                           ensure_ascii=False) + "\n",
+                                encoding="utf-8")
+                report["snapshots"].append(str(path))
+        finally:
+            if previous_name:
+                for index in range(1, project.GetTimelineCount() + 1):
+                    candidate = project.GetTimelineByIndex(index)
+                    if candidate and candidate.GetName() == previous_name:
+                        project.SetCurrentTimeline(candidate)
+                        break
+    except Exception as exc:
+        report["reason"] = f"snapshot failed: {exc!r}"
+        return report
+    if message is None:
+        message = ("reels build: "
+                   + ", ".join(names)
+                   + "\n\nPromoted into the Resolve project "
+                   f"{resolve_project_name!r}; snapshots beside the "
+                   f"declaration they were built from.")
+    result = commit_build(project_folder, message)
+    report.update(result)
+    if not report.get("committed") and not report.get("reason"):
+        report["reason"] = result.get("reason", "")
+    return report
+
+
 def record_finished_timeline(resolve, timeline, project_folder: str,
                              timeline_name: str) -> dict:
     """Export the finished timeline and commit the per-build record.

@@ -651,6 +651,65 @@ def read_current_timeline_notes(project_folder=None) -> tuple:
             project.GetName())
 
 
+# ── Writing a reply ───────────────────────────────────────────────
+#
+# The captain asks for a green marker at the same position as each piece
+# of feedback addressed, stating what was asked and what was done. This
+# is the ONLY writer in this module: it writes one marker and nothing
+# else - never deletes, never alters, never answers on the captain's
+# own markers. The two measured behaviours in the module docstring are
+# enforced here rather than trusted: an empty name is refused by
+# Resolve (honestly, returns False), and a past-the-end frame is
+# ACCEPTED (returns True), so the bounds check is ours and the return
+# value alone proves nothing - every write is read back.
+
+
+class MarkerWriteError(RuntimeError):
+    """A reply marker that did not land as written."""
+
+
+def place_reply_marker(timeline, frame: int, color: str, name: str,
+                       note: str, duration: int = 1) -> dict:
+    """Add one reply marker at ABSOLUTE `frame`, verified by read-back.
+
+    `frame` is in the same space `read_notes` reports
+    (`GetStartFrame() + key`); the key handed to `AddMarker` is derived
+    and bounds-checked here, because Resolve accepts past-the-end
+    frames.  Returns the read-back record.  Raises `MarkerWriteError`
+    when the frame is off the timeline, when Resolve refuses the write
+    (an empty name, a frame already carrying a marker), or when the
+    read-back disagrees on colour, name or note.
+    """
+    if not name:
+        raise MarkerWriteError(
+            "Resolve refuses a marker with an empty name - refusing "
+            "here rather than writing nothing and reporting it.")
+    start_frame = int(timeline.GetStartFrame())
+    span = int(timeline.GetEndFrame()) - start_frame
+    key = int(frame) - start_frame
+    if key < 0 or key >= span:
+        raise MarkerWriteError(
+            f"frame {frame} is off {timeline.GetName()!r} "
+            f"(0..{span - 1} in timeline space) - Resolve would accept "
+            f"it and the marker would sit past the end where nobody "
+            f"can see it.")
+    if not timeline.AddMarker(key, color, name, note, duration):
+        raise MarkerWriteError(
+            f"Resolve refused the marker at frame {frame} on "
+            f"{timeline.GetName()!r} - an empty name, or a marker "
+            f"already there. Nothing was written.")
+    back = (timeline.GetMarkers() or {}).get(key, {})
+    for field, want in (("color", color), ("name", name), ("note", note)):
+        if (back.get(field) or "") != want:
+            raise MarkerWriteError(
+                f"marker at frame {frame} read back {field} "
+                f"{back.get(field)!r}, not {want!r} - the write did "
+                f"not land as stated.")
+    return {"frame": int(frame), "key": key, "color": back.get("color"),
+            "duration": back.get("duration"), "name": back.get("name"),
+            "note": back.get("note")}
+
+
 # ── The durable record ──────────────────────────────────────────────
 #
 # `marker_feedback/` sits at the PROJECT ROOT, outside `pipeline_output/`.

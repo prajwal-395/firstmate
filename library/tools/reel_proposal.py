@@ -563,6 +563,17 @@ def _snap_out_of_words(start: float, end: float,
 def _widen_to_segments(start: float, end: float,
                        segments: Sequence[dict]) -> tuple:
     """One fixed-point segment pass: the loop `snap_to_speech` always ran.
+
+    A boundary that CUTS a bound segment widens outward to cover it -
+    extending adds only what was already being spoken across the line,
+    while trimming inward would silently drop words.  A boundary that
+    sits in clean silence is KEPT: pulling it back to the nearest
+    segment edge deletes a tail breath the proposer meant (a switch-off
+    animation's room, a word's last frame), and no segment is cut by
+    keeping it, so there is nothing to widen to.  Measured 2026-09-11:
+    a closer end at 342.03s in the silence after "The link's in our
+    bio." (next speech 342.04s) was pulled back to 341.27s, playing the
+    TV switch-off over her last words instead of after them.
     """
     # ITERATE to a fixed point. Extending the span pulls in segments that
     # were outside it, and those can themselves be partially covered - so
@@ -574,11 +585,17 @@ def _widen_to_segments(start: float, end: float,
                     and float(x["timeline_start"]) < end]
         if not touching:
             return start, end
-        widened = (min(float(x["timeline_start"]) for x in touching),
-                   max(float(x["timeline_end"]) for x in touching))
-        if widened == (start, end):
-            return widened
-        start, end = widened
+        new_start = start
+        if any(float(x["timeline_start"]) < start < float(x["timeline_end"])
+               for x in touching):
+            new_start = min(float(x["timeline_start"]) for x in touching)
+        new_end = end
+        if any(float(x["timeline_start"]) < end < float(x["timeline_end"])
+               for x in touching):
+            new_end = max(float(x["timeline_end"]) for x in touching)
+        if (new_start, new_end) == (start, end):
+            return new_start, new_end
+        start, end = new_start, new_end
     return start, end
 
 

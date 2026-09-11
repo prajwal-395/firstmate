@@ -294,6 +294,34 @@ def test_snap_moves_boundaries_outward_not_inward():
     assert snap_to_speech(14.0, 20.0, tx) == (10.0, 26.0)
 
 
+def test_snap_keeps_an_end_in_clean_silence():
+    """A tail breath is not a cut segment: pulling it back to the last
+    word deletes the room an end animation needs, and no segment is cut
+    by keeping it. Measured 2026-09-11: a closer end at 342.03s, in the
+    silence after "The link's in our bio." and before the next speech,
+    was pulled back to 341.27s, playing the TV switch-off over her last
+    words instead of after them."""
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
+    assert snap_to_speech(10.0, 30.0, tx) == (10.0, 30.0)
+
+
+def test_snap_keeps_a_start_in_clean_silence():
+    """Symmetric with the tail: a head breath cuts nothing either."""
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
+    assert snap_to_speech(5.0, 26.0, tx) == (5.0, 26.0)
+
+
+def test_snap_still_widens_a_boundary_cutting_speech():
+    """The silence keep changes nothing about a boundary inside speech:
+    it still widens outward to whole segments."""
+    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
+    assert snap_to_speech(10.0, 20.0, tx) == (10.0, 26.0)
+    assert snap_to_speech(14.0, 26.0, tx) == (10.0, 26.0)
+
+
 def test_snapping_makes_a_refused_moment_pass():
     tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
              _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
