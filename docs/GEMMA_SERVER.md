@@ -142,8 +142,18 @@ URL on :8080 with a ~40 MB shim. The real backend runs on 127.0.0.1:8081
   (bounded by `GEMMA_STARTUP_TIMEOUT`, default 120 s), then
   reverse-proxies - streaming (SSE) included, so opencode chat works;
 - no in-flight requests, no holds, and no traffic for `GEMMA_IDLE_TIMEOUT`
-  (default 600 s) -> the backend PROCESS is stopped, returning the ~7 GB.
-  Idle means all three: a teardown can never kill live work;
+  (default 210 s - the captain's 3.5 minutes, 2026-09-11; do not raise it
+  or "tidy" it back to 600) -> the backend PROCESS is stopped, returning
+  the ~7 GB. Idle means all three: a teardown can never kill live work;
+- past that, with the backend stopped and still no traffic for
+  `GEMMA_SHIM_IDLE_EXIT` (default 60 s - the shim holds ~40 MB against
+  the backend's ~7 GB, and a cold shim start is ~0.5 s, so a short delay
+  smooths bursts without ever reading as permanent) -> the shim exits
+  ITSELF, returning the port to launchd. End state: nothing resident.
+  The shim may only exit once the backend is stopped - exiting while the
+  backend lives would orphan a 7 GB process with nothing to reap it
+  (asserted in code, proven by
+  `test_shim_exits_only_after_backend_stopped`);
 - backend fails to start -> HTTP 503 with a JSON `error.message` naming
   the cause and the fix (`gemma up --prewarm`, `gemma status`). A failure
   is a clear message, never a hang or an empty reply;
@@ -156,6 +166,12 @@ gemma up [--prewarm]   ensure the shim is listening (provider URL unchanged)
 gemma down [--all]     stop the backend now (--all also stops the shim;
                        refused with 409 while requests or holds are live)
 gemma status           shim + backend state and the backend's resident RSS
+gemma install-agent    hand :8080 to launchd (socket activation: the shim
+                       starts per connection and exits when idle - nothing
+                       resident; machine paths are generated at install
+                       time, never committed)
+gemma uninstall-agent  bootout, delete the plist, clear shim state: leaves
+                       nothing behind
 ```
 
 `scripts/gemma` is the same entry point (`python3 -m
@@ -173,20 +189,25 @@ with server_scope("http://127.0.0.1:8080"):
 Cold start measured that day, model already in the HF cache: ~12 s
 process spawn to `/health` healthy, ~4 s more to the first chat answer
 (~13 s end-to-end through the shim on a second run). That number sets the
-600 s idle default: a 60 s timeout would bill the captain ~13 s after
-every minute idle; 600 s holds the 7 GB only across a working session,
-and every proxied request resets the clock.
+210 s idle default (captain, 2026-09-11: 3.5 minutes): a 60 s timeout
+would bill the captain ~13 s after every minute idle; 210 s holds the 7 GB
+only across a working session, and every proxied request resets the clock.
 
 - **Shim (chosen).** Fixed URL keeps working for both consumers, memory
   is held only while in use. Cost: the first request after idle pays the
   ~13 s load. Live proof: cold `POST /v1/chat/completions` answered
   `SHIM_COLD_OK`; backend `top` MEM 7578M while serving; reaped after the
   idle window (free pages 2850 -> 69017) with the shim still answering.
-- **launchd socket activation (rejected).** `mlx_vlm server --help`
-  offers only `--host/--port` - no inherited-fd option, so there is no
-  socket to activate. KeepAlive without it is just always-on under
-  another name. launchd remains the right owner for the *shim* - see the
-  proposed plist in §6.2.
+- **launchd socket activation for the shim (adopted 2026-09-11, captain's
+  call: nothing resident).** The `mlx_vlm server --help` objection in the
+  earlier revision was aimed at the wrong layer: the BACKEND takes no
+  inherited fd, but the SHIM is our code, so the shim takes launchd's
+  listener via `launch_activate_socket` (ctypes, libSystem - `launch_msg`
+  is deprecated and unused). launchd holds :8080, starts the shim per
+  connection, and the shim exits itself past backend-idle + shim-exit.
+  `gemma install-agent` generates the plist at install time (no machine
+  paths committed); without launchd the shim binds its own port so
+  `gemma up` still debugs.
 - **opencode plugin (rejected).** The installed `@opencode-ai/plugin`
   1.18.29 exposes `chat.message`, `tool.execute.before/after`,
   `command.execute.before`, `shell.env`, session-compacting hooks - NO
@@ -203,55 +224,31 @@ Known unknown, still open: whether repeated load/unload cycles leak
 memory on this stack (two cold starts measured at 7502M / 7578M - same
 band, but that is two samples, not a soak test).
 
-### 6.2 Captain's machine (PROPOSED - captain applies this)
+### 6.2 Captain's machine (INSTALLED - `gemma install-agent`)
 
-The repo never writes here. Two steps, both opt-in:
+The repo never writes here; the command below does, and only when the
+captain runs it. Machine paths are generated at install time - no plist
+is committed.
 
-1. Start the shim (survives the terminal; the provider URL answers
-   from here on):
+```sh
+cd <this-repo> && ./scripts/gemma install-agent
+```
 
-   ```sh
-   cd <this-repo> && ./scripts/gemma up
-   ```
+This writes `~/Library/LaunchAgents/dev.video-editing-pilot.gemma-shim.plist`
+with a `Sockets/Listeners` entry on 127.0.0.1:8080 (NO `KeepAlive`, NO
+`RunAtLoad` - launchd holds the port and starts the shim per connection,
+then re-arms when the shim exits itself) and bootstraps it. Current
+`GEMMA_IDLE_TIMEOUT` / `GEMMA_SHIM_IDLE_EXIT` / `GEMMA_BACKEND_PORT` /
+`GEMMA_MODEL` values are baked into the plist's `EnvironmentVariables`,
+so re-run install after changing them. Removal is symmetric:
 
-2. Keep the *shim* (not the model) across reboots - `~/Library/
-   LaunchAgents/dev.video-editing-pilot.gemma-shim.plist` with EXACTLY
-   this content (`<this-repo>` replaced with the checkout path):
+```sh
+./scripts/gemma install-agent    # hand the port to launchd
+./scripts/gemma uninstall-agent  # bootout + delete plist + clear state
+```
 
-   ```xml
-   <?xml version="1.0" encoding="UTF-8"?>
-   <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-     "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-   <plist version="1.0">
-     <dict>
-       <key>Label</key>
-       <string>dev.video-editing-pilot.gemma-shim</string>
-       <key>ProgramArguments</key>
-       <array>
-         <string>/opt/homebrew/bin/python3</string>
-         <string>-m</string>
-         <string>library.tools.gemma_shim</string>
-         <string>run</string>
-       </array>
-       <key>WorkingDirectory</key>
-       <string>&lt;this-repo&gt;</string>
-       <key>RunAtLoad</key>
-       <true/>
-       <key>KeepAlive</key>
-       <true/>
-       <key>StandardOutPath</key>
-       <string>/tmp/gemma-shim.stdout.log</string>
-       <key>StandardErrorPath</key>
-       <string>/tmp/gemma-shim.stderr.log</string>
-     </dict>
-   </plist>
-   ```
-
-   Apply with:
-
-   ```sh
-   launchctl load -w ~/Library/LaunchAgents/dev.video-editing-pilot.gemma-shim.plist
-   ```
+The old start-at-login proposal (KeepAlive shim, 40 MB always resident)
+is withdrawn: the captain explicitly asked for nothing permanent.
 
 Tests: `tests/test_gemma_shim.py` (fake stdlib backend; no model load)
 covers cold-proxy, idle reap, in-flight protection, hold/release scope,

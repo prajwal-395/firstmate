@@ -2,8 +2,9 @@
 model server at the first request and stops it after N idle minutes.
 
 Only stopping the process returns the ~7 GB (POST /unload frees ~145 MB),
-so idle here means the backend PROCESS is gone. The shim itself stays up
-(~40 MB) so the captain's fixed provider URL never breaks.
+so idle here means the backend PROCESS is gone. Past that the shim exits
+itself too, returning the port to launchd (socket activation) - nothing
+resident until the next request.
 
 These tests drive the shim against a FAKE backend (stdlib http.server
 standing in for mlx_vlm) - no model is loaded.
@@ -330,3 +331,157 @@ def test_health_reports_idle_without_starting_backend(ports, fake_backend_script
         assert shim.backend_state() == "stopped"
     finally:
         shim.stop()
+
+
+def test_idle_default_is_captains_210s():
+    """The default is the captain's 3.5 minutes (2026-09-11), not 600."""
+    assert gemma_shim.DEFAULT_IDLE_TIMEOUT_S == 210.0
+    assert gemma_shim.config_from_env().idle_timeout_s == 210.0
+    assert gemma_shim.DEFAULT_SHIM_IDLE_EXIT_S == 60.0
+
+
+def test_no_launchd_socket_outside_launchd(ports):
+    """Without launchd the shim falls back to binding its own port."""
+    assert gemma_shim.take_launchd_socket() is None
+    shim_port, backend_port = ports
+    cfg = ShimConfig(
+        shim_host="127.0.0.1",
+        shim_port=shim_port,
+        backend_host="127.0.0.1",
+        backend_port=backend_port,
+        model="fake-model",
+        idle_timeout_s=3600.0,
+        startup_timeout_s=30.0,
+        reap_interval_s=0.2,
+        shim_idle_exit_s=None,
+        backend_cmd=[sys.executable, "-c", "import sys; sys.exit(3)"],
+    )
+    shim = GemmaShim(cfg)
+    shim.start()
+    try:
+        assert shim.socket_activated is False
+        status, _ = _get(f"http://127.0.0.1:{shim_port}/_shim/status")
+        assert status == 200
+    finally:
+        shim.stop()
+
+
+def test_shim_exits_only_after_backend_stopped(ports, fake_backend_script):
+    """The shim may only exit once the backend is stopped.
+
+    Exiting while the backend lives would orphan a 7 GB process with
+    nothing to reap it - worse than the resident 40 MB it replaces. So:
+    warm the backend, wait out backend-idle + shim-exit, and require that
+    by the time the shim is gone the backend process is already dead and
+    the port refuses.
+    """
+    shim_port, backend_port = ports
+    cfg = ShimConfig(
+        shim_host="127.0.0.1",
+        shim_port=shim_port,
+        backend_host="127.0.0.1",
+        backend_port=backend_port,
+        model="fake-model",
+        idle_timeout_s=1.0,
+        startup_timeout_s=30.0,
+        reap_interval_s=0.2,
+        shim_idle_exit_s=1.0,
+        backend_cmd=[sys.executable, fake_backend_script, str(backend_port)],
+    )
+    shim = GemmaShim(cfg)
+    shim.start()
+    try:
+        _post(
+            f"http://127.0.0.1:{shim_port}/v1/chat/completions",
+            {"hello": "warm"},
+        )
+        proc = shim.backend_proc()
+        assert proc is not None and proc.poll() is None
+        assert shim.wait_for_exit(timeout=30), "shim never self-exited"
+        # Observable ordering: the exit completed, so the backend was
+        # stopped FIRST (the exit path asserts this before closing).
+        assert proc.poll() is not None, (
+            "shim exited while the backend process still lived"
+        )
+        assert shim.backend_state() == "stopped"
+        with pytest.raises(Exception):
+            _get(f"http://127.0.0.1:{shim_port}/_shim/status", timeout=5)
+    finally:
+        shim.stop()
+
+
+def test_shim_self_exit_disabled_stays_up(ports, fake_backend_script):
+    """shim_idle_exit_s=None keeps the old shape: reap backend, stay up."""
+    shim_port, backend_port = ports
+    cfg = ShimConfig(
+        shim_host="127.0.0.1",
+        shim_port=shim_port,
+        backend_host="127.0.0.1",
+        backend_port=backend_port,
+        model="fake-model",
+        idle_timeout_s=1.0,
+        startup_timeout_s=30.0,
+        reap_interval_s=0.2,
+        shim_idle_exit_s=None,
+        backend_cmd=[sys.executable, fake_backend_script, str(backend_port)],
+    )
+    shim = GemmaShim(cfg)
+    shim.start()
+    try:
+        _post(
+            f"http://127.0.0.1:{shim_port}/v1/chat/completions",
+            {"hello": "warm"},
+        )
+        deadline = time.time() + 15
+        proc = shim.backend_proc()
+        while proc.poll() is None and time.time() < deadline:
+            time.sleep(0.2)
+        assert proc.poll() is not None, "backend survived past idle"
+        time.sleep(2.0)  # past where a self-exit would have fired
+        assert shim.wait_for_exit(timeout=0.1) is False
+        status, body = _get(f"http://127.0.0.1:{shim_port}/_shim/status")
+        assert status == 200
+        assert body["backend"] == "stopped"
+    finally:
+        shim.stop()
+
+
+def test_agent_plist_is_socket_activated_not_always_on(tmp_path):
+    """The generated plist holds the port via Sockets, never KeepAlive."""
+    cfg = ShimConfig(shim_port=8080, backend_port=8081)
+    content = gemma_shim.build_agent_plist(
+        tmp_path / "repo", "/usr/bin/python3", cfg
+    )
+    assert content["Label"] == gemma_shim.AGENT_LABEL
+    assert content["Sockets"]["Listeners"]["SockNodeName"] == "127.0.0.1"
+    assert content["Sockets"]["Listeners"]["SockServiceName"] == "8080"
+    assert content.get("KeepAlive") is None
+    assert content.get("RunAtLoad") is None
+    assert content["ProgramArguments"][-3:-1] == [
+        "-m",
+        "library.tools.gemma_shim",
+    ]
+    assert content["WorkingDirectory"] == str(tmp_path / "repo")
+    assert content["EnvironmentVariables"]["GEMMA_IDLE_TIMEOUT"] == "210.0"
+
+
+def test_install_uninstall_agent_roundtrip(tmp_path, monkeypatch):
+    """Install writes the plist; uninstall leaves nothing behind."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    calls = {"n": 0}
+
+    def _fake_launchctl(*a, **k):
+        calls["n"] += 1
+        return (0, "")
+
+    monkeypatch.setattr(gemma_shim, "_launchctl", _fake_launchctl)
+    cfg = gemma_shim.config_from_env()
+    assert gemma_shim.cmd_install_agent(None, cfg) == 0
+    plist_path = gemma_shim.agent_plist_path()
+    assert plist_path.exists()
+    assert "127.0.0.1" in plist_path.read_text(encoding="utf-8")
+    assert gemma_shim.agent_installed() is True
+    assert gemma_shim.cmd_uninstall_agent(None, cfg) == 0
+    assert not plist_path.exists()
+    assert gemma_shim.agent_installed() is False
+    assert calls["n"] >= 2  # bootstrap + bootout both went out

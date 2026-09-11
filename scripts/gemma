@@ -4,6 +4,8 @@
 #   gemma up [--prewarm]   ensure the shim is listening (fixed provider URL stays up)
 #   gemma down [--all]     stop the model backend now (--all also stops the shim)
 #   gemma status           shim + backend state and resident memory
+#   gemma install-agent    hand :8080 to launchd (socket activation: nothing resident)
+#   gemma uninstall-agent  remove the LaunchAgent completely
 #
 # The shim (library/tools/gemma_shim.py) answers http://127.0.0.1:8080 and
 # starts the ~7 GB backend only while it is needed. See docs/GEMMA_SERVER.md.
