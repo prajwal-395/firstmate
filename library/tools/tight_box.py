@@ -315,9 +315,13 @@ def placement_for_box(canvas_w: float, canvas_h: float,
 #: Measured 2026-09-11 on Reel 13, whose 27 caption overlays are the
 #: only set on this project verified correct against an exported still:
 #: their ink bottoms land 1572..1594 against a nominal caption row of
-#: 1589 (1920 - the 320 safe-area bottom inset - `CAPTION_LIFT_PX`), a
-#: spread of 22px, because the shadow reach and each card's own
-#: rounding move the ink a few pixels per card.  24 clears that spread
+#: 1589, a spread of 22px, because the shadow reach and each card's
+#: own rounding move the ink a few pixels per card. The nominal row
+#: is the INK row the captain's hand corrections put ink on - not the
+#: card design bottom (1920 - the 320 safe-area bottom inset -
+#: `CAPTION_LIFT_PX` = 1599), which sits 10px below it: measured ink
+#: rides ~10px above the card bottom, and that offset is what the
+#: corrected lift accounts for. 24 clears that spread
 #: and nothing else: the defect this exists to catch misses by
 #: HUNDREDS (Reel 28's stale-carriage captions draw 407..422px below
 #: the frame), so the band never has to be argued about.
@@ -599,7 +603,19 @@ def restore_reused_placement(sidecar: dict, props: dict,
     falls through to a fresh measured render, which carries the card
     full canvas instead. A missing or malformed sidecar raises the
     same way - never an assumed placement.
+
+    The sidecar must also name the carriage it was computed under
+    (`overlay_mode.OVERLAY_CARRIAGE`), and that carriage must be the
+    current one. A placement computed under a superseded carriage is
+    geometrically wrong however cleanly it reads back - Reel 28's 18
+    tight captions stored Tilt -1700 under the pre-#960 single-gain
+    carriage and draw ~415px below the frame - so it is REFUSED here
+    rather than served: the caller re-renders measured. A sidecar
+    with no carriage field predates the stamp and is refused the
+    same way.
     """
+    from library.tools.overlay_mode import OVERLAY_CARRIAGE
+
     try:
         union = sidecar["union"]
         box = TightBox(
@@ -616,6 +632,13 @@ def restore_reused_placement(sidecar: dict, props: dict,
         raise TightBoxMismatch(
             f"box sidecar is unreadable ({exc}); re-rendering measured "
             f"rather than assuming") from exc
+    carriage = sidecar.get("carriage") if isinstance(sidecar, dict) else None
+    if carriage != OVERLAY_CARRIAGE:
+        raise TightBoxMismatch(
+            f"box sidecar names carriage {carriage!r}, not the current "
+            f"{OVERLAY_CARRIAGE!r}: a placement from a superseded "
+            f"carriage draws off the frame however cleanly it reads "
+            f"back - re-rendering measured rather than shipping it.")
     if timeline_size is not None:
         reason = placement_holds(box.placement, *timeline_size)
         if reason:

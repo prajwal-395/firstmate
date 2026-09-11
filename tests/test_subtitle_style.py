@@ -561,23 +561,26 @@ def test_a_malformed_declaration_raises(tmp_path):
         project_speaker_styles(folder)
 
 
-def test_caption_row_sits_eleven_pixels_above_the_safe_area():
-    """The +11px the captain hand-corrected on Reel 09, as a rule.
+def test_caption_row_sits_one_pixel_above_the_safe_area():
+    """The +1px design row Reel 13's exported stills prove, as a rule.
 
-    Measured 2026-09-10: all 22 Reel 09 captions corrected uniformly
-    from computed Tilt -1744.0 to -1700.0 - 44 units on the pre-floor
-    canvases of that era, about 10px as drawn under the 2x gain the
-    reels measure (see `tight_box.DRAW_GAIN_1080x1920`) - and reels 26
-    (13 captions) and 30 (35 captions) computed -1744.0 on all 48 with
-    no declared intent, with Deliver stills confirming the ~11px gap
-    on pixels. The design row was systematically low, so the probe
-    props carry the lift: the safe-area profile itself (platform fact)
-    does not move, the other three insets do not move, and
-    captionMaxWidth still derives from the unlifted left/right.
+    Measured 2026-09-11: all 20 Reel 13 tight captions corrected uniformly
+    from computed Tilt -850.0 to -870.0 - 20 units on the 480-floor
+    canvases, exactly 10px as drawn under the measured 2x gain - with an
+    exported still correlation-scanning the corrected canvases onto
+    frame row 1155 and their ink onto the caption row. The design row
+    was systematically high by that 10px, so the probe props carry the
+    corrected lift: the safe-area profile itself (platform fact) does
+    not move, the other three insets do not move, and captionMaxWidth
+    still derives from the unlifted left/right.
+
+    This supersedes the +11px Reel 09 value: that correction was read
+    under the pre-#960 single-gain relation, and the row it produced
+    draws 10px high on the current carrying.
     """
     from library.tools.subtitle_style import CAPTION_LIFT_PX, SUBTITLE_STYLES
     from library.tools.safe_area import resolve_safe_area
-    assert CAPTION_LIFT_PX == 11
+    assert CAPTION_LIFT_PX == 1
     profile = resolve_safe_area()
     props = SUBTITLE_STYLES["default_subtitles"].resolve()
     area = props["safeArea"]
@@ -588,19 +591,18 @@ def test_caption_row_sits_eleven_pixels_above_the_safe_area():
     assert props["captionMaxWidth"] == profile.centered_usable_width
 
 
-def test_twenty_two_tilt_units_are_eleven_pixels_at_the_floor():
+def test_twenty_tilt_units_are_ten_pixels_at_the_floor():
     """The arithmetic the lift encodes, pinned where it is derived.
 
     `placement_for_box` inverts the measured Resolve relation shift_y
     = -2 * Tilt * placed_H / timeline_H on a 1080x1920 timeline (see
     `tight_box.DRAW_GAIN_1080x1920`): a 480-tall canvas moves half a
-    delivery pixel per Tilt unit, so the 11px lift is 22 units and a
-    canvas centred at full-frame y 1385 reads Tilt -850.0 while the
-    old design row (centre 1396) reads -872.0 - the values reels
-    01/13/23/28 and 26/30 hold on their timelines.
+    delivery pixel per Tilt unit, so the captain's 20-unit correction
+    is 10px and a canvas centred at full-frame y 1395 reads Tilt
+    -870.0 while the +11-era design row (centre 1385) reads -850.0.
     """
     from library.tools.tight_box import placement_for_box
+    assert placement_for_box(840, 480, 540.0, 1395.0, 1080, 1920) == {
+        "scaling": 1, "pan": 0.0, "tilt": -870.0}
     assert placement_for_box(840, 480, 540.0, 1385.0, 1080, 1920) == {
         "scaling": 1, "pan": 0.0, "tilt": -850.0}
-    assert placement_for_box(840, 480, 540.0, 1396.0, 1080, 1920) == {
-        "scaling": 1, "pan": 0.0, "tilt": -872.0}

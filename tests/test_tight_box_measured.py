@@ -355,10 +355,13 @@ def test_placement_holds_names_the_clamped_axis():
 def test_reused_placement_restores_when_it_holds():
     """A sidecar whose placement Resolve can hold re-gates clean:
     reuse keeps its win."""
+    from library.tools.overlay_mode import OVERLAY_CARRIAGE
+
     sidecar = {
         "width": 840,
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -100.0},
+        "carriage": OVERLAY_CARRIAGE,
         "union": {"x0": 100, "y0": 1200, "x1": 400, "y1": 1294},
     }
     restored = restore_reused_placement(sidecar, _props(), (1080, 1920))
@@ -372,13 +375,51 @@ def test_reused_placement_is_refused_when_clamped():
     would pin (predictor-era, or a changed delivery format) does
     not ship - the caller falls through to a fresh measured render,
     which carries the card full canvas instead."""
+    from library.tools.overlay_mode import OVERLAY_CARRIAGE
+
     sidecar = {
         "width": 348,
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -7929.0},
+        "carriage": OVERLAY_CARRIAGE,
         "union": {"x0": 382, "y0": 1501, "x1": 682, "y1": 1595},
     }
     with pytest.raises(TightBoxMismatch, match="no longer holds"):
+        restore_reused_placement(sidecar, _props(), (1080, 1920))
+
+
+def test_reused_placement_from_a_superseded_carriage_is_refused():
+    """Reel 28's invisible overlays: 18 tight captions stored Tilt
+    -1700 under the pre-#960 single-gain carriage read back cleanly
+    and draw ~415px below the frame. A sidecar from a superseded
+    carriage is REFUSED here - the caller re-renders measured -
+    rather than shipping a placement that draws off the frame."""
+    from library.tools.overlay_mode import OVERLAY_CARRIAGE
+
+    assert OVERLAY_CARRIAGE == "tight-480-2"
+    stale = {
+        "width": 840,
+        "height": 480,
+        "placement": {"scaling": 1, "pan": 0.0, "tilt": -1700.0},
+        "carriage": "tight-480-1",
+        "union": {"x0": 126, "y0": 1416, "x1": 937, "y1": 1596},
+    }
+    with pytest.raises(TightBoxMismatch, match="superseded carriage"):
+        restore_reused_placement(stale, _props(), (1080, 1920))
+
+
+def test_reused_placement_without_a_carriage_is_refused():
+    """A sidecar that predates the carriage stamp cannot prove what
+    it was computed under - every sidecar on disk from before the
+    stamp, including the -1744.0 and -1700.0 ones still sitting in
+    the geo-podcast render ledger - so it is refused the same way."""
+    sidecar = {
+        "width": 840,
+        "height": 480,
+        "placement": {"scaling": 1, "pan": 0.0, "tilt": -850.0},
+        "union": {"x0": 126, "y0": 1416, "x1": 937, "y1": 1596},
+    }
+    with pytest.raises(TightBoxMismatch, match="superseded carriage"):
         restore_reused_placement(sidecar, _props(), (1080, 1920))
 
 

@@ -91,26 +91,35 @@ VALID_POSITIONS = ("bottom", "center", "top")
 #: Delivery-frame pixels every caption's design row sits ABOVE the
 #: platform safe-area bottom inset.
 #:
-#: Measured, not chosen. On Reel 09 the captain hand-corrected all 22
-#: captions uniformly from the computed Tilt -1744.0 to -1700.0; at the
-#: 480-pixel tight-canvas floor one Tilt unit is 480/1920 of a delivery
-#: pixel (`tight_box.placement_for_box`: shift_y = -Tilt * placed_H /
-#: timeline_H), so 44 units is exactly 11.0 delivery pixels. Reels 26
-#: (13 captions) and 30 (35 captions) - different speakers, lengths and
-#: content shapes, no declared intent - computed -1744.0 on all 48, and
-#: Deliver-rendered stills put their ink bottoms ~11px below Reel 09's
-#: corrected band. The computation is content-independent; the 11px is a
-#: systematic error in the DESIGN row, so it is corrected in the design
-#: (here, where the probe layout is built) rather than per segment in
-#: `overlay_intent` - a tilt pin would also go wrong on canvases taller
-#: than the floor, where 11px is no longer 44 units.
+#: Measured, not chosen. On Reel 13 the captain hand-corrected all 20
+#: tight captions uniformly from the computed Tilt -850.0 to -870.0; at
+#: the 480-pixel tight-canvas floor one Tilt unit is half a delivery
+#: pixel (`tight_box.placement_for_box` under the measured 2x draw
+#: gain: shift_y = -G * Tilt * placed_H / timeline_H with G = 2), so 20
+#: units is exactly 10.0 delivery pixels. An exported still of that
+#: timeline correlation-scans the corrected canvases onto frame row
+#: 1155 with their ink on the caption row, while the computed -850
+#: draws the same cards' middle-frame ink ~10px high (worst card 12px).
+#: The shift-rule terms (value, canvas_dim, frame_dim, draw_gain) are
+#: pixel-verified on that still, so the error sits in the DESIGN row,
+#: not the carriage: the probe props carry the correction here.
+#:
+#: This supersedes the earlier +11px value taken from Reel 09's
+#: uniform -1744.0 to -1700.0 correction. That correction was read
+#: under the pre-#960 single-gain relation on pre-floor canvases; the
+#: lifted row it produced draws 10px high on the current 480-floor,
+#: 2x-gain carrying, as Reel 13's stills prove. Reels built under the
+#: +11 row keep their live timelines - nothing here rebuilds them -
+#: but a future rebuild of one moves its captions 10px down onto the
+#: corrected row; a reel that must keep its old band pins it per
+#: segment in `external/overlay_intent.json` instead.
 #:
 #: Applied to the BOTTOM inset only, and only to the props captions
 #: render from: `safe_area.py`'s own insets are platform facts (the
 #: short-form UI map) and motion graphics were never corrected this
 #: way, so neither moves. `captionMaxWidth` still derives from the
 #: unlifted left/right insets.
-CAPTION_LIFT_PX = 11
+CAPTION_LIFT_PX = 1
 
 
 def _lifted_props(safe_area: SafeAreaInsets) -> Dict[str, int]:
