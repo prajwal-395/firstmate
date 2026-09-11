@@ -392,7 +392,7 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
                            resolved=resolved, dropped=resolved.dropped)
     segments_plan = mg.plan_segments(
         resolved.moments, fps=fps, width=width, height=height,
-        safe_area=safe_area)
+        safe_area=safe_area, project_folder=project_folder or "")
     out_dir = str(ProjectLayout(project_folder).write_dir(
         Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
     render = operations.get("motion_graphics.render_segment")

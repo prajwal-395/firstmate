@@ -212,6 +212,167 @@ def _power_band(*, start_frame: int, end_frame: int, open_at: str,
     return [bg, mask, merge], height, merge_name, merge_name
 
 
+def _tv_power(clip_dur: int, *, direction: str,
+              collapse_frames: int, dot_frames: int, decay_frames: int,
+              collapse_crop=None, dot_gain=None, dot_size=None,
+              source_in=None, source_out=None, played_frames=None,
+              res: tuple = (1080, 1920)):
+    """The old-TV switch, laid down forwards or backwards. ONE shape.
+
+    ``library/tools/tv_power.py`` declares the shape as four STATES the
+    set passes through - picture, line, dot, black - and the three phase
+    lengths between them.  This lays those states onto the clip:
+
+    * ``direction="off"`` puts PICTURE first and BLACK on the clip's
+      last played frame: the switch-off, which is what it always was.
+    * ``direction="on"`` puts BLACK on the clip's FIRST played frame and
+      PICTURE at the end of the animation: the switch-off in reverse, so
+      the clip opens fully black (gain 0, band closed, picture scaled to
+      a dot) and arrives at the picture.
+
+    The captain, on Reel 09, 2026-09-11: *"also the tv on animation
+    should start from fully black just like the reverse of how the tv
+    off animation goes to fully black"*.  Two separately tuned builders
+    could satisfy that sentence on the day and drift apart on the next
+    re-timing, so there is ONE builder and the direction is a
+    parameter.  ``tests/test_tv_power.py`` proves the switch-on's
+    keyframes are the switch-off's, mirrored in time.
+
+    The nodes and their names come from the switch-off, the half the
+    captain named as the reference: a masked black ``Background``
+    (``PowerBand``) draws the vertical deflection, a uniform
+    ``Transform`` (``PowerDot``) the dot, a ``BrightnessContrast``
+    (``PowerDecay``) the spot spike and the fall to black.  This was a
+    ``Crop`` node until 2026-09-10 and it never once drew: Fusion's
+    ``Crop`` has no ``CropTop``/``CropBottom``, so every 3840x2160
+    source came out as its bottom-left quadrant on every reel's first
+    and last picture clip.  ``library/tools/fusion/tool_inputs.py`` is
+    the gate that now refuses the misspelling, and ``Crop`` was the
+    wrong tool even spelled right - it resizes the image to the crop
+    rectangle, so the frame would shrink rather than the picture
+    blanking in place.
+
+    ``played_frames`` is how many frames the timeline really renders for
+    this clip.  The source span ``played_range`` derives can be longer -
+    pool footage at 30 fps cut onto a 24000/1001 reel timeline plays
+    fewer frames than the source span counts - and an animation keyed
+    past the end of what plays is held flat over everything that does
+    (``played_window``).  A clip with no room for the whole animation is
+    REFUSED by name (``TransitionLongerThanTheClip``), the same refusal
+    a transition half gets.  All-zero phases return an empty block.
+    """
+    from library.tools.tv_power import (
+        BLACK_GAIN, COLLAPSE_CROP, DOT_GAIN, DOT_SIZE, LINE_GAIN,
+        PICTURE_GAIN,
+    )
+
+    if direction not in ("on", "off"):
+        raise ValueError(
+            f"tv power direction must be 'on' or 'off', got {direction!r}")
+    if collapse_crop is None:
+        collapse_crop = COLLAPSE_CROP
+    if dot_gain is None:
+        dot_gain = DOT_GAIN
+    if dot_size is None:
+        dot_size = DOT_SIZE
+
+    total = int(collapse_frames) + int(dot_frames) + int(decay_frames)
+    if total <= 0:
+        return EffectBlock(nodes=[], input_name="", output_name="")
+
+    first, last = played_range(clip_dur, source_in, source_out)
+    if played_frames is not None:
+        last = min(last, max(first, int(played_frames) - 1))
+    assert_ramp_fits(total, first, last, ttype="tv_power",
+                     half="head" if direction == "on" else "tail")
+
+    # The shape, picture -> black: cumulative frames from the picture
+    # state, the Transform size there, and the gain there. The band is
+    # open at PICTURE and closed from LINE onwards, which is the one
+    # term `_power_band` animates - so it needs only the two times.
+    states = (
+        (0, 1.0, PICTURE_GAIN),
+        (int(collapse_frames), 1.0, LINE_GAIN),
+        (int(collapse_frames) + int(dot_frames), float(dot_size), dot_gain),
+        (total, float(dot_size), BLACK_GAIN),
+    )
+
+    if direction == "off":
+        picture_at = max(first, last - total)
+        times = [picture_at + cum for cum, _, _ in states]
+        play_order = list(zip(times, states))
+        hold_before, hold_after = first, last
+    else:
+        picture_at = min(first + total, last)
+        times = [picture_at - cum for cum, _, _ in states]
+        # Played black first: the same states, reversed in time.
+        play_order = list(reversed(list(zip(times, states))))
+        hold_before, hold_after = first, last
+
+    line_at = times[1]
+
+    # `_power_band` animates the picture/line term between the two
+    # states that carry it, and `open_at` names which end is the
+    # picture. Off: picture then line. On: line then picture.
+    if direction == "off":
+        band_start, band_end, open_at = times[0], line_at, "start"
+    else:
+        band_start, band_end, open_at = line_at, times[0], "end"
+    band_nodes, band_spline, band_in, band_out = _power_band(
+        start_frame=band_start, end_frame=band_end,
+        open_at=open_at, collapse_crop=collapse_crop,
+        clip_dur=clip_dur, last=last, res=res,
+    )
+
+    # One key per state in PLAY order, plus a flat hold out to each end
+    # of the played range. Two states landing on one frame (a zero-length
+    # phase) collapse to the later one: the value the animation is moving
+    # toward is the one that frame shows.
+    keys: list = []
+    if play_order[0][0] > hold_before:
+        keys.append((hold_before, play_order[0][1][1], play_order[0][1][2]))
+    for at, (_, size_value, gain_value) in play_order:
+        if keys and keys[-1][0] == at:
+            keys[-1] = (at, size_value, gain_value)
+        else:
+            keys.append((at, size_value, gain_value))
+    if keys[-1][0] < hold_after:
+        keys.append((hold_after, keys[-1][1], keys[-1][2]))
+
+    tf_name = _next_name("PowerDot")
+    tf = FusionNode(tf_name, "Transform")
+    tf.set_attr("CtrlWZoom", False)
+    size = BezierSpline(f"{tf_name}Size", color=(255, 200, 50))
+    for at, size_value, _ in keys:
+        size.add_key(at, size_value, flags={"Linear": True})
+    tf.set_input("Size", size)
+    # WIRED to the band above it. `EffectBlock` wires its own
+    # `input_name` to whatever precedes the block and reads its
+    # `output_name`; the links INSIDE a block are the block's to make.
+    # Without this the node has no image input, the band's output goes
+    # nowhere, and Resolve renders the clip as "The Fusion composition
+    # at 00:00:00:00 could not be processed successfully" - a comp that
+    # imports and cannot draw.
+    tf.set_input("Input", band_out)
+    tf.pos = (220, 0)
+
+    bc_name = _next_name("PowerDecay")
+    bc = FusionNode(bc_name, "BrightnessContrast")
+    bc.set_input("Input", tf_name)
+    gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
+    for at, _, gain_value in keys:
+        gain.add_key(at, gain_value, flags={"Linear": True})
+    bc.set_input("Gain", gain)
+    bc.pos = (330, 0)
+
+    return EffectBlock(
+        nodes=band_nodes + [band_spline, tf, size, bc, gain],
+        input_name=band_in,
+        input_key="Background",
+        output_name=bc_name,
+    )
+
+
 # ─── Composable Effect Functions ─────────────────────────────
 
 
@@ -958,119 +1119,41 @@ class fx:
     def tv_power_head(
         clip_dur: int,
         *,
-        line_frames: int = 4,
-        expand_frames: int = 6,
-        bloom_frames: int = 8,
+        collapse_frames: int = 6,
+        dot_frames: int = 3,
+        decay_frames: int = 9,
         collapse_crop: Optional[float] = None,
-        strike_gain: float = 2.2,
+        dot_gain: Optional[float] = None,
+        dot_size: Optional[float] = None,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         played_frames: Optional[int] = None,
         res: tuple = (1080, 1920),
     ) -> EffectBlock:
-        """Old-TV switch-ON at the head of the clip.
+        """Old-TV switch-ON at the head of the clip: black to picture.
 
-        From black: a bright line strikes at centre (held ``line_frames``),
-        opens to full height over ``expand_frames``, and a white overshoot
-        decays over ``bloom_frames``.  A black ``Background`` gated by an
-        INVERTED ``RectangleMask`` draws the vertical open - the mask's
-        band is the picture, everything outside it is black - and a
-        ``BrightnessContrast`` node carries the strike spike and its
-        decay.
+        THE SWITCH-OFF PLAYED BACKWARDS, and literally so - both halves
+        are `_tv_power`, which lays one shape down forwards or in
+        reverse.  The clip opens FULLY BLACK (gain 0.0, band closed to
+        a line, picture scaled to a dot), the spot rises out of the
+        black over ``decay_frames``, the dot opens to a line over
+        ``dot_frames``, and the line opens to the full picture over
+        ``collapse_frames``, settling at pass-through gain.
 
-        **This was a ``Crop`` node until 2026-09-10, and it never once
-        drew the animation.**  Fusion's ``Crop`` has ``XOffset``,
-        ``YOffset``, ``XSize`` and ``YSize``; this block drove
-        ``CropTop``/``CropBottom``, which the tool does not have, so
-        Fusion ignored them in silence and ``XSize``/``YSize`` fell to
-        their 1920x1080 registry defaults at offset (0, 0).  Fusion's
-        origin is BOTTOM-LEFT, so every 3840x2160 source came out cropped
-        to its bottom-left quadrant, on every reel's first and last
-        picture clip.  The captain found it by eye on Reel 09.
-        ``library/tools/fusion/tool_inputs.py`` is the gate that now
-        refuses the misspelling.
-
-        ``Crop`` was the wrong tool even spelled correctly: it resizes the
-        image to the crop rectangle, so the frame itself would shrink
-        rather than the picture blanking in place.  A masked black
-        overlay keeps the frame and is the same construction the vignette
-        uses.
-
-        Every count is declared in ``library/tools/tv_power.py`` - the
-        frame defaults here repeat that module's values so the block
-        stays usable on its own, and ``comp_builder`` passes the resolved
-        declaration through.  ``collapse_crop`` is the depth the crop
-        holds at the strike (0.40 keeps a fifth of the picture); None
-        resolves to the module's declared default at call time, so the
-        two cannot drift apart.  All-zero phases return an empty block.
-
-        ``played_frames`` is how many frames the timeline really renders
-        for this clip.  The source span ``played_range`` derives can be
-        longer - pool footage at 30 fps cut onto a 24000/1001 reel
-        timeline plays fewer frames than the source span counts - and an
-        animation keyed past the end of what plays is held flat over
-        everything that does (``played_window``).  Clamping ``last`` to
-        it keeps the hold key inside the rendered range.  A clip with no
-        room for the whole animation is REFUSED by name
-        (``TransitionLongerThanTheClip``), the same refusal a transition
-        half gets: a ramp longer than its clip never reaches neutral, so
-        drawing it holds the effect across the whole clip.
+        The captain, on Reel 09, 2026-09-11: *"also the tv on animation
+        should start from fully black just like the reverse of how the
+        tv off animation goes to fully black"*.  Until that marker this
+        was a separate animation with its own phase names, its own
+        lengths and a lit first frame; see ``library/tools/tv_power.py``
+        for what it was and why one shape replaced it.
         """
-        from library.tools.tv_power import SWITCH_ON_COLLAPSE_CROP
-
-        if collapse_crop is None:
-            collapse_crop = SWITCH_ON_COLLAPSE_CROP
-
-        total = line_frames + expand_frames + bloom_frames
-        if total <= 0:
-            return EffectBlock(nodes=[], input_name="", output_name="")
-
-        first, last = played_range(clip_dur, source_in, source_out)
-        if played_frames is not None:
-            last = min(last, max(first, int(played_frames) - 1))
-        assert_ramp_fits(total, first, last,
-                         ttype="tv_power", half="head")
-        line_end = first + line_frames
-        expand_end = line_end + expand_frames
-        settle_end = min(expand_end + bloom_frames, last)
-
-        # The band the picture shows through, as a fraction of frame
-        # height.  `collapse_crop` is a depth taken off EACH edge, which
-        # is what it meant when a Crop pair carried it, so the band is
-        # `1 - 2 * collapse_crop` at the strike and 1.0 fully open.
-        band_nodes, band_spline, band_in, band_out = _power_band(
-            start_frame=line_end, end_frame=expand_end,
-            open_at="end", collapse_crop=collapse_crop,
-            clip_dur=clip_dur, last=last, res=res,
-        )
-
-        bc_name = _next_name("PowerBloom")
-        bc = FusionNode(bc_name, "BrightnessContrast")
-        # WIRED to the crop above it. `EffectBlock` wires its own
-        # `input_name` to whatever precedes the block and reads its
-        # `output_name`; the links INSIDE a block are the block's to
-        # make. Without this the BrightnessContrast has no image input,
-        # the crop's output goes nowhere, and Resolve renders the clip
-        # as "The Fusion composition at 00:00:00:00 could not be
-        # processed successfully" - a comp that imports and cannot draw.
-        bc.set_input("Input", band_out)
-        gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
-        gain.add_key(first, strike_gain, flags={"Linear": True})
-        gain.add_key(line_end, strike_gain, flags={"Linear": True})
-        gain.add_key(expand_end, 1.3, flags={"Linear": True})
-        gain.add_key(settle_end, 1.0, flags={"Linear": True})
-        if settle_end < last:
-            gain.add_key(last, 1.0, flags={"Linear": True})
-        bc.set_input("Gain", gain)
-        bc.pos = (220, 0)
-
-        nodes = band_nodes + [band_spline, bc, gain]
-        return EffectBlock(
-            nodes=nodes,
-            input_name=band_in,
-            input_key="Background",
-            output_name=bc_name,
-        )
+        return _tv_power(
+            clip_dur, direction="on",
+            collapse_frames=collapse_frames, dot_frames=dot_frames,
+            decay_frames=decay_frames, collapse_crop=collapse_crop,
+            dot_gain=dot_gain, dot_size=dot_size,
+            source_in=source_in, source_out=source_out,
+            played_frames=played_frames, res=res)
 
     @staticmethod
     def tv_power_tail(
@@ -1079,81 +1162,30 @@ class fx:
         collapse_frames: int = 6,
         dot_frames: int = 3,
         decay_frames: int = 9,
-        dot_gain: float = 2.5,
-        dot_size: float = 0.05,
+        collapse_crop: Optional[float] = None,
+        dot_gain: Optional[float] = None,
+        dot_size: Optional[float] = None,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         played_frames: Optional[int] = None,
         res: tuple = (1080, 1920),
     ) -> EffectBlock:
-        """Old-TV switch-OFF at the tail of the clip.
+        """Old-TV switch-OFF at the tail of the clip: picture to black.
 
-        From picture: full height collapses to a line over
-        ``collapse_frames``, the line contracts to a dot over
+        The shape played forwards: the full picture collapses to a line
+        over ``collapse_frames``, the line contracts to a dot over
         ``dot_frames`` while the spot spikes bright, and the afterglow
-        decays to black over ``decay_frames``.  A black ``Background``
-        gated by an INVERTED ``RectangleMask`` draws the collapse, a
-        uniform ``Transform`` the dot (its animated peak is 1.0, inside
-        the 1.04 ceiling), ``BrightnessContrast`` the spike and decay.
-        See ``tv_power_head`` for where the counts live, for why this is
-        a masked band rather than the ``Crop`` node it used to be, for
-        what ``played_frames`` clamps, and for the refusal when the clip
-        has no room for the animation.
+        decays to black over ``decay_frames``.  See ``tv_power_head``
+        for the other direction and ``_tv_power`` for the one builder
+        that draws both.
         """
-        from library.tools.tv_power import COLLAPSE_CROP
-
-        total = collapse_frames + dot_frames + decay_frames
-        if total <= 0:
-            return EffectBlock(nodes=[], input_name="", output_name="")
-
-        first, last = played_range(clip_dur, source_in, source_out)
-        if played_frames is not None:
-            last = min(last, max(first, int(played_frames) - 1))
-        assert_ramp_fits(total, first, last,
-                         ttype="tv_power", half="tail")
-        start = max(first, last - total)
-        line_at = start + collapse_frames
-        dot_at = min(line_at + dot_frames, last)
-
-        band_nodes, band_spline, band_in, band_out = _power_band(
-            start_frame=start, end_frame=line_at,
-            open_at="start", collapse_crop=COLLAPSE_CROP,
-            clip_dur=clip_dur, last=last, res=res,
-        )
-
-        tf_name = _next_name("PowerDot")
-        tf = FusionNode(tf_name, "Transform")
-        tf.set_attr("CtrlWZoom", False)
-        size = BezierSpline(f"{tf_name}Size", color=(255, 200, 50))
-        size.add_key(first, 1.0, flags={"Linear": True})
-        size.add_key(line_at, 1.0, flags={"Linear": True})
-        size.add_key(dot_at, dot_size, flags={"Linear": True})
-        size.add_key(last, dot_size, flags={"Linear": True})
-        tf.set_input("Size", size)
-        # WIRED to the band above it - see `tv_power_head` for what an
-        # unwired internal link does to the render.
-        tf.set_input("Input", band_out)
-        tf.pos = (220, 0)
-
-        bc_name = _next_name("PowerDecay")
-        bc = FusionNode(bc_name, "BrightnessContrast")
-        bc.set_input("Input", tf_name)
-        gain = BezierSpline(f"{bc_name}Gain", color=(255, 255, 100))
-        gain.add_key(first, 1.0, flags={"Linear": True})
-        gain.add_key(start, 1.0, flags={"Linear": True})
-        gain.add_key(line_at, 1.6, flags={"Linear": True})
-        gain.add_key(dot_at, dot_gain, flags={"Linear": True})
-        gain.add_key(last, 0.0, flags={"Linear": True})
-        bc.set_input("Gain", gain)
-        bc.pos = (330, 0)
-
-        return EffectBlock(
-            nodes=band_nodes + [band_spline, tf, size, bc, gain],
-            input_name=band_in,
-            input_key="Background",
-            output_name=bc_name,
-        )
-
+        return _tv_power(
+            clip_dur, direction="off",
+            collapse_frames=collapse_frames, dot_frames=dot_frames,
+            decay_frames=decay_frames, collapse_crop=collapse_crop,
+            dot_gain=dot_gain, dot_size=dot_size,
+            source_in=source_in, source_out=source_out,
+            played_frames=played_frames, res=res)
     @staticmethod
     def shake(
         clip_dur: int,

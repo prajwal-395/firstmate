@@ -33,8 +33,10 @@ from library.tools.marker_feedback import (  # noqa: E402
     connect_resolve,
     frames_to_timecode,
     guard_timeline_deletion,
+    place_reply_clip_marker,
     place_reply_marker,
     pull,
+    remove_clip_marker,
     pulled_files,
     read_notes,
     unpulled_notes,
@@ -517,3 +519,80 @@ def test_reply_marker_on_an_occupied_frame_is_refused(scratch_timeline):
                            "mine", "must not overwrite his")
     back = (scratch_timeline.GetMarkers() or {})[14]
     assert (back.get("name"), back.get("color")) == ("his", "Blue")
+
+
+# ── The green reply ON A CLIP ───────────────────────────────────────
+#
+# Three of the captain's feedback markers were MISSED on 2026-09-11
+# because firstmate's capture read `Timeline.GetMarkers()` only and all
+# three were on CLIPS. Answering them needs the mirror of that: a reply
+# written where the question was, in the clip's own SOURCE frames.
+
+
+def test_a_reply_lands_on_the_clip_at_a_source_frame(scratch_timeline):
+    """The answer comes back on the SAME clip at the SAME position, or
+    the captain looks where they asked and finds nothing."""
+    item = scratch_timeline.GetItemListInTrack("video", 1)[1]
+    key = CLIP_B_IN + 20
+    record = place_reply_clip_marker(
+        item, key, "Green", "reply: the ending holds now",
+        "You asked for room after her last word; the closer now ends "
+        "in silence.")
+    assert record["source_frame"] == key
+    assert record["color"] == "Green"
+
+    note = _note(read_notes(scratch_timeline), "room after her last word")
+    assert note.source == "clip_marker"
+    assert note.color == "Green"
+    # Read back in SOURCE frames, and placed at the timeline frame the
+    # clip plays that source frame at.
+    assert note.frame_in_timeline_space == key
+    assert note.frame == int(item.GetStart()) + (key - int(item.GetLeftOffset()))
+
+
+def test_a_reply_outside_what_the_clip_plays_is_refused(scratch_timeline):
+    """Resolve bounds-checks NEITHER end: a key outside the played range
+    is accepted, returns True, and sits on footage nobody sees."""
+    item = scratch_timeline.GetItemListInTrack("video", 1)[1]
+    first = int(item.GetLeftOffset())
+    for key in (first - 1, first + int(item.GetDuration())):
+        with pytest.raises(MarkerWriteError):
+            place_reply_clip_marker(item, key, "Green", "outside",
+                                    "must not land")
+        assert key not in (item.GetMarkers() or {})
+
+
+def test_a_clip_reply_refuses_an_empty_name(scratch_timeline):
+    item = scratch_timeline.GetItemListInTrack("video", 1)[0]
+    key = CLIP_A_IN + 5
+    with pytest.raises(MarkerWriteError):
+        place_reply_clip_marker(item, key, "Green", "", "x")
+    assert key not in (item.GetMarkers() or {})
+
+
+def test_a_clip_reply_never_overwrites_the_captains_own(scratch_timeline):
+    item = scratch_timeline.GetItemListInTrack("video", 1)[0]
+    key = CLIP_A_IN + 7
+    assert item.AddMarker(key, "Blue", "his", "stays", 1, "") is True
+    with pytest.raises(MarkerWriteError):
+        place_reply_clip_marker(item, key, "Green", "mine",
+                                "must not overwrite his")
+    back = (item.GetMarkers() or {})[key]
+    assert (back.get("name"), back.get("color")) == ("his", "Blue")
+
+
+def test_an_answered_question_comes_off_and_is_judged_by_the_read_back(
+        scratch_timeline):
+    """`DeleteMarkerAtFrame` returns False for "there was nothing there",
+    which is the same outcome as a successful delete - so the verdict is
+    the read-back, never the return (AGENTS.md 5)."""
+    item = scratch_timeline.GetItemListInTrack("video", 1)[0]
+    key = CLIP_A_IN + 9
+    assert item.AddMarker(key, "Blue", "feedback", "asked", 1, "") is True
+    assert remove_clip_marker(item, key) is True
+    assert key not in (item.GetMarkers() or {})
+    # Nothing there is not a failure, and says so.
+    assert remove_clip_marker(item, key) is False
+    # And the reply may then take the frame the question had.
+    place_reply_clip_marker(item, key, "Green", "reply: done", "answered")
+    assert (item.GetMarkers() or {})[key]["color"] == "Green"

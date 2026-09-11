@@ -514,23 +514,36 @@ def _check_broll_differs_from_aroll(manifest: dict) -> list[str]:
 
 
 def _check_overlay_segments_do_not_overlap(manifest: dict) -> list[str]:
-    """Overlay clips share a track, so overlapping segments hide each other."""
+    """Two overlay clips on ONE ROW hide each other, so none may overlap.
+
+    Per LANE, because a lane IS a row (`motion_graphics_plan.plan_segments`
+    packs segments onto lanes and `timeline_layout` turns each lane into
+    a Resolve row). Overlapping segments on DIFFERENT lanes are the
+    captain's own Reel 26 request - two tight-box animations layered on
+    separate rows - and reading them as one row would refuse exactly the
+    thing that was asked for. A segment that names no lane is lane 0,
+    which is every manifest written before lanes existed.
+    """
     errors = []
     for key in ("subtitle_overlay", "motion_graphics_overlay",
                 "timed_text_overlay"):
-        segments = sorted(
-            _overlay_segments(manifest, key),
-            key=lambda s: s.get("timeline_start", 0),
-        )
-        for prev, curr in zip(segments, segments[1:]):
-            gap = curr.get("timeline_start", 0) - prev.get("timeline_end", 0)
-            if gap < -POSITION_EPSILON:
-                errors.append(
-                    f"{key}: segment at "
-                    f"{curr.get('timeline_start')}s starts "
-                    f"{-gap:.3f}s before the previous one ends "
-                    f"({prev.get('timeline_end')}s)"
-                )
+        by_lane: dict = {}
+        for segment in _overlay_segments(manifest, key):
+            by_lane.setdefault(int(segment.get("lane", 0) or 0),
+                               []).append(segment)
+        for lane, lane_segments in sorted(by_lane.items()):
+            segments = sorted(lane_segments,
+                              key=lambda s: s.get("timeline_start", 0))
+            for prev, curr in zip(segments, segments[1:]):
+                gap = (curr.get("timeline_start", 0)
+                       - prev.get("timeline_end", 0))
+                if gap < -POSITION_EPSILON:
+                    errors.append(
+                        f"{key}: segment at "
+                        f"{curr.get('timeline_start')}s starts "
+                        f"{-gap:.3f}s before the previous one ends "
+                        f"({prev.get('timeline_end')}s) on lane {lane}"
+                    )
     return errors
 
 

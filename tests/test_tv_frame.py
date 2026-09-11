@@ -172,32 +172,48 @@ def test_non_mapping_declaration_raises(tmp_path):
 
 
 def test_power_timings_travel_with_the_look(tmp_path):
+    """The declaration names the SHAPE, and the shape is played both
+    ways: a project re-timing the switch re-times the switch-on and the
+    switch-off together (captain, 2026-09-11)."""
     asset = _asset(tmp_path)
     folder = _project(tmp_path, {"tv_frame": {
         "asset": asset,
-        "power": {"switch_on": {"line_frames": 2}},
+        "power": {"collapse_frames": 2},
     }})
     resolved = resolve_tv_frame(folder, None)
-    assert resolved["power"]["switch_on"]["line_frames"] == 2
-    assert resolved["power"]["switch_on"]["expand_frames"] == 6
+    assert resolved["power"]["collapse_frames"] == 2
+    assert resolved["power"]["dot_frames"] == 3
+    assert resolved["power"]["decay_frames"] == 9
+
+
+def test_a_per_half_power_declaration_is_refused(tmp_path):
+    """`power.switch_on` / `power.switch_off` were the shape of this
+    declaration until 2026-09-11. Honouring one would re-time one
+    direction and leave the other behind, so it raises."""
+    asset = _asset(tmp_path)
+    folder = _project(tmp_path, {"tv_frame": {
+        "asset": asset,
+        "power": {"switch_on": {"collapse_frames": 2}},
+    }})
+    with pytest.raises(ValueError):
+        resolve_tv_frame(folder, None)
 
 
 def test_declared_collapse_travels_with_the_look(tmp_path):
-    """The softened depth is declarable, not compiled: a project names
-    it under power.switch_on and the resolved look carries it to the
-    comp builder."""
+    """The depth is declarable, not compiled: a project names it under
+    power and the resolved look carries it to the comp builder."""
     asset = _asset(tmp_path)
     folder = _project(tmp_path, {"tv_frame": {
         "asset": asset,
-        "power": {"switch_on": {"collapse_crop": 0.30}},
+        "power": {"collapse_crop": 0.30},
     }})
     resolved = resolve_tv_frame(folder, None)
-    assert resolved["power"]["switch_on"]["collapse_crop"] == 0.30
+    assert resolved["power"]["collapse_crop"] == 0.30
 
 
 def test_undeclared_power_carries_no_timings(tmp_path):
-    """No power declaration means no timings on the look: the softened
-    default applies where the timings MERGE (reel_look and
+    """No power declaration means no timings on the look: the module's
+    shape applies where the timings MERGE (reel_look and
     compile_manifest seed from the module), not here."""
     asset = _asset(tmp_path)
     folder = _project(tmp_path, {"tv_frame": {"asset": asset}})
@@ -206,12 +222,12 @@ def test_undeclared_power_carries_no_timings(tmp_path):
 
 
 def test_collapse_at_the_guard_raises(tmp_path):
-    """0.5 closes the crop entirely - the one-frame flash - so a
+    """0.5 closes the band entirely - the one-frame flash - so a
     project declaring it is refused, naming the declaration."""
     asset = _asset(tmp_path)
     folder = _project(tmp_path, {"tv_frame": {
         "asset": asset,
-        "power": {"switch_on": {"collapse_crop": 0.5}},
+        "power": {"collapse_crop": 0.5},
     }})
     with pytest.raises(ValueError):
         resolve_tv_frame(folder, None)

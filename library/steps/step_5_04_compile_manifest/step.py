@@ -121,7 +121,7 @@ from tools.tv_frame import (
     LAYER_TRACKS, TV_FRAME_LAYERS, assert_frameable,
     resolve_tv_frame, v1_zoom_for_look,
 )
-from tools.tv_power import switch_off_frames, switch_on_frames
+from tools.tv_power import switch_shape
 from tools.delivery_format import resolve_delivery_format
 from library.tools.subject_grade import apply_subject_grades
 from tools.project_layout import (
@@ -2094,20 +2094,16 @@ def compile_manifest(out_dir: str) -> dict:
     # so the animation is a comp on the picture, not a second system -
     # and the timings travel with them, resolved from the declaration
     # (project over template over the module defaults).
+    # ONE shape, two directions (library/tools/tv_power.py): the head
+    # and the tail read the same declaration, so a project re-timing
+    # the switch re-times both halves of it and cannot re-time one.
     for label, half in tv_power_clips.items():
         effect = per_clip_effects.setdefault(label, {})
-        if half == "head":
-            timing = dict(switch_on_frames())
-            timing.update((tv_look or {}).get("power", {}).get(
-                "switch_on", {}) or {})
-            effect["tv_power_head"] = True
-            effect["tv_power_head_timing"] = timing
-        else:
-            timing = dict(switch_off_frames())
-            timing.update((tv_look or {}).get("power", {}).get(
-                "switch_off", {}) or {})
-            effect["tv_power_tail"] = True
-            effect["tv_power_tail_timing"] = timing
+        timing = dict(switch_shape())
+        timing.update((tv_look or {}).get("power", {}) or {})
+        key = "tv_power_head" if half == "head" else "tv_power_tail"
+        effect[key] = True
+        effect[f"{key}_timing"] = timing
 
     # An entry over a stretch of timeline with no clip on V1 OR V2 cannot
     # be drawn - there is no picture to put a comp on.  It used to RAISE,

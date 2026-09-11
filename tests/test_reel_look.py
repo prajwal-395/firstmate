@@ -171,18 +171,29 @@ def test_power_effects_land_on_the_first_and_last_picture():
     assert "tv_power_tail" not in effects[reel_look.clip_label(0)]
 
 
-def test_reel_head_timing_carries_the_softened_depth():
-    """The head timing the reels ship holds the declared collapse -
-    the softened default undeclared, a project's own value declared."""
+def test_both_directions_ship_one_timing():
+    """The head and the tail a reel ships carry the SAME shape.
+
+    Not "agree today": `power_effects` resolves one declaration and
+    hands it to both directions, so a project cannot re-time the
+    switch-on and leave the switch-off behind (captain, 2026-09-11 -
+    "the tv on animation should start from fully black just like the
+    reverse of how the tv off animation goes to fully black").
+    """
     effects = reel_look.power_effects(
         {"power": {}}, reel_look.clip_label(0), reel_look.clip_label(2))
     head = effects[reel_look.clip_label(0)]["tv_power_head_timing"]
-    assert head["collapse_crop"] == 0.40
+    tail = effects[reel_look.clip_label(2)]["tv_power_tail_timing"]
+    assert head == tail
+    assert head["collapse_crop"] == 0.49
     declared = reel_look.power_effects(
-        {"power": {"switch_on": {"collapse_crop": 0.49}}},
+        {"power": {"collapse_crop": 0.3, "decay_frames": 12}},
         reel_look.clip_label(0), reel_look.clip_label(2))
-    assert (declared[reel_look.clip_label(0)]["tv_power_head_timing"]
-            ["collapse_crop"] == 0.49)
+    got_head = declared[reel_look.clip_label(0)]["tv_power_head_timing"]
+    got_tail = declared[reel_look.clip_label(2)]["tv_power_tail_timing"]
+    assert got_head == got_tail
+    assert got_head["collapse_crop"] == 0.3
+    assert got_head["decay_frames"] == 12
 
 
 def test_declared_zoom_multiplies_the_projects_own_framing():

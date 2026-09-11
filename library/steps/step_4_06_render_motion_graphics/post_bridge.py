@@ -333,6 +333,11 @@ def render_one_segment(planned: dict, out_dir: str,
             "timeline_start": planned["timeline_start"],
             "timeline_end": planned["timeline_end"],
             "total_frames": planned["total_frames"],
+            # Which LANE this segment plays on. Segments on one lane
+            # never overlap, so a lane is a Resolve row - the placers
+            # read it rather than assuming one row per overlay kind
+            # (`motion_graphics_plan.plan_segments`).
+            "lane": int(planned.get("lane", 0)),
             "element_count": planned["element_count"],
             "elements": planned["elements"],
             "provenance": provenance,

@@ -31,7 +31,11 @@ sys.path.insert(0, str(REPO))
 import pytest
 
 from library.tools.fusion.comp_builder import build_effect_comp
-from library.tools.tv_power import switch_off_frames, switch_on_frames
+from library.tools.tv_power import (
+    switch_off_frames,
+    switch_on_frames,
+    switch_shape,
+)
 
 POOL_FPS = 30.0
 REEL_FPS = 24000 / 1001
@@ -109,13 +113,16 @@ def test_head_opens_and_holds_neutral():
     # the declared 18-frame animation, all inside its window.
     assert verdict["changed_frames"] == list(range(0, 18))
     assert verdict["window"] == [0, 18]
-    # The softened strike keeps a fifth of the picture on frame 0, not
-    # the old 2% sliver (captain's 2026-09-10 ruling).  A measurement,
-    # not a judgement (AGENTS.md 10.5) - reported, never computed into
-    # the verdict.
-    assert verdict["min_kept_fraction"] == pytest.approx(0.20)
-    # ... while the strike gain is untouched: the flash still reads.
-    assert verdict["max_gain"] == pytest.approx(2.2)
+    # Frame 0 is FULLY BLACK, which is the captain's 2026-09-11 ruling:
+    # the switch-on is the switch-off reversed, so it opens where the
+    # switch-off closes - band shut to the line, gain at no signal.
+    # (Between 2026-09-10 and 2026-09-11 this kept a fifth of the
+    # picture at gain 2.2; that softening answered an opening sliver
+    # the shape no longer opens on.)  A measurement, not a judgement
+    # (AGENTS.md 10.5) - reported, never computed into the verdict.
+    assert verdict["min_kept_fraction"] == pytest.approx(0.02)
+    # The hottest frame is the dot, exactly as on the switch-off.
+    assert verdict["max_gain"] == pytest.approx(2.5)
 
 
 def test_short_clip_head_never_settles_and_fails():
@@ -385,60 +392,69 @@ def test_applier_undoes_a_tail_with_no_room_and_receipts_it(
 
 def test_head_samples_decode_the_opening_not_the_number():
     """The evidence is decoded off the comp: kept picture and gain at
-    the frames the captain judges (0/2/5/10/18).  The softened default
-    holds a fifth through the strike, opens over the same ramp, and
-    settles where it always did."""
+    the frames the captain judges (0/2/5/10/18).  The switch-on opens
+    on black, rises through the dot, and settles on the picture at 18 -
+    the switch-off's own states, read backwards."""
     from library.tools import treatment_verify as tv
 
     assert tv.HEAD_JUDGE_FRAMES == (0, 2, 5, 10, 18)
     rows = {r["frame"]: r for r in tv.sample_head_frames(
         dict(HEAD), CLIP_DUR)}
-    assert rows[0]["kept_fraction"] == pytest.approx(0.20)
-    assert rows[2]["kept_fraction"] == pytest.approx(0.20)
-    assert rows[0]["gain"] == pytest.approx(2.2)
-    # The ramp opens to full picture and the bloom settles by 18 -
-    # softening the strike moved neither.
-    assert rows[10]["kept_fraction"] == pytest.approx(1.0)
+    # Black: the band is shut to the line and there is no signal on it.
+    assert rows[0]["kept_fraction"] == pytest.approx(0.02)
+    assert rows[0]["gain"] == pytest.approx(0.0)
+    # The glow rises out of black over the decay phase...
+    assert rows[2]["gain"] > rows[0]["gain"]
+    assert rows[5]["gain"] > rows[2]["gain"]
+    # ... the band is still shut while the dot is opening to a line ...
+    assert rows[5]["kept_fraction"] == pytest.approx(0.02)
+    assert rows[10]["kept_fraction"] == pytest.approx(0.02)
+    # ... and by 18 the picture is whole and neutral.
     assert rows[18] == {"frame": 18, "kept_fraction": 1.0, "gain": 1.0}
 
 
-def test_current_shallower_and_shorter_decode_differently():
-    """Shallower and shorter are not the same fix, and the table shows
-    it: the old strike keeps 2% through frame 2, the softened one keeps
-    a fifth, and the shortened one is already half open by frame 5.
-    Either variant leaves frame 18 neutral - the bloom question,
-    answered rather than asserted."""
+def test_a_retimed_switch_decodes_differently_both_ways():
+    """A re-timing is visible in the decoded table, and it moves BOTH
+    directions - which is the whole point of one shape.
+
+    Stretching the decay (black -> dot) delays the glow without moving
+    where the band opens; the switch-off sampled over the same frames
+    shows the mirror of it.  Either way frame 18 of the default is
+    neutral picture - the settle question, answered rather than
+    asserted.
+    """
     from library.tools import treatment_verify as tv
 
-    current = {"tv_power_head": True, "tv_power_head_timing": {
-        **switch_on_frames(), "collapse_crop": 0.49}}
-    shorter = {"tv_power_head": True, "tv_power_head_timing": {
-        **switch_on_frames(), "line_frames": 2, "collapse_crop": 0.49}}
+    default = dict(HEAD)
+    slower = {"tv_power_head": True, "tv_power_head_timing": {
+        **switch_shape(), "decay_frames": 15}}
 
     def by_frame(effects):
         return {r["frame"]: r
                 for r in tv.sample_head_frames(effects, CLIP_DUR)}
 
-    old, new, quick = (by_frame(current), by_frame(dict(HEAD)),
-                       by_frame(shorter))
-    # How FAR it closes: 2% vs a fifth, held through frame 2 either way.
-    assert old[0]["kept_fraction"] == pytest.approx(0.02)
-    assert new[0]["kept_fraction"] == pytest.approx(0.20)
-    assert quick[0]["kept_fraction"] == pytest.approx(0.02)
-    assert quick[2]["kept_fraction"] == pytest.approx(0.02)
-    # How LONG it stays closed: the shortened hold is already opening
-    # at frame 5 while the 4-frame holds are not.
-    assert quick[5]["kept_fraction"] > new[5]["kept_fraction"]
-    assert new[5]["kept_fraction"] > old[5]["kept_fraction"]
-    # The strike gain is untouched on all three: the flash still reads.
-    assert {old[0]["gain"], new[0]["gain"], quick[0]["gain"]} == {2.2}
-    # And every variant settles: frame 18 is neutral picture throughout.
-    for table in (old, new, quick):
-        assert table[18] == {"frame": 18, "kept_fraction": 1.0,
-                             "gain": 1.0}
+    base, slow = by_frame(default), by_frame(slower)
+    # Both open on fully black - the shape's first state, either timing.
+    assert base[0]["gain"] == pytest.approx(0.0)
+    assert slow[0]["gain"] == pytest.approx(0.0)
+    assert base[0]["kept_fraction"] == pytest.approx(0.02)
+    assert slow[0]["kept_fraction"] == pytest.approx(0.02)
+    # The longer decay is DIMMER at the same frame: it has further to
+    # climb to the dot.
+    assert slow[5]["gain"] < base[5]["gain"]
+    # The default settles at 18; the 24-frame one has not, and says so.
+    assert base[18] == {"frame": 18, "kept_fraction": 1.0, "gain": 1.0}
+    assert slow[18]["kept_fraction"] < 1.0
+    # ONE shape: the re-timing reaches the switch-off in the same
+    # breath, with the same total.
+    from library.tools.tv_power import switch_total
+    assert switch_total(slower["tv_power_head_timing"]) == 24
+    assert tv.treatment_total("tv_power_tail", {
+        "tv_power_tail": True,
+        "tv_power_tail_timing": slower["tv_power_head_timing"]}) == 24
 
 
-def test_softened_head_samples_identically_on_both_picture_rows():
+def test_head_samples_identically_on_both_picture_rows():
     """V1 Akshita and V2 Craig: the Fusion pass reaches both rows
     (PR 874), so the head the captain judged is the head both rows
     draw.  Same timing in, same decoded frames out - per clip, per
@@ -471,4 +487,4 @@ def test_softened_head_samples_identically_on_both_picture_rows():
     v2 = tv.sample_head_frames(per_clip["reel_picture_craig"], 600)
     assert v1 == v2
     assert {r["frame"]: r for r in v1}[0]["kept_fraction"] == pytest.approx(
-        0.20)
+        0.02)

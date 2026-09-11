@@ -148,8 +148,10 @@ def test_tail_element_room_comes_from_its_own_module():
     expected = frames_for_ramp(ramp)
     assert expected == ramp + 1
     assert reel_ending.tail_room_frames(_ending()) == expected
-    # A project that redeclares the animation redeclares its room.
-    look = {"power": {"switch_off": {"decay_frames": 30}}}
+    # A project that redeclares the animation redeclares its room. The
+    # declaration names the SHAPE, not a half: one shape, two directions
+    # (captain, 2026-09-11).
+    look = {"power": {"decay_frames": 30}}
     assert reel_ending.tail_room_frames(_ending(), look) == frames_for_ramp(
         ramp - timing["decay_frames"] + 30)
     # `none` is the absence of decoration and needs nothing.

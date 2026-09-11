@@ -77,7 +77,7 @@ middle-only stack centres on the small canvas, which is the placement.
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import Optional, Sequence
 
 from library.tools.tight_box import (
     TightBox,
@@ -332,6 +332,60 @@ def _horizontal(anchor: str) -> str:
     if anchor.endswith("right"):
         return "right"
     return "centre"
+
+
+def separable_groups(elements: Sequence[dict]) -> list[list[dict]]:
+    """One segment's elements, split into groups that can each be tight.
+
+    The captain, on Reel 26, on the one full-canvas file two animations
+    had been rendered into, 2026-09-11::
+
+        "this was a full frame compostie render of two different
+         animations, see if you can make it so that its two different
+         tighbox animations that are layered on seperate rows on the
+         timeline"
+
+    He is describing the refusal above, from the outside.  Reel 26's
+    segment carries a `title_lockup` at ``top_centre`` and a
+    `subject_emblem` at ``middle_right``; their spans touch, so
+    `motion_graphics_plan.plan_segments` clustered them into one segment,
+    and a middle zone beside another zone is exactly the case
+    `tighten_motion_graphics_props` returns None on - ``top: 50%``
+    centres on the CANVAS, so on a small canvas the middle stack centres
+    on the wrong frame.  One segment, one full 1080x1920 render, two
+    million pixels a frame for two small graphics.
+
+    Nothing was baked: the two are separate entries in the plan with
+    their own anchors, timings and copy, and the only thing joining them
+    was the cluster.  So the answer is to stop joining them.  This
+    returns the partition - middle-anchored copy in one group,
+    everything else in the other - and each group is then its own
+    segment, its own tight box, and its own timeline row where they
+    overlap in time.
+
+    ONE group back means no split helps: a segment already inside one
+    zone family is already tightenable (or already refused for a reason
+    a split cannot fix, like `frame_accents` spanning by design).  The
+    caller keeps its single segment and nothing changes.
+    """
+    items = list(elements or [])
+    if len(items) < 2:
+        return [items] if items else []
+    copy = [e for e in items if e.get("element") not in SELF_POSITIONING]
+    zones = {_vertical_zone(e.get("anchor", "")) for e in copy}
+    if "middle" not in zones or len(zones) < 2:
+        return [items]
+    middle, rest = [], []
+    for element in items:
+        if (element.get("element") not in SELF_POSITIONING
+                and _vertical_zone(element.get("anchor", "")) == "middle"):
+            middle.append(element)
+        else:
+            # Chrome positions itself from the insets absolutely, so it
+            # is consistent wherever the union puts it; it rides with
+            # the edge-anchored group rather than forcing a third.
+            rest.append(element)
+    return [group for group in (rest, middle) if group]
 
 
 def tighten_motion_graphics_props(props: dict,

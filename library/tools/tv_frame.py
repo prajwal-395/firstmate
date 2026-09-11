@@ -189,7 +189,7 @@ def resolve_tv_frame(project_folder: Optional[str] = None,
         if declared.get("punch_in") is not None
         else DEFAULT_PUNCH_IN
     )
-    power = _validate_power_timing(declared.get("power"), source, half="both")
+    power = _validate_power_timing(declared.get("power"), source)
     rotate = validate_rotation(declared.get("rotate", AUTO_ROTATE), source)
     return {
         "asset": asset,

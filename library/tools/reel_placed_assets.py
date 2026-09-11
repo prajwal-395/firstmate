@@ -182,6 +182,16 @@ def promote_cards(cards: list | None, project_folder: str) -> list:
     promoted into `Area.REEL_CARDS`. A card with no file passes
     through untouched - the builder's own missing-file refusal stays
     the thing that reports it, here unchanged.
+
+    A file that is ALREADY durable passes through as it is. Promotion
+    exists because `Kind.SCRATCH` is declared safe to throw away at any
+    moment; a file outside scratch has no such declaration over it, and
+    copying one anyway detaches the timeline from the file whoever owns
+    it maintains. The case this is written for is
+    `full_frame_element.full_frame_clip`: the project's own brand
+    animation, which the engine places verbatim and never re-authors
+    (AGENTS.md 13) - a promoted copy of it would go stale in silence
+    the next time the series re-cuts its logo.
     """
     import dataclasses
 
@@ -189,7 +199,8 @@ def promote_cards(cards: list | None, project_folder: str) -> list:
     for card in cards or []:
         if isinstance(card, dict):
             path = card.get("rendered_path") or ""
-            if path and os.path.isfile(str(path)):
+            if (path and os.path.isfile(str(path))
+                    and is_under_scratch(str(path), project_folder)):
                 card = dict(card)
                 card["rendered_path"] = promote_to_durable(
                     str(path), project_folder, Area.REEL_CARDS
@@ -197,7 +208,9 @@ def promote_cards(cards: list | None, project_folder: str) -> list:
             out.append(card)
             continue
         path = getattr(card, "rendered_path", "") or ""
-        if path and os.path.isfile(str(path)) and dataclasses.is_dataclass(card):
+        if (path and os.path.isfile(str(path))
+                and is_under_scratch(str(path), project_folder)
+                and dataclasses.is_dataclass(card)):
             out.append(
                 dataclasses.replace(
                     card,

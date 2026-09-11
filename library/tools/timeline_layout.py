@@ -62,9 +62,16 @@ AUDIO = "audio"
 
 #: Roles of which a timeline holds at most one row. Two rows carrying
 #: one of these names is two rows doing one row's job.
+#:
+#: EXPLAINER and SEMANTIC left this set on 2026-09-11. They carry
+#: motion-graphics segments, and a segment that cannot share ONE TIGHT
+#: BOX with its neighbour is split into two that overlap in time
+#: (`motion_graphics_plan.plan_segments`) - so they pack onto rows the
+#: same way MOTION_GRAPHICS always has. The captain asked for it by
+#: name on Reel 26: "two different tighbox animations that are layered
+#: on seperate rows on the timeline".
 SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
-                              EXPLAINER, SEMANTIC, GENERATORS, TIMED_TEXT,
-                              MUSIC})
+                              GENERATORS, TIMED_TEXT, MUSIC})
 
 #: The standard NAMES those singleton rows carry. A master row carrying
 #: one is a layer, not a camera - which is how the reel builder tells
@@ -147,6 +154,19 @@ class TrackPlan:
             if track.index == index:
                 return track.role
         return None
+
+    def rows_for_role(self, role: str):
+        """Every plan row carrying `role`, in row order.
+
+        A role may hold more than one row where the material overlaps in
+        time - motion graphics, timed text, music, SFX have always
+        packed that way, and the reel's semantic-visual and explainer
+        rows do too since the captain asked for two tight-box animations
+        on separate rows (Reel 26, 2026-09-11). The placer indexes this
+        by the segment's own LANE.
+        """
+        return [t for t in self.video_tracks + self.audio_tracks
+                if t.role == role]
 
     def row_for_role(self, role: str):
         """The plan row carrying `role`, or None when the material asked
@@ -280,15 +300,25 @@ def plan_layout(material: dict) -> TrackPlan:
                                role=TRANSITIONS, name="Transitions",
                                occupant="transitions"))
 
-    if material.get("has_explainer"):
-        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
-                               role=EXPLAINER, name="Explainer",
-                               occupant="explainer"))
-
-    if material.get("has_semantic"):
-        video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
-                               role=SEMANTIC, name="Semantic",
-                               occupant="semantic"))
+    for role, base, key, legacy in (
+            (EXPLAINER, "Explainer", "explainer_spans", "has_explainer"),
+            (SEMANTIC, "Semantic", "semantic_spans", "has_semantic")):
+        # Spans where the material has them, so overlapping segments get
+        # a row each; the bare boolean still means exactly one row, for
+        # material written before either kind could layer.
+        spans = [tuple(s) for s in (material.get(key) or [])]
+        if spans:
+            rows = allocate_non_overlapping_rows(spans,
+                                                 base_index=len(video) + 1)
+            names = _layered_names(role, base, len({r for _, r in rows}))
+        elif material.get(legacy):
+            names = [base]
+        else:
+            names = []
+        for name in names:
+            video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,
+                                   role=role, name=name,
+                                   occupant=role))
 
     mg_rows = allocate_non_overlapping_rows(
         [tuple(s) for s in material.get("mg_spans", [])],

@@ -86,17 +86,14 @@ class UnknownTreatment(ValueError):
 
 def timing_for(key: str, effects: dict) -> Dict[str, int]:
     """This treatment's resolved frame counts, overrides applied."""
-    if key == "tv_power_head":
-        from library.tools.tv_power import switch_on_frames
+    if key in ("tv_power_head", "tv_power_tail"):
+        from library.tools.tv_power import switch_shape
 
-        timing = dict(switch_on_frames())
-        timing.update(effects.get("tv_power_head_timing") or {})
-        return timing
-    if key == "tv_power_tail":
-        from library.tools.tv_power import switch_off_frames
-
-        timing = dict(switch_off_frames())
-        timing.update(effects.get("tv_power_tail_timing") or {})
+        # ONE shape, two directions: the window a head is checked over
+        # is the length of the same animation the tail draws, so the
+        # two windows cannot fall out of step with each other.
+        timing = dict(switch_shape())
+        timing.update(effects.get(f"{key}_timing") or {})
         return timing
     raise UnknownTreatment(
         f"treatment {key!r} is not one of {list(TREATMENT_KEYS)} - "

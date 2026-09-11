@@ -3053,16 +3053,27 @@ def check_explainer(reel_name: str,
                     "name": item.name,
                     "render_prefix": RENDER_PREFIX}))
 
-    for earlier, later in zip(items, items[1:]):
-        if later.start_frame < earlier.end_frame:
-            findings.append(Finding(
-                finding_class=FindingClass.F21, reel=reel_name,
-                message=(
-                    f"two explainer items overlap on V{track}: "
-                    f"[{earlier.start_frame}..{earlier.end_frame}) and "
-                    f"[{later.start_frame}..{later.end_frame})"),
-                detail={"first": [earlier.start_frame, earlier.end_frame],
-                        "second": [later.start_frame, later.end_frame]}))
+    # PER ROW. The defect is one build having run twice into one
+    # timeline, which stacks two items on one row; two items that
+    # overlap on DIFFERENT rows are two graphics the plan deliberately
+    # puts on screen together (the captain's Reel 26 request), and
+    # reading them as one row would refuse the thing he asked for.
+    by_row: dict = {}
+    for item in items:
+        by_row.setdefault(item.track_index, []).append(item)
+    for row, row_items in sorted(by_row.items()):
+        for earlier, later in zip(row_items, row_items[1:]):
+            if later.start_frame < earlier.end_frame:
+                findings.append(Finding(
+                    finding_class=FindingClass.F21, reel=reel_name,
+                    message=(
+                        f"two explainer items overlap on V{row}: "
+                        f"[{earlier.start_frame}..{earlier.end_frame}) and "
+                        f"[{later.start_frame}..{later.end_frame})"),
+                    detail={"first": [earlier.start_frame,
+                                      earlier.end_frame],
+                            "second": [later.start_frame,
+                                       later.end_frame]}))
     return findings
 
 
@@ -3174,16 +3185,27 @@ def check_semantic_visuals(reel_name: str,
                     "name": item.name,
                     "render_prefix": SEMANTIC_RENDER_PREFIX}))
 
-    for earlier, later in zip(items, items[1:]):
-        if later.start_frame < earlier.end_frame:
-            findings.append(Finding(
-                finding_class=FindingClass.F22, reel=reel_name,
-                message=(
-                    f"two semantic items overlap on V{track}: "
-                    f"[{earlier.start_frame}..{earlier.end_frame}) and "
-                    f"[{later.start_frame}..{later.end_frame})"),
-                detail={"first": [earlier.start_frame, earlier.end_frame],
-                        "second": [later.start_frame, later.end_frame]}))
+    # PER ROW. The defect is one build having run twice into one
+    # timeline, which stacks two items on one row; two items that
+    # overlap on DIFFERENT rows are two graphics the plan deliberately
+    # puts on screen together (the captain's Reel 26 request), and
+    # reading them as one row would refuse the thing he asked for.
+    by_row: dict = {}
+    for item in items:
+        by_row.setdefault(item.track_index, []).append(item)
+    for row, row_items in sorted(by_row.items()):
+        for earlier, later in zip(row_items, row_items[1:]):
+            if later.start_frame < earlier.end_frame:
+                findings.append(Finding(
+                    finding_class=FindingClass.F22, reel=reel_name,
+                    message=(
+                        f"two semantic items overlap on V{row}: "
+                        f"[{earlier.start_frame}..{earlier.end_frame}) and "
+                        f"[{later.start_frame}..{later.end_frame})"),
+                    detail={"first": [earlier.start_frame,
+                                      earlier.end_frame],
+                            "second": [later.start_frame,
+                                       later.end_frame]}))
     return findings
 
 
@@ -4329,6 +4351,23 @@ def verify_reel(plan: ReelPlan,
     )
 
 
+def _is_layer_named(row: str, base: str) -> bool:
+    """Whether a track name is this layer's row, numbered or not.
+
+    `timeline_layout._layered_names` gives the first row the bare name
+    and numbers the rest ("Semantic", "Semantic 2"), which is how two
+    tight-box animations that play at once get a row each. Matching the
+    bare name alone would file every further row as unclassified and
+    report a correct build as carrying items nothing grades.
+    """
+    row = (row or "").strip()
+    if row == base:
+        return True
+    if row.startswith(base + " "):
+        return row[len(base) + 1:].isdigit()
+    return False
+
+
 # ── Converting timeline_ingest snapshots to our types ────────────────
 
 def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
@@ -4382,9 +4421,9 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
             caption_items.append(item)
         elif is_video and row == "Transitions":
             overlay_items.append(item)
-        elif is_video and row == "Explainer":
+        elif is_video and _is_layer_named(row, "Explainer"):
             explainer_items.append(item)
-        elif is_video and row == "Semantic":
+        elif is_video and _is_layer_named(row, "Semantic"):
             semantic_items.append(item)
         elif is_video and clip.track_index == 3:
             caption_items.append(item)
@@ -4582,8 +4621,15 @@ def _derive_plan_from_master(
     cards: Tuple[PlannedCard, ...] = ()
     lead_frames = 0
     if moment is not None and project_folder:
-        planned_cards = compute_cards(moment, transcript or {}, kr,
-                                      project_folder, fps)
+        # The ENDING travels, because a freeze holds picture after the
+        # keep ranges and a tail element starts after it
+        # (`reel_ending.ending_tail_frames`). Re-deriving without it
+        # would place every declared closing element 19 frames early
+        # and report the built one as a plan mismatch.
+        planned_cards = compute_cards(
+            moment, transcript or {}, kr, project_folder, fps,
+            ending=ending_declaration,
+            look=_reel_look_declaration(project_folder))
         cards = tuple(PlannedCard(render_name=c.render_name,
                                   placement=c.placement,
                                   reel_start_frame=c.reel_start_frame,

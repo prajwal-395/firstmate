@@ -133,6 +133,7 @@ How a declaration reaches the picture, in order
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 from dataclasses import dataclass, field, replace
@@ -311,6 +312,44 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
             "Never artwork the engine supplies: the ground, the typeface "
             "and every word are the declaration's (AGENTS.md 14), the "
             "same as a card's.",
+        ),
+    ),
+    FullFrameElementKind(
+        key="full_frame_clip",
+        what=("A finished animation the PROJECT supplies, played at the "
+              "delivery frame for its own measured length, in place of "
+              "picture rather than over it. The engine places the "
+              "client's file verbatim and draws nothing into it."),
+        axes=("placement", "asset"),
+        copy="none",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "Measured with ffprobe at plan time and placed on V1 by "
+            "reel_build.build_reel_timeline, on the same path a rendered "
+            "card takes - so the coverage assertion, the item count and "
+            "the framing verdict all see it. Proved on an exported still "
+            "off a built reel timeline (tests/test_full_frame_clip.py "
+            "covers the plan and the refusals)."
+        ),
+        never=(
+            "Never re-authored: the engine stages a client's asset "
+            "verbatim and never edits one (AGENTS.md 13). A file that is "
+            "not already the delivery frame is REFUSED rather than "
+            "letterboxed or cropped - which of those to do is taste, and "
+            "it is the project's to declare by re-authoring the file.",
+            "Never a declared duration: the animation lasts as long as "
+            "the file does, measured at plan time. A second number is a "
+            "second source of truth, and one that disagrees either "
+            "truncates the animation or freezes on its last frame - so "
+            "`duration_seconds` on a clip is refused, not read.",
+            "Never copy: a clip carries no runs, no ground and no "
+            "typeface, because every pixel of it was drawn before the "
+            "engine saw it. A card the engine types is `full_frame_card`.",
+            "Never mid-reel: the same refusal a card gets, for the same "
+            "reason - `placement` is head or tail.",
+            "Never sound: it is placed as picture (`mediaType: 1`), so an "
+            "audio stream riding along does not reach the timeline. A "
+            "closing sting is a sound decision and 4.04 owns those.",
         ),
     ),
 )
@@ -648,6 +687,18 @@ class PlannedCard:
     props: dict
     render_name: str
     resolved_runs: tuple[dict, ...] = field(default_factory=tuple)
+    source_frames: int = 0
+    """How many frames of the SOURCE file the placement plays.
+
+    A rendered card is drawn at the reel's own fps, so this equals
+    `duration_frames` and the distinction never surfaces.  A
+    `full_frame_clip` is a file the project authored at whatever rate it
+    chose - the logo animation this was written for is 30fps on a
+    24000/1001 reel - and `AppendToTimeline`'s `endFrame` counts SOURCE
+    frames while `recordFrame` counts timeline ones.  Placing the
+    timeline count would play 4% of the animation short, which is a
+    truncation nothing downstream could see."""
+
     rendered_path: str = ""
     """The file this card was rendered to.  Empty until it has been.
 
@@ -756,6 +807,8 @@ def _normalise(raw: Any, index: int) -> dict:
                 f"{SPAN_PLACEMENT!r} and nothing else - head or tail on a "
                 f"span would be a card beside the picture it already is.")
         return _normalise_span(raw, index, placement)
+    if key == "full_frame_clip":
+        return _normalise_clip(raw, index, label, placement)
     if placement == SPAN_PLACEMENT:
         raise FullFrameDeclarationError(
             f"{label} is a card and has placement='span'; a span is the "
@@ -816,6 +869,185 @@ def _normalise(raw: Any, index: int) -> dict:
         "runs": [_normalise_run(run, index, position)
                  for position, run in enumerate(runs, start=1)],
     }
+
+
+#: A clip's own picture is the whole declaration, so everything a card
+#: declares about how a frame is DRAWN has no reader on one. Each is
+#: refused by name rather than ignored: a project that wrote one
+#: believes it reached the picture.
+CLIP_REFUSED_FIELDS: dict[str, str] = {
+    "runs": ("a clip carries no copy - every pixel of it was drawn "
+             "before the engine saw it. A card the engine types is "
+             "`full_frame_card`."),
+    "duration_seconds": ("a clip lasts as long as its file does, "
+                         "measured at plan time. A declared length is a "
+                         "second source of truth that either truncates "
+                         "the animation or freezes on its last frame."),
+    "background": "a clip draws its own ground.",
+    "entrance": "a clip animates itself; its entrance is in the file.",
+    "exit": "a clip animates itself; its exit is in the file.",
+    "font_family": "a clip carries no type.",
+    "font_file": "a clip carries no type.",
+    "y": "a clip is the whole frame; there is nothing to position.",
+    "image": "a clip IS the image.",
+    "word_sync": ("a clip covers its own seconds, not speech seconds, "
+                  "so no word clock runs while it plays."),
+    "emphasis_colour": ("a clip covers its own seconds, so no word is "
+                        "ever current while it plays."),
+    "segments": "segments belong to a full_frame_span.",
+}
+
+
+@dataclass(frozen=True)
+class ClipMeasurement:
+    """A project clip, measured rather than assumed."""
+
+    path: str
+    width: int
+    height: int
+    fps: float
+    frame_count: int
+    duration_seconds: float
+
+
+def measure_clip(path: str, timeout: int = 30) -> ClipMeasurement:
+    """Measure a project-supplied full-frame clip, or refuse it by name.
+
+    A file is admitted on a MEASUREMENT, never on its extension - the
+    same bar `brand_motion.measure_source` holds its sources to. What is
+    read here is only what the placement needs: the frame the file
+    delivers, and how long it runs in its own frames and in seconds.
+    """
+    import json as _json
+    import subprocess as _subprocess
+
+    if not os.path.isfile(path):
+        raise FullFrameDeclarationError(
+            f"full-frame clip {path!r} is not a file. A declared closing "
+            f"element that is not on disk leaves the reel ending on the "
+            f"switch-off, which is indistinguishable from a project that "
+            f"declared no clip at all.")
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_entries",
+           "stream=width,height,r_frame_rate,nb_frames,duration",
+           "-show_entries", "format=duration", "-of", "json", path]
+    try:
+        res = _subprocess.run(cmd, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace",
+                              timeout=timeout, check=False)
+    except FileNotFoundError as exc:
+        raise FullFrameDeclarationError(
+            f"ffprobe is not on PATH, so {path!r} cannot be measured, and "
+            f"a clip is admitted on a measurement rather than on its "
+            f"extension.") from exc
+    except _subprocess.TimeoutExpired as exc:
+        raise FullFrameDeclarationError(
+            f"ffprobe timed out after {timeout}s on {path!r}") from exc
+    if res.returncode != 0:
+        raise FullFrameDeclarationError(
+            f"ffprobe could not read {path!r}: "
+            f"{res.stderr.strip() or 'no stderr'}")
+    try:
+        data = _json.loads(res.stdout or "{}")
+    except ValueError as exc:
+        raise FullFrameDeclarationError(
+            f"ffprobe returned unparseable output for {path!r}") from exc
+    streams = data.get("streams") or []
+    if not streams:
+        raise FullFrameDeclarationError(
+            f"ffprobe found no video stream in {path!r}: a full-frame "
+            f"element has to be a picture.")
+    stream = streams[0]
+    try:
+        num, _, den = str(stream.get("r_frame_rate") or "0/1").partition("/")
+        fps = float(num) / float(den or 1)
+    except (TypeError, ValueError, ZeroDivisionError):
+        fps = 0.0
+    duration = stream.get("duration") or (
+        data.get("format") or {}).get("duration")
+    try:
+        seconds = float(duration)
+    except (TypeError, ValueError):
+        seconds = 0.0
+    try:
+        frames = int(stream.get("nb_frames"))
+    except (TypeError, ValueError):
+        frames = int(round(seconds * fps)) if fps > 0 else 0
+    if seconds <= 0 or frames <= 0 or fps <= 0:
+        raise FullFrameDeclarationError(
+            f"{path!r} measures {frames} frame(s) over {seconds}s at "
+            f"{fps}fps: a clip that lasts no time appears in no frame.")
+    return ClipMeasurement(
+        path=path, width=int(stream.get("width") or 0),
+        height=int(stream.get("height") or 0), fps=fps,
+        frame_count=frames, duration_seconds=seconds)
+
+
+def _normalise_clip(raw: dict, index: int, label: str,
+                    placement: str) -> dict:
+    """One `full_frame_clip` declaration, checked field by field.
+
+    The whole declaration is WHERE it sits, WHICH file it is, and WHY -
+    the captain's own words, which is what any listing reads back. The
+    shape `placed_assets.json` already uses for the master path, because
+    this is the reels half of the same decision.
+    """
+    if placement not in PLACEMENTS:
+        raise FullFrameDeclarationError(
+            f"{label} has placement={raw.get('placement')!r}; a clip sits "
+            f"at the {' or the '.join(PLACEMENTS)} of the reel. There is "
+            f"no default, because where it sits is an editorial "
+            f"decision, and no mid-reel position exists because a full "
+            f"frame between two keep ranges lands inside a sentence.")
+
+    asset = raw.get("asset")
+    if not isinstance(asset, str) or not asset.strip():
+        raise FullFrameDeclarationError(
+            f"{label} names no `asset`. A clip IS a file the project "
+            f"supplies; there is nothing for the engine to draw instead.")
+
+    reason = raw.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        raise FullFrameDeclarationError(
+            f"{label} carries no `reason` - the captain's own words, "
+            f"which is what any listing reads back.")
+
+    for field_name, why in CLIP_REFUSED_FIELDS.items():
+        if raw.get(field_name) is not None:
+            raise FullFrameDeclarationError(
+                f"{label} is a full_frame_clip and sets "
+                f"{field_name}={raw.get(field_name)!r}: {why}")
+
+    return {
+        "element": "full_frame_clip",
+        "placement": placement,
+        "asset": asset.strip(),
+        "reason": reason.strip(),
+    }
+
+
+def resolve_clip_asset(named: str, project_folder: Optional[str]) -> str:
+    """A declared clip path as an absolute file, or a refusal by name.
+
+    An ABSOLUTE path is taken as written - a reference is an absolute
+    path plus a map and this declaration is the map (AGENTS.md 10.1),
+    which is what lets a series keep one brand animation beside the
+    projects that share it rather than a copy inside each. A RELATIVE
+    one resolves against the project folder, so `brand_assets/x.mov`
+    means what it reads as.
+    """
+    path = os.path.expanduser(str(named or "").strip())
+    if not os.path.isabs(path):
+        if not project_folder:
+            raise FullFrameDeclarationError(
+                f"full-frame clip {named!r} is relative and no project "
+                f"folder was given to resolve it against.")
+        path = os.path.normpath(os.path.join(str(project_folder), path))
+    if not os.path.isfile(path):
+        raise FullFrameDeclarationError(
+            f"full-frame clip {named!r} resolves to {path!r}, which is "
+            f"not a file.")
+    return path
 
 
 def _shared_fields(raw: Any, index: int, label: str) -> dict:
@@ -1338,24 +1570,84 @@ def plan_reel_cards(declarations: Sequence[dict],
     heads = [d for d in declarations if d["placement"] == "head"]
     tails = [d for d in declarations if d["placement"] == "tail"]
 
+    def _plan(declaration, index, cursor):
+        if declaration["element"] == "full_frame_clip":
+            return _plan_clip(declaration, index, cursor, fps,
+                              width, height, project_folder)
+        return _plan_one(declaration, index, cursor, facts, fps,
+                         width, height, safe_area, resolver)
+
     planned: list[PlannedCard] = []
     cursor = 0
     index = 0
     for declaration in heads:
         index += 1
-        card = _plan_one(declaration, index, cursor, facts, fps,
-                         width, height, safe_area, resolver)
+        card = _plan(declaration, index, cursor)
         planned.append(card)
         cursor += card.duration_frames
 
     cursor = sum(c.duration_frames for c in planned) + int(body_frames)
     for declaration in tails:
         index += 1
-        card = _plan_one(declaration, index, cursor, facts, fps,
-                         width, height, safe_area, resolver)
+        card = _plan(declaration, index, cursor)
         planned.append(card)
         cursor += card.duration_frames
     return planned
+
+
+def _plan_clip(declaration: dict, index: int, reel_start_frame: int,
+               fps: float, width: int, height: int,
+               project_folder: Optional[str]) -> PlannedCard:
+    """One project-supplied clip, measured and ready to place.
+
+    Nothing is rendered: `rendered_path` is the project's own file, so
+    the clip reaches the timeline verbatim (AGENTS.md 13 - the engine
+    renders a client's asset, it never edits one).
+
+    The file must already BE the delivery frame.  Fitting one that is
+    not changes how loud the client's mark reads, and which way to fit
+    it is taste the engine may not take (the same reading
+    `brand_motion.GeometryMismatch` records), so a mismatch refuses and
+    names both sizes.
+    """
+    label = f"full_frame_elements[{index}]"
+    path = resolve_clip_asset(declaration["asset"], project_folder)
+    measured = measure_clip(path)
+    if (measured.width, measured.height) != (int(width), int(height)):
+        raise FullFrameDeclarationError(
+            f"{label} names {path!r}, which measures "
+            f"{measured.width}x{measured.height}; this reel delivers "
+            f"{width}x{height}. Fitting it would letterbox the mark "
+            f"small or crop it, and which of those to do is taste the "
+            f"engine may not take - re-author the file at the delivery "
+            f"frame.")
+    # How many TIMELINE frames Resolve lays this clip down over, which
+    # is the source's own frame count conformed to the reel's rate -
+    # NOT `round(seconds * fps)`. Measured on the first build: 90 frames
+    # of 30fps source on a 24000/1001 reel came back as 71 timeline
+    # frames where `round(3.0 * 23.976)` predicted 72, and F13 refused
+    # the reel by exactly that one frame. Resolve truncates, and the
+    # captain's own hand placement of this animation on Reel 09 is 71
+    # frames too. The epsilon keeps a same-rate clip (every rendered
+    # card) at its own count rather than one short of it.
+    duration_frames = int(math.floor(
+        measured.frame_count * (fps / measured.fps) + 1e-6))
+    if duration_frames <= 0:
+        raise FullFrameDeclarationError(
+            f"{label} conforms to {duration_frames} frames at "
+            f"{fps:.3f}fps; a full-frame element must occupy at least one")
+    return PlannedCard(
+        index=index,
+        element=declaration["element"],
+        placement=declaration["placement"],
+        reel_start_frame=int(reel_start_frame),
+        duration_seconds=measured.duration_seconds,
+        duration_frames=duration_frames,
+        props={},
+        render_name=os.path.splitext(os.path.basename(path))[0],
+        source_frames=measured.frame_count,
+        rendered_path=path,
+    )
 
 
 def _plan_one(declaration: dict, index: int, reel_start_frame: int,
@@ -1831,9 +2123,17 @@ def render_reel_cards(cards: Sequence[PlannedCard],
     """
     if not cards:
         return []
+    # A `full_frame_clip` is a file the PROJECT authored; the engine
+    # places it verbatim and never re-draws one (AGENTS.md 13), so it
+    # arrives with `rendered_path` already filled and passes straight
+    # through. It is kept in the returned order because the order is
+    # play order and the placer reads it.
+    to_render = [c for c in cards if not c.rendered_path]
+    if not to_render:
+        return list(cards)
     os.makedirs(output_dir, exist_ok=True)
     jobs: list[RenderJob] = []
-    for card in cards:
+    for card in to_render:
         out_path = os.path.join(output_dir, f"{card.render_name}.mov")
         props_path = os.path.join(output_dir, f"{card.render_name}_props.json")
         with open(props_path, "w", encoding="utf-8") as handle:
@@ -1861,8 +2161,8 @@ def render_reel_cards(cards: Sequence[PlannedCard],
             f"could not render {len(jobs)} full-frame card(s) through "
             f"{FULL_FRAME_COMPOSITION}: {exc}") from exc
     by_out = {res.get("out"): res for res in results}
-    rendered: list[PlannedCard] = []
-    for card, job in zip(cards, jobs):
+    drawn: dict[int, PlannedCard] = {}
+    for card, job in zip(to_render, jobs):
         res = by_out.get(job.out_path) or {}
         if not res.get("ok"):
             raise FullFrameRenderError(
@@ -1874,11 +2174,14 @@ def render_reel_cards(cards: Sequence[PlannedCard],
             raise FullFrameRenderError(
                 f"render reported success but {job.out_path} is missing "
                 f"or empty")
-        rendered.append(replace(card, rendered_path=job.out_path))
+        drawn[id(card)] = replace(card, rendered_path=job.out_path)
         print(f"      OK: {job.out_path} "
               f"({os.path.getsize(job.out_path)} bytes)",
               file=stream)
-    return rendered
+    # In PLAY order, with the project's own clips where they were: the
+    # placer walks this list and a card missing from it is a card the
+    # timeline never gets.
+    return [drawn.get(id(card), card) for card in cards]
 
 
 # ── Reading the roster ───────────────────────────────────────────────

@@ -973,13 +973,15 @@ def power_effects(look: dict, first_label: str,
     animation onto a 12-frame shot that had no business being the
     ending at all.
     """
-    from library.tools.tv_power import switch_off_frames, switch_on_frames
+    from library.tools.tv_power import switch_shape
 
+    # ONE shape, two directions: the head plays it black -> picture and
+    # the tail picture -> black, off the SAME declaration, so a project
+    # cannot re-time one half and leave the other behind.
     declared = (look or {}).get("power", {}) or {}
-    head = dict(switch_on_frames())
-    head.update(declared.get("switch_on", {}) or {})
-    tail = dict(switch_off_frames())
-    tail.update(declared.get("switch_off", {}) or {})
+    head = dict(switch_shape())
+    head.update(declared)
+    tail = dict(head)
 
     out: Dict[str, dict] = {}
     out.setdefault(first_label, {}).update(

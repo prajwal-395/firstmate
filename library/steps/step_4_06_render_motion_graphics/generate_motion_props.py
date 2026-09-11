@@ -172,5 +172,5 @@ def generate_motion_props(
 
     segments = plan_segments(
         resolved.moments, fps=fps, width=width, height=height,
-        safe_area=safe_area)
+        safe_area=safe_area, project_folder=project_folder or "")
     return segments, resolved

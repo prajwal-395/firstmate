@@ -532,11 +532,10 @@ def tail_room_frames(ending, look=None) -> int:
     if element != "tv_power_tail":
         return 0
     from library.tools.fusion.played_window import frames_for_ramp
-    from library.tools.tv_power import switch_off_frames
+    from library.tools.tv_power import switch_shape
 
-    timing = dict(switch_off_frames())
-    timing.update(((look or {}).get("power", {}) or {}).get(
-        "switch_off", {}) or {})
+    timing = dict(switch_shape())
+    timing.update((look or {}).get("power", {}) or {})
     # Frames of CLIP, not frames of RAMP: a ramp needs the frame it
     # starts neutral on as well as every frame it moves over, and that
     # arithmetic belongs to the check that enforces it
@@ -545,6 +544,33 @@ def tail_room_frames(ending, look=None) -> int:
     return frames_for_ramp(
         timing["collapse_frames"] + timing["dot_frames"]
         + timing["decay_frames"])
+
+
+def ending_tail_frames(ending, look=None) -> int:
+    """How many frames the ENDING occupies after the last keep range.
+
+    A `freeze` holds the ending shot's last frame for exactly as long as
+    its tail element needs and draws the element over the held frames,
+    so those frames are picture the reel plays and anything placed after
+    the body starts after them.  `none` holds nothing and returns 0.
+
+    WHO NEEDS THIS: a closing element declared for every reel
+    (`full_frame_element.full_frame_clip` at the tail).  The captain's
+    logo card on Reel 09 sits on the frame after the picture ends, and
+    the ordering is stated rather than inferred:
+
+        picture live -> held frame with the switch-off over it -> card
+
+    The switch-off ENDS AT BLACK - gain 0.0, the set off - so the card
+    is what the brand shows once the picture is gone, and it never draws
+    over a frame that is still collapsing to a dot underneath it.
+    Ordering it the other way would put two animations on the same
+    frames and leave the switch-off finishing underneath the logo.
+    The captain has not ruled on this; it is flagged as theirs to judge.
+    """
+    if tail_hold(ending) != "freeze":
+        return 0
+    return tail_room_frames(ending, look)
 
 
 def tail_effects(ending, look=None) -> dict:
@@ -560,11 +586,10 @@ def tail_effects(ending, look=None) -> dict:
     element = (ending or {}).get("tail_element", "none")
     if element != "tv_power_tail":
         return {}
-    from library.tools.tv_power import switch_off_frames
+    from library.tools.tv_power import switch_shape
 
-    timing = dict(switch_off_frames())
-    timing.update(((look or {}).get("power", {}) or {}).get(
-        "switch_off", {}) or {})
+    timing = dict(switch_shape())
+    timing.update((look or {}).get("power", {}) or {})
     # DECLARED, so the renderer's own treatment check refuses rather
     # than undoing it: an element the captain asked for by name that
     # silently does not draw is the whole defect this owner exists for

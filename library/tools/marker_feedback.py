@@ -710,6 +710,87 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
             "note": back.get("note")}
 
 
+def place_reply_clip_marker(item, source_frame: int, color: str,
+                            name: str, note: str,
+                            duration: int = 1) -> dict:
+    """Add one reply marker ON A CLIP, at a SOURCE frame, read back.
+
+    The captain leaves feedback on the clip the decision is about -
+    which picture clip, which overlay, which card - and the answer has
+    to come back on the SAME clip at the SAME position, or he looks
+    where he asked and finds nothing.  `place_reply_marker` above
+    answers on the TIMELINE; this is its clip half, and it exists
+    because a round of feedback was missed on 2026-09-11 for the
+    mirror-image reason: firstmate's own capture read
+    `Timeline.GetMarkers()` only, so three clip markers on Reels 09
+    and 26 reported as no markers at all.
+
+    `source_frame` is a SOURCE frame, the same space `read_notes`
+    reports as `frame_in_timeline_space` for a `clip_marker` and the
+    same space `GetLeftOffset()` is in.  It is bounds-checked against
+    the range the clip actually PLAYS
+    (`GetLeftOffset() .. GetLeftOffset() + GetDuration()`), because
+    Resolve bounds-checks neither end: a key outside that range is
+    accepted, returns True, and sits where nobody can see it.
+
+    Returns the read-back record.  Raises `MarkerWriteError` when the
+    frame is outside what the clip plays, when Resolve refuses the
+    write (an empty name, a marker already on that frame), or when the
+    read-back disagrees on colour, name or note.
+    """
+    if not name:
+        raise MarkerWriteError(
+            "Resolve refuses a marker with an empty name - refusing "
+            "here rather than writing nothing and reporting it.")
+    first = int(item.GetLeftOffset())
+    last = first + int(item.GetDuration())
+    key = int(source_frame)
+    if key < first or key >= last:
+        raise MarkerWriteError(
+            f"source frame {key} is outside the {first}..{last} this "
+            f"clip plays ({item.GetName()!r}) - Resolve would accept it "
+            f"and the marker would sit on footage the timeline never "
+            f"shows.")
+    if not item.AddMarker(key, color, name, note, duration):
+        raise MarkerWriteError(
+            f"Resolve refused the marker at source frame {key} on "
+            f"{item.GetName()!r} - an empty name, or a marker already "
+            f"there. Nothing was written.")
+    back = (item.GetMarkers() or {}).get(key, {})
+    for field, want in (("color", color), ("name", name), ("note", note)):
+        if (back.get(field) or "") != want:
+            raise MarkerWriteError(
+                f"clip marker at source frame {key} read back {field} "
+                f"{back.get(field)!r}, not {want!r} - the write did not "
+                f"land as stated.")
+    return {"source_frame": key, "color": back.get("color"),
+            "duration": back.get("duration"), "name": back.get("name"),
+            "note": back.get("note")}
+
+
+def remove_clip_marker(item, source_frame: int) -> bool:
+    """Delete one clip marker at a SOURCE frame, verified by read-back.
+
+    The other half of answering on a clip: once the green reply exists,
+    the blue question it answers comes off, or the captain re-reads a
+    question that has been answered.  Judged by the READ-BACK, never by
+    the return (AGENTS.md 5): `DeleteMarkerAtFrame` returns False for
+    "there was nothing there", which is the same outcome as a
+    successful delete and must not read as a failure.
+    """
+    key = int(source_frame)
+    if key not in (item.GetMarkers() or {}):
+        return False
+    item.DeleteMarkerAtFrame(key)
+    if key in (item.GetMarkers() or {}):
+        raise MarkerWriteError(
+            f"clip marker at source frame {key} on {item.GetName()!r} "
+            f"is still there after DeleteMarkerAtFrame - the delete did "
+            f"not land, so the answered question is still on the "
+            f"timeline.")
+    return True
+
+
 # ── The durable record ──────────────────────────────────────────────
 #
 # `marker_feedback/` sits at the PROJECT ROOT, outside `pipeline_output/`.

@@ -1,12 +1,20 @@
-"""The old-TV switch-on / switch-off animation is declared, not compiled.
+"""The old-TV switch is ONE shape, played in two directions.
 
 The captain's Reel 20 marker invites the interpretation ("you can create
 some animations for this"), and `library/tools/tv_power.py` is the
 proposal: every timing states what it is and why, and all of them are
-changeable through the project's own `tv_frame` declaration.  This
-asserts the vocabulary (lengths, merge rules, refusals) and that the
-keys draw real Fusion nodes through `build_effect_comp` - the contract
-that says a planner emitting a name nothing reads gets nothing drawn.
+changeable through the project's own `tv_frame` declaration.
+
+His Reel 09 marker of 2026-09-11 is what makes the shape single:
+
+    "also the tv on animation should start from fully black just like
+     the reverse of how the tv off animation goes to fully black"
+
+Until then there were two animations - `line/expand/bloom` at 4/6/8 with
+no dot phase and a lit first frame, against `collapse/dot/decay` at
+6/3/9 ending at black.  `test_switch_on_is_the_switch_off_reversed` is
+the gate that keeps them one: it evaluates BOTH comps frame by frame and
+fails the moment either direction is re-timed on its own.
 """
 import sys
 from pathlib import Path
@@ -16,81 +24,114 @@ sys.path.insert(0, str(REPO))
 
 import pytest
 
+from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.tv_power import (
+    BLACK_GAIN,
     COLLAPSE_CROP,
+    COLLAPSE_FRAMES,
+    COLLAPSE_MAX,
+    COLLAPSE_MIN,
+    DECAY_FRAMES,
+    DOT_FRAMES,
+    DOT_GAIN,
     DOT_SIZE,
-    SWITCH_OFF_COLLAPSE_FRAMES,
-    SWITCH_OFF_DECAY_FRAMES,
-    SWITCH_OFF_DOT_FRAMES,
-    SWITCH_ON_BLOOM_FRAMES,
-    SWITCH_ON_COLLAPSE_CROP,
-    SWITCH_ON_COLLAPSE_MAX,
-    SWITCH_ON_COLLAPSE_MIN,
-    SWITCH_ON_EXPAND_FRAMES,
-    SWITCH_ON_LINE_FRAMES,
+    LINE_GAIN,
+    PICTURE_GAIN,
     switch_off_frames,
     switch_off_total,
     switch_on_frames,
     switch_on_total,
+    switch_shape,
+    switch_total,
     validate_collapse,
     validate_timing,
 )
-from library.tools.fusion.comp_builder import build_effect_comp
 
 
-def test_switch_on_is_three_phases_totalling_18_frames():
+def _curves(comp: str, played: int) -> dict:
+    """Every animated spline in `comp`, per rendered frame, keyed by the
+    node-name SUFFIX - so the global `_next_name` counter, which differs
+    between two comps built in one process, cannot make a comparison
+    fail for a reason nobody cares about."""
+    from library.tools.fusion.transition_frames import parse_splines, value_at
+
+    out = {}
+    for name, keys in parse_splines(comp).items():
+        for suffix in ("Height", "Size", "Gain"):
+            if name.endswith(suffix):
+                out[suffix] = [value_at(keys, f) for f in range(played)]
+    return out
+
+
+# ── The shape ──────────────────────────────────────────────────────
+
+def test_the_shape_is_three_phases_totalling_18_frames():
     """0.6 s at 30 fps: reads as a switch, does not eat the bookends."""
-    assert (SWITCH_ON_LINE_FRAMES, SWITCH_ON_EXPAND_FRAMES,
-            SWITCH_ON_BLOOM_FRAMES) == (4, 6, 8)
-    assert switch_on_total() == 18
+    assert (COLLAPSE_FRAMES, DOT_FRAMES, DECAY_FRAMES) == (6, 3, 9)
+    assert switch_total() == 18
     # The depth travels in the mapping but is not a length: changing
     # the look must not move the window.
-    assert switch_on_total({**switch_on_frames(), "collapse_crop": 0.1}) == 18
+    assert switch_total({**switch_shape(), "collapse_crop": 0.1}) == 18
 
 
-def test_switch_off_is_three_phases_totalling_18_frames():
-    assert (SWITCH_OFF_COLLAPSE_FRAMES, SWITCH_OFF_DOT_FRAMES,
-            SWITCH_OFF_DECAY_FRAMES) == (6, 3, 9)
-    assert switch_off_total() == 18
+def test_both_directions_read_one_declaration():
+    """`switch_on_frames` and `switch_off_frames` are the SAME call.
+
+    Not "agree today" - the same values object, so there is nowhere for
+    a per-half number to be written.
+    """
+    assert switch_on_frames() == switch_off_frames() == switch_shape()
+    assert switch_on_total() == switch_off_total() == 18
+    # An override reaches both directions identically.
+    assert (switch_on_frames(collapse=12)
+            == switch_off_frames(collapse=12)
+            == {**switch_shape(), "collapse_frames": 12})
 
 
 def test_collapse_stops_short_of_fully_closed():
-    """0.49, not 0.5: a fully closed crop flashes uncropped on some
-    Resolve builds.  This is the SWITCH-OFF's depth, unjudged and
-    unchanged."""
+    """0.49, not 0.5: a fully closed band flashes uncropped on some
+    Resolve builds.  ONE depth, shared by both directions."""
     assert COLLAPSE_CROP == 0.49
     assert DOT_SIZE == 0.05
+    assert (COLLAPSE_MIN, COLLAPSE_MAX) == (0.0, 0.5)
 
 
-def test_switch_on_holds_a_fifth_not_a_sliver():
-    """The captain's 2026-09-10 ruling: keep the effect, soften the
-    opening sliver.  0.40 keeps a fifth of the picture where 0.49 kept
-    2%: the strike still reads (from the untouched 2.2x gain spike),
-    the opening frame shows picture, and the 0.5 guard keeps ten times
-    the margin (0.10 vs 0.01)."""
-    assert SWITCH_ON_COLLAPSE_CROP == 0.40
-    assert 1.0 - 2 * SWITCH_ON_COLLAPSE_CROP == pytest.approx(0.20)
-    assert switch_on_frames()["collapse_crop"] == 0.40
+def test_the_gains_run_from_black_to_picture():
+    """Black is no signal; the dot is the spot at its hottest."""
+    assert BLACK_GAIN == 0.0
+    assert PICTURE_GAIN == 1.0
+    assert PICTURE_GAIN < LINE_GAIN < DOT_GAIN
 
+
+# ── The declaration ────────────────────────────────────────────────
 
 def test_timing_override_merges_over_defaults():
-    timing = validate_timing(
-        {"switch_on": {"line_frames": 2}}, "test", half="both")
-    assert timing == {"switch_on": {
-        "line_frames": 2, "expand_frames": 6, "bloom_frames": 8,
-        "collapse_crop": 0.40}}
+    assert validate_timing({"collapse_frames": 2}, "test") == {
+        "collapse_frames": 2, "dot_frames": 3, "decay_frames": 9,
+        "collapse_crop": 0.49}
 
 
 def test_declared_collapse_merges_as_a_float_not_frames():
     """A project declares the depth the way it declares the lengths -
     and it must survive as a fraction, never int() to 0."""
-    timing = validate_timing(
-        {"switch_on": {"collapse_crop": 0.49}}, "test", half="both")
-    assert timing["switch_on"]["collapse_crop"] == 0.49
+    assert validate_timing({"collapse_crop": 0.3}, "test")[
+        "collapse_crop"] == 0.3
+
+
+def test_a_per_half_declaration_is_refused_by_name():
+    """`switch_on` / `switch_off` were this declaration's shape until
+    2026-09-11.  Honouring one would re-time one direction and leave
+    the other behind, which is exactly what the captain's marker
+    closed - so it raises, and the refusal names the replacement."""
+    for half in ("switch_on", "switch_off"):
+        with pytest.raises(ValueError) as raised:
+            validate_timing({half: {"collapse_frames": 2}}, "test")
+        assert "one shape" in str(raised.value).lower()
+        assert "collapse_frames" in str(raised.value)
 
 
 def test_collapse_bounds_raise_naming_the_source():
-    """0.5 closes the crop entirely (the one-frame flash); negative and
+    """0.5 closes the band entirely (the one-frame flash); negative and
     non-numeric are mistakes, not looks.  All raise, none clamp."""
     for bad in (0.5, 0.9, -0.1, "shallow", True, None):
         with pytest.raises((ValueError, TypeError)):
@@ -98,131 +139,156 @@ def test_collapse_bounds_raise_naming_the_source():
     assert validate_collapse(0.0, "test") == 0.0
     assert validate_collapse(0.49, "test") == 0.49
     with pytest.raises(ValueError):
-        validate_timing(
-            {"switch_on": {"collapse_crop": 0.5}}, "test", half="both")
-
-
-def test_collapse_is_not_a_switch_off_key():
-    """The switch-off is unjudged: naming a depth there refuses loudly
-    rather than travelling to a reader that does not exist."""
-    with pytest.raises(ValueError):
-        validate_timing(
-            {"switch_off": {"collapse_crop": 0.3}}, "test", half="both")
-
-
-def test_unknown_half_raises():
-    with pytest.raises(ValueError):
-        validate_timing({"power_on": {}}, "test", half="both")
+        validate_timing({"collapse_crop": 0.5}, "test")
 
 
 def test_unknown_phase_key_raises():
     with pytest.raises(ValueError):
-        validate_timing(
-            {"switch_on": {"flicker_frames": 3}}, "test", half="both")
+        validate_timing({"flicker_frames": 3}, "test")
 
 
 def test_negative_count_raises():
     with pytest.raises(ValueError):
-        validate_timing(
-            {"switch_off": {"decay_frames": -1}}, "test", half="both")
+        validate_timing({"decay_frames": -1}, "test")
 
 
 def test_non_mapping_raises():
     with pytest.raises(TypeError):
-        validate_timing([1, 2], "test", half="both")
-    assert validate_timing(None, "test", half="both") == {}
+        validate_timing([1, 2], "test")
+    assert validate_timing(None, "test") == {}
 
 
-def test_head_key_draws_the_band_and_bloom():
-    """The switch-on is a masked band opening plus a BrightnessContrast
-    spike.
+# ── What reaches the comp ──────────────────────────────────────────
 
-    It was a `Crop` node until 2026-09-10, driving `CropTop`/`CropBottom`
-    - two names Fusion's Crop does not have, so the animation never drew
-    and the tool fell back to its 1920x1080 registry size at offset
-    (0, 0), which on Fusion's bottom-left origin is the source's
-    bottom-left corner. This file asserted `"Crop" in comp` and passed
-    throughout.
+def test_both_keys_draw_the_band_the_dot_and_the_gain():
+    """Each direction is a masked band, a uniform Transform and a
+    BrightnessContrast - the same three nodes, because it is the same
+    animation.
+
+    The band was a `Crop` node until 2026-09-10, driving
+    `CropTop`/`CropBottom` - two names Fusion's Crop does not have, so
+    the animation never drew and the tool fell back to its 1920x1080
+    registry size at offset (0, 0), which on Fusion's bottom-left origin
+    is the source's bottom-left corner.  This file asserted
+    `"Crop" in comp` and passed throughout.
     """
-    comp = build_effect_comp({"tv_power_head": True}, 300)
-    assert "PowerBandMask1 = RectangleMask" in comp
-    assert "PowerBand1 = Background" in comp
-    assert "BrightnessContrast" in comp
-    # The strike gain the module declares.
-    assert "2.2" in comp
-
-
-def test_no_power_half_uses_a_crop_node():
-    """Fusion's Crop resizes the image to the crop rectangle, so it
-    cannot blank a band in place whatever you spell its inputs."""
     for key in ("tv_power_head", "tv_power_tail"):
-        assert "Crop" not in build_effect_comp({key: True}, 300)
-
-
-def test_tail_key_draws_collapse_dot_and_decay():
-    comp = build_effect_comp({"tv_power_tail": True}, 300)
-    assert "PowerBandMask1 = RectangleMask" in comp
-    assert "Transform" in comp
-    assert "BrightnessContrast" in comp
-    # Ends at no signal.
-    assert "PowerDecay1Gain" in comp
+        comp = build_effect_comp({key: True}, 300)
+        assert "RectangleMask" in comp
+        assert "Background" in comp
+        assert "Transform" in comp
+        assert "BrightnessContrast" in comp
+        # Fusion's Crop resizes the image to the crop rectangle, so it
+        # cannot blank a band in place whatever you spell its inputs.
+        assert "Crop" not in comp
 
 
 def test_absent_keys_draw_nothing():
     comp = build_effect_comp({}, 300)
     assert "PowerBand" not in comp
-    assert "PowerBloom" not in comp
+    assert "PowerDot" not in comp
     assert "PowerDecay" not in comp
 
 
-def test_custom_timing_reaches_the_comp():
-    """A declared override changes the keyframes, not just the record."""
-    comp = build_effect_comp(
-        {"tv_power_head": True,
-         "tv_power_head_timing": {"line_frames": 2, "expand_frames": 6,
-                                  "bloom_frames": 8,
-                                  "collapse_crop": 0.40}},
-        300)
-    # Line holds 0..2 instead of the default 0..4, at the declared depth:
-    # 0.40 off EACH edge keeps a fifth, so the band is 0.2 tall.
-    assert "[2] = { 0.2," in comp
+def test_the_switch_on_opens_on_fully_black():
+    """The captain's ask, measured on the curves the comp carries.
+
+    Frame 0 is gain 0.0 - no signal at all - with the band closed to
+    the line and the picture scaled to the dot.  Before 2026-09-11 it
+    was gain 2.2 over a band a fifth of the frame tall: a lit first
+    frame, which is what he was looking at when he wrote the marker.
+    """
+    played = 200
+    curves = _curves(build_effect_comp(
+        {"tv_power_head": True, "source_in_frame": 0,
+         "source_out_frame": played - 1}, played), played)
+    assert curves["Gain"][0] == pytest.approx(BLACK_GAIN)
+    assert curves["Size"][0] == pytest.approx(DOT_SIZE)
+    assert curves["Height"][0] == pytest.approx(1.0 - 2 * COLLAPSE_CROP)
+    # And it arrives at the picture by the end of the animation, then
+    # holds there.
+    assert curves["Gain"][switch_total()] == pytest.approx(PICTURE_GAIN)
+    assert curves["Size"][switch_total()] == pytest.approx(1.0)
+    assert curves["Height"][switch_total()] == pytest.approx(1.0)
+    assert curves["Gain"][-1] == pytest.approx(PICTURE_GAIN)
 
 
-def test_default_head_comp_holds_a_fifth():
-    """The softened opening is drawn, not just declared: the default
-    head holds a band 0.2 of the frame tall at the strike, which is the
-    fifth of the picture `collapse_crop` 0.40 asks for."""
-    comp = build_effect_comp({"tv_power_head": True}, 300)
-    assert "[4] = { 0.2," in comp
-    assert "[4] = { 0.02," not in comp
+def test_the_switch_off_closes_on_fully_black():
+    """The reference half, unchanged: it still ends at no signal."""
+    played = 200
+    curves = _curves(build_effect_comp(
+        {"tv_power_tail": True, "source_in_frame": 0,
+         "source_out_frame": played - 1}, played), played)
+    assert curves["Gain"][0] == pytest.approx(PICTURE_GAIN)
+    assert curves["Gain"][-1] == pytest.approx(BLACK_GAIN)
+    assert curves["Size"][-1] == pytest.approx(DOT_SIZE)
+    assert curves["Height"][-1] == pytest.approx(1.0 - 2 * COLLAPSE_CROP)
 
 
-def test_old_strike_stays_declarable():
-    """0.49 was a look, and a project that wants it back says so in
-    one key - the engine did not remove the number, it moved it into
-    the declaration."""
-    comp = build_effect_comp(
-        {"tv_power_head": True,
-         "tv_power_head_timing": {**switch_on_frames(),
-                                  "collapse_crop": 0.49}},
-        300)
-    assert "[4] = { 0.02," in comp
+def test_switch_on_is_the_switch_off_reversed():
+    """THE GATE. Every drawn curve of the switch-on is the switch-off's,
+    mirrored in time.
+
+    This is what makes "one shape in two directions" a property of the
+    build rather than a claim in a docstring: re-time one direction,
+    give one an extra phase, or change one's dot size, and this fails
+    on the frame where they stop being each other's reverse.
+    """
+    played = 200
+    head = _curves(build_effect_comp(
+        {"tv_power_head": True, "source_in_frame": 0,
+         "source_out_frame": played - 1}, played), played)
+    tail = _curves(build_effect_comp(
+        {"tv_power_tail": True, "source_in_frame": 0,
+         "source_out_frame": played - 1}, played), played)
+
+    assert set(head) == set(tail) == {"Height", "Size", "Gain"}
+    last = played - 1
+    for name in head:
+        mirrored = [tail[name][last - f] for f in range(played)]
+        assert head[name] == pytest.approx(mirrored, abs=1e-6), (
+            f"the switch-on's {name} curve is not the switch-off's "
+            f"reversed - the two directions have drifted apart")
 
 
-def test_tail_still_closes_to_the_shared_guard():
-    """The switch-off is untouched: its collapse still meets the shared
-    COLLAPSE_CROP of 0.49 - a band 0.02 of the frame tall, which is the
-    line - even though the head opens from 0.40 (a band of 0.2)."""
-    comp = build_effect_comp({"tv_power_tail": True}, 300)
-    assert "0.02," in comp
-    assert "[0] = { 0.2," not in comp
+def test_a_declared_retime_moves_both_directions_together():
+    """A project re-timing the switch re-times it BOTH ways.
+
+    The declaration names the shape, not a half, so there is no way to
+    write a run where the set opens over one length and closes over
+    another.
+    """
+    played = 200
+    declared = validate_timing(
+        {"collapse_frames": 10, "dot_frames": 5, "decay_frames": 15},
+        "test")
+    head = _curves(build_effect_comp(
+        {"tv_power_head": True, "tv_power_head_timing": declared,
+         "source_in_frame": 0, "source_out_frame": played - 1},
+        played), played)
+    tail = _curves(build_effect_comp(
+        {"tv_power_tail": True, "tv_power_tail_timing": declared,
+         "source_in_frame": 0, "source_out_frame": played - 1},
+        played), played)
+    last = played - 1
+    for name in head:
+        assert head[name] == pytest.approx(
+            [tail[name][last - f] for f in range(played)], abs=1e-6)
+    # 30 frames of animation, both ways.
+    assert switch_total(declared) == 30
+    assert head["Gain"][30] == pytest.approx(PICTURE_GAIN)
+    assert head["Gain"][29] != pytest.approx(PICTURE_GAIN)
 
 
 def test_animated_size_peak_stays_inside_the_ceiling():
     """`nodes.MAX_ANIMATED_ZOOM` refuses an animated Transform Size past
-    1.15; the dot shrinks FROM 1.0, so the peak is exactly 1.0."""
-    comp = build_effect_comp({"tv_power_tail": True}, 300)
-    assert "PowerDot1Size" in comp
+    1.15; the dot opens to and shrinks from 1.0, so the peak is 1.0."""
+    for key in ("tv_power_head", "tv_power_tail"):
+        played = 200
+        curves = _curves(build_effect_comp(
+            {key: True, "source_in_frame": 0,
+             "source_out_frame": played - 1}, played), played)
+        assert max(curves["Size"]) == pytest.approx(1.0)
 
 
 def test_power_blocks_wire_their_own_internal_links():
@@ -237,9 +303,6 @@ def test_power_blocks_wire_their_own_internal_links():
     successfully" (reel 12, 2026-09-09).  Asserted on the nodes rather
     than on the serialized text so a rename cannot make it pass.
     """
-    import os
-    import sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from library.tools.fusion.effects import fx
     from library.tools.fusion.nodes import FusionNode
 
@@ -274,3 +337,19 @@ def test_power_blocks_wire_their_own_internal_links():
         assert merge.inputs["Foreground"]["SourceOp"] == band.name
         # And the block's output is reachable from its input.
         assert block.output_name in names
+
+
+def test_a_zero_length_phase_collapses_to_one_key():
+    """A declared 0 for a phase is legal and must not write two keys on
+    one frame: the state the animation is moving toward is the one that
+    frame shows, either way round."""
+    played = 120
+    declared = validate_timing({"dot_frames": 0}, "test")
+    for key in ("tv_power_head", "tv_power_tail"):
+        comp = build_effect_comp(
+            {key: True, f"{key}_timing": declared,
+             "source_in_frame": 0, "source_out_frame": played - 1},
+            played)
+        curves = _curves(comp, played)
+        assert len(curves) == 3
+    assert switch_total(declared) == 15

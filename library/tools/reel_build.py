@@ -480,7 +480,9 @@ def reel_track_material(master_clips,
                         has_transitions: bool = False,
                         has_explainer: bool = False,
                         has_semantic: bool = False,
-                        has_frame: bool = False) -> dict:
+                        has_frame: bool = False,
+                        explainer_spans=None,
+                        semantic_spans=None) -> dict:
     """The material `timeline_layout.plan_layout` answers with a plan.
 
     Angles come from the master's own picture rows (`reel_angles`) and
@@ -502,6 +504,8 @@ def reel_track_material(master_clips,
             "has_transitions": bool(has_transitions),
             "has_explainer": bool(has_explainer),
             "has_semantic": bool(has_semantic),
+            "explainer_spans": [tuple(s) for s in (explainer_spans or [])],
+            "semantic_spans": [tuple(s) for s in (semantic_spans or [])],
             "mg_spans": [], "has_generators": False,
             "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
         }
@@ -524,6 +528,11 @@ def reel_track_material(master_clips,
         "has_transitions": bool(has_transitions),
         "has_explainer": bool(has_explainer),
         "has_semantic": bool(has_semantic),
+        # In FRAMES. A row per overlapping LAYER, not per segment: two
+        # tight-box animations that play at once are two rows, which is
+        # what the captain asked for on Reel 26 (2026-09-11).
+        "explainer_spans": [tuple(s) for s in (explainer_spans or [])],
+        "semantic_spans": [tuple(s) for s in (semantic_spans or [])],
         "mg_spans": [], "has_generators": False,
         "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
     }
@@ -2854,13 +2863,21 @@ def declared_cards(project_folder: str) -> list:
 
 
 def plan_cards(moment, transcript: dict, ranges, project_folder: str,
-               fps: float, declarations=None) -> list:
+               fps: float, declarations=None, ending=None, look=None) -> list:
     """Resolve this project's card declarations against ONE reel.
 
     Returns ``[]`` when nothing is declared.  The facts a bound run
     quotes are measured off `ranges` - the ranges the build is about to
     place - so a card quotes the reel that will exist rather than the
     span the plan asked for.
+
+    `ending` is the reel's declared ending (`library/tools/reel_ending.py`)
+    or None.  A freeze holds the last frame after the keep ranges end and
+    plays the switch-off over it, so those frames are picture too and a
+    TAIL element starts after them - `reel_ending.ending_tail_frames`
+    owns that ordering and says why.  Without it a declared closing
+    element would land on top of the switch-off, which is two animations
+    on the same frames.
     """
     from library.tools import full_frame_element as ffe
 
@@ -2876,6 +2893,9 @@ def plan_cards(moment, transcript: dict, ranges, project_folder: str,
     # rather than a rounding away from it.
     body_frames = sum(int(round(end * fps)) - int(round(start * fps))
                       for start, end in ranges)
+    if ending is not None:
+        from library.tools import reel_ending as _reel_ending
+        body_frames += _reel_ending.ending_tail_frames(ending, look)
     # The ranges and the transcript travel too, and only a span reads
     # them: its segments anchor to the keep ranges one by one, so the
     # boundaries sit on the reel's own edit points.  Cards never read
@@ -3015,7 +3035,7 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
                                    width=width, height=height).as_props()
     segments_plan = mg.plan_segments(
         resolved.moments, fps=fps, width=width, height=height,
-        safe_area=insets)
+        safe_area=insets, project_folder=project_folder or "")
 
     out_dir = str(ProjectLayout(project_folder).write_dir(
         Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
@@ -3837,8 +3857,22 @@ def overlay_import_bin(project_folder: str, timeline_name: str,
             timeline_name)
 
 
+def _overlay_spans(segments, fps: float):
+    """(start, end) in FRAMES for each rendered overlay segment.
+
+    What `timeline_layout` packs rows from. A segment whose span
+    overlaps another's needs a row of its own, which is how two
+    tight-box animations that play at once become two rows
+    (`motion_graphics_plan.plan_segments` is what splits them).
+    """
+    return [(int(round(s["timeline_start"] * fps)),
+             int(round(s["timeline_end"] * fps)))
+            for s in (segments or [])
+            if s.get("timeline_end", 0) > s.get("timeline_start", 0)]
+
+
 def place_overlay_segments(pool, project, timeline, name: str, fps: float,
-                           segments, track_index: int, kind: str,
+                           segments, track_rows, kind: str,
                            check: str, properties: dict = None,
                            project_folder: str = "",
                            overlay_intent: dict = None) -> None:
@@ -3877,13 +3911,33 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     `external/overlay_intent.json` by the caller), a pinned segment
     lands on the declared position instead of the computed one; the
     pin is selected by the segment's id, falling back to `kind`.
+
+    `track_rows` is the plan's rows for this kind, in row order, and a
+    segment rides the one its own LANE names. Segments on one lane never
+    overlap in time; two that do are two rows, which is the captain's
+    Reel 26 request - "two different tighbox animations that are layered
+    on seperate rows on the timeline". A lane with no row is a build
+    REFUSED, never a graphic quietly stacked onto a row that is already
+    showing something else. One int is accepted for the single-row case.
     """
     import sys
 
     from library.tools.overlay_placement import apply_placement_transform
     from library.tools.reel_placed_assets import assert_placeable
 
+    rows = ([int(track_rows)] if isinstance(track_rows, int)
+            else [int(r) for r in (track_rows or [])])
     for segment in segments or []:
+        lane = int(segment.get("lane", 0) or 0)
+        if lane >= len(rows):
+            raise ReelBuildError(
+                f"{name}: rendered {kind} segment "
+                f"{segment.get('overlay_path')!r} plays on lane {lane} "
+                f"and the track plan holds {len(rows)} row(s) for it. A "
+                f"lane is a row - stacking it onto another lane's row "
+                f"would hide one of two graphics the plan puts on screen "
+                f"together.")
+        track_index = rows[lane]
         if project_folder:
             assert_placeable(segment["overlay_path"], project_folder)
         item = import_pool_item(
@@ -4191,6 +4245,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         has_transitions=bool(overlay_placements),
         has_explainer=bool(explainer_segments),
         has_semantic=bool(semantic_segments),
+        explainer_spans=_overlay_spans(explainer_segments, fps),
+        semantic_spans=_overlay_spans(semantic_segments, fps),
         has_frame=look is not None)
     track_plan = plan_layout(material)
     video_row_by_angle = {}
@@ -4317,7 +4373,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             # one-frame black hole that F1 reported and F13 named. It is
             # the same exclusive reading the footage placement below uses
             # for `source_out`.
-            "endFrame": card.duration_frames,
+            # SOURCE frames, which is only the same number for a card
+            # this engine rendered at the reel's own fps. A project's
+            # own clip (`full_frame_clip`) was authored at whatever
+            # rate it chose, and `source_frames` is what was measured
+            # off the file.
+            "endFrame": card.source_frames or card.duration_frames,
             "mediaType": 1,
             "trackIndex": track_plan.aroll_rows()[0].index,
             # The card's own integer frame, never `round(seconds * fps)`.
@@ -4695,7 +4756,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if explainer_segments:
         place_overlay_segments(
             pool, project, timeline, name, fps, explainer_segments,
-            track_plan.row_for_role(EXPLAINER).index,
+            [row.index for row in track_plan.rows_for_role(EXPLAINER)],
             kind="explainer", check="F21",
             project_folder=project_folder,
             overlay_intent=overlay_intent)
@@ -4709,7 +4770,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if semantic_segments:
         place_overlay_segments(
             pool, project, timeline, name, fps, semantic_segments,
-            track_plan.row_for_role(SEMANTIC).index,
+            [row.index for row in track_plan.rows_for_role(SEMANTIC)],
             kind="semantic visual", check="F22",
             project_folder=project_folder,
             overlay_intent=overlay_intent)
@@ -6119,7 +6180,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # will not draw - stops this reel here rather than after a
             # timeline exists (`library/tools/full_frame_element.py`).
             cards = plan_cards(moment, transcript, ranges, project_folder,
-                               fps=24000 / 1001, declarations=card_declarations)
+                               fps=24000 / 1001,
+                               declarations=card_declarations,
+                               ending=_ending_decl, look=reel_look_decl)
             if cards:
                 from library.tools.full_frame_element import render_reel_cards
                 print(f"  {len(cards)} full-frame element(s) declared",

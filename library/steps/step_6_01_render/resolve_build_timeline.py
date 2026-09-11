@@ -1374,10 +1374,20 @@ def build_timeline(
             return results
         print(f"\n── Motion Graphics ({','.join(f'V{r}' for r in _mg_rows)}): "
               f"{len(mg_segments)} segments ──", file=sys.stderr)
-        _mg_allocations = allocate_non_overlapping_rows(
-            [(round(s.get("timeline_start", 0) * fps),
-              round(s.get("timeline_end", 0) * fps)) for s in mg_segments],
-            base_index=_mg_rows[0])
+        # The segment's own LANE where the plan recorded one - a lane IS
+        # a row (`motion_graphics_plan.plan_segments`), and reading it
+        # back beats re-deriving the packing from spans that happen to
+        # tie. Segments written before lanes existed re-derive.
+        if all("lane" in s for s in mg_segments):
+            _mg_allocations = [
+                (None, _mg_rows[0] + int(s.get("lane", 0) or 0))
+                for s in mg_segments]
+        else:
+            _mg_allocations = allocate_non_overlapping_rows(
+                [(round(s.get("timeline_start", 0) * fps),
+                  round(s.get("timeline_end", 0) * fps))
+                 for s in mg_segments],
+                base_index=_mg_rows[0])
         _mg_off_plan = sorted({r for _, r in _mg_allocations} - set(_mg_rows))
         if _mg_off_plan:
             results["errors"].append(

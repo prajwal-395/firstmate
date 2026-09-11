@@ -733,20 +733,46 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
 # ── Segments ─────────────────────────────────────────────────────────
 
 def plan_segments(moments: List[dict], *, fps: float, width: int,
-                  height: int, safe_area: dict) -> List[dict]:
-    """Cluster the moments into non-overlapping overlay segments.
+                  height: int, safe_area: dict,
+                  project_folder: str = "") -> List[dict]:
+    """Cluster the moments into overlay segments, each on a stated LANE.
 
     Moments whose spans touch or overlap go into ONE segment and have
     their `startFrame` rebased to that segment's start, so several
-    graphics are on screen together on a single video lane.  That is
-    what keeps `manifest_validator._check_overlay_segments_do_not_overlap`
-    true for `motion_graphics_overlay` and what makes rows an on-screen
-    layout rather than a second Resolve track.
+    graphics are on screen together on a single video lane.
 
-    The same algorithm `timed_text_overlay.plan_timed_text_segments`
-    uses.  Deliberately the same: a second clustering with its own
-    rounding would be two answers to one question.
+    ...unless the cluster cannot carry ONE TIGHT BOX, and the project
+    asked for tight boxes.  The captain, on Reel 26, 2026-09-11:
+    *"this was a full frame compostie render of two different
+    animations, see if you can make it so that its two different
+    tighbox animations that are layered on seperate rows on the
+    timeline"*.  A middle-anchored stack beside a top or bottom one is
+    the one case `mg_tight_box` must refuse to bound - ``top: 50%``
+    centres on the CANVAS - so clustering the two forced a full
+    1080x1920 render for two small graphics.  Nothing was baked
+    together: they are separate plan entries with their own anchors and
+    timings, and the only thing joining them was this cluster.
+    `mg_tight_box.separable_groups` owns the partition; each group
+    becomes its own segment and its own tight box.
+
+    A segment therefore carries a **lane**: segments on one lane never
+    overlap in time, and lanes become Resolve rows
+    (`timeline_layout.allocate_non_overlapping_rows`, the same packing
+    that decides SFX and music rows).  `manifest_validator` checks
+    overlap per lane for the same reason.  With no split - which is
+    every project that declares full-canvas graphics, and every
+    cluster already inside one zone family - every segment is lane 0
+    and the output is what it always was.
+
+    The clustering is the same algorithm
+    `timed_text_overlay.plan_timed_text_segments` uses.  Deliberately
+    the same: a second clustering with its own rounding would be two
+    answers to one question.
     """
+    from library.tools.mg_tight_box import separable_groups
+    from library.tools.overlay_mode import resolve_motion_graphics_geometry
+    from library.tools.timeline_layout import allocate_non_overlapping_rows
+
     ordered = sorted(moments, key=lambda m: (m["startFrame"], m.get("row", 0)))
     clusters: List[List[dict]] = []
     for moment in ordered:
@@ -755,22 +781,39 @@ def plan_segments(moments: List[dict], *, fps: float, width: int,
         else:
             clusters.append([moment])
 
+    # Splitting a cluster only WINS where the render would be tight:
+    # under a full-canvas declaration two groups are two full-frame
+    # renders on two rows for no gain, so the declaration is read here
+    # rather than assumed.
+    split = (resolve_motion_graphics_geometry(project_folder or None)
+             == "tight")
+    groups: List[List[dict]] = []
+    for cluster in clusters:
+        groups.extend(separable_groups(cluster) if split else [cluster])
+    groups.sort(key=lambda g: (min(m["startFrame"] for m in g),
+                               min(m.get("row", 0) for m in g)))
+
+    spans = [(min(m["startFrame"] for m in g), _cluster_end(g))
+             for g in groups]
+    lanes = [row for _, row in allocate_non_overlapping_rows(spans, 0)]
+
     segments = []
-    for index, cluster in enumerate(clusters):
-        start_frame = cluster[0]["startFrame"]
-        end_frame = _cluster_end(cluster)
+    for index, (group, lane) in enumerate(zip(groups, lanes)):
+        start_frame = min(m["startFrame"] for m in group)
+        end_frame = _cluster_end(group)
         total_frames = max(1, end_frame - start_frame)
         segments.append({
             "index": index,
+            "lane": lane,
             "timeline_start": round(start_frame / fps, 3),
             "timeline_end": round(end_frame / fps, 3),
             "total_frames": total_frames,
-            "element_count": len(cluster),
-            "elements": sorted({m["element"] for m in cluster}),
+            "element_count": len(group),
+            "elements": sorted({m["element"] for m in group}),
             "props": {
                 "elements": [
                     {**m, "startFrame": m["startFrame"] - start_frame}
-                    for m in cluster
+                    for m in group
                 ],
                 "fps": fps,
                 "width": width,
