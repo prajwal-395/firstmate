@@ -36,7 +36,8 @@ keeps the headline and points here.
 - It changes picture steadiness and nothing else - never structure, timing, framing, grade, captions or sound.
 - For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the **in-memory** manifest before `build_timeline` and leave the file on disk carrying it.
 
-- **Prefix overlay filenames with their context**, such as `sub_craig_seg_000.mov`.
+- **A row exists because something goes on it.**
+- **Prefix overlay filenames with their context.** For example, `sub_craig_seg_000.mov`.
 - **Place each angle's clips while only its own speech row exists**, or the timeline floods with empty tracks: multi-stream sources auto-link audio onto every existing audio track. Add the angle's speech row just before its audio, music and SFX rows after all speech is placed, and place every audio item with an explicit `mediaType: 2` and `trackIndex` - then READ BACK what landed and delete anything that is not the recorded program stream. This supersedes **Place V1 clips while only track A1 exists**, the single-angle form from when every timeline had one speech row: iPhone MOVs contain multiple audio streams, and the general form above is what stops the flood on multi-angle builds.
 - **Resolve audio pool items report 24fps regardless of the timeline.** `AppendToTimeline`'s `startFrame`/`endFrame` are in the SOURCE timebase, so compute audio in/out with the pool item's own FPS.
 - **Renders are silent unless you say otherwise.** `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly; `resolve_render.py` also probes the output for an audio stream before reporting success.

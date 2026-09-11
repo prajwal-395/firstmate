@@ -197,7 +197,7 @@ Detail: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - it is always True on Resolve's proxies, including invented names. A True past a silent clamp still lies - read back. **The scripting API cannot set an audio level, and that is a COMPLETE enumeration.**
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp. The per-property findings live where they are enforced.
 Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
@@ -215,18 +215,17 @@ Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Fusion .comp files - NEVER
 
-**Six things that must NEVER appear in a Fusion .comp**: `ApplyMode` in a Merge node, `Path {}` beside a Merge, `BlendClone`, a Background with no `GlobalOut`, DirectionalBlur `Length` over 5, and Transform Size past 1.15.
+**Six things that must NEVER appear in a Fusion .comp** - the list lives where it is enforced.
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Fusion .comp files - ALWAYS
 
-**What a Fusion .comp must ALWAYS carry**: `Invert` on an EllipseMask vignette, its `MaskWidth`/`MaskHeight`/`PixelAspect`, an explicit `Transform1.Input <- MediaIn1.Output` wire, `Blend` rather than `BlendClone` for Merge opacity, `GlobalOut` on every Background, and a static `Center` for animated pan. **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.**
+**What a Fusion .comp must ALWAYS carry** - the list lives where it is enforced.
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Frame mapping
 
-**Comp frame 0 is the clip's FIRST PLAYED frame, and `clip_dur` is the SOURCE's frame count. They are different numbers and both are needed.**
-Detail: `library/tools/fusion/played_window.py`.
+One enumeration, `library/tools/fusion/played_window.py`.
 
 ### Default transition values
 
@@ -240,8 +239,7 @@ Detail: `library/tools/execution/fusion_tracks.py`.
 
 ### Media pool and audio
 
-A row exists because something goes on it. This supersedes **Place V1 clips while only track A1 exists**. **Prefix overlay filenames with their context.** **Resolve audio pool items report 24fps regardless of the timeline**, so compute audio in/out with the pool item's own FPS. **Renders are silent unless you say otherwise** - `SetRenderSettings` must set `ExportAudio`/`AudioCodec` explicitly.
-Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
+Rows, pool audio and render audio live in one enumeration, `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
 
@@ -411,7 +409,7 @@ These hold across steps and cost a full audit cycle each. Do not undo them.
 
 **Key-name mismatches are the dominant bug class.**
 Index required keys directly so a rename fails loudly; never `.get()` a default for a key a contract promises. [why - and the known disagreements](docs/RULE_EVIDENCE.md#key-name-mismatches)
-Join semantic documents to the catalog with `library/tools/semantic_index.py`: documents are keyed by FILE STEM, the catalog by `clip_XXX`.
+Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
 **A declared output has a READER.** `library/tools/output_contract.py`. [why](docs/RULE_EVIDENCE.md#the-outputs-nobody-read)
 
@@ -520,8 +518,11 @@ Detail: `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manif
 **Every frame of the timeline must show a clip.**
 Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#undeclared-black)
 
-**Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.** **Every element `MotionGraphics/index.tsx` draws is positioned from the insets, the progress bar included**
+**Overlay geometry comes from `library/tools/safe_area.py`, and captions are grouped by measured pixels.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
+
+**Captions sit 11px above the safe-area bottom inset (`CAPTION_LIFT_PX`).**
+Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-caption-lift-is-eleven-pixels)
 
 **Reconstruct a grouping with `fits_in_box`, never `fits`.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
@@ -535,9 +536,7 @@ Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-capti
 Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
 
 **A crop must be wide enough for the subject, and aiming it is not enough.**
-Detail: `library/tools/subject_framing.py`.
-
-`SUBJECT_HEADROOM` is how much clear space the subject needs on each side. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
+Detail: `library/tools/subject_framing.py`. [why](docs/RULE_EVIDENCE.md#the-crop-was-narrower-than-the-face)
 
 **Face frames are sampled at the CLIP'S OWN aspect, never a fixed shape.**
 Detail: `library/steps/step_1_04_temporal_index/step.py`. [why](docs/RULE_EVIDENCE.md#the-squashed-face-frame)
@@ -584,7 +583,7 @@ Detail: `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-revie
 Detail: `tests/test_no_unfailable_tests.py`. [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
 
 **A gate that FAILS correct output is no more coverage than one that cannot fail.**
-If you add a model-judged gate, give it a deterministic half that can carry the verdict, and record the model's opinion rather than enforcing it. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
+Detail: `library/tools/pipeline_skills.py`. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
 **Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
 `render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
@@ -593,7 +592,6 @@ If you add a model-judged gate, give it a deterministic half that can carry the 
 Chroma and the mix REPORT A NUMBER and pass. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
 `SPEECH_ABOVE_BED_GATES` stays False.
 Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
-Detail: `library/tools/render_qa.py`.
 
 **A clip gain is not a separation, and both halves now SAY which one they are holding.**
 Detail: `library/tools/music_behavior.py`.

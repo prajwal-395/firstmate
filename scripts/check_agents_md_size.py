@@ -44,6 +44,27 @@ import sys
 # `probe_resolve_capabilities.py:22`, both verbatim. The 78 characters left
 # over went off the ceiling rather than back into the spare.
 # MERGED 2026-09-10: fifteen-lane merge; ceiling re-seeded from measurement below.
+# MOVED 2026-09-11, `## 5` -> owner modules, 1,037 chars: the gate failed on
+# HEAD (`## 5` 4,741 over its 4,501 budget, file 219 over the ceiling) and
+# blocked the `CAPTION_LIFT_PX` rule. Five `## 5` bodies became index rows -
+# frame mapping (verbatim in `played_window.py:69`), media pool and audio
+# (in `resolve_build_timeline.py:39-42`, which gained the two sentences it
+# lacked: the row rule and the period-form prefix rule), the NEVER/ALWAYS
+# item lists (in `comp_builder.py`, which gained a contiguous `Center`),
+# and the audio-level enumeration (verbatim in
+# `probe_resolve_capabilities.py:24`). `## 10` paid for the new lift entry
+# inside its own budget four times over: the `MotionGraphics/index.tsx`
+# sentence (verbatim in `safe_area.py:77`), a doubled render_qa Detail
+# line, the `SUBJECT_HEADROOM` sentence (in `subject_framing.py:64`, its
+# [why] folded onto the rule), the model-judged-gate guidance (in
+# `pipeline_skills.py:53`), and the join-key clause (in
+# `semantic_index.py`, which gained the `clip_XXX` form). Both budgets are
+# set to measurement plus ONE index row of declared spare (`## 5` 3,704 ->
+# 3,900, `## 10` 16,759 -> 16,950) - the spare is claimed here, for the
+# next rule in the section that blocked, not left unclaimed. The CEILING
+# is HELD at 53,072 rather than lowered by the net saving, so the file
+# carries ~1,000 chars of global headroom: an exact-fit file re-blocks
+# the next lane, which is the incident this move repairs.
 CEILING = 53072
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
@@ -94,12 +115,12 @@ SECTION_BUDGETS = {
     "## 2. Repo layout": 2144,
     "## 3. Pipeline execution": 5404,
     "## 4. Dashboard": 3120,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 4501,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 3900,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
     "## 9. Environment and dependencies": 6316,
-    "## 10. Cross-cutting rules": 16967,
+    "## 10. Cross-cutting rules": 16950,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,

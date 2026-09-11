@@ -1,7 +1,7 @@
 """Join semantic analysis documents to the clip catalog.
 
 Step 1.03 keys its documents by the media file's stem (``IMG_1811``) while
-the catalog assigns synthetic ids (``clip_006``).  Every consumer that
+the catalog assigns synthetic ids (``clip_006``, the `clip_XXX` form).  Every consumer that
 looked a document up by catalog clip_id therefore got nothing back, which
 is why the B-roll candidate table came out empty and the LLM had no
 footage to choose from.

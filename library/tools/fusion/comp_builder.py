@@ -32,7 +32,7 @@ keeps the headline and points here.
 - Always wire `Transform1.Input <- MediaIn1.Output` explicitly.
 - Always use `Blend` instead of `BlendClone` for Merge opacity.
 - Always include `GlobalOut` on Background nodes matching the clip duration.
-- Use static `Center = Input { Value = { x, y }, },` for animated pan/center.
+- Use a static `Center` for animated pan/center (`Center = Input { Value = { x, y }, },`).
 - **Size every Background node to the SOURCE clip's own resolution, never to the delivery format.** Read it off the MediaPoolItem's `Resolution` and do NOT swap it for rotation - Fusion gets the stored frame.
 """
 

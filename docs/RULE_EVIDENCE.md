@@ -7321,3 +7321,25 @@ than fixed (issue #942): `look_matcher.match_clips_to_reference` answers a missi
 frame with an identity CDL, unreachable from its only caller after the
 `grade._extract_frame` fix, so changing its contract is a separate
 decision. Pinned by `tests/test_still_capture_fails_loudly.py`.
+
+## the-caption-lift-is-eleven-pixels
+
+On Reel 09 the captain hand-corrected all 22 captions uniformly from
+the computed Tilt -1744.0 to -1700.0. At the 480-pixel tight-canvas
+floor one Tilt unit is 480/1920 of a delivery pixel
+(`tight_box.placement_for_box`: shift_y = -Tilt * placed_H /
+timeline_H), so 44 units is exactly 11.0 delivery pixels - a uniform
+correction is a systematic error, not taste.
+
+Reels 26 (13 captions) and 30 (35 captions) - different speakers,
+lengths and content shapes, no declared intent - computed -1744.0 on
+all 48, and Deliver-rendered stills put their ink bottoms ~11px below
+Reel 09's corrected band. The computation is content-independent, so
+the 11px is a systematic error in the DESIGN row: it is corrected in
+the design (`subtitle_style.CAPTION_LIFT_PX = 11`, applied to the
+bottom inset only, where the probe layout is built) rather than
+per segment in `overlay_intent` - a tilt pin would also go wrong on
+canvases taller than the floor, where 11px is no longer 44 units.
+`safe_area.py`'s own insets are platform facts and motion graphics
+were never corrected this way, so neither moves. Pinned by
+`tests/test_subtitle_style.py`.
