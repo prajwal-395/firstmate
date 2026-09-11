@@ -118,6 +118,9 @@ Recording a decision: the one route
 - `record-closer --anchor ... --from ... --reason ...`: pin a closer.
 - `record-transform --anchor ... --property Pan --value -35
   --reason ...`: the typed fallback for a decision settled in words.
+- `record-retime --anchor ... --edge head --reason ...`: the typed
+  fallback for a hand trim - one placed span's head (or tail) onto
+  the anchor's own word edge. Trims only.
 - `capture-transform --reel 9 --timeline 'Reel 09 - ...' --words ...
   [--property Pan] [--reason ...]`: read the value out of the LIVE
   Resolve timeline - the hand move, which exists nowhere else - and
@@ -148,14 +151,17 @@ CAPTAIN_EDITS_KEY = "captain_edits"
 """The state key, and the file name: `<project>/external/captain_edits.json`."""
 
 KINDS = ("caption_fix", "drop_fragment", "redraw_closer",
-         "transform_override")
+          "transform_override", "span_retime")
 """The complete vocabulary. `caption_fix` rewrites caption text;
 `drop_fragment` removes the speech (and so the picture) that says it;
 `redraw_closer` moves a shared closer's start to the anchor's words,
 end fixed; `transform_override` holds one Edit-page transform property
 (Pan, Tilt, ZoomX, ZoomY) at the captain's value on every shot that
 speaks the anchor - a hand move in the Inspector that a rebuild would
-otherwise throw away."""
+otherwise throw away; `span_retime` moves one placed span's head or
+tail to the anchor's own word edge - a hand trim on the timeline
+(Reel 13's trims, destroyed twice by rebuilds) that recomputation
+otherwise throws away with it."""
 
 
 TRANSFORM_PROPERTIES = ("Pan", "Tilt", "ZoomX", "ZoomY")
@@ -284,6 +290,23 @@ def validate_edits(value) -> list:
                         "and clamps past it silently, so the held value "
                         "would not be the recorded one. Aim inside what "
                         "Resolve holds.")
+        if kind == "span_retime":
+            edge = edit.get("edge")
+            if edge not in ("head", "tail"):
+                raise CaptainEditError(
+                    f"{label} names edge {edge!r}. A span retime moves "
+                    f"one placed span's head (its opening) or its tail "
+                    f"(its close) to the anchor's own word edge - name "
+                    f"which one.")
+            for field in ("new_start", "new_end", "from_start",
+                          "from_end", "start", "end"):
+                if field in edit:
+                    raise CaptainEditError(
+                        f"{label} carries {field!r}: a trim pinned to "
+                        f"a timecode breaks the moment anything upstream "
+                        f"re-times. Name the edge in spoken words "
+                        f"(`anchor_phrase`) with `edge` head/tail "
+                        f"instead.")
         reason = edit.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise CaptainEditError(
@@ -822,6 +845,220 @@ def match_transform_overrides(spans: list, transcript: dict,
     return matched, stale
 
 
+# ── Span retimes: a hand trim the rebuild must keep ────────────────
+
+def match_span_retimes(spans: list, transcript: dict,
+                       edits: list) -> tuple:
+    """Which placed spans get their head or tail moved to spoken words.
+
+    Returns `(matched, held, stale)`. `spans` are the placed picture
+    spans in play order, each carrying its master-transcript range as
+    `span["master"] = (start, end)` - the reel build's `placements()`
+    entries, the same join `match_transform_overrides` reads. A span
+    matches when the anchor's words occur in it as a fully-inside
+    ordered run.
+
+    A retime TRIMS only: `head` moves the span's opening later onto
+    the anchor's first word start, `tail` moves its close earlier onto
+    the anchor's last word end. Extending a span past its edge is a
+    new editorial decision (it plays seconds nothing approved), so an
+    anchor outside the edge reports CANNOT-APPLY rather than moving
+    it. An edge already on the words reports HELD - the second rebuild
+    reads here, which is how "persisted through iterations" shows.
+    Anything matching nothing reports STALE.
+    """
+    retimes = [e for e in (edits or [])
+               if e.get("kind") == "span_retime"]
+    matched, held, stale = [], [], []
+    if not retimes:
+        return matched, held, stale
+    stream = _word_stream(transcript or {})
+    for edit in retimes:
+        anchor, edge = edit["anchor_phrase"], edit.get("edge")
+        anchor_tokens = _tokens(anchor)
+        at = _run_starts(stream, anchor)
+        if not at:
+            stale.append(
+                {"kind": "span_retime",
+                 "anchor_phrase": anchor, "edge": edge,
+                 "reason": (
+                     f"STALE: span retime for {anchor!r} no longer "
+                     f"applies - those words are spoken nowhere in "
+                     f"this transcript. Original request: "
+                     f"{edit.get('reason', '')}".strip())})
+            continue
+        # Occurrence bounds in master seconds, in stream order.
+        occurrences = []
+        for occurrence in at:
+            first_start = stream[occurrence][1]
+            last_end = stream[occurrence + len(anchor_tokens) - 1][2]
+            occurrences.append((first_start, last_end))
+        hits = 0
+        for index, span in enumerate(spans or []):
+            master = (span.get("master") if isinstance(span, dict)
+                      else None)
+            if not master:
+                continue
+            try:
+                span_start, span_end = float(master[0]), float(master[1])
+            except (TypeError, ValueError, IndexError):
+                continue
+            inside = [(s, e) for s, e in occurrences
+                      if s >= span_start - 1e-6 and e <= span_end + 1e-6]
+            if not inside:
+                # An occurrence straddling the edge it would move is
+                # not "unmatched" - it is an extension asking to play
+                # unapproved seconds, and says so by name.
+                straddles = [(s, e) for s, e in occurrences
+                             if s < span_end - 1e-6
+                             and e > span_start + 1e-6]
+                if straddles:
+                    stale.append(
+                        {"kind": "span_retime", "span_index": index,
+                         "anchor_phrase": anchor, "edge": edge,
+                         "reason": (
+                             f"CANNOT APPLY on span {index}: "
+                             f"{anchor!r} straddles its {edge} "
+                             f"({span_start:.3f}-{span_end:.3f}s), so "
+                             f"moving the {edge} onto those words "
+                             f"would EXTEND past it, playing seconds "
+                             f"nothing approved. A trim keeps; an "
+                             f"extension re-decides. Original "
+                             f"request: "
+                             f"{edit.get('reason', '')}".strip())})
+                continue
+            # The occurrence nearest the edge it moves: a sentence
+            # spoken twice in one span still pins deterministically.
+            if edge == "head":
+                chosen = min(inside, key=lambda se: abs(se[0]
+                                                        - span_start))
+                new_edge = chosen[0]
+                old_edge = span_start
+                shortens = new_edge > old_edge + 1e-6
+                extends = new_edge < old_edge - 1e-6
+            else:
+                chosen = min(inside, key=lambda se: abs(se[1]
+                                                        - span_end))
+                new_edge = chosen[1]
+                old_edge = span_end
+                shortens = new_edge < old_edge - 1e-6
+                extends = new_edge > old_edge + 1e-6
+            if extends:
+                stale.append(
+                    {"kind": "span_retime", "span_index": index,
+                     "anchor_phrase": anchor, "edge": edge,
+                     "reason": (
+                         f"CANNOT APPLY on span {index}: moving its "
+                         f"{edge} to {anchor!r} ({new_edge:.3f}s) "
+                         f"would EXTEND past {old_edge:.3f}s, playing "
+                         f"seconds nothing approved. A trim keeps; an "
+                         f"extension re-decides. Original request: "
+                         f"{edit.get('reason', '')}".strip())})
+                continue
+            if not shortens:
+                held.append(
+                    {"span_index": index, "edge": edge,
+                     "anchor_phrase": anchor,
+                     "reason": (
+                         f"span {index}'s {edge} already sits on "
+                         f"{anchor!r} - the pin is in force, nothing "
+                         f"moved")})
+                continue
+            hits += 1
+            matched.append(
+                {"span_index": index, "edge": edge,
+                 "new_edge": new_edge, "old_edge": old_edge,
+                 "anchor_phrase": anchor,
+                 "reason": edit.get("reason", "")})
+        if not hits and not any(
+                h.get("anchor_phrase") == anchor
+                for h in held) and not any(
+                s.get("anchor_phrase") == anchor
+                and s.get("edge") == edge for s in stale):
+            stale.append(
+                {"kind": "span_retime",
+                 "anchor_phrase": anchor, "edge": edge,
+                 "reason": (
+                     f"STALE: span retime for {anchor!r} no longer "
+                     f"applies - those words are in no placed span. "
+                     f"The passage was reworded, re-cut out of this "
+                     f"reel, or never reached it. Original request: "
+                     f"{edit.get('reason', '')}".strip())})
+    return matched, held, stale
+
+
+def retime_placements(placements_list: list, transcript: dict,
+                      edits: list, fps: float = 24000 / 1001) -> tuple:
+    """Move pinned span edges to their words and close up what follows.
+
+    Returns `(placements_list, applied, held, stale)`. Each matched
+    span's master edge AND its source edge move together (a head trim
+    of d seconds plays d seconds later of the same source), and every
+    later span's `record`/`snapped_record` is re-derived in record
+    order - picture and sound move together, and no caption pinned to
+    an old reel time becomes a lie. A trim eating a whole span reports
+    CANNOT-APPLY rather than placing nothing. In place, like the
+    builder's own cursor math.
+    """
+    from library.tools.frame_utils import seconds_to_frame
+
+    matched, held, stale = match_span_retimes(
+        placements_list, transcript, edits)
+    applied = []
+    by_span: dict = {}
+    for record in matched:
+        by_span.setdefault(record["span_index"], []).append(record)
+    for index, records in by_span.items():
+        entry = placements_list[index]
+        master_start, master_end = (float(entry["master"][0]),
+                                    float(entry["master"][1]))
+        source_in = float(entry.get("source_in", master_start))
+        source_out = float(entry.get("source_out", master_end))
+        was = [round(master_start, 3), round(master_end, 3)]
+        for record in records:
+            if record["edge"] == "head":
+                shift = record["new_edge"] - master_start
+                master_start = record["new_edge"]
+                source_in += shift
+            else:
+                shift = master_end - record["new_edge"]
+                master_end = record["new_edge"]
+                source_out -= shift
+        if not master_end - master_start > 1.0 / float(fps):
+            stale.append(
+                {"kind": "span_retime", "span_index": index,
+                 "anchor_phrase": records[0]["anchor_phrase"],
+                 "edge": records[0]["edge"],
+                 "reason": (
+                     f"CANNOT APPLY on span {index}: the trim would "
+                     f"eat the whole span ({was[0]:.3f}-"
+                     f"{was[1]:.3f}s). Re-anchor inside it. Original "
+                     f"request: "
+                     f"{records[0].get('reason', '')}".strip())})
+            continue
+        entry["master"] = (master_start, master_end)
+        entry["source_in"] = source_in
+        entry["source_out"] = source_out
+        applied.append(
+            {"span_index": index, "edge": records[0]["edge"],
+             "was": was,
+             "now": [round(master_start, 3), round(master_end, 3)],
+             "anchor_phrase": records[0]["anchor_phrase"],
+             "reason": records[0].get("reason", "")})
+    if applied:
+        ordered = sorted(placements_list,
+                         key=lambda e: float(e.get("record", 0) or 0))
+        cursor = 0.0
+        for entry in ordered:
+            master_start, master_end = (float(entry["master"][0]),
+                                        float(entry["master"][1]))
+            entry["record"] = round(cursor, 3)
+            entry["snapped_record"] = seconds_to_frame(
+                entry["record"], fps)
+            cursor += master_end - master_start
+    return placements_list, applied, held, stale
+
+
 # ── The captain reads what is in force ───────────────────────────────
 
 def describe_edits(edits: list) -> list:
@@ -853,6 +1090,11 @@ def describe_edits(edits: list) -> list:
                 f"{number}. Framing: wherever the speech says "
                 f"{anchor!r}, {edit.get('property')} holds "
                 f"{edit.get('value')} - {reason}")
+        elif kind == "span_retime":
+            lines.append(
+                f"{number}. Trim: the {edit.get('edge')} of the span "
+                f"speaking {anchor!r} sits on those words' own edge - "
+                f"{reason}")
         else:
             lines.append(f"{number}. {kind}: {anchor!r} - {reason}")
     for line in lines:
@@ -931,6 +1173,8 @@ def _edit_identity(edit: dict) -> tuple:
                                                          ""))
     if kind == "transform_override":
         return (kind, anchor, edit.get("property"))
+    if kind == "span_retime":
+        return (kind, anchor, edit.get("edge"))
     if kind == "redraw_closer":
         return (kind, anchor, normalize(edit.get("from_phrase", "")))
     if kind == "caption_fix":
@@ -1045,6 +1289,10 @@ def main(argv=None) -> int:
         hold one Edit-page transform at the captain's number on every
         shot speaking the anchor. The typed fallback for a decision
         settled in words.
+    `... record-retime --anchor ... --edge head --reason ...`
+        move one placed span's head (or tail) onto the anchor's own
+        word edge - the typed fallback for a hand trim. Trims only;
+        an extension is refused at apply time.
     `... capture-transform --reel 9 --timeline 'Reel 09 - ...'
     --words ... [--property Pan] --reason ...`
         read the value out of the LIVE Resolve timeline - the captain's
@@ -1063,11 +1311,13 @@ def main(argv=None) -> int:
     parser.add_argument("project_folder")
     parser.add_argument("verb", nargs="?", default="list",
                         choices=["list", "record-closer",
-                                 "record-transform", "capture-transform"])
+                                 "record-transform", "record-retime",
+                                 "capture-transform"])
     parser.add_argument("--anchor", default="")
     parser.add_argument("--from", dest="opening", default="")
     parser.add_argument("--property", dest="prop", default="")
     parser.add_argument("--value", default=None)
+    parser.add_argument("--edge", default="")
     parser.add_argument("--reason", default="")
     parser.add_argument("--source", default="")
     parser.add_argument("--reel", default=None)
@@ -1112,6 +1362,13 @@ def main(argv=None) -> int:
             edit = {"kind": "transform_override",
                     "anchor_phrase": args.anchor,
                     "property": args.prop, "value": number,
+                    "reason": args.reason}
+            _, action = record_edit(args.project_folder, edit,
+                                    args.source)
+        elif args.verb == "record-retime":
+            edit = {"kind": "span_retime",
+                    "anchor_phrase": args.anchor,
+                    "edge": args.edge,
                     "reason": args.reason}
             _, action = record_edit(args.project_folder, edit,
                                     args.source)

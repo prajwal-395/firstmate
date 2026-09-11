@@ -2657,6 +2657,30 @@ def run_pipeline(
         json.dump(summary, sys.stdout, indent=2)
         return summary
 
+    # Displays a hand may have touched since the pipeline wrote them.
+    # Print-only and fully guarded: a stale display must announce
+    # itself on every run, and must never stop an unrelated build.
+    # `library/tools/display_drift.py` owns the witness;
+    # `library/tools/layer_coherence.py` owns the layer-vs-source
+    # comparison. Snapshot after clean builds with
+    # `python3 -m library.tools.display_drift snapshot <project>`.
+    try:
+        from library.tools import display_drift as _drift
+        from library.tools import layer_coherence as _coherence
+        _drift.check(project_dir)
+        _report = _coherence.check_project(project_dir)
+        _owned = sum(len(_report.get(key, []))
+                     for key in ("wording", "pins", "assets"))
+        if _owned:
+            print(f"LAYER COHERENCE: {_owned} owned-layer "
+                  f"divergence(s) stand - run "
+                  f"`python3 -m library.tools.layer_coherence "
+                  f"<project>` for both values of each.",
+                  file=sys.stderr)
+    except Exception as _exc:  # noqa: BLE001 - a witness never refuses
+        print(f"Warning: pre-run display/coherence witness skipped "
+              f"({_exc}); continuing.", file=sys.stderr)
+
     # --rerun deletes artifacts and clears ledger entries, so a dry run
     # reports the request rather than performing it.
     if rerun and dry_run:
