@@ -10,17 +10,19 @@ why, and pins the number the clamp gate (`tight_box.placement_holds`)
 and the 480-pixel canvas floor (`tight_box.MIN_CANVAS_HEIGHT`) are
 calibrated against.
 
-THE ROOT CAUSE, as arithmetic. Resolve's per-clip Pan/Tilt are
-expressed in a unit relative to the CLIP's own size - shift =
-Pan * (clip_dim / timeline_dim) - so the transform needed to carry a
-small box is inversely proportional to the box, while Resolve pins the
+THE ROOT CAUSE, as arithmetic. Resolve's per-clip Pan/Tilt move a
+clip at twice the rate the scratch measurement gave on 1080x1920 -
+shift = 2 * Pan * (clip_dim / timeline_dim), measured on still
+pixels 2026-09-11 (see `tight_box.DRAW_GAIN_1080x1920`) - so the
+transform needed to carry a small box is half what the scratch
+relation says, while Resolve pins the
 property at a rail it does not report and refuses silently past it.
 On the captain's 1080x1920 reels every caption box was
-bottom-anchored with its lower edge at y=1636, which puts the required
-Tilt exactly one line-count away from the rail. `test_the_cliff_*`
-below reproduces that from the shipped numbers, and
+bottom-anchored with its lower edge at y=1636. `test_the_cliff_*`
+below reproduces the shipped asking values from the retired
+carriage's arithmetic, and
 `test_the_floor_clears_the_cliff` proves the answer: a canvas floored
-at 480 places every caption inside the rail.
+at 480 places every caption far inside the rail.
 
 THE CARRYING, as a property. A tight overlay renders only its drawn
 bounds and lands on the timeline in three moves: `AppendToTimeline`
@@ -247,54 +249,63 @@ def test_the_cliff_follows_from_the_measured_rail():
     assert [h for h, _, _ in SHIPPED_AND_HELD if h > cliff] == [300]
 
 
-def test_a_clamped_caption_lands_above_its_band_not_off_frame():
-    """What the clamp actually does to the picture, and what it does
-    NOT do.
+def test_a_clamped_caption_lands_low_or_off_the_bottom():
+    """What the clamp actually does to the picture, redrawn at the
+    measured gain - and what it does NOT do.
 
-    A pinned Tilt moves the box `2h` down from centre instead of the
-    `676 - h/2` it needed, so the caption rides `676 - 2.5h` px HIGH -
-    296px for a one-liner. It is misplaced, never absent: a clamp only
-    ever pulls an overlay TOWARDS the frame centre, so it cannot on its
-    own put one off frame.
+    A pinned Tilt -3840 draws twice the shift per unit the scratch
+    relation predicts (see `tight_box.DRAW_GAIN_1080x1920`), so the
+    box lands 4h below centre instead of the 2h the first analysis
+    read: short boxes ride just below their band, long ones hang off
+    the bottom edge. That reproduces the captain's actual report -
+    some captions on screen, some completely off frame - which the
+    single-gain reading could not (it bunched every box mid-frame
+    and called off-frame impossible).
     """
     clamped = [(h, held) for h, asked, held in SHIPPED_AND_HELD
                if abs(held - asked) > 0.5]
     assert len(clamped) == 12
     for canvas_h, held in clamped:
-        landed_cy = FULL_H / 2.0 - held * (canvas_h / FULL_H)
+        # The 2.0 is the measured 1080x1920 draw gain, stated here
+        # rather than imported so the test pins the law it proves.
+        landed_cy = FULL_H / 2.0 - held * (canvas_h / FULL_H) * 2.0
         wanted_cy = CANVAS_BOTTOM - canvas_h / 2.0
         error = wanted_cy - landed_cy
-        assert error == pytest.approx(676 - 2.5 * canvas_h, abs=0.01)
-        assert error > 0, "a clamp pulls towards centre, so high"
-        # Still inside the frame - which is why this is a misplaced
-        # caption and not a missing one.
-        assert 0 < landed_cy - canvas_h / 2.0
-        assert landed_cy + canvas_h / 2.0 < FULL_H
-    worst = max(676 - 2.5 * h for h, _ in clamped)
-    assert worst == pytest.approx(296.0, abs=0.5)
+        assert error == pytest.approx(676 - 4.5 * canvas_h, abs=0.01)
+    # Short boxes land low but whole; long ones straddle the bottom
+    # edge - on screen and off frame, exactly as reported.
+    assert [h for h, _ in clamped
+            if FULL_H / 2.0 + 3840.0 * (h / FULL_H) * 2.0 + h / 2.0
+            <= FULL_H] == [152, 158, 160, 164, 166]
+    assert [h for h, _ in clamped
+            if FULL_H / 2.0 + 3840.0 * (h / FULL_H) * 2.0 + h / 2.0
+            > FULL_H] == [220, 224, 232, 236, 242, 244, 246]
 
 
 def test_the_floor_clears_the_cliff():
-    """The composed answer to the cliff above: the shipped canvases
-    (152..246px) needed Tilts past the rail, but a canvas floored at
-    480 places the same bottom-anchored band inside it - which is what
-    `tight_box.MIN_CANVAS_HEIGHT` ships, and what the gate below
-    proves per segment before anything reaches a timeline."""
+    """The composed answer to the cliff above, redrawn at the
+    measured gain: the cliff sits at h ~= 150, so the shipped
+    152..246px canvases hold even unfloored and the 480 floor keeps
+    every shipping placement thousands inside the rail - headroom
+    the gate below proves per segment before anything reaches a
+    timeline."""
     from library.tools.tight_box import MIN_CANVAS_HEIGHT
     assert MIN_CANVAS_HEIGHT == 480
-    for canvas_h in (152, 246, MIN_CANVAS_HEIGHT):
-        dy = CANVAS_BOTTOM - canvas_h / 2.0 - FULL_H / 2.0
+    for canvas_h in (140, 152, 246, MIN_CANVAS_HEIGHT):
         placement = placement_for_box(
             840, canvas_h, FULL_W / 2.0,
             CANVAS_BOTTOM - canvas_h / 2.0, FULL_W, FULL_H)
         assert placement["scaling"] == 1
-        if canvas_h < MIN_CANVAS_HEIGHT:
+        if canvas_h <= 150:
             assert placement_holds(placement, FULL_W, FULL_H) != "", (
-                f"h={canvas_h} should still overflow: the floor is "
-                f"what carries it, not the gate")
+                f"h={canvas_h} is below the redrawn cliff and must "
+                f"still overflow")
         else:
             assert placement_holds(placement, FULL_W, FULL_H) == ""
-            assert abs(placement["tilt"]) <= 3400
+    assert abs(placement_for_box(
+        840, MIN_CANVAS_HEIGHT, FULL_W / 2.0,
+        CANVAS_BOTTOM - MIN_CANVAS_HEIGHT / 2.0,
+        FULL_W, FULL_H)["tilt"]) <= 3400
 
 
 def test_subtitles_default_to_tight(tmp_path):
@@ -340,7 +351,7 @@ def test_a_frame_baked_artefact_cannot_be_reused(tmp_path):
         "a frame-baked key still matches: a delivery-frame artefact "
         "would be reused and transformed off the frame")
     assert today.endswith(f"+{OVERLAY_CARRIAGE}")
-    assert OVERLAY_CARRIAGE == "tight-480-1"
+    assert OVERLAY_CARRIAGE == "tight-480-2"
 
 
 # ── The placer: it sets the transform, then reads it back ────────────

@@ -89,7 +89,22 @@ scratch project:
   moved a 400px-wide clip on a 1080 timeline 74px right; Tilt=300
   moved a 200px-tall clip on a 1920 timeline 31px up.
 
-`placement_for_box` inverts that relation, so a canvas whose edges are
+Measured again on PIXELS, 2026-09-11, on the 1080x1920 reels
+themselves (project "Podcast (field test)"): Resolve draws TWICE
+that shift per unit. A stored Tilt 1296 on a 480-tall canvas draws
+its ink 648px off centre - the canvas core-glyph top (canvas y 57)
+lands at still row 130, against 129 predicted at double gain and
+453 at single gain. A stored -1700 caption the single-gain relation
+puts on the bottom band draws nowhere at all (off the bottom
+edge). Twenty motion-graphics clips and one caption pair across
+reels 01/13/23/28/30/31 read back exactly half their
+pipeline-computed values - the values every lane hand-set to make
+them land. So on a 1080x1920 timeline the draw gain is 2
+(`DRAW_GAIN_1080x1920`), scoped to the measured frame exactly like
+`MEASURED_PAN_TILT_RAIL` below: any other geometry keeps the
+scratch relation until it is re-probed on pixels.
+
+`placement_for_box` inverts the 1080x1920 relation, so a canvas whose edges are
 known in full-frame coordinates yields the three SetProperty values
 that put it there. Every SetProperty is still judged by its return
 value at placement time - this module computes, Resolve disposes.
@@ -250,22 +265,47 @@ def _fitter_for_style(style: dict, max_width: float,
     )
 
 
+#: How many times the shift Resolve draws per Pan/Tilt unit exceeds
+#: the clip-size proportion, on a 1080x1920 timeline.
+#:
+#: A NUMBER, not a formula - read off still pixels 2026-09-11 (see
+#: the module docstring), the same standing the 3840 rail below has.
+#: One frame geometry cannot tell `2x` from a constant, so this is
+#: scoped to the measured frame and anything else re-probes.
+DRAW_GAIN_1080x1920 = 2.0
+
+
+def draw_gain(full_w: int, full_h: int) -> float:
+    """The measured draw gain for a delivery frame.
+
+    2.0 on the measured 1080x1920 reels, 1.0 (the 2026-09-08 scratch
+    relation) anywhere unprobed - an unmeasured frame keeps yesterday's
+    behaviour rather than inheriting a gain nothing measured there.
+    """
+    if int(full_w) == 1080 and int(full_h) == 1920:
+        return DRAW_GAIN_1080x1920
+    return 1.0
+
+
 def placement_for_box(canvas_w: float, canvas_h: float,
                       canvas_cx: float, canvas_cy: float,
                       full_w: int, full_h: int) -> dict:
     """The SetProperty values putting a native-pixel clip's centre where
     the full-frame coordinates say.
 
-    The inverse of the measured relation: shift_x = Pan * (placed_W /
-    timeline_W), shift_y = -Tilt * (placed_H / timeline_H), with the
-    clip at Scaling=1 so placed pixels are canvas pixels.
+    The inverse of the measured draw relation: shift_x = G * Pan *
+    (placed_W / timeline_W), shift_y = -G * Tilt * (placed_H /
+    timeline_H), with the clip at Scaling=1 so placed pixels are
+    canvas pixels and G the gain `draw_gain` measures for this
+    frame (2 on 1080x1920, 1 anywhere unprobed).
     """
+    gain = draw_gain(full_w, full_h)
     dx = canvas_cx - full_w / 2.0
     dy = canvas_cy - full_h / 2.0
     return {
         "scaling": 1,
-        "pan": dx * (full_w / canvas_w),
-        "tilt": -dy * (full_h / canvas_h),
+        "pan": dx * (full_w / canvas_w) / gain,
+        "tilt": -dy * (full_h / canvas_h) / gain,
     }
 
 
@@ -715,8 +755,9 @@ def canvas_offset(box: TightBox) -> tuple[int, int]:
     """Where the tight canvas sits in full-frame pixels: the inverse of
     `placement_for_box`, so the file reader and the Resolve placer agree
     on one origin. Integer-exact: the placement floats round-trip."""
-    dx = box.placement["pan"] * (box.width / box.full_width)
-    dy = -box.placement["tilt"] * (box.height / box.full_height)
+    gain = draw_gain(box.full_width, box.full_height)
+    dx = box.placement["pan"] * (box.width / box.full_width) * gain
+    dy = -box.placement["tilt"] * (box.height / box.full_height) * gain
     return (
         int(round(box.full_width / 2.0 + dx - box.width / 2.0)),
         int(round(box.full_height / 2.0 + dy - box.height / 2.0)),

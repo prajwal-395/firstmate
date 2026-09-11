@@ -565,8 +565,9 @@ def test_caption_row_sits_eleven_pixels_above_the_safe_area():
     """The +11px the captain hand-corrected on Reel 09, as a rule.
 
     Measured 2026-09-10: all 22 Reel 09 captions corrected uniformly
-    from computed Tilt -1744.0 to -1700.0 - 44 units, exactly 11
-    delivery pixels at the 480-pixel tight-canvas floor - and reels 26
+    from computed Tilt -1744.0 to -1700.0 - 44 units on the pre-floor
+    canvases of that era, about 10px as drawn under the 2x gain the
+    reels measure (see `tight_box.DRAW_GAIN_1080x1920`) - and reels 26
     (13 captions) and 30 (35 captions) computed -1744.0 on all 48 with
     no declared intent, with Deliver stills confirming the ~11px gap
     on pixels. The design row was systematically low, so the probe
@@ -587,18 +588,19 @@ def test_caption_row_sits_eleven_pixels_above_the_safe_area():
     assert props["captionMaxWidth"] == profile.centered_usable_width
 
 
-def test_forty_four_tilt_units_are_eleven_pixels_at_the_floor():
+def test_twenty_two_tilt_units_are_eleven_pixels_at_the_floor():
     """The arithmetic the lift encodes, pinned where it is derived.
 
     `placement_for_box` inverts the measured Resolve relation shift_y
-    = -Tilt * placed_H / timeline_H: on a 1080x1920 timeline a
-    480-tall canvas moves a quarter delivery pixel per Tilt unit, so
-    the captain's 44-unit correction is 11.0px and a canvas centred at
-    full-frame y 1385 reads Tilt -1700.0 while the old design row
-    (centre 1396) reads -1744.0.
+    = -2 * Tilt * placed_H / timeline_H on a 1080x1920 timeline (see
+    `tight_box.DRAW_GAIN_1080x1920`): a 480-tall canvas moves half a
+    delivery pixel per Tilt unit, so the 11px lift is 22 units and a
+    canvas centred at full-frame y 1385 reads Tilt -850.0 while the
+    old design row (centre 1396) reads -872.0 - the values reels
+    01/13/23/28 and 26/30 hold on their timelines.
     """
     from library.tools.tight_box import placement_for_box
     assert placement_for_box(840, 480, 540.0, 1385.0, 1080, 1920) == {
-        "scaling": 1, "pan": 0.0, "tilt": -1700.0}
+        "scaling": 1, "pan": 0.0, "tilt": -850.0}
     assert placement_for_box(840, 480, 540.0, 1396.0, 1080, 1920) == {
-        "scaling": 1, "pan": 0.0, "tilt": -1744.0}
+        "scaling": 1, "pan": 0.0, "tilt": -872.0}

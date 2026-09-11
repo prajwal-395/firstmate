@@ -323,3 +323,28 @@ def test_pads_cover_slide_and_shadow():
     the pad must clear the largest plus margin, or the box clips ink
     mid-entrance."""
     assert MG_PAD >= 40 + 8
+
+
+def test_top_anchored_graphic_places_at_half_the_scratch_value():
+    """Reel 31: six top-anchored graphics computed Tilt 2592 and drew
+    fully off-frame; every lane hand-set 1296, verified on stills.
+
+    That is not the entry-unit bug (the store path is literal - the
+    read-back echoes what was set and the guard stands): Resolve
+    draws twice the shift per unit the scratch relation predicts on
+    1080x1920 (see `tight_box.DRAW_GAIN_1080x1920`), so the computed
+    value was double what draws correctly. The pipeline must compute
+    1296 itself - no hand correction, no halving at the call site.
+    """
+    from library.tools.tight_box import canvas_offset
+    box = tighten_motion_graphics_props(
+        _props([_el("title_lockup", anchor="top_centre")]),
+        timeline_size=(FULL_W, FULL_H))
+    assert box is not None
+    assert box.height == 480
+    assert box.placement == {"scaling": 1, "pan": 0.0, "tilt": 1296.0}
+    # And the origin is the union minus pads, so the file reader and
+    # the Resolve placer agree on one placement, not two halves of
+    # one: a top-anchored union at the 120px safe inset sits its
+    # 480-tall canvas at y 72.
+    assert canvas_offset(box) == (348, 72)
