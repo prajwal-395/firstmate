@@ -367,6 +367,18 @@ class ReelPlan:
     before 2026-09-07. `lead_seconds` below is what the HEAD ones push
     everything else down by."""
 
+    card_row_role: Optional[str] = None
+    """The declared full-frame CARD row (`effect.card_row_role`).
+
+    Which NAMED row head/tail cards play on - the captain's answer to
+    the logo-on-V1 defect, resolved with the same code the build used.
+    None is every reel planned before the declaration existed, and the
+    checks read those the legacy way (cards on V1) rather than failing
+    history for not naming a row nobody had asked for yet. A
+    `full_frame_span` is never governed by this: a span IS the body's
+    picture and stays on it.
+    """
+
     lead_seconds: float = 0.0
     """How long the head cards hold before the first frame of footage.
 
@@ -663,6 +675,20 @@ def check_audio_holes(reel_name: str,
     return findings
 
 
+def _item_stem(item) -> str:
+    """The render basename an item IS, without its extension.
+
+    One spelling for the classifier below and `card_items`: a
+    full-frame element is identified by its planned render name
+    wherever it sits, so the two readings cannot disagree about what
+    a card is.
+    """
+    stem = (item.source_file or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+    if not stem:
+        stem = (item.name or "").rsplit(".", 1)[0]
+    return stem
+
+
 def card_items(video_items: Sequence[TimelineItem],
                cards: Sequence["PlannedCard"],
                ) -> Dict[str, TimelineItem]:
@@ -682,9 +708,7 @@ def card_items(video_items: Sequence[TimelineItem],
     wanted = {card.render_name: card for card in cards}
     found: Dict[str, TimelineItem] = {}
     for item in video_items:
-        stem = (item.source_file or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
-        if not stem:
-            stem = (item.name or "").rsplit(".", 1)[0]
+        stem = _item_stem(item)
         if stem in wanted and stem not in found:
             found[stem] = item
     return found
@@ -702,6 +726,7 @@ def check_full_frame_cards(reel_name: str,
                            video_items: Sequence[TimelineItem],
                            width: int, height: int,
                            fps: float,
+                           card_row_role: Optional[str] = None,
                            ) -> List[Finding]:
     """F13: every declared full-frame element is on the timeline, whole.
 
@@ -717,12 +742,31 @@ def check_full_frame_cards(reel_name: str,
       reels path instead;
     - an element placed at the wrong reel second, or with the wrong number
       of frames.  One frame either way is an F1 black hole or an overlap.
+    - an element on the wrong ROW. A head/tail card plays beside the
+      footage on the project's declared card row
+      (`effect.card_row_role`); a card on any other row fails here, by
+      NAME - which is the gate the logo-on-V1 defect was missing.
+
+    `card_row_role` None is the legacy reading: every reel planned
+    before the declaration existed carried its cards on V1, and the
+    check reads those against V1 rather than failing history for not
+    naming a row nobody had asked for yet. A `full_frame_span` always
+    reads V1 - a span IS the body's picture, whatever the card row is.
 
     Nothing here is a judgement.  Every comparison is between integers
-    the plan already fixed.
+    the plan already fixed, or a row name against the role that put
+    the card there.
     """
     findings: List[Finding] = []
     placed = card_items(video_items, cards)
+    if card_row_role is not None:
+        from library.tools.timeline_layout import ROLE_ROW_BASE
+        try:
+            card_base = ROLE_ROW_BASE[card_row_role]
+        except KeyError:
+            raise ValueError(
+                f"card_row_role {card_row_role!r} names no card row; "
+                f"card roles are semantic and motion_graphics") from None
 
     for card in cards:
         noun = ("span segment" if card.element == "full_frame_span"
@@ -763,23 +807,44 @@ def check_full_frame_cards(reel_name: str,
                 detail={"render_name": card.render_name,
                         "actual_frames": item.duration_frames,
                         "expected_frames": card.duration_frames}))
-        if item.track_index != 1:
+        if card.element == "full_frame_span" or card_row_role is None:
+            # Body picture on the picture row (spans), or the legacy
+            # reading for reels planned before the card row was
+            # declared (everything on V1).
+            if item.track_index != 1:
+                findings.append(Finding(
+                    finding_class=FindingClass.F13, reel=reel_name,
+                    message=(
+                        f"full-frame {noun} {card.render_name!r} is on V"
+                        f"{item.track_index}. A full-frame element REPLACES "
+                        f"picture and belongs on V1; above V2 nothing in this "
+                        f"file can see it (F4 and F12 read V1 and V2 only), "
+                        f"and the footage under it would go on playing its "
+                        f"sound, which the reels path cannot turn down"),
+                    severity="error",
+                    detail={"render_name": card.render_name,
+                            "track": item.track_index}))
+        elif not _is_layer_named(item.track_name or "", card_base):
             findings.append(Finding(
                 finding_class=FindingClass.F13, reel=reel_name,
                 message=(
-                    f"full-frame {noun} {card.render_name!r} is on V"
-                    f"{item.track_index}. A full-frame element REPLACES "
-                    f"picture and belongs on V1; above V2 nothing in this "
-                    f"file can see it (F4 and F12 read V1 and V2 only), "
-                    f"and the footage under it would go on playing its "
-                    f"sound, which the reels path cannot turn down"),
+                    f"full-frame {noun} {card.render_name!r} is on "
+                    f"V{item.track_index} "
+                    f"({item.track_name or 'unnamed'}), not the declared "
+                    f"card row: effect.card_row_role is "
+                    f"{card_row_role!r}, so it belongs on the "
+                    f"{card_base!r} row. A card plays beside the "
+                    f"footage, and its row is organisation - landing "
+                    f"it on a camera row is the logo-on-V1 defect"),
                 severity="error",
                 detail={"render_name": card.render_name,
-                        "track": item.track_index}))
+                        "track": item.track_index,
+                        "track_name": item.track_name,
+                        "card_row_role": card_row_role}))
 
     known = {card.render_name for card in cards}
     for item in video_items:
-        stem = (item.source_file or "").rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        stem = _item_stem(item)
         if CARD_NAME_SHAPE.match(stem) and stem not in known:
             findings.append(Finding(
                 finding_class=FindingClass.F13, reel=reel_name,
@@ -2825,8 +2890,15 @@ def check_delivered_framing(reel_name: str,
     # weaker.
     from library.tools import reel_ending as _ending
     freeze_by_item = _ending.freeze_items(video_items)
+    # A card on the declared card row is graded against the whole frame
+    # wherever it sits (the injection above sizes every planned card at
+    # the delivery frame): without the `card_by_item` arm a card that
+    # moved off V1/V2 would leave this check silently rather than pass
+    # it - an overlay invisible to every check, the defect class this
+    # repository keeps removing (AGENTS.md 10.4).
     footage = [i for i in video_items
-               if i.track_index in (1, 2) and id(i) not in frame_by_item
+               if (i.track_index in (1, 2) or id(i) in card_by_item)
+               and id(i) not in frame_by_item
                and id(i) not in freeze_by_item]
     unreadable: List[str] = []
     # One finding per distinct disagreement, not per item: 34 clips of one
@@ -4177,9 +4249,13 @@ def verify_reel(plan: ReelPlan,
     # F13: the full-frame elements themselves, in both directions.
     # Runs unconditionally: "the plan declares none and the timeline
     # carries one" is exactly the half a conditional would skip.
+    # `card_row_role` is the project's declared card row - None on
+    # reels planned before the declaration existed, which F13 reads
+    # the legacy way (cards on V1).
     findings.extend(check_full_frame_cards(
         plan.reel_name, plan.cards, timeline.video_items,
-        timeline.width, timeline.height, fps))
+        timeline.width, timeline.height, fps,
+        card_row_role=plan.card_row_role))
 
     # F18/F19/F20: the transition elements over this reel's cuts.
     #
@@ -4516,13 +4592,24 @@ def _is_layer_named(row: str, base: str) -> bool:
 
 # ── Converting timeline_ingest snapshots to our types ────────────────
 
-def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
+def _snapshot_to_reel_timeline(snapshot, cards=()) -> ReelTimeline:
     """Convert a TimelineSnapshot to our ReelTimeline.
 
     This is the bridge between `timeline_ingest` (which reads Resolve)
     and our check functions (which are pure and tested without Resolve).
+
+    `cards` are the plan's full-frame elements (anything with a
+    `render_name`): an item the plan names is PICTURE wherever it sits,
+    filed into `video_items` before any role bucketing reads its row.
+    Cards ride the declared card row - an overlay row - while spans
+    stay on the picture row, and a row-name bucketing would file the
+    former as decoration. Without the plan's names the classifier
+    cannot tell a closing card from a semantic visual, so `()` keeps
+    the legacy buckets exactly.
     """
     fps = snapshot.fps
+    wanted = {getattr(card, "render_name", "") or "" for card in cards}
+    wanted.discard("")
 
     video_items = []
     audio_items = []
@@ -4551,7 +4638,11 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         )
         row = (item.track_name or "").strip()
         is_video = clip.track_type == "video"
-        # Names first, across ALL roles, then indices. A packed reel
+        # The plan's own elements first, by render name: a card the
+        # plan declares IS picture wherever it sits - on the declared
+        # card row (an overlay row) or on the picture row (a span) -
+        # so its row must not decide its bucket. Names first, across
+        # ALL roles, then indices. A packed reel
         # puts its semantic row where transitions would sit (V4) - so
         # an index fallback consulted role-by-role would file a row
         # named "Semantic" as a transition element before its name is
@@ -4560,7 +4651,9 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         # row is named first of all: under the Reel 09 ruling it sits
         # on V3 above two picture rows, where the old `== 3` fallback
         # would file the set as a caption card.
-        if is_video and row == "Frame":
+        if is_video and _item_stem(item) in wanted:
+            video_items.append(item)
+        elif is_video and row == "Frame":
             frame_items.append(item)
         elif is_video and clip.track_index <= 2:
             video_items.append(item)
@@ -4600,12 +4693,16 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
         # above files captions, overlays, the explainer and semantic
         # rows, and the Frame set row, into their own buckets), so a
         # caption tail past the last picture frame does not read as a
-        # longer reel. Empty when the timeline carries no picture at
-        # all, which is itself a refusal unless the plan is empty too.
+        # longer reel. A card on the declared card row is picture too -
+        # the classifier files it here by render name whatever its
+        # track - so the extent reads it wherever it sits. Empty when
+        # the timeline carries no picture at all, which is itself a
+        # refusal unless the plan is empty too.
         picture_frames=(
             max((i.end_frame for i in video_items
-                 if i.track_index in (1, 2)),
-                default=snapshot.start_frame)
+                  if i.track_index in (1, 2)
+                  or _item_stem(i) in wanted),
+                 default=snapshot.start_frame)
             - snapshot.start_frame),
         video_items=tuple(sorted(video_items,
                                  key=lambda i: (i.track_index, i.start_frame))),
@@ -4776,6 +4873,18 @@ def _derive_plan_from_master(
     # opted in.
     cards: Tuple[PlannedCard, ...] = ()
     lead_frames = 0
+    # The declared CARD row, re-derived with the same code the build
+    # used (`reel_build.card_row_role_for_project`) - the same
+    # principle as the cards below, and for the same reason: a reel
+    # cannot be built to one rule and checked against another. None
+    # where nothing declares one, and then F13 reads the cards the
+    # legacy way (on V1).
+    card_row_role = None
+    if project_folder:
+        from library.tools.reel_build import (
+            card_row_role_for_project as _card_row,
+        )
+        card_row_role = _card_row(project_folder)
     if moment is not None and project_folder:
         # The ENDING travels, because a freeze holds picture after the
         # keep ranges and a tail element starts after it
@@ -4881,6 +4990,7 @@ def _derive_plan_from_master(
         captions=captions,
         captions_unavailable=captions_unavailable,
         cards=cards,
+        card_row_role=card_row_role,
         lead_seconds=lead_seconds,
         cuts=cuts,
         keep_ranges=tuple(kr),
@@ -5729,7 +5839,6 @@ def run_verification(
         for tl in reel_timelines:
             name = tl.GetName()
             snap = snapshots[name]
-            reel_tl = _snapshot_to_reel_timeline(snap)
 
             # Parse reel number from name "Reel 01 - slug"
             reel_number = 0
@@ -5771,6 +5880,12 @@ def run_verification(
                     placements=(),
                     keep_ranges=((0.0, plan_seconds),),
                 )
+
+            # Converted AFTER the plan, with the plan's cards: an item
+            # the plan names is picture wherever it sits (the declared
+            # card row is an overlay row), so the snapshot conversion
+            # needs the names before it buckets by row.
+            reel_tl = _snapshot_to_reel_timeline(snap, cards=plan.cards)
 
             # The transcript is what F5 measures coverage against, and
             # it was never passed - so F5 was skipped on every live run

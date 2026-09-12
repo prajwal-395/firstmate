@@ -12,8 +12,9 @@ rebuild of that reel rebuilt without it, and no other reel ever had it.
 `full_frame_clip` is the mechanism: a project-supplied finished animation
 declared ONCE under `effect.full_frame_elements`, planned against every
 reel the project builds - the ones already promoted and the ones nobody
-has planned yet - and placed on V1 the way a rendered card is, so the
-coverage assertion, the item count and the framing verdict all see it.
+has planned yet - and placed on the declared card row
+(`effect.card_row_role`) the way a rendered card is, so the coverage
+assertion, the item count and the framing verdict all see it.
 
 Where it sits against the ending freeze is the other half, and it is
 stated rather than inferred: `reel_ending.ending_tail_frames`.

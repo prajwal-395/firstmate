@@ -485,7 +485,9 @@ def reel_track_material(master_clips,
                         has_frame: bool = False,
                         explainer_spans=None,
                         semantic_spans=None,
-                        lower_third_spans=None) -> dict:
+                        lower_third_spans=None,
+                        card_role=None,
+                        card_spans=()) -> dict:
     """The material `timeline_layout.plan_layout` answers with a plan.
 
     Angles come from the master's own picture rows (`reel_angles`) and
@@ -494,7 +496,27 @@ def reel_track_material(master_clips,
     onto one row" and "blank rows with nothing on them" structurally
     impossible rather than fixed once. `caption_spans` are (start, end)
     in FRAMES, the unit the layout packs in.
+
+    `card_role` is the declared full-frame CARD row
+    (`full_frame_element.CARD_ROW_ROLES`) and `card_spans` the (start,
+    end) frame spans of this reel's head/tail cards, in the order they
+    play. Both travel into the material so the row exists because a
+    card goes on it - and so the placer replays the plan's own packing
+    (`timeline_layout.card_spans_for_role` + `lane_of_span`) rather
+    than a second reading of it. A `full_frame_span` never arrives
+    here: a span IS the body's picture and stays on it.
     """
+    if card_role is not None and card_role not in (SEMANTIC,
+                                                   MOTION_GRAPHICS):
+        raise ReelBuildError(
+            f"card_role {card_role!r} names no card row; card roles are "
+            f"{SEMANTIC!r} and {MOTION_GRAPHICS!r}. A track index is "
+            f"refused here on purpose: indices differ per reel.")
+    if card_role is None and card_spans:
+        raise ReelBuildError(
+            "card spans with no card role: a row exists because "
+            "something goes on it, and a span without its role names "
+            "no row. Declare effect.card_row_role.")
     angles = reel_angles(master_clips)
     if not angles:
         # No picture rows to inherit: the layout falls back to its
@@ -512,6 +534,8 @@ def reel_track_material(master_clips,
             "mg_spans": [tuple(sp) for sp in (lower_third_spans or [])],
             "has_generators": False,
             "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
+            "card_role": card_role,
+            "card_spans": [tuple(s) for s in (card_spans or [])],
         }
     described = []
     for angle in angles:
@@ -544,6 +568,13 @@ def reel_track_material(master_clips,
         "mg_spans": [tuple(sp) for sp in (lower_third_spans or [])],
         "has_generators": False,
         "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
+        # The declared card row and this reel's head/tail card spans, in
+        # play order. `plan_layout` packs them with the role's own
+        # spans, so the row exists because a card goes on it - and the
+        # placer below replays that same packing to find each card's
+        # lane rather than indexing the first a-roll row.
+        "card_role": card_role,
+        "card_spans": [tuple(s) for s in (card_spans or [])],
     }
 
 
@@ -2871,6 +2902,26 @@ def declared_cards(project_folder: str) -> list:
     return declared_elements(resolve_declaration(brand_effect, project_folder))
 
 
+def card_row_role_for_project(project_folder: str,
+                              brand_effect=None) -> str | None:
+    """The declared full-frame card row role, or None where undeclared.
+
+    The PROJECT's `project.yaml` wins over the brand template's `effect`
+    slot (`full_frame_element.resolve_card_row_role`). `brand_effect`
+    None means "read the brand the way `declared_cards` does" - the
+    verifier's re-derivation passes nothing and gets the same answer
+    the build got. Returns None rather than refusing: the refusal
+    belongs at PLACEMENT, where cards exist to need a row
+    (`build_reel_timeline`), so planning, dry runs and card-less reels
+    never trip on a declaration they do not need.
+    """
+    from library.tools.full_frame_element import resolve_card_row_role
+
+    if brand_effect is None:
+        brand_effect = _brand_effect(project_folder)
+    return resolve_card_row_role(brand_effect or {}, project_folder)
+
+
 def plan_cards(moment, transcript: dict, ranges, project_folder: str,
                fps: float, declarations=None, ending=None, look=None) -> list:
     """Resolve this project's card declarations against ONE reel.
@@ -4320,7 +4371,7 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -4428,6 +4479,24 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     if ranges is None:
         ranges = reel_ranges(moment, transcript, extra_cuts=extra_cuts)
     lead = lead_frames(cards, fps)
+    # The declared card row is required BEFORE anything derives from
+    # the cards: a reel whose head/tail cards name no row refuses here,
+    # with the declaration named - never further down as a missing row,
+    # and never by guessing the first a-roll row (the logo-on-V1
+    # defect). Card-less reels never reach for it.
+    if any(getattr(card, "placement", "") in ("head", "tail")
+           for card in (cards or ())) and not card_row_role:
+        from library.tools.full_frame_element import (
+            CARD_ROW_ROLE_KEY, CARD_ROW_ROLES)
+        raise ReelBuildError(
+            f"{name}: this reel declares full-frame card(s) but no "
+            f"effect.{CARD_ROW_ROLE_KEY}: declare one of "
+            f"{', '.join(CARD_ROW_ROLES)} in the project's project.yaml "
+            f"(or the brand template's `effect` slot). Which row the "
+            f"closing card belongs on is the captain's call - V5 "
+            f"\"Semantic\", where they hand-placed the logo on Reel 09, "
+            f"or the \"Motion Graphics\" row. Until it is declared the "
+            f"build stops rather than guessing V1.")
     placements_list = placements(ranges, master_clips, fps, lead_frames=lead)
 
     # ── Offset placements: the audio cut moves, the picture hides ──
@@ -4521,7 +4590,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         explainer_spans=_overlay_spans(explainer_segments, fps),
         semantic_spans=_overlay_spans(semantic_segments, fps),
         lower_third_spans=_overlay_spans(lower_third_segments, fps),
-        has_frame=look is not None)
+        has_frame=look is not None,
+        card_role=card_row_role,
+        card_spans=[(int(card.reel_start_frame), int(card.reel_end_frame))
+                    for card in (cards or ())
+                    if getattr(card, "placement", "") in ("head", "tail")])
     track_plan = plan_layout(material)
     video_row_by_angle = {}
     for angle in angles:
@@ -4610,7 +4683,55 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         print(f"  {name}: full-frame span covers the body - footage video "
               f"suppressed, spine audio kept", file=sys.stderr)
 
-    # The cards FIRST, so the timeline reads in play order, and on V1.
+    # The cards, on the DECLARED card row - never the first a-roll row.
+    # A head/tail card plays beside the footage (before the first frame
+    # or after the last), so any row shows it and the row is
+    # organisation: the project's `effect.card_row_role` names the
+    # track-plan ROLE, and the row is resolved through
+    # `rows_for_role` - the same route the explainer, semantic visuals
+    # and lower thirds take - by the lane the plan's own packing gave
+    # the card's span (`card_spans_for_role` + `lane_of_span`, the same
+    # order the plan packed). No index is read here, so a reel with 5,
+    # 6 or 7 video tracks lands the card on the named row regardless.
+    # A `full_frame_span` is NOT a card in this sense: a span IS the
+    # body's picture (the footage beneath it is suppressed), so it
+    # stays on the first a-roll row and F23 keeps grading it there.
+    from library.tools.timeline_layout import (
+        card_spans_for_role, lane_of_span,
+    )
+    head_tail = [card for card in (cards or ())
+                 if getattr(card, "placement", "") in ("head", "tail")]
+    # `card_row_role` is required above, before anything derives from
+    # the cards - so reaching here with cards and no role is a caller
+    # that bypassed the declaration, and the plan's own packing guard
+    # (`card_spans_for_role`) is what names it.
+    card_role_rows = (track_plan.rows_for_role(card_row_role)
+                      if card_row_role else [])
+    if head_tail and not card_role_rows:
+        raise ReelBuildError(
+            f"{name}: card row role {card_row_role!r} minted no row. "
+            f"A row exists because something goes on it, and cards "
+            f"are on this reel - refusing rather than placing onto "
+            f"an unplanned row.")
+    role_spans = (card_spans_for_role(track_plan.material, card_row_role)
+                  if head_tail else [])
+    # One lane per head/tail card, in play order - the same order the
+    # spans reached the material in, so position `base + i` is this
+    # card's span. Keyed by ORDER, never by identity: `promote_cards`
+    # below replaces a card object with a copy when it promotes one
+    # out of scratch, so an id-keyed map would miss after promotion.
+    card_lanes = [
+        lane_of_span(role_spans, len(role_spans) - len(head_tail) + i)
+        for i in range(len(head_tail))]
+    for lane in card_lanes:
+        if lane >= len(card_role_rows):
+            raise ReelBuildError(
+                f"{name}: a card packed onto lane {lane} of role "
+                f"{card_row_role!r}, which holds "
+                f"{len(card_role_rows)} row(s). The placer replays the "
+                f"plan's packing and disagrees with it - refusing "
+                f"rather than placing onto an unplanned row.")
+    # The cards FIRST, so the timeline reads in play order.
     # Rendered into scratch as the renderer's own cache, so promoted
     # into the durable REEL_CARDS area before anything is imported: a
     # timeline that points under scratch/ points at files a cleaner may
@@ -4619,6 +4740,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         assert_placeable, promote_cards,
     )
     cards = promote_cards(cards, project_folder)
+    head_tail_at = 0
     for card in (cards or ()):
         path = getattr(card, "rendered_path", "") or ""
         if not path or not os.path.isfile(path):
@@ -4636,6 +4758,12 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
                 f"{name}: Resolve would not import the rendered card "
                 f"{path!r}")
         assert_current_timeline(project, timeline)
+        if getattr(card, "placement", "") in ("head", "tail"):
+            dest_row = card_role_rows[card_lanes[head_tail_at]].index
+            head_tail_at += 1
+        else:
+            # A span IS the body's picture, on the picture row.
+            dest_row = track_plan.aroll_rows()[0].index
         pool.AppendToTimeline([{
             "mediaPoolItem": card_item,
             "startFrame": 0,
@@ -4654,7 +4782,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             # off the file.
             "endFrame": card.source_frames or card.duration_frames,
             "mediaType": 1,
-            "trackIndex": track_plan.aroll_rows()[0].index,
+            "trackIndex": dest_row,
             # The card's own integer frame, never `round(seconds * fps)`.
             "recordFrame": card.reel_start_frame,
         }])
@@ -6793,6 +6921,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # nineteen answers to one question.
     judgement = _read_judgement(project_folder)
     brand_effect = _brand_effect(project_folder)
+    # The declared card row, read ONCE for the batch beside the
+    # judgement and the declarations above: one project, one answer.
+    card_row_role = card_row_role_for_project(project_folder, brand_effect)
     # A build that fails HALF WAY must not leave half a staging behind
     # silently either: whatever was placed is discarded on the way out,
     # so a re-run starts from no debris of this run. The approved
@@ -7224,6 +7355,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 grade_cdl=reel_grade_cdl,
                 grade_look=reel_grade_look,
                 power_grade=reel_power_grade,
+                # The card row travels only where cards do
+                # (`derivation_digest` keeps card-less digests
+                # byte-identical): a reel whose closing card moves rows
+                # reads as changed, which is what a stale row IS.
+                card_row_role=card_row_role,
                 # The speaker lower thirds travel in `extra` rather
                 # than under `explainer_segments`, and ONLY when there
                 # are some.
@@ -7325,6 +7461,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # including a declared freeze, which the build renders
                 # and places as the ending shot's held last frame.
                 ending=_ending_decl,
+                # The declared card row: which NAMED row the closing
+                # card lands on. None where nothing declares one; the
+                # build refuses a card-carrying reel then rather than
+                # guessing V1.
+                card_row_role=card_row_role,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
@@ -8266,6 +8407,12 @@ def build_reel_variants(project_slug: str, reel_number: int,
     card_declarations = declared_cards(project_folder)
     judgement = _read_judgement(project_folder)
     brand_effect = _brand_effect(project_folder)
+    # The declared card row, read ONCE beside the declarations: which
+    # named row the closing card lands on is one project-wide answer.
+    # None where nothing declares one; the build refuses a
+    # card-carrying reel then (`build_reel_timeline`) rather than
+    # guessing V1.
+    card_row_role = card_row_role_for_project(project_folder, brand_effect)
     from library.tools import reel_look as _reel_look
     reel_look_decl = _reel_look.resolve_look(project_folder, 1080, 1920)
 
@@ -8460,6 +8607,9 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 # from - recomputing from the moment would un-trim the
                 # captain's pins.
                 ranges=ranges,
+                # The declared card row, shared by all variants the
+                # way the cards themselves are.
+                card_row_role=card_row_role,
             )
             if reel_look_decl is not None:
                 manifest = _reel_look.fusion_manifest(

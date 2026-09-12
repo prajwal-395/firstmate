@@ -77,11 +77,13 @@ SINGLETON_ROLES = frozenset({B_ROLL, FRAME, CAPTIONS, TRANSITIONS,
 #: one is a layer, not a camera - which is how the reel builder tells
 #: its angles apart from decoration without a second list of its own.
 #: "Captions" is the reel caption row's retired name; it still denotes
-#: a layer wherever it survives.
+#: a layer wherever it survives. "Motion Graphics" is the speaker lower
+#: thirds' row (`speaker_identity.TRACK_NAME`): without it a master
+#: carrying lower thirds would read as a third camera.
 SINGLETON_NAMES = frozenset({
     "B-Roll", "Frame", "Subtitles", "Captions", "Transitions",
-    "Explainer", "Semantic", "Generator Effects", "Timed Text",
-    "Music", "SFX",
+    "Explainer", "Semantic", "Motion Graphics", "Generator Effects",
+    "Timed Text", "Music", "SFX",
 })
 
 #: Names Resolve itself gives tracks nobody named. A row carrying one
@@ -197,6 +199,65 @@ class TrackPlan:
         }
 
 
+#: The row NAME each layered role's rows carry. The single spelling of
+#: "which name means which role", read by `plan_layout` when it mints
+#: rows and by every check that grades a placed item against the role
+#: that put it there - so a row renamed in one place cannot silently
+#: stop matching in the other.
+ROLE_ROW_BASE = {
+    EXPLAINER: "Explainer",
+    SEMANTIC: "Semantic",
+    MOTION_GRAPHICS: "Motion Graphics",
+}
+
+#: Roles a full-frame CARD row may take (`full_frame_element` owns the
+#: declaration; this module owns what each one means on a timeline).
+#: A card sits beside the footage, never in place of it, so it rides
+#: an overlay role's row - never a picture, caption or audio one.
+CARD_ROW_ROLES = (SEMANTIC, MOTION_GRAPHICS)
+
+
+def card_spans_for_role(material: dict, role: str) -> list:
+    """The role's overlay spans with this reel's card spans after them.
+
+    THE order the plan packs and the placer replays, in one function so
+    the two cannot drift: overlay spans first, card spans last. A card
+    plays beside the footage - before the first frame or after the last -
+    while overlays play over the body, so the two orders never interleave
+    in time; listing order only breaks exact ties, and one listing means
+    one answer.
+    """
+    key = {SEMANTIC: "semantic_spans",
+           MOTION_GRAPHICS: "mg_spans"}.get(role)
+    if key is None:
+        raise ValueError(
+            f"card role {role!r} names no overlay row; card roles are "
+            f"{', '.join(CARD_ROW_ROLES)}")
+    spans = [tuple(s) for s in (material.get(key) or [])]
+    spans += [tuple(s) for s in (material.get("card_spans") or [])]
+    return spans
+
+
+def lane_of_span(spans: list, position: int) -> int:
+    """Which packed lane `spans[position]` occupies, 0-based among lanes.
+
+    `allocate_non_overlapping_rows` packs greedily and numbers lanes
+    from `base_index` - an absolute numbering the plan's row creation
+    does not reuse. What the placer needs is the ORDINAL: the plan
+    creates one row per distinct lane, in lane order, so ordinal `k`
+    is `rows_for_role(role)[k]`. Absolute bases cancel out of the
+    ranking, which is what makes this replay exact without repeating
+    the plan's own base arithmetic.
+    """
+    spans = [tuple(s) for s in spans]
+    if not 0 <= position < len(spans):
+        raise ValueError(
+            f"span position {position} outside {len(spans)} span(s)")
+    packed = allocate_non_overlapping_rows(spans, base_index=0)
+    lanes = sorted({row for _, row in packed})
+    return lanes.index(packed[position][1])
+
+
 def allocate_non_overlapping_rows(spans, base_index: int):
     """Pack (span, ...) intervals across rows so nothing on one row
     overlaps in time. Returns [(span, row_index)] with rows counted up
@@ -257,10 +318,27 @@ def plan_layout(material: dict) -> TrackPlan:
       own additive rows - transition elements over the reel's cuts, the
       animated explainer, the model-planned semantic visuals - one row
       each, only when the reel places something on it.
+    - card_role / card_spans: the declared full-frame CARD row
+      (`full_frame_element.CARD_ROW_ROLES`) and the (start, end) frame
+      spans of the head/tail cards on this reel. A card plays beside
+      the footage, so its row is an overlay role's row - and the row
+      exists because the card goes on it: the spans join the role's
+      own packing, in `card_spans_for_role` order, so an overlap mints
+      a row rather than sharing one. A `full_frame_span` never arrives
+      here: a span IS the body's picture and stays on it.
     - has_generators: bool.
     - music_spans / sfx_spans: [(start, end)] in frames, packed the
       same way.
     """
+    card_role = material.get("card_role")
+    if card_role is not None and card_role not in CARD_ROW_ROLES:
+        raise ValueError(
+            f"material card_role is {card_role!r}: card roles are "
+            f"{', '.join(CARD_ROW_ROLES)}")
+    if card_role is None and material.get("card_spans"):
+        raise ValueError(
+            "material carries card_spans with no card_role: a span "
+            "without its role names no row")
     raw_angles = material.get("angles") or []
     if raw_angles:
         angles = [Angle(key=a["key"], label=a["label"],
@@ -301,12 +379,18 @@ def plan_layout(material: dict) -> TrackPlan:
                                occupant="transitions"))
 
     for role, base, key, legacy in (
-            (EXPLAINER, "Explainer", "explainer_spans", "has_explainer"),
-            (SEMANTIC, "Semantic", "semantic_spans", "has_semantic")):
+            (EXPLAINER, ROLE_ROW_BASE[EXPLAINER], "explainer_spans", "has_explainer"),
+            (SEMANTIC, ROLE_ROW_BASE[SEMANTIC], "semantic_spans", "has_semantic")):
         # Spans where the material has them, so overlapping segments get
         # a row each; the bare boolean still means exactly one row, for
         # material written before either kind could layer.
         spans = [tuple(s) for s in (material.get(key) or [])]
+        if role == material.get("card_role"):
+            # The card row's own spans join this role's packing, so the
+            # row exists because a card goes on it - and an overlap mints
+            # a row rather than sharing one. `card_spans_for_role` IS
+            # this order; read it there rather than respelling it here.
+            spans = card_spans_for_role(material, role)
         if spans:
             rows = allocate_non_overlapping_rows(spans,
                                                  base_index=len(video) + 1)
@@ -320,10 +404,13 @@ def plan_layout(material: dict) -> TrackPlan:
                                    role=role, name=name,
                                    occupant=role))
 
+    mg_spans = [tuple(s) for s in material.get("mg_spans", [])]
+    if material.get("card_role") == MOTION_GRAPHICS:
+        mg_spans = card_spans_for_role(material, MOTION_GRAPHICS)
     mg_rows = allocate_non_overlapping_rows(
-        [tuple(s) for s in material.get("mg_spans", [])],
+        mg_spans,
         base_index=len(video) + 1)
-    mg_names = _layered_names(MOTION_GRAPHICS, "Motion Graphics",
+    mg_names = _layered_names(MOTION_GRAPHICS, ROLE_ROW_BASE[MOTION_GRAPHICS],
                               len({r for _, r in mg_rows}))
     for name in mg_names if mg_rows else []:
         video.append(TrackSpec(index=len(video) + 1, media_type=VIDEO,

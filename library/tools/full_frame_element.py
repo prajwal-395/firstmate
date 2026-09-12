@@ -120,7 +120,9 @@ How a declaration reaches the picture, in order
    a full-frame element is the picture, so it carries its own ground
    rather than relying on black showing through an alpha channel that
    nothing is beneath.
-4. ``reel_build.build_reel_timeline`` places each card on **V1**, and
+4. ``reel_build.build_reel_timeline`` places each card on the declared
+   card row (`effect.card_row_role`, resolved to a track-plan role row
+   - never the first a-roll row by position), and
    ``reel_build.lead_seconds`` shifts every other placement and every
    caption by the head cards' total, so one clock moves together.
 5. ``reel_conformance_verifier`` grades the card as the picture item it
@@ -147,6 +149,7 @@ from library.tools.remotion_batch import (
 )
 from library.tools.render_fonts import font_is_deliverable, static_font_path
 from library.tools.safe_area import resolve_safe_area
+from library.tools.timeline_layout import CARD_ROW_ROLES
 
 # The Remotion composition that draws a full-frame element.  Registered in
 # `remotion-subtitles/src/Root.tsx`.
@@ -227,7 +230,8 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
         reachable=REACHABLE_NOW,
         reachability_note=(
             "Drawn by the FullFrameCard Remotion composition and placed on "
-            "V1 by reel_build.build_reel_timeline. Rendered and read back "
+            "the declared card row by reel_build.build_reel_timeline. "
+            "Rendered and read back "
             "off a built timeline before this flag was set. The `image` "
             "axis draws a project-supplied still (a wordmark) above the "
             "runs, resolved through the channel_bug shape - a named file "
@@ -324,12 +328,13 @@ ROSTER: tuple[FullFrameElementKind, ...] = (
         copy="none",
         reachable=REACHABLE_NOW,
         reachability_note=(
-            "Measured with ffprobe at plan time and placed on V1 by "
-            "reel_build.build_reel_timeline, on the same path a rendered "
-            "card takes - so the coverage assertion, the item count and "
-            "the framing verdict all see it. Proved on an exported still "
-            "off a built reel timeline (tests/test_full_frame_clip.py "
-            "covers the plan and the refusals)."
+            "Measured with ffprobe at plan time and placed on the "
+            "declared card row by reel_build.build_reel_timeline, on "
+            "the same path a rendered card takes - so the coverage "
+            "assertion, the item count and the framing verdict all see "
+            "it. Proved on an exported still off a built reel timeline "
+            "(tests/test_full_frame_clip.py covers the plan and the "
+            "refusals)."
         ),
         never=(
             "Never re-authored: the engine stages a client's asset "
@@ -2210,6 +2215,122 @@ def roster_rows() -> list[dict]:
         "axes": ", ".join(e.axes),
         "never": " ".join(e.never),
     } for e in ROSTER]
+
+
+# ── Where a card sits: the card row ──────────────────────────────────
+#
+# A head/tail card occupies seconds where no footage plays, so any row
+# shows it - and the row it lands on is organisation, not compositing.
+# The captain's rows are NAMED for what they carry (V1 Akshita, V5
+# Semantic, V6/V7 Motion Graphics), and the closing logo animation
+# landed on V1 - Akshita's camera row - on every reel because the reel
+# builder placed it on the first a-roll row by POSITION, with nothing
+# declared to say otherwise (2026-09-12, captain's blue marker on Reel
+# 13: "we organized the rows in the timeline in a manner to be
+# organized").
+#
+# So the card row is DECLARED, once per project, as a track-plan ROLE -
+# never a track index, because indices differ per reel (5, 6 or 7 video
+# tracks). The builder resolves it through `timeline_layout`'s
+# `rows_for_role`, the same route the explainer, semantic visuals and
+# lower thirds already take, and refuses a reel whose cards name no
+# role: defaulting is what put the logo on Akshita's row.
+#
+# Which role is the captain's call (V5 "Semantic", where they hand-placed
+# the logo on Reel 09, or the "Motion Graphics" row that did not exist
+# then). The declaration lives beside the elements, under `effect:` -
+# the PROJECT winning over the brand template, because a card is
+# artwork-adjacent organisation of the project's own timeline
+# (AGENTS.md 14)::
+#
+#     effect:
+#       card_row_role: semantic   # or: motion_graphics
+#       full_frame_elements:
+#         - element: full_frame_clip
+#           ...
+#
+# A `full_frame_span` is NOT governed by this: a span IS the body's
+# picture (the footage video beneath it is suppressed), so it stays on
+# the picture row and F23 keeps grading it there. This role names where
+# head/tail cards and clips play - the elements that sit beside the
+# footage, not in place of it.
+
+#: The roles a card row may take. TWO, and only two: the captain's own
+#: candidates. Anything else is refused by name.
+#:
+#: Re-exported from `timeline_layout.CARD_ROW_ROLES` (imported at top)
+#: - one enumeration, not two: the layout owner decides what each role
+#: means on a timeline, this module decides how a project declares one.
+
+#: The `effect:`-level key carrying the declaration, beside
+#: `full_frame_elements`.
+CARD_ROW_ROLE_KEY = "card_row_role"
+
+
+class CardRowRoleError(FullFrameDeclarationError):
+    """The card row role is missing or names no role cards may take."""
+
+
+def resolve_card_row_role(brand_effect: dict[str, Any] | None,
+                          project_folder: str | None) -> str | None:
+    """The declared card row role, or None where nothing declares one.
+
+    The PROJECT's `project.yaml` wins over the brand template's `effect`
+    slot - the same precedence `resolve_declaration` gives the elements
+    themselves. A value that names no card role RAISES rather than
+    passing through: a project that wrote one believes it reached the
+    picture.
+    """
+    role: Any = None
+    if isinstance(brand_effect, dict):
+        role = brand_effect.get(CARD_ROW_ROLE_KEY)
+    if project_folder:
+        project_yaml = os.path.join(project_folder, "project.yaml")
+        if os.path.exists(project_yaml):
+            import yaml
+            with open(project_yaml, "r", encoding="utf-8") as handle:
+                config = yaml.safe_load(handle) or {}
+            project_effect = (config.get("effect") or {})
+            if not isinstance(project_effect, dict):
+                raise CardRowRoleError(
+                    f"{project_yaml}: `effect` must be a mapping, got "
+                    f"{type(project_effect).__name__}")
+            if CARD_ROW_ROLE_KEY in project_effect:
+                role = project_effect[CARD_ROW_ROLE_KEY]
+    if role is None:
+        return None
+    normalised = str(role).strip().lower()
+    if normalised not in CARD_ROW_ROLES:
+        raise CardRowRoleError(
+            f"effect.{CARD_ROW_ROLE_KEY} is {role!r}: a card row is one "
+            f"of {', '.join(CARD_ROW_ROLES)} - the captain's own "
+            f"candidates. A track index is refused here on purpose: "
+            f"indices differ per reel, so a number is wrong on a reel "
+            f"with a different track count.")
+    return normalised
+
+
+def require_card_row_role(brand_effect: dict[str, Any] | None,
+                          project_folder: str | None) -> str:
+    """The declared card row role, or a refusal naming the choice.
+
+    Called where cards are about to be PLACED, never where they are
+    merely planned: a reel whose cards name no row refuses rather than
+    defaulting to the first a-roll row, which is the defect this
+    declaration exists to close.
+    """
+    role = resolve_card_row_role(brand_effect, project_folder)
+    if role is None:
+        raise CardRowRoleError(
+            "this reel declares full-frame cards but no "
+            f"effect.{CARD_ROW_ROLE_KEY}: declare one of "
+            f"{', '.join(CARD_ROW_ROLES)} in the project's project.yaml "
+            f"(or the brand template's `effect` slot). Which row the "
+            f"closing card belongs on is the captain's call - V5 "
+            f"\"Semantic\", where they hand-placed the logo on Reel 09, "
+            f"or the \"Motion Graphics\" row. Until it is declared the "
+            f"build stops rather than guessing V1.")
+    return role
 
 
 def main(argv=None) -> int:

@@ -564,6 +564,7 @@ def derivation_digest(
     power_grade,
     asset_hashes: Optional[Mapping] = None,
     extra: Optional[Mapping] = None,
+    card_row_role: Optional[str] = None,
 ) -> Optional[str]:
     """A digest of everything this reel's Resolve pass would place.
 
@@ -571,6 +572,12 @@ def derivation_digest(
     `project_wide`) - the caller REBUILDS.  There is no partial answer:
     a derivation digest computed without knowing the engine is not a
     weaker match, it is not a match.
+
+    `card_row_role` travels only where cards do: a project that
+    declares no cards digests byte-identically with or without it (the
+    same rule the lower-thirds `extra` keeps at its call site), while
+    a reel whose closing card moves rows reads as changed - which is
+    what a stale row IS.
     """
     if not engine_code or not project_wide:
         return None
@@ -597,6 +604,7 @@ def derivation_digest(
         "power_grade": _rounded(dict(power_grade or {})),
         "assets": _rounded(dict(asset_hashes or {})),
         "extra": _rounded(dict(extra or {})),
+        **({"card_row_role": card_row_role} if cards else {}),
     }
     return hashlib.sha256(
         dumps_stable(body).encode("utf-8")).hexdigest()
