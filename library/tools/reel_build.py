@@ -3769,7 +3769,11 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
     black. Without a look there is no declared window, so the
     read-back equality is the whole proof. An override matching no
     placed span reports STALE, loudly, like every other captain's
-    edit. Returns how many property holds were applied.
+    edit - and one whose words are spoken NOWHERE in the transcript
+    reports again, on its own, because that one is the captain's value
+    being overwritten for good rather than an override belonging to
+    another reel (`captain_edits.lost_overrides`). Returns how many
+    property holds were applied.
     """
     import sys
 
@@ -3789,6 +3793,24 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
     matched, stale = _edits.match_transform_overrides(
         video_places, transcript, edits)
     _edits.report_stale(stale)
+    # A stale override that belongs to ANOTHER reel is routine - every
+    # recorded override is matched against every reel, so a build of
+    # one reel prints every other reel's. A stale override whose words
+    # are spoken NOWHERE is the opposite: the captain's value is gone
+    # for every future build of every reel, and until now it printed
+    # the same sentence as the eight routine ones. It is said again,
+    # separately, so a rebuild overwriting a hand-set value cannot read
+    # as housekeeping. Evidence: `docs/RULE_EVIDENCE.md`, section
+    # `one-word-for-two-kinds-of-stale`.
+    lost = _edits.lost_overrides(stale)
+    for record in lost:
+        print(f"  ! {name}: THE CAPTAIN'S "
+              f"{record['property']}={record['value']:g} IS LOST - "
+              f"{record['anchor_phrase']!r} is spoken nowhere in the "
+              f"measured transcript, so this build and every future "
+              f"one plays the engine's own aim instead. Re-capture it "
+              f"against the words now spoken before promoting.",
+              file=sys.stderr)
     if not matched:
         return 0
     position = {id(place): index

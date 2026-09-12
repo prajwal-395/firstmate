@@ -36,7 +36,7 @@ run at a declared scope. It owns no logic of its own.
 | `subtitles.splice` | `plan_subtitles` | region | Put a region's re-planned captions back into the stored plan |
 | `transcript.reindex` | `temporal_index` | region | Re-measure the speech in one region, back at the raw footage |
 | `transcript.splice` | `temporal_index` | region | Put a re-measured region back into the per-clip speech index |
-| `subtitles.render` | `render_subtitles` | project, region | Render one ProRes 4444 overlay per captioned spine block |
+| `subtitles.render` | `render_subtitles` | project, region | Render one overlay artefact per captioned spine block |
 | `subtitles.render_segment` | `render_subtitles` | project, region | Render ONE subtitle segment - the per-segment unit a region-scoped redo reaches |
 | `motion_graphics.render` | `render_motion_graphics` | project | Render the planned motion graphics, bookends and timed text |
 | `motion_graphics.render_segment` | `render_motion_graphics` | project, region | Render ONE motion-graphics overlay segment |

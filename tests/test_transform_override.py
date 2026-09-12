@@ -211,6 +211,67 @@ def test_an_override_matching_no_span_reports_stale():
     assert len(stale) == 1 and "STALE" in stale[0]["reason"]
 
 
+def test_a_stale_override_says_which_kind_of_stale_it_is():
+    """Measured 2026-09-12 on `geo-podcast`: ten recorded overrides,
+    every one of them matched against every reel, so a Reel 09 build
+    prints EIGHT stale lines for decisions that belong to Reels 01,
+    13, 26 and 28 and are working perfectly. A captain's value whose
+    words were reworded away prints the ninth, in the same sentence.
+    The two are opposite: one is routine, the other is the hand-set
+    value gone for every future build of every reel. This is the
+    separation."""
+    spans = [_span((20.0, 24.0), speaker="Craig")]
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_override(anchor="explains the number"),
+                       _override(anchor="zebras on mars")])
+    assert matched == []
+    by_anchor = {record["anchor_phrase"]: record for record in stale}
+    elsewhere = by_anchor["explains the number"]
+    assert elsewhere["scope"] == "reel"
+    assert "not on this reel" in elsewhere["reason"]
+    lost = by_anchor["zebras on mars"]
+    assert lost["scope"] == "transcript"
+    assert "LOST" in lost["reason"]
+    assert captain_edits.lost_overrides(stale) == [lost]
+
+
+def test_a_rebuild_that_would_overwrite_a_lost_override_says_so(
+        tmp_path, capsys):
+    """A rebuild whose anchor no longer exists plays the engine's own
+    aim over the captain's number. It must SAY the number is lost -
+    not print the sentence it prints for the eight overrides that
+    simply belong to other reels."""
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [_override(anchor="zebras on mars",
+                                          value=-35.0)])
+    item = _Item(pan=14.0)
+    applied = reel_build.apply_transform_overrides(
+        "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+        _Timeline([item]), _tx(), str(project), 1080, 1920)
+    assert applied == 0
+    assert item.GetProperty("Pan") == pytest.approx(14.0)
+    said = capsys.readouterr().err
+    assert "IS LOST" in said and "Pan=-35" in said
+
+
+def test_an_override_for_another_reel_is_not_called_lost(
+        tmp_path, capsys):
+    """The counterweight, and the reason this is not just a louder
+    print: the routine case must NOT reach the lost channel, or the
+    new line is eight-ninths noise and gets ignored like the old one."""
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [_override(anchor="explains the number")])
+    reel_build.apply_transform_overrides(
+        "Reel 09", _TrackPlan(), {"1": 1},
+        [_span((20.0, 24.0), speaker="Craig")],
+        _Timeline([_Item(pan=14.0)]), _tx(), str(project), 1080, 1920)
+    said = capsys.readouterr().err
+    assert "not on this reel" in said
+    assert "IS LOST" not in said
+
+
 def test_an_override_matching_two_spans_names_both():
     spans = [_span((10.0, 14.0)), _span((10.0, 14.0))]
     matched, stale = captain_edits.match_transform_overrides(

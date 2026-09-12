@@ -806,10 +806,26 @@ def match_transform_overrides(spans: list, transcript: dict,
     Every matching span is named, like `caption_fix` names every card:
     a rebuild that re-cuts one shot into two keeps both under the
     captain's decision rather than splitting it silently. An override
-    matching nothing reports STALE rather than vanishing."""
+    matching nothing reports STALE rather than vanishing.
+
+    **A stale override says WHICH KIND of stale it is**, because the
+    two carry opposite risk and used to print the same sentence
+    (`docs/RULE_EVIDENCE.md#one-word-for-two-kinds-of-stale`):
+
+    - `scope="reel"` - the anchor IS spoken in the transcript, just
+      not in a span this reel placed. Routine: every recorded
+      override is matched against every reel, so building one reel
+      reports every other reel's overrides this way. This project
+      prints eight of them on a Reel 09 build.
+    - `scope="transcript"` - the anchor is spoken NOWHERE. The
+      decision is unreachable for good: no rebuild of any reel will
+      apply it again and the engine's own aim plays instead. This is
+      the captain's hand move being overwritten, and it is what
+      `lost_overrides` selects."""
     overrides = [e for e in (edits or [])
                  if e.get("kind") == "transform_override"]
     matched, stale = [], []
+    stream = _word_stream(transcript or {})
     for edit in overrides:
         anchor, prop = edit["anchor_phrase"], edit["property"]
         anchor_tokens = _tokens(anchor)
@@ -827,15 +843,34 @@ def match_transform_overrides(spans: list, transcript: dict,
             if _contains_run(tokens, anchor_tokens):
                 hits.append(index)
         if not hits:
+            spoken = bool(_run_starts(stream, anchor))
+            if spoken:
+                reason = (
+                    f"STALE - not on this reel: transform override for "
+                    f"{anchor!r} is spoken in the transcript but in no "
+                    f"span THIS reel placed, so it holds nothing here. "
+                    f"Expected on every build of a reel the decision is "
+                    f"not about. Original request: "
+                    f"{edit.get('reason', '')}").strip()
+            else:
+                reason = (
+                    f"STALE - LOST: transform override for {anchor!r} is "
+                    f"spoken NOWHERE in the measured transcript, so no "
+                    f"rebuild of any reel can apply it again - "
+                    f"{prop}={edit['value']:g} is gone and the engine's "
+                    f"own aim plays in its place. The passage was "
+                    f"reworded or re-transcribed. Re-capture it against "
+                    f"the words now spoken: `python3 -m "
+                    f"library.tools.captain_edits <project> "
+                    f"capture-transform --reel N --timeline ... --words "
+                    f"...`. Original request: "
+                    f"{edit.get('reason', '')}").strip()
             stale.append(
                 {"kind": "transform_override",
                  "anchor_phrase": anchor, "property": prop,
-                 "reason": (
-                     f"STALE: transform override for {anchor!r} no longer "
-                     f"applies - those words are in no placed span. The "
-                     f"passage was reworded, re-cut out of this reel, or "
-                     f"never reached it. Original request: "
-                     f"{edit.get('reason', '')}".strip())})
+                 "value": edit["value"],
+                 "scope": "reel" if spoken else "transcript",
+                 "reason": reason})
             continue
         for index in hits:
             matched.append(
@@ -843,6 +878,20 @@ def match_transform_overrides(spans: list, transcript: dict,
                  "value": edit["value"], "anchor_phrase": anchor,
                  "reason": edit.get("reason", "")})
     return matched, stale
+
+
+def lost_overrides(stale: list) -> list:
+    """The stale transform overrides that no rebuild can ever apply.
+
+    A captain's transform survives a rebuild by being re-applied from
+    its words (`match_transform_overrides`). When those words stop
+    being spoken the value is gone - not for this reel, for every
+    future build of every reel - and nothing else in the engine
+    notices. This is the selection that lets a caller say so.
+    """
+    return [record for record in (stale or [])
+            if record.get("kind") == "transform_override"
+            and record.get("scope") == "transcript"]
 
 
 # ── Span retimes: a hand trim the rebuild must keep ────────────────

@@ -7557,3 +7557,58 @@ scripts, `capture_timeline.py` is a formatter over the one reader now;
 (PR 1005) removed the draw-gain constant it derived its answer from,
 which is also why the new reader measures ink from pixels and grades
 nothing (`tests/test_reel_read.py`).
+
+## one-word-for-two-kinds-of-stale
+
+A rebuild replaced Reel 09's picture Tilt and nothing objected, which
+sent this lane looking for the declaration a hand-set transform should
+have lived in. Two things came back, and the second is the rule.
+
+**The value was never hand-set.** `Reel 09 - ... (final)` holds Tilt
++0.250 on every picture clip where the captain's other seven reels hold
+-0.395 and every batch-1050 rebuild holds -0.790, and that uniqueness
+across the LIVE timelines is what read as a hand. It is not: +0.25 is
+what the engine itself wrote on **every** reel before PR #1005
+(2026-09-11 22:29) replaced the picture Pan/Tilt unit model. The seven
+`(baseline scratch)` build snapshots under `pipeline_output/review/`
+carry Tilt 0.25 on every picture clip of Reels 01, 09, 13, 23, 26, 28
+and 30 alike. Reel 09 (final) was built 2026-09-10 and never rebuilt
+since, so it is the one timeline still carrying the pre-#1005 number.
+
+The two values are the SAME aim. #1005 measured that a Pan/Tilt unit is
+not a frame pixel (`library/tools/resolve_transform.py`):
+`shift_px = value * (clip_dim / frame_dim) * base_scale`. At this
+geometry - a 3840x2160 source on a 1080x1920 delivery, `fit` 0.28125 -
+one Tilt unit draws 0.3164 px, so an aim spelled as 0.25 "pixels" is
+0.790 units, and the axis sense inverts the sign. The picture moves
+**0.329 delivery pixels** between the two. So: uniqueness across a
+project is NOT a sound signal for "hand-set" - it found a stale build,
+not a hand - and the sound question is whether a live value differs
+from what that timeline's OWN build wrote.
+
+**The 1.0s Akshita cover was not hand-placed either.** It is recorded,
+exactly, in `pipeline_output/review/reel_variants.json`: a `cutaway`
+variant spec, `hide_angle` "2" (Craig), `window_seconds`
+[23.9406, 24.9416] - frames 574..598, which is what the timeline holds.
+It reaches `build_reel_timeline` from `build_reel_variants` and from
+nowhere else, so an ordinary `build-reels` rebuild cannot reproduce it
+whatever it reads. That loss is already the founding incident of
+`library/tools/reel_replace_guard.py`, which refuses the promotion on
+the row count.
+
+**The mechanism gap that IS real.** `captain_edits`'
+`transform_override` is the declaration a hand-set transform lives in,
+it already takes `Tilt`, and ten Pan overrides in this project prove it
+survives a rebuild. What it could not do is tell two opposite facts
+apart. Every recorded override is matched against every reel, so a
+build of Reel 09 reported EIGHT stale overrides belonging to Reels 01,
+13, 26 and 28 - all working perfectly - in the same sentence it would
+use for a captain's value whose words had been reworded away and which
+no future build of any reel will ever apply again. Nine identical
+lines, one of them the decision being overwritten for good.
+
+So a stale transform override now says which kind it is: `scope="reel"`
+(spoken in the transcript, not in this reel's spans - routine) or
+`scope="transcript"` (spoken nowhere - LOST), and the reel build says
+the lost ones again, separately, naming the property and the number.
+`captain_edits.lost_overrides`, `tests/test_transform_override.py`.
