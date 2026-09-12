@@ -202,6 +202,7 @@ from library.tools import (  # noqa: E402
     resolve_surfaces,
     timeline_decisions,
 )
+from library.tools.resolve_lock import under_lease
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 
 WRITER = "capture_frame"
@@ -583,8 +584,18 @@ class CaptureResult:
         )
 
 
+@under_lease("capture a frame for firstmate", prefer=True)
 def capture(timeline, project, project_folder=None) -> CaptureResult:
-    """The whole button: still to disk, record onto the marker there."""
+    """The whole button: still to disk, record onto the marker there.
+
+    Takes the Resolve instance if it is free and goes ahead if it is
+    not (`resolve_lock.prefer_lease`). The gallery and the playhead are
+    global state, so this is a writer - but it is the CAPTAIN's writer,
+    pressed by hand, and a button that queued behind a fifteen-minute
+    reel build would be the workflow designed out rather than served.
+    An agent holding the instance learns about the collision through
+    its own cursor fence, which is what that fence is for.
+    """
     playhead = read_playhead(timeline)
     folder = Path(project_folder) if project_folder else \
         project_folder_from_timeline(timeline)

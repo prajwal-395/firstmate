@@ -19,6 +19,10 @@ SAME PIXELS and draw them through DIFFERENT VIEWERS, so the difference
 the captain saw is a preview artefact and NOT something a grade change
 can or should chase.
 
+An export is BIT-EXACT on this machine and build: a re-render settles
+it, and what survives is real.  (Moved from AGENTS.md 5 verbatim, where
+the rule above keeps the index row.)
+
 ── What was measured, and how ──────────────────────────────────────────
 
 DaVinci Resolve Studio 21.0.0b.28, macOS 26.3, 2026-09-10, on the

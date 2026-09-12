@@ -74,7 +74,10 @@ modules listed in `tests/test_reel_read.py` is a new probe by another
 name. Where a caller needs a slice, it takes a slice of the one reader.
 """
 
+
 from __future__ import annotations
+
+from library.tools.resolve_lock import under_lease
 
 import argparse
 import json
@@ -301,6 +304,7 @@ def read_tracks(timeline,
 # ── The one read ─────────────────────────────────────────────────────
 
 
+@under_lease("read a reel", exclusive=False)
 def read_reel(timeline, project_name: str = "",
               speaker_map: Optional[Mapping[str, str]] = None,
               mode: str = QUICK, artefact_roots=(),

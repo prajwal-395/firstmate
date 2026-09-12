@@ -1278,15 +1278,31 @@ def record_edit(project_folder, edit: dict, source: str = "") -> tuple:
     kept = [e for e in existing if _edit_identity(e) != identity]
     if len(kept) != len(existing):
         action = "superseded"
-    value = validate_edits(kept + [edit])
+    validate_edits(kept + [edit])
     if not source:
         from datetime import datetime, timezone
         source = ("captain via firstmate, "
                   f"{datetime.now(timezone.utc):%Y-%m-%d}")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(
-        {"key": CAPTAIN_EDITS_KEY, "source": source, "value": value},
-        indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    # The write goes through the KEY SCHEME, not straight to disk.
+    # This read-modify-write had no lock, no atomic rename and no
+    # revision, so two agents recording two DIFFERENT decisions at the
+    # same moment lost one of them silently - and the store's own
+    # `source` field on `lucie/geo-podcast` already named two lanes.
+    # `declaration_keys` merges per `_edit_identity`, which is the key
+    # this function was already reasoning in: a decision another writer
+    # landed in the meantime survives, and a genuine re-ruling of the
+    # SAME decision by two writers raises rather than dropping one.
+    from library.tools.declaration_keys import (
+        entry_key, read_entries, write_entries)
+    base, _envelope = read_entries(project_folder, "captain_edits")
+    mine = dict(base)
+    # The entry key IS `_edit_identity`, so a re-ruling REPLACES in
+    # place - the supersede this function already performed, expressed
+    # once rather than twice.
+    mine[entry_key("captain_edits", edit)] = edit
+    write_entries(project_folder, "captain_edits", mine, base,
+                  envelope={"key": CAPTAIN_EDITS_KEY, "source": source})
     return edit, action
 
 

@@ -67,6 +67,7 @@ if _TOOLS_DIR not in sys.path:
 _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
+from library.tools.resolve_lock import under_lease
 from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
@@ -205,6 +206,7 @@ def _map_clips_to_items(clips, items):
     return mapping
 
 
+@under_lease("apply fusion comps")
 def apply_fusion_comps(manifest, project_folder,
                        expected_project=None, expected_timeline=None,
                        step_id="render"):

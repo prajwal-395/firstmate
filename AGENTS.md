@@ -192,9 +192,15 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 Never create a timeline and use `ImportFusionComp` in the same Python process: `library/tools/execution/apply_fusion_comps.py`.
 
+### One Resolve, many writers
+
+**The unit of exclusion is the instance CURSOR; a write REFUSES outside the lease, and a foreign move is DETECTED.**: `library/tools/resolve_lock.py`.
+
+**What may run in parallel is a TABLE**: `library/tools/concurrency_routing.py`; declarations contend per KEY: `library/tools/declaration_keys.py`.
+
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
+**Judge a Resolve call by what it RETURNS, never by `hasattr`**: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
 **A comp's MediaIn must COVER every frame its item PLAYS, or Resolve FAILS the render there.**: `library/tools/comp_media_window.py`.
 
@@ -204,11 +210,11 @@ Never create a timeline and use `ImportFusionComp` in the same Python process: `
 
 **Do not wire FCPXML or DRP project-file surgery back in.**: `library/tools/transition_vocabulary.py`.
 
-**A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**: `library/tools/transition_carriers.py`.
+**A DRAWN transition can only sit where a V1 clip ends.**: `library/tools/transition_carriers.py`.
 
 ### Stabilization is the memory ceiling, and it runs last
 
-**Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it: `library/steps/step_6_01_render/resolve_build_timeline.py`.
+Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Fusion .comp files - NEVER
 
@@ -241,7 +247,6 @@ Rows, pool audio and render audio: one enumeration, `library/steps/step_6_01_ren
 ### Visual verification
 
 **Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.**
-**An export is BIT-EXACT on this machine and build: a re-render settles it, and what survives is real.**
 `library/tools/resolve_surfaces.py`. [why](docs/RULE_EVIDENCE.md#the-two-pages-that-showed-one-frame)
 
 **A capture that did not happen RAISES.**
@@ -259,7 +264,7 @@ Rows, pool audio and render audio: one enumeration, `library/steps/step_6_01_ren
 
 **Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.**: `library/tools/build_sweep.py`.
 
-**A staged timeline awaiting promotion is HELD: the sweep refuses a held name, loudly.**: `library/tools/staging_holds.py`.
+**A staged timeline awaiting promotion is HELD.**: `library/tools/staging_holds.py`.
 
 ### Markers and timeline items
 

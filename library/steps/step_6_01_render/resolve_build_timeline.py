@@ -32,7 +32,9 @@ AGENTS.md until it was split by subsystem; the wording is unchanged,
 so each rule is findable by its own words, and AGENTS.md 5
 keeps the headline and points here.
 
-- Treat it as the memory ceiling of the whole pipeline and do not run other heavy jobs beside it.
+- Stabilization is the memory ceiling of the whole pipeline - do not run
+  other heavy jobs beside it.  (The wording moved from AGENTS.md 5,
+  which keeps the heading and the pointer here.)
 - It changes picture steadiness and nothing else - never structure, timing, framing, grade, captions or sound.
 - For a timeline meant to be scrubbed rather than shipped, pop `neural_engine_directives` off the **in-memory** manifest before `build_timeline` and leave the file on disk carrying it.
 
@@ -87,7 +89,8 @@ from library.tools.resolve_locale import (  # noqa: E402
     scriptapp_preserving_locale,
 )
 from library.tools.timeline_ingest import resolve_project_exactly  # noqa: E402
-from library.tools.resolve_lock import assert_current_timeline  # noqa: E402
+from library.tools.resolve_lock import (  # noqa: E402
+    assert_current_timeline, under_lease)
 from library.tools.timeline_layout import (  # noqa: E402
     allocate_non_overlapping_rows,
     plan_layout,
@@ -461,6 +464,7 @@ def _ensure_transparent_carrier(
 
 # ─── Core: Build Timeline ────────────────────────────────────
 
+@under_lease("render the edit timeline")
 def build_timeline(
     manifest: dict,
     subtitle_overlay_path: Optional[str] = None,

@@ -18,6 +18,9 @@ name and prints the structured report as JSON. Status logs go to
 stderr; stdout carries JSON only.
 """
 
+from library.tools.resolve_lock import under_lease
+
+
 import json
 import os
 import sys
@@ -93,6 +96,7 @@ def _items(timeline, media_type: str, index: int):
         return []
 
 
+@under_lease("verify conformance", exclusive=False)
 def verify_timeline(timeline, plan=None) -> dict:
     """Read `timeline` back and report SOP violations.
 

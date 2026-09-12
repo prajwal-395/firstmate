@@ -18,6 +18,14 @@ prose read as though both were:
 | `assert_current_timeline` | 22 (`reel_build`, step 6.01, `segment_renderer`, `execution/resolve_render`) | re-asserts the current timeline and reads it back immediately before a write; a loser RAISES |
 | `resolve_placement_lock` | **0** | would have made a loser WAIT - if anything had taken it |
 
+> **Superseded 2026-09-12, later the same day.** `resolve_placement_lock`
+> stayed removed; the shape that failed was a lock a caller had to
+> remember to take. `resolve_lease` replaces it and cannot be forgotten,
+> because `assert_current_timeline` - the 22-call-site check this table
+> calls the only real guard - now REFUSES to run outside one. See §2's
+> "CLOSED" note below for the mechanism, and `library/tools/resolve_lock.py`
+> for the whole of it.
+
 `tests/test_resolve_lock.py` never touched the lock either: it imported
 `assert_current_timeline` and `ResolveRaceError` and tested those. So
 the lock had no caller and no test, which is the shape AGENTS.md 10.4
@@ -127,6 +135,42 @@ mutual. So a reader racing a writer is unmediated by construction. If
 this workflow is to run routinely with an agent and a human on one
 Resolve instance, that is the gap to close, and it is a different
 mechanism from the one this module has.
+
+### CLOSED, later the same day, and this is the mechanism
+
+The paragraph above is right that a WRITER'S lock does not help a
+reader. The mechanism that does is a SHARED one, and the reason it
+works is in the stack trace above rather than in any argument about
+locks: the reader was blocked in the `scriptapp` HANDSHAKE, before it
+reached a timeline. A reader that takes no lease does not avoid
+waiting - it waits in a place with no bound, no diagnostic and nobody
+to name.
+
+`library/tools/resolve_lock.py` moves that wait to a file lock, which
+has all three. `concurrency_routing.RESOLVE_READ` is the class: a
+shared lease, so several readers run together and none runs while a
+writer holds the instance. A reader that cannot have it now SKIPS or
+raises `ResolveBusy` naming the holder and how long they have held it,
+instead of sitting inside `_pthread_cond_wait` for twelve minutes.
+
+Three corrections to what is written above, and nothing else changes:
+
+1. *"a reader racing a writer is unmediated by design"* - it is
+   mediated now, by the shared half of the lease.
+2. *"any lock a reader might take sits on the far side of a connect
+   that never returns"* - true of a lock taken after connecting. The
+   lease is taken BEFORE `scriptapp`, at the entry point, which is why
+   it can be waited on at all.
+3. *"`reel_read` ... does not cover a lane driving Resolve directly"* -
+   it does now: `read_reel` takes the shared lease, and a lane driving
+   Resolve directly holds the exclusive one because
+   `assert_current_timeline` refuses to place without it.
+
+The count that made the original lock removable has been repaired
+rather than argued with: it had 0 call sites, and the lease that
+replaces it has 12 across `library/`, checked by
+`tests/test_resolve_guard_wiring.py` against the routing table row by
+row.
 
 `library/tools/reel_read.py` refuses while `run_control.hold_requested`
 is set, which covers a build driven through the pipeline runner. It does

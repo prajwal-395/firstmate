@@ -15,6 +15,10 @@ its tail::
 So a cut can carry a drawn transition only where a V1 clip ends, and only
 when another V1 clip follows.
 
+And the step that plans them is TOLD which cuts those are - it does not
+work it out, and it does not offer a cut that cannot carry one.  (Moved
+from AGENTS.md 5 verbatim, where the rule keeps its index row.)
+
 **Which spine blocks reach V1 is the whole of the rule.**
 :func:`block_reaches_v1` is the one statement of it, and
 ``compile_manifest`` builds its V1 track from the same predicate so the

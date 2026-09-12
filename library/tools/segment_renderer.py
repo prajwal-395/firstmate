@@ -14,7 +14,7 @@ import os
 import subprocess
 import tempfile
 import time
-from library.tools.resolve_lock import assert_current_timeline
+from library.tools.resolve_lock import assert_current_timeline, under_lease
 from dataclasses import dataclass
 from typing import Optional
 
@@ -63,6 +63,7 @@ class RenderSettingsError(RuntimeError):
     """
 
 
+@under_lease("render segments")
 def render_segment(resolve, project, timeline,
                    mark_in: int, mark_out: int,
                    output_dir: str = None,
@@ -222,6 +223,7 @@ def render_segment(resolve, project, timeline,
             resolve.OpenPage(prev_page)
 
 
+@under_lease("render segments")
 def render_single_frame(resolve, project, timeline,
                         frame: int,
                         output_dir: str = None,

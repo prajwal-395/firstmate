@@ -12,6 +12,10 @@ timeline with a scratch-shaped name that no plan claims.
 This module is the distinction: a durable HOLD a build takes out on
 its own staging timeline and releases at promotion.
 
+A staged timeline awaiting promotion is HELD: the sweep refuses a held
+name, loudly.  (Moved from AGENTS.md 5 verbatim, where the rule keeps
+its index row.)
+
 Why a hold, not a verification-state check
 ------------------------------------------
 No existing record marks a staging timeline as verified -

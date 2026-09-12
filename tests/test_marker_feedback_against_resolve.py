@@ -53,7 +53,17 @@ CLIP_A_IN, CLIP_B_IN, CLIP_LEN = 100, 500, 100
 
 
 @pytest.fixture(scope="module")
-def resolve_project():
+def resolve_project(resolve_session):
+    """The live instance, LEASED - this file is a writer nobody counted.
+
+    These tests create timelines, switch the current one and delete
+    them.  That is a `RESOLVE_CURSOR` operation
+    (`concurrency_routing`), and it ran beside the captain and beside
+    other lanes with nothing between them: four full-suite runs at once
+    wedged at 0% CPU holding a Resolve handle on 2026-09-11.
+    `resolve_session` skips this module, naming the holder, rather than
+    waiting for one.
+    """
     try:
         resolve = connect_resolve()
     except ResolveUnavailable as exc:

@@ -17,6 +17,7 @@ so each rule is findable by its own words, and AGENTS.md 5
 keeps the headline and points here.
 
 - **`hasattr` is always True on Resolve's scripting proxies, including invented names.** Guard on return values, never on `hasattr`.
+- **Read back past every silent clamp.**  A setter that accepted a value out of range returns True and stores what it was willing to hold, so the only evidence of what took is the getter.  (Moved from AGENTS.md 5 verbatim, where the `hasattr` rule keeps the index row.)
 - **A tick that prints what it ASKED FOR is a lie, and so is a failure that prints nothing.** Print what `GetSetting` RETURNS, and send a failure's reason to stderr.
 - **The timeline SHAPE goes on the PROJECT, and is confirmed by reading it back.** `SetSetting` returning True is a claim and `GetSetting` is the evidence.
 - Read the truth off `TimelineItem.GetProperty()` with no argument, which returns the whole dict, before trusting any property name.

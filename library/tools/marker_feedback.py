@@ -137,7 +137,10 @@ its recorded per-call findings are in the module docstring, in the shape `neural
   No colour vocabulary; no acknowledgement marker is written back.
 """
 
+
 from __future__ import annotations
+
+from library.tools.resolve_lock import under_lease
 
 import argparse
 import json
@@ -946,6 +949,7 @@ def note_identity(note: MarkerNote) -> tuple:
             _attachment_identity(note.attachments))
 
 
+@under_lease("read the captain's markers", exclusive=False)
 def pull(project_folder, timeline=None, project=None) -> dict:
     """Collect every note off a timeline into a durable file.
 

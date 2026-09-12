@@ -116,7 +116,7 @@ import os
 from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
 from library.tools import resolve_bin_layout as bins
-from library.tools.resolve_lock import assert_current_timeline
+from library.tools.resolve_lock import assert_current_timeline, under_lease
 from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
     EXPLAINER,
@@ -5222,6 +5222,7 @@ def _connect_resolve_project(resolve_project_name: str):
         resolve.GetProjectManager(), resolve_project_name)
 
 
+@under_lease("promote staged reels")
 def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          master_timeline_name: str,
                          staged_to_final: dict,
@@ -5796,6 +5797,7 @@ def discard_staged_record(project_folder: str, resolve_project_name: str,
                          master_timeline_name)
 
 
+@under_lease("build reels")
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
                              name_suffix: str = "",
@@ -7423,6 +7425,7 @@ def _cover_frames_static(source_file: str, source_in: float,
     return result
 
 
+@under_lease("build reel variants")
 def build_reel_variants(project_slug: str, reel_number: int,
                         variants: Sequence[dict]) -> dict:
     """Build comparison variants of one approved reel beside it.

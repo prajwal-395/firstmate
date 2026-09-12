@@ -88,7 +88,10 @@ this side only reads.
 `tests/test_timeline_ingest.py`.
 """
 
+
 from __future__ import annotations
+
+from library.tools.resolve_lock import under_lease
 
 import json
 import os
@@ -354,6 +357,7 @@ def _setting_int(timeline, key: str, label: str) -> int:
             f"(AGENTS.md section 5).")
 
 
+@under_lease("snapshot a timeline", exclusive=False)
 def snapshot_timeline(timeline, project_name: str,
                       speaker_map: Optional[Mapping[str, str]] = None,
                       ) -> TimelineSnapshot:

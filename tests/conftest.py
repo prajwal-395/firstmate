@@ -156,3 +156,51 @@ if "DaVinciResolveScript" not in sys.modules:
         import DaVinciResolveScript  # noqa: F401
     except ImportError:
         pass
+
+
+# ── One Resolve, many writers: what a test is, in that scheme ───────
+#
+# `library/tools/resolve_lock.py` refuses a write into Resolve outside
+# an instance lease.  A test whose Resolve is a MagicMock has no
+# instance to contend for, and taking a real machine-wide lease there
+# would make the suite queue behind - or ahead of - the captain's live
+# session for nothing.  So the whole session declares itself the sole
+# writer, which is TRUE for a mocked Resolve and is recorded as a
+# reason rather than assumed.
+#
+# The tests that reach a REAL Resolve are the other case, and they are
+# a writer nobody counted: four full-suite runs at once wedged at 0%
+# CPU holding a Resolve handle on 2026-09-11, with no timeout and no
+# diagnostic.  `resolve_session` below is the fixture those tests take:
+# it asks for the real lease with a short timeout and SKIPS naming the
+# holder rather than waiting.  A suite that cannot hang is worth more
+# than a suite that eventually wins the race.
+import pytest
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _resolve_guard_sole_writer():
+    from library.tools import resolve_lock
+    with resolve_lock.assume_sole_writer(
+            "pytest: this suite's Resolve is a mock, so there is no "
+            "instance to contend for"):
+        yield
+
+
+@pytest.fixture(scope="module")
+def resolve_session():
+    """The real Resolve instance, leased - or the module SKIPS.
+
+    Module scope, so one live-Resolve test file holds the instance for
+    its own duration rather than dropping it between tests and letting
+    a build in halfway through a fixture's teardown.  Any test that
+    connects to a live Resolve takes this.
+    """
+    from library.tools import resolve_lock
+    try:
+        with resolve_lock.resolve_lease(
+                "pytest: a test that drives the live Resolve",
+                exclusive=True, timeout=5.0) as lease:
+            yield lease
+    except resolve_lock.ResolveBusy as busy:
+        pytest.skip(str(busy))
