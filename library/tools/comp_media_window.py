@@ -73,6 +73,30 @@ listing Resolve's API).  A reel is staged by `CreateEmptyTimeline` plus
 `AppendToTimeline` plus the comp pass, so the comp pass IS the staging
 step where a media window is established, and that is where the conform
 is wired: `library/tools/execution/apply_fusion_comps.py`.
+
+── Repair record: 2026-09-12, the captain's live reels ─────────────────
+
+Five of the six drifted endings were repaired in place on `Podcast
+(field test)` (Reels 13, 23, 28, 30, 31); Reel 01 already read `0 / 18`
+with no write between this module's `1 / 19` measurement and the repair,
+in a Resolve instance that never restarted - so a window can change
+without a build, and a cached window is never ground truth.  Re-read
+live, every time.
+
+Each repair re-imported the item's OWN `ExportFusionComp` output with
+the window lines restored to the known-good shape (`GlobalIn` line
+removed, `GlobalOut 19 -> 18`, `Clip GlobalStart` removed, `Clip
+GlobalEnd 19 -> 18`) - not one shared banked file, because each reel's
+freeze carries its own inherited treatment.  `conform_item` above is
+the repair path; its verify re-read on the same handle transiently
+reported `0 / 19` on two reels before a fresh read settled on `0 / 18`,
+so the verify that counts is a FRESH read, and the proof that counts is
+a render: all eight reels' last 19 frames rendered 19/19 Complete after
+the repair.  A re-import rebinds `MediaSource` Timeline -> MediaPool
+(with a `MediaID`); a before/after snapshot diff showed that and the
+window as the only changes - transforms, source ranges, grades,
+captions and markers untouched.  The reversal is the drifted export,
+re-imported the same way.
 """
 
 from __future__ import annotations
