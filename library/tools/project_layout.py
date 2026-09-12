@@ -544,7 +544,8 @@ AREAS: dict[Area, AreaSpec] = {
         step="plan_sfx"),
     Area.SUBTITLE_SEGMENTS: AreaSpec(
         _step_path("render_subtitles"), Kind.OUTPUT,
-        "Rendered per-block subtitle overlays, ProRes 4444 with alpha, plus "
+        "Rendered per-block subtitle overlays, QuickTime Animation RGBA "
+        "with alpha (library/tools/overlay_carriage.py), plus "
         "the props each was rendered from.",
         step="render_subtitles"),
     Area.MOTION_GRAPHICS_SEGMENTS: AreaSpec(

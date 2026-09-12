@@ -4,7 +4,8 @@
 Takes the model's `motion_graphics_plan` (see `handoff.md` and
 `library/tools/motion_graphics_plan.py`), resolves it against the brand
 template's palette when there is one, cuts it into non-overlapping
-overlay segments and renders each to a ProRes 4444 clip with alpha.
+overlay segments and renders each to one overlay artefact with
+alpha (`library/tools/overlay_carriage.py`).
 
 **The layer is planned, not derived.**  This file used to resolve the
 whole thing from `effect.motion_accents` and `effect.motion_progress_bar`,
@@ -44,6 +45,11 @@ from generate_motion_props import PLAN_KEY, generate_motion_props
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+from library.tools.overlay_carriage import (  # noqa: E402
+    OVERLAY_FORMAT_NAME,
+    OVERLAY_VIDEO_CODEC,
+    transcode_in_place,
+)
 from library.tools.overlay_mode import (  # noqa: E402
     GEOMETRIES,
     OVERLAY_CARRIAGE,
@@ -75,7 +81,7 @@ def _timed_text_output(segments: list, fps: int) -> dict:
         "declared": True,
         "available": True,
         "segments": segments,
-        "format": "ProRes 4444",
+        "format": OVERLAY_FORMAT_NAME,
         "has_alpha": True,
         "fps": fps,
         "total_segments": len(segments),
@@ -406,6 +412,31 @@ def render_one_segment(planned: dict, out_dir: str,
                                         remotion, placement_label):
         return None
 
+    # ── The carriage ──
+    #
+    # Remotion cannot write it. `renderMedia` offers no `qtrle` codec,
+    # and the ffmpeg Remotion bundles is compiled `--disable-encoders`
+    # with an explicit enable list that has no `qtrle` in it, so even
+    # an `ffmpegOverride` rewriting the encoder arguments fails with
+    # `Unknown encoder 'qtrle'` (measured 2026-09-12). Unlike the
+    # caption path - which was already re-encoding, in the tight crop,
+    # and gets the change for free - a motion graphic therefore pays
+    # one transcode after its render. Measured on this project's own
+    # graphics: 0.31 s per file, against a render of several seconds,
+    # for a file 4.35x smaller. It is VERIFIED bit-exact before it
+    # replaces the render, and a failure returns None like every other
+    # failure here: reported and skipped, never substituted.
+    carried = transcode_in_place(render_path)
+    if carried.get("error"):
+        print(f"    WARN: {placement_label} rendered but could not be "
+              f"carried as {OVERLAY_VIDEO_CODEC}: "
+              f"{carried['error'][:300]}", file=sys.stderr)
+        return None
+    if carried.get("changed"):
+        print(f"    carried as {OVERLAY_VIDEO_CODEC}: "
+              f"{carried['before']:,} -> {carried['after']:,} bytes",
+              file=sys.stderr)
+
     if tight is not None:
         print(f"    tight {tight.width}x{tight.height} placed with "
               f"Pan {tight.placement['pan']:.1f} / "
@@ -620,7 +651,7 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
         "motion_graphics_overlay": {
             "available": len(segments) > 0,
             "segments": segments,
-            "format": "ProRes 4444",
+            "format": OVERLAY_FORMAT_NAME,
             "has_alpha": True,
             "fps": fps,
             "total_segments": len(segments),

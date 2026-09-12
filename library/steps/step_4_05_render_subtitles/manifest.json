@@ -2,7 +2,7 @@
   "id": "step_4_05_render_subtitles",
   "name": "Render Subtitles (Remotion)",
   "version": "1.0.0",
-  "description": "Renders subtitle and motion graphics overlays to ProRes 4444 with alpha using Remotion. Takes the subtitle plan from step 4.01, generates Remotion input props via generate_subtitle_props.py, then runs npx remotion render to produce the final overlay video.",
+  "description": "Renders subtitle and motion graphics overlays with alpha using Remotion, carried as QuickTime Animation RGBA (library/tools/overlay_carriage.py). Takes the subtitle plan from step 4.01, generates Remotion input props via generate_subtitle_props.py, then runs npx remotion render to produce the final overlay video.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -29,7 +29,7 @@
       {
         "name": "subtitle_overlay",
         "type": "object",
-        "description": "Per-segment rendered ProRes 4444 overlays with timeline positions"
+        "description": "Per-segment rendered overlay artefacts with timeline positions"
       }
     ],
     "requirements": [

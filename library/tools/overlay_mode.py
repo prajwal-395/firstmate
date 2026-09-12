@@ -33,8 +33,26 @@ GEOMETRIES = ("full", "tight")
 #: (`library/tools/resolve_transform.py`, gain 1, re-measured on 16
 #: rendered plates across two builds). A `tight-480-2` sidecar
 #: restored verbatim would draw its caption ~108px high, so the bump
-#: retires it exactly as it retired `tight-480-1`.
-OVERLAY_CARRIAGE = "tight-480-3"
+#: retires it exactly as it retired `tight-480-1`. `tight-480-4` is
+#: the CODEC: the artefact is QuickTime Animation RGBA rather than
+#: ProRes 4444 (`library/tools/overlay_carriage.py`), and Resolve
+#: needs a clip attribute for it that a ProRes artefact must NOT be
+#: given, so the two are not interchangeable and the key has to be
+#: able to tell them apart.
+#:
+#: A BUMP DOES NOT MEAN A RE-RENDER, and that is a deliberate ruling
+#: rather than an omission. What the key promises is a PICTURE, and
+#: `qtrle` is lossless over the 8-bit RGBA a Chromium render produces
+#: - measured bit-exact on 80 of 80 of the captain's own overlays - so
+#: an existing artefact transcoded in place IS the picture its recorded
+#: key names, reached by a cheaper route than drawing it again (~0.2s a
+#: file against ~4.4s to re-render one). `overlay_carriage` VERIFIES
+#: that frame by frame over the whole file before it replaces anything,
+#: and leaves the original untouched where it does not hold, so the
+#: transcode is checked rather than assumed. What would make it
+#: illegitimate is a carriage change that moved a pixel; this one does
+#: not. `scripts/migrate_overlay_carriage.py` is the migration.
+OVERLAY_CARRIAGE = "tight-480-4"
 
 CONTAINERS = ("video", "frames")
 """What reaches Resolve: one stitched mov, or the PNG sequence itself."""

@@ -525,7 +525,7 @@ def test_reused_placement_from_a_superseded_carriage_is_refused():
     same door `tight-480-1` was retired through."""
     from library.tools.overlay_mode import OVERLAY_CARRIAGE
 
-    assert OVERLAY_CARRIAGE == "tight-480-3"
+    assert OVERLAY_CARRIAGE == "tight-480-4"
     stale = {
         "width": 840,
         "height": 480,

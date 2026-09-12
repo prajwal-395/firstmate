@@ -3,6 +3,11 @@ import subprocess
 import json
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.dirname(os.path.abspath(__file__))))))
+from library.tools.overlay_carriage import carries_alpha  # noqa: E402
+
+
 def verify_alpha_channel(mov_path: str) -> bool:
     """
     Verify that the given .mov file has an alpha channel and is not purely black.
@@ -27,7 +32,16 @@ def verify_alpha_channel(mov_path: str) -> bool:
         codec_name = stream.get("codec_name", "")
         profile = stream.get("profile", "")
         
-        has_alpha = "yuva" in str(pix_fmt).lower() or (str(codec_name).lower() == "prores" and "4444" in str(profile))
+        # ONE alpha sniff, in library/tools/overlay_carriage.py. This
+        # used to be spelled here as `"yuva" in pix_fmt` or ProRes with
+        # a 4444 profile, which described every overlay the engine
+        # wrote until 2026-09-12 and none of the ones it writes now: a
+        # `qtrle`/`argb` overlay has a full alpha plane and read as
+        # having none, so QA rejected valid files. See
+        # tests/test_overlay_carriage.py.
+        has_alpha = carries_alpha(codec_name=str(codec_name),
+                                  pix_fmt=str(pix_fmt),
+                                  profile=str(profile))
         if not has_alpha:
             print(f"QA: Alpha check failed for {mov_path}: no alpha detected (pix_fmt={pix_fmt}, codec={codec_name}, profile={profile})", file=sys.stderr)
             return False

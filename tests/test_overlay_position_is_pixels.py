@@ -353,7 +353,7 @@ def test_a_frame_baked_artefact_cannot_be_reused(tmp_path):
         "a frame-baked key still matches: a delivery-frame artefact "
         "would be reused and transformed off the frame")
     assert today.endswith(f"+{OVERLAY_CARRIAGE}")
-    assert OVERLAY_CARRIAGE == "tight-480-3"
+    assert OVERLAY_CARRIAGE == "tight-480-4"
 
 
 # ── The placer: it sets the transform, then reads it back ────────────

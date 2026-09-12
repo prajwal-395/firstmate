@@ -7,7 +7,6 @@ option adds, it does not move. The default is tight (since
 2026-09-10); the tight render tests below serve canned decodable
 renders because a byte stub cannot feed the probe.
 """
-import hashlib
 import json
 import os
 import shutil
@@ -336,8 +335,15 @@ def test_tight_video_crop_refusal_falls_back_to_probe_copy(tmp_path):
 
     Forced here by failing the gate itself (a crop is exact by
     construction, so no canned file can mismatch it): the file that
-    lands is byte-identical to the probe, and the run still says which
-    card lost its tight carriage and why."""
+    lands is the probe's own PIXELS, and the run still says which card
+    lost its tight carriage and why.
+
+    Its pixels and not its bytes, since 2026-09-12: the fallback copy
+    is carried into the overlay codec like every other artefact
+    (`library/tools/overlay_carriage.py`), and `qtrle` is lossless over
+    an 8-bit RGBA picture, so the frames are identical while the file
+    is not. That is the claim worth pinning - a re-render would change
+    the PICTURE, and this shows it did not."""
 
     props = _props_frames(_props(), N_FRAMES)
     full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
@@ -367,11 +373,17 @@ def test_tight_video_crop_refusal_falls_back_to_probe_copy(tmp_path):
     assert out["overlay_path"].endswith(".mov")
     assert os.path.isfile(out["overlay_path"])
 
-    def _digest(path):
-        with open(path, "rb") as handle:
-            return hashlib.sha256(handle.read()).hexdigest()
+    from library.tools.overlay_carriage import (
+        OVERLAY_VIDEO_CODEC,
+        frames_are_identical,
+        probe_overlay,
+    )
 
-    assert _digest(out["overlay_path"]) == _digest(full_mov)
+    assert frames_are_identical(out["overlay_path"], full_mov), (
+        "the full-canvas fallback must be the probe's own pixels; a "
+        "difference here means something re-rendered the card")
+    assert probe_overlay(out["overlay_path"])["codec_name"] == \
+        OVERLAY_VIDEO_CODEC
     # Still one render: the probe. The fallback copied it, exactly the
     # third render the old path paid per refused card.
     assert stub.calls and len(stub.calls) == 1

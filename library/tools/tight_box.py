@@ -1009,15 +1009,22 @@ def verify_movs(full_mov: str, tight_mov: str, box: TightBox,
 
 def crop_probe_to_tight(probe_mov: str, overlay_path: str,
                         box: TightBox) -> tuple[int, int]:
-    """Crop the probe render to the tight canvas, as ProRes 4444 with alpha.
+    """Crop the probe render to the tight canvas, as `qtrle` RGBA with alpha.
 
     The tight output IS the probe crop - by construction, not by a second
     render - so the re-render rasterization difference that failed the
     verify gate as `max channel diff 5` on 90 historical cards cannot
-    occur: the only generation loss is one ProRes encode (measured 3 on
-    real cards, inside the gate's 4). The crop origin is
-    `canvas_offset`, the inverse of the placement the box ships, so the
-    file and the Resolve transform agree on one origin by construction.
+    occur. Since 2026-09-12 there is no generation loss at all: the crop
+    re-encodes as QuickTime Animation, which is LOSSLESS over the 8-bit
+    RGBA a Chromium render produces, where ProRes 4444 previously cost a
+    measured channel diff of 3 inside the gate's 4. The codec belongs to
+    `library/tools/overlay_carriage.py`; this path only says WHERE to
+    cut. Measured on this crop, five runs each: 0.164 s against ProRes's
+    0.367 s, and 2.21x fewer bytes - the caption path pays nothing for
+    the change because it was already re-encoding here. The crop origin
+    is `canvas_offset`, the inverse of the placement the box ships, so
+    the file and the Resolve transform agree on one origin by
+    construction.
 
     The probe's audio (Remotion's silent track) is copied through
     untouched; the video rate is the probe's own (no `-r`: no fps
@@ -1028,6 +1035,8 @@ def crop_probe_to_tight(probe_mov: str, overlay_path: str,
     """
     import os
     import subprocess
+
+    from library.tools.overlay_carriage import OVERLAY_ENCODE_ARGS
 
     ox, oy = canvas_offset(box)
     if ox < 0 or oy < 0 \
@@ -1042,8 +1051,7 @@ def crop_probe_to_tight(probe_mov: str, overlay_path: str,
         result = subprocess.run(
             ["ffmpeg", "-y", "-v", "error", "-i", probe_mov,
              "-vf", f"crop={box.width}:{box.height}:{ox}:{oy}",
-             "-c:v", "prores_ks", "-profile:v", "4444",
-             "-pix_fmt", "yuva444p10le",
+             *OVERLAY_ENCODE_ARGS,
              "-c:a", "copy",
              overlay_path],
             capture_output=True, text=True, encoding="utf-8", timeout=600,

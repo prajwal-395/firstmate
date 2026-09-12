@@ -2,7 +2,7 @@
   "id": "step_4_06_render_motion_graphics",
   "name": "Render Motion Graphics (Remotion)",
   "version": "1.0.0",
-  "description": "Plans the motion-graphics layer with a model, then renders it to ProRes 4444 overlay segments with alpha using Remotion. The plan carries its own timebase - an element is timed in timeline seconds and is not tied to a spine block - and several elements may be on screen at once, in rows, composited into one segment. A brand template REFINES the plan by resolving a colour role against its palette; it does not gate the layer. See library/tools/motion_graphics_plan.py.",
+  "description": "Plans the motion-graphics layer with a model, then renders it to overlay segments with alpha using Remotion, carried as QuickTime Animation RGBA (library/tools/overlay_carriage.py). The plan carries its own timebase - an element is timed in timeline seconds and is not tied to a spine block - and several elements may be on screen at once, in rows, composited into one segment. A brand template REFINES the plan by resolving a colour role against its palette; it does not gate the layer. See library/tools/motion_graphics_plan.py.",
   "level": "step",
   "interface": {
     "inputs": [

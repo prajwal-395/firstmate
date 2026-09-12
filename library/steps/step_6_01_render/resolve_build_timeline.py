@@ -77,6 +77,9 @@ for _p in (os.path.join(_HERE, '../../tools'), os.path.join(_HERE, '../../..')):
         sys.path.append(_p)
 
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.overlay_carriage import (  # noqa: E402
+    apply_clip_attributes,
+)
 from library.tools.overlay_placement import (  # noqa: E402
     place_overlay_segment,
     sequence_frame_paths,
@@ -457,8 +460,13 @@ def _ensure_transparent_carrier(
         )
 
     carrier_item = imported[0]
-    # ProRes 4444 alpha must be recognized as premultiplied.
-    carrier_item.SetClipProperty("Alpha mode", "Premultiplied")
+    # The carrier is written by `_transparent_carrier` above and stays
+    # ProRes 4444: it is a generated FILLER, not an overlay artefact,
+    # and Resolve's auto data level is right for that codec. Its
+    # attributes are still decided by the file rather than asserted
+    # here (`library/tools/overlay_carriage.py`), so the day it is
+    # written as something else the reading follows it.
+    apply_clip_attributes(carrier_item, carrier_path)
     return carrier_item
 
 
@@ -1378,8 +1386,13 @@ def build_timeline(
                 print(f"  ✗ [{si}] {seg_basename} not in media pool", file=sys.stderr)
                 continue
 
-            # Ensure ProRes 4444 alpha channel is recognized
-            pool_item.SetClipProperty("Alpha mode", "Premultiplied")
+            # The clip attributes an alpha artefact needs, decided by
+            # the FILE - see library/tools/overlay_carriage.py. Not
+            # just the alpha mode: a `qtrle` overlay whose Data Level
+            # is left on Resolve's default `Auto` is read as video
+            # range and composites the WHOLE frame 16/255 dark,
+            # including every pixel where the overlay is transparent.
+            apply_clip_attributes(pool_item, seg_path)
 
             offset_f = block_offsets.get(block_idx, 0) if block_idx is not None else 0
 
@@ -1467,8 +1480,13 @@ def build_timeline(
                 print(f"  ✗ [{mi}] {seg_basename} not in media pool", file=sys.stderr)
                 continue
 
-            # Ensure ProRes 4444 alpha channel is recognized
-            pool_item.SetClipProperty("Alpha mode", "Premultiplied")
+            # The clip attributes an alpha artefact needs, decided by
+            # the FILE - see library/tools/overlay_carriage.py. Not
+            # just the alpha mode: a `qtrle` overlay whose Data Level
+            # is left on Resolve's default `Auto` is read as video
+            # range and composites the WHOLE frame 16/255 dark,
+            # including every pixel where the overlay is transparent.
+            apply_clip_attributes(pool_item, seg_path)
 
             seg_frames = seg.get('total_frames', round(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))
@@ -1624,8 +1642,13 @@ def build_timeline(
                       file=sys.stderr)
                 continue
 
-            # Ensure ProRes 4444 alpha channel is recognized
-            pool_item.SetClipProperty("Alpha mode", "Premultiplied")
+            # The clip attributes an alpha artefact needs, decided by
+            # the FILE - see library/tools/overlay_carriage.py. Not
+            # just the alpha mode: a `qtrle` overlay whose Data Level
+            # is left on Resolve's default `Auto` is read as video
+            # range and composites the WHOLE frame 16/255 dark,
+            # including every pixel where the overlay is transparent.
+            apply_clip_attributes(pool_item, seg_path)
 
             seg_frames = seg.get('total_frames', round(
                 (seg.get('timeline_end', 0) - seg.get('timeline_start', 0)) * fps))

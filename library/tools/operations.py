@@ -944,7 +944,7 @@ _REGISTRY: tuple[Operation, ...] = (
     ),
     Operation(
         name="subtitles.render",
-        summary="Render one ProRes 4444 overlay per captioned spine block",
+        summary="Render one overlay artefact per captioned spine block",
         owning_node="render_subtitles",
         owning_dir="step_4_05_render_subtitles", body="step.py",
         attr="render_subtitle_overlays",

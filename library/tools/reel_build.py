@@ -3979,10 +3979,35 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     `project_folder` the destination cannot be decided and the import
     lands wherever is current - the old behaviour, kept for callers
     that have nothing to decide it from.
+
+    EVERY item this returns has had its overlay clip attributes
+    applied, the lookup hit included - see `_carry` below.
     """
+    def _carry(item):
+        """The clip attributes an alpha artefact needs, on EVERY return.
+
+        Not on the import alone: a pool item first imported while its
+        file was ProRes keeps its old attributes after that file is
+        transcoded underneath it, so a build that only set them on a
+        fresh import would place a stale reading of a current file.
+        The lookup hit above is exactly that case, and it is the
+        common one - a rebuild is the normal way to work on a reel.
+
+        Decided by the FILE, so a-roll passing through here is left
+        alone and an overlay is not (`overlay_carriage`); a refusal
+        RAISES, because a `qtrle` clip whose Data Level did not take
+        composites the whole frame 16/255 dark, including where the
+        overlay draws nothing at all.
+        """
+        from library.tools.overlay_carriage import apply_clip_attributes
+
+        if item is not None:
+            apply_clip_attributes(item, filepath)
+        return item
+
     existing = pool_item_for(pool, filepath)
     if existing is not None:
-        return existing
+        return _carry(existing)
     if isinstance(project_folder, (tuple, list)) and dest is None:
         dest = tuple(project_folder)
         project_folder = ""
@@ -3991,10 +4016,10 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
             import_into_bin,
         )
         items = import_into_bin(pool, dest, [filepath])
-        return items[0] if items else None
+        return _carry(items[0] if items else None)
     if not project_folder:
         items = pool.ImportMedia([filepath])
-        return items[0] if items else None
+        return _carry(items[0] if items else None)
     dest = _ensure_bin_path(pool, import_dest_bin(filepath, project_folder))
     before = pool.GetCurrentFolder()
     try:
@@ -4003,7 +4028,7 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     finally:
         if before is not None:
             pool.SetCurrentFolder(before)
-    return items[0] if items else None
+    return _carry(items[0] if items else None)
 
 
 def _overlay_canvas(segment: dict):

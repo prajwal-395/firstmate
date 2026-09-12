@@ -21,6 +21,8 @@ _PILOT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(_PILOT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PILOT_ROOT))
 
+from library.tools.overlay_carriage import apply_clip_attributes  # noqa: E402
+
 
 class DestinationMismatchError(RuntimeError):
     """The current Resolve project does not match the expected destination.
@@ -233,6 +235,16 @@ def relink_project(project_slug: str = "", dry_run: bool = False,
         try:
             ok = clip_info["clip"].ReplaceClip(clip_info["new_path"])
             if ok:
+                # A relink re-points an EXISTING pool item at a
+                # different file, and the item keeps whatever clip
+                # attributes it was carrying. Where the new file is an
+                # overlay artefact those attributes have to follow the
+                # file: a `qtrle` overlay relinked onto an item that
+                # was set up for ProRes composites the whole frame
+                # 16/255 dark, transparent pixels included. See
+                # library/tools/overlay_carriage.py.
+                apply_clip_attributes(clip_info["clip"],
+                                      clip_info["new_path"])
                 relinked += 1
             else:
                 failed += 1

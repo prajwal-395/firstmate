@@ -3,7 +3,8 @@
 Step 4.05: Render Subtitles (Remotion)
 
 Takes the subtitle plan from step 4.01 and renders it to per-spine-block
-ProRes 4444 video overlays with alpha channel using Remotion.
+overlay artefacts with an alpha channel using Remotion
+(`library/tools/overlay_carriage.py` owns what one IS).
 
 Each spine block with subtitles gets its own rendered overlay clip. The
 Resolve builder (step 6.01) places each segment at its timeline position
@@ -35,7 +36,7 @@ Output: {
                 "total_frames": int
             }
         ],
-        "format": "ProRes 4444",
+        "format": "QuickTime Animation (qtrle) RGBA",
         "has_alpha": true,
         "fps": 30
     }
@@ -64,6 +65,11 @@ from library.tools.delivery_format import resolve_delivery_format
 from library.tools.remotion_batch import (
     PersistentRenderer,
     RendererUnavailable,
+)
+from library.tools.overlay_carriage import (
+    OVERLAY_FORMAT_NAME,
+    OVERLAY_VIDEO_CODEC,
+    transcode_in_place as _carry_overlay_codec,
 )
 from library.tools.overlay_mode import (
     CONTAINERS,
@@ -496,7 +502,10 @@ class PersistentCaptionRenderer:
     `codec: "prores"` with `proResProfile: "4444"` - the same options
     the subprocess call passes as `--codec prores --prores-profile
     4444` - because both go through the same `renderOne` in
-    `render-batch.mjs`.
+    `render-batch.mjs`. What Remotion writes is not the artefact: the
+    overlay carriage is cut afterwards, by the crop for a tight card
+    and by a transcode for a full-canvas one, because Remotion cannot
+    write it (`library/tools/overlay_carriage.py`).
     """
 
     def __init__(self, remotion_dir: str,
@@ -1345,6 +1354,33 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             return entry(FAILED, failure="box sidecar unwritable")
     else:
         print(f"    OK: {overlay_path}", file=sys.stderr)
+
+    # ── The carriage, for the paths that did not already cut it ──
+    #
+    # A tight card came out of `crop_probe_to_tight`, which already
+    # encodes the overlay carriage. Every OTHER video path here ends
+    # holding what Remotion wrote - a full-canvas render, or the probe
+    # copied under the full-geometry name when a tight crop was refused
+    # - and Remotion cannot write this codec: `renderMedia` takes no
+    # `qtrle`, and its BUNDLED ffmpeg is compiled without that encoder
+    # entirely (measured 2026-09-12: `Unknown encoder 'qtrle'`). So the
+    # full-canvas artefact is transcoded here, with the system ffmpeg,
+    # and the transcode is VERIFIED bit-exact before it replaces the
+    # file. A failure FAILS the segment rather than shipping a card
+    # whose codec is not the one its carriage stamp claims.
+    if not is_frames:
+        carried = _carry_overlay_codec(overlay_path)
+        if carried.get("error"):
+            _drop_probe()
+            print(f"    WARN: {overlay_path} could not be carried as "
+                  f"{OVERLAY_VIDEO_CODEC}: {carried['error'][:300]}",
+                  file=sys.stderr)
+            return entry(FAILED, failure=(
+                f"overlay carriage refused: {carried['error'][:400]}"))
+        if carried.get("changed"):
+            print(f"    carried as {OVERLAY_VIDEO_CODEC}: "
+                  f"{carried['before']:,} -> {carried['after']:,} bytes",
+                  file=sys.stderr)
     _drop_probe()
 
     # Recorded only after a render that SUCCEEDED, so a failed or
@@ -1372,8 +1408,8 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              overlay_geometry: str = None,
                              overlay_container: str = None) -> dict:
     """Render one overlay per captioned spine block: stitched ProRes
-    4444 video by default, a PNG sequence where the project declares
-    one (`library/tools/overlay_mode.py`).
+    overlay artefact by default, a PNG sequence where the project
+    declares one (`library/tools/overlay_mode.py`).
 
     A tight segment renders only its drawn bounds (floored at
     `tight_box.MIN_CANVAS_HEIGHT`) and the placer carries it on
@@ -1814,7 +1850,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             "available": len(segments) == len(props_list) and not failed,
             "segments": segments,
             "format": ("PNG sequence" if container == "frames"
-                       else "ProRes 4444"),
+                       else OVERLAY_FORMAT_NAME),
             "has_alpha": True,
             "fps": fps,
             # What this pass carried, so a reader knows without

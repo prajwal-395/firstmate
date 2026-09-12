@@ -20,7 +20,8 @@ machine:
   (``yuva444p12le``) - an ALPHA CHANNEL, authored, 1080x1920.  Nobody
   keyed them and nobody would.  They were rendered from the project's own
   Remotion compositions, which is the route the engine already runs for
-  every caption (step 4.05 emits ProRes 4444 with alpha) and every motion
+  every caption (step 4.05 emits an alpha artefact - see
+  ``library/tools/overlay_carriage.py``) and every motion
   graphic (4.06).  **An element that is born with alpha never needs
   keying at all.**
 - **A keyer cannot recover an authored alpha, even in its best case.**
