@@ -1515,6 +1515,8 @@ def _capture_transform(args) -> tuple:
                 moment.timeline_start, moment.timeline_end,
                 keep_exclusions),
             transcript)
+        moment_cuts, _ = _tc.grow_cuts_over_wordless_tail(
+            moment_cuts, transcript)
         ranges = _build.reel_ranges(moment, transcript,
                                     extra_cuts=moment_cuts)
     except Exception as exc:  # noqa: BLE001 - the CLI edge reports

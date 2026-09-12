@@ -535,6 +535,77 @@ def test_write_plans_merges_rather_than_overwriting(tmp_path):
     assert {p["reel"] for p in stored["plans"]} == {"Reel 01", "Reel 02"}
 
 
+def test_promotion_renames_the_staging_record_to_the_final_name(tmp_path):
+    """A staged build records under `<final> (rebuild staging)`; the
+    promotion must rename it, or `plan_for` answers None for a reel
+    that really has a plan and F24 reports the graphics the build
+    placed as items nothing accounts for.
+
+    Measured 2026-09-12 on the first beside build of Reel 01 in the
+    captain's project: two lower thirds placed on V7, F24 ERROR "2
+    item(s) on the lower-third row (V7) and this reel has no recorded
+    speaker lower-third plan at all". The three sibling records
+    (`explainer_plan`, `reel_semantic_visual` twice) were renamed at
+    promotion and this one was not.
+    """
+    folder = _project(tmp_path, "promote",
+                      effect={si.DECLARATION_KEY: DECLARATION})
+    staging = "Reel 07 (rebuild staging)"
+    final = "Reel 07"
+    si.write_plans(folder, [si.plan_for_reel(
+        staging, _lines(("Ada", 1.0)), 40.0, folder)])
+    assert si.plan_for(si.read_plans(folder), final) is None
+
+    si.rename_plan_reels(folder, {staging: final})
+
+    stored = si.read_plans(folder)
+    assert {p["reel"] for p in stored["plans"]} == {final}
+    assert si.plan_for(stored, final)["basis"] == si.SPEAKERS_INTRODUCED
+
+
+def test_promotion_replaces_a_previous_build_under_the_final_name(tmp_path):
+    """Two plans for one reel would leave `plan_for` reading the stale
+    first - the same rule `explainer_plan.rename_plan_reels` states."""
+    folder = _project(tmp_path, "replace",
+                      effect={si.DECLARATION_KEY: DECLARATION})
+    si.write_plans(folder, [si.plan_for_reel(
+        "Reel 07", _lines(("Ada", 1.0)), 40.0, folder)])
+    si.write_plans(folder, [si.plan_for_reel(
+        "Reel 07 (rebuild staging)", _lines(("Bram", 2.0)), 40.0, folder)])
+
+    si.rename_plan_reels(folder, {"Reel 07 (rebuild staging)": "Reel 07"})
+
+    stored = si.read_plans(folder)
+    assert [p["reel"] for p in stored["plans"]] == ["Reel 07"]
+    speakers = [i["speaker"]
+                for i in si.plan_for(stored, "Reel 07")["introductions"]]
+    assert speakers == ["Bram"]
+
+
+def test_a_refused_staging_leaves_no_lower_third_record(tmp_path):
+    """The gate-fail half: no record may survive for a container that
+    is about to be deleted."""
+    folder = _project(tmp_path, "refused",
+                      effect={si.DECLARATION_KEY: DECLARATION})
+    si.write_plans(folder, [
+        si.plan_for_reel("Reel 07 (rebuild staging)",
+                         _lines(("Ada", 1.0)), 40.0, folder),
+        si.plan_for_reel("Reel 08", _lines(("Bram", 1.0)), 40.0, folder)])
+
+    si.drop_plan_reels(folder, ["Reel 07 (rebuild staging)"])
+
+    assert {p["reel"] for p in si.read_plans(folder)["plans"]} == {"Reel 08"}
+
+
+def test_rename_and_drop_are_no_ops_without_a_file(tmp_path):
+    """No file yet is a build that recorded nothing, not an error."""
+    folder = _project(tmp_path, "empty",
+                      effect={si.DECLARATION_KEY: DECLARATION})
+    si.rename_plan_reels(folder, {"a": "b"})
+    si.drop_plan_reels(folder, ["a"])
+    assert si.read_plans(folder) == {}
+
+
 # ── What the rebuild decision sees ───────────────────────────────────
 
 def test_a_lower_third_that_moved_changes_the_rebuild_digest():

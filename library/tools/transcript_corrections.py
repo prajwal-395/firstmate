@@ -612,3 +612,108 @@ def grow_cuts_over_wordless_leadin(intervals: list,
                 s = prev_end
         grown.append((s, e, ident))
     return grown
+
+
+#: Why one strike's END was left exactly where it was recorded.
+#: Enumerated rather than free text, because the build PRINTS these and
+#: a reader has to be able to tell "there was nothing to grow" from
+#: "there was room tone and I could not take it".
+TAIL_HELD_NEXT_WORD_AT_THE_EDGE = "next_word_at_the_edge"
+TAIL_HELD_GAP_EXCEEDS_LIMIT = "gap_exceeds_limit"
+TAIL_HELD_WORD_ENDS_INSIDE_THE_GAP = "word_ends_inside_the_gap"
+TAIL_HELD_NO_TIMED_WORDS_AFTER = "no_timed_words_after"
+
+TAIL_HELD_REASONS = (
+    TAIL_HELD_NEXT_WORD_AT_THE_EDGE,
+    TAIL_HELD_GAP_EXCEEDS_LIMIT,
+    TAIL_HELD_WORD_ENDS_INSIDE_THE_GAP,
+    TAIL_HELD_NO_TIMED_WORDS_AFTER,
+)
+
+
+def grow_cuts_over_wordless_tail(intervals: list,
+                                 transcript: dict) -> tuple:
+    """Extend each cut's END forward over a short wordless tail.
+
+    The exact mirror of :func:`grow_cuts_over_wordless_leadin`, and it
+    exists because the failure that function's docstring describes
+    happens at BOTH edges and only one of them was covered.
+
+    Measured 2026-09-12 on `lucie/geo-podcast`, Reel 13.  Keep
+    exclusion `lc-0006` ends at 899.400 - Craig's word "company" ends
+    exactly there, so the strike is recorded on a real word edge.  The
+    master's angle switch back to Akshita is at 899.482.  Resuming the
+    keep range at 899.400 therefore admitted 82ms of Craig's camera at
+    the head of the second range, and the build gate refused it::
+
+        video item 8 'LCATL0013.MXF' is 2 frames (0.083s), under the
+        0.5s readability floor (12 frames at 23.976fps)
+
+    Akshita's next timed word starts at 899.570, so 170ms of room tone
+    sits between the struck words and her first word.  Growing the end
+    there removes the flash and clears the angle switch by 88ms without
+    touching a syllable.
+
+    **The growth stops at the next timed word edge, always.**  That is
+    the one way this could do damage: trading a two-frame flash for a
+    clipped word is a worse edit than the flash, and this project has
+    already paid for that lesson once - the Reel 30 seam that left "a
+    web" mid-phrase (`learned_context` lc-0005).  So the end may reach
+    the next word's START and never past it, and where there is no room
+    tone to take the interval is HELD and the reason SAID rather than
+    the word being swallowed.
+
+    Bounded by the same :data:`LEADIN_GROWTH_LIMIT` as the head half:
+    past it the extension stops being edge-dust and becomes editorial
+    scope, which the operator re-records explicitly.
+
+    Returns `(grown, held)`.  `grown` is new `(start, end, id)` triples
+    in the input's order and the input is untouched.  `held` is one
+    `{id, end, reason, next_word_start}` per interval whose end did not
+    move, so a strike that may strand a nub says so on the run that
+    honours it instead of failing silently at the gate.  An empty
+    transcript grows nothing and holds nothing - there is no
+    measurement to hold it against.
+    """
+    words = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                words.append((word_start, word_end))
+    if not words:
+        return list(intervals or []), []
+    grown = []
+    held = []
+    for interval in intervals or []:
+        s, e = float(interval[0]), float(interval[1])
+        ident = str(interval[2]) if len(interval) > 2 else ""
+        later = [ws for ws, _ in words if ws >= e - 1e-9]
+        if not later:
+            held.append({"id": ident, "end": e,
+                         "reason": TAIL_HELD_NO_TIMED_WORDS_AFTER,
+                         "next_word_start": None})
+            grown.append((s, e, ident))
+            continue
+        next_start = min(later)
+        if not next_start > e:
+            reason = TAIL_HELD_NEXT_WORD_AT_THE_EDGE
+        elif next_start - e > LEADIN_GROWTH_LIMIT:
+            reason = TAIL_HELD_GAP_EXCEEDS_LIMIT
+        elif any(e < we < next_start for _, we in words):
+            reason = TAIL_HELD_WORD_ENDS_INSIDE_THE_GAP
+        else:
+            reason = ""
+        if reason:
+            held.append({"id": ident, "end": e, "reason": reason,
+                         "next_word_start": next_start})
+        else:
+            e = next_start
+        grown.append((s, e, ident))
+    return grown, held

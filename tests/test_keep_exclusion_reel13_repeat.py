@@ -194,3 +194,169 @@ def test_the_reel_keeps_one_line_and_plays_no_half_word():
     assert "one of the reasons why that company got called" not in played
     assert reel_build.exclusion_midword_edges(
         START, END, grown, transcript) == []
+
+
+# ── The tail edge: what the first beside build refused ────────────────
+#
+# The strike is recorded on a real word edge and STILL stranded a nub,
+# because the nub forms at whichever edge the master's angle switch
+# falls on the wrong side of. Measured 2026-09-12 building Reel 13
+# beside the captain's, against the live `Podcast (field test)`.
+
+#: Where `GEO Podcast - Synced` switches back to Akshita's camera after
+#: Craig's second telling. Read off the master: V2 Craig runs
+#: 895.311..899.482 and V1 Akshita resumes at 899.482.
+ANGLE_SWITCH_BACK = 899.482
+
+
+def _grown_cuts(transcript):
+    """The strike as the build applies it: both edges grown."""
+    cuts = tc.exclusion_cuts_for_span(
+        START, END, [{"start": EXCLUDED[0], "end": EXCLUDED[1],
+                      "id": "reel13-craig-repeat"}])
+    head = tc.grow_cuts_over_wordless_leadin(cuts, transcript)
+    return tc.grow_cuts_over_wordless_tail(head, transcript)
+
+
+def test_the_strike_end_grows_forward_over_the_wordless_tail():
+    """Craig's "company" ends 899.400 and Akshita's "Yeah," starts
+    899.570, so 170ms of room tone sits between them. The end reaches
+    her word's start and stops there."""
+    grown, held = _grown_cuts(_transcript())
+    assert [(round(s, 3), round(e, 3)) for s, e, _ in grown] == [
+        (895.120, 899.570)]
+    assert held == []
+
+
+def test_the_grown_tail_clears_the_masters_angle_switch():
+    """THE FAILING INPUT, in words.
+
+    Resuming the keep range at the recorded 899.400 admitted 82ms of
+    Craig's camera, because the master does not switch back to Akshita
+    until 899.482. The build gate refused it:
+
+        video item 8 'LCATL0013.MXF' is 2 frames (0.083s), under the
+        0.5s readability floor (12 frames at 23.976fps)
+
+    Grown, the cut covers the switch, so the second range opens on
+    Akshita's own clip and no sliver of Craig's is placed.
+    """
+    transcript = _transcript()
+    head_only = tc.grow_cuts_over_wordless_leadin(
+        tc.exclusion_cuts_for_span(
+            START, END, [{"start": EXCLUDED[0], "end": EXCLUDED[1],
+                          "id": "reel13-craig-repeat"}]),
+        transcript)
+    assert head_only[0][1] < ANGLE_SWITCH_BACK, (
+        "the head-only growth is what stranded the flash")
+
+    grown, _held = _grown_cuts(transcript)
+    assert grown[0][1] >= ANGLE_SWITCH_BACK
+    fps = 24000 / 1001
+    stranded = round((ANGLE_SWITCH_BACK - grown[0][1]) * fps)
+    assert stranded <= 0, f"{stranded} frame(s) of the wrong camera left"
+
+
+def test_the_growth_stops_at_the_next_word_and_never_swallows_it():
+    """The one way this could do damage. Where the next word starts at
+    the recorded end there is no room tone to take, so the interval is
+    HELD and the reason said - never the word eaten. The Reel 30 seam
+    (lc-0005) is why a clipped word is worse than the flash."""
+    transcript = _transcript()
+    for segment in transcript["segments"]:
+        if segment["timeline_start"] == 899.57:
+            segment["timeline_start"] = 899.40
+            segment["words"][0]["start"] = 899.40
+    cuts = [(895.120, 899.400, "reel13-craig-repeat")]
+    grown, held = tc.grow_cuts_over_wordless_tail(cuts, transcript)
+    assert grown == cuts
+    assert [h["reason"] for h in held] == [
+        tc.TAIL_HELD_NEXT_WORD_AT_THE_EDGE]
+    assert held[0]["id"] == "reel13-craig-repeat"
+
+
+def test_a_word_ending_inside_the_gap_holds_the_tail():
+    """`next_start` must be the immediately-following boundary. A word
+    ending between the cut and it means it is not, and the interval
+    stands as recorded - the head half's own guard, mirrored."""
+    transcript = {"segments": [{"words": [
+        {"word": "company", "start": 899.04, "end": 899.40, "timed": True},
+        {"word": "overlap", "start": 899.10, "end": 899.45, "timed": True},
+        {"word": "Yeah,", "start": 899.57, "end": 899.83, "timed": True},
+    ]}]}
+    cuts = [(895.120, 899.400, "reel13-craig-repeat")]
+    grown, held = tc.grow_cuts_over_wordless_tail(cuts, transcript)
+    assert grown == cuts
+    assert [h["reason"] for h in held] == [
+        tc.TAIL_HELD_WORD_ENDS_INSIDE_THE_GAP]
+
+
+def test_a_tail_longer_than_the_limit_is_held():
+    """Past `LEADIN_GROWTH_LIMIT` the extension stops being edge-dust
+    and becomes editorial scope, which the captain re-records."""
+    transcript = {"segments": [{"words": [
+        {"word": "company", "start": 899.04, "end": 899.40, "timed": True},
+        {"word": "Yeah,", "start": 902.00, "end": 902.30, "timed": True},
+    ]}]}
+    cuts = [(895.120, 899.400, "reel13-craig-repeat")]
+    grown, held = tc.grow_cuts_over_wordless_tail(cuts, transcript)
+    assert grown == cuts
+    assert [h["reason"] for h in held] == [tc.TAIL_HELD_GAP_EXCEEDS_LIMIT]
+
+
+def test_nothing_timed_after_the_cut_is_held_and_said():
+    transcript = {"segments": [{"words": [
+        {"word": "company", "start": 899.04, "end": 899.40, "timed": True},
+    ]}]}
+    cuts = [(895.120, 899.400, "reel13-craig-repeat")]
+    grown, held = tc.grow_cuts_over_wordless_tail(cuts, transcript)
+    assert grown == cuts
+    assert [h["reason"] for h in held] == [
+        tc.TAIL_HELD_NO_TIMED_WORDS_AFTER]
+    assert held[0]["next_word_start"] is None
+
+
+def test_an_empty_transcript_grows_nothing_and_holds_nothing():
+    cuts = [(895.120, 899.400, "reel13-craig-repeat")]
+    assert tc.grow_cuts_over_wordless_tail(cuts, {}) == (cuts, [])
+    assert tc.grow_cuts_over_wordless_tail(cuts, None) == (cuts, [])
+
+
+def test_the_reel_still_keeps_one_line_after_the_tail_grows():
+    """The repeat is still gone and no edge sits mid-word - the tail
+    growth moves silence only."""
+    transcript = _transcript()
+    # The fixture stops at 900.0; the real moment runs to 956.64, so the
+    # tail here is extended to give the second range something to be
+    # other than a sub-floor fragment of its own.
+    transcript["segments"].append(
+        {"speaker": "Akshita", "resolve_item_id": "clip-akshita-2",
+         "text": "a case study on their site",
+         "timeline_start": 900.49, "timeline_end": 903.00,
+         "words": [{"word": "a", "start": 900.49, "end": 900.55,
+                    "timed": True},
+                   {"word": "case", "start": 900.63, "end": 900.82,
+                    "timed": True},
+                   {"word": "study", "start": 900.84, "end": 901.30,
+                    "timed": True},
+                   {"word": "on", "start": 901.90, "end": 901.96,
+                    "timed": True},
+                   {"word": "their", "start": 901.98, "end": 902.12,
+                    "timed": True},
+                   {"word": "site", "start": 902.30, "end": 903.00,
+                    "timed": True}]})
+    moment_end = 903.00
+    grown, _held = _grown_cuts(transcript)
+    moment = SimpleNamespace(timeline_start=START, timeline_end=moment_end)
+    ranges = reel_build.reel_ranges(
+        moment, transcript, extra_cuts=[(s, e) for s, e, _ in grown])
+    assert ranges == [(START, 895.120), (899.570, moment_end)]
+    played = " ".join(
+        s["text"] for s in transcript["segments"]
+        if any(a < s["timeline_end"] and s["timeline_start"] < b
+               for a, b in ranges))
+    assert "they came back as a healthcare company" in played
+    assert "one of the reasons why that company got called" not in played
+    assert "Yeah, so they had" in played
+    assert reel_build.exclusion_midword_edges(
+        START, moment_end, grown, transcript) == []

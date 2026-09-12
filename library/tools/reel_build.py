@@ -5727,6 +5727,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     rename_record_reels(project_folder, promoted_claimed)
     from library.tools.reel_semantic_visual import rename_span_record_reels
     rename_span_record_reels(project_folder, promoted_claimed)
+    # The lower-third record, for the same reason and on the same
+    # mapping: a plan left under the staging name is a plan F24 cannot
+    # find, and F24 then reports the graphics it placed as items
+    # nothing accounts for.
+    from library.tools.speaker_identity import (
+        rename_plan_reels as _rename_lower_third_plans)
+    _rename_lower_third_plans(project_folder, promoted_claimed)
     # The render ledger binds each caption to the timeline it was
     # rendered for, and it is read as a reference ROOT. Left naming the
     # staging container this promotion just renamed away, every entry
@@ -6053,6 +6060,9 @@ def discard_staged_reels(project, project_folder: str,
     drop_record_reels(project_folder, staging)
     from library.tools.reel_semantic_visual import drop_span_record_reels
     drop_span_record_reels(project_folder, staging)
+    from library.tools.speaker_identity import (
+        drop_plan_reels as _drop_lower_third_plans)
+    _drop_lower_third_plans(project_folder, staging)
     _organise_after_refusal(project, project_folder, master_timeline_name)
 
 
@@ -6811,11 +6821,27 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # over wordless clip lead-in first (`grow_cuts...`), so a
             # strike at a word's start does not strand 6 frames of
             # room tone the readability floor then refuses.
+            # Grown over wordless clip lead-in at the head
+            # (`grow_cuts_over_wordless_leadin`) AND over a wordless
+            # tail at the end (`grow_cuts_over_wordless_tail`), because
+            # the nub the readability floor refuses forms at either
+            # edge: measured 2026-09-12, lc-0006 ends on Craig's word
+            # edge at 899.400 and the master's angle switch is at
+            # 899.482, so resuming there admitted 2 frames of the wrong
+            # camera. Neither growth may cross a timed word.
             moment_cuts = _tc.grow_cuts_over_wordless_leadin(
                 _tc.exclusion_cuts_for_span(
                     moment.timeline_start, moment.timeline_end,
                     keep_exclusions),
                 transcript)
+            moment_cuts, _tails_held = _tc.grow_cuts_over_wordless_tail(
+                moment_cuts, transcript)
+            for _held in _tails_held:
+                print(f"  keep exclusion {_held['id']} ends at "
+                      f"{_held['end']:.3f}s and was NOT grown forward "
+                      f"({_held['reason']}) - if the master cuts inside "
+                      f"the seconds after it, the strike strands a nub "
+                      f"the readability floor refuses", flush=True)
             for cut_start, cut_end, cut_id in moment_cuts:
                 print(f"  keep exclusion {cut_id} cuts "
                       f"{cut_start:.2f}-{cut_end:.2f}s from this reel - "
@@ -8206,6 +8232,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
                                     moment.timeline_end,
                                     keep_exclusions),
         transcript)
+    moment_cuts, _ = _tc.grow_cuts_over_wordless_tail(
+        moment_cuts, transcript)
     ranges = reel_ranges(
         moment, transcript, extra_cuts=moment_cuts,
         insisted_spans=_tc.insisted_spans_for_span(

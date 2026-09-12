@@ -892,6 +892,73 @@ def read_plans(project_folder: str) -> dict:
         return {}
 
 
+def rename_plan_reels(project_folder: str, mapping: dict) -> None:
+    """Rename ``plans[].reel`` in the recorded lower-third plans.
+
+    The staging half of promotion, and the exact mirror of
+    ``explainer_plan.rename_plan_reels``: a staged build records its
+    lower thirds under the STAGING container so F24 grades the
+    staging, and promotion renames the claim to the final timeline
+    name.  Without it the record is orphaned under a container that no
+    longer exists and :func:`plan_for` answers ``None`` for a reel that
+    really has a plan - which reads to F24 as items nothing accounts
+    for.  Measured 2026-09-12 on the first beside build of Reel 01:
+    two lower thirds placed on V7, F24 ERROR *"2 item(s) on the
+    lower-third row (V7) and this reel has no recorded speaker
+    lower-third plan at all"*.
+
+    A plan the previous build left under the final name is REPLACED,
+    never kept beside the renamed one.  Reels outside ``mapping`` are
+    untouched, and no file yet is a no-op.
+    """
+    import json
+
+    from library.tools.project_layout import Area, ProjectLayout
+    if not mapping:
+        return
+    path = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.REVIEW)), PLANS_FILE)
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    finals = set(mapping.values())
+    plans = [plan for plan in (payload.get("plans") or [])
+             if plan.get("reel") not in finals]
+    for plan in plans:
+        if plan.get("reel") in mapping:
+            plan["reel"] = mapping[plan["reel"]]
+    payload["plans"] = plans
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
+def drop_plan_reels(project_folder: str, names) -> None:
+    """Remove recorded lower-third plans for the named reels.
+
+    The gate-fail half of a refused staging, mirroring
+    ``explainer_plan.drop_plan_reels``: no record may survive for a
+    container that is about to be deleted.  Absent file or absent
+    names are no-ops.
+    """
+    import json
+
+    from library.tools.project_layout import Area, ProjectLayout
+    drop = set(names or ())
+    if not drop:
+        return
+    path = os.path.join(
+        str(ProjectLayout(project_folder).read_dir(Area.REVIEW)), PLANS_FILE)
+    if not os.path.isfile(path):
+        return
+    with open(path, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    payload["plans"] = [plan for plan in (payload.get("plans") or [])
+                        if plan.get("reel") not in drop]
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+
+
 def plan_for(plans: Optional[dict], reel_name: str) -> Optional[dict]:
     """The recorded plan for one reel BY NAME, or None.
 

@@ -4718,6 +4718,11 @@ def _derive_plan_from_master(
                     span_start, span_end,
                     _tc.keep_exclusions(project_folder)),
                 transcript or {})
+            # BOTH edges, exactly as the build grows them - a plan
+            # derived with one growth and a timeline placed with two
+            # disagree by construction.
+            struck, _ = _tc.grow_cuts_over_wordless_tail(
+                struck, transcript or {})
             if struck:
                 kr, _ = _absorb(
                     _subtract(kr, [(s, e) for s, e, _ in struck]),
