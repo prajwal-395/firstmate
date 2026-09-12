@@ -591,18 +591,23 @@ def test_caption_row_sits_one_pixel_above_the_safe_area():
     assert props["captionMaxWidth"] == profile.centered_usable_width
 
 
-def test_twenty_tilt_units_are_ten_pixels_at_the_floor():
+def test_forty_tilt_units_are_ten_pixels_at_the_floor():
     """The arithmetic the lift encodes, pinned where it is derived.
 
-    `placement_for_box` inverts the measured Resolve relation shift_y
-    = -2 * Tilt * placed_H / timeline_H on a 1080x1920 timeline (see
-    `tight_box.DRAW_GAIN_1080x1920`): a 480-tall canvas moves half a
-    delivery pixel per Tilt unit, so the captain's 20-unit correction
-    is 10px and a canvas centred at full-frame y 1395 reads Tilt
-    -870.0 while the +11-era design row (centre 1385) reads -850.0.
+    `placement_for_box` inverts the one measured Resolve relation,
+    shift_y = -Tilt * canvas_h / frame_h at native scale: a 480-tall
+    canvas moves a QUARTER of a delivery pixel per Tilt unit, so the
+    captain's 40-unit correction is 10px and a canvas centred at
+    full-frame y 1395 reads Tilt -1740.0 while the +11-era design row
+    (centre 1385) reads -1700.0.
+
+    Those two numbers are what Reel 13 and Reel 09 actually store,
+    read off the live timelines - which is the check that matters:
+    the design rows this engine computes and the values on the
+    captain's approved reels are the same numbers.
     """
     from library.tools.tight_box import placement_for_box
     assert placement_for_box(840, 480, 540.0, 1395.0, 1080, 1920) == {
-        "scaling": 1, "pan": 0.0, "tilt": -870.0}
+        "scaling": 1, "pan": 0.0, "tilt": -1740.0}
     assert placement_for_box(840, 480, 540.0, 1385.0, 1080, 1920) == {
-        "scaling": 1, "pan": 0.0, "tilt": -850.0}
+        "scaling": 1, "pan": 0.0, "tilt": -1700.0}

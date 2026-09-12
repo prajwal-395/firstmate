@@ -73,9 +73,21 @@ class FakeTimelineItem:
     so a fake that cannot decline cannot catch this.
     """
 
-    def __init__(self):
+    def __init__(self, source_size=None):
         self.properties = {}
         self.refused = []
+        self._source_size = source_size
+
+    def GetMediaPoolItem(self):
+        if self._source_size is None:
+            return None
+        size = self._source_size
+
+        class _Pool:
+            def GetClipProperty(self, name):
+                return f"{size[0]}x{size[1]}" if name == "Resolution" else None
+
+        return _Pool()
 
     def SetProperty(self, name, value):
         if name not in RESOLVE_VIDEO_ITEM_PROPERTIES:
@@ -149,7 +161,7 @@ class TestFramingEndToEnd:
         is what Resolve does. `PanX` passed this test for the life of the
         feature and moved nothing.
         """
-        item = FakeTimelineItem()
+        item = FakeTimelineItem(source_size=(3840, 2160))
         results = {"warnings": []}
         clip = {
             "needs_conform": True,
@@ -157,24 +169,54 @@ class TestFramingEndToEnd:
             "framing_pan_x": 50.0,
             "label": "test_clip",
         }
-        _apply_conform(item, clip, results)
+        _apply_conform(item, clip, results, frame_size=(1080, 1920))
 
         assert item.refused == [], f"Resolve would refuse {item.refused}"
         assert item.properties["ZoomX"] == 2.0
         assert item.properties["ZoomY"] == 2.0
+        # 50 delivery pixels, in the Pan UNIT the one measured law gives
+        # for 3840x2160 into 1080x1920: the fit is width-bound, so one
+        # unit is exactly one pixel on this axis and the number is
+        # unchanged.  It is unchanged because it was CONVERTED, not
+        # because a pixel is a unit - see the Tilt case below.
         assert item.properties["Pan"] == 50.0
         assert not results["warnings"]
 
     def test_renderer_uses_tilt_for_vertical_pan(self):
-        item = FakeTimelineItem()
+        """And converts the pixel offset into the Tilt UNIT.
+
+        A landscape source conformed into a vertical frame draws
+        `(2160/1920) * (1080/3840) = 0.3164` pixels per Tilt unit, so
+        -25 delivery pixels is Tilt -79.012.  Passing the pixel value
+        straight through moved the picture 25 * 0.3164 = 7.9px - the
+        3.16x under-aim this test exists to pin.
+        """
+        item = FakeTimelineItem(source_size=(3840, 2160))
         results = {"warnings": []}
         _apply_conform(item, {
             "needs_conform": True, "fill_zoom": 2.0,
             "framing_pan_y": -25.0, "label": "test_clip",
-        }, results)
+        }, results, frame_size=(1080, 1920))
         assert item.refused == []
-        assert item.properties["Tilt"] == -25.0
+        assert item.properties["Tilt"] == pytest.approx(-79.012, abs=0.01)
         assert not results["warnings"]
+
+    def test_a_pan_that_could_not_be_converted_says_so(self):
+        """An unreadable source size does not silently guess a unit.
+
+        The pixel value still goes through - refusing the pan would
+        trade a mis-aimed picture for an unaimed one - but the run
+        SAYS it was not converted.  Both wrong models of this transform
+        survived review by being silent about which units they were in.
+        """
+        item = FakeTimelineItem()
+        results = {"warnings": []}
+        _apply_conform(item, {
+            "needs_conform": True, "fill_zoom": 2.0,
+            "framing_pan_x": 50.0, "label": "test_clip",
+        }, results, frame_size=(1080, 1920))
+        assert item.properties["Pan"] == 50.0
+        assert any("unconverted pixels" in w for w in results["warnings"])
 
     def test_renderer_warns_when_resolve_refuses_a_property(self):
         """A refused SetProperty must be reported, not swallowed.

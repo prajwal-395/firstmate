@@ -81,8 +81,11 @@ def capture_shape_reason(doc) -> str:
                 and any(isinstance(t, dict) and "pull_file" in t
                         for t in timelines)):
             return "capture inventory (captured_at + timelines[].pull_file)"
-        # measure_overlay_draw_positions.py output: per-overlay ink
-        # geometry against the caption intent.  `draw_gain` beside
+        # The retired measure_overlay_draw_positions.py output:
+        # per-overlay ink geometry against the caption intent.  The
+        # tool is gone (it computed its screen rows FROM the draw-gain
+        # constant, so it could never contradict it), but its files are
+        # still on disk in project folders, and `draw_gain` beside
         # `overlays` is that measurement and nothing else.
         if "draw_gain" in doc and "overlays" in doc:
             return "overlay draw-position measurement (draw_gain + overlays)"

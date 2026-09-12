@@ -93,6 +93,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from library.tools.resolve_transform import drawn_centre, fit_base_scale
+
 from library.tools.framing_intent import (
     FILL,
     LETTERBOX,
@@ -259,12 +261,22 @@ def delivered_picture(source_width, source_height,
     pan = float(props.get("Pan") or 0.0)
     tilt = float(props.get("Tilt") or 0.0)
 
-    fit = min(frame_width / source_width, frame_height / source_height)
+    fit = fit_base_scale(source_width, source_height,
+                         frame_width, frame_height)
     shown_w = source_width * fit * zoom_x
     shown_h = source_height * fit * zoom_y
 
-    centre_x = frame_width / 2.0 + pan
-    centre_y = frame_height / 2.0 + tilt
+    # Pan/Tilt are NOT frame pixels.  One unit moves the clip
+    # `source_dim / frame_dim * fit` pixels - the same law every
+    # overlay is placed by (`library/tools/resolve_transform.py`).  On
+    # this project's 3840x2160 into 1080x1920 that is exactly 1.0 px
+    # on Pan and 0.3164 px on Tilt, which is why reading Tilt as
+    # frame pixels was right on one axis by coincidence and wrong by
+    # 3.16x on the other.  The user zoom does NOT enter it: measured,
+    # Pan 100 moved the picture 100px at zoom 1.0 and at 2.307 alike.
+    centre_x, centre_y = drawn_centre(
+        source_width, source_height, frame_width, frame_height,
+        pan, tilt, fit)
     left = int(round(centre_x - shown_w / 2.0))
     top = int(round(centre_y - shown_h / 2.0))
 

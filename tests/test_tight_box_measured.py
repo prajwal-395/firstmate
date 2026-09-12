@@ -389,19 +389,20 @@ def test_reused_placement_is_refused_when_clamped():
 
 
 def test_reused_placement_from_a_superseded_carriage_is_refused():
-    """Reel 28's invisible overlays: 18 tight captions stored Tilt
-    -1700 under the pre-#960 single-gain carriage read back cleanly
-    and draw ~415px below the frame. A sidecar from a superseded
-    carriage is REFUSED here - the caller re-renders measured -
-    rather than shipping a placement that draws off the frame."""
+    """Every `tight-480-2` sidecar carries HALF the Tilt its artefact
+    needs - that carriage computed placements under a draw gain that
+    does not exist - so restoring one verbatim draws the caption
+    ~108px above its row. A sidecar from a superseded carriage is
+    REFUSED here and the caller re-renders measured, which is the
+    same door `tight-480-1` was retired through."""
     from library.tools.overlay_mode import OVERLAY_CARRIAGE
 
-    assert OVERLAY_CARRIAGE == "tight-480-2"
+    assert OVERLAY_CARRIAGE == "tight-480-3"
     stale = {
         "width": 840,
         "height": 480,
-        "placement": {"scaling": 1, "pan": 0.0, "tilt": -1700.0},
-        "carriage": "tight-480-1",
+        "placement": {"scaling": 1, "pan": 0.0, "tilt": -432.0},
+        "carriage": "tight-480-2",
         "union": {"x0": 126, "y0": 1416, "x1": 937, "y1": 1596},
     }
     with pytest.raises(TightBoxMismatch, match="superseded carriage"):

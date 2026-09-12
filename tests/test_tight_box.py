@@ -176,11 +176,11 @@ def test_tilt_puts_canvas_bottom_where_full_canvas_put_content():
                   - box.props["style"]["safeArea"]["top"])
     canvas_cy = canvas_top + box.height / 2
     dy = canvas_cy - FULL_H / 2
-    # The / 2.0 is the measured 1080x1920 draw gain (see
-    # `tight_box.DRAW_GAIN_1080x1920`): Resolve draws twice the shift
-    # per unit the scratch relation predicts.
+    # No gain term: the shift is the clip-size proportion and nothing
+    # else (`library/tools/resolve_transform.py`, re-measured on 16
+    # rendered plates 2026-09-11).
     assert box.placement["tilt"] == pytest.approx(
-        -dy * (FULL_H / box.height) / 2.0)
+        -dy * (FULL_H / box.height))
 
 
 def test_top_positioned_captions_anchor_from_the_top():
@@ -192,33 +192,33 @@ def test_top_positioned_captions_anchor_from_the_top():
     canvas_cy = canvas_top + box.height / 2
     dy = canvas_cy - FULL_H / 2
     assert box.placement["tilt"] == pytest.approx(
-        -dy * (FULL_H / box.height) / 2.0)
+        -dy * (FULL_H / box.height))
     assert box.placement["pan"] == 0
 
 
 def test_placement_for_box_uses_measured_resolve_units():
-    """Pan/Tilt move a native-pixel clip at twice the scratch rate.
+    """Pan/Tilt move a native-pixel clip by its OWN size proportion.
 
-    The 2026-09-08 scratch measurement (Pan=200 moves a 400px-wide
-    clip 74px) no longer predicts what the reels draw. Measured on
-    still pixels 2026-09-11: a stored Tilt 1296 on a 480-tall canvas
-    draws 648px off centre, and the canvas core-glyph top lands
-    within 1px of the doubled prediction while the single-gain one
-    misses by 323px. So the same canvas position takes half the
-    units: Pan 100 where the scratch relation says 200.
+    The 2026-09-08 scratch measurement - Pan=200 moves a 400px-wide
+    clip 74px on a 1080 timeline, Tilt=300 moves a 200px-tall clip
+    31px on a 1920 one - is the relation, re-confirmed on 16 rendered
+    plates across two builds and four processes on 2026-09-11. The
+    "2x draw gain" briefly recorded between those two measurements
+    was calibrated against a captured Pan/Tilt rather than one it had
+    set, and is gone.
     """
     p = placement_for_box(canvas_w=400, canvas_h=200,
                           canvas_cx=540 + 74, canvas_cy=960 - 31,
                           full_w=1080, full_h=1920)
     assert p["scaling"] == 1
-    assert p["pan"] == pytest.approx(100, abs=2)
-    assert p["tilt"] == pytest.approx(150, abs=2)
+    assert p["pan"] == pytest.approx(200, abs=3)
+    assert p["tilt"] == pytest.approx(300, abs=3)
 
 
-def test_placement_for_box_keeps_scratch_units_off_the_measured_frame():
-    """Anything but 1080x1920 keeps the 2026-09-08 relation: the 2x
-    gain was measured on the reels' frame only, and an unprobed
-    geometry inherits nothing."""
+def test_placement_for_box_is_one_relation_at_every_frame_size():
+    """And it is NOT scoped to a frame: the same proportion answers
+    3840x2160, because it is geometry rather than a constant somebody
+    measured on one timeline."""
     p = placement_for_box(canvas_w=400, canvas_h=200,
                           canvas_cx=1920 + 200 * 400 / 3840,
                           canvas_cy=1080 - 300 * 200 / 2160,
@@ -294,15 +294,14 @@ def test_small_box_is_floored_at_the_minimum_canvas_height():
 
 
 def test_placement_formula_reproduces_the_captains_live_numbers():
-    """The brief's table pins the inversion at the measured gain: a
-    152-tall canvas centred 600px below frame centre needs Tilt
-    -3789.5 on 1080x1920 (half the -7578.9 the scratch relation
-    gives) - past the 3840 rail, which is why the small boxes never
-    landed even correctly computed."""
+    """The brief's table pins the inversion: a 152-tall canvas centred
+    600px below frame centre needs Tilt -7578.9 on 1080x1920 - twice
+    the measured 3840 rail, which is why the small boxes never landed
+    even correctly computed, and why `MIN_CANVAS_HEIGHT` exists."""
     p = placement_for_box(canvas_w=900, canvas_h=152,
                           canvas_cx=540, canvas_cy=960 + 600,
                           full_w=1080, full_h=1920)
-    assert p["tilt"] == pytest.approx(-3789.5, abs=0.5)
+    assert p["tilt"] == pytest.approx(-7578.9, abs=0.5)
     grown = placement_for_box(canvas_w=900, canvas_h=480,
                               canvas_cx=540, canvas_cy=960 + 600,
                               full_w=1080, full_h=1920)

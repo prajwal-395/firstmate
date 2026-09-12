@@ -197,8 +197,11 @@ Detail: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp. The per-property findings live where they are enforced.
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp.
 Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
+
+**Pan/Tilt is ONE model, and a unit is not a pixel.**
+Detail: `library/tools/resolve_transform.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
 

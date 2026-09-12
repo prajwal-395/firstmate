@@ -24,6 +24,29 @@ off-position - the captain's captions - so a value Resolve does not
 hold is REPORTED in the returned note, never raised: the clip IS on
 the timeline, and failing the build over a movable caption would
 trade a misplaced caption for a missing one.
+
+What a RESOLUTION CHANGE does to values already stored
+-----------------------------------------------------
+Measured 2026-09-11 on Resolve Studio 21.1.0.14, on a scratch project,
+by setting a value and reading it back from a SEPARATE process:
+
+- a timeline that INHERITS the project resolution is rescaled when the
+  project's changes. Pan 79.06 / Tilt 1296 set at 1080x1920 read back
+  281.102 / 1458 after the project moved to 3840x2160 - Pan by
+  `new_w / old_w`, Tilt by `new_h / old_h` - and the change persists
+  across processes.
+- it is stateless and exact: putting the resolution back gives the
+  original numbers to the last digit.
+- `SetSetting("useCustomSettings", "1")` does NOT freeze a timeline
+  where it is. It snaps to 1920x1080 first, rescaling everything on the
+  way, so a builder that ticks custom settings must set the resolution
+  afterwards or the timeline lands transposed.
+
+Resolve is preserving the FRAMING, which is right for a picture and
+destroys a value computed for a specific frame. Nothing here changes a
+built timeline's resolution - every reel carries `useCustomSettings=1`
+at the delivery size - and this is written down so the next person to
+reach for `SetSetting` on a built timeline knows what it costs.
 """
 
 from __future__ import annotations
@@ -56,6 +79,16 @@ def entry_unit_mismatch(project, target_wh: tuple) -> str:
     else the reason the caller must refuse rather than place: a
     scaled store reads back cleanly and sits wrong, which is the
     wrong-but-stored failure this module exists to prevent.
+
+    **Re-probed 2026-09-11 on Resolve Studio 21.1.0.14 and it did NOT
+    reproduce**: an entry on a 3840x2160 master in the same project,
+    with the 1080x1920 target then made current and placed through
+    this module, stored literally and read literally from a fresh
+    process. The guard stays - one negative on one build does not
+    retire a measured behaviour, and refusing costs nothing - but it
+    is no longer evidence for anything. Five reels do carry every
+    transform at exactly 4x what their build asked for, picture and
+    overlay alike, and this is not the mechanism.
     """
     try:
         entry = project.GetCurrentTimeline()
@@ -134,7 +167,7 @@ def _intent_reason(draw_intent: Optional[dict],
     The stored value is judged by the PICTURE it produces, never
     against another clip's number: a full-frame overlay at Tilt 0 and
     a tight overlay at Tilt -870 draw in the same place, so the same
-    intent accepts both, while a stale-carriage -1700 is refused
+    intent accepts both, while a stale-carriage value is refused
     however cleanly it reads back.
 
     A `draw_intent` this cannot read is NOT silently skipped - a
@@ -167,17 +200,22 @@ def apply_placement_transform(timeline, track_index: int,
                               kind: Optional[str] = None,
                               segment_id: Optional[str] = None,
                               intent: Optional[dict] = None,
-                              draw_intent: Optional[dict] = None) -> str:
+                              draw_intent: Optional[dict] = None,
+                              canvas: Optional[tuple] = None,
+                              frame: Optional[tuple] = None) -> str:
     """Move an already-placed overlay clip onto its tight box.
 
     `placement` is None for a full-canvas clip (nothing to do), else
     the `{"scaling", "pan", "tilt"}` mapping `tight_box` computed.
     Where the project declares intent for this overlay
     (`library/tools/overlay_intent.py` - `kind`/`segment_id` select
-    the pin), the declared position wins over the computed one, so a
+    the pin), the declared POSITION wins over the computed one, so a
     rebuild lands where the captain put things instead of
-    recomputing past their corrections. Without intent the computed
-    placement applies exactly as before.
+    recomputing past their corrections. A pin names a place, so
+    `canvas` and `frame` are what it is turned into a transform
+    against; a matching pin without them RAISES rather than reading
+    as honoured. Without intent the computed placement applies
+    exactly as before, and neither size is needed.
     Returns the warning note, `""` when everything landed: a refused
     transform still leaves the clip placed, so it is REPORTED here and
     never raised - the clip IS on the timeline.
@@ -195,15 +233,17 @@ def apply_placement_transform(timeline, track_index: int,
     (`tight_box.verify_ink_against_intent`) and compared with that
     box.  A read-back alone cannot see a value computed under a
     superseded draw relation - it reads back exactly what was set -
-    which is how Reel 28 shipped 18 captions stored at Tilt -1700
-    that draw 415px below the frame while every gate passed.  An
+    which is how five reels shipped 17 motion graphics stored at
+    Tilt 5184 that draw entirely off the top of the frame (rows
+    -576..-96) while every gate passed.  An
     overlay WITHOUT `draw_intent` behaves exactly as before.
     """
     from library.tools.overlay_intent import resolve as resolve_intent
 
     name = label or "overlay"
     placement, provenance = resolve_intent(kind, segment_id, placement,
-                                           intent)
+                                           intent, canvas=canvas,
+                                           frame=frame)
     if provenance == "declared":
         name = f"{name} (declared position)"
     if not placement:
@@ -302,6 +342,8 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           segment_id: Optional[str] = None,
                           intent: Optional[dict] = None,
                           draw_intent: Optional[dict] = None,
+                          canvas: Optional[tuple] = None,
+                          frame: Optional[tuple] = None,
                           ) -> tuple[bool, str]:
     """Place one overlay clip and, where asked, transform it.
 
@@ -331,4 +373,4 @@ def place_overlay_segment(media_pool, timeline, pool_item,
     return True, apply_placement_transform(
         timeline, track_index, record_frame, placement, label,
         kind=kind, segment_id=segment_id, intent=intent,
-        draw_intent=draw_intent)
+        draw_intent=draw_intent, canvas=canvas, frame=frame)

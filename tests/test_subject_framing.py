@@ -310,11 +310,16 @@ def test_the_pan_reaches_a_property_resolve_accepts():
     clip["label"] = "subject_tracked"
     assert clip["framing_pan_x"] > 0
 
-    item = FakeTimelineItem()
+    item = FakeTimelineItem(source_size=(3840, 2160))
     results = {"warnings": []}
-    _apply_conform(item, clip, results)
+    _apply_conform(item, clip, results, frame_size=(1080, 1920))
 
     assert item.refused == [], f"Resolve would refuse {item.refused}"
-    assert item.properties["Pan"] == clip["framing_pan_x"]
+    # The manifest carries delivery pixels; Resolve takes units.  On a
+    # 3840x2160 source in a 1080x1920 frame the Pan unit is exactly one
+    # pixel (the fit is width-bound), so the number is unchanged here -
+    # having been converted, not assumed.
+    assert item.properties["Pan"] == pytest.approx(clip["framing_pan_x"],
+                                                   abs=0.01)
     assert item.properties["ZoomX"] == clip["fill_zoom"]
     assert not results["warnings"]

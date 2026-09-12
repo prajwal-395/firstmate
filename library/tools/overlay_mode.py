@@ -26,11 +26,15 @@ GEOMETRIES = ("full", "tight")
 #: and placed with no transform; `tight-480-1` renders the tight
 #: canvas (floored at `tight_box.MIN_CANVAS_HEIGHT`) and carries it on
 #: Scaling/Pan/Tilt Resolve holds inside its measured 3840 rail
-#: (`library/tools/tight_box.py`); `tight-480-2` is the same carrying
-#: with placements computed under the measured 2x draw gain - a
-#: `tight-480-1` sidecar restored verbatim would serve a placement
-#: that draws twice as far as intended, so the bump retires it.
-OVERLAY_CARRIAGE = "tight-480-2"
+#: (`library/tools/tight_box.py`); `tight-480-2` computed those
+#: placements under a "2x draw gain" that does not exist, so every
+#: one of its sidecars carries HALF the Tilt its artefact needs;
+#: `tight-480-3` computes them from the one measured law
+#: (`library/tools/resolve_transform.py`, gain 1, re-measured on 16
+#: rendered plates across two builds). A `tight-480-2` sidecar
+#: restored verbatim would draw its caption ~108px high, so the bump
+#: retires it exactly as it retired `tight-480-1`.
+OVERLAY_CARRIAGE = "tight-480-3"
 
 CONTAINERS = ("video", "frames")
 """What reaches Resolve: one stitched mov, or the PNG sequence itself."""

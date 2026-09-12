@@ -865,16 +865,22 @@ def punch_in_properties(look: dict, subject, source_width: int,
       With the frame turned upright the minimum is 2.3070 against the
       captain's declared 2.30, which is the bezel and the punch-in
       agreeing to three pixels.
-    - **Pan and Tilt** aim the subject at the centre of the WINDOW, in
-      timeline pixels, and are clamped so the picture still covers that
-      window on every edge.  Aiming at the frame centre would aim at a
-      point the viewer cannot see through the bezel.
+    - **Pan and Tilt** aim the subject at the centre of the WINDOW and
+      are clamped so the picture still covers that window on every
+      edge.  Aiming at the frame centre would aim at a point the
+      viewer cannot see through the bezel.  The aim is computed in
+      frame pixels and converted to Resolve units by the one measured
+      law (`library/tools/resolve_transform.py`) - a unit is not a
+      pixel, and treating it as one under-applied every vertical aim
+      by 3.16x.
     - Then the result is CHECKED: a transform that leaves any black
       inside the window raises `PunchInLeavesBlack` rather than being
       placed.  That is the defect the captain has had to catch twice,
       and a post-condition is what stops a third time.
     """
     from library.tools.tv_frame import v1_zoom_for_look, window_cover_zoom
+    from library.tools.resolve_transform import (
+        fit_base_scale, pan_tilt_for_centre)
 
     if subject is None:
         return None
@@ -891,24 +897,35 @@ def punch_in_properties(look: dict, subject, source_width: int,
                                  frame_width, frame_height)
     zoom = max(declared, required)
 
-    fit = min(frame_width / source_width, frame_height / source_height)
+    fit = fit_base_scale(source_width, source_height,
+                         frame_width, frame_height)
     shown_width = source_width * fit * zoom
     shown_height = source_height * fit * zoom
 
     window_cx = (window[0] + window[2]) / 2.0
     window_cy = (window[1] + window[3]) / 2.0
-    # Put the subject at the centre of what the viewer can actually see.
-    pan = window_cx - frame_width / 2.0 + shown_width * (
-        0.5 - float(subject.center_x))
-    tilt = window_cy - frame_height / 2.0 + shown_height * (
+    # The aim is decided in FRAME PIXELS - put the subject at the
+    # centre of what the viewer can actually see - and converted to
+    # Resolve units once, at the end.  Pan/Tilt are not frame pixels:
+    # one unit moves the picture `source_dim / frame_dim * fit`
+    # pixels (`library/tools/resolve_transform.py`, the same law every
+    # overlay is placed by).  Spelling the aim in units directly was
+    # right on Pan only because this geometry's fit is width-bound,
+    # which makes that factor exactly 1; on Tilt it under-applied the
+    # aim by 3.16x, and `assert_covers_window` read the result back
+    # through the same error, so it could pass a punch that leaves
+    # black.  Both halves now speak one language.
+    aim_x = window_cx + shown_width * (0.5 - float(subject.center_x))
+    aim_y = window_cy + shown_height * (
         0.5 - float(getattr(subject, "center_y", 0.5)))
     # And no further than the picture can go while still covering it.
-    pan_low = window[2] - frame_width / 2.0 - shown_width / 2.0
-    pan_high = window[0] - frame_width / 2.0 + shown_width / 2.0
-    tilt_low = window[3] - frame_height / 2.0 - shown_height / 2.0
-    tilt_high = window[1] - frame_height / 2.0 + shown_height / 2.0
-    pan = max(pan_low, min(pan_high, pan))
-    tilt = max(tilt_low, min(tilt_high, tilt))
+    aim_x = max(window[2] - shown_width / 2.0,
+                min(window[0] + shown_width / 2.0, aim_x))
+    aim_y = max(window[3] - shown_height / 2.0,
+                min(window[1] + shown_height / 2.0, aim_y))
+    pan, tilt = pan_tilt_for_centre(
+        source_width, source_height, frame_width, frame_height,
+        aim_x, aim_y, fit)
 
     properties = {"ZoomX": zoom, "ZoomY": zoom,
                   "Pan": round(pan, 3), "Tilt": round(tilt, 3)}

@@ -6,9 +6,11 @@ captured in `timeline_captures/reel13-live-20260911/` of the geo-podcast
 project repo - moved out of this repo's `captures/` drop zone, because
 project data lives with the project and never in the pipeline.  The
 capture tooling that produced it (`capture_timeline.py`,
-`capture_fusion_comps.py`, `measure_overlay_draw_positions.py`) lives
-in `library/tools/`; the guard refusing a recommit is
-`library/tools/project_data_guard.py`.
+`capture_fusion_comps.py`) lives in `library/tools/`; the guard
+refusing a recommit is `library/tools/project_data_guard.py`.
+`measure_overlay_draw_positions.py` produced the draw-position half
+and has been DELETED: it computed each overlay's screen row FROM the
+draw-gain constant, so it could only ever restate that constant.
 
 ---
 
@@ -143,19 +145,25 @@ their defaults on Reel 13, so none of those changed.  What it cannot see:
 ### The rule, in one sentence
 
 > **Pan and Tilt move a clip by a fraction of its OWN canvas, not of the frame -
-> the shift is `value x (canvas_dimension / frame_dimension) x draw_gain` - so an
-> overlay already rendered full-frame is in position at 0 while the identical
-> caption rendered on a 480-tall tight canvas needs Tilt -870 to reach the same
-> screen row; the Inspector number is only readable with the clip's own resolution
-> beside it.**
+> the shift is `value x (canvas_dimension / frame_dimension) x base_scale`, with
+> `base_scale` 1 at `Scaling=1` - so an overlay already rendered full-frame is in
+> position at 0 while the identical caption rendered on a 480-tall tight canvas
+> needs Tilt -1740 to reach the same screen row; the Inspector number is only
+> readable with the clip's own resolution beside it.**
 
-He is right that something else is at play, and that is it.  On this project's
-1080x1920 reels `draw_gain` is 2 (`tight_box.DRAW_GAIN_1080x1920`).
+He is right that something else is at play, and that is it.  There is no
+"draw gain": the law lives once in `library/tools/resolve_transform.py` and
+the factor is 1 on both axes, re-measured 2026-09-11 on 16 rendered plates
+across two builds and four processes.  **This document originally recorded a
+gain of 2 and a stored `Tilt -870`, and both halves of that pairing were
+wrong together**: the gain came from a measurement calibrated against a
+CAPTURED Pan/Tilt, and the capture it used was half the value in force.
+Reel 13 stores `Tilt -1740`.
 
 Proven on exported pixels, not on a read-back: a still exported from Reel 13 at
 frame 900, correlation-scanned against the caption artefact that plays there,
 locates the 840x480 canvas at frame row **1155** - exactly what the relation
-predicts for `Tilt -870` - with its ink at rows 1435..1587 against a nominal
+predicts for `Tilt -1740` - with its ink at rows 1435..1587 against a nominal
 caption row bottom of 1589 (`1920 - 320 safe-area inset - CAPTION_LIFT_PX 11`).
 The full-frame caption at frame 600, stored `Tilt 0`, draws 1:1 at rows 1415..1572.
 **Two Inspector numbers, one screen row.**

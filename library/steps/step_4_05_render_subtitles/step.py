@@ -1183,10 +1183,11 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     # (`overlay_mode.OVERLAY_CARRIAGE`). The restore
                     # path refuses a sidecar from a superseded
                     # carriage rather than serving a placement that
-                    # draws off the frame - Reel 28 shipped 18 tight
-                    # captions stored at Tilt -1700 under the
-                    # pre-#960 single-gain carriage, two minutes
-                    # before the draw-gain correction landed.
+                    # draws where it was not rendered for - every
+                    # `tight-480-2` sidecar carries half the Tilt its
+                    # artefact needs, because that carriage computed
+                    # placements under a draw gain that does not
+                    # exist.
                     "carriage": OVERLAY_CARRIAGE,
                     "union": {
                         "x0": probe_union.x0,

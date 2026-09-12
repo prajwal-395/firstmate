@@ -225,7 +225,31 @@ _CONFORM_PAN_PROP = "Pan"
 _CONFORM_TILT_PROP = "Tilt"
 
 
-def _apply_conform(timeline_item, clip: dict, results: dict) -> None:
+def _item_source_size(timeline_item):
+    """The placed item's own source resolution, or None.
+
+    Judged by what `GetClipProperty` RETURNS (AGENTS.md 5): a proxy
+    that does not serve it, a missing pool item or an unparseable
+    string all answer None, and the caller then says the Pan went
+    through unconverted rather than guessing a unit.
+    """
+    try:
+        pool_item = timeline_item.GetMediaPoolItem()
+        raw = pool_item.GetClipProperty("Resolution")
+    except Exception:  # noqa: BLE001 - judged by the return, not raised
+        return None
+    try:
+        width, height = str(raw).lower().split("x")
+        width, height = int(width), int(height)
+    except (AttributeError, TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return (width, height)
+
+
+def _apply_conform(timeline_item, clip: dict, results: dict,
+                   frame_size=None) -> None:
     """Scale and optionally pan a clip within the output frame.
 
     ``fill_zoom`` controls how much of the gap between fit (letterbox) and
@@ -268,11 +292,42 @@ def _apply_conform(timeline_item, clip: dict, results: dict) -> None:
         if not _set(prop, zoom):
             return
 
-    # Pan/Tilt: pixel offset from centre, computed by compile_manifest from
-    # a normalised -1..1 value. Only applied when non-zero so existing
-    # projects that never set them are byte-identical.
+    # Pan/Tilt: the MANIFEST carries a pixel offset from centre, computed
+    # by compile_manifest from a normalised -1..1 value. Resolve's Pan and
+    # Tilt are NOT pixels - one unit moves the clip
+    # `source_dim / frame_dim * fit` pixels, the one measured law in
+    # `library/tools/resolve_transform.py`. For a delivery that shares the
+    # source's aspect the factor is exactly 1 on both axes, which is why a
+    # pixel value passed straight through has always looked right; for a
+    # landscape source conformed into a vertical frame it is 1.0 on Pan
+    # and 0.316 on Tilt, and the vertical aim is then under-applied 3.16x.
+    # Only applied when non-zero so projects that never set them are
+    # byte-identical.
     pan_x = clip.get("framing_pan_x")
     pan_y = clip.get("framing_pan_y")
+    if pan_x or pan_y:
+        source_size = _item_source_size(timeline_item)
+        if source_size and frame_size:
+            from library.tools.resolve_transform import (
+                fit_base_scale, units_for_shift)
+            base = fit_base_scale(source_size[0], source_size[1],
+                                  frame_size[0], frame_size[1])
+            if pan_x:
+                pan_x = round(units_for_shift(
+                    pan_x, source_size[0], frame_size[0], base), 3)
+            if pan_y:
+                pan_y = round(units_for_shift(
+                    pan_y, source_size[1], frame_size[1], base), 3)
+        elif pan_x or pan_y:
+            # Without both sizes the conversion is unknowable, so the
+            # pixel value goes through as it always has - and SAYS it was
+            # not converted, because a silent guess is how the two wrong
+            # models above survived.
+            results["warnings"].append(
+                f"Conform pan for {label} was set in unconverted pixels: "
+                f"source size {source_size!r}, frame size {frame_size!r}. "
+                f"One of them is unreadable, so the Pan/Tilt unit could "
+                f"not be derived (library/tools/resolve_transform.py).")
     if pan_x:
         _set(_CONFORM_PAN_PROP, pan_x)
     if pan_y:
@@ -1148,7 +1203,8 @@ def build_timeline(
                 kept = _enforce_program_stream(_angle_key, a_list, a_label)
                 a_placed = kept[0] if kept else None
 
-                _apply_conform(placed, clip, results)
+                _apply_conform(placed, clip, results,
+                               frame_size=(width, height))
                 v1_timeline_items.append(placed)
                 _placed_here.append((placed, clip))
                 v1_placed_labels.append(clip.get('label', basename))
@@ -1240,7 +1296,8 @@ def build_timeline(
 
             if result:
                 placed_v2 = result[0] if isinstance(result, list) else result
-                _apply_conform(placed_v2, clip, results)
+                _apply_conform(placed_v2, clip, results,
+                               frame_size=(width, height))
                 v2_count += 1
                 v2_placed_labels.append(clip.get('label', basename))
                 print(f"  ✓ [{ci}] {clip.get('label', basename)}: TL {tl_in_f}", file=sys.stderr)

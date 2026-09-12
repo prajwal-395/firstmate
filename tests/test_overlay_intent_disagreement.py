@@ -19,19 +19,38 @@ import pytest
 from library.tools import overlay_intent
 
 COMPUTED = {"scaling": 1, "pan": 0.0, "tilt": -435.0}
+FRAME = (1080, 1920)
+CANVAS = (840, 480)
+
+
+def _pin(tilt):
+    """A version-2 pin naming the place that `tilt` reaches on CANVAS.
+
+    Spelled as a place, because that is what a pin is now; written from
+    a tilt so the fixtures below stay the numbers the incident was
+    reported in.
+    """
+    # Positive Tilt moves the clip UP, so the centre goes the other way.
+    return {"canvas_centre": [540.0, 960.0 - tilt * (CANVAS[1] / FRAME[1])],
+            "scaling": 1}
+
+
+def _resolve(kind, segment_id, computed, intent):
+    return overlay_intent.resolve(kind, segment_id, computed, intent,
+                                  canvas=CANVAS, frame=FRAME)
 
 
 def test_a_pin_still_wins():
-    intent = {"seg-1": {"scaling": 1, "pan": 0.0, "tilt": -870.0}}
-    placement, provenance = overlay_intent.resolve(
+    intent = {"seg-1": _pin(-870.0)}
+    placement, provenance = _resolve(
         "caption", "seg-1", COMPUTED, intent)
     assert provenance == "declared"
     assert placement["tilt"] == -870.0
 
 
 def test_a_material_disagreement_is_reported(capsys):
-    intent = {"seg-1": {"scaling": 1, "pan": 0.0, "tilt": -870.0}}
-    overlay_intent.resolve("caption", "seg-1", COMPUTED, intent)
+    intent = {"seg-1": _pin(-870.0)}
+    _resolve("caption", "seg-1", COMPUTED, intent)
     err = capsys.readouterr().err
     assert "OVERRULES" in err
     assert "-870" in err and "-435" in err
@@ -42,14 +61,14 @@ def test_a_material_disagreement_is_reported(capsys):
 def test_agreement_says_nothing(capsys):
     """Below the threshold the two answers are the same place, and
     saying so on every overlay would teach a reader to skip the line."""
-    intent = {"seg-1": {"scaling": 1, "pan": 0.0, "tilt": -437.0}}
-    overlay_intent.resolve("caption", "seg-1", COMPUTED, intent)
+    intent = {"seg-1": _pin(-437.0)}
+    _resolve("caption", "seg-1", COMPUTED, intent)
     assert capsys.readouterr().err == ""
 
 
 def test_an_unpinned_overlay_reports_nothing(capsys):
-    placement, provenance = overlay_intent.resolve(
-        "caption", "seg-2", COMPUTED, {"seg-1": dict(COMPUTED)})
+    placement, provenance = _resolve(
+        "caption", "seg-2", COMPUTED, {"seg-1": _pin(-435.0)})
     assert provenance == "computed" and placement == COMPUTED
     assert capsys.readouterr().err == ""
 
@@ -57,8 +76,8 @@ def test_an_unpinned_overlay_reports_nothing(capsys):
 def test_a_pin_with_nothing_to_compare_against_is_not_an_alarm(capsys):
     """A fresh placement with no computed value is not a disagreement -
     there is no second answer for the pin to overrule."""
-    intent = {"seg-1": {"scaling": 1, "pan": 0.0, "tilt": -870.0}}
-    overlay_intent.resolve("caption", "seg-1", None, intent)
+    intent = {"seg-1": _pin(-870.0)}
+    _resolve("caption", "seg-1", None, intent)
     assert capsys.readouterr().err == ""
 
 

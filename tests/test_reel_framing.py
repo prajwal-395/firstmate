@@ -156,12 +156,28 @@ class TestDisagreement:
 
     def test_one_pixel_is_the_same_picture_and_two_is_not(self):
         """The only tolerance is the resolution of the medium: one real
-        number rounded by two rules can land a pixel apart."""
+        number rounded by two rules can land a pixel apart.
+
+        The tolerance is in PIXELS, and a Tilt unit is not a pixel: on
+        this geometry one unit draws `(2160/1920) * (1080/3840)` =
+        0.3164 px, so a pixel of movement is Tilt 3.16 and two pixels
+        is Tilt 6.32.  Spelling these as `PIXEL` and `PIXEL + 1` was
+        the picture path's own version of the defect - it asked for
+        two pixels and moved two thirds of one.
+        """
+        one_pixel_of_tilt = 1.0 / ((2160 / 1920) * (1080 / 3840))
+        assert one_pixel_of_tilt == pytest.approx(3.1605, abs=0.001)
         base = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, _HARVEST)
+        # NEGATIVE, because positive Tilt moves the picture UP - measured,
+        # and the other half of what this path had wrong: it added Tilt to
+        # the centre, so every vertical aim went the wrong way as well as
+        # 3.16x short.
         near = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
-                                 dict(_HARVEST, Tilt=float(PIXEL)))
+                                 dict(_HARVEST, Tilt=-one_pixel_of_tilt))
         far = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
-                                dict(_HARVEST, Tilt=float(PIXEL) + 1))
+                                dict(_HARVEST, Tilt=-2 * one_pixel_of_tilt))
+        assert near.top == base.top + PIXEL
+        assert far.top == base.top + 2 * PIXEL
         assert disagreement(near, base) is None
         assert disagreement(far, base) is not None
 

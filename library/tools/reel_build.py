@@ -3702,6 +3702,18 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     return items[0] if items else None
 
 
+def _overlay_canvas(segment: dict):
+    """The canvas one overlay segment is placed at, or None.
+
+    A declared pin names a PLACE, and the transform that reaches it is
+    computed against this (`overlay_intent.transform_for`). None is a
+    full-canvas segment, which needs no transform and takes no pin.
+    """
+    tight = (segment or {}).get("tight_box") or {}
+    width, height = tight.get("width"), tight.get("height")
+    return (int(width), int(height)) if width and height else None
+
+
 def _overlay_segment_id(segment: dict) -> str:
     """The intent key for one overlay segment.
 
@@ -3875,7 +3887,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            segments, track_rows, kind: str,
                            check: str, properties: dict = None,
                            project_folder: str = "",
-                           overlay_intent: dict = None) -> None:
+                           overlay_intent: dict = None,
+                           frame: tuple = None) -> None:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -3985,13 +3998,20 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # A declared pin for this segment wins over the computed
         # placement (Reel 09: the captain's hand corrections), so a
         # rebuild lands where they put things.
+        tight = segment.get("tight_box") or {}
         note = apply_placement_transform(
             timeline, track_index, record_frame,
-            (segment.get("tight_box") or {}).get("placement"),
+            tight.get("placement"),
             label=f"{kind} at {segment['timeline_start']:.2f}s",
             kind=kind,
             segment_id=_overlay_segment_id(segment),
-            intent=overlay_intent)
+            intent=overlay_intent,
+            # A pin names a PLACE; the canvas going down is what turns
+            # it into a transform (`overlay_intent.transform_for`).
+            canvas=((tight.get("width"), tight.get("height"))
+                    if tight.get("width") and tight.get("height")
+                    else None),
+            frame=frame)
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
 
@@ -4575,7 +4595,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             kind="TV frame", check="F4",
             properties=_look.frame_properties(look, width, height),
             project_folder=project_folder,
-            overlay_intent=overlay_intent)
+            overlay_intent=overlay_intent, frame=(width, height))
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -4678,7 +4698,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             label=segment.get("segment_id", "caption"),
             kind="caption",
             segment_id=segment.get("segment_id"),
-            intent=overlay_intent)
+            intent=overlay_intent,
+            canvas=_overlay_canvas(segment),
+            frame=(width, height))
         if not placed:
             print(f"Failed to place {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
@@ -4759,7 +4781,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             [row.index for row in track_plan.rows_for_role(EXPLAINER)],
             kind="explainer", check="F21",
             project_folder=project_folder,
-            overlay_intent=overlay_intent)
+            overlay_intent=overlay_intent, frame=(width, height))
 
 
 
@@ -4773,7 +4795,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             [row.index for row in track_plan.rows_for_role(SEMANTIC)],
             kind="semantic visual", check="F22",
             project_folder=project_folder,
-            overlay_intent=overlay_intent)
+            overlay_intent=overlay_intent, frame=(width, height))
 
     # ── Link pass: picture to speech, captions into the group ──
     # Span-based, in ONE call per speech item (see `link_reel_groups`

@@ -62,21 +62,27 @@ def _numbers(stored: Optional[dict]) -> Optional[Dict[str, float]]:
 
 def verify_values(clips: Sequence[dict], intent: Optional[dict],
                   computed: Optional[dict] = None,
-                  tolerance: float = READBACK_TOLERANCE) -> dict:
+                  tolerance: float = READBACK_TOLERANCE,
+                  full_wh: Tuple[int, int] = (1080, 1920)) -> dict:
     """Stored transforms against intent, without rendering anything.
 
-    `clips` carry `label`, `kind`, `segment_id` and `stored`
-    (`{scaling, pan, tilt}` as read off the timeline). `computed`
-    maps `(kind, segment_id)` to the pipeline's own placement (None
-    for full-canvas). Each clip resolves its expectation through
+    `clips` carry `label`, `kind`, `segment_id`, `stored`
+    (`{scaling, pan, tilt}` as read off the timeline) and, where the
+    clip is a tight one, `canvas_wh`. `computed` maps
+    `(kind, segment_id)` to the pipeline's own placement (None for
+    full-canvas). Each clip resolves its expectation through
     `overlay_intent.resolve` - declared wins - and the stored value
     must match it within `tolerance`.
 
     A clip with no expectation at all (no pin, no computed value) is
     SKIPPED, never passed: full-canvas clips carry no transform to
     judge, and an unknown segment id is a fact the caller must see.
+    A clip a PIN matches but whose canvas this cannot see is skipped
+    the same way, naming the canvas as what is missing - a pin names a
+    place, and the transform reaching it needs the canvas.
     """
-    from library.tools.overlay_intent import resolve as resolve_intent
+    from library.tools.overlay_intent import (
+        OverlayIntentError, resolve as resolve_intent)
 
     computed = computed or {}
     findings: List[dict] = []
@@ -87,9 +93,15 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
         kind = clip.get("kind")
         segment_id = clip.get("segment_id")
         stored = _numbers(clip.get("stored"))
-        expected, provenance = resolve_intent(
-            kind, segment_id,
-            computed.get((kind, segment_id)), intent)
+        canvas_wh = clip.get("canvas_wh")
+        try:
+            expected, provenance = resolve_intent(
+                kind, segment_id, computed.get((kind, segment_id)), intent,
+                canvas=tuple(canvas_wh) if canvas_wh else None,
+                frame=tuple(full_wh))
+        except OverlayIntentError as exc:
+            skipped.append({"label": label, "reason": str(exc)})
+            continue
         if expected is None or stored is None:
             skipped.append({
                 "label": label,
@@ -209,7 +221,8 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
     fails with both positions named. Clips without a decodable frame
     are SKIPPED loudly - an unverifiable pair is not a passing pair.
     """
-    from library.tools.overlay_intent import resolve as resolve_intent
+    from library.tools.overlay_intent import (
+        OverlayIntentError, resolve as resolve_intent)
 
     computed = computed or {}
     findings: List[dict] = []
@@ -222,9 +235,14 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
         frame_path = clip.get("asset_frame")
         canvas_wh = clip.get("canvas_wh")
         stored = _numbers(clip.get("stored"))
-        expected, provenance = resolve_intent(
-            kind, segment_id,
-            computed.get((kind, segment_id)), intent)
+        try:
+            expected, provenance = resolve_intent(
+                kind, segment_id, computed.get((kind, segment_id)), intent,
+                canvas=tuple(canvas_wh) if canvas_wh else None,
+                frame=tuple(full_wh))
+        except OverlayIntentError as exc:
+            skipped.append({"label": label, "reason": str(exc)})
+            continue
         if (not frame_path or not canvas_wh or stored is None
                 or expected is None):
             skipped.append({

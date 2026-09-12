@@ -29,9 +29,13 @@ COMPUTED = {"scaling": 1, "pan": 0.0, "tilt": -7929.0}
 CLAMPED = {"scaling": 1, "pan": 0.0, "tilt": -7680.0}
 
 
+#: The tight canvas the Reel 09 captions were placed on.
+CANVAS = (840, 480)
+
+
 def _clip(label, stored, kind="caption", segment_id="sub_x"):
     return {"label": label, "kind": kind, "segment_id": segment_id,
-            "stored": stored}
+            "stored": stored, "canvas_wh": CANVAS}
 
 
 def test_matching_store_passes_values():
@@ -60,7 +64,8 @@ def test_identity_store_on_tight_clip_fails_values():
 
 
 def test_declared_intent_is_the_expectation():
-    intent = {"caption": {"pan": 0.0, "tilt": -1700.0, "scaling": 1}}
+    # The pin names the PLACE Tilt -1700 reaches on this canvas.
+    intent = {"caption": {"canvas_centre": [540.0, 1385.0], "scaling": 1}}
     computed = {("caption", "sub_x"): {"scaling": 1, "pan": 0.0,
                                        "tilt": -1744.0}}
     report = verify_values(
@@ -71,7 +76,7 @@ def test_declared_intent_is_the_expectation():
 
 
 def test_computed_store_fails_against_declared_intent():
-    intent = {"caption": {"pan": 0.0, "tilt": -1700.0, "scaling": 1}}
+    intent = {"caption": {"canvas_centre": [540.0, 1385.0], "scaling": 1}}
     computed = {("caption", "sub_x"): {"scaling": 1, "pan": 0.0,
                                        "tilt": -1744.0}}
     report = verify_values(

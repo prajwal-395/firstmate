@@ -92,23 +92,23 @@ VALID_POSITIONS = ("bottom", "center", "top")
 #: platform safe-area bottom inset.
 #:
 #: Measured, not chosen. On Reel 13 the captain hand-corrected all 20
-#: tight captions uniformly from the computed Tilt -850.0 to -870.0; at
-#: the 480-pixel tight-canvas floor one Tilt unit is half a delivery
-#: pixel (`tight_box.placement_for_box` under the measured 2x draw
-#: gain: shift_y = -G * Tilt * placed_H / timeline_H with G = 2), so 20
-#: units is exactly 10.0 delivery pixels. An exported still of that
-#: timeline correlation-scans the corrected canvases onto frame row
-#: 1155 with their ink on the caption row, while the computed -850
-#: draws the same cards' middle-frame ink ~10px high (worst card 12px).
-#: The shift-rule terms (value, canvas_dim, frame_dim, draw_gain) are
-#: pixel-verified on that still, so the error sits in the DESIGN row,
-#: not the carriage: the probe props carry the correction here.
+#: tight captions uniformly from the computed Tilt -1700.0 to -1740.0
+#: (the live timeline's own numbers - #979 recorded this correction in
+#: the halved spelling the retired draw gain produced, -850 to -870);
+#: at the 480-pixel tight-canvas floor one Tilt unit is a QUARTER of a
+#: delivery pixel (`resolve_transform`: shift_y = -Tilt * canvas_h /
+#: frame_h, and 480/1920 = 0.25), so 40 units is exactly 10.0 delivery
+#: pixels. An exported still of that timeline correlation-scans the
+#: corrected canvases onto frame row 1155 with their ink on the caption
+#: row, while the computed -1700 draws the same cards' ink ~10px high
+#: (worst card 12px). The shift-rule terms are pixel-verified on that
+#: still, so the error sits in the DESIGN row, not the carriage: the
+#: probe props carry the correction here.
 #:
 #: This supersedes the earlier +11px value taken from Reel 09's
-#: uniform -1744.0 to -1700.0 correction. That correction was read
-#: under the pre-#960 single-gain relation on pre-floor canvases; the
-#: lifted row it produced draws 10px high on the current 480-floor,
-#: 2x-gain carrying, as Reel 13's stills prove. Reels built under the
+#: uniform -1744.0 to -1700.0 correction, which was read on pre-floor
+#: canvases; the lifted row it produced draws 10px high on the current
+#: 480-floor carrying, as Reel 13's stills prove. Reels built under the
 #: +11 row keep their live timelines - nothing here rebuilds them -
 #: but a future rebuild of one moves its captions 10px down onto the
 #: corrected row; a reel that must keep its old band pins it per

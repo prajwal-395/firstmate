@@ -325,16 +325,18 @@ def test_pads_cover_slide_and_shadow():
     assert MG_PAD >= 40 + 8
 
 
-def test_top_anchored_graphic_places_at_half_the_scratch_value():
-    """Reel 31: six top-anchored graphics computed Tilt 2592 and drew
-    fully off-frame; every lane hand-set 1296, verified on stills.
+def test_top_anchored_graphic_places_at_the_measured_value():
+    """A top-anchored 480-tall canvas at the 120px safe inset is Tilt
+    2592, and that is the value a still finds on screen.
 
-    That is not the entry-unit bug (the store path is literal - the
-    read-back echoes what was set and the guard stands): Resolve
-    draws twice the shift per unit the scratch relation predicts on
-    1080x1920 (see `tight_box.DRAW_GAIN_1080x1920`), so the computed
-    value was double what draws correctly. The pipeline must compute
-    1296 itself - no hand correction, no halving at the call site.
+    Measured 2026-09-11 on the captain's own Reel 26: a 920x480
+    graphic stored at Tilt 2592 is located at frame rows 72..552 in an
+    exported still (MSE 51 against ~40 700 five pixels either side).
+    The halved 1296 this test used to demand draws it at row 396, and
+    the 5184 that five reels carry draws it at -576, entirely off the
+    top - which is what the captain sees on seventeen graphics today.
+    The pipeline must compute 2592 itself: no hand correction, no
+    halving at the call site.
     """
     from library.tools.tight_box import canvas_offset
     box = tighten_motion_graphics_props(
@@ -342,7 +344,7 @@ def test_top_anchored_graphic_places_at_half_the_scratch_value():
         timeline_size=(FULL_W, FULL_H))
     assert box is not None
     assert box.height == 480
-    assert box.placement == {"scaling": 1, "pan": 0.0, "tilt": 1296.0}
+    assert box.placement == {"scaling": 1, "pan": 0.0, "tilt": 2592.0}
     # And the origin is the union minus pads, so the file reader and
     # the Resolve placer agree on one placement, not two halves of
     # one: a top-anchored union at the 120px safe inset sits its

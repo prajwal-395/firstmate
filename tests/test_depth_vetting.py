@@ -103,16 +103,21 @@ def test_row_02_clip_timing():
 def test_row_03_overlay_position():
     from library.tools import overlay_intent
 
+    canvas, frame = (840, 480), (1080, 1920)
     computed = {"pan": 0.0, "tilt": -1744.0, "scaling": 1}
     # Shallow: nudge the placed Transform. The placer recomputes from
     # the probe - the nudge is gone.
-    assert overlay_intent.resolve("caption", None, computed, {}) == (
+    assert overlay_intent.resolve("caption", None, computed, {},
+                                  canvas=canvas, frame=frame) == (
         computed, "computed")
     shallow = "LOST on rebuild (placer recomputes)"
-    # Deep: the declared pin wins with provenance.
-    intent = {"caption": {"pan": 0.0, "tilt": -1700.0, "scaling": 1}}
+    # Deep: the declared pin wins with provenance. The pin names the
+    # PLACE (row 1385 for its canvas centre); the transform that
+    # reaches it is computed against the canvas going down, so the pin
+    # survives a correction to the transform law as well as a rebuild.
+    intent = {"caption": {"canvas_centre": [540.0, 1385.0], "scaling": 1}}
     placement, provenance = overlay_intent.resolve(
-        "caption", None, computed, intent)
+        "caption", None, computed, intent, canvas=canvas, frame=frame)
     assert placement["tilt"] == -1700.0 and provenance == "declared"
     _row(3, "overlay_position", shallow,
          "PERSISTS via intent (declared over computed)")
