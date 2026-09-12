@@ -86,9 +86,13 @@ def entry_unit_mismatch(project, target_wh: tuple) -> str:
     this module, stored literally and read literally from a fresh
     process. The guard stays - one negative on one build does not
     retire a measured behaviour, and refusing costs nothing - but it
-    is no longer evidence for anything. Five reels do carry every
-    transform at exactly 4x what their build asked for, picture and
-    overlay alike, and this is not the mechanism.
+    is no longer evidence for anything.
+
+    Nor is it what five reels carry. "Every transform at 4x what the
+    build asked for" was read off the live timelines alone; their own
+    build snapshots hold the 1x value the engine computed, so the
+    multiplier landed AFTER the build and after this module ran
+    (`library/tools/transform_drift.py` has the measurement).
     """
     try:
         entry = project.GetCurrentTimeline()
