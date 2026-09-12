@@ -184,82 +184,68 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 ### Connection
 
-**A Resolve project is addressed by its EXACT listed name, never a prefix.**
-Detail: `library/tools/timeline_ingest.py`.
+**A Resolve project is addressed by its EXACT listed name, never a prefix.**: `library/tools/timeline_ingest.py`.
 
-**Timeline speech is REBUILT from source, not rendered**
-Detail: `library/tools/timeline_transcript.py`.
+**Timeline speech is REBUILT from source, not rendered**: `library/tools/timeline_transcript.py`.
 
 ### Process isolation
 
-Never create a timeline and use `ImportFusionComp` in the same Python process.
-Detail: `library/tools/execution/apply_fusion_comps.py`.
+Never create a timeline and use `ImportFusionComp` in the same Python process: `library/tools/execution/apply_fusion_comps.py`.
 
 ### Judge every Resolve call by what it returns
 
-**Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp.
-Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
+**Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
-**A comp's MediaIn must COVER every frame its item PLAYS, or Resolve FAILS the render there.**
-Detail: `library/tools/comp_media_window.py`.
+**A comp's MediaIn must COVER every frame its item PLAYS, or Resolve FAILS the render there.**: `library/tools/comp_media_window.py`.
 
-**Pan/Tilt is ONE model, and a unit is not a pixel.**
-Detail: `library/tools/resolve_transform.py`.
+**Pan/Tilt is ONE model, and a unit is not a pixel.**: `library/tools/resolve_transform.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
 
-**Do not wire FCPXML or DRP project-file surgery back in.**
-Detail: `library/tools/transition_vocabulary.py`.
+**Do not wire FCPXML or DRP project-file surgery back in.**: `library/tools/transition_vocabulary.py`.
 
-**A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
-Detail: `library/tools/transition_carriers.py`.
+**A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**: `library/tools/transition_carriers.py`.
 
 ### Stabilization is the memory ceiling, and it runs last
 
-**Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it.
-Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
+**Stabilization is the memory ceiling of the whole pipeline** - do not run other heavy jobs beside it: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Fusion .comp files - NEVER
 
-**Six things that must NEVER appear in a Fusion .comp.**
-Detail: `library/tools/fusion/comp_builder.py`.
+**Six things that must NEVER appear in a Fusion .comp.**: `library/tools/fusion/comp_builder.py`.
 
 ### Fusion .comp files - ALWAYS
 
-**What a Fusion .comp must ALWAYS carry.**
-Detail: `library/tools/fusion/comp_builder.py`.
+**What a Fusion .comp must ALWAYS carry.**: `library/tools/fusion/comp_builder.py`.
 
 ### Frame mapping
 
-One enumeration, `library/tools/fusion/played_window.py`.
+One enumeration, `library/tools/fusion/played_window.py`; a comp is KEYED to it, so a composed edit RE-DERIVES a trimmed clip's comp or REFUSES: `library/tools/composed_edit.py`. [why](docs/RULE_EVIDENCE.md#the-comp-that-had-to-be-re-derived)
 
 ### Default transition values
 
-**The default transition values** - Brightness Flash, Crash Zoom and Glow.
-Detail: `library/tools/fusion/effects.py`.
+**The default transition values** - Brightness Flash, Crash Zoom and Glow: `library/tools/fusion/effects.py`.
 
 ### Tracks
 
-Rows are the SOP's: `docs/TIMELINE_SOP.md`. `library/tools/timeline_layout.py` is the single owner of track index and track name.
-Detail: `library/tools/execution/fusion_tracks.py`.
+Rows are the SOP's: `docs/TIMELINE_SOP.md`; `library/tools/timeline_layout.py` owns track index and name, `library/tools/execution/fusion_tracks.py` the comp rows.
 
 ### Media pool and audio
 
-Rows, pool audio and render audio live in one enumeration, `library/steps/step_6_01_render/resolve_build_timeline.py`.
+Rows, pool audio and render audio: one enumeration, `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
 
-**in dB**
-Detail: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
+**in dB**: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
 
 ### Visual verification
 
 **Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.**
 **An export is BIT-EXACT on this machine and build: a re-render settles it, and what survives is real.**
-Detail: `library/tools/resolve_surfaces.py`. [why](docs/RULE_EVIDENCE.md#the-two-pages-that-showed-one-frame)
+`library/tools/resolve_surfaces.py`. [why](docs/RULE_EVIDENCE.md#the-two-pages-that-showed-one-frame)
 
 **A capture that did not happen RAISES.**
-Detail: `library/tools/marker_capture.py`. [why](docs/RULE_EVIDENCE.md#the-still-that-was-never-taken)
+`library/tools/marker_capture.py`. [why](docs/RULE_EVIDENCE.md#the-still-that-was-never-taken)
 
 ### Reading a killed build off disk
 
@@ -267,24 +253,19 @@ Detail: `library/tools/marker_capture.py`. [why](docs/RULE_EVIDENCE.md#the-still
 
 ### Organising the pool
 
-**FILED from measurements; nothing deleted. Smart bins are NOT scriptable.**
-Detail: `library/tools/resolve_organization.py`.
+**FILED from measurements; nothing deleted. Smart bins are NOT scriptable.**: `library/tools/resolve_organization.py`.
 
-**REMOVING is a different act: `DeleteClips` on a TIMELINE's pool item DELETES THE TIMELINE.**
-Detail: `library/tools/orphan_removal.py`.
+**REMOVING is a different act: `DeleteClips` on a TIMELINE's pool item DELETES THE TIMELINE.**: `library/tools/orphan_removal.py`.
 
-**Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.**
-Detail: `library/tools/build_sweep.py`.
+**Every build SWEEPS: empty bins and dead pool items go, superseded files to quarantine; nothing is unlinked.**: `library/tools/build_sweep.py`.
 
-**A staged timeline awaiting promotion is HELD: the sweep refuses a held name, loudly.**
-Detail: `library/tools/staging_holds.py`.
+**A staged timeline awaiting promotion is HELD: the sweep refuses a held name, loudly.**: `library/tools/staging_holds.py`.
 
 ### Markers and timeline items
 
 `timeline.AddMarker()` and `timeline.GetItemListInTrack()`; patterns in `timeline_item_markers`.
 
-**Markers are the ONLY write the master takes, placed by footage overlap.**
-Detail: `library/tools/master_markers.py`.
+**Markers are the ONLY write the master takes, placed by footage overlap.**: `library/tools/master_markers.py`.
 
 ## 6. The spine contract
 

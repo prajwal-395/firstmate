@@ -228,6 +228,40 @@ def clip_detail(item, track_type: str, track_index: int,
 # no attribute 'GetSetting'"), so the guard takes this slice instead.
 
 
+def live_items(timeline) -> list:
+    """Every row with its LIVE Resolve item handles, in track order.
+
+    The one place `GetItemListInTrack` is called for a whole timeline.
+    `read_tracks` below is this list projected into plain data, and a
+    caller that must WRITE to an item - `composed_edit`, which deletes
+    and re-places them - takes this slice rather than opening its own
+    loop over the tracks (AGENTS.md 15: no new probe).
+
+    Returns `[{"type", "index", "name", "items": [handle, ...]}, ...]`.
+    The handles are Resolve's own objects and are invalidated by any
+    delete or place, so a caller re-reads after every mutation rather
+    than holding one across it.
+    """
+    rows = []
+    try:
+        for track_type in MEDIA_TYPES:
+            count = timeline.GetTrackCount(track_type) or 0
+            for index in range(1, count + 1):
+                rows.append({
+                    "type": track_type,
+                    "index": index,
+                    "name": timeline.GetTrackName(track_type, index) or "",
+                    "items": list(
+                        timeline.GetItemListInTrack(track_type, index) or []),
+                })
+    except Exception as unreadable:
+        raise ReelReadError(
+            f"the rows of {_call(timeline, 'GetName', '?')!r} could not "
+            f"be read ({unreadable}); refusing rather than reading half "
+            f"a reel.") from unreadable
+    return rows
+
+
 def read_tracks(timeline,
                 speaker_map: Optional[Mapping[str, str]] = None) -> list:
     """Every track with every clip, as plain data. Read-only.
@@ -238,24 +272,22 @@ def read_tracks(timeline,
     speaker_map = dict(speaker_map or {})
     tracks = []
     try:
-        for track_type in MEDIA_TYPES:
-            count = timeline.GetTrackCount(track_type) or 0
-            for index in range(1, count + 1):
-                track_name = timeline.GetTrackName(track_type, index) or ""
-                speaker = speaker_map.get(track_name) or (track_name or None)
-                items = timeline.GetItemListInTrack(track_type, index) or []
-                clips = []
-                for item in items:
-                    detail = clip_detail(item, track_type, index, track_name)
-                    detail["speaker"] = speaker
-                    clips.append(detail)
-                tracks.append({
-                    "type": track_type,
-                    "index": index,
-                    "name": track_name,
-                    "speaker": speaker,
-                    "clips": clips,
-                })
+        for row in live_items(timeline):
+            track_type, index = row["type"], row["index"]
+            track_name = row["name"]
+            speaker = speaker_map.get(track_name) or (track_name or None)
+            clips = []
+            for item in row["items"]:
+                detail = clip_detail(item, track_type, index, track_name)
+                detail["speaker"] = speaker
+                clips.append(detail)
+            tracks.append({
+                "type": track_type,
+                "index": index,
+                "name": track_name,
+                "speaker": speaker,
+                "clips": clips,
+            })
     except ReelReadError:
         raise
     except Exception as unreadable:
@@ -383,8 +415,58 @@ def _comp_windows(item, duration) -> list:
             "comp_index": index,
             "window": window,
             "uncovered_reason": _window.uncovered_reason(window, duration),
+            # What the comp is made of, so a caller can tell a comp that
+            # DRAWS something from Resolve's own empty one. Measured
+            # 2026-09-12: a plain timeline item reports
+            # `GetFusionCompCount() == 1` for a composition that is only
+            # MediaIn -> MediaOut (plus AudioDisplay), and a caller that
+            # read the count alone could not tell it from a built
+            # treatment. `None` means the graph would not be read - an
+            # absence, judged by the caller, never silently an empty one.
+            "tools": _comp_tools(item, index),
         })
     return rows
+
+
+#: Tools a Fusion composition carries when it draws NOTHING: the source,
+#: the output, and the audio waveform Resolve attaches to both.
+PASSTHROUGH_TOOLS = frozenset({"MediaIn", "MediaOut", "AudioDisplay"})
+
+
+def _comp_tools(item, index: int):
+    """Every tool's `TOOLS_RegID` in one comp, sorted, or None."""
+    try:
+        comp = item.GetFusionCompByIndex(index)
+    except Exception:
+        return None
+    if comp is None or isinstance(comp, str):
+        return None
+    try:
+        tools = comp.GetToolList(False) or {}
+    except Exception:
+        return None
+    if not isinstance(tools, dict):
+        return None
+    out = []
+    for _key, tool in sorted(tools.items(), key=lambda kv: str(kv[0])):
+        try:
+            out.append(tool.GetAttrs("TOOLS_RegID"))
+        except Exception:
+            return None
+    return sorted(out)
+
+
+def comp_draws_something(row) -> Optional[bool]:
+    """Whether one `_comp_windows` row is more than a passthrough.
+
+    `None` when the graph could not be read. A caller that must decide
+    whether a treatment exists treats `None` as YES and says so: an
+    unreadable graph is not evidence of an empty one.
+    """
+    tools = row.get("tools")
+    if tools is None:
+        return None
+    return bool(set(tools) - PASSTHROUGH_TOOLS)
 
 
 def fusion_of_tracks(tracks: list) -> list:

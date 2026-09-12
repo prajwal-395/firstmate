@@ -7396,6 +7396,126 @@ which this claim was made.
 
 Detecting staleness is in scope; deciding to rebuild is the captain's.
 
+### the-comp-that-had-to-be-re-derived
+
+Resolve's scripting API has no verb for a trim: `AppendToTimeline`
+places and `Timeline.DeleteClips` deletes, and there is no move, no
+ripple and no `SetMediaPoolItem`. Changing one item therefore means
+deleting it and placing a new one, and the new one is a NEW OBJECT
+carrying none of the old one's state. The spike of 2026-09-11/12
+(`vep-work-around-the-api-not-give-up-on-it`) established that the
+whole edit can be composed out of the two verbs and will render
+byte-for-byte identical to an untouched copy - and found the one thing
+capture-and-restore genuinely cannot do.
+
+**A per-clip Fusion comp is keyed to the window of footage the item
+plays, so a trim invalidates it.** `fusion/played_window.py` states the
+law the comp is written under: comp frame 0 is the clip's FIRST PLAYED
+FRAME. A 480-key push-in written for a 479-frame clip finishes 13
+frames early on a 492-frame one and holds its last value, where a
+rebuild would ramp across the new length. Measured: restoring the
+captured comp verbatim across that extension was wrong on **489 of 492
+frames**, mean 1.09/255, max 88, on a cross-render floor of exactly
+0.0000. Nothing in the timeline's readable state says so. It looks
+right.
+
+The captain's ruling of 2026-09-12 attached the condition: a clip whose
+played length changes has its comp RE-DERIVED through the builder,
+never restored from the capture, and a composed edit that changes a
+played length and cannot reach the comp generator REFUSES rather than
+restoring the old one.
+
+`library/tools/composed_edit.py` is that path, as the spike's seven
+steps, and the condition is structural in four places rather than
+conventional: the capture data model refuses to hold a restorable comp
+across a length change, `capture_item` writes that comp to a withheld
+directory the restore never reads (so there is no artefact to find),
+the orchestrator refuses before it captures or deletes anything, and
+after the pass the TIMELINE is the verdict - every length-changed item
+must carry a comp whose media window covers its new played length, so a
+generator that declined, crashed or never reached the clip is caught by
+state rather than by its own report. Where "structural" stops is named
+in the module: a caller that does not use the module can always call
+`ImportFusionComp` itself, which is the same boundary AGENTS.md 15 draws
+around `reel_read`. `tests/test_composed_edit_refusal.py` attempts the
+bypass eight ways.
+
+**Judged against a REBUILD of the same edit, on exported pixels**
+(2026-09-12, Resolve Studio 21.1, a scratch project built from the
+captain's footage; his own project was read and never written, and the
+9-timeline census before and after is identical). Two arms per case:
+one built the edited reel from scratch, the other built the original
+and had the composed edit applied to it. Every arm rendered twice as
+lossless PNG RGB8 and compared on the second pass, because a comp
+renders slightly differently until it settles.
+
+    case                       frames  byte-identical  subpixels differing
+    in-clip trim, +13 frames      277             277                    0
+    ending change, +24 frames     288             288                    0
+    (an arm against itself)   277/288         277/288                    0
+
+Five picture rows and an audio row, which is more than the spike tested.
+
+Four things fell out of building it, each now a test:
+
+- **An empty composition is not a treatment.** Resolve reports
+  `GetFusionCompCount() == 1` for a clip carrying only its own
+  auto-created `MediaIn -> MediaOut`. Counting that as a comp made the
+  re-derivation refusal fire on every overlay row - a gate failing
+  correct output. `reel_read` now reports each comp's tools and
+  `composed_edit.treatment_comps` counts the ones that draw.
+- **That empty composition's window cannot be written and is not
+  stable.** Setting `GlobalIn` to 0 left it at 1 - the uncovered first
+  frame that fails a whole render job - and the same handle answered a
+  matching window and then a differing one with no write between. It
+  draws nothing, so staging REMOVES it; the byte comparison above is
+  what says that changes nothing.
+- **A media window is DERIVED from the binding.** Setting `MediaSource`
+  back to `Timeline` recomputed a copy's window exactly, and writing the
+  four frame terms on top of that correct window moved `GlobalIn` one
+  frame later and `ClipTimeEnd` one earlier. Every `SetInput` returned
+  `None`, the successes and the corruption alike. A `GlobalIn` one frame
+  late is precisely the `1 / 19` of the six-reel incident above, which
+  makes a window-writing conform a candidate CAUSE of it rather than a
+  repair for it. `composed_edit.apply_window` writes the binding,
+  re-reads, and writes the frame terms only if the window is still
+  wrong.
+- **A newly placed item comes back at IDENTITY, and that is not a
+  choice.** The first ending change appended 24 frames beside three
+  shots carrying `ZoomX 2.307`; they rendered at `ZoomX 1.0` and
+  diverged from the rebuild on 100% of their own frames at mean
+  21.8/255, while all 264 frames in front of them were byte-identical.
+  It placed, it verified, and it looked like a deliberate wide shot.
+  The engine may not invent a framing (AGENTS.md 10.5), so an
+  `Insertion` DECLARES its treatment and `properties={}` is how identity
+  is chosen on purpose.
+
+**What it costs, and it is not the spike's figure.** The spike measured
+the mechanism at ~2 s against a ~112 s rebuild and quoted 50x. That was
+measured BEFORE the captain's condition was attached, and the condition
+is most of the cost. Measured here, three runs per case, wall clock
+including each subprocess's Resolve connection:
+
+    the composition itself   delete 0.01-0.14 s, place 0.25-0.57 s,
+                             restore 0.03-4.09 s   (the spike's ~2 s holds)
+    step 7 re-derivation     17.8-37.4 s
+    staging (copy + conform)  8.9-25.9 s
+    a rebuild of the same    19.4-67.1 s, of which the comp pass is 17.0-63.7 s
+
+    median totals            case 1  rebuild 24.0 s   composed 44.1 s
+                             case 2  rebuild 59.2 s   composed 54.9 s
+
+The re-derivation is one invocation of the builder's comp pass, and that
+invocation is FIXED overhead rather than per-comp work: a pass over a
+timeline whose every comp was already banked and unchanged still took
+25.9-73.4 s. So on this reel the composed path is not faster. The saving
+it can offer is bounded by whatever a rebuild does BESIDES the comp pass
+- on a real reel that is the spine, the caption renders, the freeze
+render, the sweep and the gates, which is most of the 112 s - but it is
+not 50x, and on a reel whose rebuild is mostly the comp pass it is no
+saving at all. The captain should hear that before this is used on his
+reels.
+
 ## Section 15 - the captain's notes
 
 ### the-probe-that-missed-the-clip-markers
