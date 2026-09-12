@@ -124,6 +124,53 @@ def test_narrow_union_widens_to_wrap_width(tmp_path):
     assert box.width % 2 == 0
 
 
+def test_video_container_narrows_to_ink_plus_pads(tmp_path):
+    """The `video` container crops the probe: the wrap is already drawn
+    and cannot change, so widening the canvas to the wrap basis only
+    pushes a narrow off-centre caption off the frame. The canvas is
+    the ink plus pads there; the `frames` container genuinely
+    re-renders, so it keeps the widening."""
+    paths = _frames(tmp_path, "one", (FULL_W, FULL_H),
+                    [[(101, 1501, 301, 1561)]])
+    union = ink_union_of_frames(paths)
+    video = tighten_measured(_props(), union, "video")
+    assert video.width == 200 + 2 * PAD_X
+    frames = tighten_measured(_props(), union, "frames")
+    assert frames.width == 840
+    assert tighten_measured(_props(), union).width == 840  # default
+
+
+def test_video_container_recovers_off_centre_narrow_caption(tmp_path):
+    """The 2026-09-12 shape: 25 caption segments fell back to full
+    canvas as 840-wide crops with origin x in 241..371, every one
+    leaving the 1080-wide frame horizontally. A 522px union at x0=270
+    is one of them: widened it spans 246..1086, narrowed to the ink
+    it spans 246..816."""
+    paths = _frames(tmp_path, "offcentre", (FULL_W, FULL_H),
+                    [[(270, 955, 792, 1064)]])
+    union = ink_union_of_frames(paths)
+    wide = tighten_measured(_props(), union, "frames")
+    assert wide.width == 840
+    wide_ox, _ = canvas_offset(wide)
+    assert wide_ox == 270 - PAD_X
+    assert wide_ox + wide.width > FULL_W  # the fallback, by arithmetic
+    narrow = tighten_measured(_props(), union, "video")
+    assert narrow.width == 522 + 2 * PAD_X
+    narrow_ox, narrow_oy = canvas_offset(narrow)
+    assert narrow_ox == 270 - PAD_X
+    assert narrow_ox + narrow.width <= FULL_W
+    assert narrow_oy >= 0
+    assert narrow_oy + narrow.height <= FULL_H
+
+
+def test_tighten_measured_refuses_unknown_container(tmp_path):
+    paths = _frames(tmp_path, "one", (FULL_W, FULL_H),
+                    [[(101, 1501, 301, 1561)]])
+    union = ink_union_of_frames(paths)
+    with pytest.raises(ValueError, match="unknown overlay container"):
+        tighten_measured(_props(), union, "filmstrip")
+
+
 def test_canvas_follows_ink_off_centre(tmp_path):
     """No centring assumption in the SIZE: an off-centre union yields
     an off-centre provisional canvas. The final origin is read off

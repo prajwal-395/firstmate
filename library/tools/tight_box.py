@@ -75,7 +75,10 @@ is therefore read off the two renders themselves
 translated onto the probe union, and the gate proves the translation
 holds on every frame. The canvas is still sized from the probe union
 plus pads - widened to `captionMaxWidth` where narrower, so the wrap
-the probe drew is the wrap the tight canvas draws.
+the probe drew is the wrap the tight canvas draws - EXCEPT under the
+`video` container, which crops the probe instead of re-rendering:
+there the wrap is already drawn, so the canvas is the ink plus pads
+and the widening is skipped (`tighten_measured`).
 How the box lands in Resolve
 ----------------------------
 Measured on Resolve 21 against solid-colour clips, 2026-09-08, on a
@@ -730,21 +733,32 @@ def extract_frames(mov_path: str, dest_dir: str) -> list[str]:
     return [os.path.join(dest_dir, name) for name in paths]
 
 
-def tighten_measured(props: dict, union: InkUnion) -> TightBox:
+def tighten_measured(props: dict, union: InkUnion,
+                     container: str = "frames") -> TightBox:
     """The tight canvas SIZE for a MEASURED ink union, with provisional
     placement.
 
     The canvas is the union expanded by the pads - widened to
     `captionMaxWidth` where narrower, so the card wraps exactly as on
     the probe (the flex container is `width: 100%`: a narrower canvas
-    would rewrap). The canvas that would leave the delivery frame
-    raises `TightBoxClipsInk` rather than clamping ink away.
+    would rewrap). That widening binds ONLY where the tight output is
+    RE-RENDERED (the `frames` container): there the wrap can change,
+    so the canvas must keep the probe's wrap basis. The `video`
+    container CROPS the probe instead - the wrap is already drawn and
+    cannot change - so the canvas is the ink plus pads, and the
+    widening would only push a narrow off-centre caption off the
+    frame's right edge (measured 2026-09-12: 25 caption segments at
+    840-wide canvases with origin x in 241..371, every one leaving
+    the 1080-wide frame horizontally). The canvas that would leave
+    the delivery frame raises `TightBoxClipsInk` rather than clamping
+    ink away.
 
     The placement is PROVISIONAL: the composition re-centers content
     in the narrower canvas, so the final origin is read off the two
     renders (`resolve_placement_from_correspondence`) once the tight
     output exists. `captionMaxWidth` passes through unchanged.
     """
+    from library.tools.overlay_mode import CONTAINERS
     subtitles = props.get("subtitles") or []
     if not subtitles:
         return None
@@ -756,12 +770,21 @@ def tighten_measured(props: dict, union: InkUnion) -> TightBox:
             "subtitle props carry no style.captionMaxWidth - the wrap "
             "basis is unknown, so no measured box can claim the layout.")
 
+    if container not in CONTAINERS:
+        raise ValueError(
+            f"unknown overlay container {container!r}; known: "
+            f"{list(CONTAINERS)}. The canvas width binds on it: only "
+            f"`video` crops the probe, so only it narrows to the ink.")
+
     full_w = int(props.get("width", 0))
     full_h = int(props.get("height", 0))
 
     union_w = float(union.x1 - union.x0)
     union_h = float(union.y1 - union.y0)
-    canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
+    if container == "video":
+        canvas_w = _ceil_even(union_w + 2 * PAD_X)
+    else:
+        canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
     measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
 
     # The floor that keeps the placement inside Resolve's rail (see

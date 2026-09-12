@@ -370,7 +370,7 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
                   file=sys.stderr)
             return None, probe_tmpdir, probe_frames, None, probe_mov_path
         try:
-            box = tighten_measured(props, union)
+            box = tighten_measured(props, union, container)
         except (TightBoxClipsInk, ValueError) as exc:
             raise _TightFailed(str(exc)) from exc
         print(f"  {progress} measured {box.width}x{box.height} "

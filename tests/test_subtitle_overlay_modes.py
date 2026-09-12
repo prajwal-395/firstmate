@@ -159,12 +159,16 @@ def _full_mov(path, rect=RECT, frames=N_FRAMES):
 
 
 def _measure_full_mov(full_mov, props):
-    """What the step measures off the probe: union, box, origin."""
+    """What the step measures off the probe: union, box, origin.
+
+    The container binds the width: the video container crops the
+    probe, so the expectation is measured the way the step measures
+    it - narrowed to the ink - never under the re-render widening."""
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
         union = ink_union_of_frames(extract_frames(full_mov, tmp))
     assert union is not None
-    return union, tighten_measured(props, union)
+    return union, tighten_measured(props, union, "video")
 
 
 def _crop_mov(full_mov, tight_mov, box):
