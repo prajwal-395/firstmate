@@ -387,3 +387,93 @@ def test_the_hold_is_one_frame_longer_than_its_ramp():
     assert verify_treatment(
         effects, "tv_power_tail", clip_dur=needed, played_frames=needed,
         source_res=(3840, 2160))["passed"]
+
+
+# ── The hold is found by its FILE, not by being last on the row ─────
+
+class _FakeItem:
+    """Enough of a Resolve timeline item for the freeze lookup."""
+
+    def __init__(self, path, properties=None):
+        self._path = path
+        self._props = dict(properties or {})
+        self.copied_onto = []
+
+    def GetMediaPoolItem(self):
+        return self
+
+    def GetClipProperty(self, key):
+        return self._path if key == "File Path" else ""
+
+    def GetProperty(self, *args):
+        return dict(self._props)
+
+    def SetProperty(self, key, value):
+        self._props[key] = value
+        return True
+
+    def CopyGrades(self, targets):
+        self.copied_onto.extend(targets)
+        return True
+
+
+class _FakeTimeline:
+    def __init__(self, items):
+        self._items = list(items)
+
+    def GetItemListInTrack(self, media, index):
+        return list(self._items) if media == "video" and index == 1 else []
+
+
+class _FakeFreeze:
+    track_index = 1
+    held_from = 1255
+    duration_frames = 19
+
+    def __init__(self, path):
+        self.rendered_path = path
+
+
+def test_the_freeze_is_found_by_its_file_not_by_being_last_on_the_row():
+    """Reel 01, 2026-09-12: the project's declared closing card is placed
+    TAIL on `aroll_rows()[0]`, so on every reel whose ending shot is that
+    first angle the card sits AFTER the hold. Reading `items[-1]` found
+    the card and refused the whole build ("the last item on V1 is not the
+    freeze tail this build rendered"). Reel 26 passed only because its
+    closer is the other speaker.
+
+    The hold must be located by the file this build rendered, and the
+    shot it inherits from is the item immediately before it."""
+    shot = _FakeItem("/footage/LC4932.MXF",
+                     {"ZoomX": 2.307, "ZoomY": 2.307, "Pan": 24.914,
+                      "Tilt": 0.25})
+    freeze_path = "/cards/reel_freeze_6681969f12.mov"
+    held = _FakeItem(freeze_path, {"ZoomX": 1.0, "Pan": 0.0, "Tilt": 0.0})
+    card = _FakeItem("/brand/logo_reveal.mov", {"ZoomX": 1.0, "Pan": 0.0,
+                                                "Tilt": 0.0})
+
+    record = reel_build._inherit_freeze_treatment(
+        "Reel 01 (rebuild staging)", _FakeTimeline([shot, held, card]),
+        None, {"1": 1}, _FakeFreeze(freeze_path))
+
+    assert record["grades_copied"] is True
+    assert shot.copied_onto == [held], (
+        "the grade went onto the closing card instead of the hold")
+    assert held.GetProperty()["Pan"] == 24.914
+    assert card.GetProperty()["Pan"] == 0.0, (
+        "the closing card was given the ending shot's framing - it is a "
+        "full-frame element and inherits nothing")
+
+
+def test_a_row_whose_only_freeze_item_is_first_still_refuses():
+    """The refusal has to survive the fix: a hold with no shot in front
+    of it cannot inherit, and grading the wrong clip is the failure the
+    refusal exists to prevent."""
+    freeze_path = "/cards/reel_freeze_6681969f12.mov"
+    held = _FakeItem(freeze_path, {"ZoomX": 1.0, "Pan": 0.0, "Tilt": 0.0})
+    card = _FakeItem("/brand/logo_reveal.mov", {"ZoomX": 1.0})
+    with pytest.raises(reel_build.ReelBuildError) as refused:
+        reel_build._inherit_freeze_treatment(
+            "Reel 01 (rebuild staging)", _FakeTimeline([held, card]),
+            None, {"1": 1}, _FakeFreeze(freeze_path))
+    assert "no item on V1 with a shot in front of it" in str(refused.value)

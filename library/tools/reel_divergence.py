@@ -59,6 +59,40 @@ detector built on that reading would report divergence where there is
 none, which is worse than reporting nothing - so it reports nothing,
 loudly.
 
+── Closed: 2026-09-12, the captain's seven reels ──────────────────
+
+The divergence this module found was closed by rebuilding, and the
+record is here because the survey is what made it checkable.  Before:
+six of seven built reels read ABSENT on ``full_frame_elements`` (only
+Reel 26 carried it).  After: all seven read CARRIED and
+``--claim full_frame_elements`` is BACKED.  Reel 09 was left alone -
+the captain's approved final, and its hand-placed card sits on V5
+'Semantic', an overlay row, rather than the picture row.
+
+Three things that reading the ARTEFACT settled, and a record could
+not have:
+
+* **A survey is not a rebuild's whole story.**  Both detectors read
+  CARRIED on the pre-rebuild Reel 26 and on the post-rebuild one,
+  while its two motion-graphic segment ids changed underneath -
+  which silently retired the captain's last two live
+  ``overlay_intent`` pins.  Measured either side: the drawn transform
+  is identical (V5 Pan 0 / Tilt 2592, V6 Pan 1167.568 / Tilt 0), so
+  the picture did not move; 19 of the 21 pins were already inert
+  before the rebuild.  A pin keyed to a rendered artefact's id is
+  retired by any re-render, and nothing in the survey says so.
+* **The reels were NOT diverging in the direction the drift report
+  read.**  ``transform_drift`` measured every picture clip on Reels
+  01/23/28/30/31 at Tilt 0.25 in the build snapshot and -0.79 live.
+  -0.79 is what the CURRENT engine computes - every rebuild wrote it
+  again - so that column was the snapshot being stale, not the
+  timeline drifting.  Judge a live value against a build of the
+  current engine, not against an older snapshot.
+* **A reset is not a hand edit.**  Reel 31's V2 Craig clip read
+  Pan 0 / Tilt 0 live against a built -89.947 / 0.25, alone among its
+  row.  No captain note asks for it, and the rebuild restored the
+  engine's own framing.
+
 ``tests/test_reel_divergence.py``.
 """
 

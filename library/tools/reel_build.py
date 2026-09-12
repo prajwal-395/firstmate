@@ -3385,6 +3385,18 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
     back after it is set (AGENTS.md 5). Returns the record - what was
     inherited and what was read back - so the build can say it rather
     than assume it.
+
+    THE HOLD IS NOT ALWAYS THE LAST ITEM ON ITS ROW.  A project's
+    declared closing element (`effect.full_frame_elements`, placement
+    `tail`) is placed on `track_plan.aroll_rows()[0]`, and a reel whose
+    ending shot is that same first angle therefore carries the card
+    AFTER the hold.  Reading `items[-1]` found the card and refused
+    every such rebuild - measured 2026-09-12 bringing the captain's
+    seven reels current: Reel 01 refused outright, and Reels 13, 23, 30
+    and 31 would have.  Reel 26 passed only because its closer is the
+    OTHER speaker, so the card and the hold landed on different rows -
+    luck, not a rule.  The hold is found by the FILE this build
+    rendered.
     """
     import sys
 
@@ -3403,15 +3415,35 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
             f"{name}: the freeze tail was placed on V{row} but that row "
             f"carries {len(items)} item(s) - there is no shot in front "
             f"of the hold to inherit from.")
-    held, shot = items[-1], items[-2]
-    source = held.GetMediaPoolItem()
-    if source is None or (source.GetClipProperty("File Path") or "") \
-            != freeze.rendered_path:
+    # The freeze is found by the FILE THIS BUILD RENDERED, never by
+    # being last on the row. Measured 2026-09-12 rebuilding Reel 01:
+    # the project's declared closing card (`effect.full_frame_elements`)
+    # is placed TAIL on `aroll_rows()[0]`, so on every reel whose ending
+    # shot is that same first angle the card sits after the hold and
+    # `items[-1]` is the card. Reel 26 passed only because its closer is
+    # the OTHER speaker, which is luck, not a rule. The shot to inherit
+    # from is the item immediately BEFORE the hold in play order, which
+    # is what this reads.
+    held = shot = None
+    for index, item in enumerate(items):
+        source = item.GetMediaPoolItem()
+        if source is None:
+            continue
+        if (source.GetClipProperty("File Path") or "") \
+                != freeze.rendered_path:
+            continue
+        if index == 0:
+            break
+        held, shot = item, items[index - 1]
+        break
+    if held is None:
         raise ReelBuildError(
-            f"{name}: the last item on V{row} is not the freeze tail "
-            f"this build rendered, so nothing here knows which item to "
-            f"give the shot's treatment to. Refusing rather than "
-            f"grading the wrong clip.")
+            f"{name}: no item on V{row} with a shot in front of it is "
+            f"the freeze tail this build rendered "
+            f"({freeze.rendered_path!r}), so nothing here knows which "
+            f"item to give the shot's treatment to. The row carries "
+            f"{len(items)} item(s). Refusing rather than grading the "
+            f"wrong clip.")
     wanted = shot.GetProperty() or {}
     for key in ("ZoomX", "ZoomY", "Pan", "Tilt", "RotationAngle",
                 "AnchorPointX", "AnchorPointY", "CropLeft", "CropRight",
