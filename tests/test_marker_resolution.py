@@ -364,3 +364,82 @@ def test_verifiability_names_what_it_can_and_cannot_prove():
     ambiguous = _timeline_note(outcome="ambiguous", steps=["a", "b"])
     verifiable, _ = mr.verifiability_of(ambiguous)
     assert verifiable is False
+
+
+# ── A "done" claim is backed by the artefact, or it is not done ───
+#
+# `declared_element_reaches_reels` is the check for the commonest
+# instruction the captain gives - "apply this to all of the reels" -
+# and the one that failed on 2026-09-11: the mechanism landed, the
+# engine's capability was reported as the project's state, and six of
+# eight reels did not have it. Remove the check and a note like that
+# has no mechanical proof at all, so `verifiability_of` returns False
+# and a worker's assertion is the only thing on offer.
+
+def _survey(tmp_path, **reels):
+    """A real `reel_divergence` survey over fake reel snapshots."""
+    from library.tools import reel_divergence as rd
+
+    (tmp_path / "project.yaml").write_text(
+        "effect:\n"
+        "  full_frame_elements:\n"
+        "    - element: full_frame_clip\n"
+        "      placement: tail\n"
+        "      asset: /shared/logo_reveal.mov\n"
+        "      reason: captain\n", encoding="utf-8")
+
+    class Clip:
+        def __init__(self, name):
+            self.name = name
+            self.track_type = "video"
+            self.track_name = "V1"
+            self.source_file = ""
+
+    class Snap:
+        def __init__(self, names):
+            self.clips = [Clip(n) for n in names]
+
+    return rd.survey(str(tmp_path),
+                     {reel: Snap(names) for reel, names in reels.items()})
+
+
+def test_a_declaration_that_reached_every_reel_passes(tmp_path):
+    passed, evidence = mr.verify(mr.CHECK_DECLARATION_REACHES, {
+        "divergence": _survey(tmp_path, **{"Reel 26": ["logo_reveal.mov"]}),
+        "declaration": "full_frame_elements"})
+    assert passed is True
+    assert evidence["reels"] == ["Reel 26"]
+
+
+def test_a_declaration_absent_from_one_reel_FAILS(tmp_path):
+    passed, evidence = mr.verify(mr.CHECK_DECLARATION_REACHES, {
+        "divergence": _survey(tmp_path, **{"Reel 01": ["a.mxf"],
+                                           "Reel 26": ["logo_reveal.mov"]}),
+        "declaration": "full_frame_elements"})
+    assert passed is False
+    assert "Reel 01" in evidence["reason"]
+
+
+def test_the_check_refuses_a_measurement_that_never_looked(tmp_path):
+    for missing in ({"declaration": "full_frame_elements"},
+                    {"divergence": _survey(tmp_path)}):
+        passed, evidence = mr.verify(mr.CHECK_DECLARATION_REACHES, missing)
+        assert passed is False
+        assert "never read" in evidence["reason"]
+
+
+def test_a_marker_is_NOT_cleared_when_the_reels_do_not_back_the_claim(tmp_path):
+    """The 2026-09-11 failure, refused where it would have cleared."""
+    note = _timeline_note()
+    timeline = _timeline_with(note)
+    result = mr.resolve_note(
+        str(tmp_path), note, action="declared the card for every reel",
+        rationale="PR 995 landed the mechanism",
+        check=mr.CHECK_DECLARATION_REACHES,
+        measured={"divergence": _survey(tmp_path,
+                                        **{"Reel 01": ["a.mxf"]}),
+                  "declaration": "full_frame_elements"},
+        timeline=timeline)
+    assert result["record"]["status"] == mr.STATUS_ADDRESSED_UNVERIFIED
+    assert result["marker_touched"] is False
+    assert len(timeline.GetMarkers()) == 1

@@ -576,6 +576,9 @@ Detail: `library/tools/reel_proposal.py`; its four qualities: `library/tools/ree
 **A gate that cannot fail is worse than no gate, because it reads as coverage.**
 If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
+**Reaching the ENGINE is not reaching the REELS until MEASURED.**
+`library/tools/reel_divergence.py`. [why](docs/RULE_EVIDENCE.md#logo-on-one-reel)
+
 **A replace is a diff: promotion refuses an undeclared row loss.**
 Detail: `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
 
@@ -625,24 +628,22 @@ A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect,
 - Two things are NOT taste, and are why the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
 - A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
 - **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP` is REMOVED (captain, 2026-09-02) and `plan_vfx.TOOLKIT_PARAMETERS` replaces it, carrying NO value, default or bound. An entry whose `params` name none of them is dropped as `no_readable_parameters`. Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
-- An alias may RENAME a capability and may not CHOOSE one.
-Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
+- An alias may RENAME a capability and may not CHOOSE one (`library/steps/step_4_03_plan_vfx/post_bridge.py`).
 - Dead code that states taste is removed, not left.
 
 **There are NO creative floors, and there must not be again.**
 Detail: `tests/test_no_creative_floors.py`. [why](docs/RULE_EVIDENCE.md#no-creative-floors)
 
 **Sound-effect selection is one enumeration, `library/tools/sfx_library.py`, and the model names a FILE.**
-Detail: `library/tools/sfx_library.py`. [why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
+[why](docs/RULE_EVIDENCE.md#the-sfx-chooser-was-a-word-list)
 
 **Music selection is one enumeration, `library/tools/music_selection_contract.py`.**
-Detail: `library/tools/music_selection_contract.py`.
 
 **Nothing refuses a track on rights, and no rights model may be built.**
 Detail: `library/tools/music_search.py`.
 
 **Search is one enumeration, `library/tools/music_search.py`, and it runs by default.**
-Detail: `library/tools/music_search.py`. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
+[why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
 
 **Two candidates that are the same recording are established from the MEASUREMENTS, never the filename.**
 Detail: `library/tools/music_duplicates.py`. [why](docs/RULE_EVIDENCE.md#a-third-of-the-choice-set-was-a-copy)
@@ -762,10 +763,12 @@ Detail: `resolve_workflow_integration/README.md`. [why](docs/workflow_integratio
 **Workspace > Scripts > Capture Frame for Firstmate**
 Detail: `library/tools/marker_capture.py`.
 
+**A note's identity is its REEL and its WORDS, outliving the rebuild.**
+`library/tools/feedback_ledger.py`.
+
 ### What goes in `customData`
 
-One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying a list of self-describing records, with the reasoning for that shape in the module docstring.
-Detail: `library/tools/marker_payload.py`.
+One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying self-describing records.
 
 ## 16. Motion graphics
 

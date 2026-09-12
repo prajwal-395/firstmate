@@ -7343,3 +7343,55 @@ canvases taller than the floor, where 11px is no longer 44 units.
 `safe_area.py`'s own insets are platform facts and motion graphics
 were never corrected this way, so neither moves. Pinned by
 `tests/test_subtitle_style.py`.
+
+## logo-on-one-reel
+
+The captain, 2026-09-11: *"you mentioned that the end card animation of
+the logo was attached to all reels, that was infact not true"*.
+
+They were right, and the mechanism was not broken. PR 995 made the logo
+card a declared closing element under `effect.full_frame_elements`,
+planned against every reel the project builds; the declaration is in
+`lucie/geo-podcast`'s own `project.yaml` and the code does what it says.
+Measured off that project's serialized timelines under
+`pipeline_output/review/`, read with Resolve closed:
+
+    Reel 26   carries logo_reveal.mov   - rebuilt through the mechanism
+    Reel 09   carries it                - the captain hand-placed it
+    Reel 01, 13, 23, 28, 30, 31         - do NOT
+
+Six of eight. Those six were built before the declaration landed and
+have not been rebuilt since, so the mechanism reached the reels that
+went through it and no others - which is what a build does.
+
+Two separate failures, and only one of them is a bug:
+
+1. **Nothing detected it.** A reel is frozen at its last build and
+   nothing compared a built reel against what the project currently
+   declares. `plan_provenance.json` records which PLAN a reel was built
+   from and carries one document-level `built_at` for the whole record,
+   so it cannot answer "which mechanisms existed when this reel was
+   built" even in principle. The measurement that does answer it needs
+   no provenance at all: read the reel and look for the declared asset.
+
+2. **The engine's capability was reported as the project's state.** The
+   PR said "planned against every reel the project builds", which was
+   true; it was relayed as "every reel has it", which was not. Nothing
+   in the reporting path distinguished the two claims, and a claim about
+   reels was made without reading a reel.
+
+The freeze ending is the control that proves this is about reaching
+artefacts rather than about the mechanism: the same survey finds
+`reel_freeze_*` on all seven reels that have a serialized timeline,
+because that round rebuilt every one of them.
+
+So the rule is a measurement, not a reminder to rebuild:
+`library/tools/reel_divergence.py` reads each reel and answers PRESENT,
+ABSENT or UNDETERMINED per declaration, the build runs it over every
+APPROVED reel rather than the ones it places, and `assert_reaches`
+refuses a claim the artefacts do not back. An UNDETERMINED reading
+refuses a claim exactly as an ABSENT one does: "we did not look" was
+never evidence that something is there, and that is the precise step at
+which this claim was made.
+
+Detecting staleness is in scope; deciding to rebuild is the captain's.

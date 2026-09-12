@@ -232,17 +232,66 @@ def check_motion_graphics_present(measured: dict) -> tuple:
     })
 
 
+def check_declaration_reaches_reels(measured: dict) -> tuple:
+    """(passed, evidence). Every named reel CARRIES the declared element.
+
+    The check for the commonest instruction the captain gives - *"this
+    animation here is something i want applied to all of the reels being
+    made"* - and the one that failed on 2026-09-11: the mechanism landed,
+    the engine's capability was reported as the project's state, and six
+    of eight reels did not have it.
+
+    `measured` must carry a `divergence` survey
+    (`reel_divergence.survey`) and the `declaration` key it is being
+    verified for; `reels` optionally narrows it to a named set.  The
+    verdict is `reel_divergence.assert_reaches`, so this check and the
+    build's own report read one measurement rather than two opinions.
+
+    Fails on a survey that read no reel, on any reel reading ABSENT, and
+    on any reel reading UNDETERMINED - "we did not look" has never been
+    evidence that something is there, and a marker cleared on it would
+    erase the captain's words on exactly the claim that was wrong.
+    """
+    measured = measured or {}
+    for required in ("divergence", "declaration"):
+        if required not in measured:
+            return False, {
+                "reason": f"no measurement supplied: `{required}` was "
+                          f"never read off the built reels",
+            }
+    from library.tools import reel_divergence
+
+    try:
+        reached = reel_divergence.assert_reaches(
+            measured["divergence"], str(measured["declaration"]),
+            measured.get("reels"))
+    except reel_divergence.ClaimNotBackedByArtefacts as refused:
+        return False, {"declaration": measured["declaration"],
+                       "reason": str(refused)}
+    return True, {
+        "declaration": measured["declaration"],
+        "reels": list(reached),
+        "reason": (f"all {len(reached)} surveyed reel(s) carry "
+                   f"{measured['declaration']!r}"),
+    }
+
+
+CHECK_DECLARATION_REACHES = "declared_element_reaches_reels"
+
 CHECKS = {
     CHECK_A_ROLL_ROWS: check_a_roll_rows,
     CHECK_MOTION_GRAPHICS: check_motion_graphics_present,
+    CHECK_DECLARATION_REACHES: check_declaration_reaches_reels,
 }
 """The whole vocabulary of deterministic verification. A name outside it
 is refused by `verify` rather than treated as a pass."""
 
 
 SUGGESTED_CHECKS = {
-    "render": (CHECK_A_ROLL_ROWS, CHECK_MOTION_GRAPHICS),
-    "render_motion_graphics": (CHECK_MOTION_GRAPHICS,),
+    "render": (CHECK_A_ROLL_ROWS, CHECK_MOTION_GRAPHICS,
+               CHECK_DECLARATION_REACHES),
+    "render_motion_graphics": (CHECK_MOTION_GRAPHICS,
+                               CHECK_DECLARATION_REACHES),
 }
 """Where a check proves anything. `render` (6.01) builds the timeline -
 its rows and what is placed on them - and `render_motion_graphics`

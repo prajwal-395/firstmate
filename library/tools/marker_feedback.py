@@ -668,8 +668,95 @@ class MarkerWriteError(RuntimeError):
     """A reply marker that did not land as written."""
 
 
+REPLY_RECORD_KIND = "reply"
+"""The `marker_payload` record a reply of OURS carries.
+
+Why a reply must be machine-identifiable, measured 2026-09-11: every
+marker on `lucie/geo-podcast` carried an EMPTY `customData`, our own
+green replies included, so nothing downstream could tell a question the
+captain typed from an answer we wrote back. A reader that has to guess
+guesses on colour, and this module has no vocabulary of marker colours
+by design - the typed text is the signal, and the captain may type any
+colour they like.
+
+So the ONE thing that can be stated mechanically is stated: the writer
+of a reply is us, and a record saying so is written at the moment of
+writing. It also carries WHAT IT ANSWERS - the durable identity from
+`feedback_ledger.durable_identity` plus the captain's words verbatim - so
+the question survives its own marker being removed. That is the shape
+the 2026-09-11 rounds needed and did not have: a blue marker became a
+green reply and the question was gone.
+"""
+
+REPLY_WRITER = "marker_feedback"
+REPLY_WRITER_VERSION = 1
+
+
+def reply_record(answers: str = "", answers_text: str = "",
+                 summary: str = "") -> dict:
+    """One `marker_payload` record stating this marker is our reply.
+
+    `answers` is the answered note's durable identity and `answers_text`
+    the captain's own words. Both are optional and BOTH are recorded
+    when given: an identity is exact and a rebuild cannot move it, and
+    the words are what a human reads when they find this marker a month
+    later with no ledger to hand.
+    """
+    from library.tools import marker_payload
+
+    record = {
+        "kind": REPLY_RECORD_KIND,
+        "writer": REPLY_WRITER,
+        "writer_version": REPLY_WRITER_VERSION,
+        "id": marker_payload.new_id("reply"),
+        "at": marker_payload.utc_now(),
+    }
+    if answers:
+        record["answers"] = str(answers)
+    if answers_text:
+        record["answers_text"] = str(answers_text)
+    if summary:
+        record["summary"] = str(summary)
+    return record
+
+
+def reply_custom_data(existing: str = "", answers: str = "",
+                      answers_text: str = "", summary: str = "") -> str:
+    """The `customData` string for a reply, merged into what is there.
+
+    Merged rather than replaced, through `marker_payload.parse`, which
+    keeps a foreign or future payload under `foreign` rather than
+    destroying it - a marker's customData may already carry another
+    writer's records.
+    """
+    from library.tools import marker_payload
+
+    envelope = marker_payload.parse(existing or "")
+    marker_payload.merge_record(
+        envelope, reply_record(answers, answers_text, summary))
+    return marker_payload.dumps(envelope)
+
+
+def reply_records_in(custom_data) -> list:
+    """Every reply record in a marker's `customData`. `[]` for none.
+
+    Accepts the raw string or an already-parsed envelope, because
+    `read_notes` reports both `custom_data` and `custom_data_raw`.
+    """
+    from library.tools import marker_payload
+
+    if isinstance(custom_data, dict):
+        envelope = custom_data if marker_payload.is_envelope(custom_data) \
+            else marker_payload.parse("")
+    else:
+        envelope = marker_payload.parse(custom_data or "")
+    return [r for r in marker_payload.records_of(envelope, REPLY_RECORD_KIND)
+            if r.get("writer") == REPLY_WRITER]
+
+
 def place_reply_marker(timeline, frame: int, color: str, name: str,
-                       note: str, duration: int = 1) -> dict:
+                       note: str, duration: int = 1,
+                       custom_data: str = "") -> dict:
     """Add one reply marker at ABSOLUTE `frame`, verified by read-back.
 
     `frame` is in the same space `read_notes` reports
@@ -679,6 +766,14 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
     when the frame is off the timeline, when Resolve refuses the write
     (an empty name, a frame already carrying a marker), or when the
     read-back disagrees on colour, name or note.
+
+    `custom_data` is the `marker_payload` string this reply carries -
+    build it with `reply_custom_data` so the marker states, mechanically,
+    that it is OURS and what it answers.  It is passed as `AddMarker`'s
+    sixth argument, which `marker_capture` measured carries customData in
+    at creation, and read back like every other field.  Empty is the old
+    behaviour exactly, five arguments and all: a caller with nothing to
+    record must not be made to pass an empty envelope.
     """
     if not name:
         raise MarkerWriteError(
@@ -693,13 +788,19 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
             f"(0..{span - 1} in timeline space) - Resolve would accept "
             f"it and the marker would sit past the end where nobody "
             f"can see it.")
-    if not timeline.AddMarker(key, color, name, note, duration):
+    landed = (timeline.AddMarker(key, color, name, note, duration,
+                                 custom_data) if custom_data
+              else timeline.AddMarker(key, color, name, note, duration))
+    if not landed:
         raise MarkerWriteError(
             f"Resolve refused the marker at frame {frame} on "
             f"{timeline.GetName()!r} - an empty name, or a marker "
             f"already there. Nothing was written.")
     back = (timeline.GetMarkers() or {}).get(key, {})
-    for field, want in (("color", color), ("name", name), ("note", note)):
+    checks = [("color", color), ("name", name), ("note", note)]
+    if custom_data:
+        checks.append(("customData", custom_data))
+    for field, want in checks:
         if (back.get(field) or "") != want:
             raise MarkerWriteError(
                 f"marker at frame {frame} read back {field} "
@@ -707,12 +808,14 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
                 f"not land as stated.")
     return {"frame": int(frame), "key": key, "color": back.get("color"),
             "duration": back.get("duration"), "name": back.get("name"),
-            "note": back.get("note")}
+            "note": back.get("note"),
+            "custom_data": back.get("customData") or ""}
 
 
 def place_reply_clip_marker(item, source_frame: int, color: str,
                             name: str, note: str,
-                            duration: int = 1) -> dict:
+                            duration: int = 1,
+                            custom_data: str = "") -> dict:
     """Add one reply marker ON A CLIP, at a SOURCE frame, read back.
 
     The captain leaves feedback on the clip the decision is about -
@@ -737,6 +840,10 @@ def place_reply_clip_marker(item, source_frame: int, color: str,
     frame is outside what the clip plays, when Resolve refuses the
     write (an empty name, a marker already on that frame), or when the
     read-back disagrees on colour, name or note.
+
+    `custom_data` behaves exactly as it does on `place_reply_marker` -
+    the sixth argument when non-empty, checked on the read-back, and
+    absent otherwise.
     """
     if not name:
         raise MarkerWriteError(
@@ -751,13 +858,19 @@ def place_reply_clip_marker(item, source_frame: int, color: str,
             f"clip plays ({item.GetName()!r}) - Resolve would accept it "
             f"and the marker would sit on footage the timeline never "
             f"shows.")
-    if not item.AddMarker(key, color, name, note, duration):
+    landed = (item.AddMarker(key, color, name, note, duration, custom_data)
+              if custom_data
+              else item.AddMarker(key, color, name, note, duration))
+    if not landed:
         raise MarkerWriteError(
             f"Resolve refused the marker at source frame {key} on "
             f"{item.GetName()!r} - an empty name, or a marker already "
             f"there. Nothing was written.")
     back = (item.GetMarkers() or {}).get(key, {})
-    for field, want in (("color", color), ("name", name), ("note", note)):
+    checks = [("color", color), ("name", name), ("note", note)]
+    if custom_data:
+        checks.append(("customData", custom_data))
+    for field, want in checks:
         if (back.get(field) or "") != want:
             raise MarkerWriteError(
                 f"clip marker at source frame {key} read back {field} "
@@ -765,7 +878,8 @@ def place_reply_clip_marker(item, source_frame: int, color: str,
                 f"land as stated.")
     return {"source_frame": key, "color": back.get("color"),
             "duration": back.get("duration"), "name": back.get("name"),
-            "note": back.get("note")}
+            "note": back.get("note"),
+            "custom_data": back.get("customData") or ""}
 
 
 def remove_clip_marker(item, source_frame: int) -> bool:

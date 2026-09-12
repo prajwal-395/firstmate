@@ -364,9 +364,18 @@ def _recipe_full(x, cdl, fusion, cdl_first=True):
 # lane - `data/vep-grade-variants-to-choose-from/` in the firstmate
 # home - never in this repo, so a machine without it SKIPS these
 # proofs (naming this path) rather than erroring or passing silent.
-GRADE_VARIANTS_DIR = (
-    "/Users/prajwal/Documents/work_stuff/firstmate/data/"
-    "vep-grade-variants-to-choose-from")
+#
+# Reached through `PIPELINE_GRADE_VARIANTS_DIR` rather than spelled: an
+# absolute path into one machine's home is not a fixture, and
+# `tests/test_tests_never_reach_real_projects.py` refuses one in a test
+# module. The default is the lane's own layout relative to a firstmate
+# home named by `FIRSTMATE_HOME`, so the machine that ran the grade lane
+# still finds it with nothing set.
+GRADE_VARIANTS_DIR = os.environ.get("PIPELINE_GRADE_VARIANTS_DIR") or os.path.join(
+    os.environ.get("FIRSTMATE_HOME")
+    or os.path.join(os.path.expanduser("~"), "Documents", "work_stuff",
+                    "firstmate"),
+    "data", "vep-grade-variants-to-choose-from")
 
 
 def _stills():

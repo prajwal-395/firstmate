@@ -298,3 +298,122 @@ def test_a_typed_attachment_is_labelled_as_typed():
         attachments=[asdict(a) for a in
                      read_attachments("", "see /vol/refs/ref.png", {}, None)])])
     assert "ATTACHED [typed by hand]: /vol/refs/ref.png" in shown
+
+
+# ── A reply of ours says so, mechanically ─────────────────────────
+#
+# Measured 2026-09-11 on `lucie/geo-podcast`: every marker on every reel
+# carried an EMPTY `customData`, our own green replies included. So
+# nothing downstream could tell a question the captain typed from an
+# answer we wrote back, and a reader that has to guess guesses on
+# colour - which this module deliberately has no vocabulary for. The
+# record below is the one thing that CAN be stated mechanically, and it
+# also carries what the reply answers, so the question survives its own
+# marker being deleted.
+
+from library.tools import marker_feedback as _mf  # noqa: E402
+
+
+class _MarkerSurface:
+    """AddMarker/GetMarkers with Resolve's measured 6-argument form."""
+
+    def __init__(self, start=0, end=2000, left=0, duration=2000):
+        self._markers = {}
+        self._start, self._end = start, end
+        self._left, self._duration = left, duration
+        self.arity = None
+
+    def GetStartFrame(self):
+        return self._start
+
+    def GetEndFrame(self):
+        return self._end
+
+    def GetLeftOffset(self):
+        return self._left
+
+    def GetDuration(self):
+        return self._duration
+
+    def GetName(self):
+        return "Reel 13 - x"
+
+    def AddMarker(self, key, color, name, note, duration, custom=""):
+        self.arity = 6 if custom else 5
+        self._markers[int(key)] = {"color": color, "name": name,
+                                   "note": note, "duration": duration,
+                                   "customData": custom}
+        return True
+
+    def GetMarkers(self):
+        return dict(self._markers)
+
+
+def test_a_reply_record_names_its_writer_and_what_it_answers():
+    record = _mf.reply_record(answers="Reel_13:abc", answers_text="the words")
+    assert record["kind"] == _mf.REPLY_RECORD_KIND
+    assert record["writer"] == _mf.REPLY_WRITER
+    assert record["answers"] == "Reel_13:abc"
+    assert record["answers_text"] == "the words"
+    marker_payload.merge_record(marker_payload.new_envelope(), record)
+
+
+def test_reply_custom_data_merges_into_a_foreign_payload():
+    """A marker's customData may already carry another writer's records."""
+    data = _mf.reply_custom_data(existing="not json at all",
+                                 answers="Reel_13:abc")
+    envelope = marker_payload.parse(data)
+    assert envelope["foreign"] == "not json at all"
+    assert len(_mf.reply_records_in(data)) == 1
+
+
+def test_a_reply_marker_carries_its_record_and_reads_it_back():
+    """Remove the stamping and this marker is indistinguishable from
+    a question the captain typed."""
+    timeline = _MarkerSurface()
+    payload = _mf.reply_custom_data(answers="Reel_13:abc")
+    landed = _mf.place_reply_marker(timeline, 100, "Green", "reply: done",
+                                    "we did it", custom_data=payload)
+    assert timeline.arity == 6
+    assert landed["custom_data"] == payload
+    assert _mf.reply_records_in(landed["custom_data"])[0]["answers"] \
+        == "Reel_13:abc"
+
+
+def test_a_clip_reply_marker_carries_its_record_too():
+    item = _MarkerSurface()
+    payload = _mf.reply_custom_data(answers="Reel_09:def")
+    landed = _mf.place_reply_clip_marker(item, 100, "Green", "reply: done",
+                                         "we did it", custom_data=payload)
+    assert _mf.reply_records_in(landed["custom_data"])[0]["answers"] \
+        == "Reel_09:def"
+
+
+def test_a_reply_with_nothing_to_record_stays_a_five_argument_call():
+    """A caller with nothing to say must not be made to say an empty
+    envelope - and every existing caller keeps working unchanged."""
+    timeline = _MarkerSurface()
+    _mf.place_reply_marker(timeline, 100, "Green", "reply", "x")
+    assert timeline.arity == 5
+
+
+def test_a_customdata_that_does_not_read_back_RAISES():
+    """Judged by what Resolve returns, like every other field."""
+
+    class Dropping(_MarkerSurface):
+        def AddMarker(self, key, color, name, note, duration, custom=""):
+            super().AddMarker(key, color, name, note, duration, "")
+            return True
+
+    with pytest.raises(_mf.MarkerWriteError) as refused:
+        _mf.place_reply_marker(Dropping(), 100, "Green", "r", "x",
+                               custom_data=_mf.reply_custom_data(answers="a"))
+    assert "customData" in str(refused.value)
+
+
+def test_a_foreign_writers_record_is_not_read_as_our_reply():
+    envelope = marker_payload.new_envelope()
+    marker_payload.merge_record(envelope, {
+        "kind": _mf.REPLY_RECORD_KIND, "writer": "somebody_else",
+        "writer_version": 1, "id": "x", "at": "2026-09-11T00:00:00Z"})
+    assert _mf.reply_records_in(marker_payload.dumps(envelope)) == []

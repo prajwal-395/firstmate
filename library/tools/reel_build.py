@@ -5947,6 +5947,41 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
               f"building without it", file=_sys.stderr)
         prebuild_census = {"unavailable": str(census_failed)}
 
+    # DECLARED, and CARRIED: which reels have what the project declares.
+    # Over EVERY approved reel, not the ones this call places - the
+    # reels a build leaves behind are exactly the ones that go stale,
+    # and 2026-09-11 shipped a logo card that reached one reel of eight
+    # while the engine's claim was "every reel inherits it". Read-only,
+    # printed, never a refusal: whether to rebuild a diverged reel is
+    # the captain's decision (`library/tools/reel_divergence.py`).
+    try:
+        from library.tools import reel_divergence as _divergence
+        from library.tools.reel_ending import resolve_ending as _resolve_end
+        _approved = [built_name(m, name_suffix) for m in moments
+                     if str(getattr(m.approval, "value",
+                                    m.approval)) == "approved"]
+        _by_final = {built_name(m, name_suffix): m for m in moments}
+        _snapshots, _unread = _divergence.snapshots_for(
+            project, _approved, snapshot_fn=snapshot_timeline)
+        _endings = {}
+        for _final in _approved:
+            try:
+                _ending = _resolve_end(project_folder, _final,
+                                       _by_final.get(_final), transcript)
+            except Exception:  # noqa: BLE001
+                continue
+            if _ending is not None:
+                _endings[_final] = _ending
+        divergence_report = _divergence.report_divergence(
+            project_folder, _snapshots, brand_effect=_brand_effect(
+                project_folder),
+            endings=_endings, notes=_unread)
+    except Exception as divergence_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  divergence survey unavailable ({divergence_failed}) - "
+              f"building without it", file=_sys.stderr)
+        divergence_report = {"unavailable": str(divergence_failed)}
+
     # Proof in proportion to the edit: what verification THIS build
     # owes, computed from real state and SAID before anything is
     # placed (`library/tools/proof_scope.py`). A new plan, a run with
@@ -6794,6 +6829,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # mechanism, stills-for-changed-regions for a re-run. Guidance
         # the build printed, never a gate.
         "proof_scope": proof_scope_record,
+        # Which APPROVED reels carry what the project declares - every
+        # one of them, not just the reels this call placed. The reels
+        # left out of a build are the ones that diverge, and a build
+        # that says nothing about them is how "every reel inherits it"
+        # came to be said of an engine and believed of a project
+        # (`library/tools/reel_divergence.py`). Reported, never a gate.
+        "divergence": divergence_report,
     }
 
 
