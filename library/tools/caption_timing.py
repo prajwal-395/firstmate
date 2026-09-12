@@ -46,16 +46,30 @@ What a declaration says
                "offset_frames": 7,
                "reason": "captain 2026-09-11: closer cards run early"}]}
 
-A pin ADDRESSES cards by the source audio they caption, never by their
-place on a timeline: `scope` may name `speaker`, `source_clip_id`, an
-exact `source_start`, or the half-open window
-`source_start_at_or_after` / `source_start_before`.  Those come out of
-the segment's own recorded `binding`
+A pin ADDRESSES cards by the source audio they caption: `scope` may name
+`speaker`, `source_clip_id`, an exact `source_start`, or the half-open
+window `source_start_at_or_after` / `source_start_before`.  Those come
+out of the segment's own recorded `binding`
 (`library/tools/subtitle_segment_id.py`), which is derived from the
 transcript - so a pin survives a re-render, a re-group and a renumber,
 and it points at the same words after a rebuild moves every frame
 number.  An EMPTY scope is refused: a pin that matches every card in
 the project is not a pin.
+
+A pin MAY also name `timeline`: the placement the hand edit was
+measured on.  The same source words can close any number of reels -
+the captain's format closes every reel on a shared call to action, so
+one source span is five reels' closing cards - and a hand trim on one
+of them is per-placement, not per-words.  Measured 2026-09-12: two
+pins recorded for Reel 13's closing cards matched the SAME source
+words on Reel 23 and moved five cards seven frames late and trimmed
+the last card's head by thirteen, which the captain marked as drift.
+A `timeline` scope narrows the pin to that placement; a pin without
+one behaves exactly as before.  The comparison is by the final reel
+name, and a container built from it - a rebuild's staging, a
+beside-build's suffix - matches through the parenthesised tail, so a
+pin survives the build that applies it.  The paren boundary is
+load-bearing: "Reel 1" never matches "Reel 13 - ...".
 
 A pin ADJUSTS with any of `offset_frames` (move the whole card,
 duration preserved - the shift `span_retime` has no word for),
@@ -88,10 +102,13 @@ CAPTION_TIMING_VERSION = 1
 CAPTION_TIMING_FILENAME = "caption_timing.json"
 
 #: Everything a pin's scope may name. All optional, at least one
-#: required - and every one of them is a property of the SPEECH, never
-#: of a timeline, which is what makes a pin survive a rebuild.
+#: required.  Every key but `timeline` is a property of the SPEECH,
+#: which is what makes a pin survive a rebuild; `timeline` names the
+#: placement the hand edit was measured on, for the shared-closer case
+#: where one span of source words is several reels' cards.
 SCOPE_KEYS = ("speaker", "source_clip_id", "source_start",
-              "source_start_at_or_after", "source_start_before")
+              "source_start_at_or_after", "source_start_before",
+              "timeline")
 
 #: Everything a pin may adjust. At least one required.
 ADJUST_KEYS = ("offset_frames", "head_frames", "tail_frames")
@@ -142,6 +159,15 @@ def validate_pins(value) -> list:
                 raise CaptionTimingError(
                     f"{label} scope {key} must be seconds into the "
                     f"source, got {scope[key]!r}.")
+        if ("timeline" in scope
+                and (not isinstance(scope["timeline"], str)
+                     or not scope["timeline"].strip())):
+            raise CaptionTimingError(
+                f"{label} scope timeline must name the placement the "
+                f"hand edit was measured on, got "
+                f"{scope['timeline']!r}. An empty timeline matches "
+                f"nothing - leave the key out for a pin that is "
+                f"about the words wherever they play.")
         adjusts = {k: pin[k] for k in ADJUST_KEYS if k in pin}
         if not adjusts:
             raise CaptionTimingError(
@@ -225,9 +251,33 @@ def _slug_match(declared: str, recorded) -> bool:
             or slug(got, "noclip").startswith(slug(want, "noclip")))
 
 
+def _timeline_match(declared: str, recorded) -> bool:
+    """Whether a pin's `timeline` scope names this card's placement.
+
+    The final reel name, or a container built from it: a rebuild
+    stages into "<final> (rebuild staging)" and a beside-build into
+    "<final> (<suffix>)", so the parenthesised tail is the build's,
+    never the reel's.  The paren boundary is the whole check - "Reel 1"
+    is not a prefix of "Reel 13 - ..." here.  A card whose binding
+    names no timeline matches no timeline scope: a pin about one
+    placement does not move cards of unknown placement (fail-closed).
+    """
+    want = str(declared or "").strip().lower()
+    got = str(recorded or "").strip().lower()
+    if not want or not got:
+        return False
+    if want == got:
+        return True
+    return (got.startswith(want + " (") or want.startswith(got + " ("))
+
+
 def matches(segment: dict, scope: dict) -> bool:
     """Whether one rendered caption segment is in a pin's scope."""
     binding = _binding(segment)
+    if "timeline" in scope:
+        if not _timeline_match(scope["timeline"],
+                               binding.get("timeline")):
+            return False
     if "speaker" in scope:
         speaker = binding.get("speaker")
         if speaker is None or str(speaker).strip().lower() != str(
@@ -273,7 +323,9 @@ def apply_pins(segments, pins, fps: float) -> tuple:
 
     `short` names cards a pin left under the craft floor - reported
     with their new length, never refused (see the module docstring).
-    `stale` names pins that matched nothing.
+    `stale` names pins that matched nothing - except a pin whose
+    `timeline` scope names another reel's placement, which is out of
+    scope on this reel rather than stale, and stays silent.
     """
     from library.tools.frame_utils import span_frames
 
@@ -283,6 +335,15 @@ def apply_pins(segments, pins, fps: float) -> tuple:
     applied, short, stale = [], [], []
     for pin in pins:
         scope = pin["scope"]
+        if "timeline" in scope and not any(
+                _timeline_match(scope["timeline"],
+                                _binding(s).get("timeline")) for s in out):
+            # Another reel's pin, not a stale one: a pin scoped to Reel
+            # 13's placement evaluated on Reel 23's cards is out of
+            # scope, not evidence its speech was reworded. Silent here;
+            # on its own reel a scope that matches no card still
+            # reports STALE below.
+            continue
         offset = int(pin.get("offset_frames", 0))
         head = int(pin.get("head_frames", 0))
         tail = int(pin.get("tail_frames", 0))
@@ -353,16 +414,22 @@ def apply_pins(segments, pins, fps: float) -> tuple:
 
 # ── The plan side: entries, joined to the spine that timed them ────
 
-def block_bindings(spine) -> dict:
+def block_bindings(spine, timeline: str = "") -> dict:
     """Each spine block's source audio, keyed by block position.
 
-    The same four fields a rendered segment's `binding` carries
+    The same fields a rendered segment's `binding` carries
     (`library/tools/subtitle_segment_id.SEGMENT_BINDING_KEYS`): a pin
     addresses the SPEECH a card captions, and a reel's own spine is
     where that is recorded. One join, read by the builder when it
     records what it placed and by the conformance verifier when it
     re-derives the plan - a reel cannot be built to one rule and
     checked against another.
+
+    `timeline` is the placement these bindings serve - the reel name
+    the caller is building or grading. A pin scoping `timeline` is
+    evaluated against it; left out, no placement is named and such a
+    pin matches nothing here (fail-closed: a pin about one placement
+    does not move cards of unknown placement).
     """
     out = {}
     for block in ((spine or {}).get("structure") or []):
@@ -375,11 +442,13 @@ def block_bindings(spine) -> dict:
             "source_clip_id": block.get("clip_id"),
             "source_start": block.get("source_start"),
             "source_end": block.get("source_end"),
+            "timeline": timeline if timeline else None,
         }
     return out
 
 
-def retime_entries(entries, spine, pins, fps: float) -> tuple:
+def retime_entries(entries, spine, pins, fps: float,
+                   timeline: str = "") -> tuple:
     """Apply the pins to step 4.01's own caption ENTRIES.
 
     The rendered segment carries one BLOCK; an entry is one CARD inside
@@ -391,10 +460,14 @@ def retime_entries(entries, spine, pins, fps: float) -> tuple:
     said and WHEN in the reel" - so the hash must describe the pinned
     timings, or the verifier re-deriving them reads a pin as a changed
     grouping.
+
+    `timeline` is the placement being hashed or graded - the reel name
+    the caller is building or checking. It is what a `timeline`-scoped
+    pin is evaluated against; without it such a pin matches nothing.
     """
     if not pins or not entries:
         return entries, [], [], []
-    bindings = block_bindings(spine)
+    bindings = block_bindings(spine, timeline=timeline)
     probes = []
     for index, entry in enumerate(entries):
         position = entry.get("spine_block_position")

@@ -4710,7 +4710,7 @@ def _derive_plan_from_master(
             raise CaptionsUnavailable(captions_unavailable)
         captions, declared_short = _derive_planned_captions(
             moment, kr, transcript, fps, project_folder,
-            lead_seconds=lead_seconds)
+            lead_seconds=lead_seconds, timeline=reel_name)
     except CaptionsUnavailable as unavailable:
         captions_unavailable = str(unavailable)
 
@@ -4802,6 +4802,7 @@ def _derive_planned_captions(
     fps: float,
     project_folder: str = "",
     lead_seconds: float = 0.0,
+    timeline: str = "",
 ) -> Tuple[Tuple[PlannedCaption, ...], Tuple[Tuple[int, int], ...]]:
     """The caption cards the plan says this reel should carry, and the
     ones a caption-timing PIN deliberately left under the readability
@@ -4902,11 +4903,11 @@ def _derive_planned_captions(
             block_end_seconds=block_end.get(position),
         ))
     return _retime_planned_captions(tuple(cards), spine, fps,
-                                    project_folder)
+                                    project_folder, timeline)
 
 
 def _retime_planned_captions(cards, spine: dict, fps: float,
-                             project_folder: str):
+                             project_folder: str, timeline: str = ""):
     """Apply the project's caption-timing pins to the DERIVED plan.
 
     With the owner's own applier rather than a second copy of its rule
@@ -4938,7 +4939,7 @@ def _retime_planned_captions(cards, spine: dict, fps: float,
                 "timeline_end": card.end_seconds}
                for card in cards]
     moved, _applied, short, _stale = _caption_timing.retime_entries(
-        entries, spine, pins, fps)
+        entries, spine, pins, fps, timeline=timeline)
     out = []
     for card, probe in zip(cards, moved):
         start = float(probe["timeline_start"])

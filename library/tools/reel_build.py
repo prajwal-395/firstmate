@@ -6829,8 +6829,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     # otherwise the verifier, re-deriving them through
                     # the same owner, reads a pin as a changed card
                     # grouping and refuses to grade caption durations.
+                    # `timeline` is this build's own container, so a pin
+                    # scoped to another reel's placement does not move
+                    # this reel's hash (2026-09-12: Reel 13's closer pins
+                    # reached Reel 23's shared-CTA cards).
                     entries = _caption_timing.retime_entries(
-                        entries, spine, _caption_pins, 24000 / 1001)[0]
+                        entries, spine, _caption_pins, 24000 / 1001,
+                        timeline=name)[0]
                 if entries:
                     from library.tools.plan_provenance import caption_content_hash
                     caption_hashes[name] = caption_content_hash(entries)

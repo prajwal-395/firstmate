@@ -132,6 +132,124 @@ def test_a_pin_matching_nothing_reports_stale_rather_than_vanishing():
     assert _spans(out) == [(a, b) for _, _, _, a, b in CLOSERS]
 
 
+# ── Timeline scope: one reel's hand edit, not every reel's ──────────
+#
+# Measured 2026-09-12: the two pins above are Reel 13's closing cards,
+# but the source words they address are the shared call to action that
+# closes Reels 01, 13, 23, 28 and 31. Unscoped, the pins moved five of
+# Reel 23's cards seven frames late and trimmed its last card from
+# 2138-2155 to 2151-2155 - the captain's marked drift, at exactly the
+# marked frame. A `timeline` scope keeps the pin on its own reel.
+
+REEL_13 = "Reel 13 - the-accounting-firm-ai-called-healthcare"
+REEL_23 = "Reel 23 - why-small-business-wins-on-ai"
+
+
+def _scoped_pins():
+    pins = _captains_pins()
+    for pin in pins:
+        pin["scope"] = {**pin["scope"], "timeline": REEL_13}
+    return pins
+
+
+def _segments_on(timeline):
+    segments = _segments()
+    for segment in segments:
+        segment["binding"] = {**segment["binding"], "timeline": timeline}
+    return segments
+
+
+def test_a_timeline_scoped_pin_moves_only_its_own_reel():
+    pins = _scoped_pins()
+    moved13, applied13, _, stale13 = caption_timing.apply_pins(
+        _segments_on(REEL_13), pins, FPS)
+    assert not stale13
+    assert _spans(moved13) == LIVE
+    assert len(applied13) == 5
+    # The same source words on Reel 23: untouched, and silent - out of
+    # scope is not stale.
+    moved23, applied23, _, stale23 = caption_timing.apply_pins(
+        _segments_on(REEL_23), pins, FPS)
+    assert not applied23 and not stale23
+    assert _spans(moved23) == [(a, b) for _, _, _, a, b in CLOSERS]
+
+
+def test_a_staging_or_beside_container_matches_its_final_name():
+    pins = _scoped_pins()
+    for container in (REEL_13 + " (rebuild staging)",
+                      REEL_13 + " (fm-13-23)"):
+        moved, applied, _, stale = caption_timing.apply_pins(
+            _segments_on(container), pins, FPS)
+        assert not stale
+        assert _spans(moved) == LIVE
+        assert len(applied) == 5
+    # ... while another reel's staging does not.
+    moved, applied, _, stale = caption_timing.apply_pins(
+        _segments_on(REEL_23 + " (rebuild staging)"), pins, FPS)
+    assert not applied and not stale
+
+
+def test_the_paren_boundary_is_load_bearing():
+    assert not caption_timing.matches(
+        {"binding": {"timeline": "Reel 13 - the-accounting-firm"}},
+        {"timeline": "Reel 1"})
+    assert not caption_timing.matches(
+        {"binding": {"timeline": "Reel 1 - geo-is-comprehension"}},
+        {"timeline": "Reel 13 - the-accounting-firm"})
+    assert caption_timing.matches(
+        {"binding": {"timeline": REEL_13}}, {"timeline": REEL_13})
+    # A card whose binding names no placement matches no scope.
+    assert not caption_timing.matches(
+        {"binding": {"speaker": "akshita"}}, {"timeline": REEL_13})
+
+
+def test_a_scoped_pin_gone_stale_on_its_own_reel_still_reports():
+    pins = _scoped_pins()
+    pins[0]["scope"] = {**pins[0]["scope"],
+                        "source_start_at_or_after": 9999.0}
+    _, _, _, stale = caption_timing.apply_pins(
+        _segments_on(REEL_13), pins, FPS)
+    assert len(stale) == 1
+    assert "STALE" in stale[0]["reason"]
+
+
+def test_retime_entries_honours_the_timeline_scope():
+    spine = {"structure": [
+        {"position": 33, "speaker": "Akshita", "clip_id": "clip",
+         "source_clip_id": "clip", "source_start": 512.759,
+         "source_end": 513.442},
+    ]}
+    entries = [{"id": "sub_33_001", "spine_block_position": 33,
+                "timeline_start": 2138 / FPS, "timeline_end": 2155 / FPS}]
+    pins = _scoped_pins()
+    # On its own reel the head trim lands, as the builder's hash path
+    # records it...
+    moved, applied, _, _ = caption_timing.retime_entries(
+        entries, spine, pins, FPS, timeline=REEL_13)
+    assert [r["now"] for r in applied] == [[2151, 2155]]
+    assert moved[0]["timeline_start"] == 2151 / FPS
+    # ... on Reel 23 nothing moves, and with no placement named the
+    # scoped pin matches nothing at all (fail-closed).
+    for timeline in (REEL_23, ""):
+        moved, applied, _, stale = caption_timing.retime_entries(
+            entries, spine, pins, FPS, timeline=timeline)
+        assert not applied and not stale
+        assert moved[0]["timeline_start"] == 2138 / FPS
+
+
+def test_a_timeline_scope_must_name_a_placement():
+    with pytest.raises(caption_timing.CaptionTimingError,
+                       match="must name the placement"):
+        caption_timing.validate_pins(
+            [{"scope": {"speaker": "a", "timeline": "  "},
+              "offset_frames": 1, "reason": "r"}])
+    with pytest.raises(caption_timing.CaptionTimingError,
+                       match="must name the placement"):
+        caption_timing.validate_pins(
+            [{"scope": {"timeline": 13}, "offset_frames": 1,
+              "reason": "r"}])
+
+
 def test_the_list_subclass_and_its_plan_entries_survive():
     """`reel_subtitle_segments` returns a list SUBCLASS carrying the
     plan entries the caption hash digests; rebuilding a plain list
