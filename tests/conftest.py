@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 # ── ONNX Runtime telemetry: disabled to prevent SIGSEGV on teardown ─────
 #
 # onnxruntime ships a Microsoft Applications Events telemetry subsystem
@@ -175,7 +177,6 @@ if "DaVinciResolveScript" not in sys.modules:
 # it asks for the real lease with a short timeout and SKIPS naming the
 # holder rather than waiting.  A suite that cannot hang is worth more
 # than a suite that eventually wins the race.
-import pytest
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -204,3 +205,44 @@ def resolve_session():
             yield lease
     except resolve_lock.ResolveBusy as busy:
         pytest.skip(str(busy))
+
+
+# ── Stubbing DaVinciResolveScript without evicting the import graph ──
+#
+# Nine test files stub the Resolve bindings so a module that imports
+# them at module level can be imported at all.  Every one of them did
+# it with `patch.dict("sys.modules", {...})`, and `patch.dict` RESTORES
+# THE WHOLE DICT on exit - which DELETES every module first imported
+# inside the patch.  So a reel-build test that imports
+# `library.tools.reel_proposal` on its way through leaves that module
+# evicted; a later test monkeypatching `library.tools.reel_proposal.
+# read_proposal` then patches a FRESH module object while a module
+# imported earlier still holds the old function, and the patch silently
+# misses.
+#
+# Measured 2026-09-12: `tests/test_variants_are_routine.py::
+# test_declared_variants_resolve_through_the_plans_own_reel_name`
+# passes alone and fails after any of `test_reel_build_gate.py`,
+# `test_reel_build_gate_keeps_good_reel.py` or
+# `test_reel_build_touches_only_its_own_timelines.py` - order-dependent,
+# and therefore invisible until a selection happens to order it that
+# way.  Nothing about the test under it is wrong.
+#
+# This fixture swaps ONE key and restores ONE key, so nothing else in
+# `sys.modules` is disturbed.  A file that needs the stub asks for it
+# by name (`def mock_dvr(stub_resolve_script)`), which is also how the
+# next such file gets it right by default.
+@pytest.fixture
+def stub_resolve_script():
+    """Replace only `sys.modules["DaVinciResolveScript"]`, and put back
+    only that."""
+    absent = object()
+    previous = sys.modules.get("DaVinciResolveScript", absent)
+    sys.modules["DaVinciResolveScript"] = MagicMock()
+    try:
+        yield sys.modules["DaVinciResolveScript"]
+    finally:
+        if previous is absent:
+            sys.modules.pop("DaVinciResolveScript", None)
+        else:
+            sys.modules["DaVinciResolveScript"] = previous

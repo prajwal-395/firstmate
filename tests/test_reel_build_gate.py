@@ -15,9 +15,11 @@ MASTER = "GEO Podcast - Synced"
 ORGANISE = False
 
 @pytest.fixture(autouse=True)
-def mock_dvr():
-    with patch.dict("sys.modules", {"DaVinciResolveScript": MagicMock()}):
-        yield
+def mock_dvr(stub_resolve_script):
+    # Stubbed through the shared fixture: `patch.dict` on
+    # `sys.modules` restores the WHOLE dict and so evicts every
+    # module first imported inside it (tests/conftest.py).
+    yield
 
 
 class _StagingTimeline:
@@ -32,6 +34,12 @@ class _StagingTimeline:
     def SetName(self, name):
         self._name = name
         return True
+
+    def GetUniqueId(self):
+        if not getattr(self, "_uid", None):
+            type(self)._seq = getattr(type(self), "_seq", 0) + 1
+            self._uid = f"{type(self).__name__}-{type(self)._seq}"
+        return self._uid
 
 
 class _ResolveProject:
@@ -68,6 +76,18 @@ class _ResolveProject:
 
     def names(self):
         return [t.GetName() for t in self.timelines]
+
+    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
+    # it back by unique id - a fake without one cannot model the guard.
+    def GetCurrentTimeline(self):
+        # None until something sets it: a project that has not been
+        # pointed anywhere has no cursor, and inventing one here would
+        # hand the entry-unit guard a timeline nobody opened.
+        return getattr(self, "_current", None)
+
+    def SetCurrentTimeline(self, timeline):
+        self._current = timeline
+        return True
 
 
 def _placing(resolve_project):

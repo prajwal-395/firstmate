@@ -152,11 +152,21 @@ def test_the_build_records_and_prints_its_proof_scope(
     from library.tools.reel_build import rebuild_reels_in_project
 
     class _FakeTimeline:
+        _seq = 0
+
         def __init__(self, name):
             self._name = name
+            _FakeTimeline._seq += 1
+            self._uid = f"fake-timeline-{_FakeTimeline._seq}"
 
         def GetName(self):
             return self._name
+
+        def GetUniqueId(self):
+            # `resolve_lock.assert_current_timeline` reads the cursor
+            # back by this after setting it, so a double without an
+            # identity cannot satisfy the guard.
+            return self._uid
 
     class _FakeProject:
         def __init__(self, names):
@@ -181,6 +191,20 @@ def test_the_build_records_and_prints_its_proof_scope(
 
         def GetTimelineByIndex(self, index):
             return self.timelines[index - 1]
+
+        # A Resolve project HAS a cursor. `assert_current_timeline`
+        # READS it before setting it - what it was on arrival is the
+        # only evidence a foreign writer moved it - so a double that
+        # cannot be pointed anywhere cannot model the guard. None until
+        # something sets it: a project nobody has pointed anywhere has
+        # no cursor, and inventing one hands the entry-unit guard a
+        # timeline nobody opened.
+        def GetCurrentTimeline(self):
+            return getattr(self, "_current", None)
+
+        def SetCurrentTimeline(self, timeline):
+            self._current = timeline
+            return True
 
     resolve_project = _FakeProject(["Master"])
     moment = MagicMock()

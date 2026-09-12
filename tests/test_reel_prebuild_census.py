@@ -160,6 +160,12 @@ class _FakeTimeline:
     def GetName(self):
         return self._name
 
+    def GetUniqueId(self):
+        if not getattr(self, "_uid", None):
+            type(self)._seq = getattr(type(self), "_seq", 0) + 1
+            self._uid = f"{type(self).__name__}-{type(self)._seq}"
+        return self._uid
+
 
 class _FakeProject:
     def __init__(self, names):
@@ -184,6 +190,18 @@ class _FakeProject:
 
     def GetTimelineByIndex(self, index):
         return self.timelines[index - 1]
+
+    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
+    # it back by unique id - a fake without one cannot model the guard.
+    def GetCurrentTimeline(self):
+        # None until something sets it: a project that has not been
+        # pointed anywhere has no cursor, and inventing one here would
+        # hand the entry-unit guard a timeline nobody opened.
+        return getattr(self, "_current", None)
+
+    def SetCurrentTimeline(self, timeline):
+        self._current = timeline
+        return True
 
 
 def test_a_multi_reel_build_reports_before_placing(build_project):

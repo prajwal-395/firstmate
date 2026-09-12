@@ -461,3 +461,52 @@ def test_the_removal_note_survives_and_says_why():
         "unmediated by design. A SHARED lease mediates it, so the "
         "module must say which of its conclusions no longer holds "
         "rather than silently contradicting it")
+
+
+# ── A holder's own cursor excursion is not interference ─────────────
+
+def test_an_excursion_inside_a_fence_is_not_reported_as_drift(lock_dir):
+    """The holder reading another timeline is not a foreign writer.
+
+    A carried read-back has to make the reel it reads CURRENT - what
+    Resolve returns for a transform depends on which timeline that is
+    (`reel_rebuild_need.carried_digest_live`). Measured on the merge of
+    #1040: done with a bare `assert_current_timeline`, the enclosing
+    fence charged the holder's own move to `drift_seen` and raised at
+    exit naming the captain, while the cursor had in fact been put back
+    exactly where the fence expected it. A guard that cries wolf about
+    its own holder is worse than no guard.
+    """
+    home = FakeTimeline("home reel", uid="id-home")
+    other = FakeTimeline("reel being read", uid="id-other")
+    project = FakeProject(current=home)
+    with resolve_lock.cursor_fence(project, home, "a section",
+                                   timeout=1.0) as fence:
+        with resolve_lock.cursor_excursion(project, other, "read"):
+            assert project.GetCurrentTimeline() is other
+        assert project.GetCurrentTimeline() is home
+    assert fence.drift_seen == []
+
+
+def test_an_excursion_that_does_not_restore_is_still_caught(lock_dir):
+    """The fence's real property survives: the cursor must come back."""
+    home = FakeTimeline("home reel", uid="id-home")
+    other = FakeTimeline("reel being read", uid="id-other")
+    project = FakeProject(current=home)
+    with pytest.raises(ResolveRaceError):
+        with resolve_lock.cursor_fence(project, home, "a section",
+                                       timeout=1.0):
+            with resolve_lock.cursor_excursion(project, other, "read"):
+                pass
+            # a foreign writer moves it AFTER the excursion returned
+            project.current = other
+
+
+def test_an_excursion_still_refuses_without_a_lease(lock_dir, unguarded):
+    home = FakeTimeline("home reel", uid="id-home")
+    other = FakeTimeline("reel being read", uid="id-other")
+    project = FakeProject(current=home)
+    with pytest.raises(UnguardedPlacementError):
+        with resolve_lock.cursor_excursion(project, other, "read"):
+            pass
+    assert project.set_calls == []

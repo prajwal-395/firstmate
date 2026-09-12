@@ -278,6 +278,7 @@ def write_provenance(
     caption_hashes: Optional[dict] = None,
     footage_binding_hashes: Optional[dict] = None,
     asset_hashes: Optional[dict] = None,
+    build_signatures: Optional[dict] = None,
 ) -> str:
     """Record which plan the builder used and which reels it built.
 
@@ -304,6 +305,15 @@ def write_provenance(
     which engine revision a reel was built against once six of them
     silently diverge. A rebuilt reel's stamp is replaced; its
     neighbours keep theirs.
+
+    `build_signatures` is per reel and is how the NEXT build answers
+    "does this reel need a Resolve pass at all"
+    (`library/tools/reel_rebuild_need.py`): `{reel: {"derivation":
+    hex, "carried": hex}}`. Written here with the carried half still
+    empty - the build places a STAGING container, so the only moment a
+    reel's carried state means "what is approved" is after promotion,
+    and `record_carried_digests` closes it there. Merged per reel for
+    the same reason every other per-reel map here is.
 
     `asset_hashes` maps each declared asset's absolute path to the
     digest of its bytes at build time. Assets are project-shared, not
@@ -332,6 +342,7 @@ def write_provenance(
                   if code_hash is not None else {})
     assets = (dict(asset_hashes) if asset_hashes is not None
               else dict(existing.get("asset_hashes") or {}))
+    signatures = dict(build_signatures or {})
 
     if existing:
         if existing.get("plan_content_hash") == content_hash:
@@ -349,6 +360,10 @@ def write_provenance(
             merged_with = dict(existing.get("built_with") or {})
             merged_with.update(built_with)
             built_with = merged_with
+            merged_signatures = dict(
+                existing.get("build_signatures") or {})
+            merged_signatures.update(signatures)
+            signatures = merged_signatures
             if asset_hashes is None:
                 assets = dict(existing.get("asset_hashes") or {})
         else:
@@ -374,6 +389,13 @@ def write_provenance(
         # after the fact is not a measurement.
         "built_at_reels": built_at_reels,
         "built_with": built_with,
+        # Per reel: the two digests that answer whether the NEXT build
+        # needs to place this reel again at all
+        # (`library/tools/reel_rebuild_need.py`). A reel with no entry,
+        # or with either half empty, is REBUILT - the decision is
+        # fail-closed, so an absent record costs a placement rather
+        # than risking a reel that needed one.
+        "build_signatures": signatures,
         # Per declared asset path: the digest of its bytes at build
         # time, so a file replaced on disk reads as changed rather
         # than current (`reel_divergence` compares these).
@@ -416,12 +438,43 @@ def rename_reel_entries(review_dir: str, mapping: dict[str, str]) -> None:
                for name in (doc.get("built_reels") or [])]
     doc["built_reels"] = sorted(renamed)
     for key in ("caption_hashes", "footage_binding_hashes",
-                "built_at_reels", "built_with"):
+                "built_at_reels", "built_with", "build_signatures"):
         entries = dict(doc.get(key) or {})
         for old, new in mapping.items():
             if old in entries:
                 entries[new] = entries.pop(old)
         doc[key] = entries
+    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+
+def record_carried_digests(review_dir: str, digests: dict) -> None:
+    """Close the carried half of each promoted reel's build signature.
+
+    Called by `promote_staged_reels` straight after the renames, which
+    is the only moment a reel's carried state means "what is
+    approved": the build placed a staging container, and until
+    promotion the final name still holds the reel being replaced.
+
+    A reel with no derivation half on record is SKIPPED rather than
+    given a carried-only entry: a signature whose derivation is
+    unknown can never match, so half of one is a row that reads like a
+    record and answers nothing. Absent file is a no-op - there is
+    nothing to close.
+    """
+    if not digests:
+        return
+    path = Path(review_dir) / PROVENANCE_FILENAME
+    if not path.is_file():
+        return
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    entries = dict(doc.get("build_signatures") or {})
+    for name, digest in digests.items():
+        recorded = dict(entries.get(name) or {})
+        if not recorded.get("derivation"):
+            continue
+        recorded["carried"] = digest or ""
+        entries[name] = recorded
+    doc["build_signatures"] = entries
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
 
@@ -443,7 +496,7 @@ def drop_reel_entries(review_dir: str, names) -> None:
     doc["built_reels"] = [name for name in (doc.get("built_reels") or [])
                            if name not in drop]
     for key in ("caption_hashes", "footage_binding_hashes",
-                "built_at_reels", "built_with"):
+                "built_at_reels", "built_with", "build_signatures"):
         entries = dict(doc.get(key) or {})
         for name in drop:
             entries.pop(name, None)

@@ -1448,7 +1448,8 @@ def cmd_build_reels(args):
                 only_reels=args.only_reel or None,
                 timeline_name_suffix=args.name_suffix,
                 allow_drops=args.allow_drop or None,
-                supersede=args.supersede or None)
+                supersede=args.supersede or None,
+                rebuild_all=bool(getattr(args, "rebuild_all", False)))
             if result.refused:
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(result.error, file=sys.stderr)
@@ -1468,6 +1469,7 @@ def cmd_build_reels(args):
             state.setdefault("step_outputs", {})[node_id] = result.payload
             _edit_video_runner().save_pipeline_state(project_folder, state)
             print(f"{op.name}: {result.status}", file=sys.stderr)
+            _report_rebuild_need(result.payload)
             _report_reel_verification(result.payload)
 
     # ══════════════════════════════════════════════════════════════
@@ -1516,6 +1518,38 @@ def _commit_run_tail(project_folder: str) -> None:
     except Exception as exc:  # noqa: BLE001
         print(f"  closing version-control commit failed: {exc!r} - the "
               f"reels are built and unaffected", file=sys.stderr)
+
+
+def _report_rebuild_need(payload) -> None:
+    """Say which reels needed a Resolve pass, and WHY - both answers.
+
+    The build's own `rebuild_need` record
+    (`library/tools/reel_rebuild_need.py`) is printed here, not only in
+    the build's stdout, because the decision not to place a reel is the
+    one a reader is most likely to want back afterwards: "why is Reel 23
+    not in this round" has to be answerable from the run's own output.
+    A record that only ever said what was placed would leave the answer
+    to inference.
+    """
+    if not isinstance(payload, dict):
+        return
+    build = payload.get("reel_build")
+    if not isinstance(build, dict):
+        return
+    decisions = build.get("rebuild_need")
+    if not isinstance(decisions, list) or not decisions:
+        return
+    left = [d for d in decisions
+            if isinstance(d, dict) and d.get("action") == "leave_alone"]
+    print(f"  rebuild need: {len(decisions) - len(left)} reel(s) placed, "
+          f"{len(left)} left alone", file=sys.stderr)
+    for entry in decisions:
+        if not isinstance(entry, dict):
+            continue
+        mark = ("left alone" if entry.get("action") == "leave_alone"
+                else "placed")
+        print(f"    - {entry.get('reel')}: {mark} - "
+              f"{entry.get('reason')}", file=sys.stderr)
 
 
 def _report_reel_verification(payload) -> None:
@@ -1657,6 +1691,17 @@ def main():
              "by name and prints this flag. The sign-off is recorded "
              "as superseded, never deleted, and the timeline it "
              "covered is retired to the archive bin.")
+    build_reels_parser.add_argument(
+        "--rebuild-all", dest="rebuild_all", action="store_true",
+        help="Place every reel this run names, whatever the state "
+             "says. By default a reel nothing changed about is LEFT "
+             "ALONE (library/tools/reel_rebuild_need.py): a reel's "
+             "Resolve pass is 19.4-67.1s of which the Fusion comp "
+             "pass is fixed overhead, so placing an unchanged reel "
+             "again costs that and produces the same frames. The "
+             "decision is printed per reel with its reason either "
+             "way. Use this to re-place onto drift-free state, or to "
+             "measure what the pass costs.")
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
     p_status = sub.add_parser("status", help="Show project status")

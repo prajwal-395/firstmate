@@ -88,6 +88,27 @@ def verify_reels(data: dict) -> dict:
     # claimed it had verified only `timelines_built`. The record was
     # the promise; the code is now kept to it.
     timelines_built = list(build.get("timelines_built") or ())
+    left_alone = list(build.get("reels_left_alone") or ())
+    if not timelines_built and left_alone:
+        # The build placed nothing because nothing needed placing
+        # (`library/tools/reel_rebuild_need.py`). That is not a build
+        # with no record - it is a build whose record says every reel
+        # it named already carries what it would have given it. There
+        # is no staging to grade and nothing to promote, and calling
+        # the gate with an empty scope is refused on purpose: a gate
+        # that passes having graded nothing reads as coverage
+        # (AGENTS.md 10.4).
+        return {"reel_verification": {
+            "plan_path": plan_path,
+            "resolve_project_name": resolve_project_name,
+            "master_timeline_name": master_timeline_name,
+            "timelines_verified": [],
+            "reels_left_alone": left_alone,
+            "nothing_to_grade": (
+                f"all {len(left_alone)} reel(s) needed no Resolve pass, "
+                f"so nothing was staged and nothing was promoted - the "
+                f"approved timelines are untouched"),
+        }}
     if not timelines_built:
         raise ReelVerifyRefused(
             "the reel_build record names no timelines_built, so there "

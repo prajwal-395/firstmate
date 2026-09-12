@@ -57,9 +57,11 @@ ABANDONED_SCRATCH = "SOP Proof_reel13_old_probe"
 
 
 @pytest.fixture(autouse=True)
-def mock_dvr():
-    with patch.dict("sys.modules", {"DaVinciResolveScript": MagicMock()}):
-        yield
+def mock_dvr(stub_resolve_script):
+    # Stubbed through the shared fixture: `patch.dict` on
+    # `sys.modules` restores the WHOLE dict and so evicts every
+    # module first imported inside it (tests/conftest.py).
+    yield
 
 
 @pytest.fixture

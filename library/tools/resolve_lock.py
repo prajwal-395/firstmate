@@ -616,6 +616,67 @@ def current_fence() -> Optional[_FenceRecord]:
     return _fences[-1] if _fences else None
 
 
+@contextmanager
+def cursor_excursion(project, timeline, purpose: str = "read"):
+    """Move the cursor, do something, and put it back - under the guard.
+
+    The holder sometimes has to READ a timeline that is not the one its
+    section is writing.  A carried read-back is the case this was built
+    for: what Resolve returns for a clip's transform depends on which
+    timeline is current, so the only comparable reading of a reel is
+    taken with that reel current (`reel_rebuild_need.carried_digest_live`,
+    `docs/READING_A_TRANSFORM.md`).
+
+    Both moves are real writes and go through `assert_current_timeline`,
+    so they refuse outside a lease exactly as every other write does.
+    What they must NOT do is read as INTERFERENCE.  An enclosing
+    `cursor_fence` measures every move against ITS expected timeline, so
+    a holder's own excursion - leased, deliberate, and returned - would
+    be added to `drift_seen` and raised at the fence's exit as "a writer
+    that does not take the lease moved the cursor".  Measured on the
+    merge of #1040: a self-read inside a fence made the fence raise,
+    naming the captain, while the cursor had in fact been put back
+    exactly where the fence expected it.  A guard that cries wolf about
+    its own holder is worse than no guard, because the fence exists to
+    catch the one writer who never cooperates.
+
+    So each move inside the excursion is measured against the cursor as
+    it ACTUALLY IS at that moment rather than against the enclosing
+    section's expectation.  The enclosing fence's own exit check is
+    untouched: if the excursion fails to restore the cursor, that fence
+    still catches it, which is the property worth keeping.
+    """
+    previous = None
+    try:
+        previous = project.GetCurrentTimeline()
+    except Exception:                                     # noqa: BLE001
+        previous = None
+
+    def _move(target):
+        if current_fence() is None:
+            assert_current_timeline(project, target)
+            return
+        # Under a fence, measure this move against where the cursor
+        # actually IS, so the holder's own move is not charged to the
+        # enclosing section as interference.
+        here = project.GetCurrentTimeline()
+        token = _push_fence(_FenceRecord(
+            expected_id=_timeline_id(here),
+            expected_name=_timeline_name(here),
+            purpose=f"cursor excursion: {purpose}"))
+        try:
+            assert_current_timeline(project, target)
+        finally:
+            _pop_fence(token)
+
+    _move(timeline)
+    try:
+        yield previous
+    finally:
+        if previous is not None:
+            _move(previous)
+
+
 # ── The per-write check, which is where the refusal lands ───────────
 
 def assert_current_timeline(project, expected_timeline):

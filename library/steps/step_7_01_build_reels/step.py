@@ -126,7 +126,16 @@ def build_reels(data: dict) -> dict:
         only=(data or {}).get("only_reels"),
         name_suffix=str((data or {}).get("timeline_name_suffix") or ""),
         allow_drops=(data or {}).get("allow_drops"),
-        supersede=(data or {}).get("supersede"))
+        supersede=(data or {}).get("supersede"),
+        # A reel nothing changed about is not placed again
+        # (`library/tools/reel_rebuild_need.py`). FORWARDED, not
+        # interpreted, for the reason `only_reels` is: `rebuild_all`
+        # arriving True is the operator saying "place every reel you
+        # named whatever the state says", which is how the placement
+        # itself is measured and how a re-place onto drift-free state
+        # is asked for. Absent is the default, and the default is to
+        # skip what needs no pass.
+        reuse_unchanged=not bool((data or {}).get("rebuild_all")))
 
     return {"reel_build": record}
 

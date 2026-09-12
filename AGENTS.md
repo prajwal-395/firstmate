@@ -119,17 +119,19 @@ One enumeration, `library/tools/direction_contradiction.py`.
 
 ### A step that makes a craft judgement is told what craft it is
 
-One enumeration, `library/tools/craft_role.py`.
-Detail: `library/tools/craft_role.py`. [why - the measurement, and the two defects it explains](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role)
+One enumeration, `library/tools/craft_role.py`. [why](docs/RULE_EVIDENCE.md#twelve-handoffs-no-role)
 
 ### A step with no creative brief ASKS, rather than planning in silence
 
-One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way. The captain's ruling of 2026-09-02 is quoted verbatim in the module.
-Detail: `library/tools/brief_attachment.py`.
+One enumeration, `library/tools/brief_attachment.py` for the choice and `library/tools/briefing_interview.py` for what happens when it goes the other way.
 
 ### A contract rejection reaches the model that caused it
 
 One enumeration, `library/tools/post_bridge_retry.py`.
+
+### A reel nothing changed about is not placed again
+
+One enumeration, `library/tools/reel_rebuild_need.py`, and the decision is FAIL-CLOSED.
 
 ## 4. Dashboard
 

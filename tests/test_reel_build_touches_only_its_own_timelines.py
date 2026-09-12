@@ -50,9 +50,11 @@ the old loop's blast radius the point rather than a detail."""
 
 
 @pytest.fixture(autouse=True)
-def mock_dvr():
-    with patch.dict("sys.modules", {"DaVinciResolveScript": MagicMock()}):
-        yield
+def mock_dvr(stub_resolve_script):
+    # Stubbed through the shared fixture: `patch.dict` on
+    # `sys.modules` restores the WHOLE dict and so evicts every
+    # module first imported inside it (tests/conftest.py).
+    yield
 
 
 @pytest.fixture
@@ -133,6 +135,18 @@ class FakeProject:
 
     def names(self):
         return [t.GetName() for t in self.timelines]
+
+    # A Resolve project HAS a cursor, and `resolve_lock`'s guard reads
+    # it back by unique id - a fake without one cannot model the guard.
+    def GetCurrentTimeline(self):
+        # None until something sets it: a project that has not been
+        # pointed anywhere has no cursor, and inventing one here would
+        # hand the entry-unit guard a timeline nobody opened.
+        return getattr(self, "_current", None)
+
+    def SetCurrentTimeline(self, timeline):
+        self._current = timeline
+        return True
 
 
 def _run(resolve_project, project_dir, **kwargs):

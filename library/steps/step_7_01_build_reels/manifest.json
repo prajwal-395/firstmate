@@ -47,13 +47,19 @@
         "type": "array",
         "required": false,
         "description": "Reels whose durable captain sign-off this build may replace (`library/tools/reel_signoff.py`). Each entry is a reel name in any container spelling. The `--supersede` flag of `manage_project.py build-reels`, repeatable. Absent means nothing is declared and a promotion over a signed-off reel refuses by name, printing the declaration that would proceed deliberately. A declared supersession moves the sign-off to `superseded` after the rename lands; it is never deleted."
+      },
+      {
+        "name": "rebuild_all",
+        "type": "boolean",
+        "required": false,
+        "description": "Place every reel this run names, whatever the state says. Absent - the default - means a reel nothing changed about is LEFT ALONE (`library/tools/reel_rebuild_need.py`): the decision compares the derivation this build computed and the live timeline read back against what the build that placed it recorded, and is fail-closed in every other case. A reel's Resolve pass is 19.4-67.1s of which the Fusion comp pass is fixed overhead (`docs/RULE_EVIDENCE.md`), so re-placing an unchanged reel costs that and produces the same frames. The `--rebuild-all` flag of `manage_project.py build-reels`."
       }
     ],
     "outputs": [
       {
         "name": "reel_build",
         "type": "object",
-        "description": "What was PLACED: the timelines built, the plan they were built from, the caption content hashes recorded at build time, and the Resolve names built into. Carried by the edge to verify_reels so the verifier grades the same answer the build wrote. Also carries what the build was ASKED for - `reels_requested` and `name_suffix` - so a record of one reel built into a new container does not read as a full rebuild that placed one timeline.",
+        "description": "What was PLACED: the timelines built, the plan they were built from, the caption content hashes recorded at build time, and the Resolve names built into. Carried by the edge to verify_reels so the verifier grades the same answer the build wrote. Also carries what the build was ASKED for - `reels_requested` and `name_suffix` - so a record of one reel built into a new container does not read as a full rebuild that placed one timeline. `rebuild_need` carries the per-reel decision and its reason, and `reels_left_alone` names the reels that needed no Resolve pass - which is not the same list as `skipped_by_exclusion`.",
         "expected_schema": {
           "timelines_built": "list",
           "plan_path": "str",
@@ -62,7 +68,9 @@
           "master_timeline_name": "str",
           "name_suffix": "str",
           "allow_drops": "dict",
-          "supersede": "list"
+          "supersede": "list",
+          "rebuild_need": "list",
+          "reels_left_alone": "list"
         }
       }
     ],
@@ -101,7 +109,7 @@
   "metadata": {
     "author": "prajwal",
     "created": "2026-09-06",
-    "last_modified": "2026-09-06",
+    "last_modified": "2026-09-12",
     "source_process": "reels",
     "notes": "Belongs to library/processes/reels, not to edit_video. See docs/REEL_BUILD_HAS_NO_OWNING_NODE.md for the measurement that says why a reel build cannot be a node of the edit_video DAG."
   }

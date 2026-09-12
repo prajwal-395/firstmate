@@ -111,6 +111,7 @@ of the two readings stays is taste, so the report never shortens one.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 
 from library.tools.paths import REMOTION_DIR
@@ -5622,6 +5623,50 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"promoted and unaffected, but this promotion is not in "
               f"the version record", file=_sys.stderr)
 
+    # ── CLOSE EACH PROMOTED REEL'S BUILD SIGNATURE ──────────────
+    # The carried half (`library/tools/reel_rebuild_need.py`): what
+    # this reel's approved timeline holds, read back NOW. This is the
+    # only moment it means "what is approved" - the build placed a
+    # staging container, and until the renames above the final name
+    # still held the reel being replaced. One `snapshot_timeline` per
+    # promoted reel, MEASURED at 0.043-0.153 s each.
+    #
+    # Never fatal: a signature that fails to close costs the NEXT
+    # build a placement, which is the fail-closed direction. A
+    # promotion that failed over a bookkeeping write would be worse.
+    try:
+        from library.tools import reel_rebuild_need as _need_record
+        from library.tools.plan_provenance import (
+            record_carried_digests as _record_carried)
+        _live = {}
+        for _index in range(1, (project.GetTimelineCount() or 0) + 1):
+            _timeline = project.GetTimelineByIndex(_index)
+            if _timeline is not None and _timeline.GetName() in ok_finals:
+                _live[_timeline.GetName()] = _timeline
+        _carried = {}
+        for _final in ok_finals:
+            _timeline = _live.get(_final)
+            if _timeline is None:
+                continue
+            # SELF-read: the reel made current before it is read. The
+            # digest depends on which timeline is current, so the two
+            # ends must read the same way or they disagree by
+            # construction (`reel_rebuild_need.carried_digest_live`).
+            _digest = _need_record.carried_digest_live(project, _timeline)
+            if _digest:
+                _carried[_final] = _digest
+        _record_carried(review_dir, _carried)
+        if _carried:
+            print(f"  build signature closed for {len(_carried)} "
+                  f"promoted reel(s) - the next build can tell whether "
+                  f"they still need a Resolve pass", flush=True)
+    except Exception as _signature_failed:                # noqa: BLE001
+        import sys as _sys
+        print(f"  build signature not closed ({_signature_failed}) - "
+              f"the reels are promoted and unaffected; the next build "
+              f"will place them again rather than assume",
+              file=_sys.stderr)
+
     organised = None
     if organise:
         from library.tools.execution.organise_media_pool import (
@@ -5804,7 +5849,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              organise: bool = True,
                              intent_file: str = "",
                              allow_drops=None,
-                             supersede=None) -> dict:
+                             supersede=None,
+                             reuse_unchanged: bool = True) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
@@ -5891,6 +5937,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     the record as `allow_drops`, so the `verify_reels` node promotes
     with the same declaration the build was given rather than
     re-deriving one.
+
+    `reuse_unchanged` is the per-reel decision NOT to pay a Resolve
+    pass for a reel nothing changed about
+    (`library/tools/reel_rebuild_need.py`). Measured in the tree, a
+    reel's Resolve pass is 19.4-67.1 s of which the Fusion comp pass
+    is 17.0-63.7 s of FIXED overhead (`docs/RULE_EVIDENCE.md`, "what
+    it costs"), so placing an unchanged reel again buys nothing and
+    costs that. The decision is made from two digests - the
+    derivation this build computed, and the live timeline read back -
+    and it is FAIL-CLOSED: an absent record, an unreadable reel or
+    either digest disagreeing all mean REBUILD. The reason per reel is
+    printed and carried on the record as `rebuild_need`.
+
+    `False` places every reel this call names, whatever the state
+    says. That is what a caller asks for when it wants the placement
+    itself - a re-place onto drift-free state, or a measurement of
+    what the pass costs - and it is how the before/after of the skip
+    is measured at all.
 
     The one caller that passes False is the `build_reels` node of
     `library/processes/reels`, whose process has `verify_reels` as its
@@ -5993,8 +6057,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     from library.tools.plan_provenance import archive_plan
     archive_plan(proposal_path)
     
-    with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json")) as f:
-        transcript = json.load(f)
+    # Read as BYTES, once: the same read supplies the transcript every
+    # decision below is made from AND the digest the rebuild-need
+    # signature carries (`library/tools/reel_rebuild_need.py`).
+    # Digesting the file a second time would be a second spelling of
+    # this path (`tests/test_operations.py`) and a second chance for
+    # the two reads to disagree.
+    with open(os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"), "rb") as f:
+        transcript_bytes = f.read()
+    transcript = json.loads(transcript_bytes.decode("utf-8"))
+    transcript_digest = hashlib.sha256(transcript_bytes).hexdigest()
 
     # Stored proposals predate the boundary drawer: a boundary drawn
     # before it can sit inside a word, and the build reads the file
@@ -6155,15 +6227,32 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # while the engine's claim was "every reel inherits it". Read-only,
     # printed, never a refusal: whether to rebuild a diverged reel is
     # the captain's decision (`library/tools/reel_divergence.py`).
+    # EVERY APPROVED REEL, read back once. Two readers want exactly
+    # these reads - the divergence survey below and the rebuild-need
+    # decision in the loop (`reel_rebuild_need`) - so the reads happen
+    # HERE, once, and both are handed the result. Measured on the
+    # captain's eight reels: 0.043-0.153 s each, 0.445 s for all
+    # eight, which is what makes a read-back affordable per build at
+    # all. Taken outside the survey's try so a survey that fails does
+    # not silently cost every reel a placement.
+    from library.tools import reel_divergence as _divergence
+    _approved = [built_name(m, name_suffix) for m in moments
+                 if str(getattr(m.approval, "value",
+                                m.approval)) == "approved"]
     try:
-        from library.tools import reel_divergence as _divergence
-        from library.tools.reel_ending import resolve_ending as _resolve_end
-        _approved = [built_name(m, name_suffix) for m in moments
-                     if str(getattr(m.approval, "value",
-                                    m.approval)) == "approved"]
-        _by_final = {built_name(m, name_suffix): m for m in moments}
-        _snapshots, _unread = _divergence.snapshots_for(
+        live_snapshots, live_unread = _divergence.snapshots_for(
             project, _approved, snapshot_fn=snapshot_timeline)
+    except Exception as _reads_failed:                    # noqa: BLE001
+        print(f"  live reel read-back unavailable ({_reads_failed}) - "
+              f"every reel will be placed", file=sys.stderr)
+        live_snapshots, live_unread = {}, {
+            name: f"read-back unavailable ({_reads_failed})"
+            for name in _approved}
+
+    try:
+        from library.tools.reel_ending import resolve_ending as _resolve_end
+        _by_final = {built_name(m, name_suffix): m for m in moments}
+        _snapshots, _unread = dict(live_snapshots), dict(live_unread)
         _endings = {}
         for _final in _approved:
             try:
@@ -6291,6 +6380,82 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     overlay_effect = overlay_mod.resolve_declaration({}, project_folder)
     overlay_declared = overlay_mod.declared_overlay(overlay_effect) is not None
 
+    # ── DOES THIS REEL NEED A RESOLVE PASS AT ALL ────────────────
+    # The wholesale halves of every reel's signature, computed ONCE:
+    # the engine source (0.059 s measured), the project's own
+    # declarations (0.003 s), the plan, the transcript and the live
+    # master read-back. Each is deliberately over-covering - a digest
+    # that misses an input skips a reel that needed rebuilding, and a
+    # digest that covers too much costs a placement
+    # (`library/tools/reel_rebuild_need.py`).
+    from library.tools import reel_rebuild_need as _need
+    from library.tools.plan_provenance import (
+        plan_content_hash as _plan_hash,
+        read_provenance as _read_prov,
+    )
+    _engine_code = _need.engine_code_digest()
+    # The PROJECT-WIDE half: `project.yaml`, the brand template's
+    # content, the project's artwork trees, every `external/`
+    # declaration that is not a per-reel pin store, and the digests of
+    # the assets a declaration names by absolute path. Changing any of
+    # them can change every reel, so any of them changing costs a full
+    # round. The per-reel pin stores are deliberately NOT here - their
+    # effect on one reel is carried by that reel's own derivation, and
+    # folding them in would make a pin on Reel 13 rebuild Reel 23
+    # (`library/tools/reel_rebuild_need.py`).
+    try:
+        from library.tools.reel_divergence import (
+            asset_digests as _signature_assets)
+        _signature_asset_hashes = _signature_assets(
+            project_folder, brand_effect=_brand_effect(project_folder))
+    except Exception:                                     # noqa: BLE001
+        _signature_asset_hashes = None
+    _project_wide = _need.project_wide_digest(
+        project_folder,
+        brand_template=_brand_effect(project_folder),
+        asset_hashes=_signature_asset_hashes)
+    _plan_digest = _plan_hash(proposal_path)
+    # SELF-read, for the same reason as the carried half below:
+    # read off a timeline that is not current, the master's
+    # transforms come back different, and this digest is part of
+    # EVERY reel's derivation - so a run that entered on another
+    # timeline would rebuild the whole project.
+    _master_digest = _need.carried_digest_live(project, timeline)
+
+    # The carried half is read with THE REEL ITSELF CURRENT, because a
+    # transform does not read back the same way twice: what Resolve
+    # returns depends on which timeline is current at the moment of
+    # the read (`reel_rebuild_need.carried_digest_live`, with the
+    # measurement). The survey's snapshots above cannot serve here -
+    # they were all taken under one current timeline, whichever the
+    # run happened to enter on, so they disagree with the records
+    # promotion closed. Each read restores the current timeline, so
+    # the entry units the placements are computed in are unchanged.
+    _carried_self_reads: dict = {}
+
+    def _carried_self_read(final_name: str):
+        if final_name in _carried_self_reads:
+            return _carried_self_reads[final_name]
+        _timeline = None
+        try:
+            for _i in range(1, (project.GetTimelineCount() or 0) + 1):
+                _t = project.GetTimelineByIndex(_i)
+                if _t is not None and _t.GetName() == final_name:
+                    _timeline = _t
+                    break
+        except Exception:                                 # noqa: BLE001
+            _timeline = None
+        digest = (_need.carried_digest_live(project, _timeline)
+                  if _timeline is not None else None)
+        _carried_self_reads[final_name] = digest
+        return digest
+    _recorded_signatures = ((_read_prov(os.path.join(
+        project_folder, "pipeline_output", "review")) or {}).get(
+            "build_signatures") or {})
+    build_signatures: dict = {}
+    rebuild_decisions: list = []
+    left_alone: list = []
+
     built_reel_names = []
     caption_hashes = {}
     footage_binding_hashes = {}
@@ -6392,6 +6557,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             name = staged_to_final[final]
             current_staging = name
             print(f"Building {name}", flush=True)
+            # Where this reel's records START, so a reel the decision
+            # below LEAVES ALONE can be rolled back out of them. The
+            # per-reel record writers all merge by reel NAME, so an
+            # entry filed under a staging container nothing staged is
+            # a phantom baseline the next verifier would grade
+            # against. Bookmarked rather than conditional: the
+            # derivation has to run to be compared, so the records it
+            # produces exist before the decision does.
+            _mark = (len(explainer_plans), len(semantic_records),
+                     len(span_records), len(motion_records))
             # This approved moment's own strikes, cut from its ranges
             # below. Said on the run that honours them: a cut the
             # operator cannot see is a silent content change. Grown
@@ -6728,6 +6903,75 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"({drop['effect_type']}): {drop['reason']}",
                           file=sys.stderr)
 
+            # ── THE DECISION, taken with everything derived and
+            # nothing placed ─────────────────────────────────────────
+            # This is the last moment before Resolve is touched for
+            # this reel, and the first at which the derivation is
+            # complete - so it is where the two digests are compared.
+            # The reason is printed either way: a skip whose grounds
+            # are invisible is indistinguishable from a reel silently
+            # dropped, and a REBUILD that says which half disagreed is
+            # how an operator sees what their edit reached.
+            _derivation = _need.derivation_digest(
+                reel_number=moment.number,
+                engine_code=_engine_code,
+                project_wide=_project_wide,
+                plan_content_hash=_plan_digest,
+                transcript_hash=transcript_digest,
+                master_digest=_master_digest,
+                ranges=ranges,
+                placements_list=placements(
+                    ranges, master_clips, 24000 / 1001,
+                    lead_frames=lead_frames(cards, 24000 / 1001)),
+                cards=cards,
+                caption_segments=subtitle_segments,
+                explainer_segments=explainer_segments,
+                semantic_segments=semantic_segments,
+                overlay_placements=(overlay_plan.placements
+                                    if overlay_plan else None),
+                motion_record=(motion_records[-1]
+                               if reel_look_decl is not None
+                               and motion_records else None),
+                ending=_ending_decl,
+                look=reel_look_decl,
+                grade_cdl=reel_grade_cdl,
+                grade_look=reel_grade_look,
+                power_grade=reel_power_grade,
+                extra={"extra_cuts": [list(c) for c in moment_cuts],
+                       "insisted": [list(sp) for sp in moment_insisted],
+                       "overlay_intent": bool(overlay_intent),
+                       "skip_captions": bool(skip_captions)},
+            )
+            build_signatures[name] = _need.signature_for_record(
+                _derivation)
+            _decision = _need.decide(
+                final, _derivation,
+                _carried_self_read(final),
+                _recorded_signatures.get(final))
+            rebuild_decisions.append(_decision.as_dict())
+            if reuse_unchanged and _decision.leave_alone:
+                # NOT placed, and nothing about it touched: the hold
+                # taken for its staging goes (no staging exists), its
+                # signature record is left exactly as it was, and every
+                # per-reel sidecar keeps its entry because every writer
+                # here merges per reel. The approved timeline is the one
+                # that was already there.
+                print(f"  LEAVING {final} ALONE: {_decision.reason}",
+                      flush=True)
+                _holds.release_holds(project_folder, [name])
+                build_signatures.pop(name, None)
+                caption_hashes.pop(name, None)
+                footage_binding_hashes.pop(name, None)
+                overlay_records.pop(name, None)
+                del explainer_plans[_mark[0]:]
+                del semantic_records[_mark[1]:]
+                del span_records[_mark[2]:]
+                del motion_records[_mark[3]:]
+                left_alone.append(final)
+                current_staging = None
+                continue
+            print(f"  placing {name}: {_decision.reason}", flush=True)
+
             build_result = build_reel_timeline(
                 project=project,
                 moment=moment,
@@ -6902,7 +7146,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     write_provenance(review_dir, proposal_path, built_reel_names,
                      caption_hashes=caption_hashes,
                      footage_binding_hashes=footage_binding_hashes,
-                     asset_hashes=asset_hashes)
+                     asset_hashes=asset_hashes,
+                     build_signatures=build_signatures)
 
     # The plan the verifier grades V4 against, written where the rest of
     # the build record lives. A placement nothing recorded is a placement
@@ -6916,6 +7161,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # here; leaving a stale entry would make F18 report an element as
     # missing from a reel that was correctly rebuilt without one.
     _write_overlay_records(review_dir, built_reel_names, overlay_records)
+
+    # A reel the decision LEFT ALONE was never staged, so it is not in
+    # the mapping the gate grades or the promotion moves. Dropped here
+    # rather than never entered, because the derivation that decides it
+    # runs inside the loop and the mapping is what the loop iterates.
+    for _final in left_alone:
+        staged_to_final.pop(_final, None)
+    if left_alone:
+        print(f"  {len(left_alone)} reel(s) needed no Resolve pass: "
+              + ", ".join(left_alone), flush=True)
 
     organised = None
     staged_out = dict(staged_to_final)
@@ -6939,7 +7194,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
-    if verify:
+    if verify and not built_reel_names and left_alone:
+        # Nothing was placed, and that IS the answer: every reel this
+        # call named already carries what this build would have given
+        # it. There is no staging to grade and nothing to promote, and
+        # `verify_built_reels` REFUSES an empty scope on purpose - a
+        # gate that passes having graded nothing reads as coverage
+        # (AGENTS.md 10.4). So the gate is not called with nothing;
+        # the run says what it did instead.
+        print(f"  nothing staged: all "
+              f"{len(left_alone)} reel(s) needed no Resolve pass, so "
+              f"there is no staging to grade and nothing to promote. "
+              f"The approved timelines are untouched.", flush=True)
+    elif verify:
         # Scoped to what THIS call placed - the staging containers, not
         # the approved timelines: verifying the whole project here is
         # what made one reel cost 49 gradings, and grading eighteen
@@ -7111,6 +7378,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # placed (`library/tools/layer_coherence.py`). Reported,
         # never a gate, for the same reason as the divergence above.
         "coherence": coherence_report,
+        # Per reel: whether it needed a Resolve pass, and WHY - for
+        # every reel this call considered, including the ones it
+        # placed (`library/tools/reel_rebuild_need.py`). A reader that
+        # wants to know why a reel was not rebuilt reads this rather
+        # than inferring it from an absence.
+        "rebuild_need": rebuild_decisions,
+        # The reels this call deliberately did not place because
+        # nothing about them changed. `[]` is a build that placed
+        # everything it named, which is also what `reuse_unchanged=
+        # False` always produces. NOT the same list as
+        # `skipped_by_exclusion`: that one is content the captain
+        # struck, this one is work that was already done.
+        "reels_left_alone": left_alone,
     }
 
 
