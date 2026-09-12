@@ -58,6 +58,10 @@ a guess
 - A canvas covering `FULL_FRAME_COVERAGE` of the frame: the backstop
   for compositions the structural rules do not name. Marginal pixel
   savings are not worth the placement risk.
+- A canvas wider or taller than the delivery frame: refused outright
+  with `TightBoxClipsInk` by the bound shared with the caption path
+  (`tight_box.refuse_canvas_larger_than_frame`), so no tight file is
+  ever bigger than the frame it draws on.
 
 How the box lands in Resolve
 ----------------------------
@@ -85,6 +89,7 @@ from library.tools.tight_box import (
     grow_to_minimum,
     placement_for_box,
     placement_holds,
+    refuse_canvas_larger_than_frame,
 )
 
 # Beyond the estimated ink on every side: the slide entrance travels
@@ -408,7 +413,11 @@ def tighten_motion_graphics_props(props: dict,
     geometry, middle mixed with another zone, or raw coverage), so the
     caller keeps the full-canvas path. Raises where the props carry no
     safe area, exactly as the composition refuses to place by a
-    literal.
+    literal - and raises `TightBoxClipsInk` where the predicted canvas
+    is wider or taller than the delivery frame, by the same shared
+    bound the caption path refuses on
+    (`tight_box.refuse_canvas_larger_than_frame`): a tight file
+    bigger than the frame it draws on is never produced.
 
     A placement Resolve cannot hold is ALSO None, not a clamped
     graphic: the small canvas needs large Pan/Tilt (frame size over
@@ -565,6 +574,14 @@ def tighten_motion_graphics_props(props: dict,
         (zone,) = tuple(all_zones)
         canvas_h, top_extra = grow_to_minimum(measured_h, zone, full_h)
         grown_below = canvas_h - measured_h - top_extra
+
+    # The frame bound the caption path refuses on, shared rather than
+    # re-spelled: a predicted canvas bigger than the delivery frame is
+    # a refusal (full-canvas fallback at the caller), never a file.
+    refuse_canvas_larger_than_frame(
+        canvas_w, canvas_h, full_w, full_h,
+        f"predicted motion-graphics union ({union[0]:.0f},{union[1]:.0f})"
+        f"-({union[2]:.0f},{union[3]:.0f})")
 
     if canvas_w * canvas_h >= FULL_FRAME_COVERAGE * full_w * full_h:
         return None

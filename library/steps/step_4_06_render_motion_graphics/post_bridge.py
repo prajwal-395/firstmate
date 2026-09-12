@@ -260,7 +260,10 @@ def render_one_segment(planned: dict, out_dir: str,
     tight_fallback = ""
     if geometry == "tight":
         from library.tools.mg_tight_box import tighten_motion_graphics_props
-        from library.tools.tight_box import TightBoxMismatch
+        from library.tools.tight_box import (
+            TightBoxClipsInk,
+            TightBoxMismatch,
+        )
         # The timeline this graphic lands on: the delivery format, the
         # same size the props render at. Resolved here rather than
         # trusted from the props so a stale or foreign prop cannot
@@ -271,11 +274,12 @@ def render_one_segment(planned: dict, out_dir: str,
             tight = tighten_motion_graphics_props(
                 props, project_folder or "",
                 timeline_size=timeline_size)
-        except TightBoxMismatch as exc:
-            # The clamp gate: this graphic cannot ride a small box on
-            # this timeline, so it renders full canvas. SAID, not
-            # silent - the caption path records the same fallback as
-            # `tight_fallback`.
+        except (TightBoxClipsInk, TightBoxMismatch) as exc:
+            # The clamp gate and the frame bound: this graphic cannot
+            # ride a small box on this timeline (or its predicted box
+            # is bigger than the frame), so it renders full canvas.
+            # SAID, not silent - the caption path records the same
+            # fallback as `tight_fallback`.
             tight = None
             tight_fallback = str(exc)[:500]
             print(f"  {progress} union unplaceable as tight - full "
@@ -301,8 +305,8 @@ def render_one_segment(planned: dict, out_dir: str,
         } if tight is not None else None)
 
     def _resolved_geometry():
-        # What the file IS, for the record and the digest: a clamp
-        # refusal resets to full - the file IS full canvas.
+        # What the file IS, for the record and the digest: a clamp or
+        # frame-bound refusal resets to full - the file IS full canvas.
         if geometry == "tight" and tight is None and tight_fallback:
             return "full"
         return geometry

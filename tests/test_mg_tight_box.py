@@ -318,6 +318,23 @@ def test_missing_safe_area_refuses_like_the_component():
         tighten_motion_graphics_props(props)
 
 
+def test_canvas_wider_than_the_frame_refuses():
+    """The 1262x480 file on the captain's project: a display run with
+    no wrap bound measures wider than the usable frame, and the pads
+    push the canvas past the delivery width. The caption path refuses
+    that with `TightBoxClipsInk` (`tight_box.py`); this path produced
+    the file instead. Remove the bound and this input ships a canvas
+    wider than the frame again - the union itself hangs off both
+    frame edges (centred 1166px ink on a 1080 frame)."""
+    from library.tools.tight_box import TightBoxClipsInk
+    props = _props([_el(
+        "title_lockup", anchor="top_centre",
+        runs=[{"text": "A COMPLETELY DIFFERENT SYSTEM",
+               "type_role": "display"}])])
+    with pytest.raises(TightBoxClipsInk, match="1262x480"):
+        tighten_motion_graphics_props(props)
+
+
 def test_pads_cover_slide_and_shadow():
     """Slide moves 40px, text shadows blur 12px, glitch jitters ~6px:
     the pad must clear the largest plus margin, or the box clips ink

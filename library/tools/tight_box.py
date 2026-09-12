@@ -649,6 +649,26 @@ class TightBoxClipsInk(ValueError):
     """
 
 
+def refuse_canvas_larger_than_frame(canvas_w: int, canvas_h: int,
+                                    full_w: int, full_h: int,
+                                    detail: str) -> None:
+    """The one frame bound every tight path shares, owned here.
+
+    A canvas wider or taller than the delivery frame refuses with
+    `TightBoxClipsInk` rather than clamping ink away. The callers -
+    `tighten_measured` below and `tighten_motion_graphics_props` in
+    `mg_tight_box.py` - convert the refusal to a full-canvas fallback;
+    what must never happen is a tight file bigger than the frame it
+    draws on. `detail` names the union that needed the canvas, so the
+    message says whose ink did not fit.
+    """
+    if canvas_w > full_w or canvas_h > full_h:
+        raise TightBoxClipsInk(
+            f"{detail} needs {canvas_w}x{canvas_h} on a "
+            f"{full_w}x{full_h} frame: clamping would cut ink, so "
+            f"there is no tight box.")
+
+
 class TightBoxMismatch(ValueError):
     """The tight output is not the probe crop: cut-off text on a
     timeline. Raised, never warned past - see `verify_frames`."""
@@ -799,11 +819,9 @@ def tighten_measured(props: dict, union: InkUnion,
     grown_below = canvas_h - measured_h - top_extra
     pad_top = PAD_TOP + top_extra
     pad_bottom = PAD_BOTTOM + grown_below
-    if canvas_w > full_w or canvas_h > full_h:
-        raise TightBoxClipsInk(
-            f"measured ink ({union.x0},{union.y0})-({union.x1},{union.y1}) "
-            f"needs {canvas_w}x{canvas_h} on a {full_w}x{full_h} frame: "
-            f"clamping would cut ink, so there is no tight box.")
+    refuse_canvas_larger_than_frame(
+        canvas_w, canvas_h, full_w, full_h,
+        f"measured ink ({union.x0},{union.y0})-({union.x1},{union.y1})")
 
     # Provisional origin: union minus pads. Replaced by correspondence
     # once the tight render exists - see the module docstring.
