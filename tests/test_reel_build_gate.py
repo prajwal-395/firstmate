@@ -178,7 +178,12 @@ def test_rebuild_reels_clean_build_passes(mock_run_verif, mock_resolve_style, mo
     rebuild_reels_in_project(str(mock_project_env),
                              organise=ORGANISE)
     mock_build.assert_called_once()
-    mock_run_verif.assert_called_once()
+    # Two verifications: the refusing gate scoped to what was placed,
+    # then the informational whole-project sweep beside it.
+    assert mock_run_verif.call_count == 2
+    assert mock_run_verif.call_args_list[0][1]["only_reels"] == [
+        "Reel 01 (rebuild staging)"]
+    assert mock_run_verif.call_args_list[1][1]["only_reels"] is None
     # Promoted: the staging container now carries the final name and no
     # staging container is left behind.
     assert mock_proj.names() == [MASTER, "Reel 01"]
@@ -241,7 +246,8 @@ def test_rebuild_reels_non_defect_classes_do_not_fail(mock_run_verif, mock_resol
     
     rebuild_reels_in_project(str(mock_project_env),
                              organise=ORGANISE)
-    mock_run_verif.assert_called_once()
+    assert mock_run_verif.call_count == 2
+    assert mock_run_verif.call_args_list[1][1]["only_reels"] is None
 
 @patch("library.tools.reel_build.reel_subtitle_segments")
 @patch("library.tools.reel_build.build_reel_timeline")

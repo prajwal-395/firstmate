@@ -11,6 +11,7 @@ Each test below names which half of the mechanism it would catch the
 removal of.
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -315,3 +316,127 @@ def test_snapshots_for_records_an_absent_reel_rather_than_measuring_it():
         snapshot_fn=lambda timeline, project: FakeSnapshot())
     assert set(snapshots) == {"Reel 26 - x"}
     assert "has not been built" in notes["Reel 09 - y"]
+
+
+# ── The detector compares digests, not filenames ──────────────────
+
+def _logo_project(tmp_path, payload=b"v1-bytes"):
+    """A project declaring a REAL asset file, so digests are non-None."""
+    asset = tmp_path / "logo_reveal.mov"
+    asset.write_bytes(payload)
+    (tmp_path / "project.yaml").write_text(
+        "effect:\n  full_frame_elements:\n"
+        "    - element: full_frame_clip\n      placement: tail\n"
+        f"      asset: {asset}\n      reason: test\n", encoding="utf-8")
+    return str(tmp_path), str(asset)
+
+
+def test_a_declared_file_replaced_on_disk_reads_absent(tmp_path):
+    """The worst story in the set: same name, different bytes.
+
+    Remove the digest comparison and the reel reads CARRIED while its
+    picture changed with no build, no commit and no record.
+    """
+    from library.tools.code_identity import hash_asset_file
+
+    folder, asset = _logo_project(tmp_path)
+    recorded = {asset: hash_asset_file(asset)}
+    Path(asset).write_bytes(b"v2-regraded-by-hand")
+
+    report = rd.survey(
+        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))},
+        recorded_assets=recorded)
+    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
+    assert cell["verdict"] == rd.ABSENT
+    assert "replaced on disk" in cell["detail"]
+    assert report["divergent"][rd.KEY_FULL_FRAME] == ["Reel 26"]
+    with pytest.raises(rd.ClaimNotBackedByArtefacts):
+        rd.assert_reaches(report, rd.KEY_FULL_FRAME)
+
+
+def test_a_declared_file_deleted_after_the_build_reads_absent(tmp_path):
+    """Gone from disk is not carried, whatever the timeline names."""
+    from library.tools.code_identity import hash_asset_file
+
+    folder, asset = _logo_project(tmp_path)
+    recorded = {asset: hash_asset_file(asset)}
+    Path(asset).unlink()
+
+    report = rd.survey(
+        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))},
+        recorded_assets=recorded)
+    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
+    assert cell["verdict"] == rd.ABSENT
+    assert "missing" in cell["detail"]
+
+
+def test_matching_bytes_stay_carried_with_no_footnote(tmp_path):
+    """The digest agreeing must not demote a carried reel."""
+    from library.tools.code_identity import hash_asset_file
+
+    folder, asset = _logo_project(tmp_path)
+    report = rd.survey(
+        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))},
+        recorded_assets={asset: hash_asset_file(asset)})
+    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
+    assert cell["verdict"] == rd.CARRIED
+    assert "predate" not in cell["detail"]
+
+
+def test_a_pre_digest_build_reads_carried_by_name_and_says_so(tmp_path):
+    """No recorded digest is not a divergence - it is an absence the
+    survey states per reel rather than rounding either way."""
+    folder, _asset = _logo_project(tmp_path)
+    report = rd.survey(
+        folder, {"Reel 26": FakeSnapshot(FakeClip("logo_reveal.mov"))})
+    cell = report["reels"]["Reel 26"][rd.KEY_FULL_FRAME]
+    assert cell["verdict"] == rd.CARRIED
+    assert "name match only" in cell["detail"]
+
+
+def test_hash_asset_file_hashes_bytes_and_records_absence(tmp_path):
+    """The identity precedent, applied to media: content in, digest
+    out, and a missing file is None rather than a hollow digest."""
+    from library.tools.code_identity import hash_asset_file
+
+    asset = tmp_path / "card.mov"
+    asset.write_bytes(b"bytes-one")
+    first = hash_asset_file(str(asset))
+    assert first and len(first) == 64
+    asset.write_bytes(b"bytes-two")
+    assert hash_asset_file(str(asset)) != first
+    assert hash_asset_file(str(tmp_path / "not-there.mov")) is None
+
+
+def test_declared_asset_paths_covers_all_three_families(tmp_path):
+    """`full_frame_elements`, `content.bookends` and every
+    `external/` asset path - the collector that feeds both the
+    build-time recording and the survey-time comparison."""
+    folder, asset = _logo_project(tmp_path)
+
+    card = tmp_path / "tailcard.mov"
+    card.write_bytes(b"hand-placed")
+    external = tmp_path / "external"
+    external.mkdir()
+    (external / "placed_assets.json").write_text(json.dumps({
+        "version": 1, "assets": [{
+            "slot": "tail", "asset": str(card),
+            "duration_seconds": 5.0, "has_audio": False,
+            "label": "tail card", "reason": "captain"}]}),
+        encoding="utf-8")
+
+    endcard = tmp_path / "endcard.mov"
+    endcard.write_bytes(b"bookend")
+    content = {"bookends": {"end_card": {
+        "asset": str(endcard), "duration_seconds": 5.0}}}
+
+    found = rd.declared_asset_paths(folder, brand_content=content)
+    assert found[str(asset)] == "effect.full_frame_elements"
+    assert found[str(card)] == "external/placed_assets.json"
+    assert found[str(endcard)] == "content.bookends"
+
+
+def test_declared_asset_paths_never_raises_on_a_broken_project(tmp_path):
+    """A collector that raised would take the whole survey down with
+    it - malformed declarations are the plan-time reader's to refuse."""
+    assert rd.declared_asset_paths(tmp_path / "does-not-exist") == {}

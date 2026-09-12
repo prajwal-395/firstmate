@@ -254,13 +254,52 @@ def test_an_unmarked_note_defaults_to_the_CAPTAINS():
     """Getting this backwards LOSES a question. Unmarked is theirs.
 
     `marker_feedback` has no vocabulary of marker colours by design, so
-    a green marker with no record is still read as an ask.
+    a green marker with no record and no `reply:` shape is still read
+    as an ask.
     """
     document = fl.build(
         None,
         [pull(REEL, "2026-09-11T04:00:00Z",
-              {"name": "reply: done", "note": "x",
-               "text": "reply: done\n\nx", "frame": 5, "color": "Green"})],
+              {"name": "feedback", "note": "x",
+               "text": "feedback\n\nx", "frame": 5, "color": "Green"})],
+        resolutions=[])
+    assert document["entries"][0]["kind"] == fl.KIND_ASK
+
+
+def test_a_green_reply_shape_with_no_record_is_ours():
+    """The live-project case: two green `reply:` markers, empty customData.
+
+    Remove the shape half of `_authorship` and these count as the
+    captain's open questions - the ledger then reports resolved
+    feedback as outstanding.
+    """
+    shaped = {"name": "reply: tail breath for the TV switch-off",
+              "note": "You asked (marker @1902): the ending plays early.",
+              "text": ("reply: tail breath for the TV switch-off\n\n"
+                       "You asked (marker @1902): the ending plays early."),
+              "source": "timeline_marker", "frame": 1902,
+              "color": "Green", "custom_data": {},
+              "custom_data_raw": ""}
+    document = fl.build(
+        None, [pull(REEL, "2026-09-11T04:00:00Z",
+                    note(ASK, frame=1902), shaped)],
+        resolutions=[])
+    kinds = {e["identity"]: e["kind"] for e in document["entries"]}
+    assert list(kinds.values()).count(fl.KIND_REPLY) == 1
+    assert kinds[fl.identity_of(note(ASK), REEL)] == fl.KIND_ASK
+    assert "1 reply of ours" in fl.render(document)
+
+
+def test_a_captain_sentence_mentioning_reply_stays_an_ask():
+    """Only a FIRST line starting with `reply:` is the writer's stamp.
+
+    A captain note quoting the word back deeper in the body is still
+    theirs - the prefix rule must not reach past the first line.
+    """
+    document = fl.build(
+        None,
+        [pull(REEL, "2026-09-11T04:00:00Z",
+              note("please reply to this note", frame=5))],
         resolutions=[])
     assert document["entries"][0]["kind"] == fl.KIND_ASK
 

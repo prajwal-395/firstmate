@@ -172,9 +172,12 @@ def test_a_partial_build_grades_only_the_timeline_it_placed(project):
 
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert record["staged_timelines"] == {}
-    gate.assert_called_once()
-    assert gate.call_args[1]["only_reels"] == [
+    # Two verifications: the refusing gate scoped to what was placed,
+    # then the informational whole-project sweep beside it.
+    assert gate.call_count == 2
+    assert gate.call_args_list[0][1]["only_reels"] == [
         _staging("Reel 03 - moment-3")]
+    assert gate.call_args_list[1][1]["only_reels"] is None
     # Promoted: the final name is back and no staging is left behind.
     assert sorted(resolve_project.names()) == sorted([MASTER] + APPROVED)
 
@@ -191,9 +194,10 @@ def test_a_full_build_grades_everything_it_placed(project):
     record, gate = _run_build(resolve_project, project)
 
     assert record["timelines_built"] == APPROVED
-    gate.assert_called_once()
-    assert gate.call_args[1]["only_reels"] == [
+    assert gate.call_count == 2
+    assert gate.call_args_list[0][1]["only_reels"] == [
         _staging(name) for name in APPROVED]
+    assert gate.call_args_list[1][1]["only_reels"] is None
 
 
 def test_a_suffixed_rebuild_grades_the_new_container_not_the_old(project):
@@ -202,12 +206,14 @@ def test_a_suffixed_rebuild_grades_the_new_container_not_the_old(project):
     resolve_project = FakeProject([MASTER] + APPROVED)
 
     record, gate = _run_build(resolve_project, project, only=[3],
-                              name_suffix=" (whole-take rebuild)")
+                               name_suffix=" (whole-take rebuild)")
 
     assert record["timelines_built"] == [
         "Reel 03 - moment-3 (whole-take rebuild)"]
-    assert gate.call_args[1]["only_reels"] == [
+    assert gate.call_count == 2
+    assert gate.call_args_list[0][1]["only_reels"] == [
         _staging("Reel 03 - moment-3 (whole-take rebuild)")]
+    assert gate.call_args_list[1][1]["only_reels"] is None
 
 
 # ── The verifier honours the scope ───────────────────────────────────
@@ -409,6 +415,8 @@ def test_the_step_promotes_staged_timelines_only_after_the_gate_passes():
             patch("library.tools.reel_build.promote_staged_reels",
                   return_value={"promoted": [final],
                                 "organised": None}) as promote, \
+            patch("library.tools.reel_build."
+                  "sweep_all_reels_informational") as sweep, \
             patch("library.tools.timeline_transcript.transcript_path",
                   return_value="/tmp/project/transcript.json"):
         record = module.verify_reels({
@@ -427,6 +435,12 @@ def test_the_step_promotes_staged_timelines_only_after_the_gate_passes():
     assert promote.call_args[0][1:4] == (
         "Mock Project", MASTER, {final: staged})
     assert record["reel_verification"]["timelines_verified"] == [final]
+    # The whole-project sweep runs after promotion, on the promoted
+    # project - and it is informational, so it is a separate call the
+    # gate's scope never narrows.
+    assert sweep.call_count == 1
+    assert sweep.call_args[1]["project_folder"] == "/tmp/project"
+    assert sweep.call_args[1]["plan_path"] == "/tmp/project/plan.json"
 
 
 def test_the_step_discards_staging_when_the_gate_refuses():

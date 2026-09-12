@@ -216,6 +216,14 @@ def _detect_full_frame_elements(snapshot, params: Mapping) -> Presence:
     and never re-authors one (AGENTS.md 13) - so the asset's own file
     name is what lands on the picture track, and matching on it reads
     the artefact rather than a record about it.
+
+    The name is only the FIRST half. A declared file replaced on disk
+    keeps its name while every reel playing it changes picture with no
+    build, no commit and no record - so a reel whose track names the
+    file but whose bytes no longer match the digest recorded at build
+    time reads ABSENT, with the two digests named. That is the whole
+    P4 story: a name match that reported agreement while the picture
+    had changed.
     """
     assets = [str(a) for a in (params or {}).get("assets") or () if a]
     if not assets:
@@ -234,10 +242,33 @@ def _detect_full_frame_elements(snapshot, params: Mapping) -> Presence:
             f"built before the declaration landed, or was not rebuilt "
             f"through it",
             "reel_divergence._detect_full_frame_elements")
-    return _present(
-        f"picture track carries "
-        f"{', '.join(os.path.basename(a) for a in assets)}",
-        "reel_divergence._detect_full_frame_elements")
+    digests = (params or {}).get("asset_digests") or {}
+    changed = []
+    unrecorded = []
+    for asset in assets:
+        entry = digests.get(asset) or {}
+        now, recorded = entry.get("now"), entry.get("recorded")
+        if recorded is None:
+            unrecorded.append(os.path.basename(asset))
+        elif now != recorded:
+            changed.append(
+                f"{os.path.basename(asset)} (recorded "
+                f"{str(recorded)[:12]}..., now "
+                f"{str(now)[:12] if now else 'missing'})")
+    if changed:
+        return _absent(
+            f"picture track names {', '.join(changed)} but the file's "
+            f"bytes are not what the build recorded - the declared "
+            f"asset was replaced on disk after these reels were built, "
+            f"so every reel playing it changed picture with no build",
+            "reel_divergence._detect_full_frame_elements")
+    detail = (f"picture track carries "
+              f"{', '.join(os.path.basename(a) for a in assets)}")
+    if unrecorded:
+        detail += (f" - {', '.join(unrecorded)} predate(s) digest "
+                   f"recording, so this is a name match only; rebuild "
+                   f"to record a digest the next survey can compare")
+    return _present(detail, "reel_divergence._detect_full_frame_elements")
 
 
 def _detect_freeze_ending(snapshot, params: Mapping) -> Presence:
@@ -343,8 +374,155 @@ def assert_registry_is_well_formed() -> None:
 
 # ── What the project declares ─────────────────────────────────────
 
+def _abspathish(named: str, project_folder) -> str:
+    """A declared path as an absolute one, WITHOUT checking existence.
+
+    Absolute stays; relative joins the project folder. No existence
+    check: a file deleted after the build is exactly what the digest
+    comparison must still name, and `hash_asset_file` already answers
+    None for it. The plan-time readers (`resolve_clip_asset`,
+    `resolve_project_asset`) stay the ones that refuse.
+    """
+    path = os.path.expanduser(str(named or "").strip())
+    if not path:
+        return ""
+    if not os.path.isabs(path):
+        path = os.path.normpath(
+            os.path.join(str(project_folder or ""), path))
+    return os.path.normpath(path)
+
+
+def _template_content(project_folder) -> dict:
+    """The `content` slots of whatever brand template this adopts.
+
+    `{}` where it adopts none or the registry cannot be read - the
+    project-file declarations (`project.yaml`, `external/`) are still
+    collected, so a missing template narrows the survey rather than
+    emptying it.
+    """
+    try:
+        from library.tools.brand_registry import (
+            project_template_name, query_slots, resolve_project_template)
+        name = project_template_name(str(project_folder))
+        template = resolve_project_template(name, str(project_folder))
+        return query_slots(template, "content") or {}
+    except Exception:                               # noqa: BLE001
+        return {}
+
+
+def declared_asset_paths(project_folder, brand_effect=None,
+                         brand_content=None) -> Dict[str, str]:
+    """{absolute asset path: declared_by} for every declared file.
+
+    Three declaration families, each of which puts bytes on a reel
+    that filename matching alone cannot watch:
+
+    * `effect.full_frame_elements` - a `full_frame_clip` IS its file,
+      and a card/span's `image` and `font_file` are drawn into it;
+    * `content.bookends` - an asset-mode card IS its file, and a
+      composition-mode card's `source` is the input its rendered
+      pixels are staged verbatim from;
+    * `external/placed_assets.json` - the captain's hand-placed cards.
+
+    Best-effort and never raising: a malformed declaration is the
+    plan-time reader's to refuse, and a collector that raised would
+    take the whole survey down with it. Unresolvable entries are
+    skipped - the build that placed from them refused or recorded
+    them, and this survey is not a second plan-time.
+    """
+    from library.tools import full_frame_element as ffe
+
+    found: Dict[str, str] = {}
+
+    def add(named: str, declared_by: str) -> None:
+        path = _abspathish(named, project_folder)
+        if path:
+            found.setdefault(path, declared_by)
+
+    def add_brand_asset(named: str, declared_by: str) -> None:
+        # A card/span `image` or `font_file` is a basename in the
+        # project's own brand_assets/ (see `remotion_brand_linker` and
+        # `full_frame_element._font_resolver`) - resolving it against
+        # the project root would hash a path the build never read.
+        base = os.path.basename(str(named or "").strip())
+        if not base:
+            return
+        for sub in ("brand_assets/remotion-brand", "brand_assets"):
+            candidate = os.path.normpath(os.path.join(
+                str(project_folder or ""), sub, base))
+            if os.path.isfile(candidate):
+                found.setdefault(candidate, declared_by)
+                return
+        found.setdefault(os.path.normpath(os.path.join(
+            str(project_folder or ""), "brand_assets", base)),
+            declared_by)
+
+    try:
+        effect = ffe.resolve_declaration(brand_effect, str(project_folder))
+        for element in ffe.declared_elements(effect):
+            if element.get("element") == "full_frame_clip":
+                add(str(element.get("asset") or ""),
+                    "effect.full_frame_elements")
+            else:
+                add_brand_asset(str(element.get("image") or ""),
+                                "effect.full_frame_elements/image")
+                add_brand_asset(str(element.get("font_file") or ""),
+                                "effect.full_frame_elements/font_file")
+                for segment in element.get("segments") or ():
+                    if isinstance(segment, dict):
+                        add_brand_asset(
+                            str(segment.get("image") or ""),
+                            "effect.full_frame_elements/image")
+                        add_brand_asset(
+                            str(segment.get("font_file") or ""),
+                            "effect.full_frame_elements/font_file")
+    except Exception:                               # noqa: BLE001
+        pass
+
+    try:
+        from library.tools import bookends as _bookends
+        content = (brand_content if brand_content is not None
+                   else _template_content(project_folder))
+        for bookend in _bookends.declared_bookends(content):
+            if bookend.get("mode") == "asset":
+                add(str(bookend.get("asset") or ""),
+                    "content.bookends")
+            elif bookend.get("source"):
+                add(str(bookend.get("source") or ""),
+                    "content.bookends/source")
+    except Exception:                               # noqa: BLE001
+        pass
+
+    try:
+        from library.tools import placed_assets as _placed
+        for asset in _placed.load_assets(str(project_folder)):
+            if isinstance(asset, dict):
+                add(str(asset.get("asset") or ""),
+                    "external/placed_assets.json")
+    except Exception:                               # noqa: BLE001
+        pass
+
+    return found
+
+
+def asset_digests(project_folder, brand_effect=None,
+                  brand_content=None) -> Dict[str, Optional[str]]:
+    """{absolute asset path: sha256 of its bytes now}, None when absent.
+
+    `code_identity.hash_asset_file`'s shape applied to declared media:
+    hash the bytes, record the absence rather than hashing around it.
+    """
+    from library.tools.code_identity import hash_asset_file
+
+    return {path: hash_asset_file(path)
+            for path in declared_asset_paths(
+                project_folder, brand_effect, brand_content)}
+
+
 def declarations(project_folder, brand_effect=None,
-                 endings: Optional[Mapping[str, Any]] = None) -> List[dict]:
+                  endings: Optional[Mapping[str, Any]] = None,
+                  recorded_assets: Optional[Mapping[str, Any]] = None,
+                  brand_content=None) -> List[dict]:
     """The declarations in force, with the parameters each detector needs.
 
     A project declaring nothing yields `[]`, which is every project
@@ -356,6 +534,13 @@ def declarations(project_folder, brand_effect=None,
     declaration is still listed, with no reel expecting a freeze, so
     every reel reads UNDETERMINED and says the ending was never
     resolved. A row that vanished would read as agreement.
+
+    `recorded_assets` maps absolute asset paths to the digests
+    `plan_provenance` recorded at build time. Beside them the
+    declaration carries each asset's digest NOW, so the detector
+    compares bytes rather than filenames. Omitting it does not drop
+    the check either: every reel reads carried-by-name with the
+    absence of a recorded digest said out loud.
     """
     from library.tools import full_frame_element as ffe
 
@@ -365,10 +550,20 @@ def declarations(project_folder, brand_effect=None,
     if declared:
         assets = [d.get("asset") for d in declared if d.get("asset")]
         named = ", ".join(os.path.basename(str(a)) for a in assets)
+        current = asset_digests(project_folder, brand_effect,
+                                brand_content)
+        recorded = dict(recorded_assets or {})
+        per_asset = {}
+        for asset in assets:
+            absolute = _abspathish(str(asset), project_folder)
+            per_asset[str(asset)] = {
+                "now": current.get(absolute),
+                "recorded": recorded.get(absolute),
+            }
         out.append({
             "key": KEY_FULL_FRAME,
             "declared_by": "effect.full_frame_elements",
-            "params": {"assets": assets},
+            "params": {"assets": assets, "asset_digests": per_asset},
             "summary": (f"{len(declared)} card(s): "
                         f"{named or 'no asset named'}"),
         })
@@ -397,9 +592,11 @@ def declarations(project_folder, brand_effect=None,
 # ── The survey ────────────────────────────────────────────────────
 
 def survey(project_folder, snapshots: Mapping[str, Any],
-           brand_effect=None,
-           endings: Optional[Mapping[str, Any]] = None,
-           notes: Optional[Mapping[str, str]] = None) -> dict:
+            brand_effect=None,
+            endings: Optional[Mapping[str, Any]] = None,
+            notes: Optional[Mapping[str, str]] = None,
+            recorded_assets: Optional[Mapping[str, Any]] = None,
+            brand_content=None) -> dict:
     """Read every reel against every declaration. Never raises.
 
     `snapshots` maps reel name to its timeline - a live snapshot or a
@@ -407,12 +604,19 @@ def survey(project_folder, snapshots: Mapping[str, Any],
     `notes`, is UNDETERMINED for every declaration with that note as
     the reason: an unread reel is not a reel without the card.
 
+    `recorded_assets` is the digest half of the asset comparison -
+    absolute paths to the bytes `plan_provenance` recorded at build
+    time. Without it the full-frame detector matches names only and
+    says so per reel.
+
     Returns `{"declarations": [...], "reels": {reel: {key: {...}}},
     "divergent": {key: [reels]}, "undetermined": {key: [reels]}}`.
     """
     assert_registry_is_well_formed()
     notes = dict(notes or {})
-    active = declarations(project_folder, brand_effect, endings)
+    active = declarations(project_folder, brand_effect, endings,
+                          recorded_assets=recorded_assets,
+                          brand_content=brand_content)
     reels = sorted(set(snapshots or {}) | set(notes))
 
     table: Dict[str, Dict[str, dict]] = {}
@@ -541,19 +745,27 @@ def assert_reaches(report: Mapping, key: str,
 # ── The build-time report ─────────────────────────────────────────
 
 def report_divergence(project_folder, snapshots: Mapping[str, Any],
-                      brand_effect=None, endings=None,
-                      notes=None) -> dict:
+                       brand_effect=None, endings=None,
+                       notes=None, recorded_assets=None,
+                       brand_content=None) -> dict:
     """Survey, PRINT, return. Never raises, never refuses.
 
     Called by the build over EVERY approved reel - not just the ones it
     is about to place - so the reels a build leaves behind are named at
     the moment someone is already looking. A probe that could fail the
     build would be a warning holding a build hostage, and whether to
-    rebuild a stale reel is the captain's decision.
+    rebuild a diverged reel is the captain's decision.
+
+    `recorded_assets` is the build-time digest half (absolute paths to
+    sha256, as `plan_provenance` records under `asset_hashes`) - with
+    it the survey names a declared file replaced on disk after the
+    build; without it the detector matches names only and says so.
     """
     try:
         report = survey(project_folder, snapshots, brand_effect=brand_effect,
-                        endings=endings, notes=notes)
+                        endings=endings, notes=notes,
+                        recorded_assets=recorded_assets,
+                        brand_content=brand_content)
     except Exception as failed:                  # noqa: BLE001
         print(f"  divergence survey unavailable ({failed}) - building "
               f"without it", file=sys.stderr)
@@ -706,9 +918,17 @@ def main(argv=None) -> int:
     if wanted is None and not args.all_containers:
         wanted = approved_reels(args.project) or None
     snapshots, notes = snapshots_from_review(args.project, wanted)
+    try:
+        from library.tools.plan_provenance import read_provenance
+        recorded = (read_provenance(os.path.join(
+            args.project, "pipeline_output", "review")) or {}).get(
+                "asset_hashes") or {}
+    except Exception:                               # noqa: BLE001
+        recorded = {}
     report = survey(args.project, snapshots, notes=notes,
                     endings=endings_for(args.project,
-                                        sorted(set(snapshots) | set(notes))))
+                                        sorted(set(snapshots) | set(notes))),
+                    recorded_assets=recorded)
     if args.json:
         print(json.dumps(report, indent=2))
     else:

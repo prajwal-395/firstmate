@@ -218,7 +218,35 @@ unmarked is theirs.
 """
 
 KIND_REPLY = "reply"
-"""A note carrying a `marker_feedback` reply record - written by us."""
+"""A note we wrote back - carrying a `marker_feedback` reply record,
+or the `reply:` name shape those records were built to replace.
+
+The shape half exists because the replies on the captain's own
+timeline predate the record: every marker on `lucie/geo-podcast`
+carries an EMPTY `customData`, our two green replies included
+(`marker_feedback.REPLY_RECORD_KIND`), so a reader that only trusts
+the machine record files our answers as the captain's open questions.
+The convention is the writer's: the captain types `feedback`, we write
+`reply:`. A captain note that merely mentions the word reply stays an
+ask - only a FIRST line starting with `reply:` reads as ours, which is
+the one prefix our writer puts in the Name field and the captain's
+`feedback` shape never carries.
+"""
+
+#: The first line a reply of ours starts with, case-insensitively.
+#: The colon matters: "reply to all reels" is a captain sentence, and
+#: only `reply:` is the writer's stamp.
+REPLY_NAME_PREFIX = "reply:"
+
+
+def _carries_reply_shape(raw: Mapping) -> bool:
+    """Does this note wear our `reply:` name shape, record or none?
+
+    Read off the note's own first line only - a mention of the word
+    deeper in the body is the captain quoting us back, not us writing.
+    """
+    first = re.split(r"\r?\n", note_text(raw), maxsplit=1)[0]
+    return first.strip().lower().startswith(REPLY_NAME_PREFIX)
 
 
 @dataclass
@@ -281,10 +309,13 @@ def _newer(a: str, b: str) -> bool:
 def _authorship(raw: Mapping) -> tuple:
     """`(kind, answers)` for one collected note, from its OWN record.
 
-    Read out of `customData`, never out of the marker's colour or the
-    words of its name: those are the captain's to type and a reader that
-    keys on them files the captain's own note as ours the first time
-    they type "reply" into a Name field.
+    The machine record in `customData` decides first - it is the one
+    statement nobody can type by accident. Without one, the `reply:`
+    name shape decides: our writer stamps it and the captain's
+    `feedback` shape never carries it. Colour decides nothing, and a
+    note carrying neither is the captain's - filing an unmarked note
+    as ours would LOSE their question, which costs more than counting
+    one of our answers as open.
     """
     from library.tools import marker_feedback
 
@@ -299,14 +330,21 @@ def _authorship(raw: Mapping) -> tuple:
             records = []
         if records:
             break
-    if not records:
-        return KIND_ASK, ""
-    answers = ""
-    for record in records:
-        if record.get("answers"):
-            answers = str(record["answers"])
-            break
-    return KIND_REPLY, answers
+    if records:
+        answers = ""
+        for record in records:
+            if record.get("answers"):
+                answers = str(record["answers"])
+                break
+        return KIND_REPLY, answers
+    if _carries_reply_shape(raw):
+        # Our words, but written before the reply record existed, so
+        # there is no identity to hang onto the ask it answered - the
+        # body quotes a frame (`You asked (marker @1902)`), not the
+        # durable identity. Counted as ours and reported unlinked,
+        # never silently counted open.
+        return KIND_REPLY, ""
+    return KIND_ASK, ""
 
 
 def collect(project_folder, pulls=None) -> Dict[str, FeedbackEntry]:

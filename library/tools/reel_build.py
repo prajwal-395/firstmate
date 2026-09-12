@@ -6026,15 +6026,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 continue
             if _ending is not None:
                 _endings[_final] = _ending
+        from library.tools.plan_provenance import (
+            read_provenance as _read_provenance)
+        _recorded_assets = (_read_provenance(os.path.join(
+            project_folder, "pipeline_output", "review")) or {}).get(
+                "asset_hashes") or {}
         divergence_report = _divergence.report_divergence(
             project_folder, _snapshots, brand_effect=_brand_effect(
                 project_folder),
-            endings=_endings, notes=_unread)
+            endings=_endings, notes=_unread,
+            recorded_assets=_recorded_assets)
     except Exception as divergence_failed:  # noqa: BLE001
         import sys as _sys
         print(f"  divergence survey unavailable ({divergence_failed}) - "
               f"building without it", file=_sys.stderr)
         divergence_report = {"unavailable": str(divergence_failed)}
+
+    # The forced consultation (`library/tools/edit_depth.py`): each
+    # layer against the one it derives from, every build, read-only.
+    # One import, one call - the module runs only on `edit_video`
+    # otherwise, while the reels it never consults are the ones the
+    # captain reviews. Printed, never a refusal: frozen step-output
+    # history fails a wording scan no rebuild can fix, and a witness
+    # that refused on history would hold every build hostage to it.
+    try:
+        coherence_report = report_layer_coherence(project_folder)
+    except Exception as coherence_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  layer-coherence witness unavailable "
+              f"({coherence_failed}) - building without it",
+              file=_sys.stderr)
+        coherence_report = {"unavailable": str(coherence_failed)}
 
     # Proof in proportion to the edit: what verification THIS build
     # owes, computed from real state and SAID before anything is
@@ -6712,11 +6734,28 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # if the plan changes before verification runs.
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     from library.tools.plan_provenance import write_provenance
+    # The bytes behind every declared asset, hashed NOW: a file
+    # replaced on disk afterwards changes every reel playing it with
+    # no build, and only a build-time digest makes the next survey
+    # read it as changed rather than current
+    # (`library/tools/reel_divergence.py`). Read-only and never a
+    # refusal - a missing file is recorded as missing (None) and the
+    # plan-time readers stay the ones that refuse.
+    try:
+        from library.tools.reel_divergence import asset_digests as _digests
+        asset_hashes = _digests(
+            project_folder, brand_effect=_brand_effect(project_folder))
+    except Exception as _assets_failed:  # noqa: BLE001
+        print(f"  declared-asset digests unavailable "
+              f"({_assets_failed}) - recording without them",
+              file=sys.stderr)
+        asset_hashes = None
     # MERGES into any existing record: a partial rebuild must not
     # delete the provenance of the reels it did not touch.
     write_provenance(review_dir, proposal_path, built_reel_names,
                      caption_hashes=caption_hashes,
-                     footage_binding_hashes=footage_binding_hashes)
+                     footage_binding_hashes=footage_binding_hashes,
+                     asset_hashes=asset_hashes)
 
     # The plan the verifier grades V4 against, written where the rest of
     # the build record lives. A placement nothing recorded is a placement
@@ -6820,6 +6859,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         except Exception as exc:  # noqa: BLE001
             print(f"  version-control record failed: {exc!r} - "
                   f"the reels are promoted and unaffected", flush=True)
+        # The detection half of the conformance sweep, over the
+        # PROMOTED project - every reel timeline, not just the ones
+        # this call placed. The refusing gate above stays scoped (see
+        # its comment); this reports whether the round disturbed a
+        # reel it did not touch, and never refuses - a PLAN-MISMATCH
+        # on an untouched reel means an older plan, not a defective
+        # build (`sweep_all_reels_informational`).
+        sweep_all_reels_informational(
+            project_folder=project_folder,
+            resolve_project_name=resolve_name,
+            master_timeline_name=master_timeline_name,
+            plan_path=proposal_path,
+            transcript_path=os.path.join(
+                project_folder,
+                "pipeline_output/scratch/timeline_transcript/"
+                "transcript.json"))
 
     return {
         "timelines_built": built_reel_names,
@@ -6890,6 +6945,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # came to be said of an engine and believed of a project
         # (`library/tools/reel_divergence.py`). Reported, never a gate.
         "divergence": divergence_report,
+        # What the layer-vs-source check said before anything was
+        # placed (`library/tools/layer_coherence.py`). Reported,
+        # never a gate, for the same reason as the divergence above.
+        "coherence": coherence_report,
     }
 
 
@@ -7627,6 +7686,105 @@ def build_reel_variants(project_slug: str, reel_number: int,
     return {"reel": moment.timeline_name,
             "resolve_project_name": resolve_name,
             "variants": built}
+
+
+def report_layer_coherence(project_folder: str) -> dict:
+    """Run the layer-vs-source check over a reels project.
+
+    PRINT, return, never raise. The forced consultation
+    (`library/tools/edit_depth.py`): every layer that disagrees with
+    its source is named with both values. Advisory only - a wording
+    staleness in frozen step-output history must not hold a build
+    hostage - which is why this prints beside the prebuild census and
+    the divergence survey rather than gating inside `verify_built_reels`.
+    """
+    import sys as _sys
+
+    try:
+        from library.tools import layer_coherence as _coherence
+        report = _coherence.check_project(str(project_folder))
+    except Exception as failed:  # noqa: BLE001
+        print(f"  layer-coherence witness unavailable ({failed}) - "
+              f"building without it", file=_sys.stderr)
+        return {"unavailable": str(failed)}
+    owned = sum(len(report.get(key, []) or ())
+                for key in ("wording", "pins", "assets"))
+    if owned:
+        print(f"LAYER COHERENCE: {owned} owned-layer divergence(s) "
+              f"stand - run `python3 -m library.tools.layer_coherence "
+              f"<project>` for both values of each.", file=_sys.stderr)
+    return report
+
+
+def sweep_all_reels_informational(project_folder: str,
+                                  resolve_project_name: str,
+                                  master_timeline_name: str,
+                                  plan_path: str,
+                                  transcript_path: str) -> dict:
+    """Grade EVERY reel timeline and PRINT the findings. Never raises.
+
+    The detection half of the conformance sweep, restored beside the
+    scoped refusing gate rather than in place of it. The gate
+    (`verify_built_reels`, `only_reels=<what this build placed>`) stays
+    scoped on purpose: whole-project grading as a REFUSAL failed clean
+    single-reel builds on findings from timelines they never touched -
+    94 of 121 errors in `data/vep-rebuild-verify/report.md`, 3.5 - and
+    cost a re-grade per reel per build (PR #658,
+    `tests/test_verify_scopes_to_built_reels.py`). Reverting that
+    would reintroduce both. So the gate refuses on what was placed,
+    and this sweep REPORTS on everything else.
+
+    Read-only (the verifier's getters only) into its own
+    `conformance_sweep_report.json` - never the gate's
+    `conformance_report.json`, which a sweep must not overwrite.
+
+    How to read it: a finding on a reel this build placed is news. A
+    PLAN-MISMATCH on a reel it did not touch means that reel was built
+    from an older plan, not that it is defective - per-reel plan
+    awareness is version-object work (ranked items 6-10) and this
+    sweep does not have it, so it says so instead of refusing.
+    """
+    import json as _json
+    import os as _os
+    import sys as _sys
+
+    review_dir = _os.path.join(str(project_folder), "pipeline_output",
+                               "review")
+    _os.makedirs(review_dir, exist_ok=True)
+    sweep_path = _os.path.join(review_dir,
+                               "conformance_sweep_report.json")
+    try:
+        from library.tools.reel_conformance_verifier import run_verification
+    except ImportError as exc:
+        print(f"  whole-project conformance sweep unavailable "
+              f"({exc}) - building without it", file=_sys.stderr)
+        return {"unavailable": str(exc)}
+    try:
+        with open(transcript_path, encoding="utf-8") as handle:
+            transcript = _json.load(handle)
+        exit_code = run_verification(
+            project_name=resolve_project_name,
+            master_name=master_timeline_name,
+            plan_path=plan_path,
+            transcript=transcript,
+            json_path=sweep_path,
+            review_dir=review_dir,
+            project_folder=str(project_folder),
+            only_reels=None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"  whole-project conformance sweep unavailable "
+              f"({exc}) - building without it", file=_sys.stderr)
+        return {"unavailable": str(exc)}
+    if exit_code == 0:
+        print(f"  whole-project sweep: every reel timeline conforms "
+              f"({sweep_path})", flush=True)
+    else:
+        print(f"  whole-project sweep: findings stand (exit "
+              f"{exit_code}) - {sweep_path}. A PLAN-MISMATCH on a reel "
+              f"this build did not touch means an older plan, not a "
+              f"defective reel.", flush=True)
+    return {"exit_code": exit_code, "report": sweep_path}
 
 
 def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str, only_reels=None) -> None:

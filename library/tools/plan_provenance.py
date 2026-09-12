@@ -59,6 +59,47 @@ def plan_content_hash(plan_path: str) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+#: The producing code a reel build is identified by: the builder
+#: itself plus the two DAG-step directories that call it. Hashed with
+#: `code_identity.step_code_hash`'s shape - directory sources plus
+#: named extras - so a fix to any of them changes the digest exactly
+#: the way a preflight code change invalidates its cache. A git SHA
+#: would lie here: lanes build from unmerged worktrees, so the commit
+#: a reel was built from is not the code that built it.
+REEL_BUILD_CODE_FILES = (
+    "library/tools/reel_build.py",
+    "library/steps/step_7_01_build_reels",
+    "library/steps/step_7_02_verify_reels",
+)
+
+
+def reel_code_hash(repo_root=None) -> Optional[str]:
+    """A content digest of the code that builds reels, or None.
+
+    `None` when the tree is absent (tests hashing a scratch root that
+    holds no engine) - callers record the absence rather than a
+    hollow digest, so "no engine to hash" never reads as one revision.
+    """
+    from library.tools import code_identity as _identity
+
+    root = Path(repo_root) if repo_root is not None \
+        else Path(__file__).resolve().parents[2]
+    digest = hashlib.sha256()
+    found = False
+    for rel in REEL_BUILD_CODE_FILES:
+        target = root / rel
+        if target.is_dir():
+            part = _identity.step_code_hash(str(target))
+        elif target.is_file():
+            part = hashlib.sha256(target.read_bytes()).hexdigest()
+        else:
+            continue
+        found = True
+        digest.update(rel.encode("utf-8"))
+        digest.update(part.encode("utf-8"))
+    return digest.hexdigest() if found else None
+
+
 def archive_plan(plan_path: str, archive_dir: Optional[str] = None) -> str:
     """Copy the plan to a timestamped archive file.
 
@@ -236,6 +277,7 @@ def write_provenance(
     reel_names: list[str],
     caption_hashes: Optional[dict] = None,
     footage_binding_hashes: Optional[dict] = None,
+    asset_hashes: Optional[dict] = None,
 ) -> str:
     """Record which plan the builder used and which reels it built.
 
@@ -255,6 +297,20 @@ def write_provenance(
     identity (clip_id, source_start, source_end) the captions were
     computed against. A rebuild updates only its own reel's entry.
 
+    `built_at_reels` and `built_with` are per reel for the same
+    reason, and are captured HERE - at build time - because neither
+    can be recovered afterwards. Merge time is not build time (lanes
+    build from unmerged worktrees), so a file-level stamp cannot say
+    which engine revision a reel was built against once six of them
+    silently diverge. A rebuilt reel's stamp is replaced; its
+    neighbours keep theirs.
+
+    `asset_hashes` maps each declared asset's absolute path to the
+    digest of its bytes at build time. Assets are project-shared, not
+    per reel, so a provided mapping REPLACES the recorded one whole -
+    it is this build's declaration set, authoritative now - while None
+    (a caller with no declaration set) keeps what is there.
+
     **A different plan is the one case that does NOT merge.** If the
     stored `plan_content_hash` differs, the old entries describe reels
     built from a plan this one is not, and carrying them forward would
@@ -269,6 +325,13 @@ def write_provenance(
     built = set(reel_names)
     captions = dict(caption_hashes or {})
     bindings = dict(footage_binding_hashes or {})
+    now = datetime.now(timezone.utc).isoformat()
+    code_hash = reel_code_hash()
+    built_at_reels = {name: now for name in reel_names}
+    built_with = ({name: code_hash for name in reel_names}
+                  if code_hash is not None else {})
+    assets = (dict(asset_hashes) if asset_hashes is not None
+              else dict(existing.get("asset_hashes") or {}))
 
     if existing:
         if existing.get("plan_content_hash") == content_hash:
@@ -280,13 +343,22 @@ def write_provenance(
                 existing.get("footage_binding_hashes") or {})
             merged_bindings.update(bindings)
             bindings = merged_bindings
+            merged_at = dict(existing.get("built_at_reels") or {})
+            merged_at.update(built_at_reels)
+            built_at_reels = merged_at
+            merged_with = dict(existing.get("built_with") or {})
+            merged_with.update(built_with)
+            built_with = merged_with
+            if asset_hashes is None:
+                assets = dict(existing.get("asset_hashes") or {})
         else:
             superseded = existing.get("plan_content_hash")
+            assets = dict(asset_hashes) if asset_hashes is not None else {}
 
     doc = {
         "plan_path": os.path.abspath(plan_path),
         "plan_content_hash": content_hash,
-        "built_at": datetime.now(timezone.utc).isoformat(),
+        "built_at": now,
         "built_reels": sorted(built),
         # Per reel, because a partial rebuild must not speak for its
         # neighbours. A reel with no entry has no recorded caption plan,
@@ -296,6 +368,16 @@ def write_provenance(
         # against. A caption whose content hash matches but whose
         # footage binding does not is placed against footage that moved.
         "footage_binding_hashes": bindings,
+        # Per reel: WHEN this reel was built, and WHICH engine code
+        # built it. Absent on records written before this half existed
+        # - which is said, never backfilled, because a stamp invented
+        # after the fact is not a measurement.
+        "built_at_reels": built_at_reels,
+        "built_with": built_with,
+        # Per declared asset path: the digest of its bytes at build
+        # time, so a file replaced on disk reads as changed rather
+        # than current (`reel_divergence` compares these).
+        "asset_hashes": assets,
     }
     if superseded:
         doc["superseded_plan_hash"] = superseded
@@ -333,7 +415,8 @@ def rename_reel_entries(review_dir: str, mapping: dict[str, str]) -> None:
     renamed = [mapping.get(name, name)
                for name in (doc.get("built_reels") or [])]
     doc["built_reels"] = sorted(renamed)
-    for key in ("caption_hashes", "footage_binding_hashes"):
+    for key in ("caption_hashes", "footage_binding_hashes",
+                "built_at_reels", "built_with"):
         entries = dict(doc.get(key) or {})
         for old, new in mapping.items():
             if old in entries:
@@ -358,8 +441,9 @@ def drop_reel_entries(review_dir: str, names) -> None:
     if not drop:
         return
     doc["built_reels"] = [name for name in (doc.get("built_reels") or [])
-                          if name not in drop]
-    for key in ("caption_hashes", "footage_binding_hashes"):
+                           if name not in drop]
+    for key in ("caption_hashes", "footage_binding_hashes",
+                "built_at_reels", "built_with"):
         entries = dict(doc.get(key) or {})
         for name in drop:
             entries.pop(name, None)

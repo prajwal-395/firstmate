@@ -271,7 +271,8 @@ def test_overlay_records_rewrite_is_byte_stable(tmp_path):
 
 def test_provenance_rewrite_differs_only_in_built_at(tmp_path):
     """`write_provenance` re-stamps `built_at` on every build - the
-    cosmetic diff. Everything else must stand still, because the
+    cosmetic diff - plus the per-reel `built_at_reels` stamp of the
+    reel it just built. Everything else must stand still, because the
     verifier grades the staging against this record."""
     from library.tools.plan_provenance import (
         caption_content_hash,
@@ -295,11 +296,20 @@ def test_provenance_rewrite_differs_only_in_built_at(tmp_path):
         (review / "plan_provenance.json").read_text(encoding="utf-8"))
 
     first_built, second_built = first.pop("built_at"), second.pop("built_at")
+    first_reel_built = first.pop("built_at_reels")
+    second_reel_built = second.pop("built_at_reels")
     assert first == second, (
         "provenance moved more than its timestamp across a rebuild")
     assert first_built != second_built, (
         "expected the cosmetic built_at re-stamp; without it this test "
         "proves nothing about what differs")
+    assert first_reel_built != second_reel_built, (
+        "the rebuilt reel's own stamp must refresh too - a per-reel "
+        "stamp that stood still would be the file-level one wearing "
+        "per-reel clothes")
+    assert first["built_with"] == second["built_with"], (
+        "same code, same engine digest - the revision stamp must stand "
+        "still across a rebuild that changed no code")
 
 
 def _reel_fixture():

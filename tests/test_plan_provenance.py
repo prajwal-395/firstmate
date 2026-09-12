@@ -570,3 +570,162 @@ def test_subtitle_entry_dicts_hash_correctly():
          "speaker": "Bob", "word_count": 1},
     ]
     assert pp.caption_content_hash(entries_b) != h
+
+
+# ── Per-reel build stamps: WHEN and WITH WHAT ──────────────────────
+
+def _plan_file(tmp_path, body='{"moments": []}'):
+    plan = tmp_path / "reel_proposals_v2.json"
+    plan.write_text(body, encoding="utf-8")
+    return plan
+
+
+def test_a_build_records_per_reel_built_at_and_built_with(tmp_path):
+    """Remove the stamps and nobody can say which engine built a reel.
+
+    The file-level `built_at` this extends cannot answer it: merge
+    time is not build time, and six silently diverged reels were
+    unanswerable for exactly that reason.
+    """
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    pp.write_provenance(str(review), str(_plan_file(tmp_path)),
+                        ["Reel 01 - a", "Reel 02 - b"])
+    doc = pp.read_provenance(str(review))
+
+    for reel in ("Reel 01 - a", "Reel 02 - b"):
+        assert doc["built_at_reels"][reel]  # an ISO timestamp
+        assert "T" in doc["built_at_reels"][reel]
+    assert doc["built_with"]["Reel 01 - a"]
+    assert (doc["built_with"]["Reel 01 - a"]
+            == doc["built_with"]["Reel 02 - b"]
+            == pp.reel_code_hash())
+
+
+def test_a_partial_rebuild_restamps_only_the_reel_it_touched(tmp_path):
+    """A neighbour's stamp must survive a rebuild it did not take part
+    in - the same merge rule caption hashes keep, or the stamp is a
+    file-level one wearing per-reel clothes."""
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    plan = _plan_file(tmp_path)
+    pp.write_provenance(str(review), str(plan),
+                        ["Reel 01 - a", "Reel 02 - b"])
+    before = pp.read_provenance(str(review))
+
+    time.sleep(0.01)
+    pp.write_provenance(str(review), str(plan), ["Reel 02 - b"])
+    after = pp.read_provenance(str(review))
+
+    assert (after["built_at_reels"]["Reel 01 - a"]
+            == before["built_at_reels"]["Reel 01 - a"])
+    assert (after["built_at_reels"]["Reel 02 - b"]
+            >= before["built_at_reels"]["Reel 02 - b"])
+    assert (after["built_with"]["Reel 01 - a"]
+            == before["built_with"]["Reel 01 - a"])
+
+
+def test_promotion_renames_and_refusal_drops_the_per_reel_stamps(tmp_path):
+    """Staging names become final names; refused staging leaves no
+    baseline behind. Either half missing and the stamp points at a
+    timeline that does not exist, or haunts one that was refused."""
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    pp.write_provenance(str(review), str(_plan_file(tmp_path)),
+                        ["Reel 01 - a (rebuild staging)", "Reel 02 - b"])
+
+    pp.rename_reel_entries(
+        str(review), {"Reel 01 - a (rebuild staging)": "Reel 01 - a"})
+    renamed = pp.read_provenance(str(review))
+    assert "Reel 01 - a" in renamed["built_at_reels"]
+    assert "Reel 01 - a (rebuild staging)" not in renamed["built_at_reels"]
+    assert "Reel 01 - a" in renamed["built_with"]
+    assert renamed["built_at_reels"]["Reel 02 - b"]
+
+    pp.drop_reel_entries(str(review), ["Reel 02 - b"])
+    dropped = pp.read_provenance(str(review))
+    assert "Reel 02 - b" not in dropped["built_at_reels"]
+    assert "Reel 02 - b" not in dropped["built_with"]
+    assert "Reel 02 - b" not in dropped["built_reels"]
+
+
+def test_reel_code_hash_covers_the_builder_and_both_reel_steps(tmp_path):
+    """The digest must move when the producing code moves - a hash of
+    nothing in particular invalidates nothing in particular."""
+    from library.tools import plan_provenance as pp
+
+    assert "library/tools/reel_build.py" in pp.REEL_BUILD_CODE_FILES
+    assert "library/steps/step_7_01_build_reels" in pp.REEL_BUILD_CODE_FILES
+    assert "library/steps/step_7_02_verify_reels" in pp.REEL_BUILD_CODE_FILES
+
+    digest = pp.reel_code_hash()
+    assert digest and len(digest) == 64
+    # A tree with no engine in it records the absence, never a hollow
+    # digest that would match any other absence.
+    assert pp.reel_code_hash(repo_root=str(tmp_path)) is None
+
+
+# ── Declared-asset digests: the bytes at build time ───────────────
+
+def test_asset_hashes_are_replaced_whole_when_provided(tmp_path):
+    """The mapping is this build's declaration set, authoritative now -
+    a removed declaration must not linger as a digest of nothing."""
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    plan = _plan_file(tmp_path)
+    pp.write_provenance(str(review), str(plan), ["Reel 01 - a"],
+                        asset_hashes={"/x/logo.mov": "aaa"})
+    assert (pp.read_provenance(str(review))["asset_hashes"]
+            == {"/x/logo.mov": "aaa"})
+
+    pp.write_provenance(str(review), str(plan), ["Reel 01 - a"],
+                        asset_hashes={"/x/other.mov": "bbb"})
+    assert (pp.read_provenance(str(review))["asset_hashes"]
+            == {"/x/other.mov": "bbb"})
+
+
+def test_asset_hashes_survive_a_caller_with_no_declaration_set(tmp_path):
+    """None keeps what is there: an older caller must not empty the
+    record for not knowing about it."""
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    plan = _plan_file(tmp_path)
+    pp.write_provenance(str(review), str(plan), ["Reel 01 - a"],
+                        asset_hashes={"/x/logo.mov": "aaa"})
+    pp.write_provenance(str(review), str(plan), ["Reel 02 - b"])
+    assert (pp.read_provenance(str(review))["asset_hashes"]
+            == {"/x/logo.mov": "aaa"})
+
+
+def test_a_new_plan_drops_old_asset_digests_with_everything_else(tmp_path):
+    """Digests describe bytes a plan was built against; a new plan's
+    reels were not built against those bytes."""
+    from library.tools import plan_provenance as pp
+
+    review = tmp_path / "review"
+    review.mkdir()
+    plan = _plan_file(tmp_path)
+    pp.write_provenance(str(review), str(plan), ["Reel 01 - a"],
+                        asset_hashes={"/x/logo.mov": "aaa"})
+    before = pp.read_provenance(str(review))
+    _plan_file(tmp_path, '{"moments": [1]}')
+    pp.write_provenance(str(review), str(plan), ["Reel 02 - b"])
+    after = pp.read_provenance(str(review))
+    assert after["asset_hashes"] == {}
+    # The old reel's stamps describe a plan that no longer exists;
+    # the new build's own reel is stamped fresh.
+    assert "Reel 01 - a" not in after["built_at_reels"]
+    assert "Reel 01 - a" not in after["built_with"]
+    assert after["built_at_reels"]["Reel 02 - b"]
+    assert after["built_with"]["Reel 02 - b"]
+    assert before["built_at_reels"]["Reel 01 - a"]

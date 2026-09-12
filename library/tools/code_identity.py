@@ -193,6 +193,30 @@ EXEMPT_IMPORTS = {
 }
 
 
+def hash_asset_file(path: str) -> Optional[str]:
+    """SHA-256 of a declared asset's bytes, or None when it is absent.
+
+    The same shape as `plan_content_hash`: raw bytes, hex digest. None
+    is a FIRST-CLASS answer - a declared file that is not on disk is a
+    refusal elsewhere (`full_frame_element.measure_clip`,
+    `placed_assets`), and a hash of nothing would match any other
+    nothing. What calls this records the absence rather than hashing
+    around it.
+
+    Sized for media: the 16 MB logo card this was written for hashes in
+    a fraction of a second; a caller hashing gigabyte-scale sources
+    should say so rather than silently paying it every build.
+    """
+    try:
+        with open(path, "rb") as handle:
+            digest = hashlib.sha256()
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
 def step_code_hash(step_dir: str, extra_files=()) -> Optional[str]:
     """A content hash of every source file in a step's directory.
 

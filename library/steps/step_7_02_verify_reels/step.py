@@ -178,6 +178,20 @@ def verify_reels(data: dict) -> dict:
             print(f"  version-control record failed: {exc!r} - "
                   f"the reels are promoted and unaffected",
                   file=_sys_vc.stderr)
+        # The detection half of the conformance sweep, over the
+        # PROMOTED project - every reel timeline, not just the ones
+        # this node graded. The refusing gate above stays scoped (a
+        # whole-project gate failed clean single-reel builds on
+        # timelines they never touched); this reports whether the
+        # round disturbed a reel it did not touch, and never refuses
+        # (`reel_build.sweep_all_reels_informational`).
+        from library.tools.reel_build import sweep_all_reels_informational
+        sweep_all_reels_informational(
+            project_folder=project_folder,
+            resolve_project_name=resolve_project_name,
+            master_timeline_name=master_timeline_name,
+            plan_path=plan_path,
+            transcript_path=str(transcript_path(project_folder)))
     else:
         timelines_verified = list(timelines_built)
 
