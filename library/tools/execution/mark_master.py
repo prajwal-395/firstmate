@@ -19,6 +19,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from library.tools import journal_naming
+
 from library.tools.master_markers import (
     MarkerRefused,
     assert_no_collision,
@@ -150,7 +152,12 @@ def clear_markers(master) -> list[int]:
 
 
 def journal_path_for(project_folder: str, when: str | None = None) -> str:
-    """Where THIS marking's journal goes. One file per run, never reused."""
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(project_folder, "pipeline_output", "review",
-                        f"{JOURNAL_PREFIX}_{stamp}.json")
+    """Where THIS marking's journal goes. One file per run, never reused.
+
+    Named through `library/tools/journal_naming.py`, so a second marking in
+    the same second is suffixed rather than landing on the first one's
+    record.
+    """
+    return journal_naming.unique_path(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        JOURNAL_PREFIX, when)

@@ -39,6 +39,8 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from library.tools import journal_naming
+
 from library.tools.orphan_removal import (
     DELETE,
     RemovalRefused,
@@ -501,16 +503,18 @@ def journal_path_for(project_folder: str, when: str | None = None) -> str:
 
     The same bargain `organise_media_pool.journal_path_for` strikes: a
     fixed filename lets the second run overwrite the first one's record,
-    and for an irreversible act that record is all there is.
+    and for an irreversible act that record is all there is.  Named
+    through `library/tools/journal_naming.py`, so the suffix past a
+    same-second collision is the same one every journal writer gets.
     """
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(project_folder, "pipeline_output", "review",
-                        f"{JOURNAL_PREFIX}_{stamp}.json")
+    return journal_naming.unique_path(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        JOURNAL_PREFIX, when)
 
 
 def manifest_path_for(project_folder: str, when: str | None = None) -> str:
     """Where THIS prune's manifest goes, beside its journal."""
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(project_folder, "pipeline_output", "review",
-                        f"{JOURNAL_PREFIX}_{stamp}_manifest.md")
+    return journal_naming.unique_path(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        JOURNAL_PREFIX, when, suffix="_manifest.md")
 

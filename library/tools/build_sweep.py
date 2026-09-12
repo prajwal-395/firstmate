@@ -48,6 +48,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from library.tools import caption_asset_gc as gc
+from library.tools import journal_naming
 from library.tools.project_layout import Area, ProjectLayout
 
 SWEPT_AREAS = (
@@ -91,19 +92,13 @@ def journal_path_for(project_folder: str, when: str | None = None) -> str:
     second-granularity stamp, and the second journal must not
     overwrite the first - measured 2026-09-10, when this lane's
     verify-twice run landed its empty second pass on top of the
-    first pass's 102-file record.  Same disambiguator
-    `library/tools/execution/remove_proof.py` uses.
+    first pass's 102-file record.  The suffix is
+    `library/tools/journal_naming.py`, which every journal writer now
+    shares; this module and `remove_proof` were the only two that had it.
     """
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     layout = ProjectLayout(project_folder)
-    candidate = str(layout.write_path(
-        Area.QUARANTINE, f"build_sweep_{stamp}.json"))
-    sibling = 2
-    while os.path.exists(candidate):
-        candidate = str(layout.write_path(
-            Area.QUARANTINE, f"build_sweep_{stamp}_{sibling}.json"))
-        sibling += 1
-    return candidate
+    directory = str(layout.write_dir(Area.QUARANTINE))
+    return journal_naming.unique_path(directory, "build_sweep", when)
 
 
 def _area_dirs(project_folder: str) -> list[tuple[Area, str]]:
@@ -156,18 +151,11 @@ def sweep_files(project_folder: str, db_paths: list[str],
     per_area = []
     for area, asset_dir in _area_dirs(project_folder):
         result = gc.mark(project_folder, asset_dir, roots)
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         layout = ProjectLayout(project_folder)
         # Suffixed past a collision, like the journal above: a
         # verify-twice run must not land its second mark on the first.
-        mark_path = str(layout.write_path(
-            Area.QUARANTINE, f"mark_{area.value}_{stamp}.json"))
-        sibling = 2
-        while os.path.exists(mark_path):
-            mark_path = str(layout.write_path(
-                Area.QUARANTINE,
-                f"mark_{area.value}_{stamp}_{sibling}.json"))
-            sibling += 1
+        mark_path = journal_naming.unique_path(
+            str(layout.write_dir(Area.QUARANTINE)), f"mark_{area.value}")
         result.write_json(mark_path)
         entry = {
             "area": area.value,

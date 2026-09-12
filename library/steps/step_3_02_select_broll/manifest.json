@@ -66,13 +66,13 @@
         "name": "b_roll_assignments",
         "type": "array",
         "description": "State output: b_roll_assignments",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": "broll_selections.b_roll_assignments: secondary footage assigned to cover an A-roll segment (AGENTS.md section 7). Validated on the manifest by library/tools/manifest_validator.py."
       },
       {
         "name": "b_roll_interjections",
         "type": "array",
         "description": "State output: b_roll_interjections",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": "broll_selections.b_roll_interjections: standalone cutaways inserted as a visual break (AGENTS.md section 7). The window that plays is library/tools/cutaway_window.py."
       },
       {
         "name": "broll_candidates_toon",

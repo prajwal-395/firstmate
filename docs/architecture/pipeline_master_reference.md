@@ -322,7 +322,6 @@ video_editing_pilot/
 │   │   ├── step_5_03_creative_cohesion/
 │   │   ├── step_5_04_compile_manifest/
 │   │   ├── step_6_01_render/                 ← Python timeline builder + Fusion
-│   │   │   ├── fusion_comp_generator.py       ← Fusion .comp files (VFX)
 │   │   │   ├── generate_fusion_lua.py         ← Fusion Lua scripts
 │   │   │   ├── resolve_full_assembly.py       ← Resolve orchestrator
 │   │   │   └── resolve_orchestrator.py        ← Lower-level Resolve bridge

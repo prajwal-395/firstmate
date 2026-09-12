@@ -19,11 +19,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
 
-# Fallback output specs, used only by callers that import the helpers
-# directly. The step itself resolves the delivery format per project.
-TARGET_WIDTH = 1080
-TARGET_HEIGHT = 1920
-TARGET_FRAME_RATE = 30.0
+# TARGET_WIDTH / TARGET_HEIGHT / TARGET_FRAME_RATE were here, described as
+# "used only by callers that import the helpers directly".  There were no
+# such callers - zero references in library, tests, docs or scripts - so
+# the comment was the only thing keeping a hardcoded 1080x1920@30 in a
+# step whose own delivery format is resolved per project
+# (`resolve_delivery_format` above; AGENTS.md 10.1: the delivery format is
+# a property of the PRODUCT, not of the footage).  Removed 2026-09-12.
+# `needs_conform` takes the target as arguments, which is the whole point.
 
 
 def needs_conform(clip: dict, target_width: int, target_height: int, target_fps: float) -> bool:

@@ -331,11 +331,16 @@ def test_a_second_apply_cannot_destroy_the_first_journals_undo(project):
     moves nothing, writes that over the first record, and the whole
     organisation becomes irreversible."""
     proj, folder = project
+    # Held, not recomputed: `journal_path_for` NAMES A NEW FILE and
+    # suffixes past one that already exists
+    # (`library/tools/journal_naming.py`), so asking again after the
+    # write would answer with the sibling, not with the first journal.
+    first_journal = ex.journal_path_for(folder, "A")
     ex.organise_project(proj, folder, MASTER, apply=True,
-                        journal_path=ex.journal_path_for(folder, "A"))
+                        journal_path=first_journal)
     ex.organise_project(proj, folder, MASTER, apply=True,
                         journal_path=ex.journal_path_for(folder, "B"))
-    undone = ex.revert(proj, ex.journal_path_for(folder, "A"))
+    undone = ex.revert(proj, first_journal)
     assert len(undone["moved_back"]) > 0
     assert bins_of(proj.GetMediaPool().GetRootFolder())["Reel 01 - live"] == ""
 

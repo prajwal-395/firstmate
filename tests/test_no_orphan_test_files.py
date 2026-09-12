@@ -34,12 +34,14 @@ COLLECTED_ROOTS = (
 # excluded.  Each entry records the path relative to REPO_ROOT and the
 # reason, so the next person knows why it is here and can decide whether
 # it should stay.
-DELIBERATE_EXCLUSIONS: dict[str, str] = {
-    "library/steps/step_6_01_render/test_integration_demo.py": (
-        "Manual Resolve integration demo script.  Has no test_ functions "
-        "and requires a live DaVinci Resolve instance.  Collects 0 items."
-    ),
-}
+# Empty, and that is the state to keep it in.  Its one entry was
+# `library/steps/step_6_01_render/test_integration_demo.py`, a manual
+# Resolve demo that collected 0 items - and the only importer of the two
+# dead thin wrappers `fusion_comp_generator.py` and
+# `fusion_transition_generator.py`.  All three were removed 2026-09-12;
+# docs/CHROMA_KEY_TRANSITIONS_MEASURED.md had already measured that no
+# step, bridge, manifest or DAG node reached them.
+DELIBERATE_EXCLUSIONS: dict[str, str] = {}
 
 
 def _all_test_files() -> set[Path]:

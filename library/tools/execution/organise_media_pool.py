@@ -97,6 +97,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from library.tools import journal_naming
+
 from library.tools.resolve_organization import (
     Artefact,
     OrganizationError,
@@ -475,12 +477,15 @@ def journal_path_for(project_folder: str, when: str | None = None) -> str:
     apply moves nothing, writes a journal saying so over the first one,
     and the whole organisation becomes irreversible - data loss wearing
     the shape of a write, the same defect `write_provenance` was fixed
-    for.  So the name carries a UTC timestamp, exactly as `archive_plan`
-    names its copies, and nothing here ever overwrites a journal.
+    for.  So the name carries a UTC timestamp, and a second apply inside
+    that second is suffixed past it rather than overwriting.  The stamp
+    and the suffix are `library/tools/journal_naming.py`, which is the one
+    place all six journal writers name a file, because four of them
+    carried this docstring and none of the four had the suffix.
     """
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(project_folder, "pipeline_output", "review",
-                        f"{JOURNAL_PREFIX}_{stamp}.json")
+    return journal_naming.unique_path(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        JOURNAL_PREFIX, when)
 
 
 def journals(project_folder: str) -> list[dict]:

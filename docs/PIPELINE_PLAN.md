@@ -275,7 +275,13 @@ on `vfx.get('type') == 'zoom_pulse'`.~~ **CLOSED** in #103, both deleted.
 reference anywhere in the repo including tests, and waits on Q7.~~
 **DELETED**, superseded rather than dropped - see section 5.
 `apply_native_transitions.py` is documented as withdrawn and kept
-deliberately.
+deliberately.  ~~`fusion_comp_generator.py` and
+`fusion_transition_generator.py`, thin wrappers duplicating
+`comp_builder.build_effect_comp`'s dispatch and imported only by
+`test_integration_demo.py`~~ **DELETED** 2026-09-12 with that demo, the
+measurement having been recorded in
+`docs/CHROMA_KEY_TRANSITIONS_MEASURED.md` two days earlier and acted on by
+`docs/CODEBASE_COHERENCE_AUDIT.md`.
 
 **11. Smart Reframe.** ~~The manifest carried a `smart_reframe` key with
 `"unverified_by_design": true`, and `resolve_build_timeline.py` called

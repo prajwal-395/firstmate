@@ -330,7 +330,6 @@ READER_MODULES = {
     "library/tools/execution/organise_media_pool.py",
     "library/steps/step_6_01_render/probe_resolve_capabilities.py",
     "library/steps/step_6_01_render/resolve_build_timeline.py",
-    "library/steps/step_6_01_render/test_integration_demo.py",
 }
 
 _WATCHED = ("GetMarkers", "GetItemListInTrack")

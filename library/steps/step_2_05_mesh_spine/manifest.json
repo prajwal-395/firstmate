@@ -84,7 +84,7 @@
         "name": "audio_spine",
         "type": "object",
         "description": "State output: audio_spine",
-        "expected_schema": "resolve_manifest.py"
+        "expected_schema": "Every block carries clip_id, source_start, source_end, word_timestamps and alignment_method; None/empty only for non-speech blocks. The spine contract is AGENTS.md section 6 and library/tools/spine_contract.py - not a Pydantic file."
       },
       {
         "name": "timed_spine",

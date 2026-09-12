@@ -50,9 +50,13 @@ class TestVideoSegmentAnalyzer(unittest.TestCase):
         result = model.analyze_video(self.dummy_video, "prompt")
         self.assertEqual(result, "Mocked analysis result")
 
+    # Patched on `library.tools.render_qa`, not on the bare `render_qa`:
+    # the analyzer used to import its siblings by bare name, which binds a
+    # SECOND copy of the 2,300-line render_qa module under its own
+    # sys.modules key. Patching one left the other untouched.
     @patch('library.tools.video_segment_analyzer.get_model')
-    @patch('render_qa.analyze_color_histogram')
-    @patch('render_qa.measure_lufs')
+    @patch('library.tools.render_qa.analyze_color_histogram')
+    @patch('library.tools.render_qa.measure_lufs')
     def test_analysis_routing_and_output(self, mock_lufs, mock_color, mock_get_model):
         # Mock the deterministic checks
         mock_color.return_value = MagicMock(metric="color_histogram", passed=True, value=[], threshold={}, severity="info", detail="OK")

@@ -30,30 +30,42 @@ them into `assembly_manifest.json`, which drives `resolve_build_timeline.py`.
 
 ## Fusion .comp Generation
 
-### The Generator
-`library/steps/step_6_01_render/fusion_comp_generator.py` contains:
-- `generate_comp(duration_frames, **effect_params)` → comp string
-- `write_comp(path, content)` → file path
-- `SEGMENT_PRESETS` — named presets (HOOK, CORE_INSIGHT, TURNING_POINT, etc.)
+### The Owner
+`library/tools/fusion/comp_builder.py` - `build_effect_comp` - is the ONE
+dispatch the renderer runs, reached through
+`library/tools/execution/apply_fusion_comps.py`.  Its rules are AGENTS.md
+section 5 ("Six things that must NEVER appear in a Fusion .comp", and what one
+must ALWAYS carry) and `references/fusion_gotchas.md`.
+
+`library/tools/fusion/engine.py` - `CompEngine.from_params` - accepts the old
+flat keyword signature and delegates to the same dispatch.  Use it only to
+call an existing caller's shape; do not add a second dispatch beside it.
+
+Two thin wrappers in `library/steps/step_6_01_render/` -
+`fusion_comp_generator.py` and `fusion_transition_generator.py` - used to be
+documented here.  No step, bridge, manifest or DAG node ever reached them
+(measured in `docs/CHROMA_KEY_TRANSITIONS_MEASURED.md`) and they were removed
+on 2026-09-12.  So was the `SEGMENT_PRESETS` table this section used to
+advertise: deleted under P3.4 by the captain's ruling of 2026-08-16, for
+reasons recorded in `library/tools/fusion/presets.py`.
 
 ### Effect Parameters
-```python
-generate_comp(
-    duration_frames=90,
-    zoom_start=1.0, zoom_mid=1.04, zoom_end=1.03,  # Ken Burns zoom
-    pan_start=(0.5, 0.5), pan_end=(0.5, 0.49),      # Static offset (no animation)
-    grade_gain=1.05, grade_contrast=0.04, grade_saturation=1.15,
-    glow_gain=0.08,                                   # Soft bloom
-    vignette=True, vignette_blend=0.25,               # Edge darkening
-    tail_transition="fade_to_black", tail_transition_frames=12,
-)
-```
+The parameters an effect accepts are `plan_vfx.TOOLKIT_PARAMETERS`
+(`library/steps/step_4_03_plan_vfx/`), and that list deliberately carries **no
+value, no default and no bound**.  How strong an effect is is the PLAN's
+number (AGENTS.md 10.5); an entry whose `params` name none of them is dropped
+rather than completed from a constant.
+
+This section used to print a worked `generate_comp(...)` call with concrete
+zoom, grade, glow and vignette numbers in it.  Those numbers were a creative
+floor in an agent-facing document - including the `vignette=True` at blend
+0.25 that AGENTS.md 12 records as REMOVED - so they are not restated here.
 
 ### Transition Types
-- `fade_to_black` — Merge opacity animation (safest)
-- `zoom_blur` — Transform zoom + DirectionalBlur (Length ≤ 5.0)
-- `defocus` — Animated defocus (XDefocusSize ≤ 3.0)
-- `flash` — Brightness spike at cut point (Gain ≤ 2.0)
+The plannable set is one enumeration, `library/tools/transition_vocabulary.py`,
+which also records why each withdrawn type is not plannable.  Default values
+for the three drawn transitions are `library/tools/fusion/effects.py`
+(AGENTS.md 5).
 
 ## Debugging Workflow
 

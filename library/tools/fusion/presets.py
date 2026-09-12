@@ -27,11 +27,16 @@ and not a cleanup item.
 """
 
 # ─── Transition Presets ──────────────────────────────────────
-
-TRANSITION_PRESETS = {
-    "fade_to_black": {"ttype": "fade_to_black", "dur_frames": 7},
-    "zoom_blur": {"ttype": "zoom_blur", "dur_frames": 7},
-    "defocus": {"ttype": "defocus", "dur_frames": 7},
-    "flash": {"ttype": "flash", "dur_frames": 7},
-    "hard_cut": {"ttype": "hard_cut", "dur_frames": 0},
-}
+#
+# TRANSITION_PRESETS used to be here too: five entries each declaring a
+# 7-frame duration.  Nothing read it - no production module, no test, no
+# doc - and a second, equally unread copy sat in the deleted
+# `step_6_01_render/fusion_transition_generator.py`.  A duration is how
+# strong an effect is, which is the PLAN's number and not a scale the
+# engine offers (AGENTS.md 10.5), so an unread table of sevens was a
+# creative floor waiting for a reader.  Removed 2026-09-12.
+#
+# Where the live answers are: the plannable set is
+# `library/tools/transition_vocabulary.py`; the default values for the
+# three drawn transitions are `library/tools/fusion/effects.py`
+# (AGENTS.md 5).

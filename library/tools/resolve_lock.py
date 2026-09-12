@@ -5,10 +5,6 @@ moved here verbatim from `reel_subtitles.py` when that parallel module
 was deleted. Losing the explanation with the module would leave a guard
 nobody could justify, which is how a guard gets removed.
 """
-import os
-import time
-import fcntl
-from contextlib import contextmanager
 
 PLACEMENT_REQUIRES_CURRENT = (
     "MediaPool.AppendToTimeline appends to the project's CURRENT "
@@ -31,21 +27,21 @@ being luck the moment anything is placed onto a timeline that already
 exists.
 """
 
-LOCK_FILE = "/tmp/resolve_placement.lock"
-
 class ResolveRaceError(RuntimeError):
     pass
 
-@contextmanager
-def resolve_placement_lock():
-    """Acquire a system-wide lock for Resolve placement operations."""
-    fd = os.open(LOCK_FILE, os.O_CREAT | os.O_RDWR)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        os.close(fd)
+
+# `resolve_placement_lock()` was here: a `@contextmanager` taking an
+# exclusive `flock` on /tmp/resolve_placement.lock.  Nothing ever entered
+# it - zero callers in library, tests, docs or scripts - so the module
+# read as though placement into Resolve were serialised across processes
+# when the only thing actually guarding it was `assert_current_timeline`
+# below, which is a per-call check and not a lock.  A guard nobody enters
+# is worse than no guard, because it reads as coverage (AGENTS.md 10.4).
+# Removed 2026-09-12.  If cross-process serialisation is ever needed, note
+# that Resolve is ONE shared instance and every lane drives the same app,
+# so the lock would have to be agreed with the other lanes rather than
+# taken unilaterally.
 
 def assert_current_timeline(project, expected_timeline):
     """Verify the current timeline is the expected one immediately before writing."""

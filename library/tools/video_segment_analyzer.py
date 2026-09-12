@@ -5,22 +5,23 @@ import sys
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-from vision_model import get_model
+from library.tools import render_qa  # deterministic checks
+from library.tools.vision_model import get_model
 
-try:
-    from visual_qa_prompts import PROMPTS
-except ImportError:
-    PROMPTS = {
-        "transition": "Analyze the transition in these video frames. Describe any visual effects, cuts, or blending used.",
-        "vfx": "Analyze the visual effects in these video frames. Describe what effects are present and their quality.",
-        "color": "Analyze the color grading and lighting in these video frames. Are there any issues with exposure or saturation?",
-        "subtitle": "Check for subtitles in these video frames. Are they readable, correctly positioned, and spelled correctly?",
-        "audio": "Listen to the audio in the video segment (if applicable) and describe any issues.",
-        "general": "{question}"
-    }
-
-# Import deterministic checks
-import render_qa
+# The ONLY source of these prompts.  This used to be a
+# `try: from visual_qa_prompts import PROMPTS / except ImportError:`
+# around the same dict, and `visual_qa_prompts` has never defined a
+# `PROMPTS` name - so the except branch ran every single time and the
+# "override" never existed.  A reader looking for where these prompts
+# come from was sent to a module that does not have them.
+PROMPTS = {
+    "transition": "Analyze the transition in these video frames. Describe any visual effects, cuts, or blending used.",
+    "vfx": "Analyze the visual effects in these video frames. Describe what effects are present and their quality.",
+    "color": "Analyze the color grading and lighting in these video frames. Are there any issues with exposure or saturation?",
+    "subtitle": "Check for subtitles in these video frames. Are they readable, correctly positioned, and spelled correctly?",
+    "audio": "Listen to the audio in the video segment (if applicable) and describe any issues.",
+    "general": "{question}",
+}
 
 
 def run_analysis(

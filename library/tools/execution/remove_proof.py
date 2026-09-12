@@ -33,8 +33,11 @@ there is no revert: a deleted timeline does not come back.
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
+
+from library.tools import journal_naming
 
 from library.tools.proof_cleanup import (
     PROTECTED_TIMELINES,
@@ -201,17 +204,10 @@ def journal_path_for(project_folder: str, when: str | None = None) -> str:
     second-granularity stamp, and the second journal must not
     overwrite the first - measured 2026-09-10, when nine consecutive
     removals landed in five journal files.  The stamp stays
-    human-readable; only the disambiguator is appended.
+    human-readable; only the disambiguator is appended.  Both halves are
+    `library/tools/journal_naming.py` now: this module had the loop and the
+    other four journal writers did not.
     """
-    import os
-
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    candidate = os.path.join(project_folder, "pipeline_output", "review",
-                             f"{JOURNAL_PREFIX}_{stamp}.json")
-    sibling = 2
-    while os.path.exists(candidate):
-        candidate = os.path.join(
-            project_folder, "pipeline_output", "review",
-            f"{JOURNAL_PREFIX}_{stamp}_{sibling}.json")
-        sibling += 1
-    return candidate
+    return journal_naming.unique_path(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        JOURNAL_PREFIX, when)

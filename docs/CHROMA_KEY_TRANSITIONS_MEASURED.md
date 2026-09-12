@@ -18,11 +18,17 @@ built, and all three had answers that changed the design.
 This was worth asking: `align_sfx_to_prosody` was deleted three hours before this
 lane started, for being written, declared, and never once executed.
 
-`library/steps/step_6_01_render/fusion_transition_generator.py` is imported by
+`library/steps/step_6_01_render/fusion_transition_generator.py` was imported by
 exactly one file, `library/steps/step_6_01_render/test_integration_demo.py`. No
-step, no bridge, no manifest and no DAG node reaches it. It is a thin wrapper
-over `library/tools/fusion/effects.py` that duplicates
+step, no bridge, no manifest and no DAG node reached it. It was a thin wrapper
+over `library/tools/fusion/effects.py` that duplicated
 `library/tools/fusion/comp_builder.build_effect_comp`'s dispatch.
+
+**Acted on 2026-09-12**: that measurement stood for two days and the wrapper
+stayed, so the coherence audit removed it, its sibling
+`fusion_comp_generator.py` (same shape, same single importer) and the demo
+itself - 685 lines whose only reader was each other.  The tense above is past
+because of that; the finding is unchanged.  `docs/CODEBASE_COHERENCE_AUDIT.md`.
 
 But the *capability* underneath it is live. The route that executes is
 `compile_manifest` -> `fusion_effects.transitions` -> `apply_fusion_comps` ->

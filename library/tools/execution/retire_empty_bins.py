@@ -55,6 +55,8 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from library.tools import journal_naming
+
 JOURNAL_PREFIX = "resolve_retirements"
 JOURNAL_GLOB = f"{JOURNAL_PREFIX}*.json"
 
@@ -315,10 +317,11 @@ def journal_path_for(project_folder: str, when: str | None = None) -> str:
     """Where THIS retirement's journal goes. One file per run, never
     reused - the same defect `organise_media_pool.journal_path_for`
     closes: a fixed filename lets a later empty run overwrite the record
-    an undo needs."""
-    stamp = when or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return os.path.join(project_folder, "pipeline_output", "review",
-                        f"{JOURNAL_PREFIX}_{stamp}.json")
+    an undo needs.  Named through `library/tools/journal_naming.py`, which
+    is where that guard actually lives."""
+    return journal_naming.unique_path(
+        os.path.join(project_folder, "pipeline_output", "review"),
+        JOURNAL_PREFIX, when)
 
 
 def journals(project_folder: str) -> list[dict]:
