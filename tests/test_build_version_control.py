@@ -36,6 +36,7 @@ TEXT_FILES = [
     "project.yaml",
     "pipeline_data.json",
     "pipeline_run.json",
+    "learned_context/learnings.json",
     "external/captain_edits.json",
     "context/look.md",
     "profiles/tight.json",
@@ -92,6 +93,126 @@ def test_allow_list_versions_text_only(tmp_path):
     for rel in BINARY_DECOYS:
         assert rel not in tracked, f"binary {rel} swallowed into the repo"
     assert ".gitignore" in tracked
+
+
+# ── Declaration-store coverage ─────────────────────────────────────
+#
+# The class, enumerated 2026-09-12 when `learned_context/learnings.json`
+# was found unversioned: every store the pipeline READS that controls
+# the edit, checked against the GENERATED allow-list, with the verdict
+# for each.
+#
+# Tracked (asserted below - each path is DERIVED from the reading
+# module's own constants, never copied out of ALLOW_LIST, so deleting
+# an allow-list entry breaks the assertion that names its reader):
+#   project.yaml                       <- brand_registry, schemas
+#   external/<key>.json                <- external_inputs, captain_edits
+#   context/                           <- project_context
+#   profiles/                          <- run_profile
+#   learned_context/learnings.json     <- transcript_corrections,
+#      project_context, reel_build, reel_conformance_verifier,
+#      layer_coherence, captain_edits
+#   marker_feedback/ (pulls, ledger, resolutions, stills)
+#                                      <- marker_feedback, marker_routing,
+#      feedback_ledger, marker_resolution, marker_capture
+#   timeline_captures/                 <- hand-edit evidence (pinned above
+#      in TEXT_FILES)
+#
+# Deliberately NOT tracked, and why:
+#   creative_brief (the project.yaml-declared path; live: the
+#      root-level creative_brief.md) - read by nine steps BY REFERENCE,
+#      but the declaration is a free per-project path that may sit
+#      outside the project folder entirely, so no static allow-list can
+#      name it. The versioned project.yaml records WHERE it was, which
+#      bounds the loss. Fixing that means constraining the brief to a
+#      fixed in-project location, not widening this list.
+#   brand_assets/, assets/, compositions/ - the captain's artwork and
+#      source tree. Binary-capable (PNG, .drx, fonts, .mov), and the
+#      allow-list's stated purpose is text-only; the versioned
+#      project.yaml paths that REFERENCE them survive without the blobs.
+#   subtitle_plans/, subtitle_overlays/ - the captain's standalone
+#      scripts' area (props plus binary .mov renders); the pipeline
+#      renders its own versioned copies under steps/4_05.
+#   raw/, music/, audio/, transcripts/, fonts/ - source media and
+#      derived caches: bulky, or reproducible by re-transcription.
+#   pipeline_output/annotations/, reasoning/, logs/, backups/, scratch/
+#      - dashboard chatter and recomputable output, not declarations.
+#
+# A test that merely restated ALLOW_LIST would pass just as happily
+# with learned_context/ still missing. This one cannot: its input
+# comes from the modules that read the stores.
+
+
+def _declaration_stores():
+    """Store paths derived from the readers, not from the allow-list."""
+    from library.tools import captain_edits
+    from library.tools import feedback_ledger
+    from library.tools import learned_context
+    from library.tools import marker_resolution
+    from library.tools.project_layout import (
+        AREAS, Area, PROJECT_CONFIG_FILE)
+
+    def _rel(area):
+        return AREAS[Area(area)].relpath
+
+    return [
+        # project.yaml: read by brand_registry and the config schema.
+        (PROJECT_CONFIG_FILE, "project.yaml readers"),
+        # external/: read by external_inputs (CHECKS) and captain_edits.
+        (f"{_rel(Area.EXTERNAL_STATE)}/{captain_edits.CAPTAIN_EDITS_KEY}.json",
+         "external_inputs / captain_edits"),
+        # context/: read by project_context on every planning step.
+        (f"{_rel(Area.CONTEXT)}/look.md", "project_context"),
+        # profiles/: read by run_profile.
+        (f"{_rel(Area.RUN_PROFILES)}/tight.json", "run_profile"),
+        # learned_context/: the single JSON record learned_context.py
+        # writes; read by transcript_corrections, project_context,
+        # reel_build, reel_conformance_verifier, layer_coherence and
+        # captain_edits.
+        (f"{_rel(Area.LEARNED_CONTEXT)}/{learned_context.LEARNINGS_FILE}",
+         "transcript_corrections / learned_context readers"),
+        # marker_feedback/: pulls, the feedback ledger and resolutions.
+        (f"{_rel(Area.MARKER_FEEDBACK)}/{feedback_ledger.LEDGER_FILENAME}",
+         "feedback_ledger"),
+        (f"{_rel(Area.MARKER_FEEDBACK)}/"
+         f"{marker_resolution.RESOLUTIONS_SUBDIR}/x.json",
+         "marker_resolution"),
+    ]
+
+
+def test_every_declaration_store_the_pipeline_reads_is_versioned(tmp_path):
+    stores = _declaration_stores()
+    for rel, _readers in stores:
+        _write(tmp_path, rel, f"text of {rel}\n")
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    result = bvc.commit_build(str(tmp_path), message="first commit\n")
+    assert result["committed"] is True
+    tracked = set(_git(tmp_path, "ls-files").splitlines())
+    for rel, readers in stores:
+        assert rel in tracked, (
+            f"declaration store {rel} (read by {readers}) is excluded "
+            f"from the generated allow-list")
+
+
+def test_learned_context_crash_tmp_stays_out(tmp_path):
+    """The allow-list names the record, not the directory.
+
+    `learned_context._save` writes through a `.learnings.*.tmp` file
+    beside the record; a crash leaves one behind. Whole-directory
+    re-inclusion would sweep it into the repo, so the entry is the
+    file - and this pins that the leftover stays ignored.
+    """
+    from library.tools import learned_context
+    from library.tools.project_layout import AREAS, Area
+
+    rel = AREAS[Area(Area.LEARNED_CONTEXT)].relpath
+    _write(tmp_path, f"{rel}/{learned_context.LEARNINGS_FILE}", "[]\n")
+    _write(tmp_path, f"{rel}/.learnings.abc123.tmp", "{}\n")
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    assert bvc.commit_build(str(tmp_path), message="first\n")["committed"]
+    tracked = set(_git(tmp_path, "ls-files").splitlines())
+    assert f"{rel}/{learned_context.LEARNINGS_FILE}" in tracked
+    assert f"{rel}/.learnings.abc123.tmp" not in tracked
 
 
 def test_commit_message_renders_what_the_run_knows(tmp_path):

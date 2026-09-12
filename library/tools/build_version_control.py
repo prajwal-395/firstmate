@@ -86,6 +86,18 @@ ALLOW_LIST = [
     # Run state at the project root.
     "/pipeline_data.json",
     "/pipeline_run.json",
+    # What the run learned back: the captain's corrections, fixed
+    # mistakes and settled decisions (`library/tools/learned_context.py`
+    # writes exactly one file, `learnings.json`, one JSON list, UTF-8).
+    # Named, not whole-directory - the way the generator already narrows
+    # quarantine/ to its mark and sweep records - so a crash-leftover
+    # `.learnings.*.tmp` beside it stays ignored with every other binary.
+    # Read by `transcript_corrections`, `project_context`, `reel_build`,
+    # `reel_conformance_verifier`, `layer_coherence` and `captain_edits`:
+    # a keep exclusion is data that controls the edit, and data that
+    # controls the edit is what this store exists to version.
+    "/learned_context/",
+    "/learned_context/learnings.json",
     # What each step decided: every step's output.json and summary.md,
     # the assembly manifest, generated Fusion comps, and the per-build
     # timeline record (otio/).  `*` is one path component, so these
