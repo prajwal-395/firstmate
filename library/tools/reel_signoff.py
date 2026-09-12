@@ -258,8 +258,17 @@ def parse_supersede(raw) -> set:
     return out
 
 
-def refusal_message(final: str, entry: Mapping) -> str:
-    """Why this promotion refuses, and the declaration that proceeds."""
+def refusal_message(final: str, entry: Mapping,
+                    command: str = "build-reels") -> str:
+    """Why this promotion refuses, and the declaration that proceeds.
+
+    `command` is the command the operator was actually running, because
+    the declaration a refusal prints has to be the one they can paste.
+    A `variant choose` told to run `build-reels --supersede` sends them
+    to a different act entirely - and a refusal whose instruction does
+    not fit the situation is a refusal that gets routed around, which
+    is the one thing the declare-then-proceed shape exists to prevent.
+    """
     reel = entry.get("reel") or base_name(final)
     when = str(entry.get("signed_off_at") or "")[:19].replace("T", " ")
     round_number = entry.get("round")
@@ -275,18 +284,21 @@ def refusal_message(final: str, entry: Mapping) -> str:
         lines.append(f'  Their words: "{words}"')
     lines.append(
         f"  To replace it deliberately, declare it: "
-        f"`build-reels --supersede {reel!r}`. The sign-off is then "
+        f"`{command} --supersede {reel!r}`. The sign-off is then "
         f"recorded as superseded, never deleted - and the timeline it "
         f"covered is retired to the archive bin rather than removed.")
     return "\n".join(lines)
 
 
 def assert_declared(project_folder, final: str,
-                    declared: Sequence[str] | set | None) -> dict | None:
+                    declared: Sequence[str] | set | None,
+                    command: str = "build-reels") -> dict | None:
     """Raise unless a sign-off on this reel was declared superseded.
 
     Returns the sign-off entry when one exists and WAS declared (so the
     caller can record the supersession), None when there is none.
+    `command` is passed through to the refusal so it prints the
+    declaration for the act the operator is performing.
     """
     entry = signoff_for(project_folder, final)
     if entry is None:
@@ -295,7 +307,7 @@ def assert_declared(project_folder, final: str,
         declared)
     if base_name(final) in names:
         return entry
-    raise SignOffNotDeclared(refusal_message(final, entry))
+    raise SignOffNotDeclared(refusal_message(final, entry, command))
 
 
 def supersede(project_folder, final: str, round_number=None) -> dict | None:

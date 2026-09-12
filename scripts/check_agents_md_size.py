@@ -131,7 +131,7 @@ SECTION_BUDGETS = {
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
     "## 9. Environment and dependencies": 6316,
-    "## 10. Cross-cutting rules": 16939,
+    "## 10. Cross-cutting rules": 16912,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,

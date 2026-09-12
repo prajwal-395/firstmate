@@ -297,8 +297,16 @@ def collect_superseded(project, pool, existing_names, finals,
     targets = timelines_to_replace(project, set(plan["collect"]))
     assert_deletion_scope(targets, set(plan["collect"]))
     if targets:
+        # Named BEFORE the delete. A deleted timeline object answers
+        # `GetName()` with None, so reading the report off it afterwards
+        # crashes the collection it was reporting on - measured
+        # 2026-09-12 against a real Resolve, and invisible until then
+        # because `RETAINED_GENERATIONS = 1` means nothing is collected
+        # until a reel is retired a SECOND time.
+        collected = sorted(name for name in
+                           (t.GetName() for t in targets) if name)
         pool.DeleteTimelines(targets)
-        record["collected"] = sorted(t.GetName() for t in targets)
+        record["collected"] = collected
     return record
 
 

@@ -290,7 +290,8 @@ def open_round(project_folder, extra_promotions: Sequence[str] = ()) -> dict:
 
 def stamp_promotion(project_folder, rows_by_final: Mapping,
                     provenance: Mapping | None = None,
-                    promoted_at: str | None = None) -> dict:
+                    promoted_at: str | None = None,
+                    choices: Mapping | None = None) -> dict:
     """Record this promotion against the round it belongs to.
 
     `rows_by_final` is `{final timeline name: rows}` in
@@ -301,6 +302,14 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
     `provenance` is the `plan_provenance` document, read for this reel's
     `built_at_reels` / `built_with` entries. Absent entries are recorded
     absent, never filled in.
+
+    `choices` is `{final: {"chosen", "chosen_timeline", "over", "why"}}`
+    when this promotion came from CHOOSING between two versions of a
+    reel (`library/tools/variant_choice.py`). Recorded against the reel
+    it decided, because the choice and the version it produced are one
+    fact: a round that says a reel changed and cannot say the change
+    was a decision between two watched cuts has lost the only part a
+    human remembers.
 
     Returns the round record that was written. Raises nothing a caller
     must catch on the normal path; the caller wraps it, because a
@@ -315,13 +324,17 @@ def stamp_promotion(project_folder, rows_by_final: Mapping,
     built_at = dict((provenance or {}).get("built_at_reels") or {})
     built_with = dict((provenance or {}).get("built_with") or {})
     for final, rows in (rows_by_final or {}).items():
-        current["reels"][final] = {
+        entry = {
             "promoted_at": moment,
             "built_at": built_at.get(final, ""),
             "built_with": built_with.get(final, ""),
             "rows": rows,
             "source": SOURCE_STAMPED,
         }
+        choice = (choices or {}).get(final)
+        if choice:
+            entry["choice"] = dict(choice)
+        current["reels"][final] = entry
     document["format"] = ROUNDS_FORMAT
     document["rounds"] = boundaries
     write_rounds(project_folder, document)
@@ -525,6 +538,12 @@ def render(document: Mapping) -> str:
             lines.append(
                 f"      {name} - {len(rows)} row(s), {items} item(s), "
                 f"promoted {reel.get('promoted_at', '')}")
+            choice = reel.get("choice") or {}
+            if choice:
+                over = ", ".join(choice.get("over") or ()) or "nothing"
+                lines.append(
+                    f"        CHOSE {choice.get('chosen', '')} over "
+                    f"{over}: {choice.get('why', '')}")
     return "\n".join(lines)
 
 

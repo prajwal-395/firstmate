@@ -66,7 +66,7 @@ ALL_COMMANDS = (
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
-    "round-diff", "sign-off", "relink",
+    "round-diff", "sign-off", "variant", "relink",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -532,6 +532,186 @@ def cmd_sign_off(args):
           + f", by {entry['by']}.")
     print(f"  A promotion that would replace it now REFUSES unless it "
           f"declares `build-reels --supersede {entry['reel']!r}`.")
+
+
+def cmd_variant(args):
+    """Two versions of one reel, alive at once, compared, one chosen.
+
+    The captain's routine comparison (`data/vep-can-it-hold-up-in-a-
+    real-editing-workflow` §7): they pick between two treatments of the
+    same moment by WATCHING both. Everything under this command exists
+    so that is a normal thing to do rather than a scripted one-off.
+
+    A variant is ONE object with two projections. Its DECLARATIONS live
+    on a git branch (`library/tools/timeline_variants.py`) and its
+    PICTURE lives on a Resolve timeline; the two names derive from each
+    other, both ways. Git holds one branch at a time and Resolve holds
+    every timeline at once, which is why the declarations are merged
+    one at a time and the pictures are compared side by side.
+
+        new      declare a variant and branch for it
+        build    build every declared variant of a reel, beside the reel
+        list     what is declared and what is alive
+        diff     what actually differs between two built variants
+        choose   make one of them the reel; the other goes to the archive
+        merge    merge a variant branch's declarations back
+
+    See library/tools/timeline_variants.py (the spec and the branch),
+    library/tools/variant_choice.py (what is alive, the comparison and
+    the choice) and AGENTS.md 10.4.
+    """
+    import json as _json
+
+    from library.tools import timeline_variants as variants
+    from library.tools import variant_choice as choice
+
+    project_folder = _reel_project_folder(args.project)
+
+    def _base_final(reel_number):
+        """The approved timeline name for a reel, off the plan."""
+        from library.tools.reel_proposal import proposal_path, read_proposal
+
+        for moment in read_proposal(str(proposal_path(project_folder))):
+            if int(moment.number) == int(reel_number):
+                return moment.timeline_name
+        print(f"Error: the plan names no reel {reel_number}.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    if args.variant_command == "new":
+        spec = {"suffix": args.suffix}
+        for key in ("j_cut", "cutaway", "cover"):
+            raw = getattr(args, key)
+            if raw:
+                try:
+                    spec[key] = _json.loads(raw)
+                except ValueError as bad:
+                    print(f"Error: --{key.replace('_', '-')} is not "
+                          f"JSON: {bad}", file=sys.stderr)
+                    sys.exit(1)
+        if args.declares:
+            spec["declares"] = sorted(set(args.declares))
+        if args.watch:
+            spec["watch"] = args.watch
+        result = variants.create_variation(
+            project_folder, args.reel, _base_final(args.reel), spec)
+        if not result.get("created"):
+            print(f"REFUSED: {result.get('reason')}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Declared {result['timeline_name']!r} on branch "
+              f"{result['branch']} ({result['commit']}).")
+        if spec.get("declares"):
+            print(f"  It differs in {spec['declares']} - edit "
+                  f"external/<store>.json ON THIS BRANCH, commit, then "
+                  f"`variant build`. A declaring variant is built from "
+                  f"its own branch and nowhere else.")
+        print(f"  Build it with: manage_project.py variant build "
+              f"{args.project} {args.reel}")
+        return
+
+    if args.variant_command == "list":
+        record = variants.read_variant_specs(project_folder)
+        declared = record.get("variants") or {}
+        alive = choice.read_builds(project_folder).get("builds") or {}
+        if not declared and not alive:
+            print("No variant is declared in this project.")
+            print("  Declare one with: manage_project.py variant new "
+                  f"{args.project} <reel> --suffix ' (name)' ...")
+            return
+        print(f"── variants on branch "
+              f"{variants.current_branch(project_folder) or '(no repo)'} "
+              f"──")
+        for reel in sorted(declared, key=lambda r: (int(r), r)):
+            base = _base_final(int(reel))
+            print(f"  Reel {int(reel)}: {base}")
+            for spec in declared[reel] or ():
+                name = variants.variant_timeline_name(base,
+                                                      spec["suffix"])
+                built = alive.get(name)
+                differs = (sorted(spec.get("declares") or ())
+                           or [k for k in ("j_cut", "cutaway")
+                               if spec.get(k)])
+                print(f"    {spec['suffix'].strip()} -> {name}")
+                print(f"      branch  {variants.variant_branch_name(int(reel), spec['suffix'])}")
+                print(f"      differs {differs}")
+                if spec.get("watch"):
+                    print(f"      watch   {spec['watch']}")
+                print(f"      status  "
+                      + (f"BUILT {built.get('built_at', '')[:19]}"
+                         if built else "not built"))
+        return
+
+    if args.variant_command == "build":
+        from library.tools import reel_build
+
+        base = _base_final(args.reel)
+        specs = variants.specs_for_reel(project_folder, args.reel)
+        if args.suffix:
+            specs = [s for s in specs if s["suffix"] in set(args.suffix)]
+        if not specs:
+            print(f"Error: reel {args.reel} declares no variant"
+                  + (f" with suffix {args.suffix}" if args.suffix else "")
+                  + ". Declare one with `variant new` first.",
+                  file=sys.stderr)
+            sys.exit(1)
+        print(f"Building {len(specs)} variant(s) of {base!r} beside it.")
+        try:
+            result = reel_build.build_reel_variants(
+                project_folder, args.reel, specs)
+        except Exception as refused:                        # noqa: BLE001
+            print(f"REFUSED: {refused}", file=sys.stderr)
+            sys.exit(1)
+        for name, record in sorted(result["variants"].items()):
+            print(f"  {name}: conformance-clean"
+                  + (f" - watch: {record['watch']}"
+                     if record.get("watch") else ""))
+        print(f"  Compare them: manage_project.py variant diff "
+              f"{args.project} {args.reel} <suffix-a> <suffix-b>")
+        print(f"  Choose one:   manage_project.py variant choose "
+              f"{args.project} {args.reel} <suffix> --why '...'")
+        return
+
+    if args.variant_command == "diff":
+        try:
+            diff = choice.compare(project_folder, args.reel,
+                                  args.earlier, args.later)
+        except choice.ChoiceRefused as refused:
+            print(f"REFUSED: {refused}", file=sys.stderr)
+            sys.exit(1)
+        print(choice.render_comparison(diff))
+        return
+
+    if args.variant_command == "merge":
+        result = variants.merge_variations(project_folder, args.branch,
+                                           target_branch=args.target)
+        print(_json.dumps(result, indent=2))
+        sys.exit(0 if result.get("merged") else 1)
+
+    # choose - the only subcommand that drives Resolve. The connection
+    # goes through `reel_build`'s own helper, so the locale wrapper and
+    # the exact-name rule (AGENTS.md 5) are honoured here exactly as
+    # they are in a build.
+    import yaml as _yaml
+
+    from library.tools.reel_build import _connect_resolve_project
+
+    base = _base_final(args.reel)
+    with open(os.path.join(project_folder, "project.yaml"),
+              encoding="utf-8") as handle:
+        resolve_name = (_yaml.safe_load(handle).get("resolve") or {}).get(
+            "project_name", os.path.basename(project_folder))
+    project = _connect_resolve_project(resolve_name)
+    try:
+        report = choice.choose(
+            project, project.GetMediaPool(), project_folder, args.reel,
+            base, args.suffix, args.why,
+            variant_names=variants.declared_variant_timelines(
+                project_folder),
+            supersede_declared=args.supersede or ())
+    except Exception as refused:                            # noqa: BLE001
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        sys.exit(1)
+    print(choice.render(report))
 
 
 def cmd_organize(args):
@@ -1672,6 +1852,85 @@ def main():
                            help="withdraw the sign-off on this reel; the "
                                 "withdrawal is recorded, never erased")
     p_signoff.set_defaults(func=cmd_sign_off)
+
+    p_variant = sub.add_parser(
+        "variant",
+        help="Two versions of one reel, alive at once, compared, chosen")
+    p_variant.add_argument("project",
+                           help="Project slug, or an absolute path")
+    v_sub = p_variant.add_subparsers(dest="variant_command", required=True)
+
+    v_new = v_sub.add_parser(
+        "new", help="Declare a variant of a reel and branch for it")
+    v_new.add_argument("reel", type=int, metavar="N")
+    v_new.add_argument("--suffix", required=True, metavar="' (NAME)'",
+                       help="The trailing-parens suffix the variant's "
+                            "timeline carries and its branch name "
+                            "derives from, e.g. ' (reaction-cutaway)'")
+    v_new.add_argument("--j-cut", dest="j_cut", default="",
+                       metavar="JSON",
+                       help='Seam offset, e.g. \'{"join_seconds": 12.4, '
+                            '"lead_seconds": 0.5}\'')
+    v_new.add_argument("--cutaway", default="", metavar="JSON",
+                       help='Seam offset, e.g. \'{"hide_angle": "A", '
+                            '"window_seconds": [12.4, 12.7]}\'')
+    v_new.add_argument("--cover", default="", metavar="JSON",
+                       help="A cover span that rides with a cutaway: "
+                            "source_file, source_in, source_out")
+    v_new.add_argument(
+        "--declares", action="append", default=[], metavar="STORE",
+        help="A per-project DECLARATION this variant differs in - the "
+             "stores `external_inputs.DECLARATIONS` enumerates "
+             "(reel_ending, caption_timing, overlay_intent, mix_intent, "
+             "placed_assets). Repeatable. The differing value lives in "
+             "external/<store>.json ON THE VARIANT'S BRANCH, never in "
+             "the spec, so a declaring variant is built from that "
+             "branch and refuses elsewhere.")
+    v_new.add_argument("--watch", default="",
+                       help="What the captain should look and listen for")
+
+    v_build = v_sub.add_parser(
+        "build", help="Build a reel's declared variants beside the reel")
+    v_build.add_argument("reel", type=int, metavar="N")
+    v_build.add_argument("--suffix", action="append", default=[],
+                         metavar="' (NAME)'",
+                         help="Build only this declared variant; "
+                              "repeatable. Default: every variant this "
+                              "reel declares on the current branch, in "
+                              "one atomic batch.")
+
+    v_list = v_sub.add_parser(
+        "list", help="What is declared, what it differs in, what is built")
+    del v_list
+
+    v_diff = v_sub.add_parser(
+        "diff", help="What differs between two built variants, off disk")
+    v_diff.add_argument("reel", type=int, metavar="N")
+    v_diff.add_argument("earlier", metavar="' (NAME-A)'")
+    v_diff.add_argument("later", metavar="' (NAME-B)'")
+
+    v_choose = v_sub.add_parser(
+        "choose",
+        help="Make one variant the reel; the other goes to the archive")
+    v_choose.add_argument("reel", type=int, metavar="N")
+    v_choose.add_argument("suffix", metavar="' (NAME)'",
+                          help="The variant that won")
+    v_choose.add_argument("--why", required=True,
+                          help="Why this treatment won. Recorded in the "
+                               "round; a choice with no reason is not a "
+                               "decision anybody can read later.")
+    v_choose.add_argument(
+        "--supersede", action="append", default=[], metavar="REEL",
+        help="A reel whose durable captain SIGN-OFF this choice may "
+             "replace. The chosen variant takes that reel's name, so a "
+             "sign-off on it refuses by name without this.")
+
+    v_merge = v_sub.add_parser(
+        "merge", help="Merge a variant branch's declarations back")
+    v_merge.add_argument("branch", metavar="BRANCH")
+    v_merge.add_argument("--target", default=None)
+
+    p_variant.set_defaults(func=cmd_variant)
 
     p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info/dashboard, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")

@@ -185,6 +185,35 @@ def test_collection_only_ever_touches_archived_names():
     assert retire.archived_name(REEL, 3) in project.names()
 
 
+def test_the_collected_names_are_read_before_the_delete():
+    """Resolve's own behaviour: a deleted timeline answers `GetName()`
+    with None, so reading the report off it AFTER the delete crashes
+    the collection it was reporting on. Latent since this landed -
+    `RETAINED_GENERATIONS = 1` means nothing is collected until a reel
+    is retired a SECOND time - and measured 2026-09-12 against a real
+    Resolve, from the variant path that reaches the same line."""
+    class Deleted(FakeTimeline):
+        def deleted(self):
+            self._name = None
+
+    class RealisticProject(FakeProject):
+        def _delete(self, timelines):
+            for timeline in timelines:
+                self.deleted.append(timeline.GetName())
+                self.timelines.remove(timeline)
+                timeline.deleted()
+            return True
+
+    newest = Deleted(retire.archived_name(REEL, 3))
+    older = Deleted(retire.archived_name(REEL, 2))
+    project = RealisticProject([Deleted(REEL), newest, older])
+    record = retire.collect_superseded(
+        project, project.pool, project.names(), [REEL])
+    assert record["collected"] == [retire.archived_name(REEL, 2)]
+    assert None not in record["collected"]
+    assert retire.archived_name(REEL, 2) in retire.render(record)
+
+
 def test_a_signed_off_reel_keeps_every_generation_through_resolve():
     newest = FakeTimeline(retire.archived_name(REEL, 3))
     older = FakeTimeline(retire.archived_name(REEL, 2))

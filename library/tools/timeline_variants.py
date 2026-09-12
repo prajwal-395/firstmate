@@ -53,6 +53,40 @@ until that gate lands, every merged variation must end with a human
 read-back of the rebuilt timeline (the 29f9722-style verification),
 not with a green build. The two ship together; see the docstring on
 `merge_variations`.
+
+Past seam-only, and the boundary that is held
+---------------------------------------------
+The spec landed able to say one thing: a different SEAM. That is why
+it never served a real question - "the same reel with the other CTA"
+is what a creative A/B actually is, and it could not be written down.
+
+It now reaches the per-project DECLARATIONS too (`declares`, derived
+from `external_inputs.DECLARATIONS`), and stops exactly there.
+`OUT_OF_VOCABULARY` names what is out and who owns each near miss. The
+rule that draws the line: a variant may differ in a declaration the
+ordinary rebuild already reads, and in the seam offsets
+`build_reel_timeline` already takes - nothing else. Both are things the
+rebuild does on its ordinary path, so a variant is the rebuild with one
+input changed. Anything wider would need the builder to take a path the
+rebuild does not take, which is a SECOND BUILDER - and then the thing
+beside the approved reel is no longer the approved reel with one change
+in it, and the difference the captain is looking at is not the one they
+asked for.
+
+The declaration itself is never in the spec. It is the CONTENT of
+`external/<store>.json` on the variant's own branch, which is the only
+place the rebuild reads a declaration from - so `branch_requirement`
+refuses a declaring variant built from anywhere else.
+
+Timelines or branches: BOTH, and they are one object
+----------------------------------------------------
+A variant's DECLARATIONS live on a branch and its PICTURE lives on a
+Resolve timeline; the two names derive from each other, both ways.
+Git holds one branch at a time and Resolve holds every timeline at
+once, and that asymmetry is not a problem - it is the reason both
+halves exist. Declarations are merged ONE AT A TIME (this module);
+pictures are compared SIDE BY SIDE, which is the half the captain
+actually watches (`library/tools/variant_choice.py`).
 """
 
 from __future__ import annotations
@@ -72,11 +106,68 @@ VARIANTS_FILENAME = "reel_variants.json"
 `review/**`, captain-reviewable beside the proposals, written only by
 this module, never by a pipeline step."""
 
-SPEC_KEYS = ("suffix", "j_cut", "cutaway", "cover", "watch")
+SPEC_KEYS = ("suffix", "j_cut", "cutaway", "cover", "declares", "watch")
 """The only keys a variant spec carries. `suffix` is required; at
-least one of `j_cut` / `cutaway` must be present (a comparison with
-no seam difference is not a comparison); `cover` rides with a
-cutaway; `watch` is the free-text viewing note."""
+least one of `j_cut` / `cutaway` / `declares` must be present (a
+comparison with no difference is not a comparison); `cover` rides with
+a cutaway; `watch` is the free-text viewing note."""
+
+
+def declarable() -> tuple:
+    """The declaration stores a variant may differ in. DERIVED.
+
+    `external_inputs.DECLARATIONS` is the engine's own enumeration of
+    what a per-project DECLARATION is - a standing decision read by the
+    module that owns it, carried in `external/<stem>.json`, checked by
+    its owner's own reader. Deriving from it rather than listing the
+    stems again is the point: a declaration added there becomes
+    variant-expressible with no second edit, and one removed stops
+    being expressible at the same moment.
+
+    `tests/test_variant_spec_vocabulary.py` pins the derivation.
+    """
+    from library.tools.external_inputs import DECLARATIONS
+
+    return tuple(sorted(DECLARATIONS))
+
+
+#: What a variant spec may NOT express, and the module that owns each
+#: near miss. The boundary is the whole point (the shape
+#: `motion_graphics_vocabulary.OUT_OF_VOCABULARY` takes): a spec that
+#: can express ANY difference is a second builder, and then the thing
+#: beside the approved reel is no longer the approved reel with one
+#: change in it.
+#:
+#: The rule that draws the line: a variant may differ in a PER-REEL
+#: DECLARATION the rebuild already reads, and in the SEAM offsets
+#: `build_reel_timeline` already takes. Both are things the ordinary
+#: rebuild does on the ordinary path, so a variant is the rebuild with
+#: one input changed - which is what makes the git half work at all
+#: (merge the declaration, rebuild, and the combined timeline falls
+#: out) and what makes the comparison honest.
+OUT_OF_VOCABULARY = {
+    "a different moment, span or approval": (
+        "library/tools/reel_proposal.py - a variant compares two "
+        "treatments of ONE approved moment; two moments are two reels, "
+        "and the plan is where a reel is chosen."),
+    "a different transcript or wording": (
+        "library/tools/transcript_corrections.py - the transcript is "
+        "the root every span, caption and anchor is measured against, "
+        "so two variants cut from two transcripts share no clock."),
+    "a different look, grade or delivery format": (
+        "library/tools/reel_look.py, library/tools/delivery_format.py "
+        "- these resolve from project.yaml and the brand template, so "
+        "they are properties of the SERIES. A variant that differs in "
+        "one compares two series, not two treatments."),
+    "a different engine revision": (
+        "library/tools/code_identity.py - `built_with` is stamped at "
+        "build time and is a fact about the build, never an input a "
+        "spec may ask for."),
+    "a different step output or plan": (
+        "library/processes/reels/dag.json - a step output is derived, "
+        "and a variant that overrode one would be asking the builder "
+        "to take a path the rebuild does not take."),
+}
 
 # Conflicted paths at or under one of these are generated run state:
 # rebuilt after the merge, never hand-merged. Everything NOT listed
@@ -106,6 +197,14 @@ GENERATED_PATHS = (
     "pipeline_output/review/explainer_plans.json",
     "pipeline_output/review/semantic_visual_plans.json",
     "pipeline_output/review/plan_provenance.json",
+    # What variants are ALIVE and what their pictures contain
+    # (`variant_choice.record_build`). Rebuilt by every variant build,
+    # and it describes RESOLVE's state, which is not per-branch - so
+    # there is nothing on the source side a merge could preserve that
+    # the rebuild will not overwrite. The record that must survive is
+    # the round's, and `variant_choice.choose` moves the chosen rows
+    # into the round BEFORE forgetting the build.
+    "pipeline_output/review/reel_variant_builds.json",
 )
 
 
@@ -249,9 +348,32 @@ def validate_variant_spec(spec: dict) -> list[str]:
         errors.append(
             "suffix must look like ' (name)' - trailing parens the "
             "timeline name carries and the branch name derives from")
-    if spec.get("j_cut") is None and spec.get("cutaway") is None:
-        errors.append("one of j_cut / cutaway is required - a variation "
-                      "with no seam difference is not a comparison")
+    declares = spec.get("declares")
+    if declares is not None:
+        if (not isinstance(declares, (list, tuple))
+                or not all(isinstance(name, str) for name in declares)):
+            errors.append("declares must be a list of declaration names")
+        elif not declares:
+            errors.append(
+                "declares is empty - a variant that differs in no "
+                "declaration must not claim one; leave the key out")
+        else:
+            allowed = declarable()
+            unknown = sorted(set(declares) - set(allowed))
+            if unknown:
+                errors.append(
+                    f"declares names {unknown}, which no declaration "
+                    f"store owns. A variant may differ in "
+                    f"{list(allowed)} - the stores "
+                    f"`external_inputs.DECLARATIONS` enumerates. "
+                    f"Anything else is out of vocabulary: "
+                    f"{sorted(OUT_OF_VOCABULARY)}")
+            if len(set(declares)) != len(declares):
+                errors.append("declares names one store twice")
+    if (spec.get("j_cut") is None and spec.get("cutaway") is None
+            and not declares):
+        errors.append("one of j_cut / cutaway / declares is required - a "
+                      "variation with no difference is not a comparison")
     j_cut = spec.get("j_cut")
     if j_cut is not None:
         if not isinstance(j_cut, dict):
@@ -303,9 +425,143 @@ def write_variant_specs(project_folder: str, record: dict) -> str:
                     f"reel {reel}: two specs carry suffix "
                     f"{spec.get('suffix')!r}")
             seen.add(spec.get("suffix"))
-            ordered.append({k: spec[k] for k in SPEC_KEYS if k in spec})
+            entry = {k: spec[k] for k in SPEC_KEYS if k in spec}
+            if isinstance(entry.get("declares"), (list, tuple)):
+                # Sorted for the same reason the reels and suffixes
+                # are: two branches naming the same stores in a
+                # different order must not read as a conflict.
+                entry["declares"] = sorted(entry["declares"])
+            ordered.append(entry)
         canonical["variants"][str(reel)] = ordered
     return write_stable(variants_path(project_folder), canonical)
+
+
+# ── Reading the record back ─────────────────────────────────────────
+
+def specs_for_reel(project_folder: str, reel_number: int) -> list:
+    """Every variant spec declared for one reel, suffix-ordered."""
+    record = read_variant_specs(project_folder)
+    specs = (record.get("variants") or {}).get(str(int(reel_number))) or []
+    return sorted((s for s in specs if isinstance(s, dict)),
+                  key=lambda s: str(s.get("suffix", "")))
+
+
+def spec_by_suffix(project_folder: str, reel_number: int,
+                   suffix: str) -> dict | None:
+    """One reel's spec carrying this exact suffix, or None."""
+    for spec in specs_for_reel(project_folder, reel_number):
+        if spec.get("suffix") == suffix:
+            return spec
+    return None
+
+
+def declared_variant_names(project_folder: str,
+                           base_by_reel) -> set:
+    """Every variant TIMELINE name this project has declared.
+
+    `base_by_reel` is `{reel number: approved timeline name}` - the
+    plan's own names, because a variant name is its reel's name plus a
+    suffix and nothing else may guess it. The answer is exact through
+    the spec record, which is the only thing that tells `(final)` (a
+    reel's own name) from `(reaction-cutaway)` (a variation of it).
+
+    Read by `reel_conformance_verifier.grades_as_a_reel`, so the sweep
+    can leave a live variant out the way it leaves a retired
+    generation out, and by `variant_choice` to find what is alive.
+    """
+    names = set()
+    record = read_variant_specs(project_folder)
+    for reel, specs in (record.get("variants") or {}).items():
+        try:
+            base = (base_by_reel or {}).get(int(reel))
+        except (TypeError, ValueError):
+            continue
+        if not base:
+            continue
+        for spec in specs or ():
+            suffix = (spec or {}).get("suffix")
+            if suffix:
+                names.add(variant_timeline_name(base, suffix))
+    return names
+
+
+def declared_variant_timelines(project_folder: str) -> set:
+    """Every declared variant timeline name, resolved through the plan.
+
+    The reel proposal is where an approved reel's timeline name is
+    decided (`reel_proposal.read_proposal` - the same read
+    `build_reel_variants` makes to find the moment), so the two cannot
+    disagree about what a variant of reel 9 is called.
+
+    A project with no proposal, no spec record, or an unreadable one
+    gets the EMPTY set, and the callers say what that means for them.
+    `reel_conformance_verifier` grades every live variant when this is
+    empty, which is the loud direction: a sweep that went quiet because
+    a declaration file was malformed would hide the reels over
+    something that is not about them.
+    """
+    try:
+        from library.tools.reel_proposal import proposal_path, read_proposal
+
+        moments = read_proposal(str(proposal_path(project_folder)))
+        base_by_reel = {int(m.number): m.timeline_name for m in moments
+                        if getattr(m, "timeline_name", "")}
+    except Exception:                                       # noqa: BLE001
+        return set()
+    return declared_variant_names(project_folder, base_by_reel)
+
+
+# ── A declaring variant is built from its own branch ────────────────
+
+def current_branch(project_folder: str) -> str:
+    """The branch the project tree is on, or `''` when it has no repo."""
+    head = _git(project_folder, "rev-parse", "--abbrev-ref", "HEAD")
+    return head.stdout.strip() if head.returncode == 0 else ""
+
+
+def branch_requirement(project_folder: str, reel_number: int,
+                       spec: dict) -> str:
+    """`''` when this variant may be built from the current branch,
+    else the reason it may not.
+
+    A SEAM variant (`j_cut` / `cutaway` / `cover`) is an offset the
+    builder applies from the spec itself, so it builds from anywhere -
+    which is what lets `build_reel_variants` put two seam treatments up
+    side by side in ONE atomic call.
+
+    A variant that `declares` is different in kind. Its difference is
+    not in the spec at all: it is the CONTENT of `external/<store>.json`
+    on its own branch, because that is the only place the rebuild reads
+    a declaration from. Built from the wrong branch it would carry the
+    other version's declaration and differ from the approved reel
+    nowhere - a comparison of one thing with itself, reported as a
+    comparison of two. So it refuses, by name, with the checkout that
+    fixes it.
+
+    This is the whole answer to "timelines or branches": a variant is
+    ONE object with two projections. Git holds one branch at a time and
+    Resolve holds every timeline at once, so the declarations are
+    compared one at a time and the PICTURES are compared side by side -
+    which is the half the captain actually watches.
+    """
+    if not (spec or {}).get("declares"):
+        return ""
+    want = variant_branch_name(reel_number, spec["suffix"])
+    have = current_branch(project_folder)
+    if not have:
+        return (f"{spec['suffix'].strip()} differs in "
+                f"{sorted(spec['declares'])}, which lives in "
+                f"external/<store>.json on branch {want} - and this "
+                f"project has no git repo to hold it. Run "
+                f"init_project_repo (library/tools/"
+                f"build_version_control.py) first.")
+    if have != want:
+        return (f"{spec['suffix'].strip()} differs in "
+                f"{sorted(spec['declares'])}, and a declaration lives "
+                f"on the variant's own branch, never in the spec. The "
+                f"tree is on {have!r}; build it from {want!r}:\n"
+                f"    git -C <project> checkout {want}")
+    return ""
 
 
 # ── git ──────────────────────────────────────────────────────────────

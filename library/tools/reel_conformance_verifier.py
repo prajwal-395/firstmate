@@ -5150,28 +5150,64 @@ def _apply_recorded_pins(moments, transcript, project_folder, err):
     return redrawn
 
 
-def grades_as_a_reel(name: str, only_reels=None) -> bool:
+def grades_as_a_reel(name: str, only_reels=None,
+                     variant_names=()) -> bool:
     """Is this timeline one the conformance sweep should grade?
 
-    A `Reel ...` timeline, and NOT a retired generation. Promotion
-    archives the timeline it replaced rather than deleting it
+    A `Reel ...` timeline, and NEITHER a retired generation NOR a live
+    comparison VARIANT.
+
+    Promotion archives the timeline it replaced rather than deleting it
     (`library/tools/reel_retirement.py`), so `Reel 09 - ... (archived
     round 003)` is now in the project - and grading it against the
     CURRENT plan reports a mismatch that is a fact about it being
     retired, not a defect. Every round would otherwise double the
     sweep's findings, which is how a real finding stops being read.
 
-    Still reachable when a caller names it explicitly in `only_reels`:
-    refusing to look at something the operator asked for by name is a
-    different failure from quietly grading what they did not.
+    A VARIANT is excluded for the sharper version of the same reason,
+    and it is the reason `build_reel_variants` already grades its own
+    output with the STRUCTURAL verifier instead of this one: a variant's
+    offsets are INTENTIONAL deviations from the plan, so the plan gate
+    fails them BY DESIGN. Grading a live variant here would report a
+    designed difference as a defect - a gate that fails correct output,
+    which is no more coverage than one that cannot fail (AGENTS.md
+    10.4). `variant_names` is the reel's DECLARED variant timeline names
+    (`timeline_variants.declared_variant_names`), never a name guess: no
+    syntactic rule tells `(final)` - a reel's own name - from
+    `(reaction-cutaway)`, and excluding by parse would silently drop a
+    deliverable out of the sweep.
+
+    Either is still reachable when a caller names it explicitly in
+    `only_reels`: refusing to look at something the operator asked for
+    by name is a different failure from quietly grading what they did
+    not.
     """
     from library.tools.resolve_bin_layout import is_archived_timeline
 
     if not (name or "").startswith("Reel "):
         return False
-    if is_archived_timeline(name) and name not in set(only_reels or ()):
+    named = set(only_reels or ())
+    if is_archived_timeline(name) and name not in named:
+        return False
+    if name in set(variant_names or ()) and name not in named:
         return False
     return True
+
+
+def declared_variants(project_folder) -> set:
+    """Every variant timeline name this project has declared.
+
+    Asked of the spec record through its owner
+    (`timeline_variants.declared_variant_timelines`), which resolves
+    each suffix against the PLAN's own reel name and answers EMPTY when
+    there is no record - so a project that has never declared a variant
+    behaves exactly as it did before this existed.
+    """
+    if not project_folder:
+        return set()
+    from library.tools.timeline_variants import declared_variant_timelines
+
+    return declared_variant_timelines(str(project_folder))
 
 
 def run_verification(
@@ -5262,14 +5298,24 @@ def run_verification(
         if tl:
             all_timelines.append(tl)
 
-    # Find the master and all reel timelines
+    # Find the master and all reel timelines. A live comparison VARIANT
+    # is left out the way a retired generation is - its offsets are
+    # intentional deviations from the plan this verifier re-derives, so
+    # grading one reports a designed difference as a defect. Named in
+    # `only_reels` it is graded anyway.
+    variant_names = declared_variants(project_folder)
+    if variant_names:
+        print(f"  {len(variant_names)} declared variant timeline(s) are "
+              f"not graded by the plan verifier (build_reel_variants "
+              f"grades them structurally): "
+              f"{', '.join(sorted(variant_names))}", file=err)
     master_tl = None
     reel_timelines = []
     for tl in all_timelines:
         name = tl.GetName()
         if name == master_name:
             master_tl = tl
-        elif grades_as_a_reel(name, only_reels):
+        elif grades_as_a_reel(name, only_reels, variant_names):
             reel_timelines.append(tl)
 
     if master_tl is None:

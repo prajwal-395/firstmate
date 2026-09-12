@@ -7613,6 +7613,19 @@ def build_reel_variants(project_slug: str, reel_number: int,
             "a variant suffix that reproduces the approved name "
             "builds OVER the captain's timeline - refused.")
 
+    # A variant that DECLARES is built from its own branch, because a
+    # declaration lives in `external/<store>.json` and nowhere else
+    # (`timeline_variants.branch_requirement`). Asked before anything
+    # is placed: built from the wrong branch it would carry the other
+    # version's declaration and differ nowhere, reported as a
+    # comparison.
+    from library.tools import timeline_variants as _variants
+    for spec in variants:
+        blocked = _variants.branch_requirement(
+            project_folder, int(reel_number), spec)
+        if blocked:
+            raise ReelBuildError(blocked)
+
     fps = 24000 / 1001
     moment_cuts = _tc.grow_cuts_over_wordless_leadin(
         _tc.exclusion_cuts_for_span(moment.timeline_start,
@@ -7653,6 +7666,28 @@ def build_reel_variants(project_slug: str, reel_number: int,
     brand_effect = _brand_effect(project_folder)
     from library.tools import reel_look as _reel_look
     reel_look_decl = _reel_look.resolve_look(project_folder, 1080, 1920)
+
+    # The three per-reel DECLARATIONS the rebuild reads, read here on
+    # the same terms (AGENTS.md 3, `tests/
+    # test_reel_variants_carry_recorded_obedience.py`). Until the
+    # variant spec widened past the seam these were simply absent from
+    # this path, so every variant was built with no declared ending,
+    # no pinned overlay positions and no caption-timing pins - three
+    # differences from the approved reel on top of the one it was
+    # built to show. They are also the stores a variant may now DIFFER
+    # in (`timeline_variants.declarable`): the declaration lives in
+    # `external/<store>.json` on the variant's own branch, so reading
+    # it here IS how a declaring variant differs, with no second
+    # builder anywhere.
+    from library.tools.overlay_intent import OverlayIntentError, load_intent
+    try:
+        variant_overlay_intent = load_intent(project_folder)
+    except OverlayIntentError as exc:
+        raise ReelBuildError(
+            f"overlay intent cannot be honoured: {exc}") from exc
+    from library.tools import caption_timing as _caption_timing
+    from library.tools import reel_ending as _reel_ending
+    _caption_pins = _caption_timing.load_pins(project_folder)
     # The look's CDL half rides along exactly as the rebuild carries
     # it: no live timeline predates it either way (it is newer than
     # Reel 09), so variants and any rebuild from today match.
@@ -7666,10 +7701,24 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # rebuild - one build, one bar.
     reel_power_grade = _reel_look.resolve_power_grade(project_folder)
 
+    # WHERE THIS REEL ENDS. Resolved against the REEL's own name, not
+    # a variant's: an ending is a property of the reel, and every
+    # variant in one call reads one branch, so it is applied ONCE -
+    # before the cards, which are planned from the ended ranges the
+    # way the rebuild plans them.
+    _ending_decl = _reel_ending.resolve_ending(
+        project_folder, moment.timeline_name, moment, transcript)
+    if _ending_decl is not None:
+        ranges, _end_record = _reel_ending.apply_ending(
+            ranges, placements(ranges, master_clips, fps),
+            transcript, _ending_decl, fps)
+        _reel_ending.report(_end_record)
+
     # Cards are identical for every variant (same moment, same
     # ranges): planned and rendered once, shared by all variants.
     cards = plan_cards(moment, transcript, ranges, project_folder,
-                       fps=fps, declarations=card_declarations)
+                       fps=fps, declarations=card_declarations,
+                       ending=_ending_decl, look=reel_look_decl)
     if cards:
         from library.tools.full_frame_element import render_reel_cards
         cards = render_reel_cards(cards, str(REMOTION_DIR),
@@ -7720,6 +7769,15 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 moment, transcript, ranges, project_folder,
                 fps=fps, width=1080, height=1920, timeline_name=final,
                 lead_seconds=lead)
+            # The captain's caption-only timing, applied to the
+            # RENDERED segments and before anything places them -
+            # the same seam the rebuild applies it at.
+            if subtitle_segments is not None and _caption_pins:
+                (subtitle_segments, _cap_applied, _cap_short,
+                 _cap_stale) = _caption_timing.apply_pins(
+                    subtitle_segments, _caption_pins, fps)
+                _caption_timing.report(_cap_applied, _cap_short,
+                                       _cap_stale)
             explainer_segments, _explainer_plan = reel_explainer_segments(
                 moment, transcript, ranges, project_folder,
                 fps=fps, width=1080, height=1920,
@@ -7777,6 +7835,13 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 cutaway=spec.get("cutaway"),
                 grade_cdl=reel_grade_cdl,
                 power_grade=reel_power_grade,
+                # The captain's pinned overlay positions ({} when they
+                # declared none): declared wins over computed, so a
+                # variant keeps their corrections exactly as a rebuild
+                # does.
+                overlay_intent=variant_overlay_intent,
+                # WHERE THIS REEL ENDS, and what draws over its tail.
+                ending=_ending_decl,
                 # The trimmed ranges every variant plan above was drawn
                 # from - recomputing from the moment would un-trim the
                 # captain's pins.
@@ -7829,9 +7894,26 @@ def build_reel_variants(project_slug: str, reel_number: int,
             print(f"  {final}: conformance-clean "
                   f"({len(report.get('checks_run', []))} checks)",
                   flush=True)
+            # The ROWS of what was just placed, stored off Resolve.
+            # `round_diff.diff_reel` over two of these is what turns
+            # "watch both and decide" into a readable list of what
+            # actually differs - the same measurement the promotion's
+            # replace guard already reads, so the comparison and the
+            # guard cannot disagree about what a row holds.
+            from library.tools import reel_replace_guard as _vguard
+            rows = _vguard.snapshot_timeline(placed, final,
+                                             side="variant")
             built[final] = {"build_record": build_result,
                             "conformance": report,
+                            "suffix": str(spec.get("suffix", "")),
+                            "rows": rows,
                             "watch": spec.get("watch", "")}
+            from library.tools import variant_choice as _choice
+            _choice.record_build(
+                project_folder, int(reel_number), moment.timeline_name,
+                str(spec.get("suffix", "")), rows,
+                watch=str(spec.get("watch", "")),
+                declares=list(spec.get("declares") or ()))
     except Exception:
         # Atomic batch (see docstring): every variant this call placed
         # goes, and names it never reached are tolerated by the

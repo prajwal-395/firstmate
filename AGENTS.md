@@ -401,71 +401,50 @@ These hold across steps and cost a full audit cycle each. Do not undo them.
 Index required keys directly so a rename fails loudly; never `.get()` a default for a key a contract promises. [why - and the known disagreements](docs/RULE_EVIDENCE.md#key-name-mismatches)
 Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
-**An edit lands at the layer that OWNS it; an ending only TRUNCATES; a promotion NAMES a marker it cannot carry.**
-Detail: `library/tools/edit_depth.py` - twelve classes, twelve owners.
+**An edit lands at the layer that OWNS it; an ending only TRUNCATES; a promotion NAMES a marker it cannot carry.** `library/tools/edit_depth.py` - twelve classes, twelve owners.
 
 **A declared output has a READER.** `library/tools/output_contract.py`. [why](docs/RULE_EVIDENCE.md#the-outputs-nobody-read)
 
-**A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.**
-Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
+**A step reads the vision document through a SUMMARY its own handoff names, not through the raw document.** `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-transition-planner-read-the-raw-document)
 
-**`compile_manifest` reads `pipeline_data.json`, not just files.**
-Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
+**`compile_manifest` reads `pipeline_data.json`, not just files.** `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#compile-manifest-read-an-empty-catalog)
 
-**Declare `interface.llm_outputs` on any hybrid step whose bridge emits a key the step also declares as an output**
-Detail: `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#empty-llm-schema)
+**Declare `interface.llm_outputs` on any hybrid step whose bridge emits a key the step also declares as an output** `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#empty-llm-schema)
 
-**One vision schema, two views.**
-Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#vision-schema-two-views)
+**One vision schema, two views.** `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#vision-schema-two-views)
 
-**A project's brand template reaches the run through `state["brand_template"]`.**
-Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
+**A project's brand template reaches the run through `state["brand_template"]`.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#brand-template-never-reached-the-run)
 
 **A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
-**A project's own declarations reach every step through `state["project_config"]`.**
-Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
+**A project's own declarations reach every step through `state["project_config"]`.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
 
-**A brand's CONSTRAINTS reach three planning steps, and a step has two names.**
-Detail: `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
+**A brand's CONSTRAINTS reach three planning steps, and a step has two names.** `library/tools/brand_registry.py`. [why](docs/RULE_EVIDENCE.md#the-brand-reached-no-planning-step)
 
-**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.** **A run that attaches none INTERVIEWS rather than going quiet.**
-Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
+**The captain's creative brief is one per-project declaration that reaches NINE steps, BY REFERENCE, WHEN THE PROJECT ATTACHES IT.** **A run that attaches none INTERVIEWS rather than going quiet.** `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-is-paid-seven-times)
 
-**A reference is an ABSOLUTE PATH plus a MAP.**
-Detail: `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
+**A reference is an ABSOLUTE PATH plus a MAP.** `library/tools/brief_reference.py`. [why](docs/RULE_EVIDENCE.md#the-brief-was-copied-seven-times)
 
-**A step may carry ONE reading of a measurement, or two on different axes - never the reading and the structure it was read from.**
-Detail: `library/tools/footage_reference.py`. [why](docs/RULE_EVIDENCE.md#three-views-of-one-analysis)
+**A step may carry ONE reading of a measurement, or two on different axes - never the reading and the structure it was read from.** `library/tools/footage_reference.py`. [why](docs/RULE_EVIDENCE.md#three-views-of-one-analysis)
 
-**Every LLM step declares `context_fields`, at the manifest's TOP LEVEL, and one declared where nothing reads it is REFUSED.**
-Detail: `library/tools/context_projector.py`, `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-declaration-nothing-read)
+**Every LLM step declares `context_fields`, at the manifest's TOP LEVEL, and one declared where nothing reads it is REFUSED.** `library/tools/context_projector.py`, `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-declaration-nothing-read)
 
-**A step's decision must be SOURCED from its own context.**
-Detail: `library/tools/replay_bench/bench.py`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced)
+**A step's decision must be SOURCED from its own context.** `library/tools/replay_bench/bench.py`. [why](docs/RULE_EVIDENCE.md#the-decision-that-was-remembered-not-sourced)
 
-**A table the prompt names, arriving with zero rows, is reported on the run that sends it.**
-Detail: `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#a-prompt-that-described-an-empty-table)
+**A table the prompt names, arriving with zero rows, is reported on the run that sends it.** `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#a-prompt-that-described-an-empty-table)
 
-**Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.**
-Detail: `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
+**Word timings do not reach a prompt, and what a step cannot select by NAME it selects with a named VIEW.** `library/tools/context_views.py`. [why](docs/RULE_EVIDENCE.md#the-transcript-arrived-with-every-word)
 
-**Never send a summary and the structure it was rendered from.**
-Detail: `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
+**Never send a summary and the structure it was rendered from.** `library/tools/vision_schema_adapter.py`. [why](docs/RULE_EVIDENCE.md#the-summary-and-its-own-source)
 
-**No raw value list reaches a prompt.**
-Detail: `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt)
+**No raw value list reaches a prompt.** `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt)
 
-**A step that chooses a picture is SHOWN one, and the picture is of the window it will receive.**
-Detail: `library/tools/window_frames.py`. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
+**A step that chooses a picture is SHOWN one, and the picture is of the window it will receive.** `library/tools/window_frames.py`. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
 
-**A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.**
-Detail: `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
+**A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.** `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
-**A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.**
-Detail: `library/tools/creative_direction.py`. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
+**A step reads only the keys the PRODUCING step is asked for, and `creative_direction` is the enumeration that proves it.** `library/tools/creative_direction.py`. [why](docs/RULE_EVIDENCE.md#seven-reads-of-a-key-that-cannot-exist)
 
-**A call with nothing to ask is not made.**
-Detail: `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
+**A call with nothing to ask is not made.** `library/processes/edit_video/run_pipeline.py`. [why](docs/RULE_EVIDENCE.md#thirty-three-thousand-tokens-for-three-bytes)
 
 **The delivery format is a property of the PRODUCT, not of the footage.**
 Detail: `library/tools/delivery_format.py`. [why](docs/RULE_EVIDENCE.md#delivery-format-is-not-the-source-resolution)
@@ -473,8 +452,7 @@ Detail: `library/tools/delivery_format.py`. [why](docs/RULE_EVIDENCE.md#delivery
 **The beat grid is `tempo.beats` / `tempo.downbeats`, and it does not start at zero.**
 Detail: `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-does-not-start-at-zero)
 
-**`target_energy` has ONE reading.**
-Detail: `library/tools/energy_reading.py`. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
+**`target_energy` has ONE reading.** `library/tools/energy_reading.py`. [why](docs/RULE_EVIDENCE.md#building-is-not-high)
 
 **`music_behavior` has ONE vocabulary.** **The timeline's length comes from the spine, never from a passage's `end_time`.**
 Detail: `library/tools/music_behavior.py`. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
@@ -484,11 +462,9 @@ Detail: `library/tools/music_behavior.py`. [why](docs/RULE_EVIDENCE.md#silence-l
 **A capability is only real where the renderer reads it.**
 Detail: `library/tools/execution/apply_fusion_comps.py`. [why](docs/RULE_EVIDENCE.md#unread-parameter-names)
 
-**An empty VFX plan says WHY it is empty, and step 4.03 CAN produce a non-empty one.**
-Detail: `library/tools/vfx_plan_basis.py`.
+**An empty VFX plan says WHY it is empty, and step 4.03 CAN produce a non-empty one.** `library/tools/vfx_plan_basis.py`.
 
-**An overlay that draws nothing is not rendered.**
-Detail: `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)
+**An overlay that draws nothing is not rendered.** `library/tools/motion_graphics_plan.py`. [why](docs/RULE_EVIDENCE.md#overlays-that-draw-nothing)
 
 **An overlay segment the manifest names and disk does not have REFUSES the compile.**
 Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-motion-graphics-that-were-planned-and-absent)
@@ -499,17 +475,13 @@ Detail: `library/tools/motion_graphics_plan.py`.
 **An overlay artefact is a TIGHT canvas at the 480 floor, and the placer SETS its transform then READS IT BACK - inside the 3840 rail or reported by name.**
 Detail: `library/tools/tight_box.py`, `library/tools/overlay_placement.py`. [why](docs/RULE_EVIDENCE.md#the-captions-at-the-clamp)
 
-**A project may caption each speaker differently, and the engine declares no per-speaker values.**
-Detail: `library/tools/subtitle_style.py`.
+**A project may caption each speaker differently, and the engine declares no per-speaker values.** `library/tools/subtitle_style.py`.
 
-**A rendered subtitle segment is named for its speaker, timeline and source audio span.**
-Detail: `library/tools/subtitle_segment_id.py`.
+**A rendered subtitle segment is named for its speaker, timeline and source audio span.** `library/tools/subtitle_segment_id.py`.
 
-**Manifest validation has a semantic half.**
-Detail: `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
+**Manifest validation has a semantic half.** `library/tools/manifest_validator.py`. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)
 
-**Every frame of the timeline must show a clip.**
-Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#undeclared-black)
+**Every frame of the timeline must show a clip.** `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#undeclared-black)
 
 **Overlay geometry comes from the safe area, and captions are grouped by measured pixels.**
 Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-the-caption-grouper)
@@ -517,8 +489,7 @@ Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#safe-area-and-
 **The caption row is DECLARED, or `CAPTION_LIFT_PX` above the safe-area inset.**
 Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-caption-lift-is-eleven-pixels)
 
-**Reconstruct a grouping with `fits_in_box`, never `fits`.**
-Detail: `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
+**Reconstruct a grouping with `fits_in_box`, never `fits`.** `library/tools/safe_area.py`. [why](docs/RULE_EVIDENCE.md#the-caption-grouping-reconstruction-used-the-wrong-predicate)
 
 **A project may typeset its own captions, and that is not a change to anyone else's.**
 Detail: `library/tools/subtitle_style.py`. [why](docs/RULE_EVIDENCE.md#the-caption-size-that-governs-one-video)
@@ -537,11 +508,9 @@ Detail: `library/steps/step_1_04_temporal_index/step.py`. [why](docs/RULE_EVIDEN
 **The frame FILLS by default, and there is no heuristic.** **A framing DECLARATION is not a framing DELIVERED, and the manifest records both.**
 Detail: `library/tools/framing_intent.py`. [why](docs/RULE_EVIDENCE.md#the-letterbox-default)
 
-**A project may DECLARE where its footage lives, and a bad declaration is refused.**
-Detail: `library/tools/footage_identity.py`.
+**A project may DECLARE where its footage lives, and a bad declaration is refused.** `library/tools/footage_identity.py`.
 
-**A file on disk is not a measurement.**
-Detail: `library/tools/analysis/speech_advanced_pipeline.py`. [why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
+**A file on disk is not a measurement.** `library/tools/analysis/speech_advanced_pipeline.py`. [why](docs/RULE_EVIDENCE.md#hollow-prosody-files-cached)
 
 **Never invoke `step_1_03_semantic_analysis/step.py` against a real project to test it.**
 Detail: `library/steps/step_1_03_semantic_analysis/step.py`. [why](docs/RULE_EVIDENCE.md#semantic-analysis-triggers-a-vision-run)
@@ -557,32 +526,25 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 
 ### 10.4 Gates, and what counts as evidence
 
-**A reel is BUILT only once the captain approves it, and PROPOSED fails that gate as REJECTED does.**
-Detail: `library/tools/reel_proposal.py`; its four qualities: `library/tools/reel_quality_bar.py`.
+**A reel is BUILT only once the captain approves it, and PROPOSED fails that gate as REJECTED does.** `library/tools/reel_proposal.py`; its four qualities: `library/tools/reel_quality_bar.py`.
 
-**A gate that cannot fail is worse than no gate, because it reads as coverage.**
-If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
+**A gate that cannot fail is worse than no gate, because it reads as coverage.** If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
-**Reaching the ENGINE is not reaching the REELS until MEASURED.**
-`library/tools/reel_divergence.py`. [why](docs/RULE_EVIDENCE.md#logo-on-one-reel)
+**Reaching the ENGINE is not reaching the REELS until MEASURED.** `library/tools/reel_divergence.py`. [why](docs/RULE_EVIDENCE.md#logo-on-one-reel)
 
-**A replace is a diff: promotion refuses an undeclared row loss.**
-Detail: `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
+**A replace is a diff: promotion refuses an undeclared row loss.** `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
 
-**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion RETIRES rather than deletes, and `round-diff` compares two rounds.**
-Detail: `library/tools/round_version.py`, `reel_signoff.py`, `reel_retirement.py`.
+**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion RETIRES rather than deletes, and `round-diff` compares two rounds.** `library/tools/round_version.py`, `reel_signoff.py`, `reel_retirement.py`.
 
-**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
-Detail: `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
+**TWO versions of a reel may be alive at once, and CHOOSING one is an ACT: `manage_project.py variant new|build|list|diff|choose|merge`.** A variant differs in a SEAM or a per-project DECLARATION and in nothing else; the archive holds ONE unchosen variant per REEL. `library/tools/timeline_variants.py`, `variant_choice.py`.
 
-**A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.**
-Detail: `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
+**Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.** `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 
-**A SKIPPED test must name an environment that runs it, and a test body must be able to fail.**
-Detail: `tests/test_no_unfailable_tests.py`. [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
+**A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.** `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 
-**A gate that FAILS correct output is no more coverage than one that cannot fail.**
-Detail: `library/tools/pipeline_skills.py`. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
+**A SKIPPED test must name an environment that runs it, and a test body must be able to fail.** `tests/test_no_unfailable_tests.py`. [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
+
+**A gate that FAILS correct output is no more coverage than one that cannot fail.** `library/tools/pipeline_skills.py`. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
 **Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
 `render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
@@ -591,23 +553,17 @@ Chroma and the mix REPORT A NUMBER and pass. [why](docs/RULE_EVIDENCE.md#baselin
 `SPEECH_ABOVE_BED_GATES` stays False.
 Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
-**A clip gain is not a separation, and both halves now SAY which one they are holding.**
-Detail: `library/tools/music_behavior.py`.
+**A clip gain is not a separation, and both halves now SAY which one they are holding.** `library/tools/music_behavior.py`.
 
-**The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.**
-Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
+**The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.** `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 
-**The bed is bounded by the PICTURE, not by V1.**
-Detail: `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
+**The bed is bounded by the PICTURE, not by V1.** `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
 
-**The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.**
-Detail: `library/tools/music_measurement.py`.
+**The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.** `library/tools/music_measurement.py`.
 
-**Every QA finding has a reader, and one that has none is reported.**
-Detail: `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
+**Every QA finding has a reader, and one that has none is reported.** `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 
-**The rough-cut review's own answer has a reader, and it has two halves.**
-Detail: `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
+**The rough-cut review's own answer has a reader, and it has two halves.** `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
 
 ### 10.5 Creative latitude
 

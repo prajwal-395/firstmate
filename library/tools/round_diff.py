@@ -195,7 +195,13 @@ def diff_rounds(project_folder, earlier: int, later: int) -> dict:
     return {"earlier": first, "later": second, "reels": reels}
 
 
-def _row_line(row: Mapping) -> str:
+def row_line(row: Mapping) -> str:
+    """One row's change, in one line.
+
+    Public because `variant_choice.render_comparison` renders the same
+    measurement for two VERSIONS of a reel rather than two rounds of
+    one, and two spellings of one row diff is how a reader comes to
+    believe they are different measurements."""
     if row["state"] == LOST_ROW:
         return (f"      {row['key']}: {row['earlier_count']} item(s) "
                 f"-> the row is gone "
@@ -252,7 +258,7 @@ def render(diff: Mapping, show_items: int = 3) -> str:
                 f"      {row['key']}: {row['later_count']} item(s) "
                 f"re-rendered at identical spans - nothing moved")
         for row in entry["changed"]:
-            lines.append(_row_line(row))
+            lines.append(row_line(row))
             for item in row["gone"][:show_items]:
                 lines.append(
                     f"        gone:   {item['name']!r} "
