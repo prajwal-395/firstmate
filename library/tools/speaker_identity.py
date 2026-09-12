@@ -151,9 +151,11 @@ NO_COLOUR_DECLARED = "no_colour_declared"
 NO_ROOM_ABOVE_THE_CAPTIONS = "no_room_above_the_captions"
 OUTSIDE_THE_REEL = "outside_the_reel"
 INK_LEFT_THE_BOX = "ink_left_the_box"
+TRUNCATED_BELOW_READABLE = "truncated_below_readable"
 
 REFUSALS = (NO_COLOUR_DECLARED, NO_ROOM_ABOVE_THE_CAPTIONS,
-            OUTSIDE_THE_REEL, INK_LEFT_THE_BOX)
+            OUTSIDE_THE_REEL, INK_LEFT_THE_BOX,
+            TRUNCATED_BELOW_READABLE)
 
 
 class SpeakerIdentityError(ValueError):
@@ -196,6 +198,12 @@ class SpeakerPlan:
     refused: List[dict] = field(default_factory=list)
     box: Optional[Dict[str, int]] = None
     segments: List[dict] = field(default_factory=list)
+    # What `motion_graphics_plan.overlapping_pairs` reported on the
+    # resolved moments, as the build read it. Set by the caller that
+    # resolves - `plan_for_reel` plans in seconds and an overlap is a
+    # fact about frames - so a reel whose cards collide says so in its
+    # own record rather than nowhere.
+    overlaps: List[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         return {
@@ -210,6 +218,11 @@ class SpeakerPlan:
                 for i in self.introductions],
             "entries": list(self.entries),
             "refused": list(self.refused),
+            # Pairs of resolved moments drawn through each other, as
+            # `motion_graphics_plan.overlapping_pairs` reported them on
+            # the run that built this reel. Empty is the common case;
+            # a pair here is the detector having caught one.
+            "overlaps": [dict(pair) for pair in self.overlaps],
             # What was really RENDERED and placed, in the shape the
             # explainer's record takes, because this is what a check
             # grades the built timeline against. A segment the renderer
@@ -537,6 +550,10 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
     caller hands them straight to that resolver, so a lower third takes
     exactly the path every other motion graphic takes.
 
+    Every card holds the declared hold UNLESS the next speaker's card
+    begins first, in which case it is truncated to end there - two cards
+    cannot occupy one row at one time (:func:`truncate_to_next`).
+
     A project declaring nothing returns a plan with no entries and
     ``basis == NOT_DECLARED``.  That is the whole of "a project that
     declares none gets no lower-thirds": there is no crash and no
@@ -601,6 +618,12 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
         plan.entries.append(entry_for(
             introduction=plan.introductions[-1], declared=declared))
 
+    # Two cards, one row, one moment: the earlier card ends where the
+    # next speaker's card begins. Mechanical, not taste - two things
+    # cannot occupy one row at one time - and truncation is the
+    # conservative act `edit_depth` states for an ending.
+    truncate_to_next(plan)
+
     plan.basis = SPEAKERS_INTRODUCED if plan.entries \
         else NO_DECLARED_SPEAKER_SPOKE
     return plan
@@ -649,6 +672,82 @@ def entry_for(introduction: Introduction, declared: dict) -> dict:
 
 
 # ── What was drawn ───────────────────────────────────────────────────
+
+def truncate_to_next(plan: SpeakerPlan) -> None:
+    """End each card where the next speaker's card begins, in place.
+
+    Every entry shares one anchor and one row (see :func:`entry_for`),
+    so two cards whose spans overlap are on screen together in one
+    layout slot: the composition stacks them, then the earlier clears
+    and the later jumps to the edge.  A card therefore ends at the
+    earlier of its declared hold and the next card's start.  The hold
+    itself is never shortened - that number is the project's, and only
+    the project changes it.
+
+    A truncation that would leave less than the pipeline's own
+    readability floor for timed on-screen text
+    (``manifest_validator.MIN_CAPTION_DISPLAY_SECONDS``) is REFUSED
+    with :data:`TRUNCATED_BELOW_READABLE` rather than shipped: a card
+    nobody can read is not a name the viewer saw.  The refusal SAYS the
+    gap, the hold and the floor, so the run that made it also says
+    which line the project has to move.  That floor is reused, not
+    chosen: it is the same number the manifest enforces on caption
+    cards and the conformance verifier grades placed items against.
+
+    ``plan.introductions`` and ``plan.entries`` are parallel - each
+    loop of :func:`plan_for_reel` appends one of each or neither - so a
+    refused entry removes its introduction at the same index.
+    """
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+
+    order = sorted(range(len(plan.entries)),
+                   key=lambda i: float(plan.entries[i]["start_seconds"]))
+    doomed: List[int] = []
+    for position, index in enumerate(order):
+        if position + 1 >= len(order):
+            continue
+        entry = plan.entries[index]
+        following = plan.entries[order[position + 1]]
+        start = float(entry["start_seconds"])
+        hold = float(entry["duration_seconds"])
+        next_start = float(following["start_seconds"])
+        if start + hold <= next_start:
+            continue
+        shortened = round(next_start - start, 3)
+        speaker = str((entry.get("data") or {}).get("speaker") or "?")
+        if shortened < MIN_CAPTION_DISPLAY_SECONDS:
+            doomed.append(index)
+            plan.refused.append({
+                "speaker": speaker,
+                "reason": TRUNCATED_BELOW_READABLE,
+                "detail": (
+                    f"first heard at {start}s and the next introduction "
+                    f"starts at {next_start}s, so the {hold}s hold would "
+                    f"overlap it by "
+                    f"{round(start + hold - next_start, 3)}s; ending it "
+                    f"there leaves {shortened}s, under the "
+                    f"{MIN_CAPTION_DISPLAY_SECONDS}s readability floor "
+                    f"for timed on-screen text "
+                    f"(manifest_validator.MIN_CAPTION_DISPLAY_SECONDS). "
+                    f"Refusing rather than shipping a card nobody can "
+                    f"read; shortening the declared hold is the "
+                    f"project's line to change.")})
+            continue
+        entry["duration_seconds"] = shortened
+        entry["why"] = (
+            f"{entry.get('why') or ''} Truncated to {shortened}s from "
+            f"{hold}s: ends where the next speaker's card begins at "
+            f"{next_start}s, because two cards cannot occupy one row "
+            f"at one time.")
+        entry.setdefault("data", {})["truncated_for_next"] = {
+            "hold_seconds": hold,
+            "duration_seconds": shortened,
+            "next_starts_at": next_start,
+        }
+    for index in sorted(doomed, reverse=True):
+        del plan.entries[index]
+        del plan.introductions[index]
+
 
 def render_findings(measured: dict, insets: Dict[str, int],
                     width: int, height: int) -> List[dict]:

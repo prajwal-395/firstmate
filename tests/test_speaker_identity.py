@@ -304,6 +304,110 @@ def test_a_first_appearance_past_the_end_of_the_reel_is_refused(tmp_path):
     assert [r["reason"] for r in plan.refused] == [si.OUTSIDE_THE_REEL]
 
 
+# ── One row, one moment: a card ends where the next begins ────────
+
+HOLD_3_5 = {
+    "anchor": "bottom_left",
+    "hold_seconds": 3.5,
+    "entrance": "draw",
+    "exit": "fade",
+    "speakers": {
+        "Ada": {"name": "Ada Lovelace", "title": "Analyst",
+                "colour": "#11FFAA"},
+        "Bram": {"name": "Bram Stoker", "title": "Editor",
+                 "colour": "#FF3366"},
+        "Cy": {"name": "Cy Okonkwo", "title": "Producer",
+               "colour": "#33AAFF"},
+    },
+}
+
+
+def _held_project(tmp_path, name):
+    return _project(tmp_path, name,
+                    effect={si.DECLARATION_KEY: HOLD_3_5})
+
+
+def test_a_card_ends_where_the_next_speakers_card_begins(tmp_path):
+    """The Reel 06 overlap of 2026-09-12: 0.0s and 3.23s against a
+    3.5s hold put both cards on screen together for 0.27s in one
+    layout slot. Two things cannot occupy one row at one time, so the
+    earlier card is truncated - mechanically, not by taste - and the
+    hold itself is untouched."""
+    folder = _held_project(tmp_path, "truncate")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 0.0), ("Bram", 3.23)), 60.0, folder)
+    assert [(e["start_seconds"], e["duration_seconds"])
+            for e in plan.entries] == [(0.0, 3.23), (3.23, 3.5)]
+    first = plan.entries[0]
+    assert first["data"]["truncated_for_next"] == {
+        "hold_seconds": 3.5, "duration_seconds": 3.23,
+        "next_starts_at": 3.23}
+    assert "Truncated to 3.23s from 3.5s" in first["why"]
+    assert "truncated_for_next" not in plan.entries[1]["data"]
+    assert [i.speaker for i in plan.introductions] == ["Ada", "Bram"]
+
+
+def test_a_card_clear_of_the_next_keeps_its_full_hold(tmp_path):
+    """The Reel 13 shape: a 3.54s gap against a 3.5s hold never
+    overlaps, so nothing is truncated and the 0.04s clearance is
+    guaranteed by the invariant rather than luck."""
+    folder = _held_project(tmp_path, "clear")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 0.0), ("Bram", 3.54)), 60.0, folder)
+    assert [e["duration_seconds"] for e in plan.entries] == [3.5, 3.5]
+    assert all("truncated_for_next" not in e["data"]
+               for e in plan.entries)
+
+
+def test_each_card_in_a_chain_ends_where_the_next_begins(tmp_path):
+    """Truncation is per card, against the card after it - never the
+    hold, never the card after that."""
+    folder = _held_project(tmp_path, "chain")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 0.0), ("Bram", 2.0), ("Cy", 9.0)),
+        60.0, folder)
+    assert [(e["start_seconds"], e["duration_seconds"])
+            for e in plan.entries] == [(0.0, 2.0), (2.0, 3.5), (9.0, 3.5)]
+
+
+def test_a_card_truncated_below_the_readability_floor_is_refused(tmp_path):
+    """A 0.3s card is not a name the viewer saw. Below the pipeline's
+    own floor for timed on-screen text
+    (`manifest_validator.MIN_CAPTION_DISPLAY_SECONDS`) the card is
+    refused - with the gap, the hold and the floor all named, so the
+    run says which line the project has to move - and its introduction
+    goes with it, because the two lists are parallel."""
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+
+    folder = _held_project(tmp_path, "too-short")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 0.0), ("Bram", 0.3)), 60.0, folder)
+    assert [(e["start_seconds"], e["duration_seconds"])
+            for e in plan.entries] == [(0.3, 3.5)]
+    assert [i.speaker for i in plan.introductions] == ["Bram"]
+    assert [(r["speaker"], r["reason"]) for r in plan.refused] == [
+        ("Ada", si.TRUNCATED_BELOW_READABLE)]
+    detail = plan.refused[0]["detail"]
+    assert "0.3s" in detail and "3.5s" in detail
+    assert str(MIN_CAPTION_DISPLAY_SECONDS) in detail
+    assert si.TRUNCATED_BELOW_READABLE in si.REFUSALS
+
+
+def test_a_truncation_landing_exactly_on_the_floor_is_kept(tmp_path):
+    """The floor refuses BELOW, not AT: a card ending with exactly the
+    floor's seconds still draws."""
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+
+    folder = _held_project(tmp_path, "on-the-floor")
+    plan = si.plan_for_reel(
+        "R", _lines(("Ada", 0.0),
+                    ("Bram", MIN_CAPTION_DISPLAY_SECONDS)),
+        60.0, folder)
+    assert plan.entries[0]["duration_seconds"] == pytest.approx(
+        MIN_CAPTION_DISPLAY_SECONDS)
+    assert plan.refused == []
+
+
 # ── Where it sits: measured, above the captions ──────────────────────
 
 def test_the_box_bottom_clears_the_declared_caption_row(tmp_path):

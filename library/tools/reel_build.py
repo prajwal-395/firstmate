@@ -3180,11 +3180,18 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
             print(f"  {name}: NO SPEAKER LOWER THIRDS - {plan.basis}",
                   file=sys.stderr)
         return [], plan
-    for introduction in plan.introductions:
-        print(f"  {name}: lower third for {introduction.speaker!r} at "
-              f"{introduction.at_seconds}s - {introduction.name!r} / "
-              f"{introduction.title!r}, colour {introduction.colour} from "
-              f"{introduction.colour_basis}", file=sys.stderr)
+    for introduction, entry in zip(plan.introductions, plan.entries):
+        line = (f"  {name}: lower third for {introduction.speaker!r} at "
+                f"{introduction.at_seconds}s - {introduction.name!r} / "
+                f"{introduction.title!r}, colour {introduction.colour} from "
+                f"{introduction.colour_basis}")
+        truncated = (entry.get("data") or {}).get("truncated_for_next")
+        if truncated:
+            line += (f" - truncated to "
+                     f"{truncated['duration_seconds']}s from "
+                     f"{truncated['hold_seconds']}s, ends where the next "
+                     f"card begins at {truncated['next_starts_at']}s")
+        print(line, file=sys.stderr)
     print(f"  {name}: lower-third box {plan.box} - {plan.box['_basis']}",
           file=sys.stderr)
 
@@ -3196,6 +3203,15 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
               f"{dropped.element}: {dropped.detail}", file=sys.stderr)
         plan.refused.append({"speaker": "", "reason": dropped.reason,
                              "detail": dropped.detail})
+    # The overlap measurement, READ on this path rather than computed
+    # and discarded. `basis_record` is where `overlapping_pairs` runs;
+    # step 4.06's post-bridge is its only other reader, so before this
+    # line no lower-third overlap could ever surface anywhere.
+    plan.overlaps = resolved.basis_record()["drawn_through_each_other"]
+    for pair in plan.overlaps:
+        print(f"  {name}: lower thirds overlap: "
+              f"{pair['elements']} at {pair['anchors']} share frames "
+              f"{pair['frames']} - {pair['why']}", file=sys.stderr)
     if not resolved.moments:
         plan.basis = si.NO_DECLARED_SPEAKER_SPOKE
         return [], plan

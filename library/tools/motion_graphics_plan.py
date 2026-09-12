@@ -305,11 +305,16 @@ def overlapping_pairs(moments: List[dict]) -> List[dict]:
 
     **This is a measurement, and it is reported rather than enforced.**
 
-    `row` stacks elements sharing ONE anchor; it says nothing about two
-    anchors. And `anchorStyle` gives a `*_centre` element the whole
-    usable width, so a centred title and a corner stamp in the same
-    vertical band, live at the same moment, collide by construction -
-    there is no layout pass that could have separated them.
+    TWO shapes collide. Across anchors, `anchorStyle` gives a `*_centre`
+    element the whole usable width, so a centred title and a corner stamp
+    in the same vertical band, live at the same moment, collide by
+    construction - there is no layout pass that could have separated
+    them. Within ONE anchor, `row` is the stacking mechanism - but only
+    across DIFFERENT rows. Two moments at the same anchor in the same
+    row at the same moment share one layout slot, so the second is drawn
+    through the first (2026-09-12: two speaker lower thirds at
+    `bottom_left`, `row: 0`, overlapping 0.27s on one reel, reported as
+    nothing because this function skipped every same-anchor pair).
 
     Found by compositing every reachable element over a real reel frame
     (`data/vep-animation-completeness/` in the firstmate home): the title ran through the
@@ -318,6 +323,13 @@ def overlapping_pairs(moments: List[dict]) -> List[dict]:
     bar. Nine elements, four collisions, and every one of them passed
     every check this repository had - because the demo renders that
     proved the elements DRAW put one element on screen at a time.
+
+    Takes MOMENTS as `resolve_plan` returned them - `startFrame` and
+    `durationFrames` in frames. Plan ENTRIES carrying `start_seconds`
+    and `duration_seconds` are not moments: read without frames they
+    would all start at 0 for 0 frames and compare as non-overlapping,
+    which is a second way to get `[]` out of a real collision. Resolve
+    first, then ask.
 
     Not a drop, for the reason AGENTS.md 10.4 gives: a full-width
     `progress_bar` under a `bottom_left` counter may be exactly what the
@@ -332,11 +344,18 @@ def overlapping_pairs(moments: List[dict]) -> List[dict]:
             band_b, cell_b = anchor_band(second.get("anchor", ""))
             if band_a != band_b:
                 continue
-            if first.get("anchor") == second.get("anchor"):
-                # One anchor: `row` is the mechanism, and it works.
-                continue
-            if not (cell_a in FULL_WIDTH_HORIZONTALS
-                    or cell_b in FULL_WIDTH_HORIZONTALS):
+            same_anchor = first.get("anchor") == second.get("anchor")
+            if same_anchor:
+                # One anchor: `row` is the mechanism, and it works across
+                # DIFFERENT rows. The same row twice is one layout slot
+                # occupied twice, which is the collision - not the
+                # stacking. A moment carrying no row is row 0, which is
+                # the row `resolve_plan` gives an entry that states none.
+                if int(first.get("row", 0) or 0) != int(
+                        second.get("row", 0) or 0):
+                    continue
+            elif not (cell_a in FULL_WIDTH_HORIZONTALS
+                      or cell_b in FULL_WIDTH_HORIZONTALS):
                 # Two different side cells never share a column.
                 continue
             start_a = first.get("startFrame", 0)
@@ -358,19 +377,29 @@ def overlapping_pairs(moments: List[dict]) -> List[dict]:
                 for key in (first.get("element"), second.get("element"))
                 if key in vocabulary.ELEMENTS_BY_KEY
             }
+            if same_anchor:
+                why = (
+                    f"both sit at {first.get('anchor')!r} in row "
+                    f"{int(first.get('row', 0) or 0)} while they are "
+                    f"both on screen. `row` separates elements sharing "
+                    f"ONE anchor across different rows; the same row "
+                    f"twice is one layout slot occupied twice."
+                )
+            else:
+                why = (
+                    f"a {FULL_WIDTH_HORIZONTALS[0]!r} horizontal spans the "
+                    f"whole usable width, so both occupy every column of "
+                    f"the {band_a} band while they are both on screen. "
+                    f"`row` separates elements sharing ONE anchor and these "
+                    f"do not share one."
+                )
             pairs.append({
                 "elements": [first.get("element"), second.get("element")],
                 "anchors": [first.get("anchor"), second.get("anchor")],
                 "band": band_a,
                 "involves_chrome": "persist" in functions,
                 "frames": [max(start_a, start_b), min(end_a, end_b)],
-                "why": (
-                    f"a {FULL_WIDTH_HORIZONTALS[0]!r} horizontal spans the "
-                    f"whole usable width, so both occupy every column of "
-                    f"the {band_a} band while they are both on screen. "
-                    f"`row` separates elements sharing ONE anchor and these "
-                    f"do not share one."
-                ),
+                "why": why,
             })
     return pairs
 

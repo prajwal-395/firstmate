@@ -182,6 +182,52 @@ def test_a_local_start_frame_is_rebased_onto_its_own_segment():
     assert segments[0]["timeline_start"] == 4.0
 
 
+# ── The basis record reports what is drawn through what ──────────
+
+def _lower_third(start, duration, row=0, anchor="bottom_left"):
+    return {
+        "element": "lower_third",
+        "start_seconds": start,
+        "duration_seconds": duration,
+        "anchor": anchor,
+        "row": row,
+        "copy": {"display": "A NAME", "supporting": "A TITLE"},
+        "color": "#F5F5F0",
+    }
+
+
+def test_two_cards_sharing_one_row_are_reported_on_the_basis_record():
+    """The Reel 06 overlap of 2026-09-12, through the resolver's own
+    record: one card at 0.0s, the next at 3.23s, a 3.5s hold, one
+    anchor, one row. `overlapping_pairs` returned [] for this until
+    the same-anchor skip learned that `row` only separates DIFFERENT
+    rows - and this record is what the reel build now reads, so a
+    detector nobody calls on that path is pinned here rather than
+    assumed.
+    """
+    resolved = resolve([_lower_third(0.0, 3.5), _lower_third(3.23, 3.5)])
+    assert len(resolved.moments) == 2
+    pairs = resolved.basis_record()["drawn_through_each_other"]
+    assert len(pairs) == 1
+    assert pairs[0]["anchors"] == ["bottom_left", "bottom_left"]
+    assert "row 0" in pairs[0]["why"]
+
+
+def test_cards_on_different_rows_are_stacked_not_reported():
+    """The mechanism `row` really is: the same two spans on rows 0 and
+    1 share one segment and report no pair."""
+    resolved = resolve([_lower_third(0.0, 3.5, row=0),
+                        _lower_third(3.23, 3.5, row=1)])
+    assert (resolved.basis_record()["drawn_through_each_other"] == [])
+
+
+def test_cards_that_do_not_share_a_frame_are_not_reported():
+    """The Reel 13 shape: a 3.54s gap against a 3.5s hold clears, and
+    the record says nothing about it."""
+    resolved = resolve([_lower_third(0.0, 3.5), _lower_third(3.54, 3.5)])
+    assert (resolved.basis_record()["drawn_through_each_other"] == [])
+
+
 # ── Refusals, all of them named ──────────────────────────────────────
 
 def test_an_element_the_renderer_cannot_draw_is_dropped_by_name():

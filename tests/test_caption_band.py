@@ -120,8 +120,8 @@ def test_lower_third_is_reachable_and_says_why():
 from library.tools.motion_graphics_plan import overlapping_pairs  # noqa: E402
 
 
-def _moment(element, anchor, start=0, frames=90):
-    return {"element": element, "anchor": anchor, "row": 0,
+def _moment(element, anchor, start=0, frames=90, row=0):
+    return {"element": element, "anchor": anchor, "row": row,
             "startFrame": start, "durationFrames": frames}
 
 
@@ -144,15 +144,34 @@ def test_chrome_under_content_is_reported_as_chrome():
     assert len(pairs) == 1 and pairs[0]["involves_chrome"] is True
 
 
+def test_two_cards_sharing_one_row_at_one_moment_are_reported():
+    """The Reel 06 overlap of 2026-09-12: two lower thirds at one
+    anchor in one row, on screen together for a quarter-second, while
+    the detector built to catch exactly that returned []. Same anchor
+    plus same row plus overlapping spans is one layout slot occupied
+    twice - the collision, not the stacking."""
+    pairs = overlapping_pairs([
+        _moment("lower_third", "bottom_left", start=0, frames=84),
+        _moment("lower_third", "bottom_left", start=77, frames=84),
+    ])
+    assert len(pairs) == 1
+    assert pairs[0]["anchors"] == ["bottom_left", "bottom_left"]
+    assert pairs[0]["frames"] == [77, 84]
+    assert "row 0" in pairs[0]["why"]
+
+
 @pytest.mark.parametrize("label,moments", [
     ("two different bands", [_moment("title_lockup", "top_centre"),
-                             _moment("stat_callout", "bottom_left")]),
+                              _moment("stat_callout", "bottom_left")]),
     ("two side cells, never the same column",
      [_moment("stat_callout", "middle_left"),
       _moment("lower_third", "middle_right")]),
-    ("one anchor - `row` is the mechanism and it works",
-     [_moment("title_lockup", "top_centre"),
-      _moment("context_stamp", "top_centre")]),
+    ("one anchor across DIFFERENT rows - `row` is the mechanism",
+     [_moment("title_lockup", "top_centre", row=0),
+      _moment("context_stamp", "top_centre", row=1)]),
+    ("same anchor and row, but not on screen together",
+     [_moment("lower_third", "bottom_left", start=0, frames=30),
+      _moment("lower_third", "bottom_left", start=30, frames=30)]),
     ("same band, but not on screen together",
      [_moment("title_lockup", "top_centre", start=0, frames=30),
       _moment("context_stamp", "top_left", start=30, frames=30)]),
