@@ -1,11 +1,12 @@
-"""The overlay option: the frames container, and the retired geometry.
+"""The overlay option: the frames container, and the tight geometry.
 
-`render_one_segment` behind a stub renderer, so what is pinned is the
+`render_one_segment` behind stub renderers, so what is pinned is the
 unit's own decisions - names, records, reuse, refusal - without paying
 for Remotion. Explicit full-canvas video is asserted unchanged: the
 option adds, it does not move. The default is tight (since
 2026-09-10); the tight render tests below serve canned decodable
-renders because a byte stub cannot feed the probe.
+renders at the constant canvas because a byte stub cannot feed the
+edge guard.
 """
 import json
 import os
@@ -26,20 +27,21 @@ from library.steps.step_4_05_render_subtitles.step import (
     _qa_frame_sequence,
     render_one_segment,
 )
-from library.tools import tight_box as tight_box_mod
 from library.tools.tight_box import (
-    canvas_offset,
-    extract_frames,
-    ink_union_of_frames,
-    tighten_measured,
+    constant_caption_box,
 )
 
 NEEDS_FFMPEG = shutil.which("ffmpeg") is None
 FFMPEG_REASON = "needs ffmpeg; runs in CI, which installs it (AGENTS.md 9)"
 
-# A known ink rectangle on the full delivery frame, in (x0, y0, x1, y1).
-RECT = (100, 1450, 800, 1570)
+# A known ink rectangle on the constant canvas, in (x0, y0, x1, y1).
+RECT = (302, 200, 602, 280)
 N_FRAMES = 30
+
+# The constant canvas for the `_props` style (840px wrap): the number
+# the structural bound derives, not a literal restated here.
+CONSTANT_W = 904
+CONSTANT_H = 480
 
 SAFE = {"top": 120, "right": 120, "bottom": 320, "left": 90}
 
@@ -89,7 +91,12 @@ def _props():
 
 class _StubRenderer:
     """Acts like the CLI renderer: video writes a file, sequence fills
-    a directory with one PNG per rendered frame."""
+    a directory with one PNG per rendered frame.
+
+    Sequence frames are drawn at the canvas the props promise - a real
+    renderer draws what it was asked - so the guard reads frames of
+    the size the box derived. They draw nothing, which is what sends
+    a tight attempt down the draws-nothing full fallback."""
 
     def __init__(self, frames=60):
         self.frames = frames
@@ -98,10 +105,17 @@ class _StubRenderer:
     def render(self, props_path, overlay_path, sequence=False):
         self.calls.append((props_path, overlay_path, sequence))
         if sequence:
+            try:
+                with open(props_path) as handle:
+                    asked = json.load(handle)
+                size = (int(asked.get("width", 8)),
+                        int(asked.get("height", 8)))
+            except (OSError, ValueError, TypeError):
+                size = (8, 8)
             os.makedirs(overlay_path, exist_ok=True)
             from PIL import Image
             for i in range(self.frames):
-                Image.new("RGBA", (8, 8), (255, 255, 255, 0)).save(
+                Image.new("RGBA", size, (255, 255, 255, 0)).save(
                     os.path.join(overlay_path, f"frame-{i:02d}.png"))
         else:
             with open(overlay_path, "wb") as handle:
@@ -113,18 +127,22 @@ class _StubRenderer:
 
 
 class _ServingRenderer:
-    """Serves canned renders: the probe gets the full-canvas file, the
-    tight render gets the cropped one. Tells them apart by the probe's
-    temp path, which always carries the `probe_` prefix."""
+    """Serves one canned render per call, in order.
 
-    def __init__(self, probe_src, tight_src):
-        self.probe_src = probe_src
-        self.tight_src = tight_src
+    The tight path renders its constant canvas natively - exactly one
+    engine call per carrying - so there is no probe to tell apart from
+    a main render. A test needing two different files (the edge-touch
+    fallback) passes two sources; every other test passes one.
+    """
+
+    def __init__(self, *sources):
+        self.sources = list(sources)
         self.calls = []
 
     def render(self, props_path, overlay_path, sequence=False):
         self.calls.append((props_path, overlay_path, sequence))
-        src = self.probe_src if "probe_" in overlay_path else self.tight_src
+        index = min(len(self.calls) - 1, len(self.sources) - 1)
+        src = self.sources[index]
         if sequence:
             shutil.copytree(src, overlay_path, dirs_exist_ok=True)
         else:
@@ -135,17 +153,21 @@ class _ServingRenderer:
         pass
 
 
-def _full_mov(path, rect=RECT, frames=N_FRAMES):
-    """A synthetic full-canvas probe: transparent frame, opaque rect.
+def _small_mov(path, rect=RECT, size=(CONSTANT_W, CONSTANT_H),
+               frames=N_FRAMES):
+    """A synthetic constant-canvas render: transparent frame, opaque
+    rect. The step's edge guard reads this file's own alpha plane, so
+    the canned render has to be decodable, not bytes.
 
     `format=rgba` lives INSIDE each lavfi source: without it the
     transparent base arrives opaque (measured 2026-09-09 - the PNG
     muxer settles on yuv and alpha is lost before the overlay runs).
     """
+    w, h = size
     x0, y0, x1, y1 = rect
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-         "-i", "color=c=black@0:s=1080x1920:d=1:r=30,format=rgba",
+         "-i", f"color=c=black@0:s={w}x{h}:d=1:r=30,format=rgba",
          "-f", "lavfi",
          "-i", f"color=white:s={x1 - x0}x{y1 - y0}:d=1:r=30,format=rgba",
          "-filter_complex",
@@ -157,36 +179,12 @@ def _full_mov(path, rect=RECT, frames=N_FRAMES):
     return path
 
 
-def _measure_full_mov(full_mov, props):
-    """What the step measures off the probe: union, box, origin.
-
-    The container binds the width: the video container crops the
-    probe, so the expectation is measured the way the step measures
-    it - narrowed to the ink - never under the re-render widening."""
-    import tempfile
-    with tempfile.TemporaryDirectory() as tmp:
-        union = ink_union_of_frames(extract_frames(full_mov, tmp))
-    assert union is not None
-    return union, tighten_measured(props, union, "video")
-
-
-def _crop_mov(full_mov, tight_mov, box):
-    ox, oy = canvas_offset(box)
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", full_mov,
-         "-vf", f"crop={box.width}:{box.height}:{ox}:{oy}",
-         "-c:v", "prores_ks", "-profile:v", "4444",
-         "-pix_fmt", "yuva444p10le", tight_mov],
-        check=True,
-    )
-    return tight_mov
-
-
-def _blank_mov(path, frames=N_FRAMES):
-    """A fully transparent full-canvas probe: nothing to bound."""
+def _blank_mov(path, size=(CONSTANT_W, CONSTANT_H), frames=N_FRAMES):
+    """A fully transparent constant-canvas render: nothing to bound."""
+    w, h = size
     subprocess.run(
         ["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
-         "-i", "color=c=black@0:s=1080x1920:d=1:r=30,format=rgba",
+         "-i", f"color=c=black@0:s={w}x{h}:d=1:r=30,format=rgba",
          "-frames:v", str(frames), "-c:v", "prores_ks",
          "-profile:v", "4444", "-pix_fmt", "yuva444p10le", path],
         check=True,
@@ -195,7 +193,7 @@ def _blank_mov(path, frames=N_FRAMES):
 
 
 def _rect_frames(d, size, rect, n):
-    """Full-canvas probe frames with a known ink rectangle, PIL only."""
+    """Constant-canvas frames with a known ink rectangle, PIL only."""
     from PIL import Image, ImageDraw
     os.makedirs(d, exist_ok=True)
     x0, y0, x1, y1 = rect
@@ -207,30 +205,20 @@ def _rect_frames(d, size, rect, n):
     return d
 
 
-def _crop_frames(src_dir, dest_dir, box):
-    """The exact tight counterpart of a probe sequence, PIL only."""
-    from PIL import Image
-    os.makedirs(dest_dir, exist_ok=True)
-    ox, oy = canvas_offset(box)
-    names = sorted(n for n in os.listdir(src_dir) if n.endswith(".png"))
-    for name in names:
-        with Image.open(os.path.join(src_dir, name)) as im:
-            im.crop((ox, oy, ox + box.width, oy + box.height)).save(
-                os.path.join(dest_dir, name))
-    return dest_dir, names
+def _small_frames_setup(tmp_path, name, n=5, rect=RECT):
+    """A canned constant-canvas sequence, box included.
 
-
-def _measured_frames_setup(tmp_path, name, n=5):
-    """A probe sequence plus its exact tight crop, box included."""
+    The frames ARE the artefact the step guards - the step renders
+    its constant canvas natively and reads the PNGs' own alpha plane
+    - so the expectation is derived the way the step derives it, from
+    the props, never measured off the pixels.
+    """
     props = _props_frames(_props(), n)
-    probe_canned = _rect_frames(os.path.join(str(tmp_path), f"{name}-probe"),
-                                (1080, 1920), RECT, n)
-    paths = sorted(os.path.join(probe_canned, f)
-                   for f in os.listdir(probe_canned))
-    box = tighten_measured(props, ink_union_of_frames(paths))
-    tight_canned, _ = _crop_frames(
-        probe_canned, os.path.join(str(tmp_path), f"{name}-tight"), box)
-    return props, probe_canned, tight_canned, box
+    tight_canned = _rect_frames(os.path.join(str(tmp_path), f"{name}-tight"),
+                                (CONSTANT_W, CONSTANT_H), rect, n)
+    box = constant_caption_box(props)
+    assert box is not None
+    return props, tight_canned, box
 
 
 def _props_frames(props, n):
@@ -282,19 +270,17 @@ def test_incomplete_sequence_is_a_failure_not_a_render(tmp_path):
     assert "sequence" in out["failure"]
 
 
-def test_tight_video_renders_beside_not_over(tmp_path):
-    """The box is measured off a decoded probe and the tight output is
-    a CROP of that probe - verified against it before it is kept - so
-    no second render runs: the predictor sizes nothing that reaches a
-    timeline, and the re-render reaches nothing either. Tight and full
-    carryings never share a filename: the content digest carries the
-    geometry."""
+def test_tight_video_renders_natively_at_the_constant_canvas(tmp_path):
+    """The tight output is RENDERED at the constant canvas - no probe,
+    no crop, no second render: the predictor sizes nothing that
+    reaches a timeline, and the probe reaches nothing either. Tight
+    and full carryings never share a filename: the content digest
+    carries the geometry."""
     props = _props_frames(_props(), N_FRAMES)
-    full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
-    _, box = _measure_full_mov(full_mov, props)
-    tight_mov = _crop_mov(full_mov,
-                          os.path.join(str(tmp_path), "tight.mov"), box)
-    stub = _ServingRenderer(full_mov, tight_mov)
+    box = constant_caption_box(props)
+    assert box is not None
+    tight_mov = _small_mov(os.path.join(str(tmp_path), "tight.mov"))
+    stub = _ServingRenderer(tight_mov)
     out = render_one_segment(props, str(tmp_path), "tl",
                              remotion_dir="/none",
                              renderer=stub,
@@ -305,93 +291,82 @@ def test_tight_video_renders_beside_not_over(tmp_path):
     assert out["container"] == "video"
     assert out["frames"] is None
     box_out = out["tight_box"]
-    assert box_out["width"] == box.width
-    assert box_out["height"] == box.height
+    assert box_out["width"] == CONSTANT_W == box.width
+    assert box_out["height"] == CONSTANT_H == box.height
     assert box_out["width"] < 1080 and box_out["height"] < 1920
+    assert box_out["placement"] == box.placement
     assert box_out["placement"]["scaling"] == 1
+    # Arithmetic, not correspondence: the centred canvas sits centred.
+    assert box_out["placement"]["pan"] == 0
     props_file = out["overlay_path"][:-len(".mov")] + "_props.json"
     with open(props_file) as handle:
         props_on_disk = json.load(handle)
-    assert props_on_disk["width"] == box.width
-    assert props_on_disk["height"] == box.height
+    assert props_on_disk["width"] == CONSTANT_W
+    assert props_on_disk["height"] == CONSTANT_H
     sidecar_file = out["overlay_path"][:-len(".mov")] + "_box.json"
     with open(sidecar_file) as handle:
         sidecar = json.load(handle)
     assert sidecar["placement"] == box_out["placement"]
-    # THE guard: exactly one engine render (the probe). A second render
-    # call is the re-render this path exists to delete - serving a
-    # canned tight file no longer draws one.
+    assert sidecar["edge_guard"]["touches_edge"] is False
+    # THE guard: exactly one engine render. A second render call is
+    # the probe this path exists to delete.
     assert stub.calls and len(stub.calls) == 1
-    assert "probe_" in stub.calls[0][1]
     assert _probe_leftovers(str(tmp_path)) == []
+
+    from library.tools.overlay_carriage import (
+        OVERLAY_VIDEO_CODEC,
+        probe_overlay,
+    )
+
+    # The codec survives the rewrite: Remotion writes ProRes, and the
+    # transcode the crop used to pay for free now runs here.
+    assert probe_overlay(out["overlay_path"])["codec_name"] == \
+        OVERLAY_VIDEO_CODEC
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_video_crop_refusal_falls_back_to_probe_copy(tmp_path):
-    """A crop that cannot verify is carried full canvas WITHOUT a
-    re-render: the probe already is a full-canvas render of these exact
-    props, so the fallback copies it under the full-geometry content
-    name. One probe render is every render this path ever runs.
+def test_tight_video_edge_touch_falls_back_to_full_canvas(tmp_path):
+    """Ink on the canvas edge is clipped pixels no repositioning can
+    recover, so the card falls back to full canvas - re-rendered,
+    because there is no probe to copy any more - and the run still
+    says which card lost its tight carriage and why.
 
-    Forced here by failing the gate itself (a crop is exact by
-    construction, so no canned file can mismatch it): the file that
-    lands is the probe's own PIXELS, and the run still says which card
-    lost its tight carriage and why.
-
-    Its pixels and not its bytes, since 2026-09-12: the fallback copy
-    is carried into the overlay codec like every other artefact
-    (`library/tools/overlay_carriage.py`), and `qtrle` is lossless over
-    an 8-bit RGBA picture, so the frames are identical while the file
-    is not. That is the claim worth pinning - a re-render would change
-    the PICTURE, and this shows it did not."""
-
+    Forced here with a canned render whose ink touches the edge (a
+    native render that fits never does); the fallback file is carried
+    into the overlay codec like every other artefact.
+    """
     props = _props_frames(_props(), N_FRAMES)
-    full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
-    _, box = _measure_full_mov(full_mov, props)
-    tight_mov = _crop_mov(full_mov,
-                          os.path.join(str(tmp_path), "tight.mov"), box)
-    stub = _ServingRenderer(full_mov, tight_mov)
-    real_verify = tight_box_mod.verify_frames
-
-    def _refuse(*args, **kwargs):
-        raise tight_box_mod.TightBoxMismatch(
-            "tight output is not the probe crop at forced: max channel "
-            "diff 9 (allows 4) - forced refusal")
-
-    tight_box_mod.verify_frames = _refuse
-    try:
-        out = render_one_segment(props, str(tmp_path), "tl",
-                                 remotion_dir="/none",
-                                 renderer=stub,
-                                 overlay_geometry="tight")
-    finally:
-        tight_box_mod.verify_frames = real_verify
+    edge_mov = _small_mov(os.path.join(str(tmp_path), "edge.mov"),
+                          rect=(302, 200, CONSTANT_W, 280))
+    full_mov = _small_mov(os.path.join(str(tmp_path), "full.mov"),
+                          rect=RECT, size=(1080, 1920))
+    stub = _ServingRenderer(edge_mov, full_mov)
+    out = render_one_segment(props, str(tmp_path), "tl",
+                             remotion_dir="/none",
+                             renderer=stub,
+                             overlay_geometry="tight")
     assert out["provenance"] == RENDERED
     assert out["geometry"] == "full"
     assert out["tight_box"] is None
-    assert "not the probe crop" in out["tight_fallback"]
+    assert "canvas edge" in out["tight_fallback"]
     assert out["overlay_path"].endswith(".mov")
     assert os.path.isfile(out["overlay_path"])
 
     from library.tools.overlay_carriage import (
         OVERLAY_VIDEO_CODEC,
-        frames_are_identical,
         probe_overlay,
     )
 
-    assert frames_are_identical(out["overlay_path"], full_mov), (
-        "the full-canvas fallback must be the probe's own pixels; a "
-        "difference here means something re-rendered the card")
     assert probe_overlay(out["overlay_path"])["codec_name"] == \
         OVERLAY_VIDEO_CODEC
-    # Still one render: the probe. The fallback copied it, exactly the
-    # third render the old path paid per refused card.
-    assert stub.calls and len(stub.calls) == 1
+    # Two renders: the tight one that touched the edge, and its full
+    # replacement. No probe anywhere.
+    assert stub.calls and len(stub.calls) == 2
     assert _probe_leftovers(str(tmp_path)) == []
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_probe_drawing_nothing_records_full_geometry(tmp_path):
+def test_tight_render_drawing_nothing_records_full_geometry(tmp_path):
     """A card with nothing to bound is full canvas IN THE RECORD too.
 
     The file was always full canvas; the entry used to keep saying
@@ -399,7 +374,9 @@ def test_tight_probe_drawing_nothing_records_full_geometry(tmp_path):
     the only record a staging render leaves."""
     props = _props_frames(_props(), N_FRAMES)
     blank = _blank_mov(os.path.join(str(tmp_path), "blank.mov"))
-    stub = _ServingRenderer(blank, blank)
+    full_mov = _small_mov(os.path.join(str(tmp_path), "full.mov"),
+                          rect=RECT, size=(1080, 1920))
+    stub = _ServingRenderer(blank, full_mov)
     out = render_one_segment(props, str(tmp_path), "tl",
                              remotion_dir="/none",
                              renderer=stub,
@@ -414,9 +391,8 @@ def test_tight_probe_drawing_nothing_records_full_geometry(tmp_path):
 
 
 def test_tight_frames_records_dir_and_placement(tmp_path):
-    props, probe_canned, tight_canned, box = _measured_frames_setup(
-        tmp_path, "frames")
-    stub = _ServingRenderer(probe_canned, tight_canned)
+    props, tight_canned, box = _small_frames_setup(tmp_path, "frames")
+    stub = _ServingRenderer(tight_canned)
     out = render_one_segment(props, str(tmp_path), "tl",
                              remotion_dir="/none",
                              renderer=stub,
@@ -442,18 +418,17 @@ def test_reuse_skips_identical_tight_frames(tmp_path):
     # without one yields no key and reuse is refused - so this test
     # renders against the real composition tree, like the caption
     # reuse tests do. Placement on the second call is restored from
-    # the box sidecar: no probe render runs.
+    # the box sidecar: no render runs at all.
     remotion = os.path.join(PROJECT_ROOT, "remotion-subtitles")
-    props, probe_canned, tight_canned, _ = _measured_frames_setup(
-        tmp_path, "reuse")
-    stub = _ServingRenderer(probe_canned, tight_canned)
+    props, tight_canned, _ = _small_frames_setup(tmp_path, "reuse")
+    stub = _ServingRenderer(tight_canned)
     first = render_one_segment(
         props, str(tmp_path), "tl", remotion_dir=remotion,
         renderer=stub, reuse=True,
         overlay_geometry="tight", overlay_container="frames")
     assert first["provenance"] == RENDERED
-    assert len(stub.calls) == 2
-    fresh = _ServingRenderer(probe_canned, tight_canned)
+    assert len(stub.calls) == 1
+    fresh = _ServingRenderer(tight_canned)
     second = render_one_segment(
         props, str(tmp_path), "tl", remotion_dir=remotion,
         renderer=fresh, reuse=True,

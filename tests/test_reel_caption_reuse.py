@@ -188,9 +188,9 @@ def test_tight_reuse_without_sidecar_falls_through_to_measured(tmp_path):
     render" path had never been exercised (every reuse test above
     holds the geometry at full, so the tight branch never runs).
 
-    The stub renderer writes bytes no probe can decode, so the
+    The stub renderer writes bytes no render can decode, so the
     fall-through honestly FAILS the segment here; in production the
-    probe decodes and the segment re-renders measured. What is pinned
+    fresh render decodes and the segment ships tight. What is pinned
     is the fall-through itself: no exception escapes, and the entry
     says failed rather than reused.
     """
@@ -204,6 +204,18 @@ def test_tight_reuse_without_sidecar_falls_through_to_measured(tmp_path):
     out_dir = str(tmp_path)
     props = {
         "durationInFrames": 60,
+        "fps": 30,
+        "width": 1080,
+        "height": 1920,
+        "style": {
+            "fontFamily": "Montserrat",
+            "fontSize": 58,
+            "fontWeight": 800,
+            "position": "bottom",
+            "safeArea": {"top": 120, "right": 120,
+                         "bottom": 320, "left": 90},
+            "captionMaxWidth": 840,
+        },
         "subtitles": [{"text": "alpha bravo"}],
         "fontFamily": "Montserrat",
         "_block_position": "body_1",

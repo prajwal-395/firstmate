@@ -47,9 +47,9 @@ from library.tools.tight_box import (  # noqa: E402
     restore_reused_placement,
 )
 from tests.test_subtitle_overlay_modes import (  # noqa: E402
-    _measured_frames_setup,
     _props,
     _ServingRenderer,
+    _small_frames_setup,
 )
 
 REMOTION = os.path.join(PROJECT_ROOT, "remotion-subtitles")
@@ -94,7 +94,7 @@ def test_same_card_on_two_rows_renders_one_file(tmp_path):
     rather than duplicating. Without the fix this leaves two
     frames-dirs holding identical pixels - the filed pair."""
     out = str(tmp_path)
-    props, probe_canned, tight_canned, _box = _measured_frames_setup(
+    props, tight_canned, _box = _small_frames_setup(
         tmp_path, "pairs")
     first_props = _row_props(ROW_OLD)
     first_props["durationInFrames"] = \
@@ -107,13 +107,13 @@ def test_same_card_on_two_rows_renders_one_file(tmp_path):
 
     first = render_one_segment(
         first_props, out, "tl", remotion_dir=REMOTION,
-        renderer=_ServingRenderer(probe_canned, tight_canned),
+        renderer=_ServingRenderer(tight_canned),
         reuse=False, overlay_geometry="tight",
         overlay_container="frames")
     assert first["provenance"] == RENDERED
     second = render_one_segment(
         second_props, out, "tl", remotion_dir=REMOTION,
-        renderer=_ServingRenderer(probe_canned, tight_canned),
+        renderer=_ServingRenderer(tight_canned),
         reuse=False, overlay_geometry="tight",
         overlay_container="frames")
     assert second["provenance"] == RENDERED
@@ -130,7 +130,7 @@ def test_row_change_remeasures_instead_of_serving_stale(tmp_path):
     moves must re-measure (RENDERED, same path), never pair back to
     the old row's placement as REUSED."""
     out = str(tmp_path)
-    props, probe_canned, tight_canned, _box = _measured_frames_setup(
+    props, tight_canned, _box = _small_frames_setup(
         tmp_path, "rowmove")
     first_props = _row_props(ROW_OLD)
     first_props["durationInFrames"] = \
@@ -143,11 +143,11 @@ def test_row_change_remeasures_instead_of_serving_stale(tmp_path):
 
     first = render_one_segment(
         first_props, out, "tl", remotion_dir=REMOTION,
-        renderer=_ServingRenderer(probe_canned, tight_canned),
+        renderer=_ServingRenderer(tight_canned),
         reuse=True, overlay_geometry="tight",
         overlay_container="frames")
     assert first["provenance"] == RENDERED
-    engine = _ServingRenderer(probe_canned, tight_canned)
+    engine = _ServingRenderer(tight_canned)
     second = render_one_segment(
         second_props, out, "tl", remotion_dir=REMOTION,
         renderer=engine, reuse=True, overlay_geometry="tight",
@@ -234,7 +234,7 @@ def test_identical_rows_pair_back_without_rendering(tmp_path):
     """Reuse itself is untouched: nothing moving means the second
     build still pairs back with no renderer call."""
     out = str(tmp_path)
-    props, probe_canned, tight_canned, _box = _measured_frames_setup(
+    props, tight_canned, _box = _small_frames_setup(
         tmp_path, "steady")
     steady = _row_props(ROW_NEW)
     steady["durationInFrames"] = props["durationInFrames"]
@@ -242,11 +242,11 @@ def test_identical_rows_pair_back_without_rendering(tmp_path):
 
     first = render_one_segment(
         steady, out, "tl", remotion_dir=REMOTION,
-        renderer=_ServingRenderer(probe_canned, tight_canned),
+        renderer=_ServingRenderer(tight_canned),
         reuse=True, overlay_geometry="tight",
         overlay_container="frames")
     assert first["provenance"] == RENDERED
-    engine = _ServingRenderer(probe_canned, tight_canned)
+    engine = _ServingRenderer(tight_canned)
     second = render_one_segment(
         steady, out, "tl", remotion_dir=REMOTION,
         renderer=engine, reuse=True, overlay_geometry="tight",

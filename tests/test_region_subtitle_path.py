@@ -204,7 +204,11 @@ def _props(block=1, text="alpha"):
             "_source_out_frame": 30, "_speaker": None,
             "_source_clip_id": "clip_001", "_source_start": 0.0,
             "_source_end": 1.0, "durationInFrames": 30, "fps": 30,
-            "width": 1080, "height": 1920, "style": {},
+            "width": 1080, "height": 1920,
+            "style": {"position": "bottom",
+                      "safeArea": {"top": 120, "right": 120,
+                                   "bottom": 320, "left": 90},
+                      "captionMaxWidth": 840},
             "subtitles": [{"text": text}]}
 
 

@@ -5,10 +5,12 @@ canvas until 2026-09-10, when the captain reversed it ("the media
 graphics are not tightbox and are full frame ... please fix this"):
 tight boxes are smaller, faster and movable after the fact, and the
 minimum canvas height (`tight_box.MIN_CANVAS_HEIGHT`) keeps every box
-inside Resolve's Pan/Tilt rail, with the clamp gate, the frame-by-frame
-probe verification and the placement read-back still refusing what
-cannot be placed. See the test module for the declaration shape;
-resolvers below are what the steps call.
+inside Resolve's Pan/Tilt rail, with the clamp gate and the
+ink-touches-edge guard still refusing what cannot be placed. A tight
+caption is rendered natively at the constant structural canvas
+(`tight_box.constant_caption_box`) - no probe, no crop. See the test
+module for the declaration shape; resolvers below are what the steps
+call.
 """
 
 from __future__ import annotations

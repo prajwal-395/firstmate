@@ -56,29 +56,52 @@ the PIL fitter under-measures against the Chromium renderer - one card
 the box laid out as a single 840px line rendered as two lines 638px
 wide, with ink 25px above the box top across 33 frames. Asking one
 engine to predict another's glyph metrics is the defect; the render
-path therefore derives the box from a decoded probe render
-(`ink_union_of_frames` + `tighten_measured`) and `verify_frames` FAILS
-a tight output that does not match the probe, never warns past it. The
-predictor stays for planning-time estimates; nothing that reaches a
-timeline is sized by it.
+path therefore never sizes a canvas from this predictor. The predictor
+stays for planning-time estimates; nothing that reaches a timeline is
+sized by it.
 
-Why the placement is a CORRESPONDENCE, not pads arithmetic
-----------------------------------------------------------
-The composition lays cards out against the CANVAS (`width: 100%`,
-bottom-anchored at `safeArea.bottom`), so a narrower canvas re-centers
-the content: measured 2026-09-09, a 348px tight render of a 1080px
-probe drew the identical 300x94 card shifted a constant (-8, -5)px on
-every one of its 26 frames - same pixels, translated. Placing the
-canvas at union-minus-pads would land that card 8px off. The placement
-is therefore read off the two renders themselves
-(`resolve_placement_from_correspondence`): the tight union is
-translated onto the probe union, and the gate proves the translation
-holds on every frame. The canvas is still sized from the probe union
-plus pads - widened to `captionMaxWidth` where narrower, so the wrap
-the probe drew is the wrap the tight canvas draws - EXCEPT under the
-`video` container, which crops the probe instead of re-rendering:
-there the wrap is already drawn, so the canvas is the ink plus pads
-and the widening is skipped (`tighten_measured`).
+Why the canvas is CONSTANT, not measured per segment
+----------------------------------------------------
+Caption ink has a STRUCTURAL bound, so the canvas does not need
+predicting OR measuring per segment. The composition lays every card
+out inside `maxWidth: captionMaxWidth` (border-box, so the outline
+padding is inside it), centred in a `width: 100%` flex container. A
+canvas WIDER than `captionMaxWidth` therefore binds no wrap: every
+card wraps exactly as on the full frame, whatever the segment says.
+The canvas only has to clear what the render paints outside the
+laid-out box - the shadow (`PAD_X` / `PAD_TOP` / `PAD_BOTTOM`) - plus
+the trailing word margin the wrap decision counts on every word span
+including the last (`TRAILING_MARGIN_PX`). `constant_caption_box`
+derives that canvas from the props: for the captain's 840px wrap
+width it is 904x480, and it contained the ink of all 521 measured
+caption segments with at least 6px to spare on every side.
+
+Why the placement is ARITHMETIC, not a correspondence
+-----------------------------------------------------
+On a canvas wider than `captionMaxWidth` the layout is the full-frame
+layout translated by a KNOWN offset: horizontally every card is
+centred, so the centred canvas sits centred (`pan` 0); vertically the
+cards hang from the edge `position` names, so the canvas edge sits one
+pad past the anchored card edge. `constant_caption_box` computes that
+origin from the props - no probe render, no read-off. The retired
+measured path (a full-canvas probe, `tighten_measured`,
+`resolve_placement_from_correspondence`, `verify_frames`) proved the
+translation per segment at ~7s a segment in probe renders plus ~10MB
+of transient PNGs; the constant canvas makes the translation true by
+construction, and the one remaining guard proves the premise instead
+of the conclusion.
+
+Why ONE guard remains: ink-touches-edge, off the alpha plane
+------------------------------------------------------------
+The arithmetic is exact only while the ink stays inside the canvas.
+Ink that TOUCHES the canvas edge is the one unrecoverable failure -
+clipped pixels cannot be fixed by repositioning, because the pixels
+are gone - so `ink_touches_edge` reads the rendered file's own alpha
+plane and the caller carries the card full canvas on a hit. A miss
+costs one ffmpeg decode (~0.1s a segment, 70x cheaper than the probe
+it replaces) and writes no transient files. Ink well inside the edge
+needs no verdict: the pads are planning margins, and the canvas that
+holds the structural bound holds every segment that fits it.
 How the box lands in Resolve
 ----------------------------
 Measured on Resolve 21 against solid-colour clips, 2026-09-08, on a
@@ -137,6 +160,16 @@ PAD_BOTTOM = 36
 # What the component puts above and below the type inside the card:
 # `padding: 24px <outline>px`.
 CARD_VERTICAL_PADDING = 48
+
+# The trailing word margin the wrap decision counts but the plan does
+# not: every word span carries `marginRight: 0.24em` INTO the wrap,
+# including the last word of a line, whose margin draws nothing but
+# still occupies layout width (~14px at 58px type). A line filled
+# exactly to `captionMaxWidth` therefore lays out up to ~14px wider
+# than the widest ink the plan measured. The structural canvas bound
+# carries 16px past `captionMaxWidth + 2*PAD_X` for it (ceiled even):
+# for the captain's 840px wrap width the constant canvas is 904 wide.
+TRAILING_MARGIN_PX = 16
 
 # The composition's line height: `lineHeight: "1.2"`.
 LINE_HEIGHT_EM = 1.2
@@ -450,7 +483,7 @@ def tighten_subtitle_props(props: dict,
         union_w = max(union_w, card_w)
         union_h = max(union_h, card_h)
 
-    canvas_w = _ceil_even(union_w + 2 * PAD_X)
+    canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
     measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
 
     # The floor that keeps the placement inside Resolve's rail (see
@@ -509,7 +542,229 @@ def tighten_subtitle_props(props: dict,
     )
 
 
-# ─── Measured boxes: from the decoded probe, never predicted ──────────
+# ─── Constant boxes: rendered at the structural bound, placed by ──────
+# arithmetic. The caption path renders these natively - no probe, no
+# crop, no correspondence read-off (see the module docstring).
+
+def constant_caption_box(props: dict) -> TightBox | None:
+    """The constant tight canvas for one segment's full-canvas props.
+
+    Returns None when the segment draws nothing (no subtitles), so the
+    caller keeps the full-canvas path rather than rendering an empty
+    box. Raises where the style carries no geometry, exactly as the
+    component refuses to place by a literal, and `TightBoxClipsInk`
+    where the structural canvas would leave the delivery frame (a
+    wrap width the frame cannot hold) or `TightBoxMismatch` where
+    Resolve cannot hold the arithmetic placement - both are the
+    caller's full-canvas fallback, never a clamped box.
+
+    The width is the STRUCTURAL bound - `captionMaxWidth + 2*PAD_X +
+    TRAILING_MARGIN_PX`, ceiled even - so no wrap the full frame drew
+    can rewrap on it, whatever the segment says. The height is
+    `MIN_CANVAS_HEIGHT`, the Pan/Tilt rail guard, which makes vertical
+    clipping unreachable while costing nothing measurable. Placement
+    is arithmetic from the same anchor the composition lays out from:
+    cards are centred, so the canvas sits centred (pan 0); the card
+    stack hangs from the edge `position` names, so the canvas edge
+    sits one pad past that edge.
+    """
+    subtitles = props.get("subtitles") or []
+    if not subtitles:
+        return None
+
+    style = props.get("style") or {}
+    if not style.get("safeArea"):
+        raise ValueError(
+            "subtitle props carry no style.safeArea - the component "
+            "refuses to place without it, and so does the box.")
+    if not style.get("captionMaxWidth"):
+        raise ValueError(
+            "subtitle props carry no style.captionMaxWidth - the wrap "
+            "width is unknown, so no bound can be computed.")
+
+    full_w = int(props.get("width", 0))
+    full_h = int(props.get("height", 0))
+    safe = style["safeArea"]
+    max_width = float(style["captionMaxWidth"])
+    position = str(style.get("position") or "bottom")
+
+    canvas_w = _ceil_even(max_width + 2 * PAD_X + TRAILING_MARGIN_PX)
+    floor = min(MIN_CANVAS_HEIGHT, full_h) if full_h > 0 else \
+        MIN_CANVAS_HEIGHT
+    canvas_h = _ceil_even(floor)
+    refuse_canvas_larger_than_frame(
+        canvas_w, canvas_h, full_w, full_h,
+        f"structural caption bound ({max_width:.0f}px wrap)")
+
+    anchor = {"top": "top", "center": "middle"}.get(position, "bottom")
+    if anchor == "top":
+        canvas_top = float(safe["top"]) - PAD_TOP
+        pad_top, pad_bottom = PAD_TOP, canvas_h - PAD_TOP
+    elif anchor == "middle":
+        canvas_top = full_h / 2.0 - canvas_h / 2.0
+        pad_top, pad_bottom = canvas_h // 2, canvas_h - canvas_h // 2
+    else:
+        canvas_top = (full_h - float(safe["bottom"])
+                      + PAD_BOTTOM - canvas_h)
+        pad_top, pad_bottom = canvas_h - PAD_BOTTOM, PAD_BOTTOM
+    canvas_cx = full_w / 2.0
+    canvas_cy = canvas_top + canvas_h / 2.0
+
+    placement = placement_for_box(
+        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h)
+    reason = placement_holds(placement, full_w, full_h)
+    if reason:
+        raise TightBoxMismatch(
+            f"constant {canvas_w}x{canvas_h} caption canvas: {reason} - "
+            f"this caption cannot ride the constant box, and stays "
+            f"full-canvas.")
+
+    tight_style = dict(style)
+    tight_style["safeArea"] = {
+        "top": pad_top, "right": PAD_X,
+        "bottom": pad_bottom, "left": PAD_X,
+    }
+    # captionMaxWidth is DELIBERATELY unchanged: it is the wrap width,
+    # and the canvas is wider than it by construction, so every card
+    # wraps exactly as on the full frame.
+    tight_props = dict(props)
+    tight_props["width"] = canvas_w
+    tight_props["height"] = canvas_h
+    tight_props["style"] = tight_style
+
+    return TightBox(
+        width=canvas_w,
+        height=canvas_h,
+        props=tight_props,
+        placement=placement,
+        # The structural CONTENT bound the canvas guarantees, not a
+        # measurement: the wrap width plus the trailing margin, and
+        # the canvas minus the pads. Nothing in production reads
+        # these off a constant box; the edge guard proves the fit.
+        union_w=max_width + TRAILING_MARGIN_PX,
+        union_h=float(canvas_h - PAD_TOP - PAD_BOTTOM),
+        full_width=full_w,
+        full_height=full_h,
+    )
+
+
+@dataclass(frozen=True)
+class EdgeGuard:
+    """What the ink-touches-edge guard saw in one rendered file.
+
+    `touches_edge` names ink (alpha at or above the QA ink threshold)
+    on the outermost pixel row or column: the render laid out past
+    the canvas, so pixels are gone and the card falls back to full
+    canvas. `empty` names a file that drew nothing anywhere.
+    `border_max` is the highest alpha on the border, so a near miss
+    says how near.
+    """
+
+    touches_edge: bool
+    empty: bool
+    frames: int
+    border_max: int
+
+
+def _borders_touch(alpha) -> tuple[bool, int]:
+    """Whether a 2-D alpha plane inks its outermost row/column."""
+    import numpy as np
+
+    plane = np.asarray(alpha)
+    border = np.zeros_like(plane, dtype=bool)
+    border[0, :] = True
+    border[-1, :] = True
+    border[:, 0] = True
+    border[:, -1] = True
+    inked = plane[border] >= ALPHA_INK_THRESHOLD
+    peak = plane[border].max(initial=0)
+    return bool(inked.any()), int(peak)
+
+
+def ink_touches_edge(mov_path: str, width: int, height: int) -> EdgeGuard:
+    """The one guard on a natively-rendered caption file: does ink
+    touch the canvas edge, read off the alpha plane.
+
+    Decodes the mov through one ffmpeg pipe (no transient PNGs) and
+    checks every frame's outermost row and column at the QA ink
+    threshold. A hit means the render laid out past the canvas the
+    arithmetic assumed - clipped ink no repositioning can recover -
+    so the caller carries the card full canvas instead. An
+    UNDECODABLE file raises `TightBoxMismatch`: absent evidence is
+    not empty evidence, and a file that cannot be read cannot ship.
+    """
+    import subprocess
+
+    import numpy as np
+
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", mov_path,
+             "-pix_fmt", "rgba", "-f", "rawvideo", "-"],
+            capture_output=True, timeout=600, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TightBoxMismatch(
+            f"cannot decode {mov_path} for the edge guard: {exc}") from exc
+    if result.returncode != 0 or not result.stdout:
+        raise TightBoxMismatch(
+            f"cannot decode {mov_path} for the edge guard: "
+            f"{(result.stderr or b'').decode('utf-8', 'replace')[-300:]}")
+    frame_bytes = width * height * 4
+    raw = result.stdout
+    if len(raw) % frame_bytes != 0:
+        raise TightBoxMismatch(
+            f"edge guard decoded {len(raw)} bytes from {mov_path}, not "
+            f"a whole number of {width}x{height} frames: the file is "
+            f"not the render the box assumed.")
+    frames = len(raw) // frame_bytes
+    if frames == 0:
+        raise TightBoxMismatch(
+            f"edge guard decoded no frames from {mov_path}.")
+    touches, peak, any_ink = False, 0, False
+    for index in range(frames):
+        plane = np.frombuffer(
+            raw[index * frame_bytes:(index + 1) * frame_bytes],
+            dtype=np.uint8).reshape(height, width, 4)[:, :, 3]
+        if bool((plane >= ALPHA_INK_THRESHOLD).any()):
+            any_ink = True
+        hit, border_peak = _borders_touch(plane)
+        touches = touches or hit
+        peak = max(peak, border_peak)
+    return EdgeGuard(touches_edge=touches, empty=not any_ink,
+                     frames=frames, border_max=peak)
+
+
+def ink_touches_edge_frames(frame_paths: list[str],
+                            width: int, height: int) -> EdgeGuard:
+    """The same guard for a PNG sequence: no decode, the frames ARE
+    the artefact. An UNREADABLE frame raises, exactly as above."""
+    import numpy as np
+    from PIL import Image
+
+    if not frame_paths:
+        raise TightBoxMismatch(
+            "edge guard was handed no frames.")
+    touches, peak, any_ink = False, 0, False
+    for path in frame_paths:
+        try:
+            with Image.open(path) as im:
+                plane = np.asarray(im.convert("RGBA"))[:, :, 3]
+        except OSError as exc:
+            raise TightBoxMismatch(
+                f"edge guard cannot decode {path}: {exc}") from exc
+        if plane.shape != (height, width):
+            raise TightBoxMismatch(
+                f"edge guard frame {path} is "
+                f"{plane.shape[1]}x{plane.shape[0]}, not the "
+                f"{width}x{height} box.")
+        if bool((plane >= ALPHA_INK_THRESHOLD).any()):
+            any_ink = True
+        hit, border_peak = _borders_touch(plane)
+        touches = touches or hit
+        peak = max(peak, border_peak)
+    return EdgeGuard(touches_edge=touches, empty=not any_ink,
+                     frames=len(frame_paths), border_max=peak)
 
 # Resolve holds Pan/Tilt to a rail it does not report, and refuses
 # silently: setting beyond returns True and reads back the clamp.
