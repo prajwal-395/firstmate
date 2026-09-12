@@ -196,8 +196,9 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     assert REEL_30 not in refusal_body
     # ...the three passing reels landed under their final names with
     # no staging or backup debris left for them (each final appears
-    # exactly once - the retired originals were backed up and deleted,
-    # the stagings renamed onto the final names)...
+    # exactly once - the retired originals were backed up and then
+    # RETIRED to the archive, the stagings renamed onto the final
+    # names; `library/tools/reel_retirement.py`)...
     names = resolve.names()
     assert REEL_01 in names and REEL_23 in names and REEL_30 in names
     assert names.count(REEL_01) == 1
@@ -212,9 +213,17 @@ def test_one_refusal_promotes_its_siblings(project_dir):
     assert retired_31 in resolve.timelines
     assert staging_31 in resolve.timelines
     assert REEL_31 in names and staging_31.GetName() in names
-    # Nothing approved was deleted: only the three retired backups of
-    # the reels that promoted.
-    assert sorted(resolve.deleted) == sorted(
-        [f"{REEL_01} (pre-rebuild backup)",
-         f"{REEL_23} (pre-rebuild backup)",
-         f"{REEL_30} (pre-rebuild backup)"])
+    # NOTHING was deleted at all. Promotion used to delete the backup
+    # it had just made, which is why a round could not be compared
+    # against the one before it; it now RETIRES each one to
+    # `05 - Reels/Archive` under the round it was current for, and only
+    # a generation the retention bound releases is ever collected
+    # (there is no earlier generation here, so nothing is).
+    assert resolve.deleted == []
+    from library.tools import reel_retirement
+    archived = [name for name in names
+                if reel_retirement.is_archived_timeline(name)]
+    assert sorted(archived) == sorted(
+        [f"{REEL_01} (archived round 001)",
+         f"{REEL_23} (archived round 001)",
+         f"{REEL_30} (archived round 001)"])

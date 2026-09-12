@@ -1,0 +1,553 @@
+"""The version object: a ROUND, stamped once per batch of the captain's
+feedback, across every reel that batch touched.
+
+The captain, asked whether a version is per reel, per round or per
+project (2026-09-12, answering
+`data/vep-can-it-hold-up-in-a-real-editing-workflow` §7): **per round** -
+*"six markers at once, one pass, one result to look at, and a round that
+can be diffed as a whole"*.
+
+Before this module the pipeline had no version object at all. Approval
+lived on a PROPOSED moment before a build (`reel_proposal.Approval`), the
+newest timeline under the final name was the answer by construction, and
+promotion deleted what it replaced - so after a round there was the new
+reel and nothing to compare it to.
+
+A round is DISCOVERED, never declared
+-------------------------------------
+Nobody types a round number. The captain types markers and firstmate
+promotes reels, and the interleaving of those two events IS the round
+boundary:
+
+    a new round opens at the first ASK that arrives after at least one
+    promotion has landed since the current round opened.
+
+That rule has no clock threshold in it, which is the point. A pull that
+re-reads notes already asked opens nothing (the ledger folds them onto
+one identity, so their `first_asked` does not move). Two pulls seconds
+apart carrying the same words are one batch because they are the same
+words, not because seven seconds is under some window. And a second
+marker typed before anything was rebuilt joins the batch it belongs to,
+which is exactly how the captain works.
+
+Replies of ours never open a round: `feedback_ledger` tells an ask from
+a reply off the note's own record, and only `KIND_ASK` entries are read
+here.
+
+Round 1 is the first cut - no feedback preceded it - and it says so
+rather than claiming an opener it does not have.
+
+Measured on the captain's own project, `lucie/geo-podcast`, at the time
+this landed: three rounds. Round 1 the first cut; round 2 opened by the
+five asks of 2026-09-11T03:08Z (the jarring Craig cut, the TV close
+animation, Akshita's clipped audio, the broken graphics renders, the
+ending to apply to every reel); round 3 by the single Reel 09 ask of
+2026-09-11T22:51Z, and carrying the seven-reel rebuild of 2026-09-12.
+
+What a round holds
+------------------
+Per reel it touched: when it was promoted, the `built_at`/`built_with`
+stamps `plan_provenance` captures at build time, and the ROW SNAPSHOT
+(`reel_read.rows_of`) of what was promoted. The rows are the payload
+that makes `round_diff` free: two rounds' stored rows through
+`reel_replace_guard.diff_rows` answers "what changed between round 3 and
+round 4" off disk, with no Resolve and no git.
+
+Storing the rows here rather than reaching for them later is deliberate.
+A timeline can be retired, archived and eventually collected
+(`reel_retirement`); a few kilobytes of JSON per reel per round cannot
+clutter a bin and never expires, so the record of what a round contained
+outlives the timeline it describes. That is the whole reason retirement
+is allowed to end.
+
+Stamped, or reconstructed - and the record says which
+-----------------------------------------------------
+`stamp_promotion` records a round at the moment of promotion, which is
+the only moment `built_with` can be known (AGENTS.md 10.1: merge time is
+not build time). `backfill` reconstructs earlier rounds from the
+committed timeline snapshots in the project's own git repo
+(`build_version_control.record_reel_promotion` has written one per
+promoted reel since 2026-09-11), and marks every entry it makes
+`SOURCE_RECONSTRUCTED` with no `built_with` at all - a stamp invented
+after the fact is not a measurement, and the record must not read as one.
+
+`tests/test_round_version.py`.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+
+_HERE = Path(__file__).resolve()
+if str(_HERE.parents[2]) not in sys.path:      # repo root, direct execution
+    sys.path.insert(0, str(_HERE.parents[2]))
+
+ROUNDS_FILENAME = "rounds.json"
+ROUNDS_FORMAT = "rounds/1"
+
+SOURCE_STAMPED = "stamped"
+"""Written at promotion time, by the promotion itself."""
+
+SOURCE_RECONSTRUCTED = "reconstructed"
+"""Rebuilt afterwards from a committed snapshot. Carries no
+`built_with`: which engine revision built a reel cannot be recovered
+once the build is over, and filling it in would be an invention."""
+
+FIRST_ROUND_WHY = "the first cut - no feedback preceded it"
+
+
+class RoundsUnreadable(RuntimeError):
+    """The rounds file exists but cannot be parsed, and this says so."""
+
+
+# ── Where the record lives ───────────────────────────────────────
+
+def rounds_path_for(project_folder) -> str:
+    """`pipeline_output/review/rounds.json`.
+
+    Beside the holds, the provenance and the committed snapshots - on
+    `build_version_control.ALLOW_LIST`, so every round is in the
+    project's own git history rather than only on one disk.
+    """
+    return os.path.join(str(project_folder), "pipeline_output", "review",
+                        ROUNDS_FILENAME)
+
+
+def read_rounds(project_folder) -> dict:
+    """The rounds document, or an empty one. Never invents a round."""
+    path = rounds_path_for(project_folder)
+    if not os.path.exists(path):
+        return {"format": ROUNDS_FORMAT, "rounds": []}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    except (OSError, ValueError) as unreadable:
+        raise RoundsUnreadable(
+            f"{path} exists but could not be read ({unreadable}). "
+            f"A version record that cannot be read must not be "
+            f"silently replaced with an empty one - the rounds it "
+            f"holds are the only account of what was built when.") \
+            from unreadable
+    if not isinstance(document, dict) or not isinstance(
+            document.get("rounds"), list):
+        raise RoundsUnreadable(
+            f"{path} is not a rounds document ({ROUNDS_FORMAT}).")
+    return document
+
+
+def write_rounds(project_folder, document: Mapping) -> str:
+    """Write the rounds document atomically. Returns its path."""
+    import tempfile
+
+    path = rounds_path_for(project_folder)
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(dict(document), indent=2, sort_keys=True,
+                         ensure_ascii=False) + "\n"
+    handle, staged = tempfile.mkstemp(
+        dir=os.path.dirname(path), prefix=".rounds-", suffix=".json")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as out:
+            out.write(payload)
+        os.replace(staged, path)
+    except BaseException:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+# ── The boundary rule, as a pure function ────────────────────────
+
+def round_boundaries(asks: Sequence[Mapping],
+                     promotions: Sequence[str]) -> list:
+    """Group asks into rounds against the promotions that answered them.
+
+    `asks` is `[{"identity", "reel", "first_asked"}]` - the shape
+    `feedback_ledger` entries already carry - and `promotions` is a list
+    of ISO timestamps, one per reel promoted. Neither needs to be
+    sorted.
+
+    Returns `[{"round": N, "opened_at": iso, "opened_by": [identity...],
+    "reels_asked": [reel...], "why": text}]`, always with round 1 first
+    even when no feedback exists yet: the first cut is a version.
+
+    The rule, and the whole of it: an ask opens a NEW round exactly when
+    a promotion has landed at or after the current round opened and at
+    or before that ask. No window, no threshold - a batch is held
+    together by nothing having been rebuilt in between, which is the
+    captain's own definition of a round.
+    """
+    ordered = sorted(
+        ({"identity": str(a.get("identity") or ""),
+          "reel": str(a.get("reel") or ""),
+          "first_asked": str(a.get("first_asked") or "")}
+         for a in asks or ()),
+        key=lambda a: (a["first_asked"], a["identity"]))
+    promoted = sorted(str(p) for p in (promotions or ()) if p)
+    rounds = [{"round": 1, "opened_at": "", "opened_by": [],
+               "reels_asked": [], "why": FIRST_ROUND_WHY}]
+    for ask in ordered:
+        current = rounds[-1]
+        since = current["opened_at"]
+        built = any(since <= moment <= ask["first_asked"]
+                    for moment in promoted)
+        if built and (current["opened_by"] or current["round"] == 1):
+            rounds.append({
+                "round": current["round"] + 1,
+                "opened_at": ask["first_asked"],
+                "opened_by": [], "reels_asked": [],
+                "why": "opened by the captain's feedback, after a "
+                       "build answered the previous round"})
+            current = rounds[-1]
+        if not current["opened_at"]:
+            current["opened_at"] = ask["first_asked"]
+            if current["round"] == 1:
+                current["why"] = ("opened by the captain's feedback, "
+                                  "before anything was rebuilt")
+        current["opened_by"].append(ask["identity"])
+        if ask["reel"] and ask["reel"] not in current["reels_asked"]:
+            current["reels_asked"].append(ask["reel"])
+    return rounds
+
+
+def asks_of(project_folder) -> list:
+    """Every ASK in this project's feedback ledger, replies excluded.
+
+    Read through `feedback_ledger.collect` rather than the pull files,
+    so one note asked on three pulls is one ask with one `first_asked` -
+    the durable identity is what makes a batch a batch.
+    """
+    from library.tools import feedback_ledger
+
+    try:
+        entries = feedback_ledger.collect(str(project_folder))
+    except Exception:                                       # noqa: BLE001
+        return []
+    return [{"identity": entry.identity, "reel": entry.reel,
+             "first_asked": entry.first_asked}
+            for entry in entries.values()
+            if entry.kind == feedback_ledger.KIND_ASK]
+
+
+def promotions_of(document: Mapping) -> list:
+    """Every promotion moment the rounds document already records."""
+    moments = []
+    for entry in (document or {}).get("rounds") or ():
+        for reel in (entry.get("reels") or {}).values():
+            if reel.get("promoted_at"):
+                moments.append(str(reel["promoted_at"]))
+    return sorted(moments)
+
+
+def discover(project_folder, extra_promotions: Sequence[str] = ()) -> list:
+    """The rounds of this project, boundaries recomputed, reels kept.
+
+    The boundaries come from the ask ledger and the promotions already
+    recorded; the per-reel payload of each surviving round is carried
+    across by round number, so recomputing never loses a stamp. A round
+    whose number no longer exists (feedback removed from every pull it
+    was ever on) keeps its reels on the nearest lower round rather than
+    dropping them - a promotion that happened is a fact, and the
+    boundary is the thing that was re-derived.
+    """
+    document = read_rounds(project_folder)
+    promoted = promotions_of(document) + [
+        str(m) for m in (extra_promotions or ()) if m]
+    boundaries = round_boundaries(asks_of(project_folder), promoted)
+    existing = {entry.get("round"): entry
+                for entry in (document.get("rounds") or ())}
+    highest = max((b["round"] for b in boundaries), default=1)
+    for entry in boundaries:
+        prior = existing.get(entry["round"]) or {}
+        entry["reels"] = dict(prior.get("reels") or {})
+    for number, prior in sorted(existing.items(),
+                                key=lambda pair: pair[0] or 0):
+        if number in {b["round"] for b in boundaries}:
+            continue
+        target = max((b for b in boundaries
+                      if (b["round"] or 0) <= (number or 0)),
+                     key=lambda b: b["round"], default=boundaries[-1])
+        for name, reel in (prior.get("reels") or {}).items():
+            target["reels"].setdefault(name, reel)
+    del highest
+    return boundaries
+
+
+def open_round(project_folder, extra_promotions: Sequence[str] = ()) -> dict:
+    """The round a promotion happening NOW belongs to: the last one."""
+    return discover(project_folder, extra_promotions)[-1]
+
+
+# ── Stamping a promotion ─────────────────────────────────────────
+
+def stamp_promotion(project_folder, rows_by_final: Mapping,
+                    provenance: Mapping | None = None,
+                    promoted_at: str | None = None) -> dict:
+    """Record this promotion against the round it belongs to.
+
+    `rows_by_final` is `{final timeline name: rows}` in
+    `reel_read.rows_of` shape - the promotion already has them, because
+    the replace guard read the incoming timeline to diff it. Passing
+    them in rather than re-reading is what keeps this off Resolve.
+
+    `provenance` is the `plan_provenance` document, read for this reel's
+    `built_at_reels` / `built_with` entries. Absent entries are recorded
+    absent, never filled in.
+
+    Returns the round record that was written. Raises nothing a caller
+    must catch on the normal path; the caller wraps it, because a
+    version record that fails a build is worse than no version record.
+    """
+    from datetime import datetime, timezone
+
+    moment = promoted_at or datetime.now(timezone.utc).isoformat()
+    document = read_rounds(project_folder)
+    boundaries = discover(project_folder, [moment])
+    current = boundaries[-1]
+    built_at = dict((provenance or {}).get("built_at_reels") or {})
+    built_with = dict((provenance or {}).get("built_with") or {})
+    for final, rows in (rows_by_final or {}).items():
+        current["reels"][final] = {
+            "promoted_at": moment,
+            "built_at": built_at.get(final, ""),
+            "built_with": built_with.get(final, ""),
+            "rows": rows,
+            "source": SOURCE_STAMPED,
+        }
+    document["format"] = ROUNDS_FORMAT
+    document["rounds"] = boundaries
+    write_rounds(project_folder, document)
+    return current
+
+
+def digest_rows(rows: Mapping) -> str:
+    """A digest of one reel's rows: what the picture carries, exactly.
+
+    The same shape `plan_provenance.caption_content_hash` takes. Used by
+    `reel_signoff` to record WHICH build was signed off, so a sign-off
+    can say whether the timeline in front of the captain is still the
+    one they approved.
+    """
+    import hashlib
+
+    canonical = json.dumps(rows or {}, sort_keys=True, ensure_ascii=False,
+                           separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
+
+
+# ── Reconstructing the rounds that predate the stamp ─────────────
+
+SNAPSHOT_SUFFIX = ".timeline.json"
+SNAPSHOT_DIR = "pipeline_output/review"
+
+
+def _git(project_folder, *args) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", "-C", str(project_folder), *args],
+        capture_output=True, encoding="utf-8", check=False)
+
+
+def committed_snapshots(project_folder) -> list:
+    """`[{"commit", "when", "paths"}]` for every commit that wrote a
+    timeline snapshot, oldest first.
+
+    `build_version_control.record_reel_promotion` writes one
+    `<timeline>.timeline.json` per promoted reel and commits it, so a
+    commit touching those files IS a promotion - which is what makes the
+    rounds that predate this module recoverable at all. A project with
+    no git repo has none, and says so by returning nothing.
+    """
+    result = _git(project_folder, "log", "--reverse", "--name-only",
+                  "--format=%x00%H%x1f%aI", "--", SNAPSHOT_DIR)
+    if result.returncode != 0:
+        return []
+    commits = []
+    for block in (result.stdout or "").split("\x00"):
+        block = block.strip("\n")
+        if not block:
+            continue
+        head, _, body = block.partition("\n")
+        commit, _, when = head.partition("\x1f")
+        paths = [line.strip() for line in body.splitlines()
+                 if line.strip().endswith(SNAPSHOT_SUFFIX)]
+        if paths:
+            commits.append({"commit": commit, "when": when, "paths": paths})
+    return commits
+
+
+def _timeline_name_at(project_folder, commit: str, path: str) -> str:
+    """The timeline's own name, read out of the committed snapshot.
+
+    Never derived from the filename: `record_reel_promotion` replaces
+    every character outside `[A-Za-z0-9-_.]` with an underscore, so the
+    file stem cannot be turned back into `Reel 09 - ... (final)`. The
+    document carries the real name under `metadata.name`.
+    """
+    blob = _git(project_folder, "show", f"{commit}:{path}")
+    if blob.returncode != 0:
+        return ""
+    try:
+        document = json.loads(blob.stdout)
+    except ValueError:
+        return ""
+    return str((document.get("metadata") or {}).get("name") or "")
+
+
+def _rows_at(project_folder, commit: str, path: str):
+    from library.tools import reel_read
+
+    blob = _git(project_folder, "show", f"{commit}:{path}")
+    if blob.returncode != 0:
+        return None, ""
+    try:
+        document = json.loads(blob.stdout)
+    except ValueError:
+        return None, ""
+    name = str((document.get("metadata") or {}).get("name") or "")
+    try:
+        return reel_read.rows_of(document), name
+    except Exception:                                       # noqa: BLE001
+        return None, name
+
+
+def backfill(project_folder) -> dict:
+    """Reconstruct the rounds that predate stamping, from git.
+
+    Boundaries come from the same rule `discover` uses, with the
+    promotions taken from the snapshot commits. Per round, per reel, the
+    rows are read from the LAST commit in that round that wrote that
+    reel's snapshot - what the reel looked like when the round closed,
+    which is what a round diff compares.
+
+    Every entry is marked `SOURCE_RECONSTRUCTED` and carries no
+    `built_with`. An entry already `SOURCE_STAMPED` is never overwritten:
+    a measurement outranks a reconstruction.
+
+    Returns `{"rounds": N, "reels": N, "commits": N}`; writes nothing
+    when there is nothing to reconstruct.
+    """
+    commits = committed_snapshots(project_folder)
+    if not commits:
+        return {"rounds": 0, "reels": 0, "commits": 0,
+                "why": "no committed timeline snapshot in this project"}
+    document = read_rounds(project_folder)
+    boundaries = round_boundaries(
+        asks_of(project_folder),
+        promotions_of(document) + [c["when"] for c in commits])
+    existing = {entry.get("round"): entry
+                for entry in (document.get("rounds") or ())}
+    for entry in boundaries:
+        entry["reels"] = dict((existing.get(entry["round"]) or {})
+                              .get("reels") or {})
+
+    def round_for(when: str) -> dict:
+        chosen = boundaries[0]
+        for entry in boundaries:
+            if entry["opened_at"] and entry["opened_at"] <= when:
+                chosen = entry
+        return chosen
+
+    reels = 0
+    for commit in commits:
+        entry = round_for(commit["when"])
+        for path in commit["paths"]:
+            rows, name = _rows_at(project_folder, commit["commit"], path)
+            if rows is None or not name:
+                continue
+            recorded = entry["reels"].get(name)
+            if recorded and recorded.get("source") == SOURCE_STAMPED:
+                continue
+            entry["reels"][name] = {
+                "promoted_at": commit["when"],
+                "built_at": "",
+                "built_with": "",
+                "rows": rows,
+                "source": SOURCE_RECONSTRUCTED,
+                "commit": commit["commit"],
+                "snapshot": path,
+            }
+            reels += 1
+    document["format"] = ROUNDS_FORMAT
+    document["rounds"] = boundaries
+    write_rounds(project_folder, document)
+    return {"rounds": len(boundaries), "reels": reels,
+            "commits": len(commits)}
+
+
+# ── Reading it back ──────────────────────────────────────────────
+
+def round_by_number(project_folder, number: int) -> dict | None:
+    for entry in read_rounds(project_folder).get("rounds") or ():
+        if entry.get("round") == number:
+            return entry
+    return None
+
+
+def render(document: Mapping) -> str:
+    """The rounds, in the sentences the captain has to read."""
+    rounds = list((document or {}).get("rounds") or ())
+    if not rounds:
+        return ("No round recorded yet. A round is stamped when a build "
+                "promotes; `round-diff --backfill` reconstructs the "
+                "rounds already in this project's git history.")
+    lines = [f"── {len(rounds)} round(s) ──"]
+    for entry in rounds:
+        opened = entry.get("opened_at") or "(the first build)"
+        lines.append(
+            f"  Round {entry.get('round')}: opened {opened} - "
+            f"{entry.get('why', '')}")
+        asked = entry.get("reels_asked") or []
+        if asked:
+            lines.append(
+                f"    {len(entry.get('opened_by') or [])} ask(s) on "
+                f"{len(asked)} reel(s): {', '.join(asked)}")
+        reels = entry.get("reels") or {}
+        if not reels:
+            lines.append("    no reel was promoted in this round")
+            continue
+        stamped = sum(1 for r in reels.values()
+                      if r.get("source") == SOURCE_STAMPED)
+        lines.append(
+            f"    {len(reels)} reel(s) promoted "
+            f"({stamped} stamped, {len(reels) - stamped} reconstructed):")
+        for name in sorted(reels):
+            reel = reels[name]
+            rows = reel.get("rows") or {}
+            items = sum((row.get("count") or 0) for row in rows.values())
+            lines.append(
+                f"      {name} - {len(rows)} row(s), {items} item(s), "
+                f"promoted {reel.get('promoted_at', '')}")
+    return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python3 -m library.tools.round_version",
+        description="The rounds of a project: one version per batch of "
+                    "the captain's feedback. Read-only unless "
+                    "--backfill is passed; never touches Resolve.")
+    parser.add_argument("project", help="Path to the project folder")
+    parser.add_argument("--backfill", action="store_true",
+                        help="reconstruct rounds from the timeline "
+                             "snapshots already committed in this "
+                             "project's git repo")
+    args = parser.parse_args(argv)
+    if args.backfill:
+        report = backfill(args.project)
+        print(f"Reconstructed {report['reels']} reel promotion(s) across "
+              f"{report['rounds']} round(s) from {report['commits']} "
+              f"commit(s).")
+    print(render(read_rounds(args.project)))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -588,6 +588,9 @@ If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#ga
 **A replace is a diff: promotion refuses an undeclared row loss.**
 Detail: `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
 
+**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion RETIRES rather than deletes, and `round-diff` compares two rounds.**
+Detail: `library/tools/round_version.py`, `reel_signoff.py`, `reel_retirement.py`.
+
 **Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.**
 Detail: `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 
@@ -602,8 +605,7 @@ Detail: `library/tools/pipeline_skills.py`. [why](docs/RULE_EVIDENCE.md#gates-th
 
 **Seven baseline-craft properties are checked on every build, and two of them deliberately do not fail.**
 `render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
-**`subtitle_gaps` measures the uncaptioned seconds INSIDE a speech block, and it reads the spine to know which those are.**
-`manifest_validator.py` checks the PLAN: no caption card under 0.5s, and no effect family covering 100% of eligible items with two or fewer parameter sets. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
+`manifest_validator.py` checks the PLAN. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
 Chroma and the mix REPORT A NUMBER and pass. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
 `SPEECH_ABOVE_BED_GATES` stays False.
 Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)

@@ -152,9 +152,16 @@ def verify_reels(data: dict) -> dict:
         if recorded is None:
             recorded = _guard.parse_specs(
                 (data or {}).get("allow_drops"), list(staged))
+        # The same rule for the sign-off declaration: the build's own
+        # record first, this node's input only as the fallback for a
+        # record written before declarations existed
+        # (`library/tools/reel_signoff.py`).
+        superseding = build.get("supersede")
+        if superseding is None:
+            superseding = (data or {}).get("supersede")
         promoted = promote_staged_reels(
             project_folder, resolve_project_name, master_timeline_name,
-            staged, allow_drops=recorded)
+            staged, allow_drops=recorded, supersede=superseding)
         organised = promoted["organised"]
         timelines_verified = list(promoted["promoted"])
         # The 6.01 hook never fired for reels, so no reel build ever

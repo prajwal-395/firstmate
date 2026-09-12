@@ -5150,6 +5150,30 @@ def _apply_recorded_pins(moments, transcript, project_folder, err):
     return redrawn
 
 
+def grades_as_a_reel(name: str, only_reels=None) -> bool:
+    """Is this timeline one the conformance sweep should grade?
+
+    A `Reel ...` timeline, and NOT a retired generation. Promotion
+    archives the timeline it replaced rather than deleting it
+    (`library/tools/reel_retirement.py`), so `Reel 09 - ... (archived
+    round 003)` is now in the project - and grading it against the
+    CURRENT plan reports a mismatch that is a fact about it being
+    retired, not a defect. Every round would otherwise double the
+    sweep's findings, which is how a real finding stops being read.
+
+    Still reachable when a caller names it explicitly in `only_reels`:
+    refusing to look at something the operator asked for by name is a
+    different failure from quietly grading what they did not.
+    """
+    from library.tools.resolve_bin_layout import is_archived_timeline
+
+    if not (name or "").startswith("Reel "):
+        return False
+    if is_archived_timeline(name) and name not in set(only_reels or ()):
+        return False
+    return True
+
+
 def run_verification(
     project_name: str,
     master_name: str,
@@ -5245,7 +5269,7 @@ def run_verification(
         name = tl.GetName()
         if name == master_name:
             master_tl = tl
-        elif name.startswith("Reel "):
+        elif grades_as_a_reel(name, only_reels):
             reel_timelines.append(tl)
 
     if master_tl is None:

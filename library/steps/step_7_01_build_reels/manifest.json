@@ -41,6 +41,12 @@
         "type": "array",
         "required": false,
         "description": "Rows the replace guard may let shrink, by ROW never by blanket (issue #925). Each entry is a `ROW` spec (`video:Semantic`, or the bare `Semantic`) applying to every reel this call promotes, or a `FINAL::ROW` spec for one reel only. The `--allow-drop` flag of `manage_project.py build-reels`, repeatable. Absent means nothing is declared and any row that loses items, or vanishes, refuses the promotion."
+      },
+      {
+        "name": "supersede",
+        "type": "array",
+        "required": false,
+        "description": "Reels whose durable captain sign-off this build may replace (`library/tools/reel_signoff.py`). Each entry is a reel name in any container spelling. The `--supersede` flag of `manage_project.py build-reels`, repeatable. Absent means nothing is declared and a promotion over a signed-off reel refuses by name, printing the declaration that would proceed deliberately. A declared supersession moves the sign-off to `superseded` after the rename lands; it is never deleted."
       }
     ],
     "outputs": [
@@ -55,7 +61,8 @@
           "resolve_project_name": "str",
           "master_timeline_name": "str",
           "name_suffix": "str",
-          "allow_drops": "dict"
+          "allow_drops": "dict",
+          "supersede": "list"
         }
       }
     ],

@@ -416,6 +416,13 @@ def plan_organization(artefacts: Sequence[Artefact],
                 why = ("firstmate's proof timeline, filed apart from the "
                        "captain's reels")
                 state = None
+            elif bins.is_archived_timeline(a.name):
+                dest = (BIN_REELS, bins.REELS_ARCHIVE_BIN)
+                why = ("a retired generation of a reel, filed in the "
+                       "archive bin - kept for the round diff, renamed "
+                       "so it cannot be mistaken for the live cut "
+                       "(`reel_retirement`)")
+                state = None
             elif bins.is_scratch_timeline(a.name):
                 dest = (BIN_SCRATCH,)
                 why = ("a staging or scratch timeline, filed in the "

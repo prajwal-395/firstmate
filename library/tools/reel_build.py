@@ -5226,7 +5226,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          master_timeline_name: str,
                          staged_to_final: dict,
                          organise: bool = True,
-                         allow_drops=None) -> dict:
+                         allow_drops=None,
+                         supersede=None) -> dict:
     """Move passing stagings onto their final timeline names.
 
     The ONLY place an approved timeline is deleted. Reachable only
@@ -5257,8 +5258,22 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        explainer plans) are renamed staging -> final, so the next
        verifier grades the promoted timelines against the baseline the
        gate just passed rather than refusing on absence;
-    4. only then are the backups deleted, guarded by
-       `assert_deletion_scope` against the backup set.
+    4. only then is the backup RETIRED - renamed to `... (archived
+       round NNN)` and filed in `05 - Reels/Archive`, never deleted
+       (`library/tools/reel_retirement.py`). A generation the
+       retention bound releases is collected in the same call, guarded
+       by `assert_deletion_scope` against the archived names alone;
+    5. the round is stamped (`library/tools/round_version.py`): the
+       rows the guard read in phase 0 are stored against the round
+       this batch of the captain's feedback opened, which is what
+       makes `round-diff` answer off disk afterwards.
+
+    A reel whose approved timeline carries a durable SIGN-OFF
+    (`library/tools/reel_signoff.py`) refuses in phase 0 unless the
+    caller named it in `supersede` - the same declare-then-proceed
+    shape `allow_drops` takes, per reel, so one signed-off reel never
+    holds back a sibling. A declared supersession moves the sign-off
+    to `superseded` after the rename lands; it is never deleted.
 
     A fresh build - no timeline under the final name yet - skips phases
     0 and 1 for that reel; everything else is identical, so there is one
@@ -5335,8 +5350,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
+    from library.tools import reel_signoff as _signoff
+    try:
+        declared_supersessions = _signoff.parse_supersede(supersede)
+    except ValueError as bad_declaration:
+        raise ReelBuildError(
+            f"REFUSING to promote: {bad_declaration}") from bad_declaration
     replace_reports = {}
     refused = {}
+    superseded_signoffs = {}
     # The captain's typed notes, read off each RETIRING timeline before
     # anything is renamed (`library/tools/marker_carry.py`). Promotion
     # replaces the timeline object, so its markers go with it - which
@@ -5345,15 +5367,39 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # the picture under them still plays in the replacement.
     from library.tools import marker_carry as _markers
     carried_markers = {}
+    # The rows the guard reads off each incoming staging, kept for the
+    # round stamp below. A fresh reel has no original to diff against
+    # but is still part of the round, so its rows are taken too -
+    # best effort, never refusing - rather than the version record
+    # having a hole where every first build should be.
+    incoming_by_final = {}
+    for final in finals:
+        if final in originals:
+            continue
+        # A FRESH reel: nothing is being replaced, so the guard has no
+        # question to ask and cannot refuse here. Its rows are still
+        # taken for the round, best effort - a version record that
+        # could not read a first build says nothing about it, and must
+        # never refuse a promotion the guard itself would have waved
+        # through.
+        try:
+            incoming_by_final[final] = _guard.snapshot_timeline(
+                staged_found[staged_to_final[final]],
+                staged_to_final[final], side="staged")
+        except Exception:                                   # noqa: BLE001
+            pass
     for final in finals:
         if final not in originals:
             continue
         staging = staged_to_final[final]
         try:
-            retired_rows = _guard.snapshot_timeline(
-                originals[final], final, side="retiring")
+            _signoff.assert_declared(
+                project_folder, final, declared_supersessions)
             incoming_rows = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
+            incoming_by_final[final] = incoming_rows
+            retired_rows = _guard.snapshot_timeline(
+                originals[final], final, side="retiring")
             replace_reports[final] = _guard.check_replacement(
                 final, staging, retired_rows, incoming_rows,
                 allowed=declared.get(final, ()))
@@ -5379,6 +5425,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"still in the project.")
         except _guard.ReplaceGuardRefused as guard_refused:
             refused[final] = str(guard_refused)
+        except _signoff.SignOffNotDeclared as not_declared:
+            refused[final] = str(not_declared)
+        except _signoff.SignOffsUnreadable as unreadable:
+            refused[final] = (
+                f"REFUSING to promote {final!r}: {unreadable} Nothing "
+                f"for this reel was renamed; its approved timeline is "
+                f"still in the project.")
     ok_finals = [final for final in finals if final not in refused]
 
     for final in ok_finals:
@@ -5459,11 +5512,74 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"entries still name the staging timeline, so their files "
               f"stay LIVE and nothing is swept", file=_sys.stderr)
 
-    promoted_backups = {backups[final] for final in ok_finals}
-    backup_timelines = timelines_to_replace(project, promoted_backups)
-    assert_deletion_scope(backup_timelines, promoted_backups)
-    if backup_timelines:
-        pool.DeleteTimelines(backup_timelines)
+    # ── RETIRE, never delete (the captain, 2026-09-12) ───────────
+    # This used to be `DeleteTimelines(backup_timelines)`, and it is
+    # why a round could not be compared against the one before it: the
+    # moment a rebuild landed, the version it replaced was gone. The
+    # backups are now renamed into `05 - Reels/Archive` with the round
+    # they were current for, and only a generation the retention bound
+    # releases - never the one just retired, and never one carrying a
+    # sign-off - is collected. Bounded by the number of REELS rather
+    # than the number of rounds, so the archive cannot grow with time
+    # and become the clutter the captain has asked about four times.
+    #
+    # Never fatal. The reels are promoted; a retirement that cannot
+    # rename leaves the approved content under its backup name, which
+    # the next build refuses on loudly rather than losing.
+    from library.tools import reel_retirement as _retire
+    from library.tools import round_version as _rounds
+    retirement = {"archived": {}, "unfiled": [], "collected": [],
+                  "kept": []}
+    rounds_by_final: dict = {}
+    try:
+        recorded = _rounds.discover(project_folder)
+        current_round = recorded[-1]["round"] if recorded else 1
+        rounds_by_final.update({
+            final: _retire.retiring_round(recorded, final, current_round)
+            for final in ok_finals if final in originals})
+        backup_objects = {}
+        for timeline in timelines_to_replace(
+                project, {backups[final] for final in ok_finals}):
+            for final in ok_finals:
+                if timeline.GetName() == backups[final]:
+                    backup_objects[final] = timeline
+        retirement.update(_retire.retire_timelines(
+            project, pool, backup_objects, rounds_by_final))
+        live_names = set()
+        for index in range(1, project.GetTimelineCount() + 1):
+            timeline = project.GetTimelineByIndex(index)
+            if timeline:
+                live_names.add(timeline.GetName())
+        retirement.update(_retire.collect_superseded(
+            project, pool, live_names, list(retirement["archived"]),
+            set(_signoff.signed_off(project_folder))))
+        print(_retire.render(retirement), flush=True)
+    except Exception as retirement_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  retirement refused ({retirement_failed}) - the reels "
+              f"are promoted; the replaced timelines are still in the "
+              f"project under their backup names and nothing was "
+              f"deleted", file=_sys.stderr)
+        retirement["refused"] = f"{retirement_failed}"
+
+    # A declared supersession ends the sign-off it was declared
+    # against - AFTER the rename landed, so a promotion that refused
+    # later never retires an approval it did not replace. Recorded as
+    # superseded, never deleted: "this reel was approved once and then
+    # rebuilt" is exactly the question that had no answer before.
+    for final in ok_finals:
+        if _signoff.base_name(final) not in declared_supersessions:
+            continue
+        try:
+            ended = _signoff.supersede(
+                project_folder, final,
+                round_number=rounds_by_final.get(final))
+        except Exception:  # noqa: BLE001
+            ended = None
+        if ended:
+            superseded_signoffs[final] = ended
+            print(f"Sign-off on {final!r} superseded by this build "
+                  f"(recorded, not deleted)", flush=True)
 
     # The promotion happened - the staging containers are now the
     # approved timelines under their final names - so their pending
@@ -5479,6 +5595,31 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     _holds.release_holds(
         project_folder,
         [staged_to_final[final] for final in ok_finals])
+
+    # ── STAMP THE ROUND ──────────────────────────────────────────
+    # The version object (`library/tools/round_version.py`). The rows
+    # stored here are the ones the replace guard already read off the
+    # incoming timeline in phase 0, so this costs no Resolve call - and
+    # storing them is what lets `round-diff` answer long after the
+    # timeline they describe has been retired and collected. Never
+    # fatal: a version record that fails a build is worse than none.
+    stamped_round = None
+    try:
+        from library.tools.plan_provenance import read_provenance
+        stamped_round = _rounds.stamp_promotion(
+            project_folder,
+            {final: incoming_by_final[final] for final in ok_finals
+             if incoming_by_final.get(final)},
+            read_provenance(review_dir))
+        print(f"Round {stamped_round['round']}: stamped "
+              f"{len(stamped_round.get('reels') or {})} reel(s). "
+              f"`manage_project.py round-diff <project>` shows what "
+              f"changed since the round before.", flush=True)
+    except Exception as stamp_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  round not stamped ({stamp_failed}) - the reels are "
+              f"promoted and unaffected, but this promotion is not in "
+              f"the version record", file=_sys.stderr)
 
     organised = None
     if organise:
@@ -5518,7 +5659,10 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     return {"promoted": ok_finals, "organised": organised, "swept": swept,
             "replace_reports": replace_reports,
             "refused": dict(refused),
-            "markers": carried_markers}
+            "markers": carried_markers,
+            "retirement": retirement,
+            "round": stamped_round,
+            "superseded_signoffs": superseded_signoffs}
 
 
 def _raise_partial_promotion(finals, ok_finals, refused) -> None:
@@ -5657,7 +5801,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              name_suffix: str = "",
                              organise: bool = True,
                              intent_file: str = "",
-                             allow_drops=None) -> dict:
+                             allow_drops=None,
+                             supersede=None) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
     NOTHING APPROVED IS DELETED BEFORE THE GATE PASSES. This used to
@@ -6783,6 +6928,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
+    # The sign-off declaration travels the same way and for the same
+    # reason: the `verify_reels` node promotes with the declaration the
+    # build was given, never one it re-derives.
+    from library.tools import reel_signoff as _decl_signoff
+    try:
+        declared_supersede = sorted(_decl_signoff.parse_supersede(supersede))
+    except ValueError as bad_declaration:
+        raise ReelBuildError(
+            f"REFUSING to build: {bad_declaration}") from bad_declaration
     if verify:
         # Scoped to what THIS call placed - the staging containers, not
         # the approved timelines: verifying the whole project here is
@@ -6815,7 +6969,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         promoted = promote_staged_reels(
             project_folder, resolve_name, master_timeline_name,
             dict(staged_to_final), organise=organise,
-            allow_drops=declared_drops)
+            allow_drops=declared_drops,
+            supersede=declared_supersede)
         organised = promoted["organised"]
         # From here the record speaks final names: what is in Resolve
         # now is the promoted timelines, and the sidecar files were
@@ -6914,6 +7069,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         "allow_drops": {final: sorted(rows)
                         for final, rows in declared_drops.items()
                         if rows},
+        # The reels whose captain sign-off this build was told it may
+        # replace (`reel_signoff`). `[]` when none was declared, which
+        # is the common case and is NOT the same as allowing: an
+        # undeclared sign-off refuses the promotion by name.
+        "supersede": declared_supersede,
         # Where the media pool was filed, and the journal that undoes it.
         # None when the caller declined - and when the call stopped at
         # staging (`verify=False`), where filing waits for whoever

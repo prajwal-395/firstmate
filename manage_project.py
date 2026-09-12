@@ -65,7 +65,8 @@ ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
-    "check", "run", "dashboard", "archive", "notes", "relink",
+    "check", "run", "dashboard", "archive", "notes",
+    "round-diff", "sign-off", "relink",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -454,6 +455,83 @@ def cmd_notes(args):
 
     argv = ["write" if args.write else "report", "--project", project_folder]
     sys.exit(marker_routing.main(argv))
+
+
+def cmd_round_diff(args):
+    """What changed between two rounds of the captain's feedback.
+
+    A ROUND is the version object (library/tools/round_version.py): one
+    version per batch of the captain's feedback, across every reel that
+    batch touched. The diff is `reel_read.rows_of` through
+    `reel_replace_guard.diff_rows` over two stored snapshots - off
+    disk, in milliseconds, with Resolve closed. See
+    library/tools/round_diff.py.
+    """
+    from library.tools import round_diff
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    argv = [project_folder]
+    if args.backfill:
+        argv.append("--backfill")
+    if args.list_rounds:
+        argv.append("--list")
+    if args.earlier is not None:
+        argv += ["--from", str(args.earlier)]
+    if args.later is not None:
+        argv += ["--to", str(args.later)]
+    sys.exit(round_diff.main(argv))
+
+
+def cmd_sign_off(args):
+    """Sign off a BUILT reel, or list what is signed off.
+
+    Approval used to live only on a PROPOSED moment before a build, so
+    the newest build under the final name was always the answer and an
+    approved reel could be silently replaced. A sign-off is durable,
+    attaches to the built reel and the round it was built in, and
+    promotion refuses over it unless it is declared with
+    `build-reels --supersede`. See library/tools/reel_signoff.py.
+    """
+    from library.tools import reel_signoff
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    if not args.reel:
+        live = reel_signoff.signed_off(project_folder)
+        if not live:
+            print("No reel in this project is signed off.")
+            return
+        print(f"── {len(live)} signed-off reel(s) ──")
+        for reel in sorted(live):
+            print(f"  {reel_signoff.describe(project_folder, reel)}")
+            note = (live[reel].get("note") or "").strip()
+            if note:
+                print(f'      "{note}"')
+        return
+    if args.withdraw:
+        if reel_signoff.withdraw(project_folder, args.reel,
+                                 why=args.note):
+            print(f"Withdrew the sign-off on {args.reel!r}. The "
+                  f"withdrawal is recorded, not erased.")
+        else:
+            print(f"{args.reel!r} was not signed off; nothing changed.")
+        return
+    entry = reel_signoff.sign_off(project_folder, args.reel,
+                                  note=args.note, by=args.by)
+    print(f"Signed off {entry['reel']!r}"
+          + (f" in round {entry['round']}" if entry.get("round") else "")
+          + f", by {entry['by']}.")
+    print(f"  A promotion that would replace it now REFUSES unless it "
+          f"declares `build-reels --supersede {entry['reel']!r}`.")
 
 
 def cmd_organize(args):
@@ -1189,7 +1267,8 @@ def cmd_build_reels(args):
                 skip_captions=args.skip_captions,
                 only_reels=args.only_reel or None,
                 timeline_name_suffix=args.name_suffix,
-                allow_drops=args.allow_drop or None)
+                allow_drops=args.allow_drop or None,
+                supersede=args.supersede or None)
             if result.refused:
                 print(f"REFUSED: {op.name}", file=sys.stderr)
                 print(result.error, file=sys.stderr)
@@ -1389,6 +1468,15 @@ def main():
              "every reel this run promotes, or `FINAL::ROW` for one reel "
              "only. Repeatable. Absent means any row that loses items, "
              "or vanishes, refuses the promotion.")
+    build_reels_parser.add_argument(
+        "--supersede", dest="supersede", action="append", default=[],
+        metavar="REEL",
+        help="A reel whose durable captain SIGN-OFF this build may "
+             "replace (library/tools/reel_signoff.py). Repeatable. "
+             "Absent means a promotion over a signed-off reel refuses "
+             "by name and prints this flag. The sign-off is recorded "
+             "as superseded, never deleted, and the timeline it "
+             "covered is retired to the archive bin.")
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
     p_status = sub.add_parser("status", help="Show project status")
@@ -1547,6 +1635,43 @@ def main():
         help="also write the routing record and ROUTED-NOTES.md into "
              "the project's marker_feedback/ folder")
     p_notes.set_defaults(func=cmd_notes)
+
+    p_round = sub.add_parser(
+        "round-diff",
+        help="What changed between two rounds of the captain's feedback")
+    p_round.add_argument("slug", metavar="PROJECT",
+                         help="Project slug, or an absolute path")
+    p_round.add_argument("--from", dest="earlier", type=int, default=None,
+                         help="The earlier round. Default: the "
+                              "second-to-last round that promoted a reel")
+    p_round.add_argument("--to", dest="later", type=int, default=None,
+                         help="The later round. Default: the last round "
+                              "that promoted a reel")
+    p_round.add_argument("--backfill", action="store_true",
+                         help="reconstruct the rounds already in this "
+                              "project's git history first, from the "
+                              "committed timeline snapshots")
+    p_round.add_argument("--list", dest="list_rounds", action="store_true",
+                         help="list the rounds instead of diffing")
+    p_round.set_defaults(func=cmd_round_diff)
+
+    p_signoff = sub.add_parser(
+        "sign-off",
+        help="Sign off a BUILT reel, so promotion must declare before "
+             "replacing it")
+    p_signoff.add_argument("slug", metavar="PROJECT",
+                           help="Project slug, or an absolute path")
+    p_signoff.add_argument("reel", nargs="?", default="", metavar="REEL",
+                           help="The reel timeline name. Omitted, the "
+                                "current sign-offs are listed")
+    p_signoff.add_argument("--note", default="",
+                           help="The captain's own words about why this "
+                                "cut is approved")
+    p_signoff.add_argument("--by", default="captain")
+    p_signoff.add_argument("--withdraw", action="store_true",
+                           help="withdraw the sign-off on this reel; the "
+                                "withdrawal is recorded, never erased")
+    p_signoff.set_defaults(func=cmd_sign_off)
 
     p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info/dashboard, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")

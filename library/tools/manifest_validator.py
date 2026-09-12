@@ -18,6 +18,13 @@ until it was split by subsystem; the wording is unchanged, so each rule
 is findable by its own words, and AGENTS.md 10.2 keeps the headline
 and points here.
 
+**`manifest_validator.py` checks the PLAN: no caption card under 0.5s,
+and no effect family covering 100% of eligible items with two or fewer
+parameter sets.**  Relocated from AGENTS.md 10.4 on 2026-09-12, where it
+restated the constants this file already declares (`MIN_DISPLAY_DURATION`
+for the first, `MAX_UNIFORM_PARAMETER_SETS` for the second); §10.4 keeps
+the headline and points here.
+
 **Manifest validation has a semantic half.**
 `library/tools/manifest_validator.py` validates distinct cut points, distributed SFX, distinct VFX ranges, no overlaps, no zero-duration clips, no fabricated source ranges.
 Regression fixtures live in `tests/fixtures/captured_run/` and come from a real broken run - never replace them with empty-list fixtures. [why](docs/RULE_EVIDENCE.md#manifest-validator-semantic-half)

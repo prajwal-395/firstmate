@@ -123,6 +123,37 @@ def is_scratch_timeline(name: str) -> bool:
     return (name or "").endswith(STAGING_TIMELINE_SUFFIX) \
         or SCRATCH_NAME_MARKER in (name or "")
 
+ARCHIVED_TIMELINE_PATTERN = re.compile(
+    r"^(?P<reel>.+?) \(archived round (?P<round>\d+)(?:\.(?P<sibling>\d+))?\)$")
+"""What a RETIRED generation of a reel is renamed to on promotion.
+
+`Reel 09 - your-website-is-only-20-percent (archived round 003)`. The
+round is zero-padded so Resolve's alphabetical listing walks the
+generations in order, and the suffix is long and explicit so an
+archived cut cannot be mistaken for the live one in any list. A
+second retirement of one reel inside one round gains a `.2` sibling,
+which sorts after the bare form and still names its round.
+
+Owned here, like every other name that decides a bin:
+`reel_retirement` builds the names and the lifecycle, and the organiser
+files a stray archived timeline back into `05 - Reels/Archive` with
+this. The archive bin itself has been declared in `BINS` since the
+2026-09-09 reset with exactly this purpose; retirement is its first
+user.
+"""
+
+
+def is_archived_timeline(name: str) -> bool:
+    """Is this a retired generation rather than a live reel?
+
+    The same shape as `is_scratch_timeline` and the same reasoning: the
+    NAME decides where a stray lands, the BIN is the authority for what
+    is already placed. Keyed narrowly on the full suffix, so a reel the
+    captain happened to name with the word "archived" is untouched.
+    """
+    return bool(ARCHIVED_TIMELINE_PATTERN.match(name or ""))
+
+
 SUBTITLES_BIN = "06 - Subtitle renders"
 MOTION_GRAPHICS_BIN = "07 - Motion graphics"
 SOURCE_BIN = "Source footage"

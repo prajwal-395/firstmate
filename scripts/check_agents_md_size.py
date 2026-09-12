@@ -65,7 +65,7 @@ import sys
 # is HELD at 53,072 rather than lowered by the net saving, so the file
 # carries ~1,000 chars of global headroom: an exact-fit file re-blocks
 # the next lane, which is the incident this move repairs.
-CEILING = 53072
+CEILING = 53061
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -109,6 +109,17 @@ CEILING = 53072
 # 164 characters left over went off the CEILING rather than back into the
 # spare - spare nobody claimed is how the budgets came to be looser than their
 # sections.
+# MOVED 2026-09-12, `## 10` -> `render_qa.py` and `manifest_validator.py`, 242
+# characters: `## 10` gained one index row for the version object - a version
+# is a ROUND, a BUILT reel carries a durable sign-off, and promotion RETIRES
+# rather than deletes (`round_version.py`, `reel_signoff.py`,
+# `reel_retirement.py`). It paid for it inside its own budget by dropping two
+# restatements: the `subtitle_gaps` sentence, which `render_qa.py:94` already
+# carried VERBATIM, and the two `manifest_validator` thresholds, which that
+# module already declares as `MIN_DISPLAY_DURATION` and
+# `MAX_UNIFORM_PARAMETER_SETS` and now states as prose beside them. `## 10`'s
+# budget is set to what it now measures plus the 6 it already had, and the 11
+# characters left over went off the CEILING rather than back into the spare.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
@@ -120,7 +131,7 @@ SECTION_BUDGETS = {
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
     "## 9. Environment and dependencies": 6316,
-    "## 10. Cross-cutting rules": 16950,
+    "## 10. Cross-cutting rules": 16939,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,

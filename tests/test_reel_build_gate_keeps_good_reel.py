@@ -281,7 +281,12 @@ def test_a_passing_build_replaces_the_target_and_reports_final_names(project):
     assert placed.call_count == 1
     assert record["timelines_built"] == [TARGET]
     assert record["staged_timelines"] == {}
-    assert sorted(resolve_project.names()) == sorted([MASTER] + APPROVED)
+    # The replaced timeline is RETIRED, not deleted: it is renamed into
+    # `05 - Reels/Archive` under the round it was current for
+    # (`library/tools/reel_retirement.py`), so the previous cut is
+    # still there to compare the round against.
+    assert sorted(resolve_project.names()) == sorted(
+        [MASTER] + APPROVED + [f"{TARGET} (archived round 001)"])
     # The sidecar baselines followed the promotion: filed under the
     # final name the gate passed, with no staging key left behind.
     provenance = json.loads(
@@ -340,7 +345,15 @@ def test_stage_then_promote_is_the_dag_path_end_to_end(project):
             record["staged_timelines"], organise=False)
 
     assert promoted["promoted"] == [TARGET]
-    assert original not in resolve_project.timelines
-    assert sorted(resolve_project.names()) == sorted([MASTER] + APPROVED)
+    # Retired, not deleted: the object is still in the project under
+    # its archived name (`library/tools/reel_retirement.py`).
+    assert original in resolve_project.timelines
+    assert original.GetName() == f"{TARGET} (archived round 001)"
+    # The replaced timeline is RETIRED, not deleted: it is renamed into
+    # `05 - Reels/Archive` under the round it was current for
+    # (`library/tools/reel_retirement.py`), so the previous cut is
+    # still there to compare the round against.
+    assert sorted(resolve_project.names()) == sorted(
+        [MASTER] + APPROVED + [f"{TARGET} (archived round 001)"])
     assert not [name for name in resolve_project.names()
                 if name.endswith((STAGING_SUFFIX, BACKUP_SUFFIX))]

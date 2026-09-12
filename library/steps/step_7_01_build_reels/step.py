@@ -116,14 +116,17 @@ def build_reels(data: dict) -> dict:
     # guard here would make this step refuse without an input its own
     # manifest declares OPTIONAL. The normalised form lands on the
     # `reel_build` record, which is what the `verify_reels` node
-    # promotes off.
+    # promotes off. `supersede` - the reels whose captain sign-off this
+    # build may replace (`reel_signoff`) - travels the same way and for
+    # the same reason.
     record = rebuild_reels_in_project(
         project_folder,
         skip_captions=bool((data or {}).get("skip_captions")),
         verify=False,
         only=(data or {}).get("only_reels"),
         name_suffix=str((data or {}).get("timeline_name_suffix") or ""),
-        allow_drops=(data or {}).get("allow_drops"))
+        allow_drops=(data or {}).get("allow_drops"),
+        supersede=(data or {}).get("supersede"))
 
     return {"reel_build": record}
 

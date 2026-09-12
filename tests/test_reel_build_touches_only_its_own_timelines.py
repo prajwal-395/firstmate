@@ -190,7 +190,11 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     for name in untouched:
         assert name in survivors, f"{name} was deleted by a build of reel 3"
     assert len(untouched) == 18
-    assert sorted(survivors) == sorted([MASTER] + APPROVED)
+    # Plus the retired generation of the one reel this build replaced:
+    # promotion archives it rather than deleting it
+    # (`library/tools/reel_retirement.py`).
+    assert sorted(survivors) == sorted(
+        [MASTER] + APPROVED + ["Reel 03 - moment-3 (archived round 001)"])
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert record["staged_timelines"] == {}
     assert placed.call_count == 1
@@ -218,20 +222,25 @@ def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
 
     The old loop deleted it because the name began "Reel ". Deleting a
     timeline nothing is about to replace is destruction, not a rebuild.
-    Promotion deletes only the backups it retired this run's originals
-    to - nineteen, each carrying a backup suffix, none of them the
-    orphan.
+    Promotion RETIRES this run's originals - nineteen, each renamed
+    into the archive under the round it was current for - and deletes
+    nothing at all on a first retirement. The orphan is neither
+    retired nor deleted: it is not a reel this build placed.
     """
+    from library.tools import reel_retirement
+
     resolve_project = FakeProject([MASTER] + APPROVED + ["Reel 99 - orphan"])
 
     record, placed, _ = _run(resolve_project, project)
 
     assert "Reel 99 - orphan" in resolve_project.names()
-    deleted = resolve_project.GetMediaPool().DeleteTimelines.call_args[0][0]
-    assert sorted(t.GetName() for t in deleted) == sorted(
-        name + BACKUP_SUFFIX for name in APPROVED)
+    assert resolve_project.GetMediaPool().DeleteTimelines.call_args is None
+    archived = sorted(name for name in resolve_project.names()
+                      if reel_retirement.is_archived_timeline(name))
+    assert archived == sorted(
+        reel_retirement.archived_name(name, 1) for name in APPROVED)
     assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED + ["Reel 99 - orphan"])
+        [MASTER] + APPROVED + ["Reel 99 - orphan"] + archived)
     assert record["timelines_built"] == APPROVED
     assert placed.call_count == 19
 

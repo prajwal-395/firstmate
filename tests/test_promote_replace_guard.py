@@ -265,7 +265,13 @@ def test_declared_reduction_passes_and_names_what_it_declared(
     report = promoted["replace_reports"][FINAL]
     assert report["refused"] is False
     assert report["allowed"] == ["video:Semantic"]
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+    # The replaced timeline is RETIRED, not deleted: promotion files it
+    # to `05 - Reels/Archive` under the round it was current for
+    # (`library/tools/reel_retirement.py`), so the round before this
+    # one is still comparable.
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, FINAL, f"{FINAL} (archived round 001)"])
+    assert resolve.deleted == []
 
 
 def test_unreadable_retiring_timeline_refuses(project_dir):
@@ -305,7 +311,13 @@ def test_growth_and_a_shortened_cut_pass_undeclared(project_dir):
 
     assert promoted["promoted"] == [FINAL]
     assert promoted["replace_reports"][FINAL]["refused"] is False
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+    # The replaced timeline is RETIRED, not deleted: promotion files it
+    # to `05 - Reels/Archive` under the round it was current for
+    # (`library/tools/reel_retirement.py`), so the round before this
+    # one is still comparable.
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, FINAL, f"{FINAL} (archived round 001)"])
+    assert resolve.deleted == []
 
 
 def test_fresh_build_with_no_original_skips_the_diff(project_dir):
@@ -349,7 +361,13 @@ def test_a_join_passes_undeclared_and_says_so(project_dir):
     report = promoted["replace_reports"][FINAL]
     assert report["refused"] is False
     assert report["joined"] == ["video:Craig"]
-    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+    # The replaced timeline is RETIRED, not deleted: promotion files it
+    # to `05 - Reels/Archive` under the round it was current for
+    # (`library/tools/reel_retirement.py`), so the round before this
+    # one is still comparable.
+    assert sorted(resolve.names()) == sorted(
+        [MASTER, FINAL, f"{FINAL} (archived round 001)"])
+    assert resolve.deleted == []
 
 
 def test_a_loss_that_gains_frames_still_refuses(project_dir):
@@ -411,3 +429,49 @@ def test_specs_fan_out_globally_or_scope_to_one_reel():
         guard.parse_specs([""], ["A"])
     with pytest.raises(ValueError):
         guard.parse_specs([42], ["A"])
+
+
+def test_the_promotion_stamps_the_round_with_the_rows_it_read(project_dir):
+    """The version object rides on the diff the guard already ran.
+
+    `library/tools/round_version.py`. The rows stored against the round
+    are the ones the guard read off the incoming staging in phase 0, so
+    the stamp costs no extra Resolve call - and storing them is what
+    lets `round-diff` answer off disk afterwards, long after the
+    timeline it describes has been retired and collected.
+
+    Remove the stamp and the promotion leaves no version record: the
+    newest build under the final name is the answer by construction
+    again, which is the defect the round object exists to close.
+    """
+    from library.tools import round_version
+
+    retired, staging = _cutaway_timelines()
+    # Grow rather than shrink, so the guard passes and the promotion
+    # reaches the stamp.
+    staging = FakeTimeline(FINAL + " (rebuild staging)", video=[
+        ("Akshita", [FakeItem("Craig A", 0, 55),
+                     FakeItem("LC4932 cover", 574, 598),
+                     FakeItem("Craig B", 598, 657),
+                     FakeItem("logo_reveal.mov", 657, 728)]),
+        ("Craig", [FakeItem("Craig wide", 0, 131)]),
+        ("Subtitles", [FakeItem("card 1", 0, 60),
+                       FakeItem("card 2", 60, 131)]),
+    ])
+    resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
+
+    promoted = _promote(resolve, project_dir, {FINAL: staging.GetName()})
+
+    assert promoted["promoted"] == [FINAL]
+    stamped = promoted["round"]
+    assert stamped is not None
+    reel = stamped["reels"][FINAL]
+    assert reel["source"] == round_version.SOURCE_STAMPED
+    # The rows really are the promoted picture, not the retired one.
+    assert reel["rows"]["video:Akshita"]["count"] == 4
+    assert [item["name"] for item in
+            reel["rows"]["video:Akshita"]["items"]][-1] == "logo_reveal.mov"
+    # And it is on disk, where `round-diff` reads it.
+    on_disk = round_version.read_rounds(str(project_dir))
+    assert on_disk["rounds"][-1]["reels"][FINAL]["rows"] \
+        ["video:Akshita"]["count"] == 4
