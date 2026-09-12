@@ -108,6 +108,12 @@ def _store_path(project_folder: str):
 
 
 def _load(project_folder: str) -> list:
+    # An empty folder holds no learnings: the read half of the stated
+    # absence `project_context_for_step` promises, checked before the
+    # layout (which deliberately refuses an empty folder) is asked.
+    # Writes still go through `_store_path` and refuse, loudly.
+    if not project_folder or not str(project_folder).strip():
+        return []
     path = _store_path(project_folder)
     if not os.path.isfile(path):
         return []

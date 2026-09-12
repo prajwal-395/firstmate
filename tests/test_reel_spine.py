@@ -552,8 +552,12 @@ def test_a_reel_segment_renders_through_the_operation(tmp_path, monkeypatch,
     Step 4.05's own per-segment entry point, driven through
     `subtitles.render_segment`, against a reel spine. Remotion itself is
     stubbed - what is under test is that the STEP's render path drives a
-    reel with no reel branch in it, and names the segment for the reel's
-    timeline.
+    reel with no reel branch in it, and binds every segment to the
+    reel's timeline. The FILENAME carries no timeline (provenance-rooted
+    identity since 2026-09-10: speaker plus source span plus drawing
+    digest, so identical pixels share a file and different pixels can
+    never overwrite each other) - the timeline survives in the recorded
+    binding, which is what this asserts.
     """
     import types
 
@@ -577,14 +581,25 @@ def test_a_reel_segment_renders_through_the_operation(tmp_path, monkeypatch,
         TimeoutExpired=Exception))
 
     out = str(tmp_path)
-    segments = [op.run(props, out, "reel_03", remotion_dir=out)
+    # Full canvas, stated: the tight default measures its box off a
+    # decoded probe render through the Remotion engine, which is the
+    # half this test stubs - geometry is orthogonal to the reel
+    # binding under test, and the tight path is covered by the
+    # delivery tests where the renderer is real.
+    segments = [op.run(props, out, "reel_03", remotion_dir=out,
+                       overlay_geometry="full")
                 for props in props_list]
 
     assert all(s is not None for s in segments), "a segment failed to render"
-    # named for the REEL's timeline, which is what stops a reel's overlay
-    # overwriting the master's in a per-project directory
-    assert all("reel-03" in s["segment_id"] for s in segments), (
-        [s["segment_id"] for s in segments])
+    # bound to the REEL's timeline in the placement record, which is
+    # what stops a reel's overlay being mistaken for the master's -
+    # while the filename stays timeline-free (provenance plus digest),
+    # so different pixels can never overwrite each other
+    assert all(s["binding"]["timeline"] == "reel_03" for s in segments), (
+        [s["binding"] for s in segments])
+    assert len({s["segment_id"] for s in segments}) == len(segments), (
+        "two segments captioning different speech share a filename: "
+        + str([s["segment_id"] for s in segments]))
     # in reel time
     assert min(s["timeline_start"] for s in segments) == pytest.approx(0.0)
     # and it really wrote the props the renderer reads

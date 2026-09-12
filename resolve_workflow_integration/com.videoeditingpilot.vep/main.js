@@ -416,6 +416,13 @@ function createWindow() {
         useContentSize: true,
         backgroundColor: '#1b1b1e',
         title: 'VEP Pipeline',
+        // Fixture mode never maps a window: the page, the playhead
+        // arithmetic and the loop all run identically hidden, so a
+        // test drive (or a stray env var) can never pop the panel
+        // onto the captain's desktop and steal focus. A hidden
+        // window is still a LOADED page - DOM, preload bridge and
+        // timers all run; only compositing to screen is skipped.
+        show: !FIXTURE_PATH,
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             sandbox: true,

@@ -139,6 +139,14 @@ ENVIRONMENT_CONDITIONS = (
         install_hint="cd remotion-subtitles && npm install",
     ),
     EnvironmentCondition(
+        pattern=r"remotion-subtitles/node_modules/typescript",
+        false_when="`npm install` has been run in remotion-subtitles/, "
+                   "which fetches the TypeScript dev dependency the node "
+                   "harness type-checks against",
+        capability="remotion",
+        install_hint="cd remotion-subtitles && npm install",
+    ),
+    EnvironmentCondition(
         pattern=r"could not import ['\"](?:cv2|yaml|tiktoken)['\"]",
         false_when="the package is installed - all three are in "
                    "`requirements.txt` and present in the pipeline .venv",

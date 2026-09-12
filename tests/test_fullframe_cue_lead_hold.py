@@ -323,9 +323,16 @@ def test_cue_lead_and_hold_proved_from_the_timing_functions(tmp_path):
             f"harness did not report {name!r}:\n{result.stdout[-2000:]}")
 
 
+@node_available
 def test_node_harness_reports_its_own_tooling():
-    """The math half is never silently skipped where it should run."""
-    assert shutil.which("node") is not None
+    """The math half is never silently skipped where it should run.
+
+    Where the Remotion dev deps are absent this SKIPS into the
+    `remotion` capability (narrowing the gate with the install hint)
+    rather than failing: a missing capability is a narrower run, not
+    a red one. Where they are present the tooling paths are asserted,
+    so a half-installed `node_modules` still fails loudly.
+    """
     assert os.path.isdir(TSC_DIR)
     assert os.path.isfile(COMPONENT)
     _ = json.dumps({"probe": True})

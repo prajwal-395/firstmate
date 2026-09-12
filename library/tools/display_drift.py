@@ -57,6 +57,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
+from library.tools.project_layout import Area
 from library.tools.timeline_transcript import (
     SCRATCH_SUBDIR as _TRANSCRIPT_SUBDIR,
     TRANSCRIPT_FILENAME as _TRANSCRIPT_FILENAME,
@@ -80,9 +81,12 @@ _TRANSCRIPT_DISPLAY = (
 
 #: Display roots fingerprinted, relative to the project folder.
 #: The live proposal only - timestamped copies are history.
+#: Captain-side subtitle directories are named by their owner
+#: (`project_layout.Area`), never spelled here
+#: (tests/test_project_layout.py).
 DISPLAY_ROOTS = (
-    "subtitle_plans",
-    "subtitle_overlays",
+    Area.SUBTITLE_PLANS.value,
+    Area.SUBTITLE_OVERLAYS.value,
     "pipeline_output/steps",
     "pipeline_output/review/reel_proposals_v2.json",
     _TRANSCRIPT_DISPLAY,
@@ -119,7 +123,8 @@ def _classes_for(relpath: str) -> list:
     structure, assets and timing on the same clips - so this is a
     list, and the flag names every owner with its deep path.
     """
-    if relpath.split("/", 1)[0] in ("subtitle_plans", "subtitle_overlays"):
+    if relpath.split("/", 1)[0] in (Area.SUBTITLE_PLANS.value,
+                                     Area.SUBTITLE_OVERLAYS.value):
         return ["wording"]
     if "motion_graphic" in relpath or "timed_text" in relpath:
         return ["mg_content"]

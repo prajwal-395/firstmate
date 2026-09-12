@@ -19,6 +19,7 @@ from library.steps.step_6_01_render.resolve_build_timeline import (  # noqa: E40
     _preflight_check,
     _allocate_audio_tracks,
 )
+from library.tools import resolve_bin_layout  # noqa: E402
 
 @pytest.fixture(autouse=True)
 def _the_fake_resolve_is_this_files_own(monkeypatch):
@@ -188,7 +189,8 @@ def test_media_import_logic(mock_resolve, sample_manifest):
     with patch('os.path.exists', return_value=True):
         build_timeline(sample_manifest)
         
-    media_pool.AddSubFolder.assert_any_call(root_folder, "V1")
+    media_pool.AddSubFolder.assert_any_call(
+        root_folder, resolve_bin_layout.SOURCE_BIN)
     media_pool.ImportMedia.assert_called()
 
 def test_clip_placement_calculations(mock_resolve, sample_manifest):

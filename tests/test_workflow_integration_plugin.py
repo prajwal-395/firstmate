@@ -372,6 +372,7 @@ app.whenReady().then(() => {
                 "({beat: document.getElementById('heartbeat').textContent,"
                 + " timeline: document.querySelector('#playhead-table tbody')"
                 + "   ? document.querySelector('#playhead-table tbody').textContent : ''})");
+            seen.visible = w.isVisible();
             console.log('VEPTEST ' + JSON.stringify({errors, seen}));
         } catch (err) {
             console.log('VEPTEST ' + JSON.stringify({errors, error: String(err)}));
@@ -380,6 +381,24 @@ app.whenReady().then(() => {
     }, 6000);
 });
 """
+
+
+def test_fixture_mode_never_maps_a_visible_window():
+    """The guard: a fixture drive must not reach the captain's screen.
+
+    The page-load test below launches the REAL plugin through
+    Resolve's bundled Electron; if fixture mode ever mapped a visible
+    window again, every suite run would pop the panel onto the
+    desktop and steal focus. `main.js` keys `show` off the fixture
+    env var, and this pins that - statically, so it holds even on a
+    machine where the Electron test skips.
+    """
+    text = _text("main.js")
+    assert "show:" in text and "FIXTURE_PATH" in text, (
+        "main.js no longer gates window visibility off fixture mode")
+    assert "show: !FIXTURE_PATH" in text, (
+        "main.js maps its window unconditionally again - a fixture "
+        "drive would pop onto the desktop")
 
 
 @pytest.mark.skipif(
@@ -416,3 +435,8 @@ def test_the_page_loads_and_its_loop_runs(tmp_path):
         "loop never ran: %r" % beat)
     # The recording's own timeline reached the page.
     assert "Pipeline_Edit_2" in report["seen"]["timeline"]
+    # And no window ever mapped: a fixture drive that pops onto the
+    # desktop steals the captain's focus (see
+    # test_fixture_mode_never_maps_a_visible_window above).
+    assert report["seen"]["visible"] is False, (
+        "the fixture drive mapped a visible window")

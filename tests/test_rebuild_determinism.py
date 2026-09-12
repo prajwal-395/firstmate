@@ -217,7 +217,8 @@ def test_effect_comp_is_byte_identical_across_builds():
 
     effects = {"zoom_start": 1.0, "zoom_end": 1.08,
                "source_in_frame": 100, "source_out_frame": 400,
-               "vignette": True}
+               "vignette": True, "vignette_soft": 0.35,
+               "vignette_blend": 0.25}
     first = build_effect_comp(dict(effects), 500,
                               source_res=(1080, 1920), played_frames=383)
     second = build_effect_comp(dict(effects), 500,

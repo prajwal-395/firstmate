@@ -133,6 +133,14 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/subject_framing.py",
         # Span extraction feeding region re-measurement.
         "library/tools/timeline_transcript.py",
+        # Imported by timeline_transcript: project words bias the
+        # transcription and surviving corrections are applied at the
+        # transcript root, so a fix here changes the cached segments.
+        "library/tools/transcript_corrections.py",
+        # Imported by transcript_corrections: surviving corrections are
+        # recorded as learnings, so a fix here changes what the cached
+        # transcript carries. (Its own imports are exempt plumbing.)
+        "library/tools/learned_context.py",
         # The confidence vocabulary carried in the cached segments
         # (avg_logprob): the transcription path keys its numbers here.
         "library/tools/transcript_confidence.py",

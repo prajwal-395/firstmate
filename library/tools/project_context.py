@@ -98,8 +98,15 @@ def scan_context(project_folder: str) -> list:
     `markdown`, `text`, `image`, `other`. Dotfiles and directories are
     skipped - the folder is the captain's desk, not an archive, and a
     `.DS_Store` is not context. Missing folder reads as no files, the
-    way a project with no `music/` simply has no music.
+    way a project with no `music/` simply has no music. An EMPTY
+    project folder reads the same way: `gather_step_inputs` promises
+    the context is a stated absence with no missing-file case to raise
+    on, and `ProjectLayout` deliberately refuses an empty folder - so
+    the refusal is checked HERE, before the layout is ever asked, and
+    the map states the absence instead of raising it.
     """
+    if not project_folder or not str(project_folder).strip():
+        return []
     base = context_dir(project_folder)
     found = []
     if not os.path.isdir(base):

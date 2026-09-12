@@ -54,6 +54,8 @@ import os
 import re
 import sys
 
+from library.tools.project_layout import Area
+
 #: Checks this module declines, with what would be needed. A check
 #: that cannot read real state is worse than no check (AGENTS.md
 #: 10.4), so these name their missing reader instead of guessing.
@@ -142,8 +144,13 @@ def check_wording(project_folder: str, corrections: list) -> list:
     """Every `heard` form surviving in source or regenerated displays."""
     divergences = []
     roots = []
-    for sub in ("pipeline_output", "subtitle_plans", "subtitle_overlays",
-                "transcripts", "external", "compositions"):
+    # Captain-side subtitle directories are named by their owner, never
+    # spelled here: they are INPUT the layout reconciles, and a second
+    # spelling is a second writer the day either is renamed
+    # (tests/test_project_layout.py).
+    for sub in ("pipeline_output", Area.SUBTITLE_PLANS.value,
+                Area.SUBTITLE_OVERLAYS.value, "transcripts", "external",
+                "compositions"):
         candidate = os.path.join(str(project_folder), sub)
         if os.path.isdir(candidate):
             roots.append(candidate)
