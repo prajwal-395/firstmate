@@ -7395,3 +7395,45 @@ never evidence that something is there, and that is the precise step at
 which this claim was made.
 
 Detecting staleness is in scope; deciding to rebuild is the captain's.
+
+## Section 15 - the captain's notes
+
+### the-probe-that-missed-the-clip-markers
+
+The captain, after firstmate missed three of their markers: *"why have
+a script that does not check everything when you looked yourself and
+found what you needed? either we need a better script that actually
+covers everything to be able to offload that part of the process of
+the LLM so it ca just call the script and get everything it needs or
+to forego a tool that actually misleads us"*.
+
+The pipeline's marker reader was not the problem.
+`library/tools/marker_feedback.py` already reads timeline markers, clip
+markers and media-pool markers and would have found theirs. Firstmate
+wrote a weaker throwaway probe instead - `Timeline.GetMarkers()` only -
+trusted it, and reported a reel as having no markers when it had two.
+A probe reading the timeline level only misses every note the captain
+left on a clip, silently, with the reel still looking read.
+
+But the duplication was real, and it is why reaching for a probe was
+easier than finding the tool. Six overlapping ways to read one reel's
+state existed: `marker_feedback.read_notes` (all three marker levels),
+`marker_resolution` (clip markers, to clear them),
+`timeline_serializer` (clip markers, to dump state),
+`timeline_ingest.snapshot_timeline` (clips with ground-truth ranges),
+`reel_replace_guard.snapshot_timeline` (clips with spans - a second
+function of the same name), `resolve_project_sync` (project binding, no
+timeline content) - plus `capture_timeline.py` and
+`measure_overlay_draw_positions.py`, pipeline code living as run-on-import
+scripts. Nothing answered "tell me everything true about this reel
+right now" in one call.
+
+So the rule is one entry point, not a reminder to look harder:
+`library/tools/reel_read.py` answers the whole truth about a reel in a
+single call, the marker half IS `marker_feedback.read_notes` (called,
+not reimplemented), and every other reader is a slice of it. Of the two
+scripts, `capture_timeline.py` is a formatter over the one reader now;
+`measure_overlay_draw_positions.py` is DELETED - the sibling lane
+(PR 1005) removed the draw-gain constant it derived its answer from,
+which is also why the new reader measures ink from pixels and grades
+nothing (`tests/test_reel_read.py`).

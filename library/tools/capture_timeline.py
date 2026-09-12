@@ -1,14 +1,15 @@
 """READ-ONLY capture of a live Resolve timeline. Writes nothing to Resolve.
 
-Kept in the pipeline (moved out of a per-project captures/ drop zone):
-dumping a timeline's full item state is reusable diagnosis tooling for any
-Resolve timeline, and this script takes the timeline name and output path
-as arguments with no project constants baked in.
+A formatter over the one reader, `library.tools.reel_read`: the clips
+are enumerated ONCE there (`read_reel`, quick mode) and this script
+projects that reading into the long-standing capture envelope
+(`timeline_settings` + `tracks` + `track_counts`), which
+`project_data_guard` recognises. Do not add a fresh item loop here -
+take a slice of the reader.
 
 Run as:
 
     RESOLVE_SCRIPT_API=... RESOLVE_SCRIPT_LIB=... \
-      PYTHONPATH="$RESOLVE_SCRIPT_API/Modules" \
       python3 -m library.tools.capture_timeline "<timeline name>" out.json
 """
 import json
@@ -21,11 +22,14 @@ if os.environ.get("REPO"):
     sys.path.insert(0, os.environ["REPO"])
 elif str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
-import DaVinciResolveScript as dvr
+
 from library.tools.resolve_locale import scriptapp_preserving_locale
+from library.tools import reel_read
 
 TARGET = sys.argv[1]
 OUT = sys.argv[2]
+
+import DaVinciResolveScript as dvr
 
 r = scriptapp_preserving_locale(dvr, "Resolve")
 pm = r.GetProjectManager()
@@ -40,11 +44,19 @@ for i in range(1, p.GetTimelineCount() + 1):
 if tl is None:
     raise SystemExit("timeline not found: %r" % TARGET)
 
+
 def safe(fn, *a):
     try:
         return fn(*a)
     except Exception as e:
         return "<error: %s>" % e
+
+
+# The one read. Everything below is a projection of `result`, except the
+# envelope extras Resolve reports about itself (product/version,
+# settings, subtitle rows) which are not clips or markers.
+result = reel_read.read_reel(tl, p.GetName(), mode=reel_read.QUICK)
+by_track = {(t["type"], t["index"]): t for t in result["tracks"]}
 
 PROPS = [
     "Pan", "Tilt", "ZoomX", "ZoomY", "ZoomGang", "RotationAngle",
@@ -87,45 +99,51 @@ for tt in ("video", "audio", "subtitle"):
             "locked": safe(tl.GetIsTrackLocked, tt, idx),
             "items": [],
         }
-        items = safe(tl.GetItemListInTrack, tt, idx) or []
-        if isinstance(items, str):
-            items = []
-        for it in items:
-            mpi = safe(it.GetMediaPoolItem)
-            rec = {
-                "name": safe(it.GetName),
-                "unique_id": safe(it.GetUniqueId),
-                "record_start_frame": safe(it.GetStart),
-                "record_end_frame": safe(it.GetEnd),
-                "duration_frames": safe(it.GetDuration),
-                "source_left_offset": safe(it.GetLeftOffset),
-                "source_right_offset": safe(it.GetRightOffset),
-                "properties": {},
-                "markers": safe(it.GetMarkers),
-                "flags": safe(it.GetFlagList),
-                "color": safe(it.GetClipColor),
-                "fusion_comp_count": safe(it.GetFusionCompCount),
-                "fusion_comp_names": safe(it.GetFusionCompNameList),
-                "media_pool_item": None,
-            }
-            allprops = safe(it.GetProperty)
-            if isinstance(allprops, dict):
-                rec["properties_all"] = {k: v for k, v in allprops.items()}
-            for pk in PROPS:
-                rec["properties"][pk] = safe(it.GetProperty, pk)
-            if mpi and not isinstance(mpi, str):
-                rec["media_pool_item"] = {
-                    "name": safe(mpi.GetName),
-                    "file_path": safe(mpi.GetClipProperty, "File Path"),
-                    "resolution": safe(mpi.GetClipProperty, "Resolution"),
-                    "fps": safe(mpi.GetClipProperty, "FPS"),
-                    "duration": safe(mpi.GetClipProperty, "Duration"),
-                    "start": safe(mpi.GetClipProperty, "Start"),
-                    "end": safe(mpi.GetClipProperty, "End"),
-                    "type": safe(mpi.GetClipProperty, "Type"),
-                    "unique_id": safe(mpi.GetUniqueId),
+        known = by_track.get((tt, idx))
+        if known is not None:
+            for clip in known["clips"]:
+                props = dict(clip["transform"])
+                rec = {
+                    "name": clip["name"],
+                    "unique_id": clip["unique_id"],
+                    "record_start_frame": clip["record_in"],
+                    "record_end_frame": clip["record_out"],
+                    "duration_frames": clip["duration"],
+                    "source_left_offset": clip["left_offset"],
+                    "source_right_offset": clip["right_offset"],
+                    "properties": {pk: props.get(pk) for pk in PROPS},
+                    "properties_all": props,
+                    "markers": {
+                        m["frame"]: {
+                            "color": m["color"], "name": m["name"],
+                            "note": m["note"], "duration": m["duration"],
+                            "customData": m["custom_data"],
+                        }
+                        for m in clip["markers"]
+                    },
+                    "flags": list(clip.get("flags") or []),
+                    "color": clip["clip_color"],
+                    "fusion_comp_count": clip["fusion"]["comp_count"],
+                    "fusion_comp_names": clip["fusion"]["comp_names"],
+                    "media_pool_item": {
+                        "name": clip["name"],
+                        "file_path": clip["source_file"],
+                        "unique_id": clip["media_pool_item_id"],
+                    },
                 }
-            track["items"].append(rec)
+                track["items"].append(rec)
+        else:
+            # Subtitle rows: not clips, not markers - outside the one
+            # reader's scope, read live as before.
+            items = safe(tl.GetItemListInTrack, tt, idx) or []
+            if isinstance(items, str):
+                items = []
+            for it in items:
+                track["items"].append({
+                    "name": safe(it.GetName),
+                    "record_start_frame": safe(it.GetStart),
+                    "record_end_frame": safe(it.GetEnd),
+                })
         doc["tracks"].append(track)
 
 with open(OUT, "w", encoding="utf-8") as f:

@@ -734,10 +734,12 @@ One enumeration, `library/tools/timed_text_overlay.py`.
 **inside DaVinci Resolve**
 Detail: `library/tools/marker_feedback.py`.
 
+**To read a reel, call `library/tools/reel_read.py` - never a new probe.** [why](docs/RULE_EVIDENCE.md#the-probe-that-missed-the-clip-markers)
+
 ### Where a note goes
 
-**A collected note is routed to the step that owns the decision it is about, and an
-ambiguous one is reported as ambiguous rather than sent somewhere.**
+**A collected note is routed to the step that owns its decision; an
+ambiguous one is reported, not sent somewhere.**
 Detail: `library/tools/marker_routing.py`.
 
 ### What decided the clip the note is on
@@ -748,13 +750,13 @@ Detail: `library/tools/timeline_decisions.py`.
 
 ### The panel beside the timeline
 
-**The pipeline is readable from inside Resolve, and the panel's whole reason to exist is that it knows where the PLAYHEAD is.**
-Detail: `library/tools/panel/__init__.py`. [why](docs/RULE_EVIDENCE.md#the-panel-handed-the-model-a-filename)
+**The panel's whole reason to exist is that it knows where the PLAYHEAD is.**
+`library/tools/panel/__init__.py`. [why](docs/RULE_EVIDENCE.md#the-panel-handed-the-model-a-filename)
 
 ### What Resolve's script host does not give an entry point
 
-**`__file__` IS NOT DEFINED there, and an entry point verified by running it as a FILE has not been verified.**
-Detail: `tests/test_resolve_scripts_bootstrap.py`. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
+**`__file__` IS NOT DEFINED in Resolve's script host; verify an entry point from inside it, not as a file.**
+`tests/test_resolve_scripts_bootstrap.py`. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
 
 ### The plugin inside Resolve's own window
 
@@ -771,7 +773,7 @@ Detail: `library/tools/marker_capture.py`.
 
 ### What goes in `customData`
 
-One enumeration, `library/tools/marker_payload.py`: a versioned ENVELOPE carrying self-describing records.
+One enumeration, `library/tools/marker_payload.py`.
 
 ## 16. Motion graphics
 

@@ -124,7 +124,16 @@ def serialize_timeline_state(
             "custom_data": marker.get("customData", "")
         })
 
-    # Tracks and Clips
+    # Tracks and Clips.
+    #
+    # The per-item detail is read ONCE, in `reel_read.clip_detail` - the
+    # one place a clip is enumerated. What follows is that reading
+    # projected into this serializer's long-standing output shape, which
+    # stays byte-identical so `.timeline.json` diffs keep working. A
+    # caller that needs clips takes a slice of `reel_read.read_reel`
+    # instead of copying this loop.
+    from library.tools.reel_read import clip_detail
+
     for track_type in ["video", "audio"]:
         track_count = timeline.GetTrackCount(track_type)
         for t in range(1, track_count + 1):
@@ -139,38 +148,25 @@ def serialize_timeline_state(
             
             items = timeline.GetItemListInTrack(track_type, t) or []
             for item in items:
-                mpi = item.GetMediaPoolItem()
-                
+                detail = clip_detail(item, track_type, t, track_name)
+                properties = detail["transform"]
+
                 clip_data = {
-                    "unique_id": item.GetUniqueId(),
-                    "name": item.GetName(),
-                    "record_in": item.GetStart(),
-                    "record_out": item.GetEnd(),
-                    "duration": item.GetDuration(),
-                    "source_in": item.GetSourceStartFrame(),
-                    "source_out": item.GetSourceEndFrame(),
-                    "left_offset": item.GetLeftOffset(),
-                    "right_offset": item.GetRightOffset(),
-                    "enabled": True,  # Item enabled state not directly in GetProperty sometimes, but we'll try
-                    "clip_color": item.GetClipColor() or "",
+                    "unique_id": detail["unique_id"],
+                    "name": detail["name"],
+                    "record_in": detail["record_in"],
+                    "record_out": detail["record_out"],
+                    "duration": detail["duration"],
+                    "source_in": detail["source_in_frame"],
+                    "source_out": detail["source_out_frame"],
+                    "left_offset": detail["left_offset"],
+                    "right_offset": detail["right_offset"],
+                    "enabled": detail["enabled"],
+                    "clip_color": detail["clip_color"],
+                    "media_pool_item_id": detail["media_pool_item_id"],
+                    "file_path": detail["source_file"],
                 }
-                
-                if mpi:
-                    clip_data["media_pool_item_id"] = mpi.GetMediaId()
-                    clip_data["file_path"] = mpi.GetClipProperty("Clip Path") or mpi.GetClipProperty("File Path") or ""
-                else:
-                    clip_data["media_pool_item_id"] = ""
-                    clip_data["file_path"] = ""
 
-                # Try getting clip enabled state
-                try:
-                    clip_data["enabled"] = item.GetClipEnabled()
-                except Exception:
-                    pass
-
-                # Properties
-                properties = item.GetProperty() or {}
-                
                 # Transform
                 clip_data["transform"] = {
                     "Pan": properties.get("Pan", 0.0),
@@ -185,7 +181,7 @@ def serialize_timeline_state(
                     "FlipX": properties.get("FlipX", False),
                     "FlipY": properties.get("FlipY", False),
                 }
-                
+
                 # Crop
                 clip_data["crop"] = {
                     "CropLeft": properties.get("CropLeft", 0.0),
@@ -194,20 +190,20 @@ def serialize_timeline_state(
                     "CropBottom": properties.get("CropBottom", 0.0),
                     "CropSoftness": properties.get("CropSoftness", 0.0),
                 }
-                
+
                 # Composite
                 clip_data["composite"] = {
                     "Opacity": properties.get("Opacity", 100.0),
                     "CompositeMode": properties.get("CompositeMode", "Normal"),
                 }
-                
+
                 # Retime (mocking/extracting if available)
                 clip_data["retime"] = {
                     "process": properties.get("RetimeProcess", ""),
                     "motion_estimation": properties.get("MotionEstimation", ""),
                     "speed_ratio": properties.get("Speed", 1.0),
                 }
-                
+
                 # Audio
                 if track_type == "audio":
                     clip_data["audio"] = {
@@ -215,50 +211,30 @@ def serialize_timeline_state(
                         "Pan": properties.get("Pan", 0.0),
                         "AudioSyncOffset": properties.get("AudioSyncOffset", 0),
                     }
-                
-                # Color
-                cdl = {}
-                try:
-                    cdl_res = item.GetCDL()
-                    if cdl_res:
-                        cdl = dict(cdl_res)
-                except Exception:
-                    pass
-                    
-                color_group = ""
-                try:
-                    color_group = item.GetColorGroup() or ""
-                except Exception:
-                    pass
 
                 clip_data["color"] = {
-                    "cdl": cdl,
-                    "color_group_name": color_group,
+                    "cdl": detail["color"]["cdl"],
+                    "color_group_name": detail["color"]["color_group"],
                     "grade_version_names": [],
                 }
-                
-                # Fusion
-                try:
-                    clip_data["fusion"] = {
-                        "comp_count": item.GetFusionCompCount() or 0,
-                        "comp_names": item.GetFusionCompNameList() or [],
-                    }
-                except Exception:
-                    clip_data["fusion"] = {"comp_count": 0, "comp_names": []}
-                
+
+                clip_data["fusion"] = {
+                    "comp_count": detail["fusion"]["comp_count"],
+                    "comp_names": detail["fusion"]["comp_names"],
+                }
+
                 # Markers
-                clip_markers = item.GetMarkers() or {}
                 clip_data["markers"] = []
-                for frame, marker in clip_markers.items():
+                for marker in detail["markers"]:
                     clip_data["markers"].append({
-                        "frame": frame,
-                        "color": marker.get("color", ""),
-                        "name": marker.get("name", ""),
-                        "note": marker.get("note", ""),
-                        "duration": marker.get("duration", 0),
-                        "custom_data": marker.get("customData", "")
+                        "frame": marker["frame"],
+                        "color": marker["color"],
+                        "name": marker["name"],
+                        "note": marker["note"],
+                        "duration": marker["duration"],
+                        "custom_data": marker["custom_data"],
                     })
-                    
+
                 track_data["clips"].append(clip_data)
                 
             state["tracks"].append(track_data)

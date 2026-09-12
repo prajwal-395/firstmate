@@ -37,7 +37,7 @@ and the count trigger read the merge as content lost. A count drop
 with the frames kept or grown is a merge, not a deletion, PROVIDED
 every retired item's name still plays on the incoming row: names are
 the source-coverage proxy this snapshot carries (name plus span is
-already the diff's whole identity - `_item_identity` - and reel rows
+already the diff's whole identity - `reel_read.rows_of` - and reel rows
 carry source names, so two halves of one source share one name while
 a dropped cover like `LC4932 cover` has one nothing else carries).
 
@@ -85,8 +85,6 @@ that reel - there is nothing being replaced.
 from __future__ import annotations
 
 
-MEDIA_TYPES = ("video", "audio")
-
 #: How many missing items a refusal names inline per row. The report the
 #: promote result carries names every one; the message stays readable.
 MISSING_SHOWN = 5
@@ -105,62 +103,39 @@ def row_key(media_type: str, track_name: str) -> str:
     return f"{media_type}:{track_name}"
 
 
-def _item_identity(item) -> dict:
-    """What an item IS for the diff: its name and its record span.
-
-    Unique ids are useless across timelines - the staging's items are
-    different objects by construction - so identity is name plus span.
-    """
-    try:
-        name = item.GetName()
-        start = item.GetStart()
-        end = item.GetEnd()
-        duration = item.GetDuration()
-    except Exception as unreadable:
-        raise ReplaceGuardUnreadable(
-            f"a timeline item could not be read ({unreadable}); refusing "
-            f"rather than diffing half a row.") from unreadable
-    return {"name": name, "start": start, "end": end,
-            "duration": duration}
-
-
 def snapshot_timeline(timeline, timeline_name: str,
-                      side: str = "retiring") -> dict:
+                       side: str = "retiring") -> dict:
     """Every row of a live timeline: its items and their spans.
+
+    A slice of the one enumeration: the items are read once, in
+    `reel_read.read_tracks`, and this is the row projection of it. It is
+    deliberately NOT the full `read_reel` - the guard's diff reads rows
+    only, and a guard that refuses because markers or settings would not
+    answer is a guard refusing over what it never looks at. The second
+    function of this name (`timeline_ingest.snapshot_timeline`) is the
+    ground-truth producer for external inputs, not a rival: one takes a
+    slice, the other feeds the pipeline.
 
     Raises `ReplaceGuardUnreadable` on ANY read failure - a half-read
     timeline must refuse, never pass on the rows that happened to read.
     `side` names which half of the comparison this is (`"retiring"` or
     `"staged"`), so the refusal says what could not be seen.
     """
-    rows = {}
+    from library.tools import reel_read
+
     try:
-        for media_type in MEDIA_TYPES:
-            count = timeline.GetTrackCount(media_type) or 0
-            for index in range(1, count + 1):
-                name = timeline.GetTrackName(media_type, index) or ""
-                if not name:
-                    name = f"#{index}"
-                key = row_key(media_type, name)
-                items = timeline.GetItemListInTrack(media_type, index) or []
-                identities = [_item_identity(item) for item in items]
-                rows[key] = {
-                    "media_type": media_type,
-                    "index": index,
-                    "name": name,
-                    "items": identities,
-                    "count": len(identities),
-                    "frames": sum(
-                        (entry["duration"] or 0) for entry in identities),
-                }
-    except ReplaceGuardUnreadable:
-        raise
+        tracks = reel_read.read_tracks(timeline)
+        return reel_read.rows_of({"tracks": tracks})
+    except reel_read.ReelReadError as unreadable:
+        raise ReplaceGuardUnreadable(
+            f"the {side} timeline {timeline_name!r} could not be read "
+            f"({unreadable}); the replace guard refuses rather than "
+            f"promoting over what it cannot see.") from unreadable
     except Exception as unreadable:
         raise ReplaceGuardUnreadable(
             f"the {side} timeline {timeline_name!r} could not be read "
             f"({unreadable}); the replace guard refuses rather than "
             f"promoting over what it cannot see.") from unreadable
-    return rows
 
 
 def _span(entry: dict) -> str:
