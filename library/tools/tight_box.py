@@ -944,3 +944,59 @@ def verify_movs(full_mov: str, tight_mov: str, box: TightBox,
         box,
     )
 
+
+def crop_probe_to_tight(probe_mov: str, overlay_path: str,
+                        box: TightBox) -> tuple[int, int]:
+    """Crop the probe render to the tight canvas, as ProRes 4444 with alpha.
+
+    The tight output IS the probe crop - by construction, not by a second
+    render - so the re-render rasterization difference that failed the
+    verify gate as `max channel diff 5` on 90 historical cards cannot
+    occur: the only generation loss is one ProRes encode (measured 3 on
+    real cards, inside the gate's 4). The crop origin is
+    `canvas_offset`, the inverse of the placement the box ships, so the
+    file and the Resolve transform agree on one origin by construction.
+
+    The probe's audio (Remotion's silent track) is copied through
+    untouched; the video rate is the probe's own (no `-r`: no fps
+    conversion). Raises `TightBoxMismatch` where ffmpeg cannot deliver -
+    an undecodable probe, an out-of-frame origin, a failed encode: the
+    caller carries the card full canvas instead, with zero additional
+    renders. A crop that cannot be cut is refused, never approximated.
+    """
+    import os
+    import subprocess
+
+    ox, oy = canvas_offset(box)
+    if ox < 0 or oy < 0 \
+            or ox + box.width > box.full_width \
+            or oy + box.height > box.full_height:
+        raise TightBoxMismatch(
+            f"crop of a {box.width}x{box.height} canvas at ({ox},{oy}) "
+            f"leaves a {box.full_width}x{box.full_height} probe: the "
+            f"measured layout is unplaceable, so there is no tight "
+            f"carrying of it.")
+    try:
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-i", probe_mov,
+             "-vf", f"crop={box.width}:{box.height}:{ox}:{oy}",
+             "-c:v", "prores_ks", "-profile:v", "4444",
+             "-pix_fmt", "yuva444p10le",
+             "-c:a", "copy",
+             overlay_path],
+            capture_output=True, text=True, encoding="utf-8", timeout=600,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TightBoxMismatch(
+            f"cannot crop probe {probe_mov}: {exc}") from exc
+    if result.returncode != 0:
+        raise TightBoxMismatch(
+            f"cannot crop probe {probe_mov}: "
+            f"{(result.stderr or '').strip()[-300:]}")
+    if not os.path.isfile(overlay_path):
+        raise TightBoxMismatch(
+            f"crop of probe {probe_mov} reported success but "
+            f"{overlay_path} is not on disk")
+    return ox, oy
+

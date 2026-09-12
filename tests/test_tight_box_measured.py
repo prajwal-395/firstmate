@@ -27,6 +27,8 @@ from library.tools.tight_box import (
     TightBoxClipsInk,
     TightBoxMismatch,
     canvas_offset,
+    crop_probe_to_tight,
+    extract_frames,
     finalize_box_placement,
     ink_union_of_frames,
     placement_holds,
@@ -339,6 +341,81 @@ def test_verify_fails_frame_count_mismatch(tmp_path):
     box = tighten_measured(_props(), union)
     with pytest.raises(TightBoxMismatch, match="frame count"):
         verify_frames(full, full[:1], box)
+
+
+def _mov_from_frames(frame_paths, dest, fps=30):
+    """One ProRes 4444 mov from decoded frames, the crop's honest input."""
+    import subprocess
+    listing = os.path.join(os.path.dirname(dest), "inputs.txt")
+    with open(listing, "w") as handle:
+        handle.write("".join(f"file '{path}'\n" for path in frame_paths))
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0",
+         "-i", listing, "-r", str(fps),
+         "-c:v", "prores_ks", "-profile:v", "4444",
+         "-pix_fmt", "yuva444p10le", dest],
+        check=True,
+    )
+    return dest
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_crop_cuts_the_probe_at_the_placement_origin(tmp_path):
+    """The crop helper cuts exactly what the placement ships: decoded
+    crop frames pasted at `canvas_offset` reproduce the probe, inside
+    the gate - and the file carries the box's own dimensions."""
+    from PIL import Image
+    full = _frames(tmp_path, "full", (FULL_W, FULL_H),
+                   [[(100, 1510, 300, 1570)],
+                    [(120, 1490, 320, 1570)]])
+    union = ink_union_of_frames(full)
+    box = tighten_measured(_props(), union)
+    probe_mov = _mov_from_frames(
+        full, os.path.join(str(tmp_path), "probe.mov"))
+    out_mov = os.path.join(str(tmp_path), "tight.mov")
+    ox, oy = crop_probe_to_tight(probe_mov, out_mov, box)
+    assert (ox, oy) == canvas_offset(box)
+    report = verify_frames(
+        full, extract_frames(out_mov, os.path.join(str(tmp_path), "dec")),
+        box)
+    assert report["max_diff"] <= 4
+    assert report["min_iou"] >= 0.99
+    with Image.open(os.path.join(
+            str(tmp_path), "dec",
+            min(os.listdir(os.path.join(str(tmp_path), "dec")))
+            )) as im:
+        assert im.size == (box.width, box.height)
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_crop_refuses_an_undecodable_probe(tmp_path):
+    full = _frames(tmp_path, "full", (FULL_W, FULL_H),
+                   [[(100, 1500, 300, 1560)]])
+    union = ink_union_of_frames(full)
+    box = tighten_measured(_props(), union)
+    bad = os.path.join(str(tmp_path), "bad.mov")
+    with open(bad, "wb") as handle:
+        handle.write(b"not a movie")
+    with pytest.raises(TightBoxMismatch, match="cannot crop probe"):
+        crop_probe_to_tight(bad, os.path.join(str(tmp_path), "out.mov"),
+                            box)
+
+
+def test_crop_refuses_an_out_of_frame_origin(tmp_path):
+    """A box the frame cannot hold is refused before ffmpeg runs -
+    never approximated, and the caller carries full canvas instead."""
+    import dataclasses
+    full = _frames(tmp_path, "full", (FULL_W, FULL_H),
+                   [[(100, 1500, 300, 1560)]])
+    union = ink_union_of_frames(full)
+    box = tighten_measured(_props(), union)
+    off_frame = dataclasses.replace(
+        box, placement={"scaling": 1, "pan": -20000.0, "tilt": 0.0})
+    assert canvas_offset(off_frame)[0] < 0
+    with pytest.raises(TightBoxMismatch, match="leaves a"):
+        crop_probe_to_tight(
+            os.path.join(str(tmp_path), "probe.mov"),
+            os.path.join(str(tmp_path), "out.mov"), off_frame)
 
 
 def test_placement_holds_names_the_clamped_axis():

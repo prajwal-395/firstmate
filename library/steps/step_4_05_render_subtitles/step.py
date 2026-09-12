@@ -114,6 +114,11 @@ MAX_RENDER_FAILURE_RATE = 0.1
 # `frame-00.png` … `frame-46.png` naming, 2026-09-08.
 FRAME_PATTERN = "frame-[frame].png"
 
+# The full-canvas probe file inside the probe temp dir. Named once, so
+# the measurer and the crop/fallback copier cannot disagree about which
+# file the tight output is cut from.
+PROBE_MOV_NAME = "probe.mov"
+
 
 class SubtitleRenderRefused(Exception):
     """The step cannot deliver overlays, and says so carrying its payload.
@@ -274,11 +279,14 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
                      remotion_dir: str, container: str, progress: str):
     """Measure this segment's box off a decoded probe render.
 
-    Returns `(box_or_None, probe_tmpdir, probe_frames, union_or_None)`:
-    None where the probe draws nothing (the caller keeps the
-    full-canvas path), else the measured `TightBox` with the frames it
-    was measured from. The caller owns `probe_tmpdir` - render, verify,
-    then delete it. Raises `_TightFailed` where no exact box exists.
+    Returns `(box_or_None, probe_tmpdir, probe_frames, union_or_None,
+    probe_mov_or_None)`: None where the probe draws nothing (the caller
+    keeps the full-canvas path), else the measured `TightBox` with the
+    frames it was measured from. `probe_mov_or_None` is the full-canvas
+    probe file itself where the container is video - the crop source,
+    and the full-canvas fallback without a re-render. The caller owns
+    `probe_tmpdir` - crop or copy, verify, then delete it. Raises
+    `_TightFailed` where no exact box exists.
     """
     import shutil
     import tempfile
@@ -296,6 +304,7 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
 
     probe_tmpdir = tempfile.mkdtemp(prefix="probe_", dir=out_dir)
     try:
+        probe_mov_path = None
         if container == "frames":
             probe_props_path = os.path.join(probe_tmpdir,
                                             "probe_props.json")
@@ -312,7 +321,7 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
                 raise _TightFailed(
                     "probe render reported success but holds no frames")
         else:
-            probe_mov_path = os.path.join(probe_tmpdir, "probe.mov")
+            probe_mov_path = os.path.join(probe_tmpdir, PROBE_MOV_NAME)
             probe_props_path = os.path.join(probe_tmpdir,
                                             "probe_props.json")
             with open(probe_props_path, "w") as handle:
@@ -339,7 +348,7 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
         if union is None:
             print(f"  {progress} probe draws nothing - full canvas",
                   file=sys.stderr)
-            return None, probe_tmpdir, probe_frames, None
+            return None, probe_tmpdir, probe_frames, None, probe_mov_path
         try:
             box = tighten_measured(props, union)
         except (TightBoxClipsInk, ValueError) as exc:
@@ -347,7 +356,7 @@ def _probe_tight_box(props: dict, out_dir: str, engine,
         print(f"  {progress} measured {box.width}x{box.height} "
               f"(full {box.full_width}x{box.full_height}, "
               f"{union.inked_frames} inked frames)", file=sys.stderr)
-        return box, probe_tmpdir, probe_frames, union
+        return box, probe_tmpdir, probe_frames, union, probe_mov_path
     except Exception:
         shutil.rmtree(probe_tmpdir, ignore_errors=True)
         raise
@@ -1026,18 +1035,22 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     #
     # The box is MEASURED off a decoded probe render, never predicted.
     # The probe is a full-canvas render to a temp dir, the union across
-    # its frames sizes the canvas, and the tight output is verified
-    # against the probe after rendering. Temp dir is owned here and
-    # deleted once the segment is kept or refused.
+    # its frames sizes the canvas, and the tight output is a CROP of
+    # that probe - verified against it after cutting, never re-rendered
+    # (the re-render's rasterization difference failed verify as `max
+    # channel diff 5` on 90 historical cards; the crop's one ProRes
+    # generation measures 3, inside the gate). Temp dir is owned here
+    # and deleted once the segment is kept or refused.
     probe_tmpdir = None
     probe_frames = None
     probe_union = None
+    probe_mov_path = None
     if geometry == "tight":
         probe_engine = renderer or _default_unit_engine(
             remotion_dir, container)
         try:
-            tight, probe_tmpdir, probe_frames, probe_union = \
-                _probe_tight_box(
+            tight, probe_tmpdir, probe_frames, probe_union, \
+                probe_mov_path = _probe_tight_box(
                     props, out_dir, probe_engine, remotion_dir,
                     container, progress)
         except _TightFailed as exc:
@@ -1059,13 +1072,16 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         else:
             render_props = tight.props
 
-    # Write props file
-    with open(props_path, "w") as f:
-        json.dump(render_props, f, indent=2)
+    # Write props file - except on the tight VIDEO path, which writes
+    # its own (tight, then full on fallback) inside the crop block
+    # below rather than printing one progress line twice.
+    if tight is None or is_frames:
+        with open(props_path, "w") as f:
+            json.dump(render_props, f, indent=2)
 
-    print(f"  {progress} {segment_name}{suffix} "
-          f"({num_subs} subs, {total_frames}f, "
-          f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
+        print(f"  {progress} {segment_name}{suffix} "
+              f"({num_subs} subs, {total_frames}f, "
+              f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
 
     import shutil as _shutil_probe
 
@@ -1073,34 +1089,131 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
         if probe_tmpdir:
             _shutil_probe.rmtree(probe_tmpdir, ignore_errors=True)
 
+    # True once the output file is final without any engine render -
+    # the probe copy a refused tight crop falls back to. The render
+    # below is skipped then: re-rendering over the copy would restore
+    # the exact third render this path exists to delete.
+    output_ready = False
+    if tight is not None and not is_frames:
+        # ── Crop instead of re-render ──
+        #
+        # The tight output IS the probe crop, cut with ffmpeg and
+        # verified against the probe with the same gate - no second
+        # Remotion render. The re-render it replaces failed verify as
+        # `max channel diff 5` on 90 historical cards over a systematic
+        # one-step rasterization difference; the crop's one ProRes
+        # generation measures 3, inside the gate. The frame-sequence
+        # container keeps the re-render path below: a sequence has no
+        # single file to crop.
+        #
+        # What changes on a refusal is what happens NEXT: the segment
+        # falls back to full canvas by COPYING the probe - which already
+        # is a full-canvas render of these exact props - under the
+        # full-geometry content name. No render runs anywhere on this
+        # path: one fresh tight card costs one probe render, and a
+        # refused one costs the same one. The run still SAYS which card
+        # lost its tight carriage and why. Nothing here widens
+        # `verify_frames` - its tolerances are untouched and its verdict
+        # is still final for the tight output.
+        from library.tools.tight_box import (
+            TightBoxMismatch,
+            crop_probe_to_tight,
+            extract_frames,
+            finalize_box_placement,
+            ink_union_of_frames,
+            verify_frames,
+        )
+        # The props file describes the tight canvas - the geometry the
+        # output file carries - exactly as the re-render path wrote it.
+        with open(props_path, "w") as handle:
+            json.dump(render_props, handle, indent=2)
+        print(f"  {progress} {segment_name}{suffix} "
+              f"({num_subs} subs, {total_frames}f, "
+              f"tl:{tl_start:.1f}-{tl_end:.1f}s)", file=sys.stderr)
+        try:
+            crop_probe_to_tight(probe_mov_path, overlay_path, tight)
+            tight_frames = extract_frames(
+                overlay_path,
+                os.path.join(probe_tmpdir, "verify_tight"))
+            tight_union = ink_union_of_frames(tight_frames)
+            if tight_union is None:
+                raise TightBoxMismatch(
+                    "cropped file draws nothing the probe drew: "
+                    "no correspondence exists.")
+            timeline_size = tuple(resolve_delivery_format(
+                project_folder or None))
+            tight = finalize_box_placement(tight, probe_union,
+                                           tight_union, timeline_size)
+            report = verify_frames(probe_frames, tight_frames, tight)
+        except TightBoxMismatch as exc:
+            print(f"    WARN: Tight crop mismatch, carrying this card "
+                  f"FULL CANVAS instead (no re-render - the probe is "
+                  f"already this card full canvas): {str(exc)[:300]}",
+                  file=sys.stderr)
+            try:
+                if os.path.isfile(overlay_path):
+                    os.remove(overlay_path)
+                for stale in (props_path, key_path):
+                    if os.path.isfile(stale):
+                        os.remove(stale)
+            except OSError:
+                pass
+            tight = None
+            tight_fallback = str(exc)[:500].strip() or "tight crop mismatch"
+            geometry = "full"
+            render_props = props
+            (segment_name, overlay_path, props_path,
+             key_path) = _content_paths(geometry)
+            key = _reuse_key(props, remotion_dir, geometry, container)
+            with open(props_path, "w") as handle:
+                json.dump(render_props, handle, indent=2)
+            _shutil_probe.copy2(probe_mov_path, overlay_path)
+            if not os.path.isfile(overlay_path):
+                _drop_probe()
+                return entry(FAILED, failure=(
+                    f"tight refused ({tight_fallback}) and the probe copy "
+                    f"for the full-canvas fallback is not on disk"))
+            output_ready = True
+
     # Render.  WHICH cards render and what comes back is this function's
     # business; HOW one card is turned into pixels is the renderer's, and
     # the two are deliberately separable - see `SubprocessRenderer`.
     # Without an explicit renderer the unit shares the process-wide
     # bundle-once engine (`_default_unit_engine`), so a caller rendering
     # card by card still pays one bundle, not one per card.
+    #
+    # The tight VIDEO path cropped above and skips the render call
+    # below: its output file is final (or the probe copy is, on
+    # fallback) and its verified-tight tail joins the shared tail
+    # further below. What renders here is full geometry, the
+    # draws-nothing fallback, and the frame-sequence container (which
+    # keeps its re-render: a sequence has no single file to crop).
     engine = renderer or _default_unit_engine(remotion_dir, container)
-    ok, error = engine.render(props_path, overlay_path,
-                              sequence=is_frames)
-    if not ok:
-        _drop_probe()
-        print(f"    WARN: Render failed: {error[:200]}", file=sys.stderr)
-        return entry(FAILED, failure=error[:500].strip() or "render failed")
+    if not output_ready and (tight is None or is_frames):
+        ok, error = engine.render(props_path, overlay_path,
+                                  sequence=is_frames)
+        if not ok:
+            _drop_probe()
+            print(f"    WARN: Render failed: {error[:200]}",
+                  file=sys.stderr)
+            return entry(FAILED,
+                         failure=error[:500].strip() or "render failed")
     if is_frames and not _frames_on_disk():
         _drop_probe()
         print(f"    WARN: Render reported success but {overlay_path} "
               f"holds no complete sequence", file=sys.stderr)
         return entry(FAILED, failure="sequence incomplete on disk")
-    if tight is not None:
-        # The gate: the tight output IS the probe crop, or the
-        # segment is refused the tight carrying. Placement is read off
-        # the two renders, then proven frame by frame. What changes on
-        # a refusal is what happens NEXT: the segment falls back to
-        # full canvas under the full-geometry content name, the tight
-        # file is discarded, and the run SAYS which card lost its tight
-        # carriage and why. Nothing here widens `verify_frames` - its
-        # tolerances are untouched and its verdict is still final for
-        # the tight output.
+    if tight is not None and is_frames:
+        # The gate, frames-carrying half: the re-rendered tight output
+        # IS the probe crop, or the segment is refused the tight
+        # carrying. Placement is read off the two renders, then proven
+        # frame by frame. What changes on a refusal is what happens
+        # NEXT: the segment falls back to full canvas under the
+        # full-geometry content name, the tight file is discarded, and
+        # the run SAYS which card lost its tight carriage and why.
+        # Nothing here widens `verify_frames` - its tolerances are
+        # untouched and its verdict is still final for the tight
+        # output.
         from library.tools.overlay_placement import (
             sequence_frame_paths as _sequence_paths,
         )
@@ -1112,12 +1225,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             verify_frames,
         )
         try:
-            if is_frames:
-                tight_frames = _sequence_paths(overlay_path)
-            else:
-                tight_frames = extract_frames(
-                    overlay_path,
-                    os.path.join(probe_tmpdir, "verify_tight"))
+            tight_frames = _sequence_paths(overlay_path)
             tight_union = ink_union_of_frames(tight_frames)
             if tight_union is None:
                 raise TightBoxMismatch(

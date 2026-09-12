@@ -7,6 +7,7 @@ option adds, it does not move. The default is tight (since
 2026-09-10); the tight render tests below serve canned decodable
 renders because a byte stub cannot feed the probe.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -26,6 +27,7 @@ from library.steps.step_4_05_render_subtitles.step import (
     _qa_frame_sequence,
     render_one_segment,
 )
+from library.tools import tight_box as tight_box_mod
 from library.tools.tight_box import (
     canvas_offset,
     extract_frames,
@@ -279,9 +281,11 @@ def test_incomplete_sequence_is_a_failure_not_a_render(tmp_path):
 
 def test_tight_video_renders_beside_not_over(tmp_path):
     """The box is measured off a decoded probe and the tight output is
-    verified against it before it is kept - the predictor sizes
-    nothing that reaches a timeline. Tight and full carryings never
-    share a filename: the content digest carries the geometry."""
+    a CROP of that probe - verified against it before it is kept - so
+    no second render runs: the predictor sizes nothing that reaches a
+    timeline, and the re-render reaches nothing either. Tight and full
+    carryings never share a filename: the content digest carries the
+    geometry."""
     props = _props_frames(_props(), N_FRAMES)
     full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
     _, box = _measure_full_mov(full_mov, props)
@@ -311,41 +315,62 @@ def test_tight_video_renders_beside_not_over(tmp_path):
     with open(sidecar_file) as handle:
         sidecar = json.load(handle)
     assert sidecar["placement"] == box_out["placement"]
-    assert stub.calls and len(stub.calls) == 2
+    # THE guard: exactly one engine render (the probe). A second render
+    # call is the re-render this path exists to delete - serving a
+    # canned tight file no longer draws one.
+    assert stub.calls and len(stub.calls) == 1
+    assert "probe_" in stub.calls[0][1]
     assert _probe_leftovers(str(tmp_path)) == []
 
 
 @pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
-def test_tight_video_mismatch_falls_back_to_full_canvas(tmp_path):
-    """A tight output that is not the probe crop is carried full canvas.
+def test_tight_video_crop_refusal_falls_back_to_probe_copy(tmp_path):
+    """A crop that cannot verify is carried full canvas WITHOUT a
+    re-render: the probe already is a full-canvas render of these exact
+    props, so the fallback copies it under the full-geometry content
+    name. One probe render is every render this path ever runs.
 
-    The gate still holds - the mistightened file is discarded and never
-    reaches a timeline - but the segment is not failed: the same props
-    drawn on the full canvas are the same pixels on screen, so the card
-    is re-rendered full with the reason recorded on it."""
+    Forced here by failing the gate itself (a crop is exact by
+    construction, so no canned file can mismatch it): the file that
+    lands is byte-identical to the probe, and the run still says which
+    card lost its tight carriage and why."""
+
     props = _props_frames(_props(), N_FRAMES)
     full_mov = _full_mov(os.path.join(str(tmp_path), "full.mov"))
     _, box = _measure_full_mov(full_mov, props)
-    ox, oy = canvas_offset(box)
-    shifted = os.path.join(str(tmp_path), "shifted.mov")
-    subprocess.run(
-        ["ffmpeg", "-y", "-v", "error", "-i", full_mov,
-         "-vf", f"crop={box.width}:{box.height}:{ox + 40}:{oy}",
-         "-c:v", "prores_ks", "-profile:v", "4444",
-         "-pix_fmt", "yuva444p10le", shifted],
-        check=True,
-    )
-    stub = _ServingRenderer(full_mov, shifted)
-    out = render_one_segment(props, str(tmp_path), "tl",
-                             remotion_dir="/none",
-                             renderer=stub,
-                             overlay_geometry="tight")
+    tight_mov = _crop_mov(full_mov,
+                          os.path.join(str(tmp_path), "tight.mov"), box)
+    stub = _ServingRenderer(full_mov, tight_mov)
+    real_verify = tight_box_mod.verify_frames
+
+    def _refuse(*args, **kwargs):
+        raise tight_box_mod.TightBoxMismatch(
+            "tight output is not the probe crop at forced: max channel "
+            "diff 9 (allows 4) - forced refusal")
+
+    tight_box_mod.verify_frames = _refuse
+    try:
+        out = render_one_segment(props, str(tmp_path), "tl",
+                                 remotion_dir="/none",
+                                 renderer=stub,
+                                 overlay_geometry="tight")
+    finally:
+        tight_box_mod.verify_frames = real_verify
     assert out["provenance"] == RENDERED
     assert out["geometry"] == "full"
     assert out["tight_box"] is None
     assert "not the probe crop" in out["tight_fallback"]
     assert out["overlay_path"].endswith(".mov")
     assert os.path.isfile(out["overlay_path"])
+
+    def _digest(path):
+        with open(path, "rb") as handle:
+            return hashlib.sha256(handle.read()).hexdigest()
+
+    assert _digest(out["overlay_path"]) == _digest(full_mov)
+    # Still one render: the probe. The fallback copied it, exactly the
+    # third render the old path paid per refused card.
+    assert stub.calls and len(stub.calls) == 1
     assert _probe_leftovers(str(tmp_path)) == []
 
 
