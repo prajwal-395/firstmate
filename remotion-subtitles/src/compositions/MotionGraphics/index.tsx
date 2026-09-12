@@ -581,24 +581,214 @@ export const anchorStyle = (
 const safeUsableWidth = (safeArea: Insets, frameWidth: number): number =>
   Math.max(0, frameWidth - safeArea.left - safeArea.right);
 
+/** The style ONE run of copy is drawn in.
+ *
+ * Extracted so `Runs` and the staged lower-third construction below
+ * draw a run the same way. Two spellings of "what a display run looks
+ * like" is two answers to one question, and the constructed lower
+ * third has to mask each run separately - which it cannot do from
+ * inside `Runs`, because a mask per run needs a wrapper per run.
+ */
+export const runStyle = (
+  typeRole: string,
+  scale: number,
+  color: string,
+): React.CSSProperties => ({
+  fontSize: `${(TYPE_SIZE[typeRole] ?? TYPE_SIZE.supporting) * scale}px`,
+  fontWeight: TYPE_WEIGHT[typeRole] ?? TYPE_WEIGHT.supporting,
+  color,
+  textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
+  lineHeight: 1.1,
+  letterSpacing: typeRole === "display" ? "3px" : "0px",
+  textTransform: typeRole === "display" ? "uppercase" : "none",
+});
+
+/** How many frames apart the parts of a staged construction start.
+ *
+ * A character, not a magnitude, in exactly the sense `RAMP_FRAMES` is:
+ * it is what "staged" means in this renderer. The PLAN chooses the
+ * entrance and exit characters, which is what sets how long each part
+ * takes (`rampFrames`); this is only the offset between one part and
+ * the next, and no brand template and no project states it - the same
+ * standing every other number in this file has.
+ */
+const STAGE_STAGGER_FRAMES = 5;
+
+/** The three parts of the staged lower third, in build order. */
+const STAGED_PARTS = 3;
+
+/**
+ * How far each part of a staged construction is built, 0..1.
+ *
+ * `1` is fully built, `0` is not started or fully retracted. Parts
+ * arrive in order on the entrance, `STAGE_STAGGER_FRAMES` apart, and
+ * leave in REVERSE order on the exit - so the construction assembles
+ * and then disassembles rather than dissolving. That reversal is the
+ * whole reason this is a function and not three `interpolate` calls at
+ * the call site.
+ *
+ * Exported so `tests` and a reader can check the ordering without
+ * rendering a frame.
+ */
+export const stagedBuild = (
+  localFrame: number,
+  durationFrames: number,
+  entrance: string,
+  exit: string,
+  part: number,
+): number => {
+  const clamp = (value: number): number => Math.max(0, Math.min(1, value));
+  const inFrames = rampFrames(entrance);
+  const outFrames = rampFrames(exit);
+
+  const inStart = part * STAGE_STAGGER_FRAMES;
+  const arriving =
+    inFrames > 0
+      ? clamp((localFrame - inStart) / inFrames)
+      : localFrame >= inStart
+        ? 1
+        : 0;
+
+  // Reverse order out: the part that arrived LAST leaves FIRST.
+  const outStart = (STAGED_PARTS - 1 - part) * STAGE_STAGGER_FRAMES;
+  const fromEnd = durationFrames - localFrame;
+  const leaving =
+    outFrames > 0
+      ? clamp((fromEnd - outStart) / outFrames)
+      : fromEnd > outStart
+        ? 1
+        : 0;
+
+  return Math.min(arriving, leaving);
+};
+
+/**
+ * The speaker lower third, as a CONSTRUCTION rather than a text block.
+ *
+ * The captain, 2026-09-12: *"this should not be words animated but like
+ * an actual motion graphic"*, with the Defiant Ones lower third as the
+ * reference - a heavy uppercase name over a lighter role line, aligned
+ * to the frame edge, no plate. So the hierarchy here is type-led like
+ * the reference, and what makes it a graphic rather than animated words
+ * is that the type does not fade in at all: it is UNCOVERED by a part
+ * that moves.
+ *
+ * Three parts, built in order and struck in reverse:
+ *
+ *   0. the RULE draws out from the aligned edge, from nothing to the
+ *      width of the name;
+ *   1. the NAME rises out from behind that rule, clipped to it, so the
+ *      rule reads as the edge the type emerges from;
+ *   2. the TITLE wipes out along the rule, from the same edge.
+ *
+ * Every geometric number is DERIVED from the display type size the
+ * composition already draws, so the whole construction scales with the
+ * plan's own `footprint` and nothing new is chosen here. The one COLOUR
+ * is `element.color`, which reached this props file from the project's
+ * own declaration (`library/tools/speaker_identity.py`) - there is no
+ * second colour, no plate, no radius and no glow, because there is no
+ * house look (AGENTS.md 12).
+ */
+const StagedLowerThird: React.FC<{
+  element: PlannedElement;
+  scale: number;
+  localFrame: number;
+}> = ({ element, scale, localFrame }) => {
+  const alignRight = String(element.anchor).endsWith("right");
+  const runs = element.runs ?? [];
+  const nameRun = runs[0];
+  const titleRun = runs[1];
+  if (!nameRun) {
+    return null;
+  }
+
+  const displaySize = (TYPE_SIZE.display ?? 56) * scale;
+  // Derived from the type, never picked: the rule is a twelfth of the
+  // display size thick and sits a seventh of it below the name, which
+  // is what keeps the lockup one object at any footprint.
+  const ruleThickness = Math.max(2, Math.round(displaySize / 12));
+  const ruleGap = Math.max(2, Math.round(displaySize / 7));
+
+  const built = (part: number): number =>
+    stagedBuild(
+      localFrame,
+      element.durationFrames,
+      element.entrance,
+      element.exit,
+      part,
+    );
+
+  const ruleBuilt = built(0);
+  const nameBuilt = built(1);
+  const titleBuilt = built(2);
+
+  // The name is uncovered from the BOTTOM UP and rises as it comes, so
+  // it reads as type emerging from the rule beneath it rather than
+  // fading in on the spot. The clip is what makes this a construction:
+  // the glyphs are never drawn at partial opacity, they are drawn whole
+  // and hidden by an edge that moves.
+  const nameClip = `inset(${(1 - nameBuilt) * 100}% 0 0 0)`;
+  const nameLift = (1 - nameBuilt) * displaySize * 0.35;
+
+  // Both horizontal wipes run from the ALIGNED edge, so the whole
+  // lockup grows out of the same side of the frame.
+  const wipeFrom = (progress: number): string =>
+    alignRight
+      ? `inset(0 0 0 ${(1 - progress) * 100}%)`
+      : `inset(0 ${(1 - progress) * 100}% 0 0)`;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: alignRight ? "flex-end" : "flex-start",
+      }}
+    >
+      <div
+        style={{
+          overflow: "hidden",
+          clipPath: nameClip,
+          transform: `translateY(${nameLift}px)`,
+        }}
+      >
+        <div style={runStyle(nameRun.type_role, scale, element.color)}>
+          {nameRun.text}
+        </div>
+      </div>
+      <div
+        style={{
+          marginTop: `${ruleGap}px`,
+          height: `${ruleThickness}px`,
+          alignSelf: "stretch",
+          backgroundColor: element.color,
+          transformOrigin: alignRight ? "right center" : "left center",
+          transform: `scaleX(${ruleBuilt})`,
+        }}
+      />
+      {titleRun ? (
+        <div
+          style={{
+            marginTop: `${ruleGap}px`,
+            clipPath: wipeFrom(titleBuilt),
+          }}
+        >
+          <div style={runStyle(titleRun.type_role, scale, element.color)}>
+            {titleRun.text}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
 const Runs: React.FC<{ element: PlannedElement; scale: number }> = ({
   element,
   scale,
 }) => (
   <>
     {element.runs.map((run, i) => (
-      <div
-        key={i}
-        style={{
-          fontSize: `${(TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting) * scale}px`,
-          fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
-          color: element.color,
-          textShadow: "0px 4px 12px rgba(0,0,0,0.6)",
-          lineHeight: 1.1,
-          letterSpacing: run.type_role === "display" ? "3px" : "0px",
-          textTransform: run.type_role === "display" ? "uppercase" : "none",
-        }}
-      >
+      <div key={i} style={runStyle(run.type_role, scale, element.color)}>
         {run.text}
       </div>
     ))}
@@ -1017,7 +1207,26 @@ const DrawnElement: React.FC<{
 
 
   // `lower_third`
+  //
+  // TWO drawings, and the PLAN says which. An entry carrying
+  // `data.construction` is the staged construction the captain asked
+  // for on 2026-09-12 ("not words animated but like an actual motion
+  // graphic"); an entry without one keeps the attribution block this
+  // arm has drawn since PR #602, so every plan written before this
+  // existed renders exactly as it did. The engine is not choosing
+  // between two looks - the plan states which it wrote.
   if (element.element === "lower_third") {
+    if ((element.data ?? {}).construction === "staged_rule") {
+      return (
+        <div style={{ opacity, ...entTransform, ...extTransform }}>
+          <StagedLowerThird
+            element={element}
+            scale={scale}
+            localFrame={localFrame}
+          />
+        </div>
+      );
+    }
     return (
       <div
         style={{

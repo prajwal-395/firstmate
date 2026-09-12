@@ -406,6 +406,31 @@ def test_a_term_matches_on_a_word_boundary():
     assert "plan_vfx" in marker_routing.matched_terms("the zoom is wrong")
 
 
+def test_the_captains_own_words_for_a_lower_third_route_to_4_06():
+    """Their marker of 2026-09-12 asked for "a little label graphic".
+
+    None of the three phrasings a person actually uses for this thing
+    matched anything until the speaker lower third existed, so a
+    follow-up note about the feature they had just asked for would have
+    been reported as ambiguous rather than delivered to the step that
+    draws it.
+    """
+    for note in ("the lower third is too big",
+                 "that label graphic should hold longer",
+                 "the name tag under him is wrong"):
+        assert "render_motion_graphics" in marker_routing.matched_terms(note), (
+            f"{note!r} routes nowhere")
+
+
+def test_the_new_lower_third_terms_steal_no_other_steps_notes():
+    """A term added to one step must not start catching another's."""
+    for note, expected in (("the grade is too warm", "color_grade"),
+                           ("that passage is repetitive", "speech_sequence"),
+                           ("the captions drift", "plan_subtitles")):
+        matched = marker_routing.matched_terms(note)
+        assert set(matched) == {expected}, f"{note!r} matched {sorted(matched)}"
+
+
 # ── The table ───────────────────────────────────────────────────────
 
 def test_every_routable_step_is_a_real_dag_node():

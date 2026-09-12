@@ -122,6 +122,7 @@ from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
     EXPLAINER,
     FRAME,
+    MOTION_GRAPHICS,
     SEMANTIC,
     TRANSITIONS,
     plan_layout,
@@ -483,7 +484,8 @@ def reel_track_material(master_clips,
                         has_semantic: bool = False,
                         has_frame: bool = False,
                         explainer_spans=None,
-                        semantic_spans=None) -> dict:
+                        semantic_spans=None,
+                        lower_third_spans=None) -> dict:
     """The material `timeline_layout.plan_layout` answers with a plan.
 
     Angles come from the master's own picture rows (`reel_angles`) and
@@ -507,7 +509,8 @@ def reel_track_material(master_clips,
             "has_semantic": bool(has_semantic),
             "explainer_spans": [tuple(s) for s in (explainer_spans or [])],
             "semantic_spans": [tuple(s) for s in (semantic_spans or [])],
-            "mg_spans": [], "has_generators": False,
+            "mg_spans": [tuple(sp) for sp in (lower_third_spans or [])],
+            "has_generators": False,
             "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
         }
     described = []
@@ -534,7 +537,12 @@ def reel_track_material(master_clips,
         # what the captain asked for on Reel 26 (2026-09-11).
         "explainer_spans": [tuple(s) for s in (explainer_spans or [])],
         "semantic_spans": [tuple(s) for s in (semantic_spans or [])],
-        "mg_spans": [], "has_generators": False,
+        # The speaker lower thirds ride the MOTION_GRAPHICS role - the
+        # reel's own row for a graphic that is neither the explainer nor
+        # the model's semantic visuals. A row per overlapping LAYER, the
+        # same packing the two above get.
+        "mg_spans": [tuple(sp) for sp in (lower_third_spans or [])],
+        "has_generators": False,
         "timed_text_spans": [], "music_spans": [], "sfx_spans": [],
     }
 
@@ -3100,6 +3108,202 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
     return segments, plan
 
 
+def reel_lower_third_segments(moment, transcript: dict, ranges,
+                              project_folder: str, fps: float, width: int,
+                              height: int, brand_effect=None,
+                              timeline_name: str = "",
+                              subtitle_segments=None,
+                              lead_seconds: float = 0.0,
+                              extra_cuts: Sequence[tuple] = ()):
+    """One reel's SPEAKER lower thirds, THROUGH THE PIPELINE'S OWN STEPS.
+
+    The same shape :func:`reel_explainer_segments` has, with the same
+    discipline: no graphics logic of its own, named operations only, and
+    every module it calls is one the master path already calls.
+
+        reel_quality_bar.played_speech      the reel's lines, in reel time
+        speaker_identity.plan_for_reel      who appears first, and where
+        motion_graphics_plan.resolve_plan   step 4.06's OWN resolver
+        motion_graphics_plan.plan_segments  step 4.06's OWN clusterer
+        motion_graphics.render_segment      step 4.06's OWN renderer
+        explainer_plan.measure_render       the ink, off the render
+
+    Returns `(segments, plan)`. The plan is returned even when nothing
+    is drawn, because a reel with no lower thirds must be able to say
+    WHICH kind of nothing it has (`speaker_identity.BASES`).
+
+    **Rendered FULL CANVAS, deliberately.** `mg_tight_box` PREDICTS a
+    motion-graphics union from the composition's literals and the
+    placement rides on that prediction; a full-canvas overlay carries no
+    transform at all, so the ink lands where the composition drew it and
+    the measurement below is a measurement of delivery-frame pixels
+    rather than of a small canvas plus a guess.
+    """
+    import sys
+
+    from library.tools import explainer_plan as ex
+    from library.tools import motion_graphics_plan as mg
+    from library.tools import operations
+    from library.tools import speaker_identity as si
+    from library.tools.project_layout import Area, ProjectLayout
+    from library.tools.reel_quality_bar import played_speech
+
+    name = timeline_name or moment.timeline_name
+
+    # The reel's own lines, in the order the reel plays them. `lead` is
+    # what a HEAD full-frame card pushes the whole reel down by
+    # (`reel_time`'s own parameter): `played_speech` measures from the
+    # first kept frame, and a card in front of it moves every second
+    # after it.
+    lines = [{"speaker": line["speaker"],
+              "reel_start": float(line["reel_start"]) + float(lead_seconds),
+              "text": line["text"]}
+             for line in played_speech(moment, transcript,
+                                       extra_cuts=extra_cuts)]
+    reel_seconds = (sum(max(0.0, end - start) for start, end in (ranges or []))
+                    + float(lead_seconds))
+
+    plan = si.plan_for_reel(
+        reel_name=name, lines=lines, reel_seconds=reel_seconds,
+        project_folder=project_folder, brand_effect=brand_effect,
+        width=width, height=height,
+        subtitle_segments=subtitle_segments or [])
+
+    # Every refusal is SAID on the run that made it: a speaker declared
+    # and then not named is a claim the viewer is shown half of.
+    for refusal in plan.refused:
+        print(f"  {name}: LOWER THIRD REFUSED ({refusal['reason']}) "
+              f"{refusal['speaker']!r} - {refusal['detail']}",
+              file=sys.stderr)
+    if not plan.entries:
+        if plan.declared:
+            print(f"  {name}: NO SPEAKER LOWER THIRDS - {plan.basis}",
+                  file=sys.stderr)
+        return [], plan
+    for introduction in plan.introductions:
+        print(f"  {name}: lower third for {introduction.speaker!r} at "
+              f"{introduction.at_seconds}s - {introduction.name!r} / "
+              f"{introduction.title!r}, colour {introduction.colour} from "
+              f"{introduction.colour_basis}", file=sys.stderr)
+    print(f"  {name}: lower-third box {plan.box} - {plan.box['_basis']}",
+          file=sys.stderr)
+
+    resolved = mg.resolve_plan(
+        plan.entries, timeline_duration=reel_seconds, fps=fps,
+        palette_roles={}, asked=True)
+    for dropped in resolved.dropped:
+        print(f"  {name}: lower third dropped ({dropped.reason}) "
+              f"{dropped.element}: {dropped.detail}", file=sys.stderr)
+        plan.refused.append({"speaker": "", "reason": dropped.reason,
+                             "detail": dropped.detail})
+    if not resolved.moments:
+        plan.basis = si.NO_DECLARED_SPEAKER_SPOKE
+        return [], plan
+
+    insets = {key: int(value) for key, value in plan.box.items()
+              if key in ("top", "right", "bottom", "left")}
+    segments_plan = mg.plan_segments(
+        resolved.moments, fps=fps, width=width, height=height,
+        safe_area=insets, project_folder=project_folder or "")
+
+    out_dir = str(ProjectLayout(project_folder).write_dir(
+        Area.MOTION_GRAPHICS_SEGMENTS, step="render_motion_graphics"))
+    render = operations.get("motion_graphics.render_segment")
+    segments = []
+    for index, planned in enumerate(segments_plan):
+        rendered = render.run(
+            planned, out_dir,
+            segment_name=f"lt_{_reel_slug(name)}_{index:02d}",
+            progress=f"[{index + 1}/{len(segments_plan)}]",
+            project_folder=project_folder,
+            # FULL CANVAS, explicitly - see this function's docstring.
+            # Explicit values win over the project's declaration in
+            # `render_one_segment`, which is what makes this sayable at
+            # all rather than a project-wide opt-out.
+            overlay_geometry="full",
+            reuse=True)
+        if rendered is None:
+            continue
+        # LOOK AT WHAT WAS DRAWN. The placement claim is checked against
+        # pixels, never asserted: an error REFUSES the segment rather
+        # than placing a name on the caption row.
+        #
+        # MEASURED AT THE MIDPOINT, not the last frame. The explainer
+        # reads its last frame because every stage of a build is up by
+        # then; a lower third with a fade or a retract EXIT is nearly
+        # gone on its last frame, and measuring there would read a
+        # nearly-empty picture as the graphic's extent. The midpoint is
+        # past the entrance and before the exit for every character in
+        # the vocabulary.
+        midpoint = max(0, int(planned["total_frames"]) // 2)
+        try:
+            measured = ex.measure_render(rendered["overlay_path"],
+                                         frame=midpoint)
+        except ex.ExplainerError as why:
+            print(f"  {name}: lower-third render could not be measured - "
+                  f"{why}", file=sys.stderr)
+            measured = None
+        if measured is not None:
+            rendered["measured"] = measured
+            rendered["measured_box"] = si.measured_box(measured)
+            refused = False
+            for finding in si.render_findings(measured, insets, width, height):
+                print(f"  {name}: LOWER THIRD "
+                      f"{finding['severity'].upper()} ({finding['code']}) "
+                      f"{finding['message']}", file=sys.stderr)
+                refused = refused or finding["severity"] == "error"
+            if refused:
+                plan.refused.append({
+                    "speaker": "", "reason": si.INK_LEFT_THE_BOX,
+                    "detail": f"segment {index} refused after measurement"})
+                continue
+            print(f"  {name}: lower-third ink measured at "
+                  f"{rendered['measured_box']} on a {width}x{height} frame",
+                  file=sys.stderr)
+        segments.append(rendered)
+    # What was RENDERED, not what was intended: a reader grading the
+    # timeline against this must not look for an item nothing placed.
+    plan.segments = list(segments)
+    if not segments:
+        plan.basis = si.NO_DECLARED_SPEAKER_SPOKE
+    return segments, plan
+
+
+def _lower_third_rows(segments) -> list:
+    """What a speaker lower third contributes to the rebuild digest.
+
+    Its identity, its placement and the box it really drew in. The
+    file is content-keyed (`mg_<project>_<digest>`), so two reels
+    naming the same speaker for the same length share one file and one
+    `segment_id` - which means the id alone cannot tell a graphic that
+    MOVED from one that did not. `timeline_start` is what sees that.
+
+    `measured_box` is in because a graphic whose ink landed somewhere
+    else is a different placement even where every number the plan
+    wrote agrees, and the rebuild decision is fail-closed
+    (`library/tools/reel_rebuild_need.py`).
+    """
+    rows = []
+    for segment in segments or ():
+        if not isinstance(segment, dict):
+            rows.append({"unreadable": repr(segment)[:120]})
+            continue
+        rows.append({
+            "segment_id": segment.get("segment_id"),
+            "timeline_start": segment.get("timeline_start"),
+            "total_frames": segment.get("total_frames"),
+            "measured_box": list(segment.get("measured_box") or ()),
+        })
+    return rows
+
+
+def _reel_slug(timeline_name: str) -> str:
+    """A timeline name as a filename-safe placement label."""
+    import re
+    return re.sub(r"[^A-Za-z0-9]+", "_", str(timeline_name or "reel")).strip(
+        "_").lower()[:48] or "reel"
+
+
 def _explainer_bands(project_folder: str, width: int, height: int):
     """The picture-area enumeration for a reel of this project.
 
@@ -4100,7 +4304,7 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -4300,6 +4504,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         has_semantic=bool(semantic_segments),
         explainer_spans=_overlay_spans(explainer_segments, fps),
         semantic_spans=_overlay_spans(semantic_segments, fps),
+        lower_third_spans=_overlay_spans(lower_third_segments, fps),
         has_frame=look is not None)
     track_plan = plan_layout(material)
     video_row_by_angle = {}
@@ -4827,6 +5032,21 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             pool, project, timeline, name, fps, semantic_segments,
             [row.index for row in track_plan.rows_for_role(SEMANTIC)],
             kind="semantic visual", check="F22",
+            project_folder=project_folder,
+            overlay_intent=overlay_intent, frame=(width, height))
+
+    # The speaker lower thirds. ADDITIVE, exactly as the two above are:
+    # laid over picture that keeps playing, moving no frame of it, so a
+    # reel carrying one is cut identically to a reel carrying none.
+    # They render FULL CANVAS (`reel_lower_third_segments`), so they
+    # need no transform and `overlay_intent` has nothing to say about
+    # them - it is passed anyway because the placer reads it per
+    # segment and a full-canvas segment declares no canvas.
+    if lower_third_segments:
+        place_overlay_segments(
+            pool, project, timeline, name, fps, lower_third_segments,
+            [row.index for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
+            kind="speaker lower third", check="F21",
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height))
 
@@ -6466,6 +6686,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # whole build, not the twelfth reel of nineteen.
     card_declarations = declared_cards(project_folder)
     explainer_plans = []
+    lower_third_plans = []
     semantic_records = []
     span_records = []
     # The project's TV-frame declaration, read ONCE for the same reason
@@ -6566,7 +6787,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # derivation has to run to be compared, so the records it
             # produces exist before the decision does.
             _mark = (len(explainer_plans), len(semantic_records),
-                     len(span_records), len(motion_records))
+                     len(span_records), len(motion_records),
+                     len(lower_third_plans))
             # This approved moment's own strikes, cut from its ranges
             # below. Said on the run that honours them: a cut the
             # operator cannot see is a silent content change. Grown
@@ -6781,6 +7003,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 timeline_name=name)
             explainer_plans.append(explainer_plan)
 
+            # WHO IS SPEAKING, named on their first appearance in THIS
+            # reel (`library/tools/speaker_identity.py`). A project that
+            # declares no speakers gets `([], plan)` with the plan
+            # saying `not_declared`, and the timeline it gets is the one
+            # it got before this existed. The rendered captions travel
+            # because the box this graphic sits in is the safe area with
+            # its bottom raised off their MEASURED height - a lower
+            # third ON the caption row is the one thing the roster's own
+            # `never` for this element forbids.
+            lower_third_segments, lower_third_plan = (
+                reel_lower_third_segments(
+                    moment, transcript, ranges, project_folder,
+                    fps=24000 / 1001, width=1080, height=1920,
+                    brand_effect=brand_effect, timeline_name=name,
+                    subtitle_segments=subtitle_segments,
+                    lead_seconds=lead, extra_cuts=moment_cuts))
+            lower_third_plans.append(lower_third_plan)
+
             # The semantic visuals: what the MODEL says this reel's
             # speech wants drawn. The ask is written fresh on every
             # build from the moment, the transcript and these same
@@ -6942,10 +7182,33 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 grade_cdl=reel_grade_cdl,
                 grade_look=reel_grade_look,
                 power_grade=reel_power_grade,
+                # The speaker lower thirds travel in `extra` rather
+                # than under `explainer_segments`, and ONLY when there
+                # are some.
+                #
+                # Not folded in with the explainer, because
+                # `_segment_rows` names what it digests ("captions,
+                # explainer, semantic") and a second kind arriving
+                # under one of those names makes the record say
+                # something untrue. Not a new named parameter either:
+                # that would add a key to EVERY project's digest body
+                # and re-place every reel in the fleet once, for
+                # projects that declare no speakers at all. Absent
+                # means none, so a project without them digests
+                # byte-identically to before this existed.
+                #
+                # `timeline_start` is IN, unlike the explainer's rows.
+                # The file is content-keyed, so `segment_id` alone
+                # cannot see a graphic that moved without changing -
+                # which is exactly what a first appearance shifting
+                # does.
                 extra={"extra_cuts": [list(c) for c in moment_cuts],
                        "insisted": [list(sp) for sp in moment_insisted],
                        "overlay_intent": bool(overlay_intent),
-                       "skip_captions": bool(skip_captions)},
+                       "skip_captions": bool(skip_captions),
+                       **({"lower_thirds": _lower_third_rows(
+                           lower_third_segments)}
+                          if lower_third_segments else {})},
             )
             build_signatures[name] = _need.signature_for_record(
                 _derivation)
@@ -6972,6 +7235,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 del semantic_records[_mark[1]:]
                 del span_records[_mark[2]:]
                 del motion_records[_mark[3]:]
+                del lower_third_plans[_mark[4]:]
                 left_alone.append(final)
                 current_staging = None
                 continue
@@ -6993,6 +7257,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                                     if overlay_plan else None),
                 explainer_segments=explainer_segments,
                 semantic_segments=semantic_segments,
+                lower_third_segments=lower_third_segments,
                 look=reel_look_decl,
                 motion=reel_motion,
                 # The live master is how the program stream resolves
@@ -7107,6 +7372,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # path.
     from library.tools.explainer_plan import write_plans as _write_explainers
     _write_explainers(project_folder, explainer_plans)
+
+    # What each reel's speaker lower thirds really were, INCLUDING the
+    # reels with none, and merged per reel for the reason above.
+    from library.tools.speaker_identity import write_plans as _write_lower
+    _write_lower(project_folder, lower_third_plans)
 
     # What each reel's semantic visuals really were, INCLUDING the reels
     # with none. MERGED per reel, for the same reason `write_provenance`
@@ -8071,6 +8341,17 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 fps=fps, width=1080, height=1920,
                 judgement=judgement, brand_effect=brand_effect,
                 timeline_name=final)
+            # The speaker lower thirds, on the variant's own timeline
+            # and from the variant's own ranges - a variant that cuts a
+            # speaker's first line out introduces whoever now speaks
+            # first, which is what makes this a plan and not a copy.
+            lower_third_segments, _lower_third_plan = (
+                reel_lower_third_segments(
+                    moment, transcript, ranges, project_folder,
+                    fps=fps, width=1080, height=1920,
+                    brand_effect=brand_effect, timeline_name=final,
+                    subtitle_segments=subtitle_segments,
+                    lead_seconds=lead, extra_cuts=moment_cuts))
             from library.tools import reel_semantic_visual as sem_vis
             sem_vis.write_request(moment, transcript, ranges,
                                   project_folder, fps=fps)
@@ -8115,6 +8396,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
                                     if overlay_plan else None),
                 explainer_segments=explainer_segments,
                 semantic_segments=semantic_segments,
+                lower_third_segments=lower_third_segments,
                 look=reel_look_decl,
                 motion=reel_motion,
                 master_timeline=timeline,

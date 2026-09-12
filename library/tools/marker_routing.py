@@ -347,9 +347,19 @@ STEP_DECISIONS = (
     ),
     StepDecision(
         "render_motion_graphics", "4.06",
-        "the motion-graphic overlays and the timed text cards",
+        "the motion-graphic overlays, the speaker lower thirds and the "
+        "timed text cards",
         DELIVERY_REPORT, _NO_PROMPT,
+        # `lower third` and the captain's own three words for it. Their
+        # marker of 2026-09-12 asked for "a little label graphic", and
+        # none of "lower third", "label graphic" or "name tag" matched
+        # anything here - so a follow-up note about the thing they had
+        # just asked for would have been reported as ambiguous rather
+        # than delivered to the step that draws it
+        # (`library/tools/speaker_identity.py` plans it, 4.06 renders
+        # it).
         terms=("overlay", "overlays", "motion graphic", "motion graphics",
+               "lower third", "lower thirds", "label graphic", "name tag",
                "timed text", "text card", "end card", "intro card",
                "outro card"),
     ),

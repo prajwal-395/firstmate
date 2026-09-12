@@ -1,0 +1,807 @@
+"""Who is speaking, named on screen the first time they appear.
+
+The captain, on a BLUE marker at frame 42 of ``Reel 23 -
+why-small-business-wins-on-ai``, 2026-09-12::
+
+    this is a note that i want for all reels, not just this one, but can
+    we get like a little label graphic that comes in on the first
+    appearance of akshita and craig? ... this should not be words
+    animated but like an actual motion graphic.
+
+Four things in that are load-bearing and each one is a rule below.
+
+**"for all reels, not just this one"** - so this is a capability of the
+reel build, planned fresh on every reel from the reel's own words, and
+never a graphic pinned onto one timeline.  A reel nobody has planned yet
+gets one too, which is the same inheritance ``full_frame_elements`` has.
+
+**"on the first appearance"** - once per speaker per reel, on the first
+line that speaker really SAYS in that reel.  Derived from
+``reel_quality_bar.played_speech``, which is the reel's lines after the
+bad takes are cut and in the order the reel plays them - the same list
+the caption pass and the conformance verifier read, so a reel's own
+words cannot disagree about who spoke first.  Not from the master
+timeline, where Craig speaks first in every reel whether the reel keeps
+that line or not.
+
+**"not words animated but like an actual motion graphic"** - the
+drawing is ``remotion-subtitles/src/compositions/MotionGraphics``'s
+``lower_third`` arm, rebuilt as a staged construction (a rule that
+draws, type uncovered by a wipe travelling with it, a second line
+built beneath).  What this module owns is only WHEN it plays, WHO it
+names and WHERE it sits; how it is drawn is the composition's.
+
+**The names and titles are DATA.**  The four strings the captain typed
+belong to ONE project and nothing in this file knows any of them - not
+in a constant, not in a docstring, not as an example.  The engine serves
+a daily channel AND client work (AGENTS.md 14), so a name in library
+code is a defect rather than a shortcut.  They are declared at
+``effect.speaker_lower_thirds`` in the project's own ``project.yaml``,
+the same slot and the same precedence ``effect.timed_text_overlay`` and
+``effect.full_frame_elements`` take, and for the same reason: copy the
+viewer READS is artwork, and artwork belongs to the project.
+
+**A project that declares none gets none.**  :func:`plan_for_reel`
+returns an empty plan with a basis saying WHICH kind of nothing it is,
+and the timeline it builds is the timeline it built before this module
+existed.  Nothing here has a default name, a default title, a default
+colour or a default hold.
+
+Where the colour comes from
+---------------------------
+There are no house looks (AGENTS.md 12), so the one colour this graphic
+draws in is never picked here.  Two declarations answer, in order:
+
+1. the speaker's own ``colour`` under ``effect.speaker_lower_thirds``;
+2. failing that, the accent this project ALREADY declares for that
+   speaker's captions
+   (``pipeline.speaker_subtitle_styles.<speaker>.accentColor``).
+
+Both are the project's.  The second exists because a project that has
+already said "Akshita is this pink" should not have to say it twice, and
+because the lower third and the caption naming the same speaker
+disagreeing about their colour is worse than either choice.  Where
+neither answers, the entry is DROPPED with
+:data:`NO_COLOUR_DECLARED` - not drawn in something the engine chose.
+
+Everything else the plan states - the anchor, the hold, the entrance and
+exit characters - is declared too, and a declaration missing one is
+refused by name in :func:`declared_speakers`.  ``resolve_plan`` would
+otherwise supply ``cut`` for an unreadable motion character, which is a
+default reaching a frame through the back door.
+
+Where it sits
+-------------
+:func:`placement_box` is the answer, and it is the safe area with its
+BOTTOM RAISED so the graphic cannot land on the caption row.
+
+The strictest safe area governs - one master render serves Reels,
+TikTok and Shorts - and that is ``safe_area.resolve_safe_area``, read
+rather than restated.  The caption row is where the PROJECT put it
+(``subtitle_style.project_caption_row``), or the engine's own row where
+it declared none, and the cards grow upward from it - so the box's
+bottom is that row lifted by the height of the tallest caption card
+this reel really rendered.  ``measured_caption_height`` is that
+reading and it is a MEASUREMENT off the rendered cards, never a
+prediction from the font size.
+
+The graphic then renders FULL CANVAS.  That is deliberate:
+``mg_tight_box`` predicts a motion-graphics union from the
+composition's literals rather than measuring it, and on this project
+it is wrong on every case measured so far - a tight box carries a
+Pan/Tilt computed from that prediction.  A full-canvas overlay needs no
+transform at all, so there is nothing to predict, and the ink lands
+where the composition drew it.  :func:`render_findings` then MEASURES
+the drawn ink back off the rendered file and refuses a segment whose
+ink left the box, so the placement is checked against pixels rather
+than asserted.
+
+``tests/test_speaker_identity.py``.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+#: The slot a project declares its speakers in.  Under ``effect`` beside
+#: ``timed_text_overlay`` and ``full_frame_elements``, because all three
+#: are copy or artwork the project owns (AGENTS.md 14).
+DECLARATION_KEY = "speaker_lower_thirds"
+
+#: What the declaration may carry at its top level.  Complete, and
+#: checked on read: a key nothing reads is a look the editor believes
+#: shipped.
+DECLARATION_KEYS = ("speakers", "anchor", "hold_seconds", "entrance",
+                    "exit", "reason")
+
+#: What ONE speaker's entry may carry.  ``name`` and ``title`` are the
+#: copy; ``colour`` is this speaker's own, and its absence falls to the
+#: caption accent rather than to anything the engine chose.
+SPEAKER_KEYS = ("name", "title", "colour", "color")
+
+#: The roster element this plans.  Not a new one: ``lower_third``'s own
+#: ``earns_its_place`` already reads "The first time a speaker or a
+#: source appears and the audio does not name them", which is this ask
+#: written down before it was asked.  A second entry beside it would be
+#: two roster rows for one idea, which
+#: ``motion_graphics_vocabulary.OUT_OF_VOCABULARY`` exists to prevent.
+ELEMENT = "lower_third"
+
+# ── What kind of nothing a reel got ──────────────────────────────────
+
+NOT_DECLARED = "not_declared"
+"""The project declares no ``effect.speaker_lower_thirds`` at all."""
+
+NO_DECLARED_SPEAKER_SPOKE = "no_declared_speaker_spoke"
+"""It declares speakers and none of them says a word in THIS reel."""
+
+NO_LINES_IN_THE_REEL = "no_lines_in_the_reel"
+"""The reel plays no attributed speech, so nobody appears first."""
+
+SPEAKERS_INTRODUCED = "speakers_introduced"
+"""Entries were planned."""
+
+BASES = (NOT_DECLARED, NO_DECLARED_SPEAKER_SPOKE, NO_LINES_IN_THE_REEL,
+         SPEAKERS_INTRODUCED)
+
+#: Why one speaker's entry was not planned although they were declared.
+NO_COLOUR_DECLARED = "no_colour_declared"
+NO_ROOM_ABOVE_THE_CAPTIONS = "no_room_above_the_captions"
+OUTSIDE_THE_REEL = "outside_the_reel"
+INK_LEFT_THE_BOX = "ink_left_the_box"
+
+REFUSALS = (NO_COLOUR_DECLARED, NO_ROOM_ABOVE_THE_CAPTIONS,
+            OUTSIDE_THE_REEL, INK_LEFT_THE_BOX)
+
+
+class SpeakerIdentityError(ValueError):
+    """A declaration that cannot be read as written.
+
+    RAISED rather than dropped, the same choice
+    ``full_frame_element`` and ``timed_text_overlay`` make: a lower
+    third silently ignored is a name the editor believes the viewer
+    saw.
+    """
+
+
+@dataclass
+class Introduction:
+    """One speaker, named once, at the second they first speak."""
+
+    speaker: str
+    name: str
+    title: str
+    colour: str
+    colour_basis: str
+    at_seconds: float
+    says: str
+
+
+@dataclass
+class SpeakerPlan:
+    """What one reel's speaker lower-thirds were, INCLUDING the empty ones.
+
+    Returned even when nothing is drawn, for the reason
+    ``explainer_plan.ExplainerPlan`` is: a reel with no lower thirds
+    must be able to say WHICH kind of nothing it has.
+    """
+
+    reel_name: str
+    declared: bool = False
+    basis: str = NOT_DECLARED
+    introductions: List[Introduction] = field(default_factory=list)
+    entries: List[dict] = field(default_factory=list)
+    refused: List[dict] = field(default_factory=list)
+    box: Optional[Dict[str, int]] = None
+    segments: List[dict] = field(default_factory=list)
+
+    def as_dict(self) -> dict:
+        return {
+            "reel": self.reel_name,
+            "declared": bool(self.declared),
+            "basis": self.basis,
+            "box": dict(self.box) if self.box else None,
+            "introductions": [
+                {"speaker": i.speaker, "name": i.name, "title": i.title,
+                 "colour": i.colour, "colour_basis": i.colour_basis,
+                 "at_seconds": i.at_seconds, "says": i.says}
+                for i in self.introductions],
+            "entries": list(self.entries),
+            "refused": list(self.refused),
+            # What was really RENDERED and placed, in the shape the
+            # explainer's record takes, because this is what a check
+            # grades the built timeline against. A segment the renderer
+            # or the measurement refused never appears here, so nothing
+            # looks for an item the build did not place.
+            "segments": [
+                {"overlay_path": s.get("overlay_path"),
+                 "timeline_start": s.get("timeline_start"),
+                 "timeline_end": s.get("timeline_end"),
+                 "total_frames": s.get("total_frames"),
+                 "measured_box": s.get("measured_box"),
+                 "elements": list(s.get("elements") or [])}
+                for s in self.segments
+            ],
+        }
+
+
+# ── The declaration ──────────────────────────────────────────────────
+
+def project_declaration(project_folder: Optional[str]):
+    """``effect.speaker_lower_thirds`` off a project.yaml, or None.
+
+    None means the project declared nothing, which is different from an
+    empty mapping: a project may deliberately declare an empty speaker
+    table to say "this series names nobody", and that is a statement
+    rather than an absence.
+    """
+    if not project_folder:
+        return None
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.exists(project_yaml):
+        return None
+    import yaml
+    with open(project_yaml, "r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+    effect = config.get("effect") or {}
+    if not isinstance(effect, dict):
+        raise SpeakerIdentityError(
+            f"{project_yaml}: `effect` must be a mapping, got "
+            f"{type(effect).__name__}")
+    if DECLARATION_KEY not in effect:
+        return None
+    return effect[DECLARATION_KEY]
+
+
+def resolve_declaration(brand_effect: Optional[dict],
+                        project_folder: Optional[str]):
+    """The declaration to plan from: the PROJECT's speakers win.
+
+    Same precedence and same reason as
+    ``full_frame_element.resolve_declaration``.  The WHOLE slot is
+    replaced rather than merged key by key: half a speaker table from a
+    brand template and half from a project is a cast nobody assembled.
+
+    Returns None where neither declares one.
+    """
+    declared = project_declaration(project_folder)
+    if declared is not None:
+        return declared
+    from_template = (brand_effect or {}).get(DECLARATION_KEY)
+    return from_template
+
+
+def declared_speakers(declaration: Any,
+                      project_folder: Optional[str] = None) -> dict:
+    """Normalise a declaration into ``{speaker_label: {...}}`` plus timing.
+
+    Returns ``{"speakers": {...}, "anchor": str, "hold_seconds": float,
+    "entrance": str, "exit": str}``.
+
+    Every one of those four timing and motion values is REQUIRED.  They
+    are not defaulted here because a hold the engine picked is the
+    engine deciding how long a client's name is on screen, and an
+    entrance the engine picked is the engine choosing the gesture - both
+    are taste (AGENTS.md 10.5).  A declaration missing one is refused by
+    name rather than completed.
+
+    Anything malformed RAISES.
+    """
+    from library.tools import motion_graphics_plan as mg
+
+    if declaration is None:
+        raise SpeakerIdentityError(
+            "declared_speakers called with no declaration; the caller "
+            "should have taken the not_declared path.")
+    if not isinstance(declaration, dict):
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY} must be a mapping, got "
+            f"{type(declaration).__name__}")
+    unknown = sorted(set(declaration) - set(DECLARATION_KEYS))
+    if unknown:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY} declares {unknown}, which nothing "
+            f"reads. It takes {list(DECLARATION_KEYS)}.")
+
+    for required in ("anchor", "hold_seconds", "entrance", "exit"):
+        if declaration.get(required) in (None, ""):
+            raise SpeakerIdentityError(
+                f"effect.{DECLARATION_KEY} declares no {required!r}. All "
+                f"of anchor, hold_seconds, entrance and exit are required: "
+                f"a hold or a gesture the ENGINE picked would be the engine "
+                f"deciding how a client's name arrives (AGENTS.md 10.5).")
+
+    anchor = str(declaration["anchor"]).strip().lower()
+    if anchor not in mg.ANCHORS:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.anchor is {anchor!r}, which is not "
+            f"one of the vocabulary's positions: {list(mg.ANCHORS)}.")
+    for key in ("entrance", "exit"):
+        character = str(declaration[key]).strip().lower()
+        if character not in mg.MOTION_CHARACTERS:
+            raise SpeakerIdentityError(
+                f"effect.{DECLARATION_KEY}.{key} is {character!r}, which is "
+                f"not one of {list(mg.MOTION_CHARACTERS)}.")
+    try:
+        hold = float(declaration["hold_seconds"])
+    except (TypeError, ValueError):
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.hold_seconds must be a number, got "
+            f"{declaration['hold_seconds']!r}")
+    if hold <= 0:
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.hold_seconds must be positive, got "
+            f"{hold!r}")
+
+    raw = declaration.get("speakers")
+    if raw is None:
+        raw = {}
+    if not isinstance(raw, dict):
+        raise SpeakerIdentityError(
+            f"effect.{DECLARATION_KEY}.speakers must be a mapping of the "
+            f"transcript's own speaker label to that speaker's name and "
+            f"title, got {type(raw).__name__}")
+
+    speakers: Dict[str, dict] = {}
+    for label, entry in raw.items():
+        if not isinstance(entry, dict):
+            raise SpeakerIdentityError(
+                f"effect.{DECLARATION_KEY}.speakers[{label!r}] must be a "
+                f"mapping, got {type(entry).__name__}")
+        unknown = sorted(set(entry) - set(SPEAKER_KEYS))
+        if unknown:
+            raise SpeakerIdentityError(
+                f"effect.{DECLARATION_KEY}.speakers[{label!r}] declares "
+                f"{unknown}, which nothing reads. It takes "
+                f"{list(SPEAKER_KEYS)}.")
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            raise SpeakerIdentityError(
+                f"effect.{DECLARATION_KEY}.speakers[{label!r}] declares no "
+                f"`name`. A lower third with nothing to say names nobody.")
+        speakers[str(label)] = {
+            "name": name,
+            "title": str(entry.get("title") or "").strip(),
+            "colour": str(entry.get("colour")
+                          or entry.get("color") or "").strip(),
+        }
+    return {
+        "speakers": speakers,
+        "anchor": anchor,
+        "hold_seconds": hold,
+        "entrance": str(declaration["entrance"]).strip().lower(),
+        "exit": str(declaration["exit"]).strip().lower(),
+    }
+
+
+def speaker_colour(label: str, declared: dict,
+                   project_folder: Optional[str]) -> Tuple[str, str]:
+    """The colour this speaker's lower third draws in, and where from.
+
+    Two project declarations answer, in order, and NOTHING else does:
+    the speaker's own ``colour`` under ``effect.speaker_lower_thirds``,
+    then the accent this project already declared for that speaker's
+    captions.  ``("", "")`` where neither did - the caller drops the
+    entry, because a colour the engine chose is a house look and there
+    are none (AGENTS.md 12).
+    """
+    stated = (declared.get("colour") or "").strip()
+    if stated:
+        return stated, f"effect.{DECLARATION_KEY}.speakers[{label!r}].colour"
+    from library.tools.subtitle_style import speaker_style_overrides
+    accent = str((speaker_style_overrides(project_folder, label) or {})
+                 .get("accentColor") or "").strip()
+    if accent:
+        return accent, (f"pipeline.speaker_subtitle_styles[{label!r}]"
+                        f".accentColor")
+    return "", ""
+
+
+# ── First appearance ─────────────────────────────────────────────────
+
+def first_appearances(lines: Sequence[dict],
+                      speakers: Sequence[str]) -> List[dict]:
+    """The first line each declared speaker says, in the order they arrive.
+
+    ``lines`` is ``reel_quality_bar.played_speech``'s shape - the reel's
+    own lines in the order the reel plays them, each carrying
+    ``speaker`` and ``reel_start``.
+
+    ONCE per speaker, which is the whole of "on the first appearance":
+    a speaker who comes back six times is introduced on the first of
+    the six and on none of the others.  A speaker the project did not
+    declare is not introduced at all - the declaration is the cast
+    list, so an unlabelled or third voice is passed over in silence
+    rather than named from a guess.
+    """
+    wanted = {str(s) for s in speakers}
+    seen = set()
+    out: List[dict] = []
+    for line in sorted(lines or [],
+                       key=lambda l: float(l.get("reel_start") or 0.0)):
+        label = line.get("speaker")
+        if label is None:
+            continue
+        label = str(label)
+        if label not in wanted or label in seen:
+            continue
+        seen.add(label)
+        out.append({
+            "speaker": label,
+            "at_seconds": round(float(line.get("reel_start") or 0.0), 3),
+            "says": str(line.get("text") or "").strip(),
+        })
+    return out
+
+
+# ── Where it sits ────────────────────────────────────────────────────
+
+def measured_caption_height(subtitle_segments: Sequence[dict]) -> Optional[int]:
+    """How tall this reel's tallest caption card really rendered, in px.
+
+    Read off the caption segments' OWN measured tight boxes.  Those
+    boxes are measured from a decoded probe render rather than predicted
+    from the font metrics (step 4.05, "the tight canvas is MEASURED off
+    a decoded probe render, never predicted"), so this is a measurement
+    of the pixels a viewer of THIS reel will see, not an estimate of
+    what two lines of 58px type ought to come to.
+
+    None where no caption carried a measured box - a run that skipped
+    captions, or a project rendering them full canvas.  The caller then
+    has nothing to raise the box by and SAYS so rather than assuming a
+    height.
+    """
+    heights = [int(((segment or {}).get("tight_box") or {}).get("height") or 0)
+               for segment in (subtitle_segments or [])]
+    heights = [h for h in heights if h > 0]
+    return max(heights) if heights else None
+
+
+def placement_box(project_folder: Optional[str], width: int, height: int,
+                  caption_height: Optional[int]) -> Dict[str, Any]:
+    """The insets the graphic is positioned in, and what made them.
+
+    The strictest safe area governs (one master render serves Reels,
+    TikTok and Shorts), so the left, top and right are
+    ``safe_area.resolve_safe_area``'s and are not restated here.
+
+    The BOTTOM is raised to clear the captions: to the caption row this
+    project declared - or the engine's row where it declared none -
+    lifted by the tallest caption card this reel measured.  Where no
+    caption was measured the row itself is the floor and the reason
+    says so, which is a narrower box than the truth rather than a
+    wider one.
+
+    Returns ``{"insets": {...}, "caption_row": int, "basis": str}``.
+    The insets are the shape ``MotionGraphics``'s ``safeArea`` prop
+    takes, so the composition's own nine-position anchor grid resolves
+    against THIS box with no second positioning mechanism - the same
+    trick ``explainer_plan.band_insets`` plays.
+    """
+    from library.tools.safe_area import resolve_safe_area
+    from library.tools.subtitle_style import (
+        CAPTION_LIFT_PX,
+        caption_row_px,
+        project_caption_row,
+    )
+
+    safe = resolve_safe_area(project_folder=project_folder,
+                             width=width, height=height)
+    insets = safe.as_props()
+
+    declared_row = project_caption_row(project_folder)
+    if declared_row is None:
+        row = int(height) - int(insets["bottom"]) - CAPTION_LIFT_PX
+        row_basis = "the engine's caption row"
+    else:
+        row = caption_row_px(declared_row, height)
+        row_basis = f"the project's declared caption row {declared_row!r}"
+
+    if caption_height:
+        floor = row - int(caption_height)
+        basis = (f"{row_basis} ({row}px) lifted by this reel's tallest "
+                 f"measured caption card ({int(caption_height)}px)")
+    else:
+        floor = row
+        basis = (f"{row_basis} ({row}px); no caption card carried a "
+                 f"measured box on this reel, so the row itself is the "
+                 f"floor")
+
+    insets["bottom"] = max(0, int(height) - int(floor))
+    return {"insets": insets, "caption_row": int(row), "basis": basis,
+            "floor": int(floor)}
+
+
+def box_has_room(insets: Dict[str, int], width: int, height: int) -> bool:
+    """Is there any rectangle left to draw in?"""
+    return (int(width) - int(insets.get("left", 0))
+            - int(insets.get("right", 0)) > 0
+            and int(height) - int(insets.get("top", 0))
+            - int(insets.get("bottom", 0)) > 0)
+
+
+# ── The plan ─────────────────────────────────────────────────────────
+
+def plan_for_reel(reel_name: str, lines: Sequence[dict],
+                  reel_seconds: float,
+                  project_folder: Optional[str],
+                  brand_effect: Optional[dict] = None,
+                  width: int = 1080, height: int = 1920,
+                  subtitle_segments: Sequence[dict] = ()) -> SpeakerPlan:
+    """One reel's speaker lower-thirds, as plan entries and a record.
+
+    The entries are ``motion_graphics_plan.resolve_plan``'s own shape -
+    this module plans, it does not draw and it does not resolve.  The
+    caller hands them straight to that resolver, so a lower third takes
+    exactly the path every other motion graphic takes.
+
+    A project declaring nothing returns a plan with no entries and
+    ``basis == NOT_DECLARED``.  That is the whole of "a project that
+    declares none gets no lower-thirds": there is no crash and no
+    placeholder, and the reel builds as it built before this existed.
+    """
+    plan = SpeakerPlan(reel_name=reel_name)
+
+    declaration = resolve_declaration(brand_effect, project_folder)
+    if declaration is None:
+        return plan
+
+    declared = declared_speakers(declaration, project_folder)
+    plan.declared = True
+    if not lines:
+        plan.basis = NO_LINES_IN_THE_REEL
+        return plan
+
+    appearances = first_appearances(lines, declared["speakers"].keys())
+    if not appearances:
+        plan.basis = NO_DECLARED_SPEAKER_SPOKE
+        return plan
+
+    box = placement_box(project_folder, width, height,
+                        measured_caption_height(subtitle_segments))
+    plan.box = dict(box["insets"])
+    plan.box["_basis"] = box["basis"]
+    if not box_has_room(box["insets"], width, height):
+        for appearance in appearances:
+            plan.refused.append({
+                "speaker": appearance["speaker"],
+                "reason": NO_ROOM_ABOVE_THE_CAPTIONS,
+                "detail": box["basis"]})
+        plan.basis = NO_DECLARED_SPEAKER_SPOKE
+        return plan
+
+    for appearance in appearances:
+        label = appearance["speaker"]
+        entry = declared["speakers"][label]
+        colour, colour_basis = speaker_colour(label, entry, project_folder)
+        if not colour:
+            plan.refused.append({
+                "speaker": label,
+                "reason": NO_COLOUR_DECLARED,
+                "detail": (f"{label!r} declares no `colour` and this "
+                           f"project declares no "
+                           f"pipeline.speaker_subtitle_styles[{label!r}]"
+                           f".accentColor. The engine has no colour to "
+                           f"offer (AGENTS.md 12).")})
+            continue
+        start = float(appearance["at_seconds"])
+        if start >= float(reel_seconds or 0.0):
+            plan.refused.append({
+                "speaker": label,
+                "reason": OUTSIDE_THE_REEL,
+                "detail": (f"first heard at {start}s of a "
+                           f"{reel_seconds}s reel")})
+            continue
+        plan.introductions.append(Introduction(
+            speaker=label, name=entry["name"], title=entry["title"],
+            colour=colour, colour_basis=colour_basis,
+            at_seconds=start, says=appearance["says"]))
+        plan.entries.append(entry_for(
+            introduction=plan.introductions[-1], declared=declared))
+
+    plan.basis = SPEAKERS_INTRODUCED if plan.entries \
+        else NO_DECLARED_SPEAKER_SPOKE
+    return plan
+
+
+def entry_for(introduction: Introduction, declared: dict) -> dict:
+    """One ``lower_third`` plan entry, in ``resolve_plan``'s own shape.
+
+    The copy travels as RUNS with type roles, which is how every other
+    copy-carrying element states its hierarchy: the name is ``display``
+    and the title ``supporting``.  A speaker with no title declared
+    sends one run, and the composition builds one line - the second
+    part of the construction is simply not there, rather than there and
+    empty.
+
+    ``data.construction`` is what turns this from a text block into the
+    staged build the captain asked for; the composition owns every
+    number in it and this module states none.
+    """
+    runs = [{"text": introduction.name, "type_role": "display"}]
+    if introduction.title:
+        runs.append({"text": introduction.title,
+                     "type_role": "supporting"})
+    return {
+        "element": ELEMENT,
+        "anchor": declared["anchor"],
+        "row": 0,
+        "copy": runs,
+        "color": introduction.colour,
+        "entrance": declared["entrance"],
+        "exit": declared["exit"],
+        "start_seconds": introduction.at_seconds,
+        "duration_seconds": declared["hold_seconds"],
+        "why": (f"first appearance of {introduction.speaker!r} in this "
+                f"reel, at {introduction.at_seconds}s"),
+        "data": {
+            # WHAT to build, not how. The composition's `lower_third`
+            # arm reads this and draws the staged construction; without
+            # it the arm keeps the flat attribution block it drew
+            # before, so every existing caller's graphic is unchanged.
+            "construction": "staged_rule",
+            "speaker": introduction.speaker,
+            "colour_basis": introduction.colour_basis,
+        },
+    }
+
+
+# ── What was drawn ───────────────────────────────────────────────────
+
+def render_findings(measured: dict, insets: Dict[str, int],
+                    width: int, height: int) -> List[dict]:
+    """Did the ink land in the box?  Read off the RENDER, not the plan.
+
+    ``measured`` is ``explainer_plan.measure_render``'s reading of the
+    rendered overlay - the alpha channel's row and column extents.
+    Reused rather than respelled, so the one measurement of "where is
+    the ink" in this engine stays one.
+
+    The segment renders FULL CANVAS, so those extents are already
+    delivery-frame coordinates and no transform stands between the
+    reading and the placement.  That is why this check means something:
+    a tight-boxed graphic would be measured on its own small canvas and
+    the answer would depend on a predicted Pan/Tilt.
+
+    ``error`` REFUSES the segment; ``warning`` is said and placed.
+    """
+    findings: List[dict] = []
+    rows = (measured or {}).get("rows")
+    cols = (measured or {}).get("cols")
+    if not rows or not cols:
+        findings.append({
+            "severity": "error", "code": "nothing_drawn",
+            "message": "the rendered overlay has no ink on it at all"})
+        return findings
+
+    frame = (measured or {}).get("frame") or [width, height]
+    if list(frame) != [int(width), int(height)]:
+        findings.append({
+            "severity": "warning", "code": "not_the_delivery_frame",
+            "message": (f"measured on a {frame[0]}x{frame[1]} canvas, not "
+                        f"the {width}x{height} delivery frame, so these "
+                        f"extents are not frame coordinates")})
+        return findings
+
+    top, bottom = int(rows[0]), int(rows[1])
+    left, right = int(cols[0]), int(cols[1])
+    floor = int(height) - int(insets.get("bottom", 0))
+    ceiling = int(insets.get("top", 0))
+    left_edge = int(insets.get("left", 0))
+    right_edge = int(width) - int(insets.get("right", 0))
+
+    if bottom > floor:
+        findings.append({
+            "severity": "error", "code": INK_LEFT_THE_BOX,
+            "message": (f"ink reaches row {bottom}, below the box floor "
+                        f"{floor} - it would sit on the caption row")})
+    if top < ceiling:
+        findings.append({
+            "severity": "error", "code": INK_LEFT_THE_BOX,
+            "message": (f"ink reaches row {top}, above the safe-area top "
+                        f"{ceiling}")})
+    if left < left_edge or right > right_edge:
+        findings.append({
+            "severity": "error", "code": INK_LEFT_THE_BOX,
+            "message": (f"ink spans columns {left}..{right}, outside the "
+                        f"safe columns {left_edge}..{right_edge}")})
+    return findings
+
+
+def measured_box(measured: dict) -> Optional[Tuple[int, int, int, int]]:
+    """The drawn ink as ``(left, top, right, bottom)``, or None."""
+    rows = (measured or {}).get("rows")
+    cols = (measured or {}).get("cols")
+    if not rows or not cols:
+        return None
+    return (int(cols[0]), int(rows[0]), int(cols[1]), int(rows[1]))
+
+
+# ── The record ───────────────────────────────────────────────────────
+
+PLANS_FILE = "speaker_lower_thirds.json"
+
+#: What the reel build calls the row these land on, and what the
+#: conformance verifier files items by. The NAME, not an index: a reel's
+#: row index depends on how many angles, layers and caption rows it has,
+#: and `timeline_layout` is what decides it
+#: (`timeline_layout.MOTION_GRAPHICS`). Named here once so the placement
+#: and the check cannot disagree about it.
+TRACK_NAME = "Motion Graphics"
+
+#: The stem `reel_build` gives a rendered lower-third's PLACEMENT. The
+#: file itself is content-keyed (`render_cache`), so this is what a
+#: reader sees on the timeline rather than what is on disk.
+RENDER_PREFIX = "lt_"
+
+
+def write_plans(project_folder: str, plans: Sequence[SpeakerPlan]) -> str:
+    """Record what every reel's lower thirds were, including the empty ones.
+
+    Written to ``pipeline_output/review/`` beside the explainer plans and
+    for the same reason: a reader grading a built timeline needs the plan
+    it was built from, and a reel that drew nothing must be able to say
+    which kind of nothing (:data:`BASES`).
+
+    MERGED, not overwritten, exactly as ``explainer_plan.write_plans`` is:
+    a partial (`only`) build replaces the reels it touched and leaves
+    every other reel's record standing, because overwriting would delete
+    the record for timelines this build never looked at.
+    """
+    import json
+
+    from library.tools.project_layout import Area, ProjectLayout
+
+    out_dir = ProjectLayout(project_folder).write_dir(Area.REVIEW)
+    path = os.path.join(str(out_dir), PLANS_FILE)
+    stored: dict = {"format": "speaker_lower_thirds/1", "plans": []}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                stored = json.load(handle) or stored
+        except (OSError, ValueError):
+            stored = {"format": "speaker_lower_thirds/1", "plans": []}
+    touched = {plan.reel_name for plan in (plans or ())}
+    kept = [p for p in (stored.get("plans") or [])
+            if str(p.get("reel")) not in touched]
+    kept.extend(plan.as_dict() for plan in (plans or ()))
+    stored["plans"] = kept
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(stored, handle, indent=2)
+    return path
+
+
+def plans_path(project_folder: str) -> str:
+    """Where :func:`write_plans` puts the record."""
+    from library.tools.project_layout import Area, ProjectLayout
+    return os.path.join(
+        str(ProjectLayout(project_folder).write_dir(Area.REVIEW)), PLANS_FILE)
+
+
+def read_plans(project_folder: str) -> dict:
+    """What the build recorded, or ``{}`` when it recorded nothing."""
+    import json
+    path = plans_path(project_folder)
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def plan_for(plans: Optional[dict], reel_name: str) -> Optional[dict]:
+    """The recorded plan for one reel BY NAME, or None.
+
+    None means this build recorded nothing for this reel - which is what
+    a reel built before speaker lower thirds existed looks like, and the
+    conformance check returns nothing rather than grading a correct reel
+    against an absence.
+    """
+    for record in ((plans or {}).get("plans") or []):
+        if str(record.get("reel")) == str(reel_name):
+            return record
+    return None

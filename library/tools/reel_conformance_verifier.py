@@ -83,6 +83,10 @@ from library.tools.explainer_plan import EXPLAINER_TRACK, RENDER_PREFIX
 from library.tools.reel_semantic_visual import (
     RENDER_PREFIX as SEMANTIC_RENDER_PREFIX)
 from library.tools.reel_semantic_visual import SEMANTIC_TRACK
+from library.tools.speaker_identity import (
+    TRACK_NAME as LOWER_THIRD_TRACK_NAME,
+    RENDER_PREFIX as LOWER_THIRD_RENDER_PREFIX,
+)
 from library.tools.reel_semantic_visual import SPAN_EVERY_EVENT_DROPPED
 from library.tools.frame_utils import span_frames
 from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
@@ -141,6 +145,15 @@ class FindingClass:
     # first: a reel whose every planned picture was refused must not
     # build green and silently.
     F23 = "F23"  # PLANNING: an all-refused span picture plan
+
+    # 2026-09-12: the SPEAKER LOWER THIRDS, against the plan the build
+    # wrote. The same two directions F21 and F22 carry - a recorded
+    # segment with no placed item is a name the viewer never saw, and a
+    # placed item no plan accounts for is an out-of-band append - plus
+    # one this layer has and they do not: the reel must not name one
+    # speaker TWICE, because "on the first appearance" is the whole ask
+    # (`library/tools/speaker_identity.py`).
+    F24 = "F24"  # ENCODING: the speaker lower thirds, against the plan
 
     # Plan quality gates (not from the audit, from the captain's list)
     PQ_LENGTH = "PQ-LENGTH"       # outside the 45-90s PREFERENCE (warning)
@@ -467,6 +480,13 @@ class ReelTimeline:
     `library/tools/reel_semantic_visual.SEMANTIC_TRACK` is which track
     that is, named there once so the placement and the check cannot
     disagree about it."""
+    lower_third_items: Tuple[TimelineItem, ...] = ()
+    """Items on the speaker lower-third row, in order.
+
+    `library/tools/speaker_identity.TRACK_NAME` is which row that is,
+    named there once so the placement and the check cannot disagree
+    about it. Filed by NAME only: this row has no legacy index, because
+    nothing placed on it before F24 existed."""
     frame_items: Tuple[TimelineItem, ...] = ()
     """Items on the TV-frame set row, in order.
 
@@ -2605,7 +2625,8 @@ def check_unclassified_video(reel_name: str,
                 f"V{track} carries {len(items)} video item(s) and this "
                 f"verifier has no check for that track - picture rows "
                 f"are per angle, then the Frame row, the Subtitles row, "
-                f"Transitions, the Explainer and the Semantic row, in "
+                f"Transitions, the Explainer, the Semantic row and the "
+                f"Motion Graphics row the speaker lower thirds ride, in "
                 f"the track plan's order. An item nothing "
                 f"grades is not an item nothing is wrong with."),
             severity="error",
@@ -3206,6 +3227,124 @@ def check_semantic_visuals(reel_name: str,
                                       earlier.end_frame],
                             "second": [later.start_frame,
                                        later.end_frame]}))
+    return findings
+
+
+def check_speaker_lower_thirds(reel_name: str,
+                               lower_third_items: Sequence[TimelineItem],
+                               planned: Optional[dict],
+                               fps: float) -> List[Finding]:
+    """F24: the speaker lower thirds, against the plan THE BUILD WROTE.
+
+    The two directions F21 and F22 carry, for the same reasons - a
+    recorded segment with no placed item is a name the viewer never
+    saw, and an item no plan accounts for is an out-of-band append -
+    plus the one this layer has and they do not.
+
+    **A speaker may be named ONCE.**  "on the first appearance" is the
+    whole of what the captain asked for on 2026-09-12, so a reel whose
+    recorded plan introduces one speaker twice is a defect even where
+    every item it placed matches that plan.  That half reads the plan's
+    own `introductions`, which is where the once-per-speaker decision
+    was made, rather than counting items: two speakers introduced at
+    the same second are legitimately two entries in ONE segment, and
+    counting items would refuse them.
+
+    `planned` is `speaker_identity.plan_for`'s entry for this reel -
+    **read from what the build recorded, never re-derived**, the same
+    discipline F21 and F22 keep.  None means this build recorded
+    nothing, which is what every reel built before this layer existed
+    looks like, and grading one against an absence would fail a correct
+    reel.
+    """
+    findings: List[Finding] = []
+    items = sorted(lower_third_items or [], key=lambda i: i.start_frame)
+    track = items[0].track_index if items else 0
+    if planned is None:
+        if items:
+            findings.append(Finding(
+                finding_class=FindingClass.F24, reel=reel_name,
+                message=(
+                    f"{len(items)} item(s) on the lower-third row (V"
+                    f"{track}) and this reel has no recorded speaker "
+                    f"lower-third plan at all, so nothing accounts for "
+                    f"them"),
+                detail={"items": len(items), "planned": None}))
+        return findings
+
+    # ONCE PER SPEAKER, off the plan's own introductions.
+    seen: Dict[str, int] = {}
+    for introduction in (planned.get("introductions") or []):
+        label = str(introduction.get("speaker") or "")
+        seen[label] = seen.get(label, 0) + 1
+    for label, count in sorted(seen.items()):
+        if count > 1:
+            findings.append(Finding(
+                finding_class=FindingClass.F24, reel=reel_name,
+                message=(
+                    f"{label!r} is introduced {count} times on this reel; "
+                    f"a lower third names a speaker on their FIRST "
+                    f"appearance and on no other"),
+                detail={"speaker": label, "introductions": count}))
+
+    expected = list(planned.get("segments") or [])
+    if not expected and planned.get("basis") not in (None, ""):
+        if items:
+            findings.append(Finding(
+                finding_class=FindingClass.F24, reel=reel_name,
+                message=(
+                    f"{len(items)} item(s) on V{track} but the build "
+                    f"recorded no speaker lower third for this reel "
+                    f"({planned.get('basis')})"),
+                detail={"items": len(items),
+                        "basis": planned.get("basis")}))
+        return findings
+
+    # Paired by RECORD FRAME, never by list index.
+    by_frame = {item.start_frame: item for item in items}
+    matched = set()
+    for segment in expected:
+        want_start = int(round(float(segment["timeline_start"]) * fps))
+        want_frames = int(segment["total_frames"])
+        item = by_frame.get(want_start)
+        if item is None:
+            near = min((abs(i.start_frame - want_start), i) for i in items) \
+                if items else None
+            findings.append(Finding(
+                finding_class=FindingClass.F24, reel=reel_name,
+                message=(
+                    f"speaker lower third planned at reel frame "
+                    f"{want_start} "
+                    f"({float(segment['timeline_start']):.2f}s) and no item "
+                    f"on the lower-third row (V{track}) starts there"
+                    + (f"; nearest is frame {near[1].start_frame}"
+                       if near else "; the row is empty")),
+                detail={"planned_start_frame": want_start,
+                        "planned_frames": want_frames,
+                        "found": [i.start_frame for i in items]}))
+            continue
+        matched.add(item.start_frame)
+        if item.duration_frames != want_frames:
+            findings.append(Finding(
+                finding_class=FindingClass.F24, reel=reel_name,
+                message=(
+                    f"speaker lower third at reel frame {want_start} runs "
+                    f"{item.duration_frames} frames, planned {want_frames}"),
+                detail={"planned_frames": want_frames,
+                        "actual_frames": item.duration_frames,
+                        "start_frame": want_start}))
+
+    for item in items:
+        if item.start_frame in matched:
+            continue
+        findings.append(Finding(
+            finding_class=FindingClass.F24, reel=reel_name,
+            message=(
+                f"an item on V{track} at reel frame {item.start_frame} "
+                f"({item.name or 'unnamed'}) that no recorded speaker "
+                f"lower third accounts for"),
+            detail={"start_frame": item.start_frame, "name": item.name,
+                    "render_prefix": LOWER_THIRD_RENDER_PREFIX}))
     return findings
 
 
@@ -3979,6 +4118,7 @@ def verify_reel(plan: ReelPlan,
                 explainer_plan: Optional[dict] = None,
                 semantic_plan: Optional[dict] = None,
                 span_plan: Optional[dict] = None,
+                lower_third_plan: Optional[dict] = None,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result.
 
@@ -4298,6 +4438,12 @@ def verify_reel(plan: ReelPlan,
     findings.extend(check_semantic_visuals(
         plan.reel_name, timeline.semantic_items, semantic_plan, fps))
 
+    # F24: the speaker lower thirds, against the plan the build wrote.
+    # Passing None means "no record", which returns nothing rather than
+    # grading a build from before this layer against an absence.
+    findings.extend(check_speaker_lower_thirds(
+        plan.reel_name, timeline.lower_third_items, lower_third_plan, fps))
+
     # F23: the span picture plan, against the record the build wrote.
     # Passing None means "no record", which returns nothing rather than
     # grading a pre-span build against an absence.
@@ -4385,6 +4531,7 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
     unclassified_items = []
     explainer_items = []
     semantic_items = []
+    lower_third_items = []
     frame_items = []
     for clip in snapshot.clips:
         item = TimelineItem(
@@ -4425,6 +4572,8 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
             explainer_items.append(item)
         elif is_video and _is_layer_named(row, "Semantic"):
             semantic_items.append(item)
+        elif is_video and _is_layer_named(row, LOWER_THIRD_TRACK_NAME):
+            lower_third_items.append(item)
         elif is_video and clip.track_index == 3:
             caption_items.append(item)
         elif is_video and clip.track_index == OVERLAY_TRACK:
@@ -4472,6 +4621,8 @@ def _snapshot_to_reel_timeline(snapshot) -> ReelTimeline:
                                      key=lambda i: i.start_frame)),
         semantic_items=tuple(sorted(semantic_items,
                                     key=lambda i: i.start_frame)),
+        lower_third_items=tuple(sorted(lower_third_items,
+                                       key=lambda i: i.start_frame)),
         frame_items=tuple(sorted(frame_items,
                                  key=lambda i: i.start_frame)),
         width=snapshot.width,
@@ -5531,6 +5682,11 @@ def run_verification(
     # What the build recorded about each reel's explainer. Read ONCE and
     # read from the BUILD's own record; `{}` when no build ever wrote
     # one, which makes F21 silent rather than confident.
+    from library.tools.speaker_identity import (
+        plan_for as lower_third_plan_for_reel,
+        read_plans as read_lower_third_plans)
+    lower_third_plans = (read_lower_third_plans(project_folder)
+                         if project_folder else {})
     from library.tools.explainer_plan import plan_for_reel, read_plans
     explainer_plans = read_plans(project_folder) if project_folder else {}
     if (explainer_plans.get("plans") or []):
@@ -5630,7 +5786,9 @@ def run_verification(
                 semantic_plan=semantic_record_for_reel(
                     semantic_records, name),
                 span_plan=span_plan_record_for_reel(
-                    span_plan_records, name))
+                    span_plan_records, name),
+                lower_third_plan=lower_third_plan_for_reel(
+                    lower_third_plans, name))
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

@@ -226,6 +226,15 @@ def _element_size(element: dict, scale: float, project_folder: str,
 
     if kind in ASSET_ELEMENTS:
         return None
+    # A `lower_third` the plan asked to be CONSTRUCTED is a different
+    # drawing - a rule, a masked name and a wiped title, sized off the
+    # display type rather than a padded panel - and nothing here models
+    # it. Refused rather than estimated, which is what `None` means in
+    # this function: an element of unknown size forces the full canvas
+    # rather than a box drawn around a guess.
+    if (kind == "lower_third"
+            and (element.get("data") or {}).get("construction")):
+        return None
     if kind == "progress_bar":
         return usable_width + 2 * BAR_GLOW, BAR_HEIGHT * scale + 2 * BAR_GLOW
     if kind == "frame_accents":
