@@ -7258,9 +7258,10 @@ def build_reel_variants(project_slug: str, reel_number: int,
         proj = get_project(project_slug)
         if not proj:
             raise ValueError(f"Unknown project {project_slug}")
-        # NOTE: `project_root`, not `.root` - the sibling rebuild
-        # path reads a `.root` this config does not have, so a slug
-        # call of that path fails where this one works.
+        # NOTE: `project_root`, not `.root` - `ProjectConfig`
+        # carries no `.root` (issue #895 fixed the sibling rebuild
+        # path that read one), so a slug call of either path fails
+        # loudly on anything but this attribute.
         project_folder = str(proj.project_root)
 
     with open(os.path.join(project_folder, "project.yaml")) as f:

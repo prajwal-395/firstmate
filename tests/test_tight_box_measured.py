@@ -439,6 +439,8 @@ def test_reused_placement_restores_when_it_holds():
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -100.0},
         "carriage": OVERLAY_CARRIAGE,
+        "safe_area": {"top": 120, "right": 120,
+                      "bottom": 320, "left": 90},
         "union": {"x0": 100, "y0": 1200, "x1": 400, "y1": 1294},
     }
     restored = restore_reused_placement(sidecar, _props(), (1080, 1920))
@@ -459,6 +461,8 @@ def test_reused_placement_is_refused_when_clamped():
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -7929.0},
         "carriage": OVERLAY_CARRIAGE,
+        "safe_area": {"top": 120, "right": 120,
+                      "bottom": 320, "left": 90},
         "union": {"x0": 382, "y0": 1501, "x1": 682, "y1": 1595},
     }
     with pytest.raises(TightBoxMismatch, match="no longer holds"):

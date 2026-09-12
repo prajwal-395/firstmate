@@ -195,9 +195,29 @@ def _drawing_digest(props: dict, geometry: str = "full",
     floored at `tight_box.MIN_CANVAS_HEIGHT`) and container (stitched
     mov versus frames directory - different artefacts of the same
     pixels).
+
+    For the tight carrying `style.safeArea` is positioning, not
+    pixels, and stays out: the frame-relative insets move the probe's
+    ink within the delivery frame, but the tight crop follows the ink,
+    so two rows of the same card cut byte-identical canvases.
+    Measured on geo-podcast (issue #915): 145 caption pairs sharing a
+    provenance stem held identical bytes under two digests whose only
+    drawing-side difference was `safeArea.bottom` 331 (the engine's
+    old row) versus 540 (the project's declared caption row) - one
+    content rendered under two names, and every row change re-rendered
+    the whole directory beside itself. The full carrying keeps the
+    insets in the digest: there the row really moves pixels.
+    A composition that ever DRAWS from an inset (wraps from it, clips
+    to it) must put it back - today the composition positions from
+    `top`/`bottom` only (`SubtitleOverlay/index.tsx`) and never reads
+    `left`/`right` at all.
     """
     drawing = {k: v for k, v in props.items()
                if k not in NON_DRAWING_PROPS_KEYS}
+    style = drawing.get("style")
+    if geometry == "tight" and isinstance(style, dict):
+        style = {k: v for k, v in style.items() if k != "safeArea"}
+        drawing["style"] = style
     drawing["_geometry"] = geometry
     drawing["_container"] = container
     return _drawing_digest_of(drawing)
@@ -1297,6 +1317,19 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     # placements under a draw gain that does not
                     # exist.
                     "carriage": OVERLAY_CARRIAGE,
+                    # WHERE the row sat when this placement was
+                    # measured: the frame-relative insets the probe
+                    # laid out from. The tight filename no longer
+                    # carries them (one file per pixels - see
+                    # `_drawing_digest`), so without this stamp a row
+                    # change would reuse a placement measured for the
+                    # old row: it reads back clean inside every rail
+                    # and draws the caption on the wrong row. The
+                    # restore path refuses a stamp that is missing or
+                    # moved, and the caller re-renders measured over
+                    # the same file.
+                    "safe_area": ((props.get("style") or {}).get(
+                        "safeArea") if isinstance(props, dict) else None),
                     "union": {
                         "x0": probe_union.x0,
                         "y0": probe_union.y0,

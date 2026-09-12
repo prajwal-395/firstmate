@@ -581,6 +581,17 @@ def restore_reused_placement(sidecar: dict, props: dict,
     rather than served: the caller re-renders measured. A sidecar
     with no carriage field predates the stamp and is refused the
     same way.
+
+    The sidecar must also name the row it was measured for
+    (`safe_area`, the frame-relative insets the probe laid out from),
+    and that row must be today's. The tight filename is deliberately
+    row-invariant (one file per pixels - the same card on two rows
+    cuts byte-identical canvases), so the filename cannot carry this
+    check; without it a row change would reuse a placement measured
+    for the old row, which reads back clean inside every rail and
+    draws the caption on the wrong row. A stamp that is missing or
+    moved is REFUSED the same way as a superseded carriage: the
+    caller re-renders measured over the same file.
     """
     from library.tools.overlay_mode import OVERLAY_CARRIAGE
 
@@ -607,6 +618,16 @@ def restore_reused_placement(sidecar: dict, props: dict,
             f"{OVERLAY_CARRIAGE!r}: a placement from a superseded "
             f"carriage draws off the frame however cleanly it reads "
             f"back - re-rendering measured rather than shipping it.")
+    row = sidecar.get("safe_area") if isinstance(sidecar, dict) else None
+    today = ((props.get("style") or {}).get("safeArea")
+             if isinstance(props, dict) else None)
+    if row != today:
+        raise TightBoxMismatch(
+            f"box sidecar was positioned for safeArea {row!r}, not "
+            f"today's {today!r}: the caption row moved, so the "
+            f"restored placement would draw on the old row however "
+            f"cleanly it reads back - re-rendering measured over the "
+            f"same file rather than shipping it.")
     if timeline_size is not None:
         reason = placement_holds(box.placement, *timeline_size)
         if reason:
