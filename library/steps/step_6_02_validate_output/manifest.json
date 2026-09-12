@@ -73,7 +73,8 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
-    "-assembly_manifest.subtitles.*.words"
+    "-assembly_manifest.subtitles.*.words",
+    "-deterministic_validation.qa_report"
   ],
   "skills": [
     "verify_render"

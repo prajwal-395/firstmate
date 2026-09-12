@@ -179,6 +179,7 @@
     "timed_spine",
     "-timed_spine.structure.*.word_timestamps",
     "-timed_spine.structure.*.content.word_timestamps",
+    "-timed_spine.music_selection",
     "temporal_event_indices.*.clip_id",
     "view:picture",
     "view:stability"
