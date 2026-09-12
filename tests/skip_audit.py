@@ -106,7 +106,7 @@ ENVIRONMENT_CONDITIONS = (
     ),
     # ── Capabilities: a skip here means the run is narrower ────────────
     EnvironmentCondition(
-        pattern=r"ffmpeg(/ffprobe)? (is )?not (available|installed|on this machine)",
+        pattern=r"ffmpeg(/ffprobe)? (is )?not (available|installed|on this machine|on PATH)",
         false_when="ffmpeg and ffprobe are on PATH (AGENTS.md 9 requires "
                    "them for a real run)",
         capability="ffmpeg",
@@ -131,6 +131,18 @@ ENVIRONMENT_CONDITIONS = (
         capability="ffmpeg_rotation",
         install_hint="upgrade ffmpeg to a build that supports -display_rotation",
     ),
+    # Same absent-ffmpeg fact in the words the overlay-mode and delivery
+    # markers use.  Each names CI because CI installs ffmpeg (AGENTS.md
+    # 10.4 pins that); matched no declaration, so a run without ffmpeg
+    # exited 1 with zero failures.
+    EnvironmentCondition(
+        pattern=r"(needs ffmpeg; runs in CI"
+                r"|ffmpeg/ffprobe are required; CI installs them)",
+        false_when="ffmpeg and ffprobe are on PATH (AGENTS.md 9 requires "
+                   "them for a real run; CI installs them)",
+        capability="ffmpeg",
+        install_hint="brew install ffmpeg",
+    ),
     EnvironmentCondition(
         pattern=r"needs remotion-subtitles/node_modules, npx and ffmpeg",
         false_when="`npm install` has been run in remotion-subtitles/ and "
@@ -146,6 +158,26 @@ ENVIRONMENT_CONDITIONS = (
         capability="remotion",
         install_hint="cd remotion-subtitles && npm install",
     ),
+    # The stills-gated markers: the render needs ffmpeg, a still only
+    # needs the installed Remotion deps and npx.  Split out when the
+    # delivery tests grew a stills_available marker beside
+    # remotion_available; the two-part reason matched no declaration, so
+    # a run without node_modules exited 1 with zero failures.
+    EnvironmentCondition(
+        pattern=r"needs remotion-subtitles/node_modules and npx",
+        false_when="`npm install` has been run in remotion-subtitles/ and "
+                   "npx is on PATH",
+        capability="remotion",
+        install_hint="cd remotion-subtitles && npm install",
+    ),
+    EnvironmentCondition(
+        pattern=r"needs node and remotion-subtitles/node_modules/typescript",
+        false_when="`npm install` has been run in remotion-subtitles/ "
+                   "(fetching the TypeScript dev dependency) and `node` "
+                   "is on PATH",
+        capability="remotion",
+        install_hint="cd remotion-subtitles && npm install",
+    ),
     EnvironmentCondition(
         pattern=r"could not import ['\"](?:cv2|yaml|tiktoken)['\"]",
         false_when="the package is installed - all three are in "
@@ -155,6 +187,22 @@ ENVIRONMENT_CONDITIONS = (
     ),
     EnvironmentCondition(
         pattern=r"PyYAML not installed",
+        false_when="PyYAML is installed, as `requirements.txt` asks",
+        capability="python_packages",
+        install_hint="pip install -r requirements.txt",
+    ),
+    # `pytest.importorskip` with an explicit reason reports the reason
+    # instead of "could not import ...", so these bypass the import
+    # pattern above.  Pillow and PyYAML are both in `requirements.txt`;
+    # a machine without them is narrower, not broken.
+    EnvironmentCondition(
+        pattern=r"needs Pillow to (draw the fixture|measure (a rendered frame|the stills))",
+        false_when="Pillow is installed, as `requirements.txt` asks",
+        capability="python_packages",
+        install_hint="pip install -r requirements.txt",
+    ),
+    EnvironmentCondition(
+        pattern=r"PyYAML parses the workflow",
         false_when="PyYAML is installed, as `requirements.txt` asks",
         capability="python_packages",
         install_hint="pip install -r requirements.txt",

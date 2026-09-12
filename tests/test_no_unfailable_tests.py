@@ -73,6 +73,32 @@ def test_a_declaration_matches_the_reason_it_was_written_for():
     assert declared_condition(
         "this is the missing-dependency failure mode") is not None
     assert declared_condition("ffmpeg/ffprobe not available") is not None
+    assert declared_condition("ffmpeg/ffprobe not on PATH") is not None
+    assert declared_condition(
+        "needs ffmpeg; runs in CI, which installs it (AGENTS.md 9)"
+    ) is not None
+    assert declared_condition(
+        "ffmpeg/ffprobe are required; CI installs them (AGENTS.md 9)"
+    ) is not None
+    assert declared_condition(
+        "needs remotion-subtitles/node_modules and npx") is not None
+    assert declared_condition(
+        "needs remotion-subtitles/node_modules and npx; runs on any "
+        "machine that has done `npm install` in remotion-subtitles, "
+        "which is every machine that can render the pipeline's overlays"
+    ) is not None
+    assert declared_condition(
+        "needs node and remotion-subtitles/node_modules/typescript. "
+        "Runs anywhere the Remotion dev deps are installed - the same "
+        "environment every other delivery test in this suite needs."
+    ) is not None
+    assert declared_condition(
+        "needs Pillow to measure the stills") is not None
+    assert declared_condition(
+        "needs Pillow to draw the fixture") is not None
+    assert declared_condition(
+        "PyYAML parses the workflow; it is in requirements.txt"
+    ) is not None
     assert declared_condition(
         "could not import 'cv2': No module named 'cv2'") is not None
     assert declared_condition("hook_1.comp not found") is None

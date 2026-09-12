@@ -218,6 +218,78 @@ def test_the_local_gate_cannot_report_a_pass_it_did_not_earn(tmp_path):
     )
 
 
+def test_the_local_gate_refuses_a_pass_when_pytest_exits_nonzero_without_failures(
+    tmp_path,
+):
+    """The mirror of the shim above, and the shape of the 2026-09-12 incident.
+
+    A shim standing in for the interpreter writes a CLEAN JUnit report -
+    a positive test count with zero failures and zero errors - and then
+    exits 1, which is what the suite did when a runtime skip matched no
+    `EnvironmentCondition` (the session hook in the repo-root conftest
+    sets the exit status without recording a failure).  The gate's own
+    accounting must refuse that run a pass: trusting pytest's summary
+    over the exit code is the failure this repository spent two days
+    removing, and "fixing" a red gate that way is loosening, not repair.
+    """
+    shim = tmp_path / "clean_report_dirty_exit.sh"
+    shim.write_text(
+        "#!/bin/sh\n"
+        "for a in \"$@\"; do\n"
+        "  case \"$a\" in\n"
+        "    --junitxml=*)\n"
+        "      out=\"${a#--junitxml=}\"\n"
+        "      cat > \"$out\" <<'XML'\n"
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+        "<testsuites>\n"
+        "  <testsuite name=\"pytest\" tests=\"3\" skipped=\"1\" "
+        "failures=\"0\" errors=\"0\">\n"
+        "    <testcase name=\"test_a\" classname=\"m\"/>\n"
+        "    <testcase name=\"test_b\" classname=\"m\"/>\n"
+        "    <testcase name=\"test_c\" classname=\"m\">\n"
+        "      <skipped message=\"needs remotion-subtitles/node_modules, "
+        "npx and ffmpeg\"/>\n"
+        "    </testcase>\n"
+        "  </testsuite>\n"
+        "</testsuites>\n"
+        "XML\n"
+        "      exit 1\n"
+        "      ;;\n"
+        "  esac\n"
+        "done\n"
+        'exec python3 "$@"\n',
+        encoding="utf-8",
+    )
+    shim.chmod(0o755)
+    result = subprocess.run(
+        [str(LOCAL_GATE), "--skip-heavy-ml"],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        cwd=str(REPO_ROOT),
+        env={**os.environ, "FULL_SUITE_GATE_PYTHON": str(shim)},
+    )
+
+    verdicts = [
+        line for line in result.stdout.splitlines()
+        if line.startswith("FULL-SUITE GATE:")
+    ]
+    assert len(verdicts) == 1, (
+        f"the gate must print exactly one verdict line; got {verdicts}"
+    )
+    verdict = verdicts[0]
+    assert verdict.startswith("FULL-SUITE GATE: FAIL"), (
+        f"the gate reported {verdict!r} for a run whose pytest exited 1. "
+        f"A positive test count with zero recorded failures is required "
+        f"for a pass - an exit code is not a pass."
+    )
+    assert "no recorded failure but pytest exited 1" in verdict, verdict
+    assert result.returncode != 0, (
+        "the gate exited 0 for a run whose pytest exited 1, so a caller "
+        "checking only the exit status is told it passed"
+    )
+
+
 def test_the_local_gate_names_what_it_declined_to_measure():
     """A pass must not read wider than it is.
 
