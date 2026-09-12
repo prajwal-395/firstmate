@@ -195,7 +195,12 @@ def test_clips_carry_ranges_source_ranges_and_transforms(tmp_path):
     assert (clip["record_in"], clip["record_out"]) == (108100, 108300)
     assert clip["source_file"] == "/footage/craig.mov"
     assert clip["transform"]["ZoomX"] == 1.0
-    assert clip["fusion"] == {"comp_count": 0, "comp_names": []}
+    assert clip["fusion"] == {"comp_count": 0, "comp_names": [],
+                              # Where each comp's MediaIn reads from, and
+                              # whether it covers the frames the item
+                              # plays (`library/tools/comp_media_window.py`).
+                              # No comps here, so no rows.
+                              "media_windows": []}
     assert result["fps"] == 24
     assert (result["width"], result["height"]) == (1080, 1920)
 

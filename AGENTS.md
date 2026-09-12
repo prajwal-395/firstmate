@@ -184,7 +184,7 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 ### Connection
 
-**A Resolve project is addressed by its EXACT listed name, never a prefix** - a near match lands elsewhere.
+**A Resolve project is addressed by its EXACT listed name, never a prefix.**
 Detail: `library/tools/timeline_ingest.py`.
 
 **Timeline speech is REBUILT from source, not rendered**
@@ -200,13 +200,16 @@ Detail: `library/tools/execution/apply_fusion_comps.py`.
 **Judge a Resolve call by what it RETURNS, never by `hasattr`** - and read back past every silent clamp.
 Detail: `library/steps/step_6_01_render/probe_resolve_capabilities.py`.
 
+**A comp's MediaIn must COVER every frame its item PLAYS, or Resolve FAILS the render there.**
+Detail: `library/tools/comp_media_window.py`.
+
 **Pan/Tilt is ONE model, and a unit is not a pixel.**
 Detail: `library/tools/resolve_transform.py`.
 
 ### Transitions go through Fusion. Both other routes are closed.
 
 **Do not wire FCPXML or DRP project-file surgery back in.**
-Detail: `library/tools/transition_vocabulary.py` - it has TWO routes.
+Detail: `library/tools/transition_vocabulary.py`.
 
 **A DRAWN transition can only sit where a V1 clip ends, and the step that plans them is TOLD which cuts those are.**
 Detail: `library/tools/transition_carriers.py`.
@@ -218,12 +221,12 @@ Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Fusion .comp files - NEVER
 
-**Six things that must NEVER appear in a Fusion .comp** - the list lives where it is enforced.
+**Six things that must NEVER appear in a Fusion .comp.**
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Fusion .comp files - ALWAYS
 
-**What a Fusion .comp must ALWAYS carry** - the list lives where it is enforced.
+**What a Fusion .comp must ALWAYS carry.**
 Detail: `library/tools/fusion/comp_builder.py`.
 
 ### Frame mapping
@@ -249,13 +252,13 @@ Rows, pool audio and render audio live in one enumeration, `library/steps/step_6
 **in dB**
 Detail: `library/tools/otio_mix.py`. [why](docs/RULE_EVIDENCE.md#the-mix-goes-through-otio)
 
-
 ### Visual verification
 
 **Both pages show the SAME PIXELS through DIFFERENT VIEWERS; measure a grade on an EXPORT, never on a viewer.**
+**An export is BIT-EXACT on this machine and build: a re-render settles it, and what survives is real.**
 Detail: `library/tools/resolve_surfaces.py`. [why](docs/RULE_EVIDENCE.md#the-two-pages-that-showed-one-frame)
 
-**A capture that did not happen RAISES** - a declined grab, a False export, or no/empty file raise `StillCaptureError`; the Deliver render is the fallback.
+**A capture that did not happen RAISES.**
 Detail: `library/tools/marker_capture.py`. [why](docs/RULE_EVIDENCE.md#the-still-that-was-never-taken)
 
 ### Reading a killed build off disk

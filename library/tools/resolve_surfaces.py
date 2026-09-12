@@ -115,6 +115,43 @@ anything (point 4).
 the display transform into the file.**  That is the mechanism behind the
 captain's "way more than they needed to be", and it is why
 `assert_measurable` refuses a viewer by name rather than warning.
+
+── HOW EXACT THE INSTRUMENT IS: BIT-EXACT, AND THE SCOPE OF THAT ───────
+
+**An export is BIT-EXACT here: a difference that survives a re-render is
+real, not a floor.**
+
+Measured 2026-09-12, DaVinci Resolve Studio 21.1.0.0014, macOS 26.3, on
+this machine: one timeline, one 19-frame range, rendered twice through
+Deliver as a lossless 16-bit PNG sequence (1080x1920, `rgb48`), the two
+passes compared on decoded pixels.  **19 of 19 frames identical, zero
+differing.**  So a measurement taken this way owes no allowance to the
+renderer, and quoting one is a weaker claim than the instrument
+supports.
+
+What that does and does NOT license, stated separately because a rule
+that overstates in the safe direction is no better than one that
+overstates in the risky direction:
+
+* It licenses **byte equality as the bar** for "did this change the
+  picture" - between two renders of the same state, or between a change
+  and its control.  A 1/255 mean difference is a finding, not noise.
+* It does NOT license reading across INSTRUMENTS.  The rows above still
+  hold: a gallery still sits 1.61/255 from a Deliver render of the same
+  frame because one is a PNG and the other h.264, and a viewer is not a
+  measuring instrument at all.  Bit-exactness is a property of repeating
+  the SAME export, not of comparing two different ones.
+* It is scoped to **this machine and this Resolve build**, in ONE
+  session.  Whether it survives a Resolve restart, a GPU change or
+  another machine was not measured and is not claimed.  A lane that
+  needs the stronger statement measures it again and writes down what it
+  got - which costs two renders and a comparison.
+* A comp that was JUST edited or imported may render differently the
+  first time and settle afterwards (a spike measured a sub-pixel edge
+  map that vanished on a second pass).  That is a reason to **re-render
+  and compare the settled pass**, not a reason to accept a floor: a
+  difference that does not survive a re-render is not evidence, and one
+  that does is.
 """
 
 from __future__ import annotations

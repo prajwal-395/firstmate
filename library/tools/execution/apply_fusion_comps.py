@@ -75,9 +75,11 @@ try:
     from library.tools.treatment_verify import (
         verify_and_undo, verify_and_undo_drift)
     from library.tools import pipeline_skills as _skills
+    from library.tools import comp_media_window as _comp_window
 except ImportError:  # pragma: no cover - script entry point
     from treatment_verify import verify_and_undo, verify_and_undo_drift
     import pipeline_skills as _skills
+    import comp_media_window as _comp_window
 
 # Both entry points again: as a script the package path does not exist.
 try:
@@ -286,6 +288,11 @@ def apply_fusion_comps(manifest, project_folder,
     # the look-before-you-ship evidence lives where the other skill
     # receipts live - readable back from disk, never a self-report.
     treatment_report = []
+    # One row per comp whose media window was read back after import -
+    # the conform's receipt, for the same reason `treatment_report`
+    # exists: the window is what decides whether the reel renders at
+    # all, so a build that repaired one says so rather than going quiet.
+    comp_window_receipts = []
 
     # Imported at function scope, not inside the `has_any_effects` branch:
     # the generator-overlay pass at the bottom of this function reads
@@ -586,6 +593,32 @@ def apply_fusion_comps(manifest, project_folder,
             if reused:
                 print(f"  · [{where}] {label}: comp unchanged since "
                       f"{os.path.basename(comp_path)}", file=sys.stderr)
+
+            # 3. READ THE MEDIA WINDOW BACK. A comp is rendered over the
+            # frames its item PLAYS and its MediaIn has its own validity
+            # range; where that range does not cover them Resolve does
+            # not draw black, it FAILS the whole render job at the first
+            # uncovered frame. Six of the captain's eight built reels
+            # were shipped that way - see
+            # `library/tools/comp_media_window.py` for the measurement
+            # and for why the repair is a re-import rather than
+            # `SetInput`. This is the staging step where a media window
+            # is established, so it is where the conform belongs.
+            comp_window_receipts.append(
+                _comp_window.conform_item(tl_clip, played, comp_path,
+                                          label=f"[{where}] {label}"))
+            if comp_window_receipts[-1]["repaired"]:
+                print(f"  ! [{where}] {label}: comp media window did not "
+                      f"cover the frames this item plays "
+                      f"({comp_window_receipts[-1]['reason']}) - "
+                      f"re-imported and verified", file=sys.stderr)
+            elif comp_window_receipts[-1]["unreadable"]:
+                # SAID, not swallowed: the check could not run here, and
+                # a conform that goes quiet where it could not look reads
+                # as a conform that passed.
+                print(f"  . [{where}] {label}: comp media window could not "
+                      f"be read back - not judged", file=sys.stderr)
+
             comp_names = tl_clip.GetFusionCompNameList()
 
             if comp_names and len(comp_names) > 0:
@@ -685,6 +718,18 @@ def apply_fusion_comps(manifest, project_folder,
              "clips_checked": len(treatment_report),
              "treatments_undone": undone,
              "rows": treatment_report})
+    # What every comp's media window read back as, INCLUDING the ones
+    # that needed nothing. A conform that only records its repairs
+    # cannot be told apart from a conform that never ran.
+    if project_folder and comp_window_receipts:
+        repaired = sum(1 for r in comp_window_receipts if r.get("repaired"))
+        _skills.write_receipt(
+            project_folder, step_id, "conform_comp_windows",
+            {"skill": "conform_comp_windows",
+             "passed": True,
+             "comps_checked": len(comp_window_receipts),
+             "windows_repaired": repaired,
+             "rows": comp_window_receipts})
     return True
 
 if __name__ == "__main__":

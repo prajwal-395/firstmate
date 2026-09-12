@@ -188,6 +188,12 @@ def clip_detail(item, track_type: str, track_index: int,
             "comp_count": _call(item, "GetFusionCompCount", 0),
             "comp_names": list(
                 _call(item, "GetFusionCompNameList", []) or []),
+            # Where each comp's MediaIn reads from, and whether it
+            # covers the frames this item PLAYS. A comp that does not
+            # is why six of the captain's eight reels could not render
+            # their own endings, and nothing could see it without
+            # rendering - `library/tools/comp_media_window.py`.
+            "media_windows": _comp_windows(item, duration),
         },
         "color": {
             "cdl": dict(_call(item, "GetCDL", {}) or {}),
@@ -358,6 +364,29 @@ def read_reel(timeline, project_name: str = "",
     return result
 
 
+def _comp_windows(item, duration) -> list:
+    """One row per comp: its media window and why it is uncovered, if it is.
+
+    READ-ONLY, like everything else here: `comp_media_window` reads and
+    judges; the repair lives in the comp pass that writes.
+    """
+    from library.tools import comp_media_window as _window
+
+    rows = []
+    try:
+        count = int(_call(item, "GetFusionCompCount", 0) or 0)
+    except (TypeError, ValueError):
+        count = 0
+    for index in range(1, count + 1):
+        window = _window.read_window(item, index)
+        rows.append({
+            "comp_index": index,
+            "window": window,
+            "uncovered_reason": _window.uncovered_reason(window, duration),
+        })
+    return rows
+
+
 def fusion_of_tracks(tracks: list) -> list:
     """Every clip carrying Fusion comps. A slice of the one read."""
     out = []
@@ -374,6 +403,7 @@ def fusion_of_tracks(tracks: list) -> list:
                     "record_out": clip["record_out"],
                     "comp_count": fusion["comp_count"],
                     "comp_names": fusion["comp_names"],
+                    "media_windows": fusion.get("media_windows", []),
                 })
     return out
 
@@ -490,6 +520,31 @@ def markers_of(result: dict) -> list:
 def fusion_of(result: dict) -> list:
     """Every clip carrying Fusion comps."""
     return result.get("fusion", [])
+
+
+def uncovered_comp_windows(result: dict) -> list:
+    """Every comp whose MediaIn misses a frame its item PLAYS.
+
+    The diagnosis slice for the defect `comp_media_window` measures: a
+    reel carrying one of these renders until Resolve reaches the
+    uncovered frame and then FAILS the whole job. Six of the captain's
+    eight built reels answered this with a row on 2026-09-12.
+    """
+    out = []
+    for clip in clips_of(result):
+        for row in (clip.get("fusion") or {}).get("media_windows") or []:
+            if not row.get("uncovered_reason"):
+                continue
+            out.append({
+                "clip": clip["name"],
+                "track_type": clip["track_type"],
+                "track_index": clip["track_index"],
+                "record_in": clip["record_in"],
+                "record_out": clip["record_out"],
+                "played_frames": clip["duration"],
+                **row,
+            })
+    return out
 
 
 def overlays_of(result: dict) -> list:
