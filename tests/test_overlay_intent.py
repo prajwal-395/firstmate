@@ -278,3 +278,145 @@ def test_no_intent_keeps_computed_on_the_timeline():
         intent=None)
     assert ok and note == ""
     assert item.set_calls["Tilt"] == -1744.0
+
+
+#: Two segments off one Craig clip on Reel 13: same speaker, same
+#: source clip, different source spans. The captain's own ids, which
+#: is the point - a re-key that merged these two would bind his pin
+#: to the neighbour's overlay.
+SPAN_A_OLD = "sub_craig_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf"
+SPAN_A_NEW = "sub_craig_341446bc-389b-468c-9add_1853716-1855056_fdc48282"
+SPAN_B_OLD = "sub_craig_341446bc-389b-468c-9add_1855196-1856821_6b66c72d"
+SPAN_B_NEW = "sub_craig_341446bc-389b-468c-9add_1855196-1856821_c39e8475"
+
+PIN_A = {"canvas_centre": [540.0, 1385.0], "scaling": 1}
+PIN_B = {"canvas_centre": [540.0, 960.0], "scaling": 1}
+
+
+def test_a_pin_written_under_the_old_hash_still_resolves_exact():
+    """Backward compatibility: where the render still stands under
+    the recorded filename, the pin binds it exactly as before. No
+    captain record is orphaned by the re-key."""
+    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
+    placement, provenance = _resolve(
+        CAPTION_KIND, SPAN_A_OLD, COMPUTED_CAPTION, intent)
+    assert provenance == "declared"
+    assert placement["tilt"] == -1700.0
+
+
+def test_a_pin_survives_a_rerender_under_its_prefix():
+    """The 2026-09-13 wipe: the artefact re-rendered under a new
+    content hash, the provenance prefix unchanged. The pin recorded
+    against the old filename still puts the overlay where the
+    captain put it."""
+    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
+    placement, provenance = _resolve(
+        CAPTION_KIND, SPAN_A_NEW, COMPUTED_CAPTION, intent)
+    assert provenance == "declared"
+    assert placement["tilt"] == -1700.0
+
+
+def test_two_same_speaker_segments_with_different_spans_stay_distinct():
+    """The widened key must not bind the wrong artefact: two pins
+    for two spans off one clip each resolve their own re-render,
+    and to different places. Fails if prefix matching merges them."""
+    intent = parse_intent({"version": 2,
+                           "targets": {SPAN_A_OLD: PIN_A,
+                                       SPAN_B_OLD: PIN_B}})
+    place_a, prov_a = _resolve(CAPTION_KIND, SPAN_A_NEW,
+                               COMPUTED_CAPTION, intent)
+    place_b, prov_b = _resolve(CAPTION_KIND, SPAN_B_NEW,
+                               COMPUTED_CAPTION, intent)
+    assert (prov_a, prov_b) == ("declared", "declared")
+    assert place_a["tilt"] == -1700.0
+    assert place_b["tilt"] != place_a["tilt"], (
+        "span B must resolve its own pin, never span A's")
+
+
+def test_a_pin_never_claims_a_span_it_does_not_name():
+    """One pin for span A, and span B re-renders: B keeps the
+    computation. The prefix widens the match from one filename to
+    one overlay, never to the neighbour."""
+    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
+    placement, provenance = _resolve(
+        CAPTION_KIND, SPAN_B_NEW, COMPUTED_CAPTION, intent)
+    assert provenance == "computed"
+    assert placement == COMPUTED_CAPTION
+
+
+def test_an_mg_pin_matches_exactly_never_by_project_prefix():
+    """Motion-graphics names carry no stable prefix - the whole
+    suffix is content - so an mg pin binds its own artefact or
+    nothing. Stripping to `mg_geo-podcast` would match all 43
+    graphics on the captain's project."""
+    from library.tools.overlay_intent import resolve as mg_resolve
+
+    intent = parse_intent(
+        {"version": 2,
+         "targets": {"mg_geo-podcast_622f69cb": PIN_A}})
+    same, prov_same = mg_resolve(
+        "semantic visual", "mg_geo-podcast_622f69cb",
+        COMPUTED_CAPTION, intent, canvas=CANVAS, frame=FRAME)
+    assert prov_same == "declared"
+    other, prov_other = mg_resolve(
+        "semantic visual", "mg_geo-podcast_a072b160",
+        COMPUTED_CAPTION, intent, canvas=CANVAS, frame=FRAME)
+    assert (other, prov_other) == (COMPUTED_CAPTION, "computed")
+
+
+def test_two_pins_claiming_one_prefix_refuse_rather_than_guess():
+    """The captain pinned one overlay twice under two hashes. No
+    claimant wins quietly - the refusal names both, so the stale
+    one can be retired."""
+    from library.tools.overlay_intent import OverlayIntentError
+
+    intent = parse_intent(
+        {"version": 2,
+         "targets": {SPAN_A_OLD: PIN_A, SPAN_A_NEW: PIN_B}})
+    with pytest.raises(OverlayIntentError) as excinfo:
+        _resolve(CAPTION_KIND,
+                 "sub_craig_341446bc-389b-468c-9add_1853716-1855056_00000000",
+                 COMPUTED_CAPTION, intent)
+    message = str(excinfo.value)
+    assert SPAN_A_OLD in message and SPAN_A_NEW in message
+
+
+def test_unmatched_is_prefix_aware_and_still_reports_the_dead():
+    """`unmatched` applies the same lookup `resolve` does: a pin
+    whose overlay re-rendered is matched, not reported. What is
+    reported is genuinely unbound - the Reel 13 span no reel
+    captions any more."""
+    from library.tools.overlay_intent import unmatched
+
+    intent = parse_intent(
+        {"version": 2,
+         "targets": {
+             SPAN_A_OLD: PIN_A,
+             "sub_craig_58b86d7d-824a-44d5-9b0e_1898556-1901284_724fbe6c":
+                 PIN_A,
+         }})
+    assert unmatched(intent, [SPAN_A_NEW]) == [
+        "sub_craig_58b86d7d-824a-44d5-9b0e_1898556-1901284_724fbe6c"]
+
+
+def test_report_unmatched_names_the_pin_aloud(capsys):
+    """The silence is the defect: a pin that matches nothing must
+    print its own name. Fails if the report goes quiet."""
+    from library.tools.overlay_intent import report_unmatched
+
+    dead = "sub_craig_58b86d7d-824a-44d5-9b0e_1898556-1901284_724fbe6c"
+    intent = parse_intent({"version": 2,
+                           "targets": {SPAN_A_OLD: PIN_A, dead: PIN_A}})
+    missed = report_unmatched(intent, [SPAN_A_NEW],
+                              source="overlay_intent.json (Reel 13)")
+    assert missed == [dead]
+    err = capsys.readouterr().err
+    assert dead in err, "an unmatched pin is REPORTED, not dropped"
+
+
+def test_report_unmatched_is_quiet_when_every_pin_bound(capsys):
+    from library.tools.overlay_intent import report_unmatched
+
+    intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
+    assert report_unmatched(intent, [SPAN_A_NEW]) == []
+    assert capsys.readouterr().err == ""

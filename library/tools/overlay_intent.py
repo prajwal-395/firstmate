@@ -41,11 +41,23 @@ asserted), and looks like this::
        "mg_geo-podcast_622f69cb": {"canvas_centre": [540.0, 312.0],
                                    "scaling": 1}}}
 
-Lookup is segment id first, then kind. `"caption"` is the kind default
-the 22 identical Reel 09 corrections justify; motion graphics carry no
-kind default - four samples with no shared pattern are four positions,
-not a rule - so each is pinned by segment id (the render filename
-stem, stable across rebuilds that reuse the render).
+Lookup is segment id exact, then provenance prefix, then kind.
+`"caption"` is the kind default the 22 identical Reel 09 corrections
+justify; motion graphics carry no kind default - four samples with no
+shared pattern are four positions, not a rule - so each is pinned by
+segment id.
+
+A subtitle pin survives a re-render that changes the filename: the id
+is `sub_<speaker>_<clip>_<span>_<digest>` and only the digest is
+drawing inputs, so the lookup falls back to the provenance prefix
+(`subtitle_segment_id.stable_prefix` - speaker, clip, span) when no
+exact key matches. A pin written under the old full filename still
+resolves, by exact match where the render stands and by prefix where
+it was re-rendered. Motion-graphics names (`mg_<project>_<digest>`)
+carry no such prefix - the whole suffix is content - so they match
+exactly or not at all: stripping them to the project would bind one
+pin to every graphic on it. Two pins naming one prefix is refused
+rather than guessed between.
 
 A declared target must be COMPLETE - a numeric `scaling` and a
 two-number `canvas_centre`. A partial pin ("just the row") merged over
@@ -293,6 +305,23 @@ def transform_for(target: dict, canvas: Optional[tuple],
     return placement
 
 
+def _prefix_hits(targets: dict, segment_id: str) -> list:
+    """Pin keys naming the same overlay as `segment_id`, by provenance.
+
+    A subtitle pin written under yesterday's filename shares its
+    provenance prefix with today's re-render
+    (`subtitle_segment_id.stable_prefix`); a pin written as the bare
+    prefix matches the same way. Anything else matches only itself,
+    exactly - which keeps a content-keyed `mg_` pin from binding a
+    graphic it never named.
+    """
+    from library.tools.subtitle_segment_id import stable_prefix
+
+    want = stable_prefix(segment_id)
+    return sorted(key for key in targets
+                  if key != CAPTION_KIND and stable_prefix(key) == want)
+
+
 def resolve(kind: Optional[str], segment_id: Optional[str],
             computed: Optional[dict],
             intent: Optional[dict],
@@ -300,26 +329,43 @@ def resolve(kind: Optional[str], segment_id: Optional[str],
             frame: Optional[tuple] = None) -> Tuple[Optional[dict], str]:
     """The placement to apply, and which one it is.
 
-    Segment id first, then kind, then the computed value: a pin names
-    what the captain corrected, and everything unpinned keeps the
-    pipeline's own answer. Returns `(placement, provenance)` where
-    provenance is `"declared"` or `"computed"` - the placer records
-    which won, so a timeline can later say why each graphic sits
-    where it does.
+    Segment id exact, then provenance prefix, then kind, then the
+    computed value: a pin names what the captain corrected, and
+    everything unpinned keeps the pipeline's own answer. The prefix
+    half is what survives a re-render - a pin recorded against one
+    content hash still binds the overlay re-rendered under the next.
+    Returns `(placement, provenance)` where provenance is `"declared"`
+    or `"computed"` - the placer records which won, so a timeline can
+    later say why each graphic sits where it does.
 
     `canvas` and `frame` are the sizes the pin's place is turned into a
     transform against (`transform_for`); they are only needed where a
     pin matches, and a pin that matches without them RAISES.
 
-    A declared placement that materially disagrees with the
-    computation is REPORTED to stderr by `disagreement` on the way
-    past. It still wins; it no longer wins quietly.
+    Two pins naming one prefix REFUSE rather than guess between
+    them: a pin that silently does not apply is the failure `unmatched`
+    exists to report, and a pin that silently applies to the wrong of
+    two claimants is worse. A declared placement that materially
+    disagrees with the computation is REPORTED to stderr by
+    `disagreement` on the way past. It still wins; it no longer wins
+    quietly.
     """
     targets = intent or {}
     key = None
     if segment_id is not None and segment_id in targets:
         key = segment_id
-    elif kind is not None and kind in targets:
+    elif segment_id is not None:
+        hits = _prefix_hits(targets, segment_id)
+        if len(hits) > 1:
+            raise OverlayIntentError(
+                f"intent targets {hits} all name the overlay "
+                f"{segment_id!r} by provenance prefix: two pins "
+                f"claim one place, so neither applies. Keep the one "
+                f"that says where it goes and move the other to "
+                f"retired_targets.")
+        if hits:
+            key = hits[0]
+    if key is None and kind is not None and kind in targets:
         key = kind
     if key is not None:
         placement = transform_for(targets[key], canvas, frame, key)
@@ -342,10 +388,46 @@ def unmatched(intent: Optional[dict], seen_ids) -> list:
     position while every caption on every reel was placed by the
     computation; nothing said the file had stopped applying.
 
+    Matching is prefix-aware, the same lookup `resolve` applies: a
+    pin recorded against yesterday's filename counts as matched where
+    today's re-render of the same overlay played. What is reported
+    here is genuinely unbound - no current overlay shares its
+    provenance - never a pin the re-key already saved.
+
     `CAPTION_KIND` is excluded: a kind default that matched nothing on
     one reel is not stale, it just had no caption to place there.
     """
+    from library.tools.subtitle_segment_id import stable_prefix
+
     targets = intent or {}
     seen = set(seen_ids or ())
+    seen_prefixes = {stable_prefix(sid) for sid in seen
+                     if sid is not None}
     return sorted(key for key in targets
-                  if key != CAPTION_KIND and key not in seen)
+                  if key != CAPTION_KIND
+                  and key not in seen
+                  and stable_prefix(key) not in seen_prefixes)
+
+
+def report_unmatched(intent: Optional[dict], seen_ids,
+                     source: str = "overlay_intent.json") -> list:
+    """Pins that matched NO overlay, said aloud. Returns them.
+
+    The build calls this once per reel after placing, with every
+    overlay id it laid down. A pin for a segment no reel carries is
+    an ordinary thing - but an ordinary thing said plainly, with the
+    pin named, not a line in a file nobody re-reads. Either the
+    overlay still plays somewhere and the pin names a stale id (re-key
+    it to the current render), or the overlay is gone (move the pin
+    to `retired_targets`, saying why). Silence here is the defect
+    this module exists to stop, so a non-empty answer always prints.
+    """
+    missed = unmatched(intent, seen_ids)
+    if missed:
+        import sys
+        print(f"  {source}: {len(missed)} declared pin(s) matched no "
+              f"overlay on this build - {', '.join(missed)}. A pin "
+              f"that matches nothing places nothing: re-key it to "
+              f"the overlay's current id, or retire it.",
+              file=sys.stderr, flush=True)
+    return missed

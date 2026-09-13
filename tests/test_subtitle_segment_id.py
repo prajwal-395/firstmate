@@ -36,6 +36,7 @@ from library.tools.subtitle_segment_id import (
     segment_binding,
     segment_identifier,
     slug,
+    stable_prefix,
     timeline_scope,
 )
 
@@ -265,3 +266,39 @@ def test_a_single_word_longer_than_the_limit_keeps_its_cut():
     cut = slug(long_word, "x")
     assert len(cut) <= _SLUG_MAX
     assert cut == "a" * _SLUG_MAX
+
+
+def test_stable_prefix_is_provenance_not_pixels():
+    """The re-renderable half of a subtitle id: speaker, clip, span.
+
+    Pins key on this (`overlay_intent`), because a re-render changes
+    the digest and nothing else. The 2026-09-13 wipe proved it: every
+    one of the captain's caption pins died on the digest while its
+    prefix was still live.
+    """
+    assert stable_prefix(
+        "sub_craig_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf"
+    ) == "sub_craig_341446bc-389b-468c-9add_1853716-1855056"
+    assert stable_prefix(
+        "sub_craig_341446bc-389b-468c-9add_1853716-1855056_fdc48282"
+    ) == "sub_craig_341446bc-389b-468c-9add_1853716-1855056"
+
+
+def test_stable_prefix_keeps_two_spans_distinct():
+    """Two segments off one clip stay two keys: the span is IN the
+    prefix, so re-keying a pin on it can never bind the neighbour."""
+    assert (stable_prefix(
+        "sub_craig_341446bc-389b-468c-9add_1853716-1855056_1f0a29bf")
+        != stable_prefix(
+            "sub_craig_341446bc-389b-468c-9add_1855196-1856821_6b66c72d"))
+
+
+def test_stable_prefix_leaves_non_subtitle_ids_whole():
+    """A motion-graphics name is ALL digest past the project - there
+    is no safe prefix to take, so none is taken. A kind default and
+    a bare prefix are already keys, not ids, and pass through."""
+    assert stable_prefix("mg_geo-podcast_622f69cb") == "mg_geo-podcast_622f69cb"
+    assert stable_prefix("caption") == "caption"
+    assert (stable_prefix("sub_craig_341446bc-389b-468c-9add_1853716-1855056")
+            == "sub_craig_341446bc-389b-468c-9add_1853716-1855056")
+    assert stable_prefix(None) == ""

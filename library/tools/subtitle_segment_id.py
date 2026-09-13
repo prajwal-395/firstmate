@@ -274,6 +274,41 @@ def segment_identifier(binding: dict, content_digest: str) -> str:
     return f"{provenance_stem(binding)}_{short_digest(content_digest)}"
 
 
+#: A rendered subtitle id, split into its provenance prefix and its
+#: content digest. Speaker and clip slugs never contain `_`, and the
+#: span is `nospan` or `<ms>-<ms>`, so a `sub_` id is exactly these
+#: five parts and the trailing digest is unambiguous.
+_SUBTITLE_ID_RE = re.compile(
+    r"^(sub_[^_]+_[^_]+_(?:\d+-\d+|nospan))_([0-9a-f]+)$")
+
+
+def stable_prefix(segment_id: Optional[object]) -> str:
+    """The part of a rendered subtitle id that survives a re-render.
+
+    `segment_identifier` names a file `sub_<speaker>_<clip>_<span>_
+    <digest>`: the prefix is WHERE the speech came from (provenance -
+    speaker, source clip, source span) and the digest is WHICH pixels
+    (drawing inputs). A rebuild that changes any drawing input - a
+    different canvas, a re-wrap, a new carriage - digests differently
+    while the provenance stands still, so a pin keyed on the whole
+    filename dies with the render and a pin keyed on the prefix
+    survives it (`library/tools/overlay_intent.py`).
+
+    Anything that is not a subtitle render id - a motion-graphics
+    name (`mg_<project>_<digest>`, whose whole suffix IS the content
+    digest by `render_cache.motion_segment_name`), a kind default, a
+    bare prefix someone already stripped - is returned unchanged:
+    there is no safe prefix to take, so the caller matches it exactly
+    or not at all. Stripping `mg_geo-podcast` down to the project
+    would bind one pin to every graphic on the project.
+    """
+    text = str(segment_id or "")
+    match = _SUBTITLE_ID_RE.match(text)
+    if not match:
+        return text
+    return match.group(1)
+
+
 def timeline_scope(audio_spine: Optional[dict],
                    project_config=None,
                    fallback: str = "") -> str:

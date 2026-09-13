@@ -4286,7 +4286,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            check: str, properties: dict = None,
                            project_folder: str = "",
                            overlay_intent: dict = None,
-                           frame: tuple = None) -> None:
+                           frame: tuple = None,
+                           seen_ids: list = None) -> None:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -4322,6 +4323,10 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     `external/overlay_intent.json` by the caller), a pinned segment
     lands on the declared position instead of the computed one; the
     pin is selected by the segment's id, falling back to `kind`.
+    `seen_ids`, where given, collects every placed segment's intent
+    id, so the caller can report declared pins that matched nothing
+    (`overlay_intent.report_unmatched`) instead of dropping them
+    silently.
 
     `track_rows` is the plan's rows for this kind, in row order, and a
     segment rides the one its own LANE names. Segments on one lane never
@@ -4397,12 +4402,15 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # placement (Reel 09: the captain's hand corrections), so a
         # rebuild lands where they put things.
         tight = segment.get("tight_box") or {}
+        placed_segment_id = _overlay_segment_id(segment)
+        if seen_ids is not None:
+            seen_ids.append(placed_segment_id)
         note = apply_placement_transform(
             timeline, track_index, record_frame,
             tight.get("placement"),
             label=f"{kind} at {segment['timeline_start']:.2f}s",
             kind=kind,
-            segment_id=_overlay_segment_id(segment),
+            segment_id=placed_segment_id,
             intent=overlay_intent,
             # A pin names a PLACE; the canvas going down is what turns
             # it into a transform (`overlay_intent.transform_for`).
@@ -5010,6 +5018,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # speaker, per shot, and a shot with no subject measurement is left
     # unpunched rather than punched at a guess (captain, 2026-09-09:
     # a centred 2.30 put Craig out of shot entirely).
+    # Every overlay id laid down on this reel, captions included
+    # below: the declared pins that matched none of them are
+    # REPORTED after the last placement, never silently dropped.
+    seen_intent_ids: list = []
     screen_window = None
     if look is not None:
         from library.tools import reel_look as _look
@@ -5071,7 +5083,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             kind="TV frame", check="F4",
             properties=_look.frame_properties(look, width, height),
             project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height))
+            overlay_intent=overlay_intent, frame=(width, height),
+            seen_ids=seen_intent_ids)
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -5164,6 +5177,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # placer SETS it then READS BACK what Resolve holds. A
         # sequence shares the mov's frame numbering, so the handle
         # trim is the same arithmetic.
+        seen_intent_ids.append(segment.get("segment_id"))
         placed, note = place_overlay_segment(
             pool, timeline, items[0],
             track_index=track_plan.caption_row().index,
@@ -5257,7 +5271,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             [row.index for row in track_plan.rows_for_role(EXPLAINER)],
             kind="explainer", check="F21",
             project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height))
+            overlay_intent=overlay_intent, frame=(width, height),
+            seen_ids=seen_intent_ids)
 
 
 
@@ -5271,7 +5286,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             [row.index for row in track_plan.rows_for_role(SEMANTIC)],
             kind="semantic visual", check="F22",
             project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height))
+            overlay_intent=overlay_intent, frame=(width, height),
+            seen_ids=seen_intent_ids)
 
     # The speaker lower thirds. ADDITIVE, exactly as the two above are:
     # laid over picture that keeps playing, moving no frame of it, so a
@@ -5286,7 +5302,20 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             [row.index for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
             kind="speaker lower third", check="F21",
             project_folder=project_folder,
-            overlay_intent=overlay_intent, frame=(width, height))
+            overlay_intent=overlay_intent, frame=(width, height),
+            seen_ids=seen_intent_ids)
+
+    if overlay_intent:
+        # Pins that matched nothing on this reel, said aloud and kept
+        # on the record: a pin for a segment another reel carries is
+        # ordinary, but ordinary said plainly - the rebuild that
+        # silently drops the captain's corrections is the defect this
+        # answers. REPORTED, never raised: the reel IS built.
+        from library.tools.overlay_intent import (
+            report_unmatched as report_unmatched_intent)
+        build_record["unmatched_overlay_intent"] = report_unmatched_intent(
+            overlay_intent, seen_intent_ids,
+            source=f"overlay_intent.json ({name})")
 
     # ── Link pass: picture to speech, captions into the group ──
     # Span-based, in ONE call per speech item (see `link_reel_groups`
