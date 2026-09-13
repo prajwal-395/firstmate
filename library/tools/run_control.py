@@ -200,6 +200,14 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         history.append(run_restart.history_entry(previous, restart))
         del history[:-run_restart.MAX_HISTORY]
 
+    # Edit-step input digests (library/tools/edit_input_digest.py): one
+    # stamp per step from the run that just ended becomes the baseline
+    # this run compares against. Carried forward the way run_history is -
+    # the file is replaced wholesale, so anything not carried is lost -
+    # and bounded by the step count rather than by history length: it is
+    # one small entry per step, not one per run.
+    previous_digests = dict(previous.get("step_input_digests") or {})
+
     record = {
         "pid": os.getpid(),
         "mode": mode,
@@ -227,6 +235,11 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         "restart": (run_restart.as_record(restart)
                     if restart.is_restart else None),
         "run_history": history,
+        # This run's own stamps, filled in as steps complete (see
+        # `record_step_input_digest`), and the previous run's, carried
+        # above, which is what each stamp is compared against.
+        "step_input_digests": {},
+        "previous_step_input_digests": previous_digests,
     }
     try:
         _write_json(run_status_path(project_dir), record)
@@ -298,6 +311,28 @@ def describe_mode(*, full_auto: Optional[str] = None, auto_mode: bool = False,
         # this line prevents (#260).
         parts.append("state supplied from outside: " + ", ".join(supplied))
     return ", ".join(parts)
+
+
+# ── Edit-step input digests ─────────────────────────────────────────
+
+def record_step_input_digest(project_dir: str, node_id: str,
+                             stamp: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge one step's input-digest stamp into this run's record.
+
+    Best-effort like `write_run_status`: a stamp that fails to persist
+    must never take down a real run - the comparison degrades to
+    "unknown", which the comparison lines say aloud.
+    """
+    try:
+        current = read_run_status(project_dir)
+        digests = dict(current.get("step_input_digests") or {})
+        digests[node_id] = dict(stamp)
+        current["step_input_digests"] = digests
+        current["updated_at"] = _now()
+        _write_json(run_status_path(project_dir), current)
+        return current
+    except OSError:
+        return {}
 
 
 # ── Single-step resolution ──────────────────────────────────────────

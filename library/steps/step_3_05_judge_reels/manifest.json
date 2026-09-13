@@ -56,7 +56,18 @@
     "stage": "edit",
     "determinism": "hybrid",
     "archetype": "evaluation_judgment",
-    "idempotent": false
+    "idempotent": false,
+    "input_digest": {
+      "inputs": [
+        "timeline_transcript",
+        "reel_selection"
+      ],
+      "context": [
+        "reels_to_read",
+        "reels_not_readable"
+      ],
+      "include_code": true
+    }
   },
   "dependencies": [
     "step_3_04_select_reels"

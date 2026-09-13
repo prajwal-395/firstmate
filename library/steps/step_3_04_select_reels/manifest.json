@@ -120,7 +120,26 @@
     "stage": "edit",
     "determinism": "model",
     "archetype": "creative_judgement",
-    "idempotent": false
+    "idempotent": false,
+    "input_digest": {
+      "inputs": [
+        "timeline_transcript",
+        "creative_direction",
+        "creative_brief",
+        "project_context",
+        "brand_constraints"
+      ],
+      "context": [
+        "turns",
+        "reel_candidates",
+        "length_guidance_seconds",
+        "picture_holes",
+        "lead_speaker",
+        "answering_speaker",
+        "who_leads_was_inferred"
+      ],
+      "include_code": true
+    }
   },
   "dependencies": [],
   "tags": [

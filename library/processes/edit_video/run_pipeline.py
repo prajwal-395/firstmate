@@ -572,6 +572,59 @@ def _clear_step_failure(state: dict, node_id: str) -> None:
     state.get("step_errors", {}).pop(node_id, None)
 
 
+def _stamp_step_input_digest(project_dir: str, node_id: str, impl: dict,
+                             inputs: dict, output: dict) -> None:
+    """Stamp one step's input digest into the run record and report it.
+
+    Runs AFTER the step succeeded, on the inputs it was actually handed
+    and the result it produced. A step whose manifest declares no
+    `input_digest` block stamps nothing and prints nothing. A step that
+    declares one gets its digest recorded in `pipeline_run.json` and a
+    comparison line on stderr: identical, changed, or unknown.
+
+    This REPORTS and never skips - the caller runs the step first,
+    unconditionally. A stamp that cannot be written (or computed) costs
+    the comparison line, never the run: both failures print loudly and
+    continue.
+    """
+    from library.tools import edit_input_digest
+    manifest = (impl or {}).get("manifest")
+    try:
+        spec = edit_input_digest.digest_spec(manifest, node_id)
+    except edit_input_digest.DigestError as exc:
+        print(f"     ⚠ Input digest not recorded for {node_id}: {exc}",
+              file=sys.stderr)
+        return
+    if spec is None:
+        return
+    step_dir = (impl or {}).get("step_dir")
+    if step_dir is None and (impl or {}).get("prompt"):
+        # `llm_only` carries no step_dir, only the prompt path - the
+        # prompt's own directory is the code that drew it.
+        from pathlib import Path as _Path
+        step_dir = _Path(str((impl or {})["prompt"])).parent
+    try:
+        record = edit_input_digest.compute_digest(
+            spec, inputs or {}, output or {}, step_dir)
+    except edit_input_digest.DigestError as exc:  # pragma: no cover -
+        # compute_digest returns error records rather than raising on
+        # data; a raise here is a programming error one layer up.
+        print(f"     ⚠ Input digest not recorded for {node_id}: {exc}",
+              file=sys.stderr)
+        return
+    stored = dict(record)
+    stored["step"] = node_id
+    run_control.record_step_input_digest(project_dir, node_id, stored)
+    try:
+        previous = (run_control.read_run_status(project_dir)
+                    .get("previous_step_input_digests") or {}).get(node_id)
+    except Exception:  # noqa: BLE001 - a status read must never fail a run
+        previous = None
+    for line in edit_input_digest.comparison_lines(
+            node_id, stored, previous):
+        print(line, file=sys.stderr)
+
+
 # One backup per RUN, taken before this process first overwrites the
 # state.  Not per save: this function runs after every step, so a
 # per-save policy would spend the whole retention window inside a single
@@ -3331,6 +3384,14 @@ def run_pipeline(
                 entry["note"] = "auto-completed via bridge (context only)"
             step_ledger.record(state, stage_by_node[node_id], node_id, entry)
             save_pipeline_state(project_dir, state)
+
+            # What this step ran on, stamped into the run record and
+            # compared against the last completed run. REPORTS ONLY -
+            # the step above already ran, unconditionally, and this
+            # changes nothing about that. See
+            # library/tools/edit_input_digest.py.
+            _stamp_step_input_digest(
+                project_dir, node_id, impl, inputs, output)
             
             if node_id == "mesh_spine":
                 step_outputs = state.get("step_outputs", {})

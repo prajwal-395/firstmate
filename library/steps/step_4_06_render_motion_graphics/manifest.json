@@ -109,7 +109,27 @@
     "stage": "edit",
     "determinism": "hybrid",
     "archetype": "content_generation",
-    "idempotent": false
+    "idempotent": false,
+    "input_digest": {
+      "inputs": [
+        "audio_spine",
+        "creative_direction",
+        "enhancement_spec",
+        "project_fps",
+        "brand_style",
+        "brand_effect",
+        "project_context"
+      ],
+      "context": [
+        "motion_elements_toon",
+        "motion_axes_toon",
+        "motion_elements_legend",
+        "timeline_context_toon",
+        "motion_graphics_frame",
+        "brand_refinement"
+      ],
+      "include_code": true
+    }
   },
   "dependencies": [
     "step_4_03_plan_vfx"
