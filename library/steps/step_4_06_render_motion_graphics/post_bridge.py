@@ -264,8 +264,12 @@ def render_one_segment(planned: dict, out_dir: str,
     tight = None
     render_props = props
     tight_fallback = ""
+    tight_refusal = None
     if geometry == "tight":
-        from library.tools.mg_tight_box import tighten_motion_graphics_props
+        from library.tools.mg_tight_box import (
+            TightRefusal,
+            tighten_motion_graphics_props_with_reason,
+        )
         from library.tools.tight_box import (
             TightBoxClipsInk,
             TightBoxMismatch,
@@ -277,27 +281,58 @@ def render_one_segment(planned: dict, out_dir: str,
         timeline_size = tuple(resolve_delivery_format(
             project_folder or None))
         try:
-            tight = tighten_motion_graphics_props(
-                props, project_folder or "",
-                timeline_size=timeline_size)
+            tight, tight_refusal = \
+                tighten_motion_graphics_props_with_reason(
+                    props, project_folder or "",
+                    timeline_size=timeline_size)
         except (TightBoxClipsInk, TightBoxMismatch) as exc:
             # The clamp gate and the frame bound: this graphic cannot
             # ride a small box on this timeline (or its predicted box
             # is bigger than the frame), so it renders full canvas.
             # SAID, not silent - the caption path records the same
-            # fallback as `tight_fallback`.
+            # fallback as `tight_fallback`, and the artefact sidecar
+            # records the machine-readable refusal beside it.
             tight = None
+            tight_refusal = getattr(exc, "refusal", None)
+            if tight_refusal is None:
+                code = ("canvas_larger_than_frame"
+                        if isinstance(exc, TightBoxClipsInk)
+                        else "placement_unholdable")
+                kinds = sorted({
+                    str(e.get("element", ""))
+                    for e in props.get("elements", [])
+                    if e.get("element")})
+                tight_refusal = TightRefusal(
+                    reason=code, element=",".join(kinds) or None,
+                    detail=str(exc)[:500])
             tight_fallback = str(exc)[:500]
             print(f"  {progress} union unplaceable as tight - full "
                   f"canvas: {tight_fallback[:300]}", file=sys.stderr)
-        if tight is None and not tight_fallback:
-            print(f"  {progress} union covers the frame - full canvas",
-                   file=sys.stderr)
+        if tight is None and tight_refusal is not None:
+            # A structural refusal (accents, assets, zones, coverage):
+            # the record says why, exactly as the raised paths do.
+            if not tight_fallback:
+                tight_fallback = tight_refusal.message()
+            print(f"  {progress} union covers the frame - full canvas "
+                  f"({tight_refusal.reason})", file=sys.stderr)
         elif tight is not None:
             render_props = tight.props
             print(f"  {progress} tight {tight.width}x{tight.height} "
                   f"(full {tight.full_width}x{tight.full_height})",
                   file=sys.stderr)
+    else:
+        # Full carrying was DECLARED (explicit geometry or the
+        # project's own `pipeline.motion_graphics_overlay_geometry`),
+        # so the tighten path is never asked - and the artefact still
+        # says why it is full canvas.
+        from library.tools.mg_tight_box import TightRefusal
+        source = ("explicit overlay_geometry='full'"
+                  if overlay_geometry else
+                  "project declaration "
+                  "(pipeline.motion_graphics_overlay_geometry: full)")
+        tight_refusal = TightRefusal(
+            reason="geometry_full_declared", element=None,
+            detail=f"full-canvas carrying declared via {source}")
     # The placing this render serves. Recorded on the entry, never on
     # disk: the file is content-keyed below.
     placement_label = segment_name or f"mg_{planned['index']:03d}"
@@ -368,7 +403,33 @@ def render_one_segment(planned: dict, out_dir: str,
             "tight_box": _tight_record(),
         }
 
-    def _reuse_hit(content_name, overlay_path, key_path, key):
+    def _write_tightness_sidecar(props_path):
+        """The artefact's own account of its carrying, beside its props.
+
+        Written on a fresh render AND on a reuse hit, so every overlay
+        file on disk carries one whatever route produced it. A
+        full-canvas artefact without one is what the build-time guard
+        refuses (`mg_tight_box.check_motion_graphics_files`).
+        """
+        from library.tools.mg_tight_box import (
+            sidecar_path_for,
+            tightness_record,
+        )
+        record = tightness_record(
+            tight, tight_refusal,
+            int(props.get("width", 0)), int(props.get("height", 0)))
+        try:
+            with open(sidecar_path_for(props_path), "w",
+                      encoding="utf-8") as handle:
+                json.dump(record, handle, indent=2)
+        except OSError as exc:
+            print(f"    note: could not record the tightness sidecar "
+                  f"for {placement_label} ({exc}); the build-time "
+                  f"guard will refuse the artefact without it",
+                  file=sys.stderr)
+
+    def _reuse_hit(content_name, overlay_path, key_path, key,
+                   props_path):
         """A recorded identical render, paired back - or None.
 
         The two-factor hit: the file AND its recorded key present and
@@ -383,6 +444,7 @@ def render_one_segment(planned: dict, out_dir: str,
         print(f"  {progress} {placement_label} reused "
               f"({content_name}, tl:{planned['timeline_start']:.2f}-"
               f"{planned['timeline_end']:.2f}s)", file=sys.stderr)
+        _write_tightness_sidecar(props_path)
         return _entry(overlay_path, "reused", key)
 
     content_name, overlay_path, props_path, key_path, key = \
@@ -392,7 +454,8 @@ def render_one_segment(planned: dict, out_dir: str,
     # read back at placement time - see `library/tools/tight_box.py`.
     render_path = overlay_path
 
-    hit = _reuse_hit(content_name, overlay_path, key_path, key)
+    hit = _reuse_hit(content_name, overlay_path, key_path, key,
+                     props_path)
     if hit is not None:
         return hit
     if reuse and not key:
@@ -443,6 +506,8 @@ def render_one_segment(planned: dict, out_dir: str,
               f"Tilt {tight.placement['tilt']:.1f}", file=sys.stderr)
 
     print(f"    OK: {overlay_path}", file=sys.stderr)
+
+    _write_tightness_sidecar(props_path)
 
     # Recorded only after a render that SUCCEEDED, so a failed render
     # leaves no key claiming the file is current.
@@ -633,6 +698,34 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     print(f"\nRendered {len(segments)}/{len(segments_plan)} motion graphics "
           f"segments", file=sys.stderr)
 
+    # The build-time guard: every full-canvas artefact this pass
+    # produced must have DECLARED why it is full canvas (the sidecar
+    # `render_one_segment` wrote beside each props file). A missing
+    # or silent sidecar is the defect sixteen lower thirds shipped
+    # as, so it refuses the step rather than warning past it. Cheap
+    # and deterministic - JSON reads only, no renders.
+    from library.tools.mg_tight_box import check_motion_graphics_files
+    guard_errors, tightness_census = check_motion_graphics_files(
+        [str(seg["overlay_path"])[:-len(".mov")] + "_props.json"
+         for seg in segments
+         if str(seg.get("overlay_path", "")).endswith(".mov")],
+        width, height)
+    print(f"Motion-graphics tightness: {tightness_census['tight']} "
+          f"tight, {tightness_census['full_by_design']} full by design, "
+          f"{tightness_census['full_with_reason']} full with reason, "
+          f"{tightness_census['full_undeclared']} undeclared",
+          file=sys.stderr)
+    if guard_errors:
+        raise MotionGraphicsRenderRefused({
+            "motion_graphics_overlay": {
+                "available": False,
+                "segments": [],
+                "error": ("undeclared full-canvas overlay(s): "
+                          + "; ".join(guard_errors[:5])),
+                "tightness": tightness_census,
+            }
+        })
+
     if segments:
         try:
             sys.path.insert(0, os.path.join(PILOT_ROOT, "library"))
@@ -659,6 +752,9 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
             # What this pass carried, so a reader knows without
             # re-deriving it per segment.
             "geometry": geometry,
+            # The tight/refused census the guard computed above - the
+            # same counts the conformance sweep surfaces per project.
+            "tightness": tightness_census,
         },
         "timed_text_overlay": timed_text_overlay,
     }

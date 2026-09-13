@@ -57,7 +57,12 @@ if PROJECT_ROOT not in sys.path:
 
 from library.tools.mg_tight_box import (  # noqa: E402
     MG_PAD,
+    check_motion_graphics_dir,
+    check_motion_graphics_files,
+    sidecar_path_for,
     tighten_motion_graphics_props,
+    tighten_motion_graphics_props_with_reason,
+    tightness_record,
 )
 
 FULL_W = 1080
@@ -340,6 +345,218 @@ def test_pads_cover_slide_and_shadow():
     the pad must clear the largest plus margin, or the box clips ink
     mid-entrance."""
     assert MG_PAD >= 40 + 8
+
+
+def _staged(name="Craig Lucie", title="CEO Lucie Content",
+            anchor="bottom_left", **over):
+    """A staged-rule lower third, the shape `speaker_identity` writes."""
+    runs = [{"text": name, "type_role": "display"}]
+    if title is not None:
+        runs.append({"text": title, "type_role": "supporting"})
+    el = _el("lower_third", anchor=anchor, runs=runs)
+    el["data"] = {
+        "construction": "staged_rule",
+        "speaker": "Craig",
+        "colour_basis": "pipeline.speaker_subtitle_styles['Craig']"
+                        ".accentColor",
+    }
+    el.update(over)
+    return el
+
+
+def test_staged_lower_third_tightens():
+    """The sixteen full-frame files on the captain's project: every
+    constructed lower third refused as a class, so every one rendered
+    the delivery frame. Modelled off the construction's own drawing,
+    it is a small bottom-anchored box Resolve holds inside its rail."""
+    from library.tools.tight_box import placement_holds
+    box, refusal = tighten_motion_graphics_props_with_reason(
+        _props([_staged()]))
+    assert refusal is None
+    assert box is not None
+    assert 0 < box.width < FULL_W
+    assert box.height == 480
+    assert placement_holds(box.placement, FULL_W, FULL_H) == ""
+
+
+def test_staged_box_follows_the_drawing():
+    """The box is derived, not estimated: a longer name widens it, and
+    the title's line is in the union only where a second run exists."""
+    one_run = tighten_motion_graphics_props(
+        _props([_staged(title=None)]))
+    two_runs = tighten_motion_graphics_props(
+        _props([_staged()]))
+    long_name = tighten_motion_graphics_props(
+        _props([_staged(name="Craig Alexander Lucie")]))
+    assert one_run is not None and two_runs is not None
+    assert long_name is not None
+    assert two_runs.union_h > one_run.union_h
+    assert long_name.union_w > two_runs.union_w
+    assert long_name.width > two_runs.width
+
+
+def test_other_construction_draws_the_panel():
+    """The composition only special-cases `construction ==
+    "staged_rule"` and keeps the flat attribution block for anything
+    else - so any other value takes the padded-panel arm, not a
+    refusal. A future construction drawing a third thing needs its own
+    arm; modelling it as either of these two would be the guess."""
+    el = _staged()
+    el["data"] = {"construction": "something_else_entirely"}
+    box, refusal = tighten_motion_graphics_props_with_reason(
+        _props([el]))
+    assert refusal is None
+    assert box is not None
+    assert 0 < box.width < FULL_W
+
+
+def test_every_refusal_names_itself():
+    """No silent None survives: each structural fallback returns its
+    reason and the element that caused it, which is what the artefact
+    sidecar and the build-time guard both read."""
+    cases = [
+        ([], "no_elements", None),
+        ([_el("frame_accents", anchor="top_left")],
+         "frame_accents_span_by_design", "frame_accents"),
+        ([_el("title_lockup", anchor="top_centre"),
+          _el("context_stamp", anchor="centre")],
+         "middle_zone_mixed", "context_stamp"),
+        ([_el("channel_bug", anchor="top_right", footprint=0.15,
+              asset="brand/bug.png")],
+         "asset_geometry_unknown", "channel_bug"),
+        ([_el("tracked_label")], "nothing_drawn", None),
+    ]
+    for elements, reason, element in cases:
+        box, refusal = tighten_motion_graphics_props_with_reason(
+            _props(elements))
+        assert box is None
+        assert refusal is not None
+        assert refusal.reason == reason
+        assert refusal.element == element
+        assert refusal.message()
+
+
+def test_canvas_refusal_carries_its_reason():
+    """The one full-frame `title_lockup` on the captain's project: a
+    display run with no wrap bound measures wider than the usable
+    frame. The raise carries which element and which union, so the
+    fallback can still say so on the artefact."""
+    from library.tools.tight_box import TightBoxClipsInk
+    props = _props([_el(
+        "title_lockup", anchor="top_centre",
+        runs=[{"text": "A COMPLETELY DIFFERENT SYSTEM",
+               "type_role": "display"}])])
+    with pytest.raises(TightBoxClipsInk):
+        tighten_motion_graphics_props_with_reason(props)
+    try:
+        tighten_motion_graphics_props_with_reason(props)
+    except TightBoxClipsInk as exc:
+        assert exc.refusal.reason == "canvas_larger_than_frame"
+        assert exc.refusal.element == "title_lockup"
+        assert "1262x480" in exc.refusal.detail
+    else:  # pragma: no cover - the raise above already proved it
+        raise AssertionError("expected TightBoxClipsInk")
+
+
+def test_tightness_record_states_the_outcome():
+    """The sidecar shape: a tight artefact needs no reason, a full one
+    without a reason is what the guard refuses."""
+    box = tighten_motion_graphics_props(_props([_staged()]))
+    assert box is not None
+    record = tightness_record(box, None, FULL_W, FULL_H)
+    assert record["outcome"] == "tight"
+    assert record["reason"] == ""
+    assert (record["width"], record["height"]) == (box.width, box.height)
+    assert record["placement"] == box.placement
+
+
+def _write_props(path, width=FULL_W, height=FULL_H, elements=None):
+    import json
+    props = _props(elements if elements is not None
+                   else [_el("title_lockup", anchor="middle_centre")],
+                   width=width, height=height)
+    path.write_text(json.dumps(props), encoding="utf-8")
+    return str(path)
+
+
+def _write_sidecar(props_path, outcome="full",
+                   reason="frame_accents_span_by_design",
+                   element="frame_accents", width=FULL_W, height=FULL_H):
+    import json
+    sidecar = {"version": 1, "outcome": outcome, "reason": reason,
+               "element": element, "detail": reason,
+               "width": width, "height": height, "placement": None}
+    with open(sidecar_path_for(props_path), "w",
+              encoding="utf-8") as handle:
+        json.dump(sidecar, handle)
+    return sidecar_path_for(props_path)
+
+
+def test_guard_refuses_an_undeclared_full_canvas(tmp_path):
+    props_path = _write_props(tmp_path / "mg_x_props.json")
+    errors, census = check_motion_graphics_files(
+        [props_path], FULL_W, FULL_H)
+    assert len(errors) == 1
+    assert "no tightness sidecar" in errors[0]
+    assert census["full_undeclared"] == 1
+    assert census["undeclared_files"] == ["mg_x_props.json"]
+
+
+def test_guard_passes_a_declared_full_canvas_by_design(tmp_path):
+    props_path = _write_props(tmp_path / "mg_x_props.json")
+    _write_sidecar(props_path)
+    errors, census = check_motion_graphics_files(
+        [props_path], FULL_W, FULL_H)
+    assert errors == []
+    assert census["full_by_design"] == 1
+    assert census["tight"] == 0
+
+
+def test_guard_counts_a_declared_full_canvas_with_reason(tmp_path):
+    props_path = _write_props(tmp_path / "mg_x_props.json")
+    _write_sidecar(props_path, reason="canvas_larger_than_frame",
+                   element="title_lockup")
+    errors, census = check_motion_graphics_files(
+        [props_path], FULL_W, FULL_H)
+    assert errors == []
+    assert census["full_with_reason"] == 1
+    assert census["by_reason"] == {"canvas_larger_than_frame": 1}
+    assert census["full_files"]["mg_x_props.json"]["element"] == \
+        "title_lockup"
+
+
+def test_guard_refuses_an_empty_reason_and_a_stale_sidecar(tmp_path):
+    no_reason = _write_props(tmp_path / "mg_noreason_props.json")
+    _write_sidecar(no_reason, reason="")
+    stale = _write_props(tmp_path / "mg_stale_props.json",
+                         width=512, height=480)
+    _write_sidecar(stale, width=FULL_W, height=FULL_H)
+    errors, census = check_motion_graphics_files(
+        [no_reason, stale], FULL_W, FULL_H)
+    assert len(errors) == 2
+    assert census["full_undeclared"] == 2
+
+
+def test_guard_leaves_tight_artefacts_alone(tmp_path):
+    props_path = _write_props(tmp_path / "mg_t_props.json",
+                              width=512, height=480)
+    errors, census = check_motion_graphics_files(
+        [props_path], FULL_W, FULL_H)
+    assert errors == []
+    assert census["tight"] == 1
+
+
+def test_guard_dir_walk_and_missing_dir(tmp_path):
+    props_path = _write_props(tmp_path / "mg_x_props.json")
+    _write_sidecar(props_path)
+    errors, census = check_motion_graphics_dir(
+        str(tmp_path), FULL_W, FULL_H)
+    assert errors == []
+    assert census["total"] == 1
+    errors, census = check_motion_graphics_dir(
+        str(tmp_path / "no_such_dir"), FULL_W, FULL_H)
+    assert errors == []
+    assert census["total"] == 0
 
 
 def test_top_anchored_graphic_places_at_the_measured_value():

@@ -205,7 +205,8 @@ def test_a_clamp_refusal_falls_back_to_full_canvas(
 
     def _refuse(*args, **kwargs):
         raise TightBoxMismatch("exceeds the rail")
-    monkeypatch.setattr(mg_tight_box, "tighten_motion_graphics_props",
+    monkeypatch.setattr(mg_tight_box,
+                        "tighten_motion_graphics_props_with_reason",
                         _refuse)
     out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
                      str(tmp_path), overlay_geometry="tight")
@@ -215,6 +216,61 @@ def test_a_clamp_refusal_falls_back_to_full_canvas(
     assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov",
                         os.path.basename(out["overlay_path"]))
     assert os.path.isfile(out["overlay_path"])
+    # The artefact says so too, with the machine-readable reason -
+    # even a foreign raise with no `.refusal` is mapped, never
+    # silent.
+    stem = out["overlay_path"][:-len(".mov")]
+    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
+    assert sidecar["outcome"] == "full"
+    assert sidecar["reason"] == "placement_unholdable"
+    assert sidecar["element"] == "title_lockup"
+
+
+def _staged_lower_third():
+    el = _el("lower_third", anchor="bottom_left")
+    el["runs"] = [{"text": "Craig Lucie", "type_role": "display"},
+                  {"text": "CEO Lucie Content",
+                   "type_role": "supporting"}]
+    el["data"] = {"construction": "staged_rule"}
+    return el
+
+
+def test_staged_lower_third_renders_tight(tmp_path, monkeypatch):
+    """The captain's sixteen full-frame lower thirds, end to end: the
+    constructed lower third renders its drawn union, places it by
+    transform, and records the outcome on the artefact."""
+    out, _ = _render(monkeypatch, _planned([_staged_lower_third()]),
+                     str(tmp_path), overlay_geometry="tight")
+    assert out["geometry"] == "tight"
+    assert out["tight_fallback"] == ""
+    box = out["tight_box"]
+    assert box["width"] < 1080 and box["height"] == 480
+    stem = out["overlay_path"][:-len(".mov")]
+    props_on_disk = json.load(open(stem + "_props.json", encoding="utf-8"))
+    assert props_on_disk["width"] == box["width"]
+    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
+    assert sidecar["outcome"] == "tight"
+    assert (sidecar["width"], sidecar["height"]) == (
+        box["width"], box["height"])
+
+
+def test_explicit_full_declares_itself_on_the_artefact(
+        tmp_path, monkeypatch):
+    """A project that declares full-canvas carrying never asks the
+    tighten path - and the artefact still says why it is full canvas,
+    so the build-time guard passes it by declaration, not by sight."""
+    out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
+                     str(tmp_path), overlay_geometry="full")
+    assert out["geometry"] == "full"
+    stem = out["overlay_path"][:-len(".mov")]
+    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
+    assert sidecar["outcome"] == "full"
+    assert sidecar["reason"] == "geometry_full_declared"
+    from library.tools.mg_tight_box import check_motion_graphics_files
+    errors, census = check_motion_graphics_files(
+        [stem + "_props.json"], 1080, 1920)
+    assert errors == []
+    assert census["full_by_design"] == 1
 
 
 def test_tight_props_keep_the_planned_elements(tmp_path, monkeypatch):
@@ -234,8 +290,18 @@ def test_accents_stay_full_canvas_when_tight_is_asked(tmp_path, monkeypatch):
     assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov",
                         os.path.basename(out["overlay_path"]))
     assert "_tight" not in out["overlay_path"]
-    assert out["geometry"] == "tight"
+    # The file IS full canvas, so the record says full: a structural
+    # refusal that kept the requested "tight" is how full-canvas files
+    # passed as tighten candidates. The refusal names itself, on the
+    # record and on the artefact sidecar beside the props.
+    assert out["geometry"] == "full"
     assert out["tight_box"] is None
+    assert "frame_accents_span_by_design" in out["tight_fallback"]
+    stem = out["overlay_path"][:-len(".mov")]
+    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
+    assert sidecar["outcome"] == "full"
+    assert sidecar["reason"] == "frame_accents_span_by_design"
+    assert sidecar["element"] == "frame_accents"
 
 
 def test_unknown_mode_is_refused(tmp_path, monkeypatch):

@@ -22,10 +22,14 @@ Every number below is READ from the composition
 (`remotion-subtitles/src/compositions/MotionGraphics/index.tsx`), not
 re-chosen. Type sizes and weights are its `TYPE_SIZE` / `TYPE_WEIGHT`
 tables; the row gap is its `STACK_GAP_PX`; the bar, accent, plate and
-glow sizes are the literals in each element's arm. Text is measured
-with the same Montserrat face the render loads (`CaptionFitter`), and
-`display` runs are measured uppercased with their 3px letter spacing
-because that is what the render draws.
+ glow sizes are the literals in each element's arm. Text is measured
+ with the same Montserrat face the render loads (`CaptionFitter`), and
+ `display` runs are measured uppercased with their 3px letter spacing
+ because that is what the render draws. The staged-rule lower third
+ (`data.construction == "staged_rule"`) is measured the same way off
+ `StagedLowerThird`: the name and title runs in their own roles, the
+ rule a twelfth of the display size thick a seventh of it below the
+ name - every number the construction derives, derived here too.
 
 Where the estimate may be wrong, and why that is safe
 -----------------------------------------------------
@@ -81,10 +85,12 @@ middle-only stack centres on the small canvas, which is the placement.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from library.tools.tight_box import (
     TightBox,
+    TightBoxClipsInk,
     TightBoxMismatch,
     grow_to_minimum,
     placement_for_box,
@@ -142,6 +148,15 @@ COLUMN_CHROME = {
 def _ceil_even(value: float) -> int:
     """Round up to an even int, so no codec clips half a pixel row."""
     return int(math.ceil(value / 2.0)) * 2
+
+
+def _js_round(value: float) -> int:
+    """JavaScript `Math.round`: half up, as the composition computes it.
+
+    Python's `round` is banker's (half to even) and would disagree with
+    the render by a pixel wherever the composition rounds a .5 up.
+    """
+    return int(math.floor(float(value) + 0.5))
 
 
 def _fitter_for_size(size: float, weight: int,
@@ -202,6 +217,62 @@ def _column_size(element: dict, scale: float, project_folder: str,
     return width + extra_w * scale, height + extra_h * scale
 
 
+def _staged_lower_third_size(element: dict, scale: float,
+                               project_folder: str,
+                               _cache: dict) -> tuple:
+    """(width, height) of the staged-rule lower-third construction.
+
+    Read off `StagedLowerThird` in the composition, not estimated: the
+    NAME run drawn in its own type role (display in every plan
+    `speaker_identity` writes - name first, title second), the RULE a
+    twelfth of the DISPLAY size thick sitting a seventh of it below the
+    name, and the TITLE wiped out along the rule where a second run is
+    present. The rule stretches to the column width
+    (`alignSelf: stretch`), so it is as wide as the wider run, and the
+    column is exactly name + gap + rule + gap + title - no panel, no
+    padding, no plate.
+
+    What the build animation adds stays inside the final lockup: the
+    rule scales out from the aligned edge, both wipes uncover by
+    `clipPath` inset, and the name rises at most 35% of the display
+    size from below (`nameLift`) - ~20px at scale 1, inside `MG_PAD`
+    the way the slide travel and the text-shadow blur already are.
+    The `draw` entrance scales 0.85..1 about the element's own centre
+    with a <=4px blur: strictly inside the final bounds. So the union
+    over the segment is the finished lockup, measured here.
+
+    Runs past the second draw nothing (the construction reads
+    `runs[0]` and `runs[1]` only), so they contribute nothing. No runs
+    at all draws nothing - the composition returns null - which is an
+    empty size, not an unknown one.
+    """
+    runs = element.get("runs") or []
+    if not runs:
+        return (0.0, 0.0)
+    name = runs[0]
+    title = runs[1] if len(runs) > 1 else None
+    name_w = _run_width(name.get("text", ""),
+                        name.get("type_role", "supporting"),
+                        scale, project_folder, _cache)
+    name_h = _run_line_height(name.get("type_role", "supporting"), scale)
+    # Derived from the DISPLAY type whatever the runs' roles, exactly
+    # as the construction derives them - see `StagedLowerThird`.
+    display_size = TYPE_SIZE["display"] * scale
+    rule_thickness = max(2, _js_round(display_size / 12))
+    rule_gap = max(2, _js_round(display_size / 7))
+    width = name_w
+    height = name_h + rule_gap + rule_thickness
+    if title is not None:
+        title_w = _run_width(title.get("text", ""),
+                             title.get("type_role", "supporting"),
+                             scale, project_folder, _cache)
+        title_h = _run_line_height(title.get("type_role", "supporting"),
+                                   scale)
+        width = max(width, title_w)
+        height += rule_gap + title_h
+    return width, height
+
+
 def _format_counter(element: dict) -> str:
     """The figure the counter arms draw, as drawn (end value held)."""
     data = element.get("data") or {}
@@ -233,13 +304,20 @@ def _element_size(element: dict, scale: float, project_folder: str,
         return None
     # A `lower_third` the plan asked to be CONSTRUCTED is a different
     # drawing - a rule, a masked name and a wiped title, sized off the
-    # display type rather than a padded panel - and nothing here models
-    # it. Refused rather than estimated, which is what `None` means in
-    # this function: an element of unknown size forces the full canvas
-    # rather than a box drawn around a guess.
+    # display type rather than a padded panel - and
+    # `_staged_lower_third_size` models it. Any OTHER construction
+    # value falls through to the padded-panel arm below, because that
+    # is what the composition draws for it: its `lower_third` arm only
+    # special-cases `construction === "staged_rule"` and keeps the
+    # flat attribution block for everything else. A future
+    # construction that draws a third thing needs its own arm here in
+    # the same pass that adds it to the composition - modelling it as
+    # either of these two would be the guess `None` exists to refuse.
     if (kind == "lower_third"
-            and (element.get("data") or {}).get("construction")):
-        return None
+            and (element.get("data") or {}).get("construction")
+            == "staged_rule"):
+        return _staged_lower_third_size(element, scale, project_folder,
+                                        _cache)
     if kind == "progress_bar":
         return usable_width + 2 * BAR_GLOW, BAR_HEIGHT * scale + 2 * BAR_GLOW
     if kind == "frame_accents":
@@ -402,10 +480,52 @@ def separable_groups(elements: Sequence[dict]) -> list[list[dict]]:
     return [group for group in (rest, middle) if group]
 
 
-def tighten_motion_graphics_props(props: dict,
-                                   project_folder: str = "",
-                                   timeline_size: tuple[int, int] | None = None,
-                                   ) -> Optional[TightBox]:
+@dataclass(frozen=True)
+class TightRefusal:
+    """Why one segment's props stay full canvas, in the caller's words.
+
+    `reason` is a stable machine-readable code - the build-time guard
+    (`check_motion_graphics_files`) matches on it, so a new code is a
+    new contract. `element` names the element kind that caused it
+    (comma-joined where the union is joint work, None where no one
+    element did). `detail` carries the numbers for a human.
+    """
+
+    reason: str
+    element: Optional[str]
+    detail: str = ""
+
+    def message(self) -> str:
+        """The one line the artefact sidecar and the step record carry."""
+        who = f" ({self.element})" if self.element else ""
+        return f"{self.reason}{who} - {self.detail}".rstrip(" -")
+
+
+#: Refusal reasons that PASS the build-time guard by saying so: the
+#: union genuinely is the delivery frame (`frame_accents` at four
+#: corners), or the project declared full-canvas carrying and the
+#: tighten path was never asked (`geometry_full_declared`, recorded by
+#: the render step, not by the tighten path). Every other recorded
+#: reason is counted in the conformance census but does not fail the
+#: build: it names real ink the engine could not bound (an asset file
+#: nothing measures, a run wider than the frame), and failing a build
+#: on planned content would punish the plan for the engine's reach.
+#: What FAILS the build is a full-canvas artefact with NO recorded
+#: reason - the silence this file's refusals used to ship as.
+BY_DESIGN_REASONS = frozenset({
+    "frame_accents_span_by_design",
+    "geometry_full_declared",
+})
+
+#: Sibling of each `<name>_props.json`: whether the artefact was
+#: tightened or refused, and on a refusal the reason and the element.
+TIGHTNESS_SIDECAR_SUFFIX = "_tightness.json"
+
+
+def _tighten_impl(props: dict,
+                  project_folder: str = "",
+                  timeline_size: tuple[int, int] | None = None,
+                  ) -> tuple[Optional[TightBox], Optional[TightRefusal]]:
     """The tight canvas for one segment's full-canvas MG props, or None.
 
     Returns None when the segment draws nothing, when its union is
@@ -419,20 +539,24 @@ def tighten_motion_graphics_props(props: dict,
     (`tight_box.refuse_canvas_larger_than_frame`): a tight file
     bigger than the frame it draws on is never produced.
 
-    A placement Resolve cannot hold is ALSO None, not a clamped
-    graphic: the small canvas needs large Pan/Tilt (frame size over
-    box size), and past four times the timeline dimensions Resolve
-    pins the value while reporting success - the captain's captions
-    at -7680 and the motion graphics on huge X. `timeline_size`
-    defaults to the props' own delivery frame (the timeline is built
-    at it); the caller passes it explicitly where it knows better.
-    The cost is stated where it belongs: that one segment renders
-    full-canvas, at full-canvas bytes. An overlay the captain cannot
-    see is worth more disk.
+    A placement Resolve cannot hold RAISES `TightBoxMismatch`, never a
+    clamped graphic: the small canvas needs large Pan/Tilt (frame size
+    over box size), and past four times the timeline dimensions
+    Resolve pins the value while reporting success - the captain's
+    captions at -7680 and the motion graphics on huge X.
+    `timeline_size` defaults to the props' own delivery frame (the
+    timeline is built at it); the caller passes it explicitly where it
+    knows better. The cost is stated where it belongs: that one
+    segment renders full-canvas, at full-canvas bytes. An overlay the
+    captain cannot see is worth more disk.
     """
     elements = props.get("elements") or []
     if not elements:
-        return None
+        return None, TightRefusal(
+            reason="no_elements",
+            element=None,
+            detail="the segment plans no elements, so there is no union "
+                   "to bound")
 
     safe = props.get("safeArea")
     if not safe:
@@ -454,12 +578,25 @@ def tighten_motion_graphics_props(props: dict,
     # the safe box, which with pads is most of the frame. That is not
     # a bound worth placing - it is the frame wearing a smaller name.
     if any(e.get("element") == "frame_accents" for e in elements):
-        return None
+        return None, TightRefusal(
+            reason="frame_accents_span_by_design",
+            element="frame_accents",
+            detail="four corner accents union to the safe box, which is "
+                   "the frame wearing a smaller name")
 
     copy = [e for e in elements if e.get("element") not in SELF_POSITIONING]
     zones = {_vertical_zone(e.get("anchor", "")) for e in copy}
     if "middle" in zones and len(zones) > 1:
-        return None
+        middle_kinds = sorted({
+            str(e.get("element", ""))
+            for e in copy
+            if _vertical_zone(e.get("anchor", "")) == "middle"})
+        return None, TightRefusal(
+            reason="middle_zone_mixed",
+            element=",".join(middle_kinds) or None,
+            detail="a middle-anchored stack beside another vertical zone: "
+                   "`top: 50%` centres on the canvas, so on a small canvas "
+                   "the stack centres on the wrong frame")
 
     _cache: dict = {}
     absolute_zones: set = set()
@@ -479,7 +616,21 @@ def tighten_motion_graphics_props(props: dict,
         size = _element_size(element, scale, project_folder, usable_width,
                              _cache)
         if size is None:
-            return None
+            if kind in ASSET_ELEMENTS:
+                refusal = TightRefusal(
+                    reason="asset_geometry_unknown",
+                    element=kind or None,
+                    detail=f"a {kind} element's height comes from a "
+                           f"project-supplied file nothing measures - "
+                           f"bounding an unknown aspect would be forcing "
+                           f"the win")
+            else:
+                refusal = TightRefusal(
+                    reason="unmeasurable_element",
+                    element=kind or None,
+                    detail=f"a {kind} element has no measuring arm - "
+                           f"refused rather than bounded around a guess")
+            return None, refusal
         w, h = size
         if w <= 0 or h <= 0:
             continue
@@ -492,17 +643,21 @@ def tighten_motion_graphics_props(props: dict,
                 y0 = float(safe["top"]) - BAR_GLOW
             else:
                 y0 = full_h - float(safe["bottom"]) - bar_h + BAR_GLOW
-            absolute.append((x0, y0, x1, y0 + bar_h))
+            absolute.append((x0, y0, x1, y0 + bar_h, kind))
             absolute_zones.add(_vertical_zone(anchor))
             continue
         entry = stacks.setdefault(
             anchor, {"zone": _vertical_zone(anchor),
                      "horizontal": _horizontal(anchor), "rows": []})
         entry["rows"].append(
-            (element.get("row", 0), w, h))
+            (element.get("row", 0), w, h, kind))
 
     if not stacks and not absolute:
-        return None
+        return None, TightRefusal(
+            reason="nothing_drawn",
+            element=None,
+            detail="every element draws nothing (unknown keys return "
+                   "null in the composition), so there is no union")
 
     union = None
 
@@ -516,7 +671,7 @@ def tighten_motion_graphics_props(props: dict,
             union[2] = max(union[2], x1)
             union[3] = max(union[3], y1)
 
-    for x0, y0, x1, y1 in absolute:
+    for x0, y0, x1, y1, _kind in absolute:
         _grow(x0, y0, x1, y1)
 
     for anchor, stack in stacks.items():
@@ -527,8 +682,8 @@ def tighten_motion_graphics_props(props: dict,
         # rect (top/bottom subsets share the hung edge; a middle subset
         # centres inside it).
         ordered = sorted(stack["rows"], key=lambda m: m[0])
-        stack_w = max(w for _, w, _ in ordered)
-        stack_h = (sum(h for _, _, h in ordered)
+        stack_w = max(w for _, w, _, _ in ordered)
+        stack_h = (sum(h for _, _, h, _ in ordered)
                    + STACK_GAP_PX * (len(ordered) - 1))
         horizontal = stack["horizontal"]
         if horizontal == "left":
@@ -546,12 +701,26 @@ def tighten_motion_graphics_props(props: dict,
             y0 = full_h / 2.0 - stack_h / 2.0
         _grow(x0, y0, x0 + stack_w, y0 + stack_h)
 
+    # Which element kinds built the union, for the refusal below to
+    # name: the stacks and the absolute rects both carry their kind.
+    union_kinds = sorted({
+        kind for stack in stacks.values()
+        for _, _, _, kind in stack["rows"]
+    } | {kind for _, _, _, _, kind in absolute})
+
     if union is None:
-        return None
+        return None, TightRefusal(
+            reason="nothing_drawn",
+            element=None,
+            detail="the measured elements union to no area")
     union_w = union[2] - union[0]
     union_h = union[3] - union[1]
     if union_w <= 0 or union_h <= 0:
-        return None
+        return None, TightRefusal(
+            reason="nothing_drawn",
+            element=None,
+            detail=f"the union is {union_w:.0f}x{union_h:.0f} - no area "
+                   f"to bound")
 
     canvas_w = _ceil_even(union_w + 2 * MG_PAD)
     measured_h = _ceil_even(union_h + 2 * MG_PAD)
@@ -578,13 +747,31 @@ def tighten_motion_graphics_props(props: dict,
     # The frame bound the caption path refuses on, shared rather than
     # re-spelled: a predicted canvas bigger than the delivery frame is
     # a refusal (full-canvas fallback at the caller), never a file.
-    refuse_canvas_larger_than_frame(
-        canvas_w, canvas_h, full_w, full_h,
-        f"predicted motion-graphics union ({union[0]:.0f},{union[1]:.0f})"
-        f"-({union[2]:.0f},{union[3]:.0f})")
+    # The refusal rides on the exception, so the caller's fallback can
+    # still say which element and which union caused it.
+    try:
+        refuse_canvas_larger_than_frame(
+            canvas_w, canvas_h, full_w, full_h,
+            f"predicted motion-graphics union ({union[0]:.0f},"
+            f"{union[1]:.0f})-({union[2]:.0f},{union[3]:.0f})")
+    except TightBoxClipsInk as exc:
+        exc.refusal = TightRefusal(
+            reason="canvas_larger_than_frame",
+            element=",".join(union_kinds) or None,
+            detail=f"predicted canvas {canvas_w}x{canvas_h} on a "
+                   f"{full_w}x{full_h} frame from union "
+                   f"({union[0]:.0f},{union[1]:.0f})-({union[2]:.0f},"
+                   f"{union[3]:.0f})")
+        raise
 
     if canvas_w * canvas_h >= FULL_FRAME_COVERAGE * full_w * full_h:
-        return None
+        coverage = canvas_w * canvas_h / (full_w * full_h)
+        return None, TightRefusal(
+            reason="covers_frame",
+            element=",".join(union_kinds) or None,
+            detail=f"the padded union is {coverage:.0%} of the frame - "
+                   f"marginal pixel savings are not worth the placement "
+                   f"risk")
 
     canvas_cx = union[0] - MG_PAD + canvas_w / 2.0
     canvas_cy = union[1] - (MG_PAD + top_extra) + canvas_h / 2.0
@@ -600,11 +787,19 @@ def tighten_motion_graphics_props(props: dict,
     held_against = timeline_size or (full_w, full_h)
     reason = placement_holds(placement, *held_against)
     if reason:
-        raise TightBoxMismatch(
+        mismatch = TightBoxMismatch(
             f"tight motion-graphics box needs Pan "
             f"{placement['pan']:.1f} / Tilt {placement['tilt']:.1f}: "
             f"{reason} - this graphic cannot ride a small box, and "
             f"stays full-canvas.")
+        mismatch.refusal = TightRefusal(
+            reason="placement_unholdable",
+            element=",".join(union_kinds) or None,
+            detail=f"Pan {placement['pan']:.1f} / Tilt "
+                   f"{placement['tilt']:.1f} on a "
+                   f"{held_against[0]}x{held_against[1]} timeline: "
+                   f"{reason}")
+        raise mismatch
 
     tight_props = dict(props)
     tight_props["width"] = canvas_w
@@ -623,4 +818,245 @@ def tighten_motion_graphics_props(props: dict,
         union_h=union_h,
         full_width=full_w,
         full_height=full_h,
-    )
+    ), None
+
+
+# ─── What the artefact says about itself ─────────────────────────────
+#
+# A `*_props.json` at the full delivery frame used to be
+# indistinguishable from one that was never a tighten candidate - the
+# props carry only `width`/`height`, no reason - which is how sixteen
+# full-frame lower thirds sat in the captain's project unnoticed. So
+# every rendered overlay artefact now carries a sibling sidecar
+# (`<stem>_tightness.json` beside `<stem>_props.json`) saying whether
+# it was tightened or refused, and on a refusal the reason and the
+# element. The sidecar is written AFTER the drawing digest is computed
+# and never enters it: it describes the carrying, not the picture, so
+# it must not break reuse keys.
+
+TIGHTNESS_SIDECAR_VERSION = 1
+
+
+def tightness_record(box: Optional[TightBox],
+                     refusal: Optional[TightRefusal],
+                     full_width: int, full_height: int) -> dict:
+    """The sidecar record for one rendered artefact, as JSON-safe dict.
+
+    `box` is the tighten result (None where the artefact stayed full
+    canvas) and `refusal` is why - one of the two is always present:
+    a tight artefact needs no reason and a full one without a reason
+    is exactly what the build-time guard refuses.
+    """
+    if box is not None:
+        return {
+            "version": TIGHTNESS_SIDECAR_VERSION,
+            "outcome": "tight",
+            "reason": "",
+            "element": None,
+            "detail": (f"union {box.union_w:.0f}x{box.union_h:.0f} "
+                       f"renders at {box.width}x{box.height}"),
+            "width": box.width,
+            "height": box.height,
+            "placement": box.placement,
+        }
+    reason = refusal.reason if refusal is not None else ""
+    element = refusal.element if refusal is not None else None
+    detail = (refusal.detail if refusal is not None and refusal.detail
+              else (refusal.message() if refusal is not None else ""))
+    return {
+        "version": TIGHTNESS_SIDECAR_VERSION,
+        "outcome": "full",
+        "reason": reason,
+        "element": element,
+        "detail": detail,
+        "width": full_width,
+        "height": full_height,
+        "placement": None,
+    }
+
+
+def sidecar_path_for(props_path: str) -> str:
+    """The sidecar path beside one props file."""
+    if props_path.endswith("_props.json"):
+        return props_path[:-len("_props.json")] + TIGHTNESS_SIDECAR_SUFFIX
+    if props_path.endswith(".json"):
+        return props_path[:-len(".json")] + TIGHTNESS_SIDECAR_SUFFIX
+    return props_path + TIGHTNESS_SIDECAR_SUFFIX
+
+
+def check_motion_graphics_files(props_paths: Sequence[str],
+                                full_w: int, full_h: int,
+                                ) -> tuple[list, dict]:
+    """Refuse every full-canvas artefact that has not declared why.
+
+    Returns `(errors, census)`. `errors` is empty where every
+    full-canvas props file carries a sidecar naming its reason - a
+    legitimate full-frame graphic passes BY SAYING SO
+    (`BY_DESIGN_REASONS`), and any other recorded reason passes
+    counted but not failed (it names real ink the engine could not
+    bound; failing a build on planned content would punish the plan
+    for the engine's reach). What fails is a full-canvas artefact with
+    NO recorded reason - missing sidecar, unreadable sidecar, empty
+    reason, or a sidecar that disagrees with the props beside it -
+    because that is the silence sixteen lower thirds shipped as.
+
+    Tight artefacts need no sidecar: their size says the outcome. A
+    sidecar that claims `full` beside tight props (or `tight` beside
+    full props, or any other size mismatch) is stale, and fails like
+    an undeclared one - a record that cannot be believed is worse
+    than no record.
+
+    `census` is JSON-safe: total / tight / full_by_design /
+    full_with_reason / full_undeclared counts, `by_reason` tallies,
+    and the undeclared and full file names. Deterministic and cheap -
+    JSON reads only, no renders - so it runs on every build.
+    """
+    import json as _json
+    import os as _os
+
+    errors: list = []
+    by_reason: dict = {}
+    full_files: dict = {}
+    undeclared_files: list = []
+    tight = 0
+    full_by_design = 0
+    full_with_reason = 0
+
+    for props_path in props_paths:
+        name = _os.path.basename(props_path)
+        try:
+            with open(props_path, encoding="utf-8") as handle:
+                props = _json.load(handle)
+        except (OSError, ValueError) as exc:
+            errors.append(
+                f"{name}: cannot be checked - props unreadable ({exc})")
+            undeclared_files.append(name)
+            continue
+        width = props.get("width")
+        height = props.get("height")
+        sidecar_path = sidecar_path_for(props_path)
+        sidecar = None
+        try:
+            with open(sidecar_path, encoding="utf-8") as handle:
+                sidecar = _json.load(handle)
+        except (OSError, ValueError):
+            sidecar = None
+        if width != full_w or height != full_h:
+            if (isinstance(sidecar, dict)
+                    and sidecar.get("outcome") == "full"):
+                errors.append(
+                    f"{name}: props are {width}x{height} but the "
+                    f"tightness sidecar claims a full-canvas refusal "
+                    f"({sidecar.get('reason')!r}) - stale sidecar")
+                undeclared_files.append(name)
+            else:
+                tight += 1
+            continue
+        # Full canvas: the sidecar must say why.
+        if not isinstance(sidecar, dict):
+            errors.append(
+                f"{name}: full-canvas {width}x{height} overlay with no "
+                f"tightness sidecar - undeclared full canvas cannot "
+                f"ship")
+            undeclared_files.append(name)
+            continue
+        if sidecar.get("outcome") != "full":
+            errors.append(
+                f"{name}: full-canvas {width}x{height} props beside a "
+                f"sidecar claiming {sidecar.get('outcome')!r} - stale "
+                f"sidecar")
+            undeclared_files.append(name)
+            continue
+        if (sidecar.get("width") != width
+                or sidecar.get("height") != height):
+            errors.append(
+                f"{name}: full-canvas {width}x{height} props beside a "
+                f"sidecar sized {sidecar.get('width')}x"
+                f"{sidecar.get('height')} - stale sidecar")
+            undeclared_files.append(name)
+            continue
+        reason = sidecar.get("reason") or ""
+        if not reason:
+            errors.append(
+                f"{name}: full-canvas {width}x{height} overlay whose "
+                f"sidecar names no reason - undeclared full canvas "
+                f"cannot ship")
+            undeclared_files.append(name)
+            continue
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+        full_files[name] = {
+            "reason": reason,
+            "element": sidecar.get("element"),
+            "detail": sidecar.get("detail") or "",
+        }
+        if reason in BY_DESIGN_REASONS:
+            full_by_design += 1
+        else:
+            full_with_reason += 1
+
+    census = {
+        "total": tight + full_by_design + full_with_reason
+                 + len(undeclared_files),
+        "tight": tight,
+        "full_by_design": full_by_design,
+        "full_with_reason": full_with_reason,
+        "full_undeclared": len(undeclared_files),
+        "by_reason": by_reason,
+        "undeclared_files": sorted(undeclared_files),
+        "full_files": full_files,
+    }
+    return errors, census
+
+
+def check_motion_graphics_dir(mg_dir: str, full_w: int,
+                              full_h: int) -> tuple[list, dict]:
+    """The directory walk over `check_motion_graphics_files`.
+
+    A missing directory is not an error - a project that rendered no
+    motion graphics has nothing to declare - and yields an empty
+    census. Anything on disk gets checked.
+    """
+    import glob as _glob
+    import os as _os
+
+    if not mg_dir or not _os.path.isdir(mg_dir):
+        return [], {"total": 0, "tight": 0, "full_by_design": 0,
+                    "full_with_reason": 0, "full_undeclared": 0,
+                    "by_reason": {}, "undeclared_files": [],
+                    "full_files": {}}
+    paths = sorted(_glob.glob(
+        _os.path.join(mg_dir, "*_props.json")))
+    return check_motion_graphics_files(paths, full_w, full_h)
+
+
+def tighten_motion_graphics_props(
+        props: dict,
+        project_folder: str = "",
+        timeline_size: tuple[int, int] | None = None,
+        ) -> Optional[TightBox]:
+    """The tight canvas for one segment's full-canvas MG props, or None.
+
+    The box half of `_tighten_impl` - every refusal reason the other
+    half returns is documented there. Raises exactly as it always has.
+    """
+    box, _refusal = _tighten_impl(
+        props, project_folder, timeline_size=timeline_size)
+    return box
+
+
+def tighten_motion_graphics_props_with_reason(
+        props: dict,
+        project_folder: str = "",
+        timeline_size: tuple[int, int] | None = None,
+        ) -> tuple[Optional[TightBox], Optional[TightRefusal]]:
+    """The tight canvas AND why not, where the caller records the why.
+
+    Returns `(box, None)` where the segment tightens and
+    `(None, refusal)` where it stays full canvas, so a fallback is
+    always a NAMED fallback - the artefact sidecar (`tightness_record`)
+    and the build-time guard (`check_motion_graphics_files`) both read
+    the refusal. `TightBoxClipsInk` / `TightBoxMismatch` still raise,
+    carrying their refusal as `.refusal`.
+    """
+    return _tighten_impl(props, project_folder,
+                         timeline_size=timeline_size)

@@ -2860,3 +2860,28 @@ class TestRecordedPinsAreReadBeforeThePlanIsGraded:
         assert derive < body.index(reader), (
             f"run_verification derives project_folder AFTER it reads "
             f"{what}, so every CLI run grades without it")
+
+
+def test_conformance_report_carries_motion_graphics_tightness():
+    """The sweep surfaces the tight/refused census: a project carrying
+    silent full-frame graphics shows it in
+    `conformance_sweep_report.json`, which is how forty percent sat
+    unnoticed. Absent where no sweep set it, so unit-built reports
+    stay quiet."""
+    from library.tools.reel_conformance_verifier import VerificationReport
+    bare = VerificationReport(
+        project_name="p", master_timeline="m", reel_results=[],
+        read_only_proof={})
+    assert "motion_graphics_tightness" not in bare.as_dict()
+    census = {"total": 43, "tight": 26, "full_by_design": 0,
+              "full_with_reason": 1, "full_undeclared": 16,
+              "by_reason": {"canvas_larger_than_frame": 1},
+              "undeclared_files": [], "full_files": {}}
+    full = VerificationReport(
+        project_name="p", master_timeline="m", reel_results=[],
+        read_only_proof={},
+        motion_graphics_tightness=census)
+    data = full.as_dict()
+    assert data["motion_graphics_tightness"] == census
+    import json as _json
+    _json.dumps(data)

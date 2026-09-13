@@ -3889,6 +3889,13 @@ class VerificationReport:
     none of which is a finding and all of which is what "as many good
     reels as possible" needs to be able to rank."""
 
+    motion_graphics_tightness: dict = field(default_factory=dict)
+    """The tight-vs-full census over the rendered motion-graphics
+    artefacts (`mg_tight_box.check_motion_graphics_dir`), or
+    `{"unavailable": reason}` where no project folder or artefact dir
+    could be read. Set by `run_verification`, never a finding: the
+    sweep reports, the step-4.06 guard refuses."""
+
     @property
     def all_findings(self) -> List[Finding]:
         out = list(self.provenance_findings)
@@ -3950,6 +3957,8 @@ class VerificationReport:
             ]
         if self.quality_bar is not None:
             d["quality_bar"] = self.quality_bar.as_dict()
+        if self.motion_graphics_tightness:
+            d["motion_graphics_tightness"] = self.motion_graphics_tightness
         return d
 
 
@@ -5627,6 +5636,47 @@ def run_verification(
               f"every check that needs one grades a plan this project "
               f"never placed.", file=err)
 
+    # ── Motion-graphics tightness census ──────────────────────────
+    #
+    # Resolve-independent: walks the rendered overlay artefacts and
+    # counts tight canvases against refused ones by reason, so a
+    # project carrying silent full-frame graphics shows it here.
+    # Informational only - the sweep reports, the step-4.06 guard
+    # refuses - and an unreadable artefact dir says `unavailable`,
+    # never zero.
+    motion_graphics_tightness: dict = {
+        "unavailable": "no project folder"}
+    if project_folder:
+        try:
+            from library.tools.delivery_format import (
+                resolve_delivery_format as _resolve_format)
+            from library.tools.mg_tight_box import (
+                check_motion_graphics_dir as _check_mg_dir)
+            from library.tools.project_layout import (
+                Area as _Area, ProjectLayout as _Layout)
+            _mg_dir = str(_Layout(project_folder).read_dir(
+                _Area.MOTION_GRAPHICS_SEGMENTS))
+            _full_w, _full_h = _resolve_format(project_folder)
+            _mg_errors, motion_graphics_tightness = _check_mg_dir(
+                _mg_dir, _full_w, _full_h)
+            if _mg_errors:
+                motion_graphics_tightness["undeclared_errors"] = \
+                    _mg_errors[:10]
+                print(f"Motion-graphics tightness: "
+                      f"{len(_mg_errors)} UNDECLARED full-canvas "
+                      f"artefact(s) - the step-4.06 guard refuses "
+                      f"these on the next render pass", file=err)
+            else:
+                print(f"Motion-graphics tightness: "
+                      f"{motion_graphics_tightness.get('tight', 0)} "
+                      f"tight, "
+                      f"{motion_graphics_tightness.get('full_by_design', 0)} "
+                      f"full by design, "
+                      f"{motion_graphics_tightness.get('full_with_reason', 0)} "
+                      f"full with reason", file=err)
+        except Exception as exc:  # noqa: BLE001 - census, never a gate
+            motion_graphics_tightness = {"unavailable": str(exc)}
+
     # ── Connect ──────────────────────────────────────────────────────
     try:
         resolve = connect_resolve()
@@ -6099,6 +6149,7 @@ def run_verification(
         read_only_proof=read_only_proof,
         plan_source=plan_source,
         provenance_findings=provenance_findings,
+        motion_graphics_tightness=motion_graphics_tightness,
     )
 
     report.quality_bar = bar_report
