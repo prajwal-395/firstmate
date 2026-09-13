@@ -73,6 +73,16 @@ class PipelineConfig:
     # A name from library/tools/delivery_format.DELIVERY_FORMATS; an
     # unknown one raises rather than quietly reverting to the default.
     delivery_format: str = ""
+    # The deliver verb's preset and file naming (`deliver-reel` reads
+    # them through library/tools/reel_deliver.py). Both UNDECLARED by
+    # default: an empty preset / empty naming means the captain has not
+    # given the word, and the verb reports that rather than presenting
+    # a fallback as a decision. `deliver_preset` takes `format` and
+    # `codec` only - anything else is refused as a declaration nothing
+    # reads. `deliver_naming` is a filename optionally carrying
+    # `{timeline}` and `{ext}`.
+    deliver_preset: Optional[dict] = None
+    deliver_naming: str = ""
     # Per-project override of how much of that frame the picture fills:
     # 0.0 letterbox, 1.0 fill. None means "take the brand template's",
     # which in turn defaults to fill. See library/tools/framing_intent.py.
@@ -234,6 +244,33 @@ class ProjectConfig:
                     f"{self.pipeline.delivery_format} must be one of "
                     f"{sorted(DELIVERY_FORMATS)}"
                 )
+        if self.pipeline.deliver_preset is not None:
+            # Structural only: a mapping of format/codec strings. Empty
+            # (or absent) means undeclared, which is valid - the verb
+            # derives its fallback and says so.
+            preset = self.pipeline.deliver_preset
+            if not isinstance(preset, dict):
+                errors.append(
+                    f"pipeline.deliver_preset must be a mapping of "
+                    f"format/codec, got {type(preset).__name__}.")
+            else:
+                from library.tools.reel_deliver import DELIVER_PRESET_KEYS
+                unknown = sorted(set(preset) - set(DELIVER_PRESET_KEYS))
+                if unknown:
+                    errors.append(
+                        f"pipeline.deliver_preset declares {unknown}, "
+                        f"which nothing reads. It takes "
+                        f"{list(DELIVER_PRESET_KEYS)}.")
+                for key, value in preset.items():
+                    if not isinstance(value, str) or not value.strip():
+                        errors.append(
+                            f"pipeline.deliver_preset[{key!r}] must be a "
+                            f"non-empty string, got {value!r}.")
+        if self.pipeline.deliver_naming is not None and not isinstance(
+                self.pipeline.deliver_naming, str):
+            errors.append(
+                f"pipeline.deliver_naming must be a string, got "
+                f"{type(self.pipeline.deliver_naming).__name__}.")
         if self.pipeline.framing_intent is not None:
             from library.tools.framing_intent import validate_framing_intent
             try:
@@ -350,6 +387,8 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
     pipeline = PipelineConfig(
         brand_template=pipeline_data.get("brand_template", "default_brand"),
         delivery_format=pipeline_data.get("delivery_format", "") or "",
+        deliver_preset=pipeline_data.get("deliver_preset"),
+        deliver_naming=pipeline_data.get("deliver_naming", "") or "",
         framing_intent=pipeline_data.get("framing_intent"),
         subtitle_typography=pipeline_data.get("subtitle_typography"),
         subtitle_overlay_geometry=(
@@ -429,6 +468,14 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         "pipeline": {
             "brand_template": config.pipeline.brand_template,
             "delivery_format": config.pipeline.delivery_format,
+            # Only when declared: an empty preset/naming in every
+            # project.yaml would read as decisions nobody made.
+            **({} if not config.pipeline.deliver_preset
+               else {"deliver_preset":
+                     dict(config.pipeline.deliver_preset)}),
+            **({} if not config.pipeline.deliver_naming
+               else {"deliver_naming":
+                     config.pipeline.deliver_naming}),
             # Only when declared: `framing_intent: null` in every
             # project.yaml would read as a decision nobody made, and 0.0
             # and "unset" are different answers here.

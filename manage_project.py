@@ -62,7 +62,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # adding a subcommand without listing it here fails loudly rather than
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
-    "init-root", "list", "new", "propose-reels", "build-reels", "status",
+    "init-root", "list", "new", "propose-reels", "build-reels", "deliver-reel", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
@@ -1492,6 +1492,61 @@ def cmd_build_reels(args):
     _commit_run_tail(project_folder)
 
 
+def cmd_deliver_reel(args):
+    """Render ONE chosen reel timeline to a video file. The explicit verb.
+
+    Nothing in the pipeline calls this: not `build-reels`, not `run`,
+    not the DAGs, not the operation registry. The captain invokes it by
+    hand with a reel number, because a timeline build is cheap and is
+    the thing they judge while a render is the expensive thing they
+    must ask for (standing ruling 2026-09-09 / 2026-09-10).
+
+    The delivery preset (`pipeline.deliver_preset`) and file naming
+    (`pipeline.deliver_naming`) are the project's own declarations.
+    When they are absent the verb derives the frame from the declared
+    delivery format and the container/codec/filename from the
+    mechanism's fallback, and REPORTS both halves as needing the
+    captain's word rather than defaulting them. See
+    library/tools/reel_deliver.py.
+    """
+    from library.tools import reel_deliver
+
+    project_folder = _reel_project_folder(args.project)
+    try:
+        full = reel_deliver.deliver_reel(
+            project_folder,
+            args.reel,
+            output_dir=args.output_dir or "",
+            file_name=args.name or "",
+            timeout_seconds=args.timeout,
+        )
+    except reel_deliver.DeliverRefused as refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        sys.exit(1)
+
+    verification = full["verification"]
+    print(f"Delivered {full['timeline_name']!r} -> "
+          f"{verification['output_path']}")
+    print(f"  duration:   {verification['duration']['detail']} "
+          f"({'PASS' if verification['duration']['passed'] else 'FAIL'})")
+    print(f"  resolution: {verification['resolution']['detail']} "
+          f"({'PASS' if verification['resolution']['passed'] else 'FAIL'})")
+    print(f"  audio:      {verification['audio']['detail']} "
+          f"({'PASS' if verification['audio']['passed'] else 'FAIL'})")
+    print(f"  content:    "
+          f"{'picture present' if verification['content_present'] else 'NO PICTURE - black throughout'} "
+          f"({'PASS' if verification['content_present'] else 'FAIL'})")
+    if verification["opens_on_black"]:
+        print("  note: the reel OPENS ON BLACK (head segment at 0s) - "
+              "reported, not failed; see the TV-switch-on ruling in "
+              "library/tools/reel_deliver.py.")
+    for half in full["settings"]["needs_captain_word"]:
+        print(f"  note: pipeline.{half} is UNDECLARED - rendered with "
+              f"the mechanism fallback and this needs the captain's "
+              f"word before it becomes a standard.")
+    print(f"  report: {full['report_path']}")
+
+
 def _commit_run_tail(project_folder: str) -> None:
     """Commit whatever the run's final state write left uncommitted.
 
@@ -1703,6 +1758,28 @@ def main():
              "way. Use this to re-place onto drift-free state, or to "
              "measure what the pass costs.")
     build_reels_parser.set_defaults(func=cmd_build_reels)
+
+    deliver_reel_parser = sub.add_parser(
+        "deliver-reel", help="Render ONE chosen reel timeline to a file")
+    deliver_reel_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    deliver_reel_parser.add_argument(
+        "reel", type=int,
+        help="The approved reel number to render. Required: rendering "
+             "without naming one is refused, because that is the "
+             "unasked render the standing ruling forbids")
+    deliver_reel_parser.add_argument(
+        "--output-dir", default="",
+        help="Where to write the file. Default: the project's exports/")
+    deliver_reel_parser.add_argument(
+        "--name", default="",
+        help="The output filename. Default: the project's "
+             "pipeline.deliver_naming, or {timeline}.{ext}")
+    deliver_reel_parser.add_argument(
+        "--timeout", type=int, default=1800,
+        help="Seconds to wait for Resolve to finish (default: 1800)")
+    deliver_reel_parser.set_defaults(func=cmd_deliver_reel)
 
     p_status = sub.add_parser("status", help="Show project status")
     p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
