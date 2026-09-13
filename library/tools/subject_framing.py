@@ -58,7 +58,9 @@ and points here.
 `vision_pipeline_v3` measures shot size, identity and time ranges - never a position - and `object_segmentation`/`ocr_extraction` produce boxes but are not in the DAG.
 `step_1_04_temporal_index.compute_face_presence` emits the horizontal centre of the largest detected face at 5Hz; `library/tools/subject_framing.py` reduces it per clip and returns a POSITION; `compile_manifest._conform_fields` owns the one copy of the geometry that turns it into a pan.
 - The join is `subject_centers_by_clip`. Step 1.04's real output shape is `{"temporal_event_indices": [...], "full_indices": [...]}` - a LIST of per-clip dicts, not a mapping. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
-- **None means "frame centred" - do not replace it with a fabricated 0.5.** [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
+- **None means "frame centred" - do not replace it with a fabricated 0.5.**
+  That None is two facts - measured-centred and unmeasurable - and
+  :func:`subject_center_reading` tells them apart. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
 
 **A crop must be wide enough for the subject, and aiming it is not enough.**
 `compute_face_presence` records `face_width` beside `face_center_x`; `subject_framing.subject_box` reduces both, and `SUBJECT_HEADROOM` is how much clear space the subject needs on each side.
@@ -150,6 +152,114 @@ def _median(values: Sequence[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
+@dataclass(frozen=True)
+class SubjectReading:
+    """A subject-centre answer with its worth attached.
+
+    ``position`` is exactly what :func:`subject_center_x` returns - a
+    normalised 0..1 centre, or None. ``status`` says which of the two
+    Nones that None is: ``"off_centre"`` (a number is carried),
+    ``"centred"`` (measured, and the subject sits inside
+    ``CENTRE_DEADBAND``), or ``"unmeasurable"`` (no detection floor was
+    met, or the input itself was unusable). ``reason`` is the detail:
+    ``"measured_off_centre"``, ``"measured_centred"``,
+    ``"no_face_track"``, ``"no_sample_rate"``, ``"empty_window"``,
+    ``"too_few_detections"`` or ``"detection_ratio_below_floor"``.
+
+    Any caller that branches on "did we measure" rather than on "is
+    there a number" must read this, not the bare position: the bare
+    position cannot tell a measured centre from a shrug, and treating
+    the shrug as consent to aim is the defect this exists to close.
+    """
+
+    position: Optional[float]
+    status: str
+    reason: str
+
+
+def subject_center_reading(
+    face_presence: dict,
+    source_in: float,
+    source_out: float,
+) -> "SubjectReading":
+    """The subject's horizontal centre AND what the answer is worth.
+
+    :func:`subject_center_x` returns None for two different facts - "the
+    subject was measured and sits at the centre" and "nothing here could
+    be measured" - and a caller holding that None cannot tell which it
+    got. This is the same function with the distinction kept: `position`
+    is exactly what :func:`subject_center_x` returns, and `status` says
+    whether that None (or that number) is a measurement or a shrug.
+
+    `status` is one of three words, and `reason` is the machine-readable
+    detail underneath it:
+
+    - ``"off_centre"`` / ``"measured_off_centre"`` - detections clear
+      both floors and the median sits outside ``CENTRE_DEADBAND``.
+      `position` is the aim.
+    - ``"centred"`` / ``"measured_centred"`` - detections clear both
+      floors and the median sits inside ``CENTRE_DEADBAND``. `position`
+      is None, and that None means "leave the framing centred" - a
+      measured verdict, not a missing one.
+    - ``"unmeasurable"`` / one of ``"no_face_track"``,
+      ``"no_sample_rate"``, ``"empty_window"``, ``"too_few_detections"``
+      or ``"detection_ratio_below_floor"`` - the footage (or the index)
+      does not support an answer. `position` is None, and that None
+      means "no measurement", which a caller must not treat as consent
+      to aim anywhere.
+
+    A test that feeds a centred track and a sparse track and asserts the
+    two Nones carry different statuses fails the moment anyone collapses
+    them again (``tests/test_subject_reading.py``).
+    """
+    if not face_presence:
+        return SubjectReading(None, "unmeasurable", "no_face_track")
+
+    centers = face_presence.get("face_center_x") or []
+    if not centers:
+        return SubjectReading(None, "unmeasurable", "no_face_track")
+
+    try:
+        rate = float(face_presence["sample_rate_hz"])
+    except (KeyError, TypeError, ValueError):
+        return SubjectReading(None, "unmeasurable", "no_sample_rate")
+    if rate <= 0:
+        return SubjectReading(None, "unmeasurable", "no_sample_rate")
+
+    if source_out <= source_in:
+        return SubjectReading(None, "unmeasurable", "empty_window")
+
+    start = max(0, int(source_in * rate))
+    end = min(len(centers), int(source_out * rate) + 1)
+    if end <= start:
+        return SubjectReading(None, "unmeasurable", "empty_window")
+
+    window = centers[start:end]
+    detected: List[float] = []
+    for value in window:
+        if value is None:
+            continue
+        try:
+            cx = float(value)
+        except (TypeError, ValueError):
+            continue
+        if MIN_PLAUSIBLE_CX <= cx <= MAX_PLAUSIBLE_CX:
+            detected.append(cx)
+
+    if len(detected) < MIN_SAMPLES:
+        return SubjectReading(None, "unmeasurable", "too_few_detections")
+    if len(detected) / float(len(window)) < MIN_DETECTION_RATIO:
+        return SubjectReading(
+            None, "unmeasurable", "detection_ratio_below_floor")
+
+    cx = _median(detected)
+
+    if abs(cx - 0.5) < CENTRE_DEADBAND:
+        return SubjectReading(None, "centred", "measured_centred")
+
+    return SubjectReading(round(cx, 4), "off_centre", "measured_off_centre")
+
+
 def subject_center_x(
     face_presence: dict,
     source_in: float,
@@ -167,58 +277,14 @@ def subject_center_x(
     Returns:
         0.0 (left edge) to 1.0 (right edge), or None when the footage does
         not support an answer. None means "leave the framing centred".
+
+    The two Nones this can return - measured-centred and unmeasurable -
+    are told apart by :func:`subject_center_reading`, which this
+    delegates to. Anything that needs to know WHICH None it got must
+    call that instead.
     """
-    if not face_presence:
-        return None
-
-    centers = face_presence.get("face_center_x") or []
-    if not centers:
-        return None
-
-    # The rate is what maps clip seconds onto sample indices, so it must be
-    # read, not assumed. `or 5` was wrong here: a rate of 0 is falsy, so a
-    # malformed index silently became a 5Hz one and every clip got framed
-    # off the wrong samples.
-    try:
-        rate = float(face_presence["sample_rate_hz"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    if rate <= 0:
-        return None
-
-    if source_out <= source_in:
-        return None
-
-    start = max(0, int(source_in * rate))
-    end = min(len(centers), int(source_out * rate) + 1)
-    if end <= start:
-        return None
-
-    window = centers[start:end]
-    detected: List[float] = []
-    for value in window:
-        if value is None:
-            continue
-        try:
-            cx = float(value)
-        except (TypeError, ValueError):
-            continue
-        if MIN_PLAUSIBLE_CX <= cx <= MAX_PLAUSIBLE_CX:
-            detected.append(cx)
-
-    if len(detected) < MIN_SAMPLES:
-        return None
-    if len(detected) / float(len(window)) < MIN_DETECTION_RATIO:
-        return None
-
-    # Median, not mean: one frame of false positive on a bright rectangle
-    # at the far edge should not drag the crop across the shot.
-    cx = _median(detected)
-
-    if abs(cx - 0.5) < CENTRE_DEADBAND:
-        return None
-
-    return round(cx, 4)
+    return subject_center_reading(
+        face_presence, source_in, source_out).position
 
 
 def load_face_tracks_from_files(project_dir: str) -> Dict[str, dict]:
@@ -655,3 +721,231 @@ def measure_subject_in_window(video_path: str, source_in: float,
         samples=samples,
         detected=len(centers_x),
         others=others)
+
+
+# ── The aim, recorded ────
+#
+# A project cut from an existing Resolve timeline has no preflight and
+# therefore no temporal index - which is every project the reels path
+# serves (geo-podcast's `pipeline_data.json` carries `catalog`,
+# `build_reels`, `select_reels` and no `temporal_index` at all). So the
+# first build of a reel probes each played window with the Haar cascade
+# above, and every rebuild re-decoded the same frames and re-ran the
+# same detector - per build, in whatever interpreter the build happened
+# to run under. That interpreter is undeclared, and the probe failed
+# four separate times in two days (no cascade, cascade again, a venv
+# missing `jsonschema`): each failure re-aimed or un-aimed every shot.
+#
+# The measurement is therefore RECORDED the first time it is taken, in
+# one JSON sidecar under the project's scratch area, and every later
+# build reads it instead of re-decoding. A warm cache means a rebuild
+# needs no face detector at all - the read path never imports cv2 - so
+# a broken build environment can no longer silently (or loudly) move
+# the picture. Scratch is the honest place: the record is regenerable,
+# and deleting it only costs a re-probe.
+#
+# Why this sidecar and not the banked `face_present_times` /
+# `face_absent_times`: those were never produced for this project's
+# footage (no preflight ran), and where they exist they are the wrong
+# shape for the aim - timestamps of presence and absence carry no
+# position, and the punch-in needs two axes plus a multiplicity count
+# (`SubjectPoint.center_y`, `others`) that no banked signal carries.
+# Wiring absence timestamps into the aim would gate what the probe's
+# own None already refuses, with a staler measurement. The verdict is
+# recorded here so nobody re-opens it: absence times answer "does the
+# shot hold", nobody asks that of any gate, and the aim needs the
+# centre, not the calendar.
+
+SUBJECT_MEASUREMENTS_FILENAME = "reel_subject_measurements.json"
+"""The sidecar file, under the project's scratch area."""
+
+
+def subject_measurements_path(project_folder: str) -> Path:
+    """Where this project's recorded aims live."""
+    from library.tools.project_layout import Area, ProjectLayout
+
+    return (Path(ProjectLayout(project_folder).read_dir(Area.SCRATCH))
+            / SUBJECT_MEASUREMENTS_FILENAME)
+
+
+def _window_key(source_in: float, source_out: float) -> Tuple[float, float]:
+    return (round(float(source_in), 3), round(float(source_out), 3))
+
+
+def _source_identity(source_file: str) -> Optional[dict]:
+    """The footage this record is about, or None if it cannot be read.
+
+    Size plus mtime is the staleness check: a record for different
+    footage must never aim a window, so a mismatch reads as a cache
+    miss and the window is re-probed.
+    """
+    try:
+        stat = os.stat(source_file)
+    except OSError:
+        return None
+    return {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns}
+
+
+def _detector_identity() -> dict:
+    """What looked at the frames, for provenance, never for gating.
+
+    A record is reused on footage identity alone: a measurement taken
+    under a working detector stays a measurement when the detector is
+    gone, which is the whole point. The detector is still written down,
+    so a changed environment is SAID rather than hidden.
+    """
+    try:
+        import cv2
+        cv2_version = str(getattr(cv2, "__version__", "unknown"))
+        haar = bool(getattr(cv2, "CascadeClassifier", None))
+    except ImportError:
+        cv2_version = "not installed"
+        haar = False
+    return {"cv2": cv2_version, "haar_classifier": haar,
+            "cascade": "haarcascade_frontalface_default.xml" if haar else None}
+
+
+def _subject_to_record(point: Optional["SubjectPoint"]) -> Optional[dict]:
+    if point is None:
+        return None
+    return {"center_x": point.center_x, "center_y": point.center_y,
+            "width": point.width, "samples": point.samples,
+            "detected": point.detected, "others": point.others}
+
+
+def _record_to_subject(record) -> Optional["SubjectPoint"]:
+    if not isinstance(record, dict):
+        return None
+    try:
+        return SubjectPoint(
+            center_x=float(record["center_x"]),
+            center_y=float(record["center_y"]),
+            width=float(record["width"]),
+            samples=int(record["samples"]),
+            detected=int(record["detected"]),
+            others=int(record.get("others", 0)))
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _read_measurements_file(path: Path) -> list:
+    try:
+        with open(path, encoding="utf-8") as f:
+            document = json.load(f)
+    except (OSError, ValueError):
+        return []
+    entries = document.get("entries") if isinstance(document, dict) else None
+    return entries if isinstance(entries, list) else []
+
+
+def read_recorded_subject(
+    project_folder: str,
+    source_file: str,
+    source_in: float,
+    source_out: float,
+) -> Tuple[Optional["SubjectPoint"], Optional[dict]]:
+    """A recorded aim for one played window, or a miss.
+
+    Returns ``(point_or_None, provenance_or_None)``. `provenance` None
+    means MISS - nothing recorded, or the footage changed under the
+    record, or the sidecar is absent or corrupt. A hit carries
+    `provenance` even when the recorded answer was "no face": that is a
+    measurement (frames were read, no face was found), not a miss, and
+    the caller must not re-probe what was already looked at - it must
+    play the shot uncropped and say the record said so.
+
+    Never needs a face detector: the read path imports no cv2.
+    """
+    try:
+        path = subject_measurements_path(project_folder)
+    except Exception:
+        return None, None
+    window = _window_key(source_in, source_out)
+    identity = _source_identity(source_file)
+    if identity is None:
+        return None, None
+    wanted = os.path.abspath(source_file)
+    for entry in _read_measurements_file(path):
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("source_file") != wanted:
+            continue
+        try:
+            entry_window = (round(float(entry["source_in"]), 3),
+                            round(float(entry["source_out"]), 3))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if entry_window != window:
+            continue
+        if entry.get("source") != identity:
+            continue
+        provenance = {"basis": "recorded",
+                      "measured_at": entry.get("measured_at"),
+                      "detector": entry.get("detector")}
+        return _record_to_subject(entry.get("subject")), provenance
+    return None, None
+
+
+def record_subject_measurement(
+    project_folder: str,
+    source_file: str,
+    source_in: float,
+    source_out: float,
+    point: Optional["SubjectPoint"],
+) -> Optional[dict]:
+    """File one window's aim. Returns its provenance, or None.
+
+    Overwrites any earlier record for the same file and window: a
+    re-probe is newer than whatever it replaces. A sidecar that cannot
+    be written warns on stderr and returns None - the probe already
+    answered, and a build must not fail over its own cache.
+    """
+    import sys
+    from datetime import datetime, timezone
+
+    try:
+        from library.tools.project_layout import Area, ProjectLayout
+
+        path = Path(ProjectLayout(project_folder).write_dir(Area.SCRATCH))
+        path = path / SUBJECT_MEASUREMENTS_FILENAME
+    except Exception as exc:
+        print(f"  subject aim not recorded for "
+              f"{os.path.basename(source_file)}: {exc}",
+              file=sys.stderr)
+        return None
+    identity = _source_identity(source_file)
+    if identity is None:
+        return None
+    window_in, window_out = _window_key(source_in, source_out)
+    wanted = os.path.abspath(source_file)
+
+    def _same_window(entry: dict) -> bool:
+        try:
+            return (entry.get("source_file") == wanted
+                    and round(float(entry.get("source_in")), 3) == window_in
+                    and round(float(entry.get("source_out")), 3) == window_out)
+        except (TypeError, ValueError):
+            return False
+
+    entries = [e for e in _read_measurements_file(path)
+               if not (isinstance(e, dict) and _same_window(e))]
+    detector = _detector_identity()
+    provenance = {"basis": "probed",
+                  "measured_at": datetime.now(timezone.utc).isoformat(
+                      timespec="seconds"),
+                  "detector": detector}
+    entries.append({"source_file": wanted,
+                    "source_in": window_in, "source_out": window_out,
+                    "source": identity, "detector": detector,
+                    "measured_at": provenance["measured_at"],
+                    "subject": _subject_to_record(point)})
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"entries": entries}, f, indent=2)
+            f.write("\n")
+    except OSError as exc:
+        print(f"  subject aim not recorded for "
+              f"{os.path.basename(source_file)}: {exc}",
+              file=sys.stderr)
+        return None
+    return provenance

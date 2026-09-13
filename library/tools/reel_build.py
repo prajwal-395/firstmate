@@ -4024,10 +4024,44 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
             f"through it.")
 
 
+def _recorded_first_measure(project_folder: str):
+    """The default aim with a memory: records first, probes once.
+
+    Returns a `measure(source_file, source_in, source_out)` callable
+    with the same contract as
+    `subject_framing.measure_subject_in_window` - a `SubjectPoint`, or
+    None when the frames hold no aimable face, or
+    `SubjectProbeUnavailable` when no detector exists AND no record
+    does either.  After every call the callable's `last_provenance`
+    names where the answer came from: `{"basis": "recorded", ...}` or
+    `{"basis": "probed", ...}`, so the build can say it.
+    """
+    from library.tools.subject_framing import measure_subject_in_window
+
+    def _measure(source_file, source_in, source_out):
+        from library.tools.subject_framing import (
+            read_recorded_subject, record_subject_measurement)
+
+        subject, provenance = read_recorded_subject(
+            project_folder, source_file, source_in, source_out)
+        if provenance is not None:
+            _measure.last_provenance = provenance
+            return subject
+        subject = measure_subject_in_window(
+            source_file, source_in, source_out)
+        _measure.last_provenance = record_subject_measurement(
+            project_folder, source_file, source_in, source_out,
+            subject) or {"basis": "probed"}
+        return subject
+
+    _measure.last_provenance = None
+    return _measure
+
+
 def aim_picture_row(name: str, look: dict, screen_window,
                     frame_width: int, frame_height: int,
                     row_items, row_places,
-                    measure=None, size_of=None) -> int:
+                    measure=None, size_of=None, project_folder=None) -> int:
     """Aim one picture row's punch-in, shot by shot, and prove it took.
 
     `row_items` are the row's timeline items in play order, `row_places`
@@ -4036,6 +4070,17 @@ def aim_picture_row(name: str, look: dict, screen_window,
     defaults to `subject_framing.measure_subject_in_window` and
     `size_of` to `_source_frame_size`; both are parameters so tests can
     drive this with fakes instead of Resolve and footage.
+
+    `project_folder` turns the default measure into a recorded-first
+    chain: a window measured on an earlier build is read from the
+    project's sidecar (`subject_framing.read_recorded_subject`) and the
+    detector never runs; a window with no record is probed once and
+    filed (`record_subject_measurement`).  A rebuild with a warm cache
+    therefore aims every shot without decoding a frame, and a build
+    environment whose face detector is broken can no longer move the
+    picture - the failure it used to cause (an incapacitated probe, or
+    a re-probe that silently disagrees) cannot happen where no probe
+    runs.  An explicitly passed `measure` (the tests) is used as-is.
 
     Returns how many shots were aimed.  A shot with no subject
     measurement plays uncropped rather than punched at a guess
@@ -4055,10 +4100,14 @@ def aim_picture_row(name: str, look: dict, screen_window,
 
     from library.tools import reel_look as _look
     from library.tools.subject_framing import (
-        SubjectProbeUnavailable, measure_subject_in_window)
+        SubjectProbeUnavailable, measure_subject_in_window,
+        read_recorded_subject, record_subject_measurement)
 
     if measure is None:
-        measure = measure_subject_in_window
+        if project_folder is not None:
+            measure = _recorded_first_measure(project_folder)
+        else:
+            measure = measure_subject_in_window
     if size_of is None:
         size_of = _source_frame_size
     aimed = 0
@@ -4082,6 +4131,15 @@ def aim_picture_row(name: str, look: dict, screen_window,
                 f"{name}: Resolve reports no resolution for "
                 f"{os.path.basename(source_file)}, so the punch-in "
                 f"cannot be aimed and must not be guessed at.")
+        provenance = getattr(measure, "last_provenance", None)
+        if isinstance(provenance, dict) and provenance.get("basis") == "recorded":
+            basis = (f"recorded {provenance.get('measured_at') or 'date unknown'}"
+                     + (f" ({(provenance.get('detector') or {}).get('cv2', '?')})"
+                        if isinstance(provenance.get("detector"), dict) else ""))
+        elif isinstance(provenance, dict):
+            basis = "probed this build"
+        else:
+            basis = None
         properties = _look.punch_in_properties(
             look, subject, source_size[0], source_size[1],
             frame_width, frame_height, window=screen_window)
@@ -4090,6 +4148,7 @@ def aim_picture_row(name: str, look: dict, screen_window,
                   f"{os.path.basename(source_file)} "
                   f"({place['source_in']:.2f}-{place['source_out']:.2f}s) "
                   f"- {_look.PUNCH_IN_REFUSED_NO_SUBJECT if subject is None else _look.PUNCH_IN_REFUSED_NOT_A_CLOSE_UP}"
+                  f"{f' ({basis})' if basis else ''}"
                   f": an unaimed crop is a guess about where the "
                   f"speaker is. The shot plays uncropped.",
                   file=sys.stderr)
@@ -4113,7 +4172,8 @@ def aim_picture_row(name: str, look: dict, screen_window,
               f"{_look.window_zoom_for(look, source_size, frame_width, frame_height):.4f}) "
               f"aimed at "
               f"subject x={subject.center_x} y={subject.center_y} "
-              f"({subject.detected}/{subject.samples} frames) on "
+              f"({subject.detected}/{subject.samples} frames)"
+              f"{f' [{basis}]' if basis else ''} on "
               f"{os.path.basename(source_file)} -> Pan "
               f"{properties['Pan']}, Tilt {properties['Tilt']}",
               file=sys.stderr)
@@ -5606,7 +5666,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             row_places.sort(key=lambda p: p["snapped_record"])
             aimed += aim_picture_row(
                 name, look, screen_window, width, height,
-                row_items, row_places)
+                row_items, row_places, project_folder=project_folder)
 
         runs = _look.frame_runs(placements_list, fps)
         # The frame goes on as a RENDERED overlay, through the same
