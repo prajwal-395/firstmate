@@ -400,7 +400,8 @@ def project_subtitle_typography(
     return declared
 
 
-def project_caption_row(project_folder: Optional[str]) -> Optional[float]:
+def project_caption_row(project_folder: Optional[str],
+                        reel_name: Optional[str] = None) -> Optional[float]:
     """`pipeline.subtitle_position.caption_row` off a project.yaml, or None.
 
     The captain's ruling of 2026-09-11, after looking at Reel 28:
@@ -422,12 +423,22 @@ def project_caption_row(project_folder: Optional[str]) -> Optional[float]:
     downstream is computed from it.  None means the project declares
     none and the engine's own row applies exactly as before.
 
+    `reel_name` prefers that reel's declared row
+    (`external/reel_caption_row.json`, `reel_caption_row.declared_row`)
+    over the project value: one reel's band is a standing per-reel
+    decision, not a special case in code.  None everywhere means
+    today's behaviour exactly.
+
     A malformed declaration RAISES, the same reasoning
     `project_subtitle_typography` states: a caption position silently
     dropped is a caption the editor believes shipped.
     """
     from library.tools.brand_registry import project_pipeline_block
+    from library.tools.reel_caption_row import declared_row
 
+    override = declared_row(project_folder, reel_name or "")
+    if override is not None:
+        return override
     block = project_pipeline_block(project_folder)
     if "subtitle_position" not in block:
         return None
@@ -527,6 +538,7 @@ def resolve_subtitle_style(
     brand_style: Optional[Dict[str, Any]] = None,
     project_folder: Optional[str] = None,
     speaker: Optional[str] = None,
+    reel_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Template slots in, Remotion props out.
 
@@ -544,6 +556,12 @@ def resolve_subtitle_style(
     entry LAST, over everything else, so a two-speaker conversation can
     be captioned in two looks. A speaker the project does not name
     changes nothing - see `SPEAKER_STYLE_KEYS`.
+
+    `reel_name` prefers that reel's declared caption row
+    (`external/reel_caption_row.json`) over the project value, falling
+    back to it where the reel declares none. The reel path passes the
+    timeline name it builds; every other caller passes nothing and
+    reads today's answer exactly.
     """
     brand_effect = brand_effect or {}
     brand_style = brand_style or {}
@@ -561,7 +579,7 @@ def resolve_subtitle_style(
 
     _frame_w, frame_h = resolve_format_name(
         delivery_format_name(project_folder))
-    declared_row = project_caption_row(project_folder)
+    declared_row = project_caption_row(project_folder, reel_name=reel_name)
     resolved = style.resolve(
         typography=typography or None,
         color_palette=brand_style.get("color_palette"),

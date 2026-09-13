@@ -505,3 +505,154 @@ def test_cli_capture_without_proposal_is_refused(tmp_path, capsys):
     out, _ = capsys.readouterr()
     assert "no readable reel proposal" in out
     assert captain_edits.load_edits(str(project)) == []
+
+
+# ── 6. Per-reel scope: one reel's Pan on a shared shot ────────────────
+#
+# A shot four reels share speaks one anchor on all four; the captain's
+# Pan for ONE of them is the same words with a `reel` scope. No scope
+# holds everywhere, exactly as before.
+
+def _scoped(anchor="explains the number", prop="Pan", value=-35.0,
+            reel="Reel 01 - the-cta",
+            reason="captain: reel 01 sits her left"):
+    return {"kind": "transform_override", "anchor_phrase": anchor,
+            "property": prop, "value": value, "reel": reel,
+            "reason": reason}
+
+
+def test_a_scoped_override_validates():
+    assert captain_edits.validate_edits([_scoped()])[0]["reel"].startswith(
+        "Reel 01")
+
+
+def test_an_empty_reel_scope_is_refused():
+    bad = _scoped()
+    bad["reel"] = "  "
+    with pytest.raises(captain_edits.CaptainEditError):
+        captain_edits.validate_edits([bad])
+
+
+def test_a_scoped_override_holds_on_its_reel_only():
+    spans = [_span((10.0, 14.0))]
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_scoped()], reel_name="Reel 01 - the-cta")
+    assert len(matched) == 1 and stale == []
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_scoped()], reel_name="Reel 02 - something-else")
+    assert matched == [] and len(stale) == 1
+    assert stale[0]["scope"] == "reel"
+    assert "Reel 01 - the-cta" in stale[0]["reason"]
+
+
+def test_a_staging_suffix_is_the_same_reel():
+    spans = [_span((10.0, 14.0))]
+    matched, stale = captain_edits.match_transform_overrides(
+        spans, _tx(), [_scoped()],
+        reel_name="Reel 01 - the-cta (scratch 7) (rebuild staging)")
+    assert len(matched) == 1 and stale == []
+
+
+def test_an_unscoped_override_still_holds_everywhere():
+    """The failing input the scope exists to end: the same anchor
+    with no `reel` matches on both reels' builds - which is why one
+    reel's Pan was inexpressible before the scope."""
+    spans = [_span((10.0, 14.0))]
+    for reel in ("Reel 01 - the-cta", "Reel 02 - something-else"):
+        matched, stale = captain_edits.match_transform_overrides(
+            spans, _tx(), [_override()], reel_name=reel)
+        assert len(matched) == 1 and stale == []
+
+
+def test_the_scope_wins_where_both_would_hold():
+    """A scoped narrowing and the general decision coexist: on the
+    scoped reel only the narrowing holds that property on that span;
+    on every other reel the general one still does."""
+    edits = [_override(value=-20.0, reason="captain: everywhere"),
+             _scoped(value=-35.0)]
+    spans = [_span((10.0, 14.0))]
+    matched, _ = captain_edits.match_transform_overrides(
+        spans, _tx(), edits, reel_name="Reel 01 - the-cta")
+    assert [m["value"] for m in matched] == [-35.0]
+    matched, _ = captain_edits.match_transform_overrides(
+        spans, _tx(), edits, reel_name="Reel 02 - something-else")
+    assert [m["value"] for m in matched] == [-20.0]
+
+
+def test_the_scope_wins_regardless_of_record_order():
+    """File order is not precedence: the general decision recorded
+    FIRST still yields to the narrowing on its reel."""
+    edits = [_scoped(value=-35.0),
+             _override(value=-20.0, reason="captain: everywhere")]
+    spans = [_span((10.0, 14.0))]
+    matched, _ = captain_edits.match_transform_overrides(
+        spans, _tx(), edits, reel_name="Reel 01 - the-cta")
+    assert [m["value"] for m in matched] == [-35.0]
+
+
+def test_two_reels_rulings_are_two_edits(tmp_path):
+    """Reel 02's Pan for the shared shot must not supersede Reel
+    01's: different scopes are different decisions, and both stay in
+    force."""
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _scoped(), "captain, test")
+    other = _scoped(value=-12.0, reel="Reel 02 - something-else",
+                    reason="captain: reel 02 sits her right")
+    edit, action = captain_edits.record_edit(
+        str(project), other, "captain, test")
+    assert action == "recorded"
+    assert len(captain_edits.load_edits(str(project))) == 2
+
+
+def test_a_same_reel_reruling_supersedes_in_place(tmp_path):
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _scoped(), "captain, test")
+    edit, action = captain_edits.record_edit(
+        str(project), _scoped(value=-12.0,
+                              reason="captain: further left"),
+        "captain, test")
+    assert action == "superseded"
+    assert captain_edits.load_edits(str(project))[0]["value"] == -12.0
+
+
+def test_a_scoped_hold_survives_two_rebuilds(tmp_path):
+    """The whole loop twice: the scoped hold lands on its reel's
+    build and stays off the other's, on every rebuild - by value on
+    the placed item, not asserted."""
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    captain_edits.record_edit(str(project), _scoped(), "captain, test")
+    spans = [_span((10.0, 14.0))]
+    for _ in range(2):
+        edits = captain_edits.load_edits(str(project))
+        item = _Item(pan=14.0)
+        applied = reel_build.apply_transform_overrides(
+            "Reel 01 - the-cta", _TrackPlan(), {"1": 1}, spans,
+            _Timeline([item]), _tx(), str(project), 1080, 1920)
+        assert applied == 1
+        assert item.GetProperty("Pan") == pytest.approx(-35.0)
+        other = _Item(pan=14.0)
+        applied = reel_build.apply_transform_overrides(
+            "Reel 02 - something-else", _TrackPlan(), {"1": 1}, spans,
+            _Timeline([other]), _tx(), str(project), 1080, 1920)
+        assert applied == 0
+        assert other.GetProperty("Pan") == pytest.approx(14.0)
+
+
+def test_cli_record_transform_on_reel_stamps_the_scope(tmp_path,
+                                                       capsys):
+    project = _project(tmp_path)
+    assert captain_edits.main([
+        str(project), "record-transform", "--anchor", "explains the number",
+        "--property", "Pan", "--value", "-35",
+        "--on-reel", "Reel 01 - the-cta",
+        "--reason", "captain: reel 01 sits her left"]) == 0
+    out, _ = capsys.readouterr()
+    assert "Reel 01 - the-cta" in out
+    assert captain_edits.load_edits(str(project))[0]["reel"] == \
+        "Reel 01 - the-cta"
+
+
+def test_describe_names_the_scope(capsys):
+    assert "Reel 01" in captain_edits.describe_edits([_scoped()])[0]
+    assert "Reel" not in captain_edits.describe_edits([_override()])[0]

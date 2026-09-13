@@ -32,12 +32,18 @@ The twelve classes, and where each lives
 3. `overlay_position` - OWNS, shared: computed
    (`tight_box`/`overlay_placement`) vs declared
    (`external/overlay_intent.json`, provenance recorded per item).
+   A pin may carry a `zoom` beside the place - Resolve's `ZoomX`/
+   `ZoomY`, which `scaling` (the Scaling MODE, Crop) cannot say -
+   and a reel may declare its own caption row
+   (`external/reel_caption_row.json`) over the project fraction.
    DISPLAYS: timeline Transform. No capture route: a hand move must
    be transcribed into the JSON by hand.
 4. `picture_position` - OWNS, shared: computed punch-in aim
    (`subject_framing`) vs declared (`captain_edits`
-   `transform_override`, capturable from the live timeline).
-   DISPLAYS: timeline Transform.
+   `transform_override`, capturable from the live timeline). An
+   override may carry `reel`: the same words with a reel scope hold
+   on that reel alone, so a Pan on a shot four reels share is
+   expressible. DISPLAYS: timeline Transform.
 5. `look_grade` - OWNS, shared: the brand template declares
    `style.series_look`; step 5.01's colourist decides the CDL
    normalisation; a captain-supplied `.drx` delivers the PowerGrade
@@ -68,10 +74,12 @@ The twelve classes, and where each lives
    DISPLAYS: Fairlight levels, timeline markers.
 9. `mg_content` - OWNS: the 4.06 plan (model-authored; the wording
    correction's prompt half reaches it) plus project-declared timed
-   text (`effect.timed_text_overlay`). A re-render overwrites the
-   rendered segments; authored copy can still misspell, which is
-   what the coherence wording scan catches. DISPLAYS: rendered
-   segments, V6 timeline items.
+   text (`effect.timed_text_overlay`) - and a captain's deletion
+   (`external/do_not_draw.json`), which suppresses the placement
+   while the plan keeps the record of what was intended. A re-render
+   overwrites the rendered segments; authored copy can still
+   misspell, which is what the coherence wording scan catches.
+   DISPLAYS: rendered segments, V6 timeline items.
 10. `marker_feedback` - OWNS: `marker_feedback` reads the typed notes
     off the timeline durably; `marker_routing` routes each to the
     step that owns the decision (17 routed, ambiguous/unrouted
@@ -216,11 +224,18 @@ DEEP_PATH = {
                    "record-retime --anchor ... --edge head|tail); "
                    "retime_placements moves the edge and closes up.",
     "overlay_position": "declare it in external/overlay_intent.json "
-                        "(segment id, or kind default for captions); "
-                        "the placer honours declared over computed.",
+                        "(segment id, or kind default for captions; a "
+                        "`zoom` beside the place holds a hand-set "
+                        "magnification, which `scaling` cannot say); a "
+                        "reel's own caption row goes in "
+                        "external/reel_caption_row.json, over the "
+                        "project fraction. The placer honours declared "
+                        "over computed.",
     "picture_position": "capture it from the live timeline "
                         "(captain_edits capture-transform) or record it "
-                        "(record-transform); the build holds it "
+                        "(record-transform, with --on-reel where the "
+                        "words play on several reels and the move is "
+                        "one reel's); the build holds it "
                         "post-aim.",
     "look_grade": "declare it in the brand template's "
                   "style.series_look, or supply the look as a .drx "
@@ -236,7 +251,9 @@ DEEP_PATH = {
                     "apply_mix_intent holds it post-plan.",
     "mg_content": "re-plan 4.06 (the wording correction's prompt half "
                   "reaches authored copy); declare timed text in "
-                  "effect.timed_text_overlay; never edit the render.",
+                  "effect.timed_text_overlay; declare a deletion in "
+                  "external/do_not_draw.json - it suppresses the "
+                  "placement, never the plan; never edit the render.",
     "marker_feedback": "type the note on the timeline and let "
                        "marker_routing deliver it to the owning step; "
                        "never hand-apply what a step decides.",

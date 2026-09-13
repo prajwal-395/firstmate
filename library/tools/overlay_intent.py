@@ -39,7 +39,20 @@ asserted), and looks like this::
      "targets": {
        "caption": {"canvas_centre": [540.0, 1395.0], "scaling": 1},
        "mg_geo-podcast_622f69cb": {"canvas_centre": [540.0, 312.0],
-                                   "scaling": 1}}}
+                                   "scaling": 1},
+       "mg_geo-podcast_a072b160": {"canvas_centre": [540.0, 312.0],
+                                   "scaling": 1, "zoom": 0.88}}}
+
+A target may also carry `zoom`: the uniform user zoom (Resolve's
+`ZoomX`/`ZoomY`) the captain set by hand - Reel 01's graphic scaled
+down 12% on top of its move. `scaling` genuinely cannot carry that:
+it is Resolve's Scaling MODE (`1` is Crop - native pixels, centred -
+`resolve_transform.NATIVE_BASE_SCALE`), not a magnification, so a
+value of 0.88 there would name no mode at all. `zoom` is optional and
+positive; where it is absent the clip plays at the zoom the build
+gave it, exactly as before. The Pan/Tilt law does not move under a
+zoom (`resolve_transform`: a Pan of 100 draws the same pixels at zoom
+1.0 and 2.307), so a place and a zoom compose rather than interact.
 
 Lookup is segment id exact, then provenance prefix, then kind.
 `"caption"` is the kind default the 22 identical Reel 09 corrections
@@ -90,14 +103,20 @@ RETIRED_INTENT_VERSION = 1
 CAPTION_KIND = "caption"
 
 #: A pin is a place and a carriage: `canvas_centre` (two numbers, in
-#: delivery-frame pixels) and `scaling`. No extras required, no other
-#: shape accepted.
+#: delivery-frame pixels) and `scaling`. No extras required - `zoom`
+#: alone may ride beside them - and no other shape accepted.
 CENTRE_KEY = "canvas_centre"
 PLACEMENT_KEYS = (CENTRE_KEY, "scaling")
 
+#: The optional uniform user zoom a pin may carry (Resolve's
+#: `ZoomX`/`ZoomY`, one number for both). Positive and finite: a zoom
+#: of zero or less draws nothing, and a non-number is not a zoom.
+ZOOM_KEY = "zoom"
+
 #: What the resolved transform is, once a canvas is known. Not a file
-#: shape - the shape `placement_for_box` returns and the placer takes.
-TRANSFORM_KEYS = ("scaling", "pan", "tilt")
+#: shape - the shape `placement_for_box` returns and the placer takes,
+#: plus the `zoom` a pin may have carried beside the place.
+TRANSFORM_KEYS = ("scaling", "pan", "tilt", "zoom")
 
 
 class OverlayIntentError(ValueError):
@@ -130,6 +149,17 @@ def _check_placement(key: str, placement) -> Dict[str, object]:
         raise OverlayIntentError(
             f"intent target {key!r} carries a non-numeric value in "
             f"{ {k: placement[k] for k in PLACEMENT_KEYS} !r}.") from None
+    if ZOOM_KEY in placement:
+        zoom = placement[ZOOM_KEY]
+        if (isinstance(zoom, bool) or not isinstance(zoom, (int, float))
+                or not zoom > 0
+                or zoom in (float("inf"), float("-inf"))):
+            raise OverlayIntentError(
+                f"intent target {key!r} carries {ZOOM_KEY}={zoom!r}: "
+                f"a zoom must be a positive finite number - the "
+                f"uniform magnification the clip plays at, 0.88 for "
+                f"the 12% scale-down. Zero or less draws nothing.")
+        values[ZOOM_KEY] = float(zoom)
     return values
 
 
@@ -264,6 +294,15 @@ def disagreement(placement: Optional[dict],
         if abs(gap) >= INTENT_DISAGREEMENT_UNITS:
             parts.append(f"{name} {declared:g} declared vs {derived:g} "
                          f"computed ({gap:+g})")
+    try:
+        declared_zoom = placement.get(ZOOM_KEY)
+        computed_zoom = (computed or {}).get(ZOOM_KEY, 1.0)
+        if declared_zoom is not None and abs(float(declared_zoom)
+                                             - float(computed_zoom)) >= 1e-9:
+            parts.append(f"zoom {float(declared_zoom):g} declared vs "
+                         f"{float(computed_zoom):g} computed")
+    except (TypeError, ValueError):
+        pass
     if not parts:
         return ""
     return (f"declared intent{f' {key!r}' if key else ''} OVERRULES the "
@@ -302,6 +341,12 @@ def transform_for(target: dict, canvas: Optional[tuple],
                                   float(centre_x), float(centre_y),
                                   int(frame[0]), int(frame[1]))
     placement["scaling"] = target["scaling"]
+    if ZOOM_KEY in target:
+        # The pin's place computes against the native canvas; the zoom
+        # rides beside it, applied by the placer after Pan/Tilt - the
+        # two compose (`resolve_transform`: Pan draws the same pixels
+        # at any zoom), so no recomputation here.
+        placement[ZOOM_KEY] = target[ZOOM_KEY]
     return placement
 
 

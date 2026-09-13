@@ -473,7 +473,8 @@ def measured_caption_height(subtitle_segments: Sequence[dict]) -> Optional[int]:
 
 
 def placement_box(project_folder: Optional[str], width: int, height: int,
-                  caption_height: Optional[int]) -> Dict[str, Any]:
+                  caption_height: Optional[int],
+                  reel_name: Optional[str] = None) -> Dict[str, Any]:
     """The insets the graphic is positioned in, and what made them.
 
     The strictest safe area governs (one master render serves Reels,
@@ -486,6 +487,11 @@ def placement_box(project_folder: Optional[str], width: int, height: int,
     caption was measured the row itself is the floor and the reason
     says so, which is a narrower box than the truth rather than a
     wider one.
+
+    ``reel_name`` prefers that reel's declared caption row
+    (``external/reel_caption_row.json``) over the project value, so a
+    reel whose captions moved clears its own row rather than the
+    project's.  None reads today's answer exactly.
 
     Returns ``{"insets": {...}, "caption_row": int, "basis": str}``.
     The insets are the shape ``MotionGraphics``'s ``safeArea`` prop
@@ -504,13 +510,19 @@ def placement_box(project_folder: Optional[str], width: int, height: int,
                              width=width, height=height)
     insets = safe.as_props()
 
-    declared_row = project_caption_row(project_folder)
+    declared_row = project_caption_row(project_folder,
+                                         reel_name=reel_name)
     if declared_row is None:
         row = int(height) - int(insets["bottom"]) - CAPTION_LIFT_PX
         row_basis = "the engine's caption row"
     else:
         row = caption_row_px(declared_row, height)
-        row_basis = f"the project's declared caption row {declared_row!r}"
+        if reel_name is not None:
+            row_basis = (f"reel {reel_name!r}'s declared caption row "
+                         f"{declared_row!r}")
+        else:
+            row_basis = (f"the project's declared caption row "
+                         f"{declared_row!r}")
 
     if caption_height:
         floor = row - int(caption_height)
@@ -578,7 +590,8 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
         return plan
 
     box = placement_box(project_folder, width, height,
-                        measured_caption_height(subtitle_segments))
+                        measured_caption_height(subtitle_segments),
+                        reel_name=reel_name)
     plan.box = dict(box["insets"])
     plan.box["_basis"] = box["basis"]
     if not box_has_room(box["insets"], width, height):

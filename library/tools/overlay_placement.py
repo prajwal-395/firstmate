@@ -210,7 +210,9 @@ def apply_placement_transform(timeline, track_index: int,
     """Move an already-placed overlay clip onto its tight box.
 
     `placement` is None for a full-canvas clip (nothing to do), else
-    the `{"scaling", "pan", "tilt"}` mapping `tight_box` computed.
+    the `{"scaling", "pan", "tilt"}` mapping `tight_box` computed -
+    plus an optional `zoom` where a declared pin carries one
+    (`overlay_intent`), held uniform on `ZoomX`/`ZoomY`.
     Where the project declares intent for this overlay
     (`library/tools/overlay_intent.py` - `kind`/`segment_id` select
     the pin), the declared POSITION wins over the computed one, so a
@@ -287,6 +289,31 @@ def apply_placement_transform(timeline, track_index: int,
             refused.append(f"{prop}={value}")
             continue
         pending.append((prop, float(value)))
+    zoom = placement.get("zoom")
+    if zoom is not None:
+        # The declared user zoom (`overlay_intent` `zoom` - Resolve's
+        # `ZoomX`/`ZoomY`, one number for both), held uniform. Judged
+        # the same way: the `SetProperty` return AND the read-back
+        # below, through the same `pending` list. It rides after
+        # Pan/Tilt because the Pan law does not move under a zoom
+        # (`resolve_transform`), so the order sets nothing about the
+        # place - and a refused zoom still leaves the clip placed, so
+        # it is REPORTED here and never raised.
+        try:
+            zoom_value = float(zoom)
+        except (TypeError, ValueError):
+            refused.append(f"zoom={zoom!r} (not a number)")
+            zoom_value = None
+        if zoom_value is not None:
+            for prop in ("ZoomX", "ZoomY"):
+                try:
+                    ok = placed_item.SetProperty(prop, zoom_value)
+                except Exception:  # noqa: BLE001 - judged below
+                    ok = False
+                if not ok:
+                    refused.append(f"{prop}={zoom_value:g}")
+                    continue
+                pending.append((prop, zoom_value))
     if pending:
         # Read the values back off a FRESH handle, never the item
         # just written: a write handle can echo the set value while

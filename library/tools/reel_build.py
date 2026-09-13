@@ -3293,7 +3293,11 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
               f"- no clip carries them", file=sys.stderr)
 
     plan = operations.get("subtitles.plan").run(
-        spine, brand_effect={}, brand_style={}, project_folder=project_folder)
+        spine, brand_effect={}, brand_style={}, project_folder=project_folder,
+        # This reel's declared caption row (`external/reel_caption_row.json`)
+        # reaches the plan here, where the style is resolved - a reel that
+        # declares none plans exactly as before, on the project value.
+        reel_name=name)
     plan_entries = (plan.get("subtitle_plan") or {}).get(
         "subtitle_entries") or []
     # The render fps IS the timeline fps, exactly - never int(round()).
@@ -4352,7 +4356,7 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
         p for p in placements_list
         if getattr(p["clip"], "track_type", "video") == "video"]
     matched, stale = _edits.match_transform_overrides(
-        video_places, transcript, edits)
+        video_places, transcript, edits, reel_name=name)
     _edits.report_stale(stale)
     # A stale override that belongs to ANOTHER reel is routine - every
     # recorded override is matched against every reel, so a build of
@@ -4896,7 +4900,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            project_folder: str = "",
                            overlay_intent: dict = None,
                            frame: tuple = None,
-                           seen_ids: list = None) -> None:
+                           seen_ids: list = None,
+                           do_not_draw: list = None) -> list:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -4944,15 +4949,40 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     on seperate rows on the timeline". A lane with no row is a build
     REFUSED, never a graphic quietly stacked onto a row that is already
     showing something else. One int is accepted for the single-row case.
+
+    Returns the segment ids a `do_not_draw` suppression held back, so
+    the caller can keep them on the build record - `[]` where nothing
+    was declared or nothing matched.
     """
     import sys
 
+    from library.tools import do_not_draw as _dnd
     from library.tools.overlay_placement import apply_placement_transform
     from library.tools.reel_placed_assets import assert_placeable
 
     rows = ([int(track_rows)] if isinstance(track_rows, int)
             else [int(r) for r in (track_rows or [])])
+    held_back: list = []
     for segment in segments or []:
+        suppressed, why = _dnd.should_suppress(
+            do_not_draw, name, segment or {})
+        if suppressed:
+            # The captain deleted this graphic and it stays deleted:
+            # not imported, not placed, and SAID - on stderr and (by
+            # the caller) on the build record. Suppressing the
+            # placement rather than the plan keeps the record of what
+            # was intended: the plan still lists it, the timeline
+            # does not play it, and a rebuild that re-plans holds
+            # the same deletion without being told again.
+            print(f"  {name}: {why}", file=sys.stderr)
+            held_back.append(_overlay_segment_id(segment or {}))
+            continue
+        if why:
+            # The label re-pointed at a different graphic (the plan
+            # shifted under it): NOT suppressed, and said loudly
+            # rather than placed past. The graphic plays until the
+            # declaration is re-transcribed.
+            print(f"  {name}: {why}", file=sys.stderr)
         lane = int(segment.get("lane", 0) or 0)
         if lane >= len(rows):
             raise ReelBuildError(
@@ -5029,6 +5059,7 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             frame=frame)
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
+    return held_back
 
 
 def apply_offset_specs(placements_list: Sequence[dict], fps: float,
@@ -5082,7 +5113,7 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -5176,6 +5207,16 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     import sys, os
 
     name = timeline_name or moment.timeline_name
+
+    # The graphics the captain deleted (`external/do_not_draw.json`,
+    # loaded by the caller - [] where they declared none). Read once
+    # here so every placer below - TV frame, captions, explainer,
+    # semantic visuals, lower thirds - holds the same deletions, and
+    # so the build record can say which rules fired and which matched
+    # nothing.
+    from library.tools import do_not_draw as _dnd
+    suppressions = list(do_not_draw or [])
+    suppressed_ids: list = []
 
     # The reel's shape is computed BEFORE anything is created, so a
     # refusal - a mid-word keep edge, an unresolvable program stream -
@@ -5688,7 +5729,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # (library/tools/reel_placed_assets.py). The placer re-proves
         # it through project_folder.
         from library.tools.reel_placed_assets import promote_frame_overlays
-        place_overlay_segments(
+        suppressed_ids.extend(place_overlay_segments(
             pool, project, timeline, name, fps,
             promote_frame_overlays(
                 _look.frame_overlay_segments(look, runs, fps, width, height,
@@ -5699,7 +5740,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             properties=_look.frame_properties(look, width, height),
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids)
+            seen_ids=seen_intent_ids,
+            do_not_draw=suppressions))
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -5746,6 +5788,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         sequence_frame_paths,
     )
     for segment in (subtitle_segments or []):
+        held_back, why = _dnd.should_suppress(
+            suppressions, name, segment or {})
+        if held_back:
+            print(f"  {name}: {why}", file=sys.stderr)
+            suppressed_ids.append(segment.get("segment_id"))
+            continue
+        if why:
+            print(f"  {name}: {why}", file=sys.stderr)
         frames_info = segment.get("frames") or {}
         frame_dir = frames_info.get("dir", "") if segment.get(
             "container") == "frames" else ""
@@ -5881,13 +5931,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # caption, a graphic renders no handles either side, so
     # `total_frames` IS the content.
     if explainer_segments:
-        place_overlay_segments(
+        suppressed_ids.extend(place_overlay_segments(
             pool, project, timeline, name, fps, explainer_segments,
             [row.index for row in track_plan.rows_for_role(EXPLAINER)],
             kind="explainer", check="F21",
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids)
+            seen_ids=seen_intent_ids,
+            do_not_draw=suppressions))
 
 
 
@@ -5896,13 +5947,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # Each segment renders with no handles either side, so its whole
     # span is placed - `total_frames` IS the content.
     if semantic_segments:
-        place_overlay_segments(
+        suppressed_ids.extend(place_overlay_segments(
             pool, project, timeline, name, fps, semantic_segments,
             [row.index for row in track_plan.rows_for_role(SEMANTIC)],
             kind="semantic visual", check="F22",
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids)
+            seen_ids=seen_intent_ids,
+            do_not_draw=suppressions))
 
     # The speaker lower thirds. ADDITIVE, exactly as the two above are:
     # laid over picture that keeps playing, moving no frame of it, so a
@@ -5912,13 +5964,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # them - it is passed anyway because the placer reads it per
     # segment and a full-canvas segment declares no canvas.
     if lower_third_segments:
-        place_overlay_segments(
+        suppressed_ids.extend(place_overlay_segments(
             pool, project, timeline, name, fps, lower_third_segments,
             [row.index for row in track_plan.rows_for_role(MOTION_GRAPHICS)],
             kind="speaker lower third", check="F21",
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
-            seen_ids=seen_intent_ids)
+            seen_ids=seen_intent_ids,
+            do_not_draw=suppressions))
 
     if overlay_intent:
         # Pins that matched nothing on this reel, said aloud and kept
@@ -5931,6 +5984,25 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         build_record["unmatched_overlay_intent"] = report_unmatched_intent(
             overlay_intent, seen_intent_ids,
             source=f"overlay_intent.json ({name})")
+
+    if suppressions:
+        # Suppressions that matched nothing on this reel, said aloud
+        # and kept on the record: the graphic left the plan, so the
+        # rule holds nothing back until it is retired or
+        # re-transcribed. REPORTED, never raised: the reel IS built.
+        # `seen` is every segment this build considered - placed AND
+        # held back - so a suppression doing its job never reports.
+        build_record["suppressed_overlays"] = suppressed_ids
+        build_record["unmatched_do_not_draw"] = _dnd.report_unmatched(
+            suppressions, name,
+            list(subtitle_segments or [])
+            + list(explainer_segments or [])
+            + list(semantic_segments or [])
+            + list(lower_third_segments or []),
+            source=f"do_not_draw.json ({name})")
+    else:
+        build_record["suppressed_overlays"] = []
+        build_record["unmatched_do_not_draw"] = []
 
     # ── Link pass: picture to speech, captions into the group ──
     # Span-based, in ONE call per speech item (see `link_reel_groups`
@@ -7134,6 +7206,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except OverlayIntentError as exc:
         raise ReelBuildError(
             f"overlay intent cannot be honoured: {exc}") from exc
+    # The graphics the captain deleted, if they declared any. Missing
+    # is the normal case (everything planned is drawn); a malformed
+    # file REFUSES rather than building past it, because a silently
+    # ignored deletion rebuilds the graphic back onto the timeline -
+    # which is the defect this answers.
+    from library.tools.do_not_draw import DoNotDrawError, load_rules
+    try:
+        suppression_rules = load_rules(project_folder)
+    except DoNotDrawError as exc:
+        raise ReelBuildError(
+            f"do_not_draw cannot be honoured: {exc}") from exc
 
     with open(os.path.join(project_folder, "project.yaml")) as f:
         config = yaml.safe_load(f)
@@ -8232,6 +8315,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # build refuses a card-carrying reel then rather than
                 # guessing V1.
                 card_row_role=card_row_role,
+                # The graphics the captain deleted ([] when they
+                # declared none): a rebuild holds the deletion without
+                # being told again.
+                do_not_draw=suppression_rules,
             )
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
@@ -9206,6 +9293,13 @@ def build_reel_variants(project_slug: str, reel_number: int,
     except OverlayIntentError as exc:
         raise ReelBuildError(
             f"overlay intent cannot be honoured: {exc}") from exc
+    from library.tools.do_not_draw import (
+        DoNotDrawError as _DndError, load_rules as _load_rules)
+    try:
+        variant_suppressions = _load_rules(project_folder)
+    except _DndError as exc:
+        raise ReelBuildError(
+            f"do_not_draw cannot be honoured: {exc}") from exc
     from library.tools import caption_timing as _caption_timing
     from library.tools import reel_ending as _reel_ending
     _caption_pins = _caption_timing.load_pins(project_folder)
@@ -9384,6 +9478,11 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 # The declared card row, shared by all variants the
                 # way the cards themselves are.
                 card_row_role=card_row_role,
+                # The graphics the captain deleted, read on the
+                # variant's own branch exactly as the rebuild reads
+                # them - a declaring variant differs here, with no
+                # second builder anywhere.
+                do_not_draw=variant_suppressions,
             )
             if reel_look_decl is not None:
                 manifest = _reel_look.fusion_manifest(

@@ -905,6 +905,8 @@ def _alias_hint(key: str) -> str:
 #: and then it is left out of the supplied state, because it is not
 #: state.
 DECLARATIONS = {
+    "do_not_draw": ("library.tools.do_not_draw", "load_rules"),
+    "reel_caption_row": ("library.tools.reel_caption_row", "load_rows"),
     "overlay_intent": ("library.tools.overlay_intent", "load_intent"),
     "mix_intent": ("library.tools.mix_intent", "load_intent"),
     "placed_assets": ("library.tools.placed_assets", "load_assets"),

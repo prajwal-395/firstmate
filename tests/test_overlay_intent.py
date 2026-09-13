@@ -420,3 +420,105 @@ def test_report_unmatched_is_quiet_when_every_pin_bound(capsys):
     intent = parse_intent({"version": 2, "targets": {SPAN_A_OLD: PIN_A}})
     assert report_unmatched(intent, [SPAN_A_NEW]) == []
     assert capsys.readouterr().err == ""
+
+
+# ── A hand-set zoom rides beside the place, never in `scaling` ────────
+#
+# Reel 01's graphic, moved AND scaled down 12%: `scaling` is Resolve's
+# Scaling MODE (1 is Crop - native pixels, centred), not a
+# magnification, so 0.88 there would name no mode at all. The verdict
+# is a store: the optional `zoom` beside the place, held uniform on
+# `ZoomX`/`ZoomY`.
+
+ZOOM_PIN = {"canvas_centre": [540.0, 312.0], "scaling": 1, "zoom": 0.88}
+
+
+def test_a_zoom_parses_beside_the_place():
+    intent = parse_intent({"version": 2, "targets": {
+        "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}})
+    assert intent["mg_geo-podcast_a072b160"]["zoom"] == 0.88
+
+
+def test_a_non_positive_zoom_is_refused():
+    for bad in (0, 0.0, -0.5, "0.88", True, float("inf"),
+                float("nan")):
+        with pytest.raises(OverlayIntentError):
+            parse_intent({"version": 2, "targets": {
+                "mg_geo-podcast_a072b160": {
+                    "canvas_centre": [540.0, 312.0], "scaling": 1,
+                    "zoom": bad}}})
+
+
+def test_no_zoom_is_no_zoom_key():
+    """The failing input the zoom store exists to end: a pin that
+    names a place and no magnification resolves a placement with no
+    zoom in it, so the clip plays at the build's zoom - which is what
+    let Reel 01's 12% scale-down die on the rebuild."""
+    intent = parse_intent({"version": 2, "targets": {
+        "mg_geo-podcast_a072b160": {
+            "canvas_centre": [540.0, 312.0], "scaling": 1}}})
+    placement, provenance = _resolve(
+        "explainer", "mg_geo-podcast_a072b160",
+        {"scaling": 1, "pan": 0.0, "tilt": 0.0}, intent,
+        canvas=(296, 480))
+    assert provenance == "declared"
+    assert "zoom" not in placement
+
+
+def test_a_declared_zoom_resolves_beside_the_place():
+    from library.tools.overlay_intent import transform_for
+
+    intent = parse_intent({"version": 2, "targets": {
+        "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}})
+    placement = transform_for(intent["mg_geo-podcast_a072b160"],
+                              (296, 480), FRAME,
+                              "mg_geo-podcast_a072b160")
+    assert placement["zoom"] == 0.88
+    assert placement["scaling"] == 1
+
+
+def test_a_declared_zoom_overrules_loudly():
+    from library.tools.overlay_intent import disagreement
+
+    assert "zoom 0.88" in disagreement(
+        {"scaling": 1, "pan": 0.0, "tilt": 0.0, "zoom": 0.88},
+        {"scaling": 1, "pan": 0.0, "tilt": 0.0}, "mg_x")
+    assert disagreement(
+        {"scaling": 1, "pan": 0.0, "tilt": 0.0},
+        {"scaling": 1, "pan": 0.0, "tilt": 0.0}, "mg_x") == ""
+
+
+def test_a_declared_zoom_holds_on_the_timeline():
+    """End to end through the production placer: the item carries the
+    zoom uniform on ZoomX/ZoomY, judged by return AND read-back like
+    every other property."""
+    item = _Item(10)
+    ok, note = place_overlay_segment(
+        _Pool(result=["placed"]), _Timeline([item]), object(),
+        track_index=3, record_frame=10,
+        source_in_frame=0, source_out_frame=9,
+        placement={"scaling": 1, "pan": 0.0, "tilt": 0.0},
+        label="seg", kind="explainer",
+        segment_id="mg_geo-podcast_a072b160",
+        intent=parse_intent({"version": 2, "targets": {
+            "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}}),
+        canvas=(296, 480), frame=FRAME)
+    assert ok and note == ""
+    assert item.set_calls["ZoomX"] == 0.88
+    assert item.set_calls["ZoomY"] == 0.88
+    assert item.set_calls["Tilt"] != 0.0  # the place still applied
+
+
+def test_a_zoom_survives_a_rebuild_that_recomputes_the_place():
+    """The survival case: one parse, two placements computed against
+    fresh canvases the way two builds compute them - the zoom rides
+    both, by value, while the Pan/Tilt are recomputed each time."""
+    from library.tools.overlay_intent import transform_for
+
+    intent = parse_intent({"version": 2, "targets": {
+        "mg_geo-podcast_a072b160": dict(ZOOM_PIN)}})
+    first = transform_for(intent["mg_geo-podcast_a072b160"],
+                          (296, 480), FRAME, "mg_x")
+    second = transform_for(intent["mg_geo-podcast_a072b160"],
+                           (296, 480), FRAME, "mg_x")
+    assert first["zoom"] == second["zoom"] == 0.88

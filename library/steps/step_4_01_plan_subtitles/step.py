@@ -701,7 +701,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                        brand_effect: dict = None,
                        brand_style: dict = None,
                        project_folder: str = "",
-                       scope=None) -> dict:
+                       scope=None,
+                       reel_name: str = "") -> dict:
     """
     Generate subtitle entries from the spine's own word-level timestamps.
 
@@ -722,6 +723,12 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     While they came from a run-global counter, planning a region
     renumbered every card after it, which is why the operation refused
     REGION scope until now.
+
+    `reel_name` prefers that reel's declared caption row
+    (`external/reel_caption_row.json`) over the project value when the
+    style is resolved below - the reel path passes the timeline name it
+    builds; every other caller leaves it empty and reads today's
+    answer exactly.
 
     Args:
         audio_spine: The audio spine with structure blocks.
@@ -781,7 +788,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # while the grouper looked for a `subtitle_style` key on the spine
     # that no producer wrote - so the measurement was dead and every
     # caption was grouped by a character count.
-    style = resolve_subtitle_style(brand_effect, brand_style, project_folder)
+    style = resolve_subtitle_style(brand_effect, brand_style, project_folder,
+                                   reel_name=reel_name or None)
     safe_area = resolve_safe_area(project_folder or None)
     fitter = build_caption_fitter(style, safe_area, project_folder)
 
@@ -801,7 +809,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
             return style, fitter
         if speaker not in styles_by_speaker:
             speaker_style = resolve_subtitle_style(
-                brand_effect, brand_style, project_folder, speaker=speaker)
+                brand_effect, brand_style, project_folder, speaker=speaker,
+                reel_name=reel_name or None)
             styles_by_speaker[speaker] = speaker_style
             fitters_by_speaker[speaker] = (
                 fitter if speaker_style == style

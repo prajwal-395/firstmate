@@ -104,6 +104,15 @@ holds on a 1080x1920 timeline (`PAN_TILT_RAIL_1080X1920`, measured in
 past it Resolve clamps silently and the held value would not be the
 recorded one.
 
+An override may carry `reel`: the timeline name it holds on, matched
+by prefix (the `reel_ending` convention). A shot four reels share
+speaks one anchor on all four; the per-reel Pan is the same words
+with a reel scope, holding there and reporting routine STALE
+elsewhere. No `reel` holds everywhere, exactly as before - and where
+a scoped override and an unscoped one meet on one span, the scoped
+one wins that span while the general one still holds everywhere
+else.
+
 The build applies overrides AFTER aiming the punch-in, so the held
 value is the captain's, and re-proves coverage (`assert_punch_took`):
 an override that uncovered an edge raises rather than shipping black.
@@ -157,7 +166,8 @@ KINDS = ("caption_fix", "drop_fragment", "redraw_closer",
 `redraw_closer` moves a shared closer's start to the anchor's words,
 end fixed; `transform_override` holds one Edit-page transform property
 (Pan, Tilt, ZoomX, ZoomY) at the captain's value on every shot that
-speaks the anchor - a hand move in the Inspector that a rebuild would
+speaks the anchor - or, with `reel`, on that reel's shots alone - a
+hand move in the Inspector that a rebuild would
 otherwise throw away; `span_retime` moves one placed span's head or
 tail to the anchor's own word edge - a hand trim on the timeline
 (Reel 13's trims, destroyed twice by rebuilds) that recomputation
@@ -290,6 +300,15 @@ def validate_edits(value) -> list:
                         "and clamps past it silently, so the held value "
                         "would not be the recorded one. Aim inside what "
                         "Resolve holds.")
+            reel = edit.get("reel")
+            if reel is not None and (
+                    not isinstance(reel, str) or not reel.strip()):
+                raise CaptainEditError(
+                    f"{label} carries reel={reel!r}: a per-reel scope "
+                    f"names the reel's timeline name (matched by "
+                    f"prefix, the `reel_ending` convention), or is left "
+                    f"out - an override with no `reel` holds on every "
+                    f"reel speaking the anchor.")
         if kind == "span_retime":
             edge = edit.get("edge")
             if edge not in ("head", "tail"):
@@ -791,8 +810,23 @@ def _span_word_tokens(transcript: dict, start: float, end: float) -> list:
     return tokens
 
 
+def _reel_in_scope(scope: str, reel_name: str) -> bool:
+    """Whether an override scoped to `scope` holds on this build.
+
+    The `reel_ending` prefix convention, spelled once: the build names
+    the timeline it is laying (`Reel 01 - ... (scratch ...) (rebuild
+    staging)`), the declaration names the reel, and a staging suffix
+    does not make it another reel. An empty build name holds nothing
+    scoped - a scoped decision applied where no reel is named is the
+    silent cross-reel hold this scope exists to stop.
+    """
+    return bool(scope) and bool(reel_name) and (
+        reel_name == scope or reel_name.startswith(scope))
+
+
 def match_transform_overrides(spans: list, transcript: dict,
-                              edits: list) -> tuple:
+                               edits: list,
+                               reel_name: str = "") -> tuple:
     """Which placed spans speak each recorded override's anchor. Returns
     `(matched, stale)`.
 
@@ -802,6 +836,16 @@ def match_transform_overrides(spans: list, transcript: dict,
     that order is spelled. A span matches when the anchor's words occur
     in it as an ordered run, the same containment `apply_drop_fragments`
     uses for blocks.
+
+    An override may carry `reel`: the reel's timeline name, matched by
+    prefix (the `reel_ending` convention - `reel_name == reel or
+    reel_name.startswith(reel)`). A scoped override holds only on that
+    reel's build; everywhere else it reports STALE with scope
+    `"reel"`, the routine kind. An override with no `reel` holds on
+    every reel speaking the anchor, exactly as before - and where a
+    scoped override and an unscoped one would hold the same property
+    on the same span, the scoped one wins: the captain narrowed that
+    reel's decision, and the general one still holds everywhere else.
 
     Every matching span is named, like `caption_fix` names every card:
     a rebuild that re-cuts one shot into two keeps both under the
@@ -823,11 +867,36 @@ def match_transform_overrides(spans: list, transcript: dict,
       the captain's hand move being overwritten, and it is what
       `lost_overrides` selects."""
     overrides = [e for e in (edits or [])
-                 if e.get("kind") == "transform_override"]
+                  if e.get("kind") == "transform_override"]
     matched, stale = [], []
     stream = _word_stream(transcript or {})
-    for edit in overrides:
+    # Scoped overrides first, so a per-reel narrowing wins over the
+    # general decision wherever both would hold the same property on
+    # the same span - regardless of the order the two were recorded
+    # in. `held_by_scope` is (span index, property) pairs the reel's
+    # own decisions already hold; the general pass skips those.
+    held_by_scope = set()
+    ordered = sorted(overrides,
+                     key=lambda e: 0 if e.get("reel") is not None else 1)
+    for edit in ordered:
         anchor, prop = edit["anchor_phrase"], edit["property"]
+        scope = edit.get("reel")
+        if scope is not None and not _reel_in_scope(scope,
+                                                    reel_name or ""):
+            reason = (
+                f"STALE - not on this reel: transform override for "
+                f"{anchor!r} is scoped to reel {scope!r} and this "
+                f"build is {reel_name or '(no reel named)'!r}, so it "
+                f"holds nothing here. Expected on every build of a "
+                f"reel the decision is not about. Original request: "
+                f"{edit.get('reason', '')}").strip()
+            stale.append(
+                {"kind": "transform_override",
+                 "anchor_phrase": anchor, "property": prop,
+                 "value": edit["value"],
+                 "scope": "reel",
+                 "reason": reason})
+            continue
         anchor_tokens = _tokens(anchor)
         hits = []
         for index, span in enumerate(spans or []):
@@ -841,7 +910,12 @@ def match_transform_overrides(spans: list, transcript: dict,
                 continue
             tokens = _span_word_tokens(transcript, span_start, span_end)
             if _contains_run(tokens, anchor_tokens):
-                hits.append(index)
+                if (scope is not None
+                        or (index, prop) not in held_by_scope):
+                    hits.append(index)
+        if scope is not None:
+            for index in hits:
+                held_by_scope.add((index, prop))
         if not hits:
             spoken = bool(_run_starts(stream, anchor))
             if spoken:
@@ -1190,10 +1264,13 @@ def describe_edits(edits: list) -> list:
                 f"{edit.get('from_phrase', '')!r} now opens on "
                 f"{anchor!r}, end fixed - {reason}")
         elif kind == "transform_override":
+            scoped = edit.get("reel")
             lines.append(
                 f"{number}. Framing: wherever the speech says "
                 f"{anchor!r}, {edit.get('property')} holds "
-                f"{edit.get('value')} - {reason}")
+                f"{edit.get('value')}"
+                f"{f' on reel {scoped!r}' if scoped else ''}"
+                f" - {reason}")
         elif kind == "span_retime":
             lines.append(
                 f"{number}. Trim: the {edit.get('edge')} of the span "
@@ -1276,12 +1353,16 @@ def check_anchor_spoken(edit: dict, transcript) -> None:
 def _edit_identity(edit: dict) -> tuple:
     """What makes two edits the SAME decision: kind, anchor, and the
     field that scopes it (the property held, the opening moved, the
-    text replaced). A captain who re-rules the same decision
-    SUPERSEDES it; a different scope is a different edit."""
+    text replaced) - plus the reel, where an override names one. A
+    captain who re-rules the same decision SUPERSEDES it; a different
+    scope is a different edit: Reel 02's Pan for a shared shot must
+    not supersede Reel 01's, and neither supersedes the unscoped
+    decision that holds everywhere else."""
     kind, anchor = edit.get("kind"), normalize(edit.get("anchor_phrase",
                                                          ""))
     if kind == "transform_override":
-        return (kind, anchor, edit.get("property"))
+        return (kind, anchor, edit.get("property"),
+                edit.get("reel") or "")
     if kind == "span_retime":
         return (kind, anchor, edit.get("edge"))
     if kind == "redraw_closer":
@@ -1410,10 +1491,11 @@ def main(argv=None) -> int:
         fixed. Checked against the measured transcript at write time,
         so a typo fails here and not on the next build.
     `... record-transform --anchor ... --property Pan --value -35
-    --reason ...`
+    --reason ... [--on-reel 'Reel 01 - ...']`
         hold one Edit-page transform at the captain's number on every
         shot speaking the anchor. The typed fallback for a decision
-        settled in words.
+        settled in words. `--on-reel` scopes it to one reel's build -
+        the per-reel Pan on a shot several reels share.
     `... record-retime --anchor ... --edge head --reason ...`
         move one placed span's head (or tail) onto the anchor's own
         word edge - the typed fallback for a hand trim. Trims only;
@@ -1422,7 +1504,8 @@ def main(argv=None) -> int:
     --words ... [--property Pan] --reason ...`
         read the value out of the LIVE Resolve timeline - the captain's
         hand move, which exists nowhere else - and record it. The
-        route for a change made by hand in Resolve.
+        route for a change made by hand in Resolve. `--on-reel`
+        scopes the hold to that reel, like `record-transform`.
 
     Every record refuses before writing: structurally (`validate_edits`)
     and against the measured speech where a transcript is on file.
@@ -1443,6 +1526,7 @@ def main(argv=None) -> int:
     parser.add_argument("--property", dest="prop", default="")
     parser.add_argument("--value", default=None)
     parser.add_argument("--edge", default="")
+    parser.add_argument("--on-reel", default="")
     parser.add_argument("--reason", default="")
     parser.add_argument("--source", default="")
     parser.add_argument("--reel", default=None)
@@ -1488,6 +1572,8 @@ def main(argv=None) -> int:
                     "anchor_phrase": args.anchor,
                     "property": args.prop, "value": number,
                     "reason": args.reason}
+            if args.on_reel.strip():
+                edit["reel"] = args.on_reel.strip()
             _, action = record_edit(args.project_folder, edit,
                                     args.source)
         elif args.verb == "record-retime":
@@ -1711,6 +1797,8 @@ def _capture_transform(args) -> tuple:
             f"Re-run per track after --track selects one.")
     edit = {"kind": "transform_override", "anchor_phrase": anchor,
             "property": prop, "value": value, "reason": args.reason}
+    if args.on_reel.strip():
+        edit["reel"] = args.on_reel.strip()
     return record_edit(args.project_folder, edit, args.source)
 
 
