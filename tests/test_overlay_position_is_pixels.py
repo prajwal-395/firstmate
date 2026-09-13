@@ -1,14 +1,18 @@
 """An overlay's position is carried on Pan/Tilt Resolve actually holds.
 
-The captain reported the same defect twice: captions in the timeline
-carrying absurd Pan/Tilt values (they quoted y=-7680), some on screen
-and some completely off frame. Read off the live timeline afterwards,
-the rail Resolve actually holds on this 1080x1920 project is -3840 -
-HALF what the first repair gated on, which is why that repair refused
-one card and let 37 ride onto the clamp. The measurement below says
-why, and pins the number the clamp gate (`tight_box.placement_holds`)
-and the 480-pixel canvas floor (`tight_box.MIN_CANVAS_HEIGHT`) are
-calibrated against.
+HISTORY, kept as evidence: the captain reported the same defect twice -
+captions in the timeline carrying absurd Pan/Tilt values (they quoted
+y=-7680), some on screen and some completely off frame. Read off the
+live timeline on 2026-09-10, the rail Resolve held on that
+1080x1920 project was -3840 - HALF what the first repair gated on,
+which is why that repair refused one card and let 37 ride onto the
+clamp. That reading does not reproduce - the rail is the 4x law now
+(`tight_box.MEASURED_RAILS`: Pan 4320 / Tilt 7680 here, captain's call
+2026-09-13) - but the SHIPPED_AND_HELD table below is what that day
+actually measured, and the arithmetic it pins still explains the
+incident. The measurement below says why, and pins the numbers the
+clamp gate (`tight_box.placement_holds`) and the 480-pixel canvas
+floor (`tight_box.MIN_CANVAS_HEIGHT`) were first calibrated against.
 
 THE ROOT CAUSE, as arithmetic. Resolve's per-clip Pan/Tilt move a
 clip by a fraction of its OWN size - shift = Pan * (clip_dim /
@@ -57,7 +61,6 @@ from library.tools.overlay_placement import (  # noqa: E402
     place_overlay_segment,
 )
 from library.tools.tight_box import (  # noqa: E402
-    MEASURED_PAN_TILT_RAIL,
     TightBoxMismatch,
     extract_frames,
     ink_union_of_frames,
@@ -287,11 +290,14 @@ def test_a_clamped_caption_lands_low_but_still_on_the_frame():
 
 
 def test_the_floor_clears_the_cliff():
-    """The composed answer to the cliff above: it sits at h = 270.4,
-    so every shipped 152..246px canvas overflows the rail unfloored
-    and the 480 floor is what clears it - the placement it asks for
-    is -1744, two thousand units inside the rail. The gate below
-    proves that per segment before anything reaches a timeline."""
+    """The composed answer to the cliff: the cliff is rail-relative.
+    Under the 3840 row of the 2026-09-10 incident it sat at h = 270.4
+    and every shipped 152..246px canvas overflowed unfloored; under
+    the widened 4x-law rail it sits at h ~= 150.2, so only canvas
+    140 overflows and 152 already holds. Either way the 480 floor is
+    what clears it - the placement it asks for is -1744, thousands of
+    units inside the rail. The gate below proves that per segment
+    before anything reaches a timeline."""
     from library.tools.tight_box import MIN_CANVAS_HEIGHT
     assert MIN_CANVAS_HEIGHT == 480
     for canvas_h in (140, 152, 246, 270, MIN_CANVAS_HEIGHT):
@@ -299,7 +305,7 @@ def test_the_floor_clears_the_cliff():
             840, canvas_h, FULL_W / 2.0,
             CANVAS_BOTTOM - canvas_h / 2.0, FULL_W, FULL_H)
         assert placement["scaling"] == 1
-        if canvas_h <= 270:
+        if canvas_h <= 150:
             assert placement_holds(placement, FULL_W, FULL_H) != "", (
                 f"h={canvas_h} is below the cliff and must overflow")
         else:

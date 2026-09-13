@@ -14,11 +14,12 @@ that about spans - so the transform half lives here, once, and both
 loops call it.
 
 Every `SetProperty` is judged by what it RETURNS and then READ BACK,
-because Resolve lies about Pan/Tilt past its measured 3840 rail:
-setting beyond returns True and reads back the clamp (read off the
-live timeline 2026-09-10 on Resolve 21 - 37 caption items asking for
-Tilt -4316..-7579 all read back exactly -3840.0; the earlier "four
-times the timeline dimensions" figure was calibrated to miss it).
+because Resolve lies about Pan/Tilt past its rail: setting beyond
+returns True and reads back the clamp. The rail is the 4x law
+(`tight_box.MEASURED_RAILS` - Pan 4320 / Tilt 7680 on 1080x1920,
+binary-searched 2026-09-13); the 3840 the 2026-09-10 incident read
+(37 caption items asking Tilt -4316..-7579 all held -3840.0) does not
+reproduce and is history in that module, not the live number.
 A return judged alone reports the overlay placed while it sits
 off-position - the captain's captions - so a value Resolve does not
 hold is REPORTED in the returned note, never raised: the clip IS on
@@ -325,12 +326,14 @@ def apply_placement_transform(timeline, track_index: int,
         # that is not the requested one is a REFUSED placement,
         # never a success.
         # The return is a lie past the clamp: setting Tilt past the
-        # measured 3840 rail returns True and holds 3840.0.
+        # rail returns True and holds the rail value (the 2026-09-10
+        # incident held 3840.0; the rail is the 4x law now - see
+        # `tight_box.MEASURED_RAILS`).
         # (-7680 reads still sit on older timelines - the
         # reaction-cutaway build, placed under an unknown entry -
         # which is consistent with the same unit conversion
         # applying to the rail itself; the gate calibrates on the
-        # measured 3840.)
+        # 4x-law row.)
         reader = placed_item
         try:
             for item in (timeline.GetItemListInTrack(

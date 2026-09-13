@@ -174,7 +174,8 @@ TRAILING_MARGIN_PX = 16
 # The composition's line height: `lineHeight: "1.2"`.
 LINE_HEIGHT_EM = 1.2
 
-# The smallest canvas height a tight box may ship, in pixels.
+# The smallest canvas height a tight box may ship WITHOUT asking the
+# placement, in pixels.
 #
 # A tight box is small and placing it needs a large Pan/Tilt value -
 # tilt scales as full_h / canvas_h - and Resolve silently pins
@@ -185,26 +186,37 @@ LINE_HEIGHT_EM = 1.2
 #
 # The measured numbers point at a third option: the single three-line
 # caption at h=300 needed only Tilt 3366 and landed correctly, while
-# h=152 needed 7579 and did not - the cliff sits at h=270.4 against
-# the 3840 rail, verified live on the captain's own 1080x1920 timeline
-# 2026-09-10 (probes at -3400/-3840 hold exactly; -4000 and past
-# return True and pin at -3840). A canvas floored at 480 keeps every
-# caption inside that rail (the smallest box needs ~2400, worst cases
-# stay under 3400) while carrying a quarter of the frame's pixels.
-# What that buys in bytes is SMALLER than it sounds, measured the
-# same day on Reel 09's own files: full-frame captions cost 198MB
-# for 19, the floor estimates 158MB - the ink dominates and
-# transparent margins were always cheap, so the floor returns about
-# a fifth of the caption disk, not most of it. Tight still wins on
-# movability and render time; the disk is a bonus, stated honestly.
-# The floor is applied AWAY from the anchor (bottom-anchored cards
-# grow upward), so the ink does not move: the correspondence
-# read-off and `verify_frames` prove that per segment, and a segment
-# that fails the proof still falls back to full canvas. `placement_holds`
-# and the placement read-back both survive below, unchanged.
+# h=152 needed 7579 and did not - the cliff sat at h=270.4 against
+# the 3840 rail read on the captain's own 1080x1920 timeline
+# 2026-09-10 (probes at -3400/-3840 held exactly; -4000 and past
+# returned True and pinned at -3840). That reading does not reproduce
+# - the rail is the 4x law (see `MEASURED_RAILS`) - but the shape of
+# the argument survives it: a smaller canvas needs a larger Tilt, and
+# the floor is where the graphic's own Tilt stops. What that buys in
+# bytes is SMALLER than it sounds, measured the same day on Reel 09's
+# own files: full-frame captions cost 198MB for 19, the floor
+# estimates 158MB - the ink dominates and transparent margins were
+# always cheap, so the floor returns about a fifth of the caption
+# disk, not most of it. Tight still wins on movability and render
+# time; the disk is a bonus, stated honestly.
+#
+# Since 2026-09-13 this constant is the FALLBACK floor, not the floor:
+# `grow_to_hold_rail` derives each graphic's floor from that graphic's
+# own required Pan/Tilt against the measured rail (see below), and a
+# graphic whose placement cannot be derived or verified lands here, as
+# before. What still rides this constant directly: the structural
+# caption canvas (`constant_caption_box`, 904x480 for the captain's
+# wrap), and the single-zone motion-graphics box in
+# `mg_tight_box.tighten_motion_graphics_props` (its caller is owned by
+# an in-flight PR and cannot pass the geometry yet - the follow-on
+# wires it to `grow_to_hold_rail` with a one-line call change, and the
+# per-graphic numbers for that path are computed in the PR report).
+# `placement_holds` and the placement read-back both survive below,
+# unchanged, and stay the final judge on every path: the derived floor
+# never weakens them.
 #
 # DERIVED, not chosen, and derived at ONE frame: it is the canvas height
-# that keeps the worst caption's Tilt inside the 3840 rail measured on a
+# that kept the worst caption's Tilt inside the rail read on a
 # 1080x1920 timeline. Both numbers it comes from are properties of that
 # geometry, so this floor is knowledge about vertical delivery. It is
 # left as it is rather than re-derived per frame because on any other
@@ -213,7 +225,135 @@ LINE_HEIGHT_EM = 1.2
 # has nothing left to protect there. Re-derive it in the same pass that
 # measures a second frame's rail, not before - a floor computed from an
 # unmeasured rail is the guess this module refuses to make.
+# (The 3840 it was derived against is history - see `MEASURED_RAILS` -
+# but the constant outlives the reading as the fallback, which is why
+# it keeps its value and its name.)
 MIN_CANVAS_HEIGHT = 480
+
+
+#: Fraction of Resolve's measured Pan/Tilt rail a tight placement must
+#: stay inside BEFORE the canvas stops growing.
+#:
+#: Re-examined on the widening (2026-09-13), not inherited: the number
+#: stays 0.10 and the argument changes, because the old argument
+#: belonged to the old rail.
+#:
+#: RETIRED: clearing the 160-wide unprobed band (holds at 3840, pins
+#: at 4000). That band was measured at the OLD clamp, which does not
+#: reproduce - the 4x law was found by binary search on the exact
+#: float round-trip (holds -7680 exactly, clamps past it), so the
+#: unprobed band is ~1 unit and any margin clears it. Sizing 768
+#: against the 160 would be arguing with a ghost.
+#:
+#: What 0.10 is argued from now, against the 7680 Tilt rail:
+#:
+#: - below, the search is exact to ~1 unit and float round-trip noise
+#:   is ~1e-3 (the placer's own read-back tolerance is 0.5). 768
+#:   clears both by orders of magnitude; nothing finer buys safety,
+#:   it only buys canvas.
+#: - above, the margin IS canvas height on every graphic, and 10% is
+#:   what turns the widening into the drops the captain approved it
+#:   for (top-anchored lockups 388 -> 218). A larger margin eats that
+#:   win with no measurement demanding it: the rail is probed densely
+#:   (holds at -6000, -7000, -7680 exactly), so the target 6912 sits
+#:   inside verified territory, not beyond it.
+#: - outside the margin's scope entirely: the human-interference
+#:   hypothesis (UNVERIFIED, see the rail history above). If
+#:   concurrent human use can move the clamp, no fixed fraction
+#:   covers it, 10% or otherwise - the guard there is knowing when
+#:   the captain is in the app, not headroom. The margin is sized
+#:   against measurement uncertainty, and says so.
+RAIL_HEADROOM_FRACTION = 0.10
+
+
+def _split_growth(extra: int, anchor: str) -> int:
+    """The growth that goes ABOVE the ink, given `extra` new rows.
+
+    The same contract `grow_to_minimum` grows under, spelled once so
+    the derived floor (`grow_to_hold_rail`) cannot drift from it:
+    `"top"` grows below (zero above), `"middle"` splits it,
+    everything else (`"bottom"`) grows above. The ink hangs from the
+    anchor edge, so it stays pixel-identical - which is why the
+    correspondence read-off and `verify_frames` still pass on a grown
+    canvas.
+    """
+    if anchor == "top":
+        return 0
+    if anchor == "middle":
+        return extra // 2
+    return extra
+
+
+def grow_to_hold_rail(canvas_w: float, measured_h: int, anchor: str,
+                      centre_x: float, centre_y: float,
+                      full_w: int, full_h: int,
+                      ceiling: int) -> tuple[int, int]:
+    """Grow a measured canvas only as far as its placement needs.
+
+    Returns `(new_h, top_extra)` in the same contract as
+    `grow_to_minimum`: `new_h` is even, and `top_extra` rows of the
+    growth go above the ink so anchored ink does not move.
+
+    `(centre_x, centre_y)` is the canvas centre in full-frame pixels
+    AT `measured_h` - the true tight size, before any growth - and the
+    growth is applied away from `anchor` exactly as `grow_to_minimum`
+    applies it, so the centre at a grown height is known analytically:
+    the origin shifts up by the above-ink share of the growth while
+    the height adds half-rows below it. No fixed point, no
+    chicken-and-egg: Tilt(h) falls monotonically as h grows (the
+    centre drifts toward frame centre AND the units-per-pixel shrink),
+    so one upward pass finds the smallest even height whose Tilt sits
+    `RAIL_HEADROOM_FRACTION` inside the measured rail.
+
+    Anything that cannot be derived falls back to `grow_to_minimum`
+    (the constant floor - refusing to shrink is always safe):
+
+    - an unmeasured frame (`placement_limits` None): shrinking on a
+      guessed rail is the guess this module refuses to make;
+    - a Pan the rail cannot hold: height growth moves Tilt only, so a
+      width-driven refusal stays refused downstream, as today;
+    - growth past `ceiling` (the delivery frame height): the canvas
+      cannot outgrow the frame it draws on.
+
+    The placement this derives from is PROVISIONAL - the position the
+    box is computed at before the render exists. The correspondence
+    gate (`resolve_placement_from_correspondence`) and
+    `placement_holds` stay the final judge on what ships: a graphic
+    whose final placement the rail cannot hold still falls back to
+    full canvas, exactly as today. The floor only ever SHRINKS the
+    canvas toward the ink; it never approves a placement.
+
+    The floor is a POLICY, not the mechanism: it answers "how tall
+    must this canvas be to place", and the callers ask it in one
+    place each. If size and position turn out to be separable in
+    Resolve (captain's Text+ probe, 2026-09-13 - a separate
+    investigation), this function becomes the identity - return the
+    measured height, no floor at all - with no change to the call
+    path. Nothing here bakes grow-to-fit deeper than the constant it
+    replaces.
+    """
+    if ceiling <= 0:
+        return measured_h, 0
+    limits = placement_limits(full_w, full_h)
+    if limits is None:
+        return grow_to_minimum(measured_h, anchor, ceiling)
+    pan_limit, tilt_limit = limits
+    pan = pan_tilt_for_centre(
+        canvas_w, measured_h, full_w, full_h, centre_x, centre_y)[0]
+    if abs(pan) > pan_limit:
+        return grow_to_minimum(measured_h, anchor, ceiling)
+    origin_y = centre_y - measured_h / 2.0
+    target = tilt_limit * (1.0 - RAIL_HEADROOM_FRACTION)
+    grown_h = _ceil_even(max(measured_h, 0))
+    while grown_h <= ceiling:
+        top_extra = _split_growth(grown_h - measured_h, anchor)
+        cy = origin_y - top_extra + grown_h / 2.0
+        _, tilt = pan_tilt_for_centre(canvas_w, grown_h, full_w,
+                                      full_h, centre_x, cy)
+        if abs(tilt) <= target:
+            return grown_h, top_extra
+        grown_h += 2
+    return grow_to_minimum(measured_h, anchor, ceiling)
 
 
 def grow_to_minimum(canvas_h: int, anchor: str,
@@ -497,16 +637,6 @@ def tighten_subtitle_props(props: dict,
     canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
     measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
 
-    # The floor that keeps the placement inside Resolve's rail (see
-    # `MIN_CANVAS_HEIGHT`): grown away from the anchor, so the content
-    # box in full-frame coordinates does not move - only the canvas
-    # origin shifts, by exactly the growth above it.
-    anchor = {"top": "top", "center": "middle"}.get(position, "bottom")
-    canvas_h, top_extra = grow_to_minimum(measured_h, anchor, full_h)
-    grown_below = canvas_h - measured_h - top_extra
-    pad_top = PAD_TOP + top_extra
-    pad_bottom = PAD_BOTTOM + grown_below
-
     # The content box in full-frame coordinates. Horizontally every
     # card is centred, so the union is centred. Vertically the union
     # is anchored at the edge `position` names, exactly as the
@@ -520,6 +650,21 @@ def tighten_subtitle_props(props: dict,
     else:
         content_bottom = full_h - float(safe["bottom"])
         content_top = content_bottom - union_h
+
+    # The floor this graphic's own placement needs
+    # (`grow_to_hold_rail`), not the constant: at the measured height
+    # the canvas top sits one pad past the content edge, so the centre
+    # then is known and the growth goes away from the anchor, leaving
+    # the content box above exactly where it is - only the canvas
+    # origin shifts, by exactly the growth above it.
+    anchor = {"top": "top", "center": "middle"}.get(position, "bottom")
+    canvas_h, top_extra = grow_to_hold_rail(
+        canvas_w, measured_h, anchor, full_w / 2.0,
+        content_top - PAD_TOP + measured_h / 2.0,
+        full_w, full_h, full_h)
+    grown_below = canvas_h - measured_h - top_extra
+    pad_top = PAD_TOP + top_extra
+    pad_bottom = PAD_BOTTOM + grown_below
 
     canvas_top = content_top - pad_top
     canvas_cx = full_w / 2.0
@@ -779,49 +924,13 @@ def ink_touches_edge_frames(frame_paths: list[str],
 
 # Resolve holds Pan/Tilt to a rail it does not report, and refuses
 # silently: setting beyond returns True and reads back the clamp.
-# READ OFF THE LIVE TIMELINE, 2026-09-10, Resolve 21, project "Podcast
-# (field test)", both Reel 09 timelines at 1080x1920: 37 caption items
-# asking for Tilt -4316..-7579 all read back exactly -3840.0, while
-# every value asked at or below 3840 round-tripped to the last digit.
-# The earlier "four times the timeline dimensions" figure (7680) was
-# calibrated to miss it - its gate refused exactly one card (-7692.8)
-# and let 37 ride onto the clamp. A NUMBER, not a formula: one
-# geometry cannot tell `2x height` from a constant, so this is scoped
-# to the measured 1080x1920 frame and anything else re-probes.
-MEASURED_PAN_TILT_RAIL = 3840.0
-
-#: The geometries the rail above was actually MEASURED at, keyed
-#: `(timeline_w, timeline_h)`.
-#:
-#: One row, because one geometry is all anyone has probed. The comment
-#: above says plainly that a single geometry cannot tell `2 x height`
-#: from a constant, and 1080x1920 is the only frame the 37 captions were
-#: read off - so 3840 is knowledge about THAT frame and a guess about
-#: every other.
-#:
-#: `placement_limits` used to return it for any timeline it was handed,
-#: which is how a shape assumption hides inside a function that takes the
-#: shape as an argument: a 1920x1080 delivery would have been gated
-#: against a rail nobody measured there, and if the true rail is
-#: `2 x height` it is 2160 - so captions would have ridden onto a silent
-#: clamp exactly as the captain's 37 did. Guessing HIGH is the dangerous
-#: direction, and both readings of the evidence guess high somewhere.
-#:
-#: An unmeasured geometry therefore gets NO rail, and `placement_holds`
-#: refuses every tight placement on it. That is not a loss of capability:
-#: the refusal routes the caller to its full-canvas fallback, which
-#: carries no transform at all and so cannot be clamped. Measuring a new
-#: frame means probing it the way 2026-09-10 probed this one - set a
-#: known Pan/Tilt, read it back, find where the round-trip stops - and
-#: adding a row here.
-#:
-#: SECOND GEOMETRY, MEASURED 2026-09-13 (Resolve Studio 21.1): the
-#: 1920x1080 row below, `(Pan 7680, Tilt 4320)`. Probed the way
-#: 2026-09-10 probed the first - set a value, read it back, find where
-#: the round trip stops - by binary search on the exact float
-#: round-trip, in a SCRATCH project, at three geometries and two clip
-#: sizes:
-#:
+# The rail is `4 x timeline width` on Pan and `4 x timeline height`
+# on Tilt - measured 2026-09-13 on Resolve Studio 21.1.0.14 by binary
+# search on the exact float round-trip, in a SCRATCH project, at three
+# geometries and two clip sizes, and it does not depend on the clip's
+# own size or move with the item's zoom (probed at 0.25, 0.5, 1, 2 and
+# 4x):
+#
 #:     timeline      clip        Pan rail   Tilt rail
 #:     1080x1920     904x480         4320        7680
 #:     1080x1920     1080x1920       4320        7680
@@ -829,41 +938,90 @@ MEASURED_PAN_TILT_RAIL = 3840.0
 #:     1920x1080     1080x1920       7680        4320
 #:     3840x2160     904x480        15360        8640
 #:     3840x2160     1080x1920      15360        8640
+#
+# Reproduced on the captain's own project against its own caption
+# artefact, on the RETIRED Reel 26 at 1080x1920: Pan 4320, Tilt 7680.
+# The captain's hand probe the same day confirms it: bounds are 4x the
+# dimension, flipping with orientation (1080x1920 gives 4320x7680,
+# 1920x1080 gives 7680x4320). A probe under the floor PR (2026-09-13)
+# set Tilt -5000 on a 1080x1920 scratch timeline and read back -5000.0
+# exactly - no pin where the old row said the clamp was.
+#
+# HISTORY, kept because deleting it would invite re-derivation: the
+# vertical row read (3840, 3840) before 2026-09-13, and 37 of the
+# captain's captions rode onto that clamp (read off the live timeline
+# 2026-09-10, Resolve 21, project "Podcast (field test)", both Reel 09
+# timelines at 1080x1920: items asking Tilt -4316..-7579 all read back
+# exactly -3840.0, while values at or below 3840 round-tripped). The
+# earlier "four times the timeline dimensions" figure (7680) was
+# calibrated to miss it - its gate refused exactly one card (-7692.8)
+# and let 37 ride onto the clamp. The captain widened the row back to
+# the measured 4x law on 2026-09-13 ("yeah widen it").
+#
+# THE ANOMALY, recorded and UNVERIFIED: nothing measurable explains
+# why 2026-09-10 read 3840 on the same geometry that reads 7680
+# before and since - not the clip size, not the zoom, not the
+# project-level resolution (3840x2160, while the reel timelines carry
+# custom 1080x1920 and the rails follow the CUSTOM settings). The
+# captain's own leading hypothesis, 2026-09-13: "that one failure
+# might just be because i might've been messing around in davinci as
+# well when that test went off". Nobody has reproduced a
+# human-induced clamp, so this stays a hypothesis, and it matters
+# beyond this file: if concurrent human use can move the clamp, no
+# rail number is safe on its own and the real guard is knowing when
+# the captain is in the app (the lease in `resolve_lock.py`, and the
+# window discipline around it) - not headroom.
+#: The geometries the rail above was actually MEASURED at, keyed
+#: `(timeline_w, timeline_h)` to `(Pan rail, Tilt rail)`.
 #:
-#: So the rail is `4 x timeline width` on Pan and `4 x timeline height`
-#: on Tilt, it does not depend on the clip's own size, and it does not
-#: move with the item's zoom (probed at 0.25, 0.5, 1, 2 and 4x - the
-#: rail was 4320/7680 at every one). Reproduced on the captain's own
-#: project against its own caption artefact, on the RETIRED Reel 26 at
-#: 1080x1920: Pan 4320, Tilt 7680.
+#: A NUMBER per geometry, not a formula: one geometry cannot tell
+#: `4 x width` from a constant, so each row is knowledge about THAT
+#: frame and a guess about every other - which is why an unmeasured
+#: geometry gets NO row and `placement_holds` refuses every tight
+#: placement on it. That refusal routes the caller to its full-canvas
+#: fallback, which carries no transform at all and so cannot be
+#: clamped. Measuring a new frame means probing it the way 2026-09-13
+#: probed these - set a value, read it back, find where the round
+#: trip stops - and adding a row here, stamped with the build below.
 #:
-#: THIS CONTRADICTS THE 3840 ABOVE AND THE VERTICAL ROW IS LEFT ALONE
-#: ANYWAY. On 2026-09-10 that same vertical geometry read a Tilt clamp
-#: at exactly 3840 - -7680 was probed and held -3840 - and 37 caption
-#: items rode onto it. Today the same geometry, the same project and
-#: the same class of artefact hold -7680 exactly. Nothing measurable
-#: today explains the difference: not the clip size, not the zoom, not
-#: the project-level resolution (3840x2160, while the reel timelines
-#: carry custom 1080x1920 and the rails follow the CUSTOM settings).
-#: The untested variable is the Resolve build - 21.1 today, and the
-#: earlier reading is not stamped with its point release.
-#:
-#: So the vertical row keeps 3840. It is INSIDE today's measurement on
-#: both axes (4320 Pan, 7680 Tilt), so it refuses placements Resolve
-#: would in fact hold and can never let one ride onto a clamp - and
-#: guessing high is the dangerous direction. Widening it to the
-#: measured 4x law is a LOOSENING against a recorded incident, which
-#: is the captain's call, not this file's.
-#:
-#: What would settle it: re-run the 2026-09-10 probe and see whether
-#: 3840 reproduces. If it does, the rail depends on something neither
-#: probe has isolated and BOTH rows should drop to the conservative
-#: figure; if it does not, the 4x law stands and the vertical row
-#: widens to (4320, 7680).
+#: Guessing HIGH is the dangerous direction, and both readings of the
+#: evidence guess high somewhere: the 4x law is itself one campaign on
+#: one build, and the 2026-09-10 incident is the standing proof that a
+#: confident number can be wrong.
 MEASURED_RAILS: dict = {
-    (1080, 1920): (MEASURED_PAN_TILT_RAIL, MEASURED_PAN_TILT_RAIL),
-    # Pan = 4 x width, Tilt = 4 x height. Measured 2026-09-13; see above.
+    # Pan = 4 x width, Tilt = 4 x height. Captain's call 2026-09-13
+    # ("yeah widen it"): was (3840.0, 3840.0), see the history above.
+    (1080, 1920): (4320.0, 7680.0),
     (1920, 1080): (7680.0, 4320.0),
+}
+
+#: The Resolve build each rail row above was measured on, keyed
+#: `(timeline_w, timeline_h)`.
+#:
+#: The captain's condition on the widening (2026-09-13): do not swap
+#: one hardcoded number for another that can go stale the same way.
+#: Both failures in this file's history were a constant standing in
+#: for a measurement. The stamp is the cheap half of that condition -
+#: a row whose build is unknown is a row nobody may trust, and the
+#: follow-on (a preflight that reads the live build with
+#: `resolve.GetVersionString` - proven in
+#: `step_6_01_render/probe_resolve_capabilities.py` - and refuses the
+#: row on mismatch) is a small wired diff exactly because the stamp
+#: is data, not prose.
+#:
+#: What is NOT here, and why: no runtime probe, and no refusal on an
+#: unknown build inside this change. The floor is derived where there
+#: is usually no Resolve to ask - render steps run headless, and
+#: refusing on an unknown build would turn every headless run
+#: full-canvas, which is the feature deleted, not guarded. Probing at
+#: render time would need live Resolve plus the lease plus scratch
+#: writes on every run for a number that moves, at most, per build.
+#: Both were judged disproportionate inside this change; the stamp
+#: keeps the follow-on honest instead of pretending the number is
+#: timeless.
+MEASURED_RAIL_BUILDS: dict = {
+    (1080, 1920): "21.1.0.14",
+    (1920, 1080): "21.1.0.14",
 }
 
 
@@ -908,12 +1066,14 @@ def placement_holds(placement: dict | None,
     tilt = placement.get("tilt")
     if pan is not None and abs(pan) > pan_limit:
         return (f"Pan {pan:.1f} exceeds +- {pan_limit:.0f} on a "
-                f"{timeline_w}x{timeline_h} timeline (measured "
-                f"2026-09-10, refused silently past it)")
+                f"{timeline_w}x{timeline_h} timeline (4x-law rail, "
+                f"binary-searched 2026-09-13 - see "
+                f"tight_box.MEASURED_RAILS; refused silently past it)")
     if tilt is not None and abs(tilt) > tilt_limit:
         return (f"Tilt {tilt:.1f} exceeds +- {tilt_limit:.0f} on a "
-                f"{timeline_w}x{timeline_h} timeline (measured "
-                f"2026-09-10, refused silently past it)")
+                f"{timeline_w}x{timeline_h} timeline (4x-law rail, "
+                f"binary-searched 2026-09-13 - see "
+                f"tight_box.MEASURED_RAILS; refused silently past it)")
     return ""
 
 
@@ -1164,15 +1324,21 @@ def tighten_measured(props: dict, union: InkUnion,
         canvas_w = _ceil_even(max(union_w + 2 * PAD_X, float(max_width)))
     measured_h = _ceil_even(union_h + PAD_TOP + PAD_BOTTOM)
 
-    # The floor that keeps the placement inside Resolve's rail (see
-    # `MIN_CANVAS_HEIGHT`). Grown away from the anchor, so the union
-    # sits at the same canvas offset it would have: the render draws
-    # the probe layout translated, which is exactly what
-    # `resolve_placement_from_correspondence` and `verify_frames`
-    # prove before the box ships.
+    # The floor this graphic's own placement needs
+    # (`grow_to_hold_rail`), not the constant. Grown away from the
+    # anchor, so the union sits at the same canvas offset it would
+    # have: the render draws the probe layout translated, which is
+    # exactly what `resolve_placement_from_correspondence` and
+    # `verify_frames` prove before the box ships. The centre passed
+    # down is the provisional one at the measured height - union minus
+    # pads - which the placement below recomputes at the grown height.
     position = str(style.get("position") or "bottom")
     anchor = {"top": "top", "center": "middle"}.get(position, "bottom")
-    canvas_h, top_extra = grow_to_minimum(measured_h, anchor, full_h)
+    canvas_h, top_extra = grow_to_hold_rail(
+        canvas_w, measured_h, anchor,
+        union.x0 - PAD_X + canvas_w / 2.0,
+        union.y0 - PAD_TOP + measured_h / 2.0,
+        full_w, full_h, full_h)
     grown_below = canvas_h - measured_h - top_extra
     pad_top = PAD_TOP + top_extra
     pad_bottom = PAD_BOTTOM + grown_below
@@ -1222,7 +1388,7 @@ def resolve_placement_from_correspondence(
     the probe union minus the tight union - no pads, no centring
     assumption. An origin that leaves the delivery frame, or a
     transform Resolve cannot hold (`timeline_size` bounds Pan/Tilt at
-    the measured 3840 rail, 2026-09-10), raises
+    the measured 4x-law rail - see `MEASURED_RAILS`), raises
     `TightBoxMismatch`: the renders disagree about the layout, or the
     layout is unplaceable, and the segment is refused either way.
     """

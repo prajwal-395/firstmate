@@ -42,13 +42,17 @@ from library.tools.tight_box import (  # noqa: E402
     PAD_BOTTOM,
     PAD_TOP,
     PAD_X,
+    RAIL_HEADROOM_FRACTION,
     TRAILING_MARGIN_PX,
     TightBox,
     TightBoxClipsInk,
     constant_caption_box,
+    grow_to_hold_rail,
+    grow_to_minimum,
     ink_touches_edge,
     ink_touches_edge_frames,
     placement_for_box,
+    placement_limits,
     tighten_subtitle_props,
 )
 
@@ -153,16 +157,19 @@ def test_tight_safe_area_is_padding_plus_rail_growth():
 
     On a small canvas the platform insets are meaningless - the box is
     placed by Resolve, not by the render. The insets are the pads plus
-    the minimum-height growth, which always goes AWAY from the anchor:
-    bottom-anchored cards keep their bottom inset exactly, and the top
-    absorbs the growth, so the ink does not move.
+    the placement-derived growth, which always goes AWAY from the
+    anchor: bottom-anchored cards keep their bottom inset exactly, and
+    the top absorbs the growth, so the ink does not move.
     """
     box = tighten_subtitle_props(_props())
     assert box.props["style"]["safeArea"]["bottom"] == PAD_BOTTOM
     assert box.props["style"]["safeArea"]["right"] == PAD_X
     assert box.props["style"]["safeArea"]["left"] == PAD_X
     assert box.props["style"]["safeArea"]["top"] >= PAD_TOP
-    assert box.height >= MIN_CANVAS_HEIGHT
+    # The two-card union (127.3px) measures 180 tall and ships it:
+    # its own placement needs Tilt -6258, inside the rail with margin
+    # to spare. Derived per graphic in `grow_to_hold_rail`.
+    assert box.height == 180
 
 
 def test_centered_captions_need_no_pan():
@@ -240,16 +247,19 @@ def test_placement_for_box_is_one_relation_at_every_frame_size():
 
 def test_taller_union_gives_taller_canvas():
     one_line = _props(cards=[_card("hi there", 0, 20)])
-    # A long card wraps onto many lines; past the minimum-height
+    # A long card wraps onto many lines; past the placement-derived
     # floor the union is the tallest card, so it stands taller than a
-    # single-line segment (both would tie at the floor).
+    # single-line segment. Neither rides the constant: one line ships
+    # its 170 measured rows untouched (Tilt -6679, inside the rail),
+    # the tall card its 1284 (already inside at -52).
     many = _props(cards=[
         _card(("today I have a big announcement to make about the brand "
                "template and it will change everything ") * 4, 0, 60),
     ])
     assert (tighten_subtitle_props(many).height
             > tighten_subtitle_props(one_line).height)
-    assert tighten_subtitle_props(one_line).height == MIN_CANVAS_HEIGHT
+    assert tighten_subtitle_props(one_line).height == 170
+    assert tighten_subtitle_props(many).height == 1284
 
 
 def test_emphasis_words_widen_the_box():
@@ -293,21 +303,32 @@ def test_pads_cover_shadow_blur_outline_and_qa_margin():
     assert PAD_TOP >= 10 + 2
 
 
-def test_small_box_is_floored_at_the_minimum_canvas_height():
+def test_small_box_is_floored_at_its_own_placement():
     """The third option past tight-vs-full: a small union renders on
-    a 480-tall canvas, not a 152-tall one, so the placing Tilt stays
-    inside Resolve's rail (see `MIN_CANVAS_HEIGHT`)."""
+    the canvas ITS placement needs, not a constant. The two-letter
+    card measures 170 tall and ships it - its own placement needs
+    Tilt -6679, inside the 4x-law rail with a thousand units to
+    spare - so no growth happens at all. Growth past the measured
+    size happens only past the headroom target (see the unit tests),
+    and the margin it grows into is `RAIL_HEADROOM_FRACTION`, stated
+    and pinned below."""
     box = tighten_subtitle_props(_props(cards=[_card("hi", 0, 20)]))
-    assert box.height == MIN_CANVAS_HEIGHT
+    assert box.height == 170
     assert box.height % 2 == 0
-    assert abs(box.placement["tilt"]) <= 3400
+    assert abs(box.placement["tilt"]) <= 6912.0
+    assert abs(box.placement["tilt"]) <= (
+        placement_limits(1080, 1920)[1] * (1 - RAIL_HEADROOM_FRACTION))
 
 
 def test_placement_formula_reproduces_the_captains_live_numbers():
     """The brief's table pins the inversion: a 152-tall canvas centred
-    600px below frame centre needs Tilt -7578.9 on 1080x1920 - twice
-    the measured 3840 rail, which is why the small boxes never landed
-    even correctly computed, and why `MIN_CANVAS_HEIGHT` exists."""
+    600px below frame centre needs Tilt -7578.9 on 1080x1920 - which
+    is why the small boxes never landed in 2026-09-10 (the rail then
+    read 3840, so every one of them pinned) and why
+    `MIN_CANVAS_HEIGHT` exists. Against the widened 4x-law rail that
+    same -7578.9 sits just inside 7680 - history, not gate: the floor
+    is derived per graphic now, and the gate answers off
+    `MEASURED_RAILS`."""
     p = placement_for_box(canvas_w=900, canvas_h=152,
                           canvas_cx=540, canvas_cy=960 + 600,
                           full_w=1080, full_h=1920)
@@ -316,6 +337,75 @@ def test_placement_formula_reproduces_the_captains_live_numbers():
                               canvas_cx=540, canvas_cy=960 + 600,
                               full_w=1080, full_h=1920)
     assert abs(grown["tilt"]) <= 3400
+
+
+def test_rail_headroom_is_a_stated_ten_percent():
+    """The margin is deliberate and pinned: 10% inside whatever rail
+    `placement_limits` returns. Against the 4x-law 7680 Tilt rail the
+    target is 6912 - re-examined on the widening, not inherited (see
+    `RAIL_HEADROOM_FRACTION`: the old 160-band argument retired with
+    the old rail; the binary search is exact to ~1 unit). A change
+    here must argue from the measurement, not pick a new number."""
+    assert RAIL_HEADROOM_FRACTION == 0.10
+    assert 7680.0 * (1 - RAIL_HEADROOM_FRACTION) == 6912.0
+
+
+def test_derived_floor_grows_only_as_far_as_the_tilt_needs():
+    """The bottom-anchored caption shape: 848 wide, 112 measured, ink
+    hanging at content top 1540 on 1080x1920. 164 misses the 6912
+    target (-6954); 166 lands it (-6859). The floor is the smallest
+    even height that holds - grown only far enough, never to the
+    480 constant."""
+    grown, top_extra = grow_to_hold_rail(
+        848, 112, "bottom", 540.0, 1540 - PAD_TOP + 112 / 2.0,
+        1080, 1920, 1920)
+    assert (grown, top_extra) == (166, 54)
+    assert grown % 2 == 0
+    # And one step down really does miss: minimality is measured,
+    # not asserted by construction.
+    from library.tools.resolve_transform import pan_tilt_for_centre
+    origin_y = (1540 - PAD_TOP + 112 / 2.0) - 112 / 2.0
+    below_extra = (grown - 2) - 112
+    _, tilt_below = pan_tilt_for_centre(
+        848, grown - 2, 1080, 1920,
+        540.0, origin_y - below_extra + (grown - 2) / 2.0)
+    assert abs(tilt_below) > 6912.0
+
+
+def test_derived_floor_keeps_the_anchor_split():
+    """Growth still goes AWAY from the anchor, exactly the
+    `grow_to_minimum` split: bottom grows above, top grows below,
+    middle splits - so the ink does not move, whatever the height."""
+    # Bottom: the whole growth above.
+    grown, top_extra = grow_to_hold_rail(
+        848, 112, "bottom", 540.0, 1540 - PAD_TOP + 112 / 2.0,
+        1080, 1920, 1920)
+    assert top_extra == grown - 112
+    # Top: nothing above (mirror geometry: content top row 140).
+    grown, top_extra = grow_to_hold_rail(
+        848, 112, "top", 540.0, 140 - PAD_TOP + 112 / 2.0,
+        1080, 1920, 1920)
+    assert (grown, top_extra) == (204, 0)
+    # Middle: the split. Centred ink needs no Tilt at all, so the
+    # measured height ships untouched.
+    grown, top_extra = grow_to_hold_rail(
+        840, 292, "middle", 540.0, 960.0, 1080, 1920, 1920)
+    assert (grown, top_extra) == (292, 0)
+
+
+def test_derived_floor_falls_back_to_the_constant():
+    """Refusing to shrink is always safe: an unmeasured frame, or a
+    Pan no height growth can fix, lands exactly where
+    `grow_to_minimum` would have put it - the current behaviour."""
+    assert grow_to_hold_rail(
+        848, 112, "bottom", 540.0, 1580.0, 1080, 1080, 1080) == \
+        grow_to_minimum(112, "bottom", 1080) == (480, 368)
+    # Pan 4644 the 4320 rail cannot hold: height growth moves Tilt
+    # only, so the constant is the only honest answer here and the
+    # downstream gate still refuses it to full canvas, as today.
+    assert grow_to_hold_rail(
+        200, 112, "bottom", 1400.0, 1580.0, 1080, 1920, 1920) == \
+        grow_to_minimum(112, "bottom", 1920) == (480, 368)
 
 
 def test_predictor_floors_canvas_to_caption_max_width():
