@@ -261,6 +261,15 @@ editorial choice with a cost - it shortens the reel, and it may take the
 hook with it - and it is yours to make or decline. Nothing filters a
 candidate out for carrying a repetition.
 
+Each run's `cuts` carry what you need to judge them: each telling's own
+sentence and where it sits in it (`dropped_position` - a `tail` cut
+orphans the head it was cut from, an `onset` is a fresh start),
+whether the repeat crosses a turn, and `novel_words` (what the second
+telling adds). A `possible_retellings` entry is a repeat the build will
+NOT remove - the same speaker twice across another speaker's turn,
+reworded past the cut bars - with both sentences and the turn between
+them. Redraw past one telling, or keep both on purpose.
+
 ### What to emit
 
 For each stretch you choose:

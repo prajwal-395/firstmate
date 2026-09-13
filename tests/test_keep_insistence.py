@@ -49,8 +49,7 @@ CRAIG_WORDS = [
     ("into", 15.600, 15.680),
 ]
 
-#: The four words the cut removes, which is the captain's whole note.
-REMOVED_WORDS = ("got", "to", "get", "into")
+
 
 
 def _segment(words, item="clip-1"):
@@ -125,22 +124,23 @@ def test_the_reel_plays_the_words_again():
     """The defect and its close, measured in the words the reel says."""
     transcript, moment = _transcript(), _moment()
     # Reproduced: the scan calls the run before "geo geo geo" a retake
-    # of the repetition itself and cuts 11.42-11.98s out of the middle
-    # of one sentence.
+    # of the repetition itself at 11.42-11.98s, out of the middle of one
+    # sentence.
     cut = reel_build.redundant_takes(9.0, 16.0, transcript)
     assert len(cut) == 1
     assert cut[0].dropped_start == pytest.approx(11.42)
     assert cut[0].jaccard == pytest.approx(0.667, abs=0.001)
 
-    cut_ranges = reel_build.reel_ranges(moment, transcript)
-    assert len(cut_ranges) == 2
-    played = _spoken(cut_ranges)
-    assert [w for w in REMOVED_WORDS if w in played[played.index("we've"):
-                                                    played.index("geo")]] == []
-    assert "we've" in played and "geo" in played
+    # The take judge withdraws that candidate before any captain record
+    # is read: a mid-utterance excision is not a telling removed, so
+    # the build plays the sentence whole with no insistence on file.
+    judged = reel_build.reel_ranges(moment, transcript)
+    assert judged == [(9.0, 16.0)]
 
     # With the insistence the sentence is whole again: ONE range, and
-    # the cut is not made rather than made and patched.
+    # the cut is not made rather than made and patched. The insistence
+    # still runs first - the judge never hides the captain's word
+    # behind its own reason.
     whole = reel_build.reel_ranges(
         moment, transcript, insisted_spans=[(11.42, 11.98, "keep-1")])
     assert whole == [(9.0, 16.0)]

@@ -4830,6 +4830,14 @@ def _derive_plan_from_master(
                 _insist.insisted_spans_for_span(
                     span_start, span_end,
                     _insist.keep_insistences(project_folder)))
+        # And the take judge withdraws structurally indefensible
+        # candidates HERE too, in the same order `reel_ranges` applies
+        # them - insistence first, judge second - for the same reason:
+        # a reel cannot be built to one rule and checked against
+        # another.
+        from library.tools.reel_build import judge_take_cuts
+        cuts_list = judge_take_cuts(cuts_list, span_start, span_end,
+                                    transcript or {})[0]
         cuts = tuple(cuts_list)
         kr = compute_keep_ranges(span_start, span_end, cuts_list)
         # The captain's recorded strikes, cut the same way the builder

@@ -32,6 +32,18 @@ the captain reviews in Resolve through
 already looking.  A wrong cut is content they have to notice is missing;
 a marker is one keystroke to act on.
 
+The candidates are not the decision.  `judge_take_cuts` sits above them
+and withdraws what cannot be one telling removed and a later one kept:
+a backwards or empty span (a word-stream window across two simultaneous
+speakers runs backwards in time), overlapping tellings, two voices in
+one telling, an excision from the middle of a flowing utterance
+(lc-0004), and an edge through a timed word.  What it deliberately does
+not judge is whether a whole-segment pair is a retake or a refrain tail
+(lc-0005): word overlap cannot make that call, so `take_cut_context`
+renders the pair's sentences, turn-crossing and novelty for the model
+that can, and `possible_retellings` surfaces the cross-turn paraphrases
+the cut lane refuses (lc-0006) where the boundary is still open.
+
 DISTANT repeats are suspects, never cuts.  A pair that meets the CUT
 text bars with agreeing durations but sits further apart than
 CUT_WINDOW_SECONDS survives for exactly one reason - distance - and
@@ -1569,6 +1581,415 @@ def suspected_takes(start: float, end: float, transcript: dict) -> List[Cut]:
     return out
 
 
+#: Why the judge withdrew a candidate cut. Enumerated rather than free
+#: text, because the build PRINTS these and a reader has to tell "the
+#: span ran backwards" from "the telling was mid-sentence" at a glance.
+JUDGE_INVERTED_OR_EMPTY = "inverted_or_empty"
+JUDGE_SPANS_OVERLAP = "spans_overlap"
+JUDGE_CROSS_SPEAKER = "cross_speaker"
+JUDGE_MID_UTTERANCE = "mid_utterance"
+JUDGE_MID_WORD_EDGE = "mid_word_edge"
+
+JUDGE_REASONS = (
+    JUDGE_INVERTED_OR_EMPTY,
+    JUDGE_SPANS_OVERLAP,
+    JUDGE_CROSS_SPEAKER,
+    JUDGE_MID_UTTERANCE,
+    JUDGE_MID_WORD_EDGE,
+)
+
+#: A dropped edge within this of a bound segment edge counts as ON that
+#: edge. Word timings land to ~10ms; a word-stream window ending a whole
+#: telling reads within a few ms of the segment's own edge, while a
+#: genuine interior excision sits hundreds of ms inside.
+EDGE_TOLERANCE = 0.02
+
+
+def _edges_share_one_segment(dropped_start: float, dropped_end: float,
+                             start: float, end: float,
+                             transcript: dict) -> bool:
+    """Do both dropped edges sit strictly inside ONE bound segment?
+
+    The mid-utterance test: an excision from a live sentence is interior
+    at both ends to the utterance it cuts. A span covering whole
+    segments - one or many - always has an edge on a segment boundary,
+    so reel 03's finely segmented takes pass however short they are.
+    """
+    for segment in _segments_in(start, end, transcript):
+        try:
+            seg_start = float(segment["timeline_start"])
+            seg_end = float(segment["timeline_end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if seg_start < dropped_start and dropped_end < seg_end:
+            return True
+    return False
+
+
+def _bound_edge_times(transcript: dict) -> List[float]:
+    """Every bound segment edge in time order."""
+    from library.tools.reel_proposal import bound_segments
+
+    edges: List[float] = []
+    for segment in bound_segments(transcript or {}):
+        try:
+            edges.append(float(segment["timeline_start"]))
+            edges.append(float(segment["timeline_end"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return sorted(edges)
+
+
+def _bound_word_speakers(transcript: dict) -> List[tuple]:
+    """`(start, end, speaker)` for every timed word in a BOUND segment.
+
+    Bound only: a straddling segment carries no single source, so its
+    speaker claim cannot testify whose telling a word belongs to. Words
+    falling in straddling time are ignored by the judge rather than
+    judged by a claim nobody anchors.
+    """
+    from library.tools.reel_proposal import bound_segments
+
+    out = []
+    for segment in bound_segments(transcript or {}):
+        speaker = segment.get("speaker") or ""
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                out.append((word_start, word_end, speaker))
+    return out
+
+
+def _timed_word_edges(transcript: dict) -> List[tuple]:
+    """`(start, end)` for every timed word, bound or straddling.
+
+    The seam half reads every word: a cut edge through ANY timed word
+    plays half a word and then jumps, whatever clip anchors it.
+    """
+    out = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            if not word.get("timed"):
+                continue
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                out.append((word_start, word_end))
+    return out
+
+
+def judge_take_cuts(cuts: Sequence["Cut"], start: float, end: float,
+                    transcript: dict) -> tuple:
+    """The judge above the take-cut candidates: `(kept, withdrawn)`.
+
+    `redundant_takes` GENERATES - pair-scan plus word-stream, by shared
+    words alone. This JUDGES each candidate structurally, and withdraws
+    only what cannot be "one telling removed, a later one kept":
+
+    - `inverted_or_empty`: the dropped span runs backwards or covers
+      nothing. Measured on Reel 15: a word-stream window straddling two
+      simultaneous speakers' segments matched backwards in time, and
+      `keep_ranges` laid the reel's ranges over each other - seconds
+      played twice.
+    - `spans_overlap`: the kept telling starts before the dropped one
+      ends. A retake's first telling must END before the second BEGINS;
+      overlap is simultaneous speech or bleed, not first-then-retake.
+    - `cross_speaker`: the dropped span's own timed words are spoken by
+      more than one speaker. One telling has one voice.
+    - `mid_utterance`: both dropped edges sit strictly inside ONE bound
+      segment, with flowing speech on both sides. That is an excision
+      from the middle of a live sentence (lc-0004's "got to get into",
+      cut out from between "we've" and "geo geo geo"), not a telling
+      removed. A span covering whole segments - however many - passes:
+      reel 03's finely segmented takes are whole tellings however short.
+    - `mid_word_edge`: a dropped edge lands strictly inside a timed
+      word. The build refuses that loudly; the judge says it first,
+      with the cut attached, so the decision carries its seam.
+
+    A pair-scan cut drops exactly one bound segment, so its edges sit on
+    segment edges and it passes `mid_utterance` by construction. Whether
+    a whole-segment drop is a retake or a refrain tail (lc-0005) is a
+    semantic judgement word overlap cannot make - not even in this
+    direction - so the judge does not try: `take_cut_context` renders
+    that pair for the model instead, and the captain's insistence
+    remains the backstop.
+
+    Returns `(kept_cuts, withdrawn)` where each withdrawn entry is
+    `{"cut", "reason", "why"}` - the cut, the reason code above, and
+    one human sentence, because a withdrawal nobody can see is a
+    content change nobody can see.
+    """
+    kept: List["Cut"] = []
+    withdrawn: List[dict] = []
+    edges = _bound_edge_times(transcript)
+    speakers = _bound_word_speakers(transcript)
+    word_edges = _timed_word_edges(transcript)
+
+    def _refuse(cut: "Cut", reason: str, why: str) -> None:
+        assert reason in JUDGE_REASONS, reason
+        withdrawn.append({"cut": cut, "reason": reason, "why": why})
+
+    for cut in cuts or ():
+        dropped_start = float(cut.dropped_start)
+        dropped_end = float(cut.dropped_end)
+        kept_start = float(cut.kept_start)
+        kept_end = float(cut.kept_end)
+        if not dropped_end > dropped_start:
+            _refuse(cut, JUDGE_INVERTED_OR_EMPTY,
+                      f"drops {dropped_start:.2f}-{dropped_end:.2f}s, which "
+                      f"is backwards or empty - not a telling removed")
+            continue
+        if kept_start < dropped_end and kept_end > dropped_start:
+            _refuse(cut, JUDGE_SPANS_OVERLAP,
+                      f"drops {dropped_start:.2f}-{dropped_end:.2f}s while "
+                      f"keeping {kept_start:.2f}-{kept_end:.2f}s, which "
+                      f"overlaps it - a retake's first telling ends "
+                      f"before the second begins")
+            continue
+        voices = {speaker for word_start, word_end, speaker in speakers
+                  if speaker and word_start < dropped_end
+                  and word_end > dropped_start}
+        if len(voices) > 1:
+            _refuse(cut, JUDGE_CROSS_SPEAKER,
+                      f"drops {dropped_start:.2f}-{dropped_end:.2f}s whose "
+                      f"own words are spoken by {sorted(voices)} - one "
+                      f"telling has one voice")
+            continue
+        if (edges
+                and not any(abs(dropped_start - known) <= EDGE_TOLERANCE
+                            for known in edges)
+                and not any(abs(dropped_end - known) <= EDGE_TOLERANCE
+                            for known in edges)
+                and _edges_share_one_segment(dropped_start, dropped_end,
+                                             start, end, transcript)):
+            _refuse(cut, JUDGE_MID_UTTERANCE,
+                      f"drops {dropped_start:.2f}-{dropped_end:.2f}s from "
+                      f"the middle of one flowing utterance - an excision "
+                      f"from a live sentence, not a telling removed")
+            continue
+        bad_edge = next(
+            (edge for edge in (dropped_start, dropped_end)
+             if any(word_start < edge < word_end
+                    for word_start, word_end in word_edges)),
+            None)
+        if bad_edge is not None:
+            _refuse(cut, JUDGE_MID_WORD_EDGE,
+                      f"drops to {bad_edge:.2f}s inside a timed word - "
+                      f"the reel would play half a word and then jump")
+            continue
+        kept.append(cut)
+    return kept, withdrawn
+
+
+#: What ends a sentence for the take context below. WhisperX segments
+#: are short clause-level chunks, so sentence bounds are read off
+#: terminal punctuation at segment ends and speaker changes - never
+#: invented mid-segment.
+SENTENCE_TERMINALS = (".", "!", "?", "\u2026")
+
+
+def sentence_spans(transcript: dict) -> List[dict]:
+    """The transcript's sentences as `{start, end, speaker, text}`.
+
+    Built from BOUND segments in time order: a sentence runs across
+    same-speaker segments until a segment text ends in terminal
+    punctuation or the speaker changes. An unpunctuated run-on stays
+    one sentence - splitting it would invent a boundary the
+    transcription never measured.
+    """
+    from library.tools.reel_proposal import bound_segments
+
+    ordered = sorted(
+        bound_segments(transcript or {}),
+        key=lambda s: (float(s.get("timeline_start", 0.0)),
+                       float(s.get("timeline_end", 0.0))))
+    spans: List[dict] = []
+    current: Optional[dict] = None
+    for segment in ordered:
+        try:
+            seg_start = float(segment["timeline_start"])
+            seg_end = float(segment["timeline_end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if seg_end <= seg_start:
+            continue
+        speaker = segment.get("speaker") or ""
+        text = (segment.get("text") or "").strip()
+        if current is None or current["speaker"] != speaker:
+            if current is not None:
+                spans.append(current)
+            current = {"start": seg_start, "end": seg_end,
+                       "speaker": speaker, "text": text}
+        else:
+            current["end"] = seg_end
+            current["text"] = (current["text"] + " " + text).strip()
+        if text.endswith(SENTENCE_TERMINALS):
+            spans.append(current)
+            current = None
+    if current is not None:
+        spans.append(current)
+    return spans
+
+
+def sentence_around(when: float, transcript: dict) -> dict:
+    """The sentence sounding at `when`, or an empty text when none was
+    measured there. Never invented: a time in straddling or silent
+    seconds has no sentence anyone can snap to."""
+    for sentence in sentence_spans(transcript):
+        if sentence["start"] <= float(when) < sentence["end"]:
+            return sentence
+    return {"start": float(when), "end": float(when), "speaker": "",
+            "text": ""}
+
+
+def _span_position(span_start: float, span_end: float,
+                   sentence: dict) -> str:
+    """Where a cut span sits in its sentence: onset, tail, whole or
+    middle. The lc-0005 shape is a tail (the sentence's object removed,
+    its head orphaned); Reel 28's false start is an onset."""
+    if not (sentence or {}).get("text"):
+        return "unknown"
+    at_start = abs(span_start - sentence["start"]) <= EDGE_TOLERANCE
+    at_end = abs(span_end - sentence["end"]) <= EDGE_TOLERANCE
+    if at_start and at_end:
+        return "whole"
+    if at_start:
+        return "onset"
+    if at_end:
+        return "tail"
+    return "middle"
+
+
+def take_cut_context(cut: "Cut", transcript: dict) -> dict:
+    """What the model needs to judge one candidate cut, beside its spans.
+
+    The surrounding sentences (not just the two spans), whether the
+    repeat crosses a speaker turn, and whether the second telling adds
+    anything (`novel_words`, ordered kept content words the dropped
+    telling never said). `seam_gap_seconds` is the silence between the
+    dropped telling's end and the next timed word - zero means the cut
+    edge has nowhere to land but on sound. REPORTS, never decides.
+    """
+    from library.tools.reel_proposal import (
+        _content_words, _content_words_ordered, bound_segments)
+
+    dropped_sentence = sentence_around(float(cut.dropped_start), transcript)
+    kept_sentence = sentence_around(float(cut.kept_start), transcript)
+    dropped_words = _content_words(cut.dropped_text or "")
+    novel = [word for word in
+             _content_words_ordered(cut.kept_text or "")
+             if word not in dropped_words]
+    between = [segment for segment in bound_segments(transcript)
+               if float(segment.get("timeline_end", 0.0))
+               > float(cut.dropped_end)
+               and float(segment.get("timeline_start", 0.0))
+               < float(cut.kept_start)]
+    turn_speakers = sorted({segment.get("speaker") or ""
+                            for segment in between
+                            if (segment.get("speaker") or "")
+                            != (cut.speaker or "")})
+    later = [word_start
+             for word_start, _ in _timed_word_edges(transcript)
+             if word_start >= float(cut.dropped_end) - 1e-9]
+    return {
+        "dropped_start": round(float(cut.dropped_start), 2),
+        "dropped_end": round(float(cut.dropped_end), 2),
+        "dropped_text": (cut.dropped_text or "").strip(),
+        "dropped_sentence": dropped_sentence.get("text", ""),
+        "dropped_position": _span_position(float(cut.dropped_start),
+                                           float(cut.dropped_end),
+                                           dropped_sentence),
+        "kept_start": round(float(cut.kept_start), 2),
+        "kept_end": round(float(cut.kept_end), 2),
+        "kept_text": (cut.kept_text or "").strip(),
+        "kept_sentence": kept_sentence.get("text", ""),
+        "kept_position": _span_position(float(cut.kept_start),
+                                        float(cut.kept_end),
+                                        kept_sentence),
+        "speaker": cut.speaker,
+        "containment": round(float(cut.containment), 3),
+        "jaccard": round(float(cut.jaccard), 3),
+        "crosses_turn": bool(turn_speakers),
+        "turn_speakers": turn_speakers,
+        "novel_words": novel,
+        "gap_seconds": round(float(cut.kept_start)
+                             - float(cut.dropped_end), 2),
+        "seam_gap_seconds": (round(min(later) - float(cut.dropped_end), 3)
+                             if later else None),
+    }
+
+
+#: A retelling suspect needs this many content words a side. Below it
+#: are interjections ("Yeah.", "company.") - real echoes, but nothing
+#: a span could be redrawn past.
+RETELLING_MIN_WORDS = 3
+
+
+def possible_retellings(start: float, end: float,
+                        transcript: dict) -> List[dict]:
+    """Paraphrase-class repeats the cut lane refuses, for the model.
+
+    lc-0006's shape: the same speaker says the same thing twice across
+    another speaker's turn, reworded past every bar the cut lane holds.
+    No threshold can catch that without also catching deliberate
+    restatement, so this REPORTS rather than cuts: suspects both
+    tellings name with content (multi-word each side), that cross a
+    speaker turn, and that touch no audio a confident cut already drops
+    (that audio does not play, so reporting it would name a repetition
+    the viewer never hears).
+
+    Each entry carries what the model needs to judge it: both
+    sentences, the turn crossed (`between_text`), and what the second
+    telling adds. Measured on the field test this names exactly one
+    pair episode-wide across the approved spans - the lc-0006 telling -
+    so the recall it buys costs the model a glance, not a list.
+    """
+    from library.tools.reel_proposal import _content_words
+
+    cuts = redundant_takes(start, end, transcript)
+    dropped_audio = [(float(c.dropped_start), float(c.dropped_end))
+                     for c in cuts]
+    out = []
+    for suspect in suspected_takes(start, end, transcript):
+        if (len(_content_words(suspect.dropped_text or ""))
+                < RETELLING_MIN_WORDS
+                or len(_content_words(suspect.kept_text or ""))
+                < RETELLING_MIN_WORDS):
+            continue
+        context = take_cut_context(suspect, transcript)
+        if not context["crosses_turn"]:
+            continue
+        if any(not (drop_end <= float(suspect.dropped_start)
+                    or drop_start >= float(suspect.dropped_end))
+               for drop_start, drop_end in dropped_audio):
+            continue
+        between = " ".join(
+            (segment.get("text") or "").strip()
+            for segment in _segments_in(start, end, transcript)
+            if float(segment.get("timeline_end", 0.0))
+            > float(suspect.dropped_end)
+            and float(segment.get("timeline_start", 0.0))
+            < float(suspect.kept_start))
+        entry = {"kind": "possible_retelling",
+                 "between_text": between,
+                 "why": ("the same speaker says this twice across "
+                         "another speaker's turn, reworded past the cut "
+                         "bars - the build will play both. Redraw the "
+                         "span past one telling, or keep both on purpose.")}
+        entry.update(context)
+        out.append(entry)
+    return sorted(out, key=lambda entry: entry["dropped_start"])
+
+
 def keep_ranges(start: float, end: float,
                 cuts: Sequence[Cut]) -> List[Tuple[float, float]]:
     """The reel's span with each dropped take taken out of it.
@@ -2000,6 +2421,13 @@ def reel_ranges(moment, transcript: dict,
     `extra_cuts`, and the only vocabulary for "that repetition is not
     a repeated take, leave it alone". Empty (the default) builds
     exactly what this built before.
+
+    Past both declarations, `judge_take_cuts` withdraws candidate cuts
+    that are structurally indefensible as one telling removed and a
+    later one kept (a backwards span, overlapping tellings, two voices
+    in one telling, an excision from mid-utterance, an edge through a
+    word). The captain's word runs first, so a recorded insistence is
+    never hidden behind a structural reason.
     """
     cuts = redundant_takes(moment.timeline_start, moment.timeline_end,
                            transcript)
@@ -2007,6 +2435,8 @@ def reel_ranges(moment, transcript: dict,
     # being made, so judging it for wholeness would refuse a build over
     # an edit nobody is applying.
     cuts, _withdrawn = withdraw_insisted_cuts(cuts, insisted_spans)
+    cuts = judge_take_cuts(cuts, moment.timeline_start,
+                           moment.timeline_end, transcript)[0]
     # The cut list is checked against the transcript's own runs before it
     # becomes the reel's shape, so a producer that bypassed
     # `redundant_takes` cannot strand a fragment silently.  Take cuts
@@ -7149,6 +7579,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                       f"at {_cut.dropped_start:.2f}-{_cut.dropped_end:.2f}s "
                       f"({_cut.speaker}): those words stay in - "
                       f"{_cut.dropped_text[:80]!r}", flush=True)
+            # And what the take judge withdrew: a candidate cut that is
+            # not one telling removed and a later one kept. SAID with
+            # the reason, like an insistence - a withdrawal nobody can
+            # see is a content change nobody can see. Judged past the
+            # insistences, the same order `reel_ranges` applies, so a
+            # recorded insistence is never hidden behind one of these.
+            _insisted_kept, _ = withdraw_insisted_cuts(
+                redundant_takes(moment.timeline_start,
+                                moment.timeline_end, transcript),
+                moment_insisted)
+            for _refused in judge_take_cuts(
+                    _insisted_kept, moment.timeline_start,
+                    moment.timeline_end, transcript)[1]:
+                _cut = _refused["cut"]
+                print(f"  take judge WITHDRAWS the take cut at "
+                      f"{_cut.dropped_start:.2f}-{_cut.dropped_end:.2f}s "
+                      f"({_cut.speaker}): {_refused['why']} "
+                      f"[{_refused['reason']}]", flush=True)
             # A repetition this build is LEAVING IN, and why, said where the
             # operator is already looking. Silence here is what let reel 03
             # be rebuilt worse at the open than the timeline it replaced.

@@ -99,11 +99,23 @@ def repetition_inside(start: float, end: float, transcript: dict) -> list[dict]:
     redrawing a span for, and which take to keep, stays the model's call
     (AGENTS.md 10.5).  Nothing here filters a candidate out for having
     one.
+
+    Each run's cuts arrive with what the model needs to judge them -
+    `take_cut_context`: the dropped and kept tellings' own sentences,
+    where each sits in its sentence (a tail-drop orphans the head it
+    was cut from; a false start opens a new one), whether the repeat
+    crosses a speaker turn, and what the second telling adds. A
+    cross-turn paraphrase the cut lane refuses outright is not in any
+    run at all, so candidates carry those separately (see below).
     """
-    from library.tools.reel_build import redundant_runs
+    from library.tools.reel_build import redundant_runs, take_cut_context
 
     out: list[dict] = []
     for run in redundant_runs(float(start), float(end), transcript):
+        cuts = []
+        for cut in run.cuts:
+            context = take_cut_context(cut, transcript)
+            cuts.append(context)
         out.append({
             "start": round(run.start, 2),
             "end": round(run.end, 2),
@@ -111,6 +123,7 @@ def repetition_inside(start: float, end: float, transcript: dict) -> list[dict]:
             "lines": [(segment.get("text") or "").strip()
                       for segment in run.segments],
             "build_removes_it": run.whole,
+            "cuts": cuts,
             "why": (
                 "every line of this run pairs with a later one, so the "
                 "build removes the run whole and the reel does not play it"
@@ -122,6 +135,22 @@ def repetition_inside(start: float, end: float, transcript: dict) -> list[dict]:
                 f"clear of one of the takes."),
         })
     return out
+
+
+def retellings_inside(start: float, end: float, transcript: dict) -> list:
+    """The cross-turn paraphrases inside one candidate window.
+
+    The cut lane refuses these by design - reworded past its bars - so
+    no run contains them and `repetition_inside` never names them. The
+    model that can still redraw past one telling gets them here, with
+    both sentences, the turn crossed, and what the second telling adds.
+    Empty (the common case) is offered as nothing: a call with nothing
+    to ask is not made, and a candidate with no retelling carries no
+    new key.
+    """
+    from library.tools.reel_build import possible_retellings
+
+    return possible_retellings(float(start), float(end), transcript)
 
 
 def build_context(data: dict) -> dict:
@@ -153,9 +182,13 @@ def build_context(data: dict) -> dict:
     candidates.sort(key=lambda c: c["start"])
     for candidate in candidates:
         inside = repetition_inside(candidate["start"], candidate["end"],
-                                   transcript)
+                                    transcript)
         if inside:
             candidate["repetition_inside"] = inside
+        retold = retellings_inside(candidate["start"], candidate["end"],
+                                   transcript)
+        if retold:
+            candidate["possible_retellings"] = retold
 
     out = {
         # The turn STRUCTURE, and no longer the words.  A turn's text is
