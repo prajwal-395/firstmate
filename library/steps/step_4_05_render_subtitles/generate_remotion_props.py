@@ -27,11 +27,17 @@ SUBTITLE_RENDER_BUFFER_S = 0.5
 def generate_subtitle_props_per_block(
     subtitle_data: dict,
     fps: float = 30,
-    width: int = 1080,
-    height: int = 1920,
+    *,
+    width: int,
+    height: int,
     audio_spine: dict = None,
 ) -> list[dict]:
     """Generate SubtitleOverlay props grouped by spine block.
+
+    `width`/`height` are the DECLARED delivery frame and have no default:
+    a default is what let these render vertical onto a landscape timeline
+    (project 001's lighter central band). The caller states the frame -
+    see library/tools/delivery_format.py.
 
     `fps` is the TIMELINE rate, exact - 24000/1001 on the reels path, not
     24. Frame counts below are media frames of a file rendered at this
@@ -217,8 +223,11 @@ def main():
     parser.add_argument("--output-dir", required=True,
                         help="Output directory for props JSON files")
     parser.add_argument("--fps", type=int, default=30)
-    parser.add_argument("--width", type=int, default=1080)
-    parser.add_argument("--height", type=int, default=1920)
+    # No defaults: the frame is the declared delivery format, stated by
+    # whoever invokes this. A default here is what rendered vertical
+    # overlays onto project 001's landscape timeline.
+    parser.add_argument("--width", type=int, required=True)
+    parser.add_argument("--height", type=int, required=True)
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)

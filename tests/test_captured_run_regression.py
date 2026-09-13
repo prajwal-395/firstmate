@@ -224,7 +224,8 @@ def test_subtitle_overlay_segments_no_longer_overlap():
         {"spine_block_position": 3, "timeline_start": 4.067,
          "timeline_end": 6.896, "text": "third", "words": []},
     ]}
-    props = generate_subtitle_props_per_block(subtitle_data, fps=30)
+    props = generate_subtitle_props_per_block(
+        subtitle_data, fps=30, width=1080, height=1920)
     segments = [
         {
             "timeline_start": p["_timeline_start"],

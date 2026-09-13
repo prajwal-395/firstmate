@@ -107,7 +107,7 @@ def test_a_named_image_resolves_to_the_staged_path():
         _declaration(image="lucie-logo.png", image_width=320))
     cards = ffe.plan_reel_cards(
         declarations, _facts(), 100, FPS,
-        resolve_asset=lambda name: f"brand/{name}")
+        resolve_asset=lambda name: f"brand/{name}", width=1080, height=1920)
     assert cards[0].props["image"] == "brand/lucie-logo.png"
     assert cards[0].props["imageWidth"] == 320.0
 
@@ -118,7 +118,7 @@ def test_an_unstated_width_leaves_no_width_in_props():
         _declaration(image="lucie-logo.png"))
     cards = ffe.plan_reel_cards(
         declarations, _facts(), 100, FPS,
-        resolve_asset=lambda name: f"brand/{name}")
+        resolve_asset=lambda name: f"brand/{name}", width=1080, height=1920)
     assert cards[0].props["image"] == "brand/lucie-logo.png"
     assert "imageWidth" not in cards[0].props
 
@@ -126,7 +126,7 @@ def test_an_unstated_width_leaves_no_width_in_props():
 def test_a_card_naming_no_image_carries_no_image_key():
     """Props written before this slot existed render byte-identically."""
     declarations = ffe.declared_elements(_declaration())
-    cards = ffe.plan_reel_cards(declarations, _facts(), 100, FPS)
+    cards = ffe.plan_reel_cards(declarations, _facts(), 100, FPS, width=1080, height=1920)
     assert "image" not in cards[0].props
     assert "imageWidth" not in cards[0].props
 
@@ -138,7 +138,7 @@ def test_an_unresolvable_image_refuses_the_card():
     with pytest.raises(ffe.FullFrameDeclarationError,
                        match="not in the project's brand_assets"):
         ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            resolve_asset=lambda name: "")
+                            resolve_asset=lambda name: "", width=1080, height=1920)
 
 
 def test_an_image_with_no_lookup_refuses_the_card():
@@ -146,7 +146,7 @@ def test_an_image_with_no_lookup_refuses_the_card():
         _declaration(image="lucie-logo.png"))
     with pytest.raises(ffe.FullFrameDeclarationError,
                        match="no way to look a project asset up"):
-        ffe.plan_reel_cards(declarations, _facts(), 100, FPS)
+        ffe.plan_reel_cards(declarations, _facts(), 100, FPS, width=1080, height=1920)
 
 
 # ── The frame ──────────────────────────────────────────────────────

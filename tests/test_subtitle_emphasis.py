@@ -69,7 +69,8 @@ def test_props_carry_the_emphasis_words():
         ],
     }]
     blocks = generate_subtitle_props_per_block(
-        {"subtitle_entries": entries, "style": resolve_subtitle_style()})
+        {"subtitle_entries": entries, "style": resolve_subtitle_style()},
+        width=1080, height=1920)
     assert blocks, "no props generated"
     assert blocks[0]["subtitles"][0]["emphasisWords"] == ["post", "single"]
 

@@ -541,7 +541,8 @@ def plan_for_reel(reel_name: str, lines: Sequence[dict],
                   reel_seconds: float,
                   project_folder: Optional[str],
                   brand_effect: Optional[dict] = None,
-                  width: int = 1080, height: int = 1920,
+                  *,
+                  width: int, height: int,
                   subtitle_segments: Sequence[dict] = ()) -> SpeakerPlan:
     """One reel's speaker lower-thirds, as plan entries and a record.
 

@@ -298,7 +298,8 @@ def test_missing_style_raises_rather_than_defaulting():
         "spine_block_position": 0, "emphasis_words": [], "words": [],
     }]
     with pytest.raises(ValueError, match="style"):
-        generate_subtitle_props_per_block({"subtitle_entries": entries})
+        generate_subtitle_props_per_block(
+            {"subtitle_entries": entries}, width=1080, height=1920)
 
 
 def test_step_4_01_emits_a_style():

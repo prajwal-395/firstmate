@@ -3417,8 +3417,14 @@ def card_row_role_for_project(project_folder: str,
 
 
 def plan_cards(moment, transcript: dict, ranges, project_folder: str,
-               fps: float, declarations=None, ending=None, look=None) -> list:
+               fps: float, *, width: int, height: int,
+               declarations=None, ending=None, look=None) -> list:
     """Resolve this project's card declarations against ONE reel.
+
+    `width`/`height` are the DECLARED delivery frame, stated by the
+    caller - a full-frame card IS the frame, so planning one against an
+    assumed frame draws the wrong picture. See
+    library/tools/delivery_format.py.
 
     Returns ``[]`` when nothing is declared.  The facts a bound run
     quotes are measured off `ranges` - the ranges the build is about to
@@ -3455,6 +3461,7 @@ def plan_cards(moment, transcript: dict, ranges, project_folder: str,
     # boundaries sit on the reel's own edit points.  Cards never read
     # them - a card's duration is declared, not measured.
     return ffe.plan_reel_cards(declarations, facts, body_frames, fps,
+                               width=width, height=height,
                                project_folder=project_folder,
                                ranges=list(ranges), transcript=transcript)
 
@@ -7831,6 +7838,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # timeline exists (`library/tools/full_frame_element.py`).
             cards = plan_cards(moment, transcript, ranges, project_folder,
                                fps=24000 / 1001,
+                               width=reel_width, height=reel_height,
                                declarations=card_declarations,
                                ending=_ending_decl, look=reel_look_decl)
             if cards:
@@ -9170,7 +9178,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # Cards are identical for every variant (same moment, same
     # ranges): planned and rendered once, shared by all variants.
     cards = plan_cards(moment, transcript, ranges, project_folder,
-                       fps=fps, declarations=card_declarations,
+                       fps=fps, width=reel_width, height=reel_height,
+                       declarations=card_declarations,
                        ending=_ending_decl, look=reel_look_decl)
     if cards:
         from library.tools.full_frame_element import render_reel_cards

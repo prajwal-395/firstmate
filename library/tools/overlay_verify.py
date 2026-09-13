@@ -63,8 +63,13 @@ def _numbers(stored: Optional[dict]) -> Optional[Dict[str, float]]:
 def verify_values(clips: Sequence[dict], intent: Optional[dict],
                   computed: Optional[dict] = None,
                   tolerance: float = READBACK_TOLERANCE,
-                  full_wh: Tuple[int, int] = (1080, 1920)) -> dict:
+                  *, full_wh: Tuple[int, int]) -> dict:
     """Stored transforms against intent, without rendering anything.
+
+    `full_wh` is the DECLARED delivery frame and has no default: a
+    default is what let the overlay chain assume vertical while the
+    timeline went landscape. The caller states the frame - see
+    library/tools/delivery_format.py.
 
     `clips` carry `label`, `kind`, `segment_id`, `stored`
     (`{scaling, pan, tilt}` as read off the timeline) and, where the
@@ -210,9 +215,12 @@ def composite_ink_centroid(frame_path: str, placement: dict,
 
 def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
                   computed: Optional[dict] = None,
-                  full_wh: Tuple[int, int] = (1080, 1920),
+                  *, full_wh: Tuple[int, int],
                   tolerance_px: float = PIXEL_CENTROID_TOLERANCE) -> dict:
     """Stored-render ink against intent-render ink, one frame per clip.
+
+    `full_wh` is the DECLARED delivery frame and has no default - see
+    :func:`verify_values`.
 
     Each clip additionally carries `asset_frame` (a decoded frame of
     the overlay file) and `canvas_wh`. Both the stored and the

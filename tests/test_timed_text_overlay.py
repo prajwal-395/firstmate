@@ -121,24 +121,24 @@ SAMPLE_DECLARATION = {
 
 def test_props_are_deterministic():
     """Same input declaration -> identical JSON output, byte-for-byte."""
-    a = generate_timed_text_overlay_props(SAMPLE_DECLARATION)
-    b = generate_timed_text_overlay_props(SAMPLE_DECLARATION)
+    a = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
+    b = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
 
 
 def test_deterministic_across_multiple_runs():
     """Run the generator 10 times; all results must be identical."""
     baseline = json.dumps(
-        generate_timed_text_overlay_props(SAMPLE_DECLARATION), sort_keys=True)
+        generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920), sort_keys=True)
     for _ in range(10):
         assert json.dumps(
-            generate_timed_text_overlay_props(SAMPLE_DECLARATION),
+            generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920),
             sort_keys=True) == baseline
 
 
 def test_props_match_remotion_schema():
     """Output props must match TimedTextOverlay's expected shape."""
-    result = generate_timed_text_overlay_props(SAMPLE_DECLARATION)
+    result = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
     assert "moments" in result
     assert "fontFamily" in result
     assert "fps" in result
@@ -149,7 +149,7 @@ def test_props_match_remotion_schema():
 
 def test_moments_have_required_fields():
     """Every moment in the output carries the full TimedTextOverlay contract."""
-    result = generate_timed_text_overlay_props(SAMPLE_DECLARATION)
+    result = generate_timed_text_overlay_props(SAMPLE_DECLARATION, width=1080, height=1920)
     required = {"text", "color", "fontSize", "startFrame", "durationFrames",
                 "x", "y", "fadeInFrames", "fadeOutFrames"}
     for i, moment in enumerate(result["moments"]):
@@ -171,25 +171,25 @@ def test_an_undeclared_template_plans_no_segments(name):
     effect = _template(name).get("effect", {})
     if effect.get("timed_text_overlay"):
         pytest.skip(f"{name} declares the slot; covered by its own tests")
-    assert generate_timed_text_overlay_props(effect) is None
-    assert plan_timed_text_segments(effect) == []
+    assert generate_timed_text_overlay_props(effect, width=1080, height=1920) is None
+    assert plan_timed_text_segments(effect, width=1080, height=1920) == []
 
 
 def test_empty_effect_dict_produces_nothing():
-    result = generate_timed_text_overlay_props({})
+    result = generate_timed_text_overlay_props({}, width=1080, height=1920)
     assert result is None
 
 
 def test_empty_moments_produces_nothing():
     """A declaration with an empty moments list is treated as undeclared."""
     result = generate_timed_text_overlay_props(
-        {"timed_text_overlay": {"moments": []}})
+        {"timed_text_overlay": {"moments": []}}, width=1080, height=1920)
     assert result is None
 
 
 def test_none_declaration_produces_nothing():
     result = generate_timed_text_overlay_props(
-        {"timed_text_overlay": None})
+        {"timed_text_overlay": None}, width=1080, height=1920)
     assert result is None
 
 
@@ -354,7 +354,7 @@ def test_moments_far_apart_become_separate_segments():
     segments = plan_timed_text_segments(_declaration(
         _moment(start_frame=30, duration_frames=30),
         _moment(start_frame=300, duration_frames=60),
-    ))
+    ), width=1080, height=1920)
     assert len(segments) == 2
     assert [s["timeline_start"] for s in segments] == [1.0, 10.0]
     assert [s["timeline_end"] for s in segments] == [2.0, 12.0]
@@ -366,7 +366,7 @@ def test_overlapping_moments_share_one_segment():
     segments = plan_timed_text_segments(_declaration(
         _moment(start_frame=30, duration_frames=30),
         _moment(start_frame=45, duration_frames=30),
-    ))
+    ), width=1080, height=1920)
     assert len(segments) == 1
     assert segments[0]["moment_count"] == 2
     assert segments[0]["total_frames"] == 45
@@ -379,7 +379,7 @@ def test_touching_moments_share_one_segment():
     segments = plan_timed_text_segments(_declaration(
         _moment(start_frame=30, duration_frames=30),
         _moment(start_frame=60, duration_frames=30),
-    ))
+    ), width=1080, height=1920)
     assert len(segments) == 1
     assert segments[0]["total_frames"] == 60
 
@@ -390,7 +390,7 @@ def test_planned_segments_never_overlap():
         _moment(start_frame=300, duration_frames=60),
         _moment(start_frame=30, duration_frames=30),
         _moment(start_frame=100, duration_frames=30),
-    ))
+    ), width=1080, height=1920)
     for prev, curr in zip(segments, segments[1:]):
         assert curr["timeline_start"] >= prev["timeline_end"]
 
@@ -405,7 +405,7 @@ def test_moment_frames_are_rebased_against_their_segment():
     segments = plan_timed_text_segments(_declaration(
         _moment(start_frame=90, duration_frames=30, text="A"),
         _moment(start_frame=105, duration_frames=30, text="B"),
-    ))
+    ), width=1080, height=1920)
     assert len(segments) == 1
     props = segments[0]["props"]
     assert [m["startFrame"] for m in props["moments"]] == [0, 15]
@@ -427,14 +427,14 @@ def test_a_moment_past_the_end_of_the_edit_is_rejected():
     with pytest.raises(TimedTextDeclarationError) as exc:
         plan_timed_text_segments(
             _declaration(_moment(start_frame=1800, duration_frames=60)),
-            spine_structure=_SPINE)
+            spine_structure=_SPINE, width=1080, height=1920)
     assert "reaches no picture" in str(exc.value)
 
 
 def test_timeline_bound_is_optional():
     """A caller that does not know the edit's length still gets a plan."""
     segments = plan_timed_text_segments(
-        _declaration(_moment(start_frame=1800, duration_frames=60)))
+        _declaration(_moment(start_frame=1800, duration_frames=60)), width=1080, height=1920)
     assert len(segments) == 1
 
 
@@ -461,7 +461,7 @@ def test_a_moment_anchors_to_a_spine_block():
             "text": "EPISODE 001", "color": "#fff",
             "block": 1, "duration_seconds": 2.0,
         }),
-        spine_structure=_SPINE)
+        spine_structure=_SPINE, width=1080, height=1920)
     assert len(segments) == 1
     assert segments[0]["timeline_start"] == 4.0
     assert segments[0]["total_frames"] == 60
@@ -473,7 +473,7 @@ def test_an_anchored_moment_takes_an_offset():
             "text": "EPISODE 001", "color": "#fff",
             "block": 2, "offset_seconds": 0.5, "duration_seconds": 1.0,
         }),
-        spine_structure=_SPINE)
+        spine_structure=_SPINE, width=1080, height=1920)
     assert segments[0]["timeline_start"] == 12.5
 
 
@@ -483,7 +483,7 @@ def test_a_moment_may_anchor_to_the_end_of_its_block():
             "text": "OUT", "color": "#fff", "block": 0,
             "anchor": "end", "offset_seconds": -1.0, "duration_seconds": 1.0,
         }),
-        spine_structure=_SPINE)
+        spine_structure=_SPINE, width=1080, height=1920)
     assert segments[0]["timeline_start"] == 3.0
     assert segments[0]["timeline_end"] == 4.0
 
@@ -497,8 +497,8 @@ def test_an_anchored_moment_moves_when_the_edit_is_recut():
     recut = [dict(b) for b in _SPINE]
     recut[1]["timeline_end"] = 9.0
     recut[2].update({"timeline_start": 9.0, "timeline_end": 17.0})
-    before = plan_timed_text_segments(declaration, spine_structure=_SPINE)
-    after = plan_timed_text_segments(declaration, spine_structure=recut)
+    before = plan_timed_text_segments(declaration, spine_structure=_SPINE, width=1080, height=1920)
+    after = plan_timed_text_segments(declaration, spine_structure=recut, width=1080, height=1920)
     assert before[0]["timeline_start"] == 12.0
     assert after[0]["timeline_start"] == 9.0
 
@@ -508,7 +508,7 @@ def test_anchoring_to_a_block_that_is_not_in_the_edit_raises():
         plan_timed_text_segments(
             _declaration({"text": "X", "color": "#fff",
                           "block": 99, "duration_seconds": 1.0}),
-            spine_structure=_SPINE)
+            spine_structure=_SPINE, width=1080, height=1920)
     assert "which is not in" in str(exc.value)
     assert "[0, 1, 2]" in str(exc.value)
 
@@ -518,7 +518,7 @@ def test_anchoring_with_no_spine_raises():
     with pytest.raises(TimedTextDeclarationError) as exc:
         plan_timed_text_segments(
             _declaration({"text": "X", "color": "#fff",
-                          "block": 1, "duration_seconds": 1.0}))
+                          "block": 1, "duration_seconds": 1.0}), width=1080, height=1920)
     assert "no spine was supplied" in " ".join(str(exc.value).split())
 
 
@@ -527,14 +527,14 @@ def test_declaring_both_timings_raises():
         plan_timed_text_segments(
             _declaration({"text": "X", "color": "#fff", "block": 1,
                           "duration_seconds": 1.0, "start_frame": 30}),
-            spine_structure=_SPINE)
+            spine_structure=_SPINE, width=1080, height=1920)
     assert "not both" in str(exc.value)
 
 
 def test_declaring_neither_timing_raises():
     with pytest.raises(TimedTextDeclarationError) as exc:
         plan_timed_text_segments(
-            _declaration({"text": "X", "color": "#fff"}))
+            _declaration({"text": "X", "color": "#fff"}), width=1080, height=1920)
     assert "neither way" in str(exc.value)
 
 
@@ -542,7 +542,7 @@ def test_an_anchored_moment_needs_a_duration_in_seconds():
     with pytest.raises(TimedTextDeclarationError) as exc:
         plan_timed_text_segments(
             _declaration({"text": "X", "color": "#fff", "block": 1}),
-            spine_structure=_SPINE)
+            spine_structure=_SPINE, width=1080, height=1920)
     assert "duration_seconds" in str(exc.value)
 
 
@@ -551,7 +551,7 @@ def test_an_offset_before_the_first_frame_raises():
         plan_timed_text_segments(
             _declaration({"text": "X", "color": "#fff", "block": 0,
                           "offset_seconds": -2.0, "duration_seconds": 1.0}),
-            spine_structure=_SPINE)
+            spine_structure=_SPINE, width=1080, height=1920)
     assert "before" in str(exc.value)
 
 
@@ -560,7 +560,7 @@ def test_an_unknown_anchor_raises():
         plan_timed_text_segments(
             _declaration({"text": "X", "color": "#fff", "block": 1,
                           "anchor": "middle", "duration_seconds": 1.0}),
-            spine_structure=_SPINE)
+            spine_structure=_SPINE, width=1080, height=1920)
     assert "anchor" in str(exc.value)
 
 
@@ -582,7 +582,7 @@ def test_a_malformed_moment_raises(bad, needle):
     same rule bookends follow (library/tools/bookends.py).
     """
     with pytest.raises(TimedTextDeclarationError) as exc:
-        plan_timed_text_segments(_declaration(_moment(**bad)))
+        plan_timed_text_segments(_declaration(_moment(**bad)), width=1080, height=1920)
     assert needle in str(exc.value)
 
 
@@ -594,13 +594,13 @@ def test_zero_fades_are_legal():
     every moment in the segment. See momentOpacity in the composition.
     """
     segments = plan_timed_text_segments(_declaration(
-        _moment(fade_in_frames=0, fade_out_frames=0)))
+        _moment(fade_in_frames=0, fade_out_frames=0)), width=1080, height=1920)
     assert segments[0]["props"]["moments"][0]["fadeInFrames"] == 0
 
 
 def test_a_non_mapping_declaration_raises():
     with pytest.raises(TimedTextDeclarationError):
-        plan_timed_text_segments({"timed_text_overlay": {"moments": "nope"}})
+        plan_timed_text_segments({"timed_text_overlay": {"moments": "nope"}}, width=1080, height=1920)
 
 
 # ─────────────────────────────────────────────────────────
@@ -648,7 +648,7 @@ def test_default_values_applied():
                 "duration_frames": 30,
             }]
         }
-    })
+    }, width=1080, height=1920)
     m = result["moments"][0]
     assert m["fontSize"] == 42  # default
     assert m["x"] == 0.5  # default center
@@ -678,7 +678,7 @@ def test_default_font_family():
             "moments": [{"text": "X", "color": "#fff",
                          "start_frame": 0, "duration_frames": 30}]
         }
-    })
+    }, width=1080, height=1920)
     assert result["fontFamily"] == "Helvetica"
 
 
@@ -785,7 +785,7 @@ def test_an_unbundled_family_without_a_file_raises():
                      "start_frame": 0, "duration_frames": 30}],
     }}
     with pytest.raises(TimedTextDeclarationError) as raised:
-        plan_timed_text_segments(declaration)
+        plan_timed_text_segments(declaration, width=1080, height=1920)
     assert "Nanum Pen Script" in str(raised.value)
 
 
@@ -799,7 +799,7 @@ def test_a_project_font_reaches_the_props_as_a_static_path():
         "moments": [{"text": "Night 1", "color": "#D4A34A",
                      "start_frame": 0, "duration_frames": 30}],
     }}
-    props = plan_timed_text_segments(declaration)[0]["props"]
+    props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
     assert props["fontFamily"] == "Nanum Pen Script"
     assert props["fontFile"] == "brand/NanumPenScript-Regular.ttf"
 
@@ -817,6 +817,6 @@ def test_a_bundled_or_accepted_family_needs_no_file():
             "moments": [{"text": "x", "color": "#FFFFFF",
                          "start_frame": 0, "duration_frames": 30}],
         }}
-        props = plan_timed_text_segments(declaration)[0]["props"]
+        props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
         assert props["fontFamily"] == family
         assert "fontFile" not in props

@@ -113,12 +113,18 @@ class TimedTextDeclarationError(ValueError):
 def generate_timed_text_overlay_props(
     template_effect: dict[str, Any],
     fps: int = 30,
-    width: int = 1080,
-    height: int = 1920,
+    *,
+    width: int,
+    height: int,
     duration_in_frames: int = 1800,
     safe_area=None,
 ) -> dict[str, Any] | None:
     """Convert a template's ``timed_text_overlay`` declaration to Remotion props.
+
+    `width`/`height` are the DECLARED delivery frame and have no default:
+    a default is what let these render vertical onto a landscape timeline
+    (project 001's lighter central band). The caller states the frame -
+    see library/tools/delivery_format.py.
 
     Returns ``None`` if the template does not declare an overlay, so
     callers can skip the render entirely.
@@ -399,8 +405,9 @@ def _validate_moment(moment: dict, index: int,
 def plan_timed_text_segments(
     template_effect: dict[str, Any],
     fps: int = 30,
-    width: int = 1080,
-    height: int = 1920,
+    *,
+    width: int,
+    height: int,
     spine_structure: list | None = None,
     project_folder: str | None = None,
 ) -> list[dict[str, Any]]:

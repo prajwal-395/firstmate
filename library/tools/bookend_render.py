@@ -147,8 +147,13 @@ def bookend_props(bookend: dict, fps: int, width: int, height: int) -> dict:
 
 
 def render_bookend(bookend: dict, remotion_dir: str, fps: int = 30,
-                   width: int = 1080, height: int = 1920) -> dict:
+                   *, width: int, height: int) -> dict:
     """Render one composition-mode bookend to the path the spine named.
+
+    `width`/`height` are the DECLARED delivery frame and have no default:
+    a default is what let bookends render vertical onto a landscape
+    timeline. The caller states the frame - see
+    library/tools/delivery_format.py.
 
     An ENGINE composition - one registered in the committed
     ``remotion-subtitles/src/Root.tsx`` - goes through the shared batch
@@ -277,8 +282,8 @@ def _render_engine_batch(pending: list, remotion_dir: str) -> None:
 
 
 def render_declared_bookends(structure: list, remotion_dir: str,
-                             fps: int = 30, width: int = 1080,
-                             height: int = 1920, stream=sys.stderr) -> list:
+                             fps: int = 30, *, width: int,
+                             height: int, stream=sys.stderr) -> list:
     """Produce every bookend the spine declares, and check the rest exist.
 
     Raises :class:`BookendRenderError` rather than warning: a missing card
@@ -317,8 +322,8 @@ def render_declared_bookends(structure: list, remotion_dir: str,
               f"{bookend['composition']} "
               f"({bookend['duration_seconds']}s)", file=stream)
         if bookend.get("source_path"):
-            record = render_bookend(bookend, remotion_dir, fps, width,
-                                    height)
+            record = render_bookend(bookend, remotion_dir, fps,
+                                    width=width, height=height)
             print(f"    OK: {record['asset_path']} ({record['bytes']} bytes)",
                   file=stream)
             project_results[bookend["slot"]] = record

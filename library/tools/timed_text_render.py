@@ -50,13 +50,19 @@ def render_timed_text_segments(
     remotion_dir: str,
     output_dir: str,
     fps: int = 30,
-    width: int = 1080,
-    height: int = 1920,
+    *,
+    width: int,
+    height: int,
     spine_structure: list | None = None,
     project_folder: str | None = None,
     stream=sys.stderr,
 ) -> list[dict]:
     """Render every segment the declaration implies; ``[]`` if undeclared.
+
+    `width`/`height` are the DECLARED delivery frame and have no default:
+    a default is what let these render vertical onto a landscape timeline
+    (project 001's lighter central band). The caller states the frame -
+    see library/tools/delivery_format.py.
 
     Each returned entry carries what the renderer needs to place the file:
     ``overlay_path``, ``timeline_start``, ``timeline_end`` and

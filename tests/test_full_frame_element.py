@@ -275,7 +275,7 @@ def test_a_binding_with_nothing_behind_it_refuses_the_card():
     empty = ffe.ReelFacts(reel_number=3, speakers=(), opening=(),
                           opening_window=3.0)
     with pytest.raises(ffe.FullFrameDeclarationError, match="nothing there"):
-        ffe.plan_reel_cards(declarations, empty, 960, 24000 / 1001)
+        ffe.plan_reel_cards(declarations, empty, 960, 24000 / 1001, width=1080, height=1920)
 
 
 def test_an_unknown_binding_name_is_refused_at_the_facts():
@@ -306,7 +306,7 @@ def test_a_head_card_starts_at_reel_zero_and_a_tail_card_after_the_body():
     declarations = ffe.declared_elements(
         {"full_frame_elements": [head, tail]})
     body_frames = 960
-    cards = ffe.plan_reel_cards(declarations, _facts(), body_frames, FPS)
+    cards = ffe.plan_reel_cards(declarations, _facts(), body_frames, FPS, width=1080, height=1920)
     assert [c.placement for c in cards] == ["head", "tail"]
     assert cards[0].reel_start_frame == 0
     # The tail card starts on the frame after the last one of picture -
@@ -323,7 +323,7 @@ def test_two_head_cards_stack_rather_than_overlap():
                        "colour": "#FFF"}]
     declarations = ffe.declared_elements(
         {"full_frame_elements": [first, second]})
-    cards = ffe.plan_reel_cards(declarations, _facts(), 960, FPS)
+    cards = ffe.plan_reel_cards(declarations, _facts(), 960, FPS, width=1080, height=1920)
     assert cards[0].reel_start_frame == 0
     assert cards[1].reel_start_frame == cards[0].duration_frames
     assert cards[0].reel_end_frame == cards[1].reel_start_frame
@@ -331,7 +331,7 @@ def test_two_head_cards_stack_rather_than_overlap():
 
 def test_the_props_carry_the_declaration_and_nothing_the_engine_chose():
     cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS)
+        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
     props = cards[0].props
     assert props["background"] == "#101014"
     assert props["entrance"] == "blur"
@@ -349,12 +349,12 @@ def test_uppercase_is_the_declarations_and_is_off_unless_asked():
     plain = ffe.plan_reel_cards(
         ffe.declared_elements(declare(runs=[
             {"bind": "speakers", "type_role": "micro", "colour": "#FFF"}])),
-        _facts(), 960, FPS)[0]
+        _facts(), 960, FPS, width=1080, height=1920)[0]
     shouted = ffe.plan_reel_cards(
         ffe.declared_elements(declare(runs=[
             {"bind": "speakers", "type_role": "micro", "colour": "#FFF",
              "uppercase": True}])),
-        _facts(), 960, FPS)[0]
+        _facts(), 960, FPS, width=1080, height=1920)[0]
     assert plain.props["runs"][0]["text"] == "Akshita, Craig"
     assert shouted.props["runs"][0]["text"] == "AKSHITA, CRAIG"
 
@@ -362,12 +362,12 @@ def test_uppercase_is_the_declarations_and_is_off_unless_asked():
 def test_a_card_that_rounds_to_no_frames_is_refused():
     declarations = ffe.declared_elements(declare(duration_seconds=0.001))
     with pytest.raises(ffe.FullFrameDeclarationError, match="at least one"):
-        ffe.plan_reel_cards(declarations, _facts(), 960, FPS)
+        ffe.plan_reel_cards(declarations, _facts(), 960, FPS, width=1080, height=1920)
 
 
 def test_a_card_carries_no_file_until_it_has_been_rendered():
     card = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS)[0]
+        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)[0]
     assert card.rendered_path == ""
 
 
@@ -405,7 +405,7 @@ def test_the_render_batches_opaque_through_the_shared_renderer(
     seen = {}
     monkeypatch.setattr(ffe, "render_batch", _fake_batch_success(seen))
     cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS)
+        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
     rendered = ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 
     assert seen["calls"] == 1, (
@@ -425,7 +425,7 @@ def test_a_render_that_produces_no_file_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ffe, "render_batch", fake_batch)
     cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS)
+        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
     with pytest.raises(ffe.FullFrameRenderError, match="missing or empty"):
         ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 
@@ -438,7 +438,7 @@ def test_a_failed_render_raises_rather_than_leaving_a_reel_without_it(
 
     monkeypatch.setattr(ffe, "render_batch", fake_batch)
     cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS)
+        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
     with pytest.raises(ffe.FullFrameRenderError, match="chromium exploded"):
         ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 
@@ -452,7 +452,7 @@ def test_a_batch_that_cannot_start_raises(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ffe, "render_batch", fake_batch)
     cards = ffe.plan_reel_cards(
-        ffe.declared_elements(declare()), _facts(), 960, FPS)
+        ffe.declared_elements(declare()), _facts(), 960, FPS, width=1080, height=1920)
     with pytest.raises(ffe.FullFrameRenderError, match="no node on PATH"):
         ffe.render_reel_cards(cards, str(tmp_path), str(tmp_path))
 

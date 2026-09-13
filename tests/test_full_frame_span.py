@@ -105,7 +105,7 @@ def _plan(declarations=None, ranges=RANGES, transcript=None,
         declarations, _facts(), body, FPS,
         ranges=list(ranges),
         transcript=_transcript() if transcript is None else transcript,
-        resolve_asset=resolve_asset)
+        resolve_asset=resolve_asset, width=1080, height=1920)
 
 
 # ── The declaration ──────────────────────────────────────────────
@@ -272,7 +272,7 @@ def test_a_span_contributes_no_lead():
 def test_a_span_with_no_ranges_to_anchor_to_refuses():
     declarations = ffe.declared_elements(declare())
     with pytest.raises(ffe.FullFrameDeclarationError, match="no keep ranges"):
-        ffe.plan_reel_cards(declarations, _facts(), 100, FPS)
+        ffe.plan_reel_cards(declarations, _facts(), 100, FPS, width=1080, height=1920)
 
 
 def test_a_span_beside_a_card_refuses():
@@ -290,7 +290,7 @@ def test_a_span_beside_a_card_refuses():
         {"full_frame_elements": [copy.deepcopy(VALID), card]})
     with pytest.raises(ffe.FullFrameDeclarationError, match="whole body"):
         ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            ranges=RANGES, transcript=_transcript())
+                            ranges=RANGES, transcript=_transcript(), width=1080, height=1920)
 
 
 def test_two_spans_on_one_reel_refuse():
@@ -299,7 +299,7 @@ def test_two_spans_on_one_reel_refuse():
                                  copy.deepcopy(VALID)]})
     with pytest.raises(ffe.FullFrameDeclarationError, match="one span alone"):
         ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            ranges=RANGES, transcript=_transcript())
+                            ranges=RANGES, transcript=_transcript(), width=1080, height=1920)
 
 
 def test_range_line_quotes_each_range_own_words():
@@ -320,7 +320,7 @@ def test_range_line_with_nothing_behind_it_refuses_the_span():
     declarations = ffe.declared_elements(declare())
     with pytest.raises(ffe.FullFrameDeclarationError, match="nothing there"):
         ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            ranges=RANGES, transcript=silent)
+                            ranges=RANGES, transcript=silent, width=1080, height=1920)
 
 
 def test_range_line_outside_a_span_segment_refuses():
@@ -340,7 +340,7 @@ def test_range_line_outside_a_span_segment_refuses():
                           opening_window=3.0)
     with pytest.raises(ffe.FullFrameDeclarationError,
                        match="outside a span segment"):
-        ffe.plan_reel_cards(declarations, facts, 100, FPS)
+        ffe.plan_reel_cards(declarations, facts, 100, FPS, width=1080, height=1920)
 
 
 def test_the_facts_refuse_range_line_without_a_segment():
@@ -455,7 +455,7 @@ def _plan_one(declarations=None, ranges=ONE_RANGE, transcript=None):
         declarations, _one_range_facts(), body, FPS,
         ranges=list(ranges),
         transcript=(_one_range_transcript()
-                    if transcript is None else transcript))
+                    if transcript is None else transcript), width=1080, height=1920)
 
 
 def test_three_windows_tile_one_range():
@@ -487,7 +487,7 @@ def test_a_windowless_segment_past_the_last_range_refuses():
     declarations = ffe.declared_elements(declare())
     with pytest.raises(ffe.FullFrameDeclarationError, match="by position"):
         ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
-                            ranges=[RANGES[0]], transcript=_transcript())
+                            ranges=[RANGES[0]], transcript=_transcript(), width=1080, height=1920)
 
 
 def test_a_range_no_segment_covers_refuses():
@@ -497,7 +497,7 @@ def test_a_range_no_segment_covers_refuses():
                        match="no segment covers"):
         ffe.plan_reel_cards(declarations, _facts(), 100, FPS,
                             ranges=RANGES + [(30.0, 32.0)],
-                            transcript=_transcript())
+                            transcript=_transcript(), width=1080, height=1920)
 
 
 def test_a_window_outside_every_range_refuses():

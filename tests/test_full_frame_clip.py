@@ -175,7 +175,7 @@ def test_a_tail_clip_plans_after_the_body_at_its_own_length(tmp_path):
     path = _clip(tmp_path)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements({"full_frame_elements": [_declaration(path)]}),
-        facts=None, body_frames=600, fps=FPS, project_folder=str(tmp_path))
+        facts=None, body_frames=600, fps=FPS, project_folder=str(tmp_path), width=1080, height=1920)
     assert len(cards) == 1
     card = cards[0]
     assert card.element == "full_frame_clip"
@@ -197,7 +197,7 @@ def test_a_clip_that_is_not_the_delivery_frame_refuses(tmp_path):
             ffe.declared_elements(
                 {"full_frame_elements": [_declaration(path)]}),
             facts=None, body_frames=600, fps=FPS,
-            project_folder=str(tmp_path))
+            project_folder=str(tmp_path), width=1080, height=1920)
     assert "1920x1080" in str(raised.value)
     assert "1080x1920" in str(raised.value)
 
@@ -208,7 +208,7 @@ def test_the_renderer_passes_a_project_clip_through_untouched(tmp_path):
     path = _clip(tmp_path)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements({"full_frame_elements": [_declaration(path)]}),
-        facts=None, body_frames=600, fps=FPS, project_folder=str(tmp_path))
+        facts=None, body_frames=600, fps=FPS, project_folder=str(tmp_path), width=1080, height=1920)
     out = ffe.render_reel_cards(cards, "/nonexistent/remotion",
                                 str(tmp_path / "renders"))
     assert [c.rendered_path for c in out] == [path]
@@ -261,16 +261,16 @@ def test_the_tail_clip_starts_after_the_switch_off_not_over_it(tmp_path):
     body = int(round(600 / FPS * FPS))
 
     without = plan_cards(_Moment(), {}, ranges, str(tmp_path), FPS,
-                         declarations=declarations)
+                         declarations=declarations, width=1080, height=1920)
     with_freeze = plan_cards(_Moment(), {}, ranges, str(tmp_path), FPS,
-                             declarations=declarations, ending=_ending())
+                             declarations=declarations, ending=_ending(), width=1080, height=1920)
     assert without[0].reel_start_frame == body
     assert with_freeze[0].reel_start_frame == body + 19
     # A declared `none` ending holds nothing, so nothing moves.
     assert plan_cards(_Moment(), {}, ranges, str(tmp_path), FPS,
                       declarations=declarations,
-                      ending=_ending(tail_hold="none")
-                      )[0].reel_start_frame == body
+                      ending=_ending(tail_hold="none"),
+                      width=1080, height=1920)[0].reel_start_frame == body
 
 
 def test_a_clip_at_the_reels_own_rate_keeps_every_frame(tmp_path):
@@ -279,7 +279,7 @@ def test_a_clip_at_the_reels_own_rate_keeps_every_frame(tmp_path):
     path = _clip(tmp_path, name="native.mov", seconds=2.0, fps=24)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements({"full_frame_elements": [_declaration(path)]}),
-        facts=None, body_frames=0, fps=24.0, project_folder=str(tmp_path))
+        facts=None, body_frames=0, fps=24.0, project_folder=str(tmp_path), width=1080, height=1920)
     assert cards[0].source_frames == 48
     assert cards[0].duration_frames == 48
 
@@ -298,7 +298,7 @@ def test_a_project_clip_is_not_promoted_out_from_under_itself(tmp_path):
     (project / "pipeline_output").mkdir(parents=True)
     cards = ffe.plan_reel_cards(
         ffe.declared_elements({"full_frame_elements": [_declaration(path)]}),
-        facts=None, body_frames=600, fps=FPS, project_folder=str(project))
+        facts=None, body_frames=600, fps=FPS, project_folder=str(project), width=1080, height=1920)
     assert [c.rendered_path
             for c in promote_cards(cards, str(project))] == [path]
 

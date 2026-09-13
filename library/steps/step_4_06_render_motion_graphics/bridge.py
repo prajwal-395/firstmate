@@ -129,13 +129,22 @@ def main():
     rows = timeline_rows(audio_spine)
     duration = max((r["timeline_end"] for r in rows), default=0.0)
 
+    frame_error = ""
     try:
         from library.tools.delivery_format import resolve_delivery_format
         width, height = resolve_delivery_format(project_folder)
-    except Exception:  # noqa: BLE001 - a bridge must not take the run down
-        width, height = 1080, 1920
-    safe = resolve_safe_area(
-        project_folder or None, width=width, height=height).as_props()
+        delivery_frame: dict = {"width": width, "height": height}
+        safe = resolve_safe_area(
+            project_folder or None, width=width, height=height).as_props()
+    except Exception as exc:  # noqa: BLE001 - a bridge must not take the run down
+        # No assumed frame: planning the layer against 1080x1920 while
+        # the delivery is landscape is what drew project 001's overlays
+        # as a lighter central band. An undeclared frame is SAID, and
+        # the safe area - which is measured against a frame - is empty
+        # rather than measured against a wrong one.
+        delivery_frame = {"unknown": True}
+        safe = {}
+        frame_error = str(exc)
 
     compressed = {
         "motion_elements_toon": format_toon(
@@ -158,7 +167,7 @@ def main():
         "motion_graphics_frame": {
             "timeline_duration_seconds": round(duration, 3),
             "fps": fps,
-            "delivery_frame": {"width": width, "height": height},
+            "delivery_frame": delivery_frame,
             "safe_area_px": safe,
             "anchors": list(plan.ANCHORS),
             "anchor_needing_a_measurement": plan.ANCHOR_NEEDS_MEASUREMENT,
@@ -176,6 +185,13 @@ def main():
         "brand_refinement": brand_refinement(
             data.get("brand_style") or {}, data.get("brand_effect") or {}),
     }
+    if frame_error:
+        compressed["motion_graphics_frame"]["frame_error"] = frame_error
+        compressed["motion_graphics_frame"]["frame_unknown"] = (
+            "The delivery format could not be resolved, so no frame is "
+            "stated and no safe area is measured. Plan nothing that "
+            "needs pixel positions until it is declared - see "
+            "library/tools/delivery_format.py.")
 
     print(json.dumps(compressed))
 

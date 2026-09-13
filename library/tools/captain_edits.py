@@ -1575,10 +1575,14 @@ def _capture_transform(args) -> tuple:
     # A head card occupies reel seconds before any footage plays -
     # the words land that far later on the timeline. The same
     # arithmetic the build places from, so the capture reads the clip
-    # the words actually play on.
+    # the words actually play on. The frame is the declared delivery
+    # format, resolved the same way the build resolves it - a capture
+    # that plans cards against an assumed frame reads the wrong clip.
+    _cap_w, _cap_h = _build.reel_resolution(args.project_folder)
     cards = _build.plan_cards(
         moment, transcript, ranges, args.project_folder,
         fps=24000 / 1001,
+        width=_cap_w, height=_cap_h,
         declarations=_build.declared_cards(args.project_folder))
     lead = _build.lead_frames(cards, 24000 / 1001) / (24000 / 1001)
     reel_start, master_start, master_end = anchor_reel_time(

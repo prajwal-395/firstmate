@@ -418,7 +418,7 @@ def test_a_tail_card_abuts_the_last_clip_on_a_range_that_does_not_round_evenly()
                   "colour": "#FFFFFF"}]}]})
 
     cards = plan_cards(_Moment(), {"segments": []}, ranges, "", FPS,
-                       declarations=declarations)
+                       declarations=declarations, width=1080, height=1920)
     assert [c.placement for c in cards] == ["tail"]
 
     placed = placements(ranges, [_Clip()], FPS, lead_frames=0)

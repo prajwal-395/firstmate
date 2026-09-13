@@ -67,7 +67,7 @@ def test_a_project_declaring_no_speakers_gets_no_lower_thirds(tmp_path):
     folder = _project(tmp_path, "declares-nothing")
     plan = si.plan_for_reel(
         reel_name="Reel 01", lines=_lines(("Ada", 1.0), ("Bram", 8.0)),
-        reel_seconds=60.0, project_folder=folder)
+        reel_seconds=60.0, project_folder=folder, width=1080, height=1920)
     assert plan.entries == []
     assert plan.introductions == []
     assert plan.declared is False
@@ -82,7 +82,7 @@ def test_a_project_with_no_project_yaml_at_all_gets_no_lower_thirds(tmp_path):
     assert si.project_declaration(str(folder)) is None
     plan = si.plan_for_reel(
         reel_name="Reel 01", lines=_lines(("Ada", 1.0)),
-        reel_seconds=60.0, project_folder=str(folder))
+        reel_seconds=60.0, project_folder=str(folder), width=1080, height=1920)
     assert plan.basis == si.NOT_DECLARED and plan.entries == []
 
 
@@ -99,9 +99,9 @@ def test_a_second_project_declares_a_different_cast(tmp_path):
                       effect={si.DECLARATION_KEY: other})
 
     plan_one = si.plan_for_reel(
-        "R", _lines(("Ada", 1.0), ("Zoe", 2.0)), 60.0, first)
+        "R", _lines(("Ada", 1.0), ("Zoe", 2.0)), 60.0, first, width=1080, height=1920)
     plan_two = si.plan_for_reel(
-        "R", _lines(("Ada", 1.0), ("Zoe", 2.0)), 60.0, second)
+        "R", _lines(("Ada", 1.0), ("Zoe", 2.0)), 60.0, second, width=1080, height=1920)
 
     assert [i.name for i in plan_one.introductions] == ["Ada Lovelace"]
     assert [i.name for i in plan_two.introductions] == ["Zoe Okafor"]
@@ -148,7 +148,7 @@ def test_a_speaker_appearing_twice_gets_exactly_one_graphic(tmp_path):
         reel_name="Reel 13",
         lines=_lines(("Ada", 0.5), ("Bram", 4.0), ("Ada", 9.0),
                      ("Ada", 17.0), ("Bram", 22.0), ("Ada", 30.0)),
-        reel_seconds=45.0, project_folder=folder)
+        reel_seconds=45.0, project_folder=folder, width=1080, height=1920)
     speakers = [i.speaker for i in plan.introductions]
     assert speakers == ["Ada", "Bram"]
     assert len(plan.entries) == 2
@@ -161,7 +161,7 @@ def test_first_appearance_is_the_reels_order_not_the_declarations(tmp_path):
     folder = _project(tmp_path, "order",
                       effect={si.DECLARATION_KEY: DECLARATION})
     plan = si.plan_for_reel(
-        "R", _lines(("Bram", 2.0), ("Ada", 7.0)), 40.0, folder)
+        "R", _lines(("Bram", 2.0), ("Ada", 7.0)), 40.0, folder, width=1080, height=1920)
     assert [i.speaker for i in plan.introductions] == ["Bram", "Ada"]
 
 
@@ -169,14 +169,14 @@ def test_an_undeclared_speaker_is_passed_over_in_silence(tmp_path):
     folder = _project(tmp_path, "third-voice",
                       effect={si.DECLARATION_KEY: DECLARATION})
     plan = si.plan_for_reel(
-        "R", _lines(("Caller", 1.0), ("Ada", 5.0)), 40.0, folder)
+        "R", _lines(("Caller", 1.0), ("Ada", 5.0)), 40.0, folder, width=1080, height=1920)
     assert [i.speaker for i in plan.introductions] == ["Ada"]
 
 
 def test_a_reel_no_declared_speaker_speaks_in_says_so(tmp_path):
     folder = _project(tmp_path, "nobody",
                       effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Caller", 1.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Caller", 1.0)), 40.0, folder, width=1080, height=1920)
     assert plan.declared is True
     assert plan.basis == si.NO_DECLARED_SPEAKER_SPOKE
     assert plan.entries == []
@@ -200,7 +200,7 @@ def test_the_colour_falls_back_to_this_projects_own_caption_accent(tmp_path):
             **DECLARATION,
             "speakers": {"Ada": {"name": "Ada Lovelace", "title": "Analyst"}},
         }})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
     assert plan.introductions[0].colour == "#ABCDEF"
     assert "speaker_subtitle_styles" in plan.introductions[0].colour_basis
 
@@ -213,7 +213,7 @@ def test_a_speaker_with_no_colour_anywhere_is_refused_not_invented(tmp_path):
             **DECLARATION,
             "speakers": {"Ada": {"name": "Ada Lovelace"}},
         }})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
     assert plan.entries == []
     assert [r["reason"] for r in plan.refused] == [si.NO_COLOUR_DECLARED]
 
@@ -224,7 +224,7 @@ def test_a_speakers_own_colour_wins_over_the_caption_accent(tmp_path):
         pipeline={"speaker_subtitle_styles": {
             "Ada": {"accentColor": "#ABCDEF"}}},
         effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
     assert plan.introductions[0].colour == "#11FFAA"
 
 
@@ -271,7 +271,7 @@ def test_the_entry_resolves_through_step_4_06s_own_resolver(tmp_path):
 
     folder = _project(tmp_path, "resolves",
                       effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Ada", 2.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Ada", 2.0)), 40.0, folder, width=1080, height=1920)
     resolved = resolve_plan(plan.entries, timeline_duration=40.0, fps=24.0)
     assert not resolved.dropped, [d.reason for d in resolved.dropped]
     assert len(resolved.moments) == 1
@@ -291,7 +291,7 @@ def test_a_speaker_with_no_title_sends_one_run(tmp_path):
             **DECLARATION,
             "speakers": {"Ada": {"name": "Ada Lovelace",
                                  "colour": "#11FFAA"}}}})
-    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
     assert plan.entries[0]["copy"] == [
         {"text": "Ada Lovelace", "type_role": "display"}]
 
@@ -299,7 +299,7 @@ def test_a_speaker_with_no_title_sends_one_run(tmp_path):
 def test_a_first_appearance_past_the_end_of_the_reel_is_refused(tmp_path):
     folder = _project(tmp_path, "past-the-end",
                       effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("R", _lines(("Ada", 99.0)), 40.0, folder)
+    plan = si.plan_for_reel("R", _lines(("Ada", 99.0)), 40.0, folder, width=1080, height=1920)
     assert plan.entries == []
     assert [r["reason"] for r in plan.refused] == [si.OUTSIDE_THE_REEL]
 
@@ -335,7 +335,7 @@ def test_a_card_ends_where_the_next_speakers_card_begins(tmp_path):
     hold itself is untouched."""
     folder = _held_project(tmp_path, "truncate")
     plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0), ("Bram", 3.23)), 60.0, folder)
+        "R", _lines(("Ada", 0.0), ("Bram", 3.23)), 60.0, folder, width=1080, height=1920)
     assert [(e["start_seconds"], e["duration_seconds"])
             for e in plan.entries] == [(0.0, 3.23), (3.23, 3.5)]
     first = plan.entries[0]
@@ -353,7 +353,7 @@ def test_a_card_clear_of_the_next_keeps_its_full_hold(tmp_path):
     guaranteed by the invariant rather than luck."""
     folder = _held_project(tmp_path, "clear")
     plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0), ("Bram", 3.54)), 60.0, folder)
+        "R", _lines(("Ada", 0.0), ("Bram", 3.54)), 60.0, folder, width=1080, height=1920)
     assert [e["duration_seconds"] for e in plan.entries] == [3.5, 3.5]
     assert all("truncated_for_next" not in e["data"]
                for e in plan.entries)
@@ -365,7 +365,7 @@ def test_each_card_in_a_chain_ends_where_the_next_begins(tmp_path):
     folder = _held_project(tmp_path, "chain")
     plan = si.plan_for_reel(
         "R", _lines(("Ada", 0.0), ("Bram", 2.0), ("Cy", 9.0)),
-        60.0, folder)
+        60.0, folder, width=1080, height=1920)
     assert [(e["start_seconds"], e["duration_seconds"])
             for e in plan.entries] == [(0.0, 2.0), (2.0, 3.5), (9.0, 3.5)]
 
@@ -381,7 +381,7 @@ def test_a_card_truncated_below_the_readability_floor_is_refused(tmp_path):
 
     folder = _held_project(tmp_path, "too-short")
     plan = si.plan_for_reel(
-        "R", _lines(("Ada", 0.0), ("Bram", 0.3)), 60.0, folder)
+        "R", _lines(("Ada", 0.0), ("Bram", 0.3)), 60.0, folder, width=1080, height=1920)
     assert [(e["start_seconds"], e["duration_seconds"])
             for e in plan.entries] == [(0.3, 3.5)]
     assert [i.speaker for i in plan.introductions] == ["Bram"]
@@ -402,7 +402,7 @@ def test_a_truncation_landing_exactly_on_the_floor_is_kept(tmp_path):
     plan = si.plan_for_reel(
         "R", _lines(("Ada", 0.0),
                     ("Bram", MIN_CAPTION_DISPLAY_SECONDS)),
-        60.0, folder)
+        60.0, folder, width=1080, height=1920)
     assert plan.entries[0]["duration_seconds"] == pytest.approx(
         MIN_CAPTION_DISPLAY_SECONDS)
     assert plan.refused == []
@@ -509,7 +509,7 @@ def test_measured_box_is_left_top_right_bottom():
 def test_the_record_carries_what_was_rendered_not_what_was_intended(tmp_path):
     folder = _project(tmp_path, "record",
                       effect={si.DECLARATION_KEY: DECLARATION})
-    plan = si.plan_for_reel("Reel 07", _lines(("Ada", 1.0)), 40.0, folder)
+    plan = si.plan_for_reel("Reel 07", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
     plan.segments = [{"overlay_path": "/x/lt_reel_07_00.mov",
                       "timeline_start": 1.0, "timeline_end": 4.0,
                       "total_frames": 72, "measured_box": (90, 1150, 700, 1370),
@@ -527,9 +527,9 @@ def test_write_plans_merges_rather_than_overwriting(tmp_path):
     touched - the same discipline `explainer_plan.write_plans` keeps."""
     folder = _project(tmp_path, "merge",
                       effect={si.DECLARATION_KEY: DECLARATION})
-    first = si.plan_for_reel("Reel 01", _lines(("Ada", 1.0)), 40.0, folder)
+    first = si.plan_for_reel("Reel 01", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)
     si.write_plans(folder, [first])
-    second = si.plan_for_reel("Reel 02", _lines(("Bram", 1.0)), 40.0, folder)
+    second = si.plan_for_reel("Reel 02", _lines(("Bram", 1.0)), 40.0, folder, width=1080, height=1920)
     path = si.write_plans(folder, [second])
     stored = json.loads(open(path, encoding="utf-8").read())
     assert {p["reel"] for p in stored["plans"]} == {"Reel 01", "Reel 02"}
@@ -553,7 +553,7 @@ def test_promotion_renames_the_staging_record_to_the_final_name(tmp_path):
     staging = "Reel 07 (rebuild staging)"
     final = "Reel 07"
     si.write_plans(folder, [si.plan_for_reel(
-        staging, _lines(("Ada", 1.0)), 40.0, folder)])
+        staging, _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)])
     assert si.plan_for(si.read_plans(folder), final) is None
 
     si.rename_plan_reels(folder, {staging: final})
@@ -569,9 +569,9 @@ def test_promotion_replaces_a_previous_build_under_the_final_name(tmp_path):
     folder = _project(tmp_path, "replace",
                       effect={si.DECLARATION_KEY: DECLARATION})
     si.write_plans(folder, [si.plan_for_reel(
-        "Reel 07", _lines(("Ada", 1.0)), 40.0, folder)])
+        "Reel 07", _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920)])
     si.write_plans(folder, [si.plan_for_reel(
-        "Reel 07 (rebuild staging)", _lines(("Bram", 2.0)), 40.0, folder)])
+        "Reel 07 (rebuild staging)", _lines(("Bram", 2.0)), 40.0, folder, width=1080, height=1920)])
 
     si.rename_plan_reels(folder, {"Reel 07 (rebuild staging)": "Reel 07"})
 
@@ -589,8 +589,8 @@ def test_a_refused_staging_leaves_no_lower_third_record(tmp_path):
                       effect={si.DECLARATION_KEY: DECLARATION})
     si.write_plans(folder, [
         si.plan_for_reel("Reel 07 (rebuild staging)",
-                         _lines(("Ada", 1.0)), 40.0, folder),
-        si.plan_for_reel("Reel 08", _lines(("Bram", 1.0)), 40.0, folder)])
+                         _lines(("Ada", 1.0)), 40.0, folder, width=1080, height=1920),
+        si.plan_for_reel("Reel 08", _lines(("Bram", 1.0)), 40.0, folder, width=1080, height=1920)])
 
     si.drop_plan_reels(folder, ["Reel 07 (rebuild staging)"])
 

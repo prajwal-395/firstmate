@@ -336,7 +336,7 @@ def test_consumer_motion_props_carries_the_inset():
         [{"element": "title_lockup", "start_seconds": 0.5,
           "duration_seconds": 2.0, "anchor": "top_left",
           "copy": {"display": "A NAME"}, "color": "#F5F5F0"}],
-        spine)
+        spine, width=1080, height=1920)
     assert segments, resolved.basis_record()
     assert segments[0]["props"]["safeArea"] == {
         "top": 120, "right": 120, "bottom": 320, "left": 90}
@@ -352,12 +352,14 @@ def test_consumer_timed_text_carries_the_inset_and_refuses_the_ui_band():
             "moments": [{"text": "Night 1", "color": "#D4A34A",
                          "start_frame": 0, "duration_frames": 60, "y": y}]}}
 
-    ok = plan_timed_text_segments(declaration(0.545))
+    ok = plan_timed_text_segments(declaration(0.545),
+                                   width=1080, height=1920)
     assert ok[0]["props"]["safeArea"]["bottom"] == 320
 
     # 0.95 of 1920 is row 1824 - under the platform's audio bar.
     with pytest.raises(TimedTextDeclarationError, match="safe area"):
-        plan_timed_text_segments(declaration(0.95))
+        plan_timed_text_segments(declaration(0.95),
+                                 width=1080, height=1920)
 
 
 def test_consumer_grouper_reads_the_same_width():

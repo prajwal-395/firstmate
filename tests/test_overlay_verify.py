@@ -41,14 +41,14 @@ def _clip(label, stored, kind="caption", segment_id="sub_x"):
 def test_matching_store_passes_values():
     report = verify_values(
         [_clip("cap", dict(COMPUTED))], {},
-        computed={("caption", "sub_x"): dict(COMPUTED)})
+        computed={("caption", "sub_x"): dict(COMPUTED)}, full_wh=(1080, 1920))
     assert report["passed"] and report["checked"] == 1
 
 
 def test_clamped_store_fails_values_with_both_numbers():
     report = verify_values(
         [_clip("cap", dict(CLAMPED))], {},
-        computed={("caption", "sub_x"): dict(COMPUTED)})
+        computed={("caption", "sub_x"): dict(COMPUTED)}, full_wh=(1080, 1920))
     assert not report["passed"]
     finding = report["findings"][0]
     assert finding["stored"]["tilt"] == -7680.0
@@ -59,7 +59,7 @@ def test_clamped_store_fails_values_with_both_numbers():
 def test_identity_store_on_tight_clip_fails_values():
     report = verify_values(
         [_clip("cap", {"scaling": 0, "pan": 0.0, "tilt": 0.0})], {},
-        computed={("caption", "sub_x"): dict(COMPUTED)})
+        computed={("caption", "sub_x"): dict(COMPUTED)}, full_wh=(1080, 1920))
     assert not report["passed"]
 
 
@@ -70,7 +70,7 @@ def test_declared_intent_is_the_expectation():
                                        "tilt": -1744.0}}
     report = verify_values(
         [_clip("cap", {"scaling": 1, "pan": 0.0, "tilt": -1700.0})],
-        intent, computed=computed)
+        intent, computed=computed, full_wh=(1080, 1920))
     assert report["passed"]
     assert report["findings"] == []
 
@@ -81,7 +81,7 @@ def test_computed_store_fails_against_declared_intent():
                                        "tilt": -1744.0}}
     report = verify_values(
         [_clip("cap", {"scaling": 1, "pan": 0.0, "tilt": -1744.0})],
-        intent, computed=computed)
+        intent, computed=computed, full_wh=(1080, 1920))
     assert not report["passed"]
     assert report["findings"][0]["provenance"] == "declared"
 
@@ -89,7 +89,7 @@ def test_computed_store_fails_against_declared_intent():
 def test_clip_with_no_expectation_is_skipped_not_passed():
     report = verify_values([_clip("mystery", dict(COMPUTED),
                                   kind="unknown", segment_id="zzz")],
-                           {}, computed={})
+                           {}, computed={}, full_wh=(1080, 1920))
     assert report["passed"] is True
     assert report["checked"] == 0
     assert len(report["skipped"]) == 1
@@ -125,7 +125,7 @@ def test_matching_store_passes_pixels(tmp_path):
     clip = _clip("cap", dict(placement))
     clip.update({"asset_frame": frame, "canvas_wh": (200, 120)})
     key = ("caption", "sub_x")
-    report = verify_pixels([clip], {}, computed={key: dict(placement)})
+    report = verify_pixels([clip], {}, computed={key: dict(placement)}, full_wh=(1080, 1920))
     assert report["passed"] and report["checked"] == 1
 
 
@@ -137,7 +137,7 @@ def test_shifted_store_fails_pixels_with_gap(tmp_path):
     clip = _clip("cap", dict(stored))
     clip.update({"asset_frame": frame, "canvas_wh": (200, 120)})
     key = ("caption", "sub_x")
-    report = verify_pixels([clip], {}, computed={key: dict(expected)})
+    report = verify_pixels([clip], {}, computed={key: dict(expected)}, full_wh=(1080, 1920))
     assert not report["passed"]
     assert report["findings"][0]["gap_px"] == 11.0
 
@@ -151,6 +151,6 @@ def test_blank_asset_frame_is_skipped(tmp_path):
     clip = _clip("cap", dict(placement))
     clip.update({"asset_frame": frame, "canvas_wh": (200, 120)})
     key = ("caption", "sub_x")
-    report = verify_pixels([clip], {}, computed={key: dict(placement)})
+    report = verify_pixels([clip], {}, computed={key: dict(placement)}, full_wh=(1080, 1920))
     assert report["checked"] == 0
     assert len(report["skipped"]) == 1
