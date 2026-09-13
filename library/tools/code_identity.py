@@ -183,6 +183,18 @@ EXEMPT_IMPORTS = {
     "library/tools/delivery_format.py",
     "library/tools/framing_intent.py",
     "library/tools/subtitle_style.py",
+    # Deliver-preset validation vocabulary.  project_config.validate reads
+    # only DELIVER_PRESET_KEYS, and only on the deliver_preset branch for
+    # a project that declares one - the scan's own declaration block
+    # (project_declared_config) carries no deliver keys at all.  A change
+    # here can only move the refuse/accept line for a bad preset, which
+    # every strict loader refuses loudly, never as a silently stale scan.
+    # Declaring it instead would drag the whole reel-render machinery
+    # (resolve_render, reel_build, reel_proposal, render_qa,
+    # pool_stream_meta) into a footage scan's cache key through
+    # reel_deliver's own imports - the over-invalidation rot the
+    # coverage test exists to stop in the other direction.
+    "library/tools/reel_deliver.py",
     # Live-Resolve ingest machinery.  The only preflight-reachable
     # reference is timeline_transcript.main, a command-line entry point
     # no run executes; preflight transcription never connects to
