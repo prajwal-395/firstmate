@@ -1065,13 +1065,30 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
     record["warnings"] = []
 
 
-REEL_RESOLUTION = (1080, 1920)
-"""Set EXPLICITLY on every reel timeline.
+def reel_resolution(project_folder) -> tuple:
+    """The frame this project's reels are built at, DECLARED not assumed.
 
-Measured in phase one: the PROJECT's own resolution is 3840x2160 and only
-the existing timelines override it, so a timeline created through the API
-inherits the horizontal UHD default. That is a silent wrong answer rather
-than an error, and sixteen of them would be sixteen rebuilds."""
+    Set EXPLICITLY on every reel timeline.  Measured in phase one: the
+    PROJECT's own resolution is 3840x2160 and only the existing timelines
+    override it, so a timeline created through the API inherits the
+    horizontal UHD default.  That is a silent wrong answer rather than an
+    error, and sixteen of them would be sixteen rebuilds.
+
+    What it is NOT is a property of the reels product.  This was
+    `REEL_RESOLUTION = (1080, 1920)` - a module constant, read by nothing
+    but its own test, while sixteen sites below wrote the same two numbers
+    by hand.  A reel is a short EXCERPT of a master; nothing about that
+    says vertical, and a client asking for the same excerpts as 16:9
+    long-form was answerable only by editing sixteen literals.  So the
+    frame comes from `library/tools/delivery_format.py` like every other
+    consumer of it: the brand template declares it, the project may
+    override with `pipeline.delivery_format`, and the default is still
+    vertical 1080x1920 - which is what `geo-podcast` resolves to, so every
+    reel already built is built at the identical numbers.
+    """
+    from library.tools.delivery_format import resolve_delivery_format
+    width, height = resolve_delivery_format(project_folder or None)
+    return (int(width), int(height))
 
 
 class ReelBuildError(RuntimeError):
@@ -4744,9 +4761,15 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
     project.SetCurrentTimeline(timeline)
 
+    # The frame the caller already resolved and every overlay above was
+    # rendered at. Written from `width`/`height` rather than by literal:
+    # a timeline sized differently from the overlays drawn for it is
+    # exactly the 001 defect (a vertical overlay band down the middle of
+    # a landscape master), and the two numbers cannot disagree if only
+    # one of them exists.
     timeline.SetSetting("useCustomSettings", "1")
-    timeline.SetSetting("timelineResolutionWidth", "1080")
-    timeline.SetSetting("timelineResolutionHeight", "1920")
+    timeline.SetSetting("timelineResolutionWidth", str(int(width)))
+    timeline.SetSetting("timelineResolutionHeight", str(int(height)))
 
     # The plan's rows, and only those. A row exists because the plan
     # put something on it; occupancy is enforced after placement, so
@@ -6531,16 +6554,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     
     project = resolve_project_exactly(pm, resolve_name)
 
+    # The frame this project's reels are DELIVERED in, resolved ONCE and
+    # threaded from here: the timeline size, every overlay render, the
+    # TV-frame check and the entry-unit refusal all read this one value,
+    # so none of them can disagree with another. `geo-podcast` declares
+    # nothing and gets the vertical default, which is the frame every
+    # reel it has was built at.
+    reel_width, reel_height = reel_resolution(project_folder)
+
     # Pan/Tilt sets are interpreted in the ENTRY timeline's units and
     # silently converted to the target's (measured 2026-09-10 - see
     # `overlay_placement.entry_unit_mismatch`), while same-process
-    # read-back echoes the set value. Reels build at 1080x1920, so a
-    # session entered on the 3840x2160 master would store every
+    # read-back echoes the set value. Reels build at the delivery frame,
+    # so a session entered on the 3840x2160 master would store every
     # overlay scaled while every check reads back clean. Refuse
     # before anything lands rather than placing a wrong-but-stored
     # timeline.
     from library.tools.overlay_placement import entry_unit_mismatch
-    unit_refusal = entry_unit_mismatch(project, (1080, 1920))
+    unit_refusal = entry_unit_mismatch(project, (reel_width, reel_height))
     if unit_refusal:
         raise ReelBuildError(unit_refusal)
         
@@ -6976,7 +7007,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # timeline exists: a frame asset whose aspect is not the delivery's
     # cannot surround the picture, and one smaller than the delivery
     # would be drawn upscaled. Both refuse here with both numbers named.
-    reel_look_decl = _reel_look.resolve_look(project_folder, 1080, 1920)
+    reel_look_decl = _reel_look.resolve_look(project_folder,
+                                             reel_width, reel_height)
     motion_records = []
     if reel_look_decl is not None:
         print(f"TV-frame look declared by {reel_look_decl['origin']}: "
@@ -7273,8 +7305,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # all while the work was done and discarded.
             subtitle_segments = None if skip_captions else reel_subtitle_segments(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, width=1080, height=1920, timeline_name=name,
-                lead_seconds=lead)
+                fps=24000 / 1001, width=reel_width, height=reel_height,
+                timeline_name=name, lead_seconds=lead)
 
             # The captain's caption-only timing
             # (`library/tools/caption_timing.py`), applied to the
@@ -7294,7 +7326,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # timeline it gets is the one it got before this existed.
             explainer_segments, explainer_plan = reel_explainer_segments(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, width=1080, height=1920,
+                fps=24000 / 1001, width=reel_width, height=reel_height,
                 judgement=judgement, brand_effect=brand_effect,
                 timeline_name=name)
             explainer_plans.append(explainer_plan)
@@ -7311,7 +7343,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             lower_third_segments, lower_third_plan = (
                 reel_lower_third_segments(
                     moment, transcript, ranges, project_folder,
-                    fps=24000 / 1001, width=1080, height=1920,
+                    fps=24000 / 1001, width=reel_width, height=reel_height,
                     brand_effect=brand_effect, timeline_name=name,
                     subtitle_segments=subtitle_segments,
                     lead_seconds=lead, extra_cuts=moment_cuts))
@@ -7330,7 +7362,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 fps=24000 / 1001)
             semantic_segments, semantic_record = sem_vis.build_for_reel(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, width=1080, height=1920,
+                fps=24000 / 1001, width=reel_width, height=reel_height,
                 timeline_name=name)
             semantic_records.append(semantic_record)
 
@@ -7548,8 +7580,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 master_clips=master_clips,
                 subtitle_segments=subtitle_segments,
                 fps=24000/1001,
-                width=1080,
-                height=1920,
+                width=reel_width,
+                height=reel_height,
                 project_folder=project_folder,
                 transcript=transcript,
                 timeline_name=name,
@@ -8536,8 +8568,14 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # card-carrying reel then (`build_reel_timeline`) rather than
     # guessing V1.
     card_row_role = card_row_role_for_project(project_folder, brand_effect)
+    # The delivery frame, resolved ONCE for the variant build exactly as
+    # `rebuild_reels_in_project` resolves it: a variant differs in a SEAM
+    # or a per-project declaration and in nothing else, so it must be
+    # built at the frame the reel it varies was built at.
+    reel_width, reel_height = reel_resolution(project_folder)
     from library.tools import reel_look as _reel_look
-    reel_look_decl = _reel_look.resolve_look(project_folder, 1080, 1920)
+    reel_look_decl = _reel_look.resolve_look(project_folder,
+                                             reel_width, reel_height)
 
     # The three per-reel DECLARATIONS the rebuild reads, read here on
     # the same terms (AGENTS.md 3, `tests/
@@ -8639,8 +8677,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
 
             subtitle_segments = reel_subtitle_segments(
                 moment, transcript, ranges, project_folder,
-                fps=fps, width=1080, height=1920, timeline_name=final,
-                lead_seconds=lead)
+                fps=fps, width=reel_width, height=reel_height,
+                timeline_name=final, lead_seconds=lead)
             # The captain's caption-only timing, applied to the
             # RENDERED segments and before anything places them -
             # the same seam the rebuild applies it at.
@@ -8652,7 +8690,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
                                        _cap_stale)
             explainer_segments, _explainer_plan = reel_explainer_segments(
                 moment, transcript, ranges, project_folder,
-                fps=fps, width=1080, height=1920,
+                fps=fps, width=reel_width, height=reel_height,
                 judgement=judgement, brand_effect=brand_effect,
                 timeline_name=final)
             # The speaker lower thirds, on the variant's own timeline
@@ -8662,7 +8700,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
             lower_third_segments, _lower_third_plan = (
                 reel_lower_third_segments(
                     moment, transcript, ranges, project_folder,
-                    fps=fps, width=1080, height=1920,
+                    fps=fps, width=reel_width, height=reel_height,
                     brand_effect=brand_effect, timeline_name=final,
                     subtitle_segments=subtitle_segments,
                     lead_seconds=lead, extra_cuts=moment_cuts))
@@ -8671,7 +8709,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
                                   project_folder, fps=fps)
             semantic_segments, _semantic_record = sem_vis.build_for_reel(
                 moment, transcript, ranges, project_folder,
-                fps=fps, width=1080, height=1920, timeline_name=final)
+                fps=fps, width=reel_width, height=reel_height,
+                timeline_name=final)
             overlay_plan = None
             if overlay_declared:
                 overlay_plan = overlay_mod.plan_reel_overlays(
@@ -8700,8 +8739,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 master_clips=clips,
                 subtitle_segments=subtitle_segments,
                 fps=fps,
-                width=1080,
-                height=1920,
+                width=reel_width,
+                height=reel_height,
                 project_folder=project_folder,
                 transcript=transcript,
                 timeline_name=final,

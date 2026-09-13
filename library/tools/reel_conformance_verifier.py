@@ -2753,38 +2753,63 @@ def check_overlay_caption_coverage(reel_name: str,
 
 # ── F10: Format mismatch ─────────────────────────────────────────────
 
-# The captain's format.  A correct vertical timeline rendering out
-# landscape while every structural check passes happened on this project.
-EXPECTED_WIDTH = 1080
-EXPECTED_HEIGHT = 1920
-
-
 def check_format(reel_name: str,
                  width: int, height: int, fps: float,
                  master_fps: float,
+                 expected_width: Optional[int] = None,
+                 expected_height: Optional[int] = None,
                  ) -> List[Finding]:
-    """F10: Verify the reel timeline is 1080x1920 at the master's rate.
+    """F10: Verify the reel timeline is the DECLARED frame at the master's rate.
 
     This project has a documented history of a correct vertical timeline
     rendering out LANDSCAPE while every other check passed - duration,
     frame rate, audio streams and frame occupancy all green on a file of
     the wrong shape.  Refusing to check the shape is how that happened.
+
+    The frame is the project's DECLARED delivery format
+    (`library/tools/delivery_format.py`), passed in by the caller - it
+    was `EXPECTED_WIDTH/EXPECTED_HEIGHT = 1080/1920` here, which is the
+    other way to get the same wrong answer: a gate that FAILS correct
+    output (AGENTS.md 10.4).  A project shipping 16:9 long-form would
+    have had every reel refused for being exactly what it declared.
+
+    A caller that names no expected frame gets a WARNING saying the
+    shape was not checked, never a pass: the whole reason this check
+    exists is that everything else stayed green on the wrong shape.
     """
     findings: List[Finding] = []
 
-    if width != EXPECTED_WIDTH or height != EXPECTED_HEIGHT:
+    if expected_width is None or expected_height is None:
+        findings.append(Finding(
+            finding_class=FindingClass.F10,
+            reel=reel_name,
+            message=(
+                f"Timeline is {width}x{height} and NOTHING declared the "
+                f"frame it should be - the shape was not checked. Pass "
+                f"the project's delivery format "
+                f"(library/tools/delivery_format.py)."),
+            severity="warning",
+            detail={
+                "actual_width": width,
+                "actual_height": height,
+                "expected_width": None,
+                "expected_height": None,
+            },
+        ))
+    elif width != int(expected_width) or height != int(expected_height):
         findings.append(Finding(
             finding_class=FindingClass.F10,
             reel=reel_name,
             message=(
                 f"Timeline is {width}x{height}, expected "
-                f"{EXPECTED_WIDTH}x{EXPECTED_HEIGHT} (vertical)"),
+                f"{int(expected_width)}x{int(expected_height)} "
+                f"(the project's declared delivery format)"),
             severity="error",
             detail={
                 "actual_width": width,
                 "actual_height": height,
-                "expected_width": EXPECTED_WIDTH,
-                "expected_height": EXPECTED_HEIGHT,
+                "expected_width": int(expected_width),
+                "expected_height": int(expected_height),
             },
         ))
 
@@ -4191,6 +4216,7 @@ def verify_reel(plan: ReelPlan,
                 semantic_plan: Optional[dict] = None,
                 span_plan: Optional[dict] = None,
                 lower_third_plan: Optional[dict] = None,
+                expected_frame: Optional[Tuple[int, int]] = None,
                 ) -> ReelResult:
     """Run all checks on one reel and return the result.
 
@@ -4282,11 +4308,16 @@ def verify_reel(plan: ReelPlan,
     findings.extend(check_duplicate_placements(
         plan.reel_name, timeline.video_items, fps))
 
-    # F10: Format (resolution and frame rate)
+    # F10: Format (resolution and frame rate). `expected_frame` is the
+    # project's DECLARED delivery format, resolved by the caller - not a
+    # constant here, because a constant here refuses a correct reel in
+    # any other frame. None is not a pass: check_format warns.
     if timeline.width and timeline.height:
         findings.extend(check_format(
             plan.reel_name, timeline.width, timeline.height, fps,
-            master_fps or fps))
+            master_fps or fps,
+            expected_width=(expected_frame[0] if expected_frame else None),
+            expected_height=(expected_frame[1] if expected_frame else None)))
 
     # F12: The picture in the frame, not just the shape of the frame.
     # Runs only where F10 established a frame to measure against; a
@@ -4735,7 +4766,10 @@ def _reel_look_declaration(project_folder: str):
     try:
         from library.tools import reel_look as _reel_look
 
-        return _reel_look.resolve_look(project_folder, 1080, 1920)
+        from library.tools.delivery_format import resolve_delivery_format
+
+        frame_w, frame_h = resolve_delivery_format(project_folder)
+        return _reel_look.resolve_look(project_folder, frame_w, frame_h)
     except Exception:  # noqa: BLE001 - a look this module cannot read is
         # not this module's refusal to make: the BUILD refuses on it, and
         # the element's own declared timings are the answer meanwhile.
@@ -5826,6 +5860,17 @@ def run_verification(
     # None is a project that declares no look, and then every check
     # below reads exactly what it read before `reel_look` existed.
     from library.tools import reel_look as _reel_look
+    # The frame the reels were BUILT at, read from the same declaration
+    # `reel_build.reel_resolution` builds them at, so the gate and the
+    # builder cannot disagree. None where no project reached this run,
+    # and then F10 says the shape was not checked rather than passing it.
+    expected_frame = None
+    if project_folder:
+        from library.tools.delivery_format import resolve_delivery_format
+
+        _fw, _fh = resolve_delivery_format(project_folder)
+        expected_frame = (int(_fw), int(_fh))
+
     declared_look = (_reel_look.resolve_look(project_folder)
                      if project_folder else None)
     # What the build recorded about each reel's explainer. Read ONCE and
@@ -5942,7 +5987,8 @@ def run_verification(
                 span_plan=span_plan_record_for_reel(
                     span_plan_records, name),
                 lower_third_plan=lower_third_plan_for_reel(
-                    lower_third_plans, name))
+                    lower_third_plans, name),
+                expected_frame=expected_frame)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

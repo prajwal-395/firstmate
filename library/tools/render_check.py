@@ -13,15 +13,34 @@ class RenderCheckFinding:
     passed: bool
     message: str
 
-def check_geometry(video_path: str) -> List[RenderCheckFinding]:
+def check_geometry(video_path: str,
+                   expected: Optional[Tuple[int, int]] = None
+                   ) -> List[RenderCheckFinding]:
+    """Is the rendered file the frame the project DECLARED?
+
+    `expected` is the delivery format the caller resolved
+    (`library/tools/delivery_format.py`). This was `width == 1080 and
+    height == 1920` written in, which is a gate that FAILS correct
+    output (AGENTS.md 10.4): a project declaring 16:9 long-form would
+    have every correct render marked a defect for being what it asked
+    for. A caller that names no frame gets a FAILING finding saying the
+    shape was not checked - never a pass, because passing an unchecked
+    shape is the exact defect this check exists for.
+    """
     try:
         from library.tools.render_qa import _probe_video_size
         size = _probe_video_size(video_path)
         if size is None:
             return [RenderCheckFinding("geometry", False, "Could not probe video size")]
         width, height = size
-        passed = (width == 1080 and height == 1920)
-        msg = f"Geometry is {width}x{height}" if passed else f"Geometry is {width}x{height}, expected 1080x1920"
+        if expected is None:
+            return [RenderCheckFinding(
+                "geometry", False,
+                f"Geometry is {width}x{height} and nothing declared the "
+                f"frame it should be - not checked")]
+        exp_w, exp_h = int(expected[0]), int(expected[1])
+        passed = (width == exp_w and height == exp_h)
+        msg = f"Geometry is {width}x{height}" if passed else f"Geometry is {width}x{height}, expected {exp_w}x{exp_h}"
         return [RenderCheckFinding("geometry", passed, msg)]
     except Exception as e:
         return [RenderCheckFinding("geometry", False, f"Geometry check failed: {e}")]
@@ -265,7 +284,15 @@ def check_black_and_freeze(video_path: str, plan_master_holes: List[dict] = None
     return findings
 
 
-def run_checks(video_path: str, plan_data: dict) -> List[RenderCheckFinding]:
+def run_checks(video_path: str, plan_data: dict,
+               expected_frame: Optional[Tuple[int, int]] = None
+               ) -> List[RenderCheckFinding]:
+    """Grade a rendered reel against the plan it was built from.
+
+    `expected_frame` is the project's declared delivery format; without
+    it `check_geometry` reports the shape as unchecked rather than
+    passing it.
+    """
     plan_seconds = plan_data.get("plan_seconds", 0.0)
     
     # Placements
@@ -294,7 +321,7 @@ def run_checks(video_path: str, plan_data: dict) -> List[RenderCheckFinding]:
     master_holes = plan_data.get("master_holes", [])
     
     findings = []
-    findings.extend(check_geometry(video_path))
+    findings.extend(check_geometry(video_path, expected_frame))
     findings.extend(check_duration(video_path, plan_seconds))
     findings.extend(check_audio_speakers(video_path, tuple(placements)))
     findings.extend(check_captions(video_path, plan_data))

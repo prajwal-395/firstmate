@@ -292,7 +292,7 @@ def _run_scoped_verification(names, only_reels):
             patch("library.tools.timeline_ingest.snapshot_to_dict",
                   side_effect=lambda snap: {"timeline": snap._name}), \
             patch("library.tools.reel_conformance_verifier._snapshot_to_reel_timeline",
-                  side_effect=lambda snap: ReelTimeline(
+                  side_effect=lambda snap, **kwargs: ReelTimeline(
                       reel_name=snap._name, fps=FPS, total_frames=240,
                       video_items=(), audio_items=(), caption_items=())), \
             patch("library.tools.reel_conformance_verifier.verify_reel",

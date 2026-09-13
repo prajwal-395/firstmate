@@ -1050,8 +1050,9 @@ class TestF10Format:
     """
 
     def test_detects_landscape_resolution(self):
-        """1920x1080 (landscape) is wrong for a vertical short."""
-        findings = check_format("Reel 01", 1920, 1080, FPS, FPS)
+        """1920x1080 (landscape) is wrong for a project that declared vertical."""
+        findings = check_format("Reel 01", 1920, 1080, FPS, FPS,
+                                expected_width=1080, expected_height=1920)
         assert len(findings) == 1
         assert findings[0].finding_class == FindingClass.F10
         assert findings[0].severity == "error"
@@ -1060,21 +1061,24 @@ class TestF10Format:
 
     def test_detects_wrong_width(self):
         """Width mismatch alone is a defect."""
-        findings = check_format("Reel 02", 720, 1920, FPS, FPS)
+        findings = check_format("Reel 02", 720, 1920, FPS, FPS,
+                                expected_width=1080, expected_height=1920)
         assert len(findings) == 1
         assert findings[0].finding_class == FindingClass.F10
         assert "720x1920" in findings[0].message
 
     def test_detects_fps_mismatch(self):
         """A reel at 30fps when the master is 23.976 stutters."""
-        findings = check_format("Reel 03", 1080, 1920, 30.0, FPS)
+        findings = check_format("Reel 03", 1080, 1920, 30.0, FPS,
+                                expected_width=1080, expected_height=1920)
         assert len(findings) == 1
         assert findings[0].finding_class == FindingClass.F10
         assert "fps" in findings[0].message.lower()
 
     def test_detects_both_resolution_and_fps(self):
         """Both wrong = two findings."""
-        findings = check_format("Reel 04", 1920, 1080, 30.0, FPS)
+        findings = check_format("Reel 04", 1920, 1080, 30.0, FPS,
+                                expected_width=1080, expected_height=1920)
         assert len(findings) == 2
         classes = {f.detail.get("actual_width") or f.detail.get("actual_fps")
                    for f in findings}
@@ -1083,14 +1087,49 @@ class TestF10Format:
 
     def test_correct_format_no_findings(self):
         """1080x1920 at the master's fps is correct."""
-        findings = check_format("Reel 01", 1080, 1920, FPS, FPS)
+        findings = check_format("Reel 01", 1080, 1920, FPS, FPS,
+                                expected_width=1080, expected_height=1920)
         assert len(findings) == 0
 
     def test_correct_at_exact_ntsc(self):
         """Both at 24000/1001 exactly is correct."""
         findings = check_format("Reel 01", 1080, 1920,
-                                24000 / 1001, 24000 / 1001)
+                                24000 / 1001, 24000 / 1001,
+                                expected_width=1080, expected_height=1920)
         assert len(findings) == 0
+
+    def test_a_declared_horizontal_reel_is_not_a_defect(self):
+        """F10 grades against the DECLARED frame, not against vertical.
+
+        The input that breaks this: putting `EXPECTED_WIDTH = 1080` back,
+        or defaulting `expected_width`/`expected_height` to it. A project
+        declaring `horizontal_1920x1080` would then have every correct
+        reel refused for being exactly what it asked for - a gate that
+        FAILS correct output (AGENTS.md 10.4).
+        """
+        findings = check_format("Reel 01", 1920, 1080, FPS, FPS,
+                                expected_width=1920, expected_height=1080)
+        assert findings == []
+
+        # ... and the same reel is a defect where vertical was declared.
+        findings = check_format("Reel 01", 1920, 1080, FPS, FPS,
+                                expected_width=1080, expected_height=1920)
+        assert len(findings) == 1
+        assert findings[0].severity == "error"
+
+    def test_an_undeclared_frame_is_warned_about_never_passed(self):
+        """No expected frame means the shape was NOT CHECKED, and says so.
+
+        The input that breaks this: making the no-frame case return `[]`.
+        Every other check stayed green on the wrong shape once already;
+        a silent pass here is that incident with a nicer signature.
+        """
+        findings = check_format("Reel 01", 1080, 1920, FPS, FPS)
+        assert len(findings) == 1
+        assert findings[0].finding_class == FindingClass.F10
+        assert findings[0].severity == "warning"
+        assert "not checked" in findings[0].message
+        assert findings[0].detail["expected_width"] is None
 
 
 # ── F11: Subtitle styling ───────────────────────────────────────────

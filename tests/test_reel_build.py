@@ -13,7 +13,6 @@ import pytest
 
 from library.tools.reel_build import (
     DURATION_RATIO,
-    REEL_RESOLUTION,
     ReelBuildError,
     keep_ranges,
     place_overlay_segments,
@@ -165,11 +164,81 @@ def test_a_reel_closes_the_gap_a_cut_leaves():
 
 # ── The resolution that would otherwise be silently wrong ────────────
 
-def test_the_reel_resolution_is_vertical_and_explicit():
+def test_the_reel_resolution_is_explicit_and_declared(tmp_path):
     """The PROJECT default is 3840x2160 and only the existing timelines
     override it, so a timeline created through the API inherits the
-    horizontal default - a silent wrong answer, not an error."""
-    assert REEL_RESOLUTION == (1080, 1920)
+    horizontal default - a silent wrong answer, not an error. So the
+    reel timeline is sized EXPLICITLY.
+
+    What it is sized to is the project's DECLARED delivery format, not
+    `REEL_RESOLUTION = (1080, 1920)`. A project that declares nothing
+    still gets vertical, which is what every reel already built was
+    built at.
+
+    The input that breaks this: writing the frame back as a constant.
+    A project declaring `horizontal_1920x1080` below would then build a
+    vertical timeline and composite horizontal overlays onto it - the
+    001 defect, which gemma-4-12b named unprompted on five of eight
+    sampled frames.
+    """
+    from library.tools.reel_build import reel_resolution
+
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "project.yaml").write_text("name: plain\n", encoding="utf-8")
+    assert reel_resolution(str(plain)) == (1080, 1920)
+
+    wide = tmp_path / "wide"
+    wide.mkdir()
+    (wide / "project.yaml").write_text(
+        "name: wide\npipeline:\n  delivery_format: horizontal_1920x1080\n",
+        encoding="utf-8")
+    assert reel_resolution(str(wide)) == (1920, 1080)
+
+    square = tmp_path / "square"
+    square.mkdir()
+    (square / "project.yaml").write_text(
+        "name: square\npipeline:\n  delivery_format: square_1080x1080\n",
+        encoding="utf-8")
+    assert reel_resolution(str(square)) == (1080, 1080)
+
+
+def test_no_reel_build_site_writes_the_frame_by_hand():
+    """Sixteen sites wrote `1080`/`1920` as literals; none may again.
+
+    A resolved value threaded from one place is only a generalisation
+    while nothing beside it re-states the number. This reads the module
+    and fails on a bare 1080 or 1920 in CODE - docstrings and comments
+    keep the measurement history, which is the point of them.
+
+    The input that breaks this: adding
+    `width=1080, height=1920` to one more overlay call, which is exactly
+    how the other fifteen arrived.
+    """
+    import ast
+    import inspect
+    import io
+    import re
+    import tokenize
+
+    import library.tools.reel_build as reel_build
+
+    source = inspect.getsource(reel_build)
+    pattern = re.compile(r"\b(1080|1920)\b")
+    skip = set()
+    for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+        if tok.type in (tokenize.COMMENT, tokenize.STRING):
+            for line in range(tok.start[0], tok.end[0] + 1):
+                skip.add(line)
+    offenders = [
+        (n, line.strip())
+        for n, line in enumerate(source.splitlines(), 1)
+        if pattern.search(line) and n not in skip
+    ]
+    assert offenders == [], (
+        "reel_build.py states the delivery frame by hand at "
+        f"{offenders} - resolve it with reel_resolution(project_folder)")
+    ast.parse(source)
 
 
 # ── A reel must carry BOTH speakers' audio ───────────────────────────

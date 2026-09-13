@@ -217,7 +217,37 @@ def test_placement_limits_are_the_measured_rail():
     The earlier four-times figure was calibrated to miss it."""
     from library.tools.tight_box import placement_limits
     assert placement_limits(1080, 1920) == (3840.0, 3840.0)
-    assert placement_limits(1920, 1080) == (3840.0, 3840.0)
+
+
+def test_an_unmeasured_frame_gets_no_rail_and_refuses_the_transform():
+    """1920x1080 was NEVER probed, so it has no rail and no placement.
+
+    This line used to read `placement_limits(1920, 1080) == (3840.0,
+    3840.0)` - an assertion with no measurement under it, in a module
+    whose own comment says one geometry cannot tell `2 x height` from a
+    constant. If the true law is `2 x height` the horizontal rail is
+    2160, and gating against 3840 would let captions ride onto a silent
+    clamp exactly as the captain's 37 did on 2026-09-09.
+
+    The input that breaks this test: putting any second geometry back
+    into `MEASURED_RAILS` without probing it, or making
+    `placement_limits` fall back to `MEASURED_PAN_TILT_RAIL` for a
+    frame it has no row for.
+    """
+    from library.tools.tight_box import placement_holds, placement_limits
+
+    assert placement_limits(1920, 1080) is None
+    assert placement_limits(1080, 1080) is None
+
+    # A placement well inside the vertical rail is still refused there,
+    # and the refusal NAMES the frame rather than reporting a number.
+    reason = placement_holds({"pan": 0.0, "tilt": -100.0}, 1920, 1080)
+    assert reason, "an unmeasured frame must refuse, not pass"
+    assert "1920x1080" in reason
+    assert "never been measured" in reason
+
+    # And the vertical path is untouched: the same placement holds.
+    assert placement_holds({"pan": 0.0, "tilt": -100.0}, 1080, 1920) == ""
 
 
 def test_minimum_canvas_brings_the_craig_case_inside_the_rail(tmp_path):

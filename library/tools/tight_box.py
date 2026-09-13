@@ -202,6 +202,17 @@ LINE_HEIGHT_EM = 1.2
 # read-off and `verify_frames` prove that per segment, and a segment
 # that fails the proof still falls back to full canvas. `placement_holds`
 # and the placement read-back both survive below, unchanged.
+#
+# DERIVED, not chosen, and derived at ONE frame: it is the canvas height
+# that keeps the worst caption's Tilt inside the 3840 rail measured on a
+# 1080x1920 timeline. Both numbers it comes from are properties of that
+# geometry, so this floor is knowledge about vertical delivery. It is
+# left as it is rather than re-derived per frame because on any other
+# frame `placement_limits` returns None and `placement_holds` refuses
+# every tight placement outright (see `MEASURED_RAILS`), so the floor
+# has nothing left to protect there. Re-derive it in the same pass that
+# measures a second frame's rail, not before - a floor computed from an
+# unmeasured rail is the guess this module refuses to make.
 MIN_CANVAS_HEIGHT = 480
 
 
@@ -779,10 +790,43 @@ def ink_touches_edge_frames(frame_paths: list[str],
 # to the measured 1080x1920 frame and anything else re-probes.
 MEASURED_PAN_TILT_RAIL = 3840.0
 
+#: The geometries the rail above was actually MEASURED at, keyed
+#: `(timeline_w, timeline_h)`.
+#:
+#: One row, because one geometry is all anyone has probed. The comment
+#: above says plainly that a single geometry cannot tell `2 x height`
+#: from a constant, and 1080x1920 is the only frame the 37 captions were
+#: read off - so 3840 is knowledge about THAT frame and a guess about
+#: every other.
+#:
+#: `placement_limits` used to return it for any timeline it was handed,
+#: which is how a shape assumption hides inside a function that takes the
+#: shape as an argument: a 1920x1080 delivery would have been gated
+#: against a rail nobody measured there, and if the true rail is
+#: `2 x height` it is 2160 - so captions would have ridden onto a silent
+#: clamp exactly as the captain's 37 did. Guessing HIGH is the dangerous
+#: direction, and both readings of the evidence guess high somewhere.
+#:
+#: An unmeasured geometry therefore gets NO rail, and `placement_holds`
+#: refuses every tight placement on it. That is not a loss of capability:
+#: the refusal routes the caller to its full-canvas fallback, which
+#: carries no transform at all and so cannot be clamped. Measuring a new
+#: frame means probing it the way 2026-09-10 probed this one - set a
+#: known Pan/Tilt, read it back, find where the round-trip stops - and
+#: adding a row here.
+MEASURED_RAILS: dict = {
+    (1080, 1920): (MEASURED_PAN_TILT_RAIL, MEASURED_PAN_TILT_RAIL),
+}
 
-def placement_limits(timeline_w: int, timeline_h: int) -> tuple[float, float]:
-    """The largest |Pan| and |Tilt| Resolve holds, measured above."""
-    return (MEASURED_PAN_TILT_RAIL, MEASURED_PAN_TILT_RAIL)
+
+def placement_limits(timeline_w: int, timeline_h: int):
+    """The largest |Pan| and |Tilt| Resolve holds, or None if unmeasured.
+
+    Measured per GEOMETRY (`MEASURED_RAILS`). `None` means nobody has
+    probed this frame, and the caller must refuse a transform rather
+    than gate it against another frame's number.
+    """
+    return MEASURED_RAILS.get((int(timeline_w), int(timeline_h)))
 
 
 def placement_holds(placement: dict | None,
@@ -801,7 +845,17 @@ def placement_holds(placement: dict | None,
     """
     if not placement:
         return ""
-    pan_limit, tilt_limit = placement_limits(timeline_w, timeline_h)
+    limits = placement_limits(timeline_w, timeline_h)
+    if limits is None:
+        return (f"Resolve's Pan/Tilt rail has never been measured on a "
+                f"{timeline_w}x{timeline_h} timeline, and the rail "
+                f"measured at "
+                f"{'x'.join(str(v) for v in sorted(MEASURED_RAILS)[0])} "
+                f"is not evidence about this one (see "
+                f"tight_box.MEASURED_RAILS). Refusing the transform "
+                f"rather than placing against a guess - the caller "
+                f"carries this card full canvas, which needs none.")
+    pan_limit, tilt_limit = limits
     pan = placement.get("pan")
     tilt = placement.get("tilt")
     if pan is not None and abs(pan) > pan_limit:

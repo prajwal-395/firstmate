@@ -6,6 +6,12 @@ import pytest
 
 from library.tools.render_check import run_checks
 
+# The frame these fixtures are built at, stated once. `run_checks` grades
+# geometry against what the caller DECLARES, not against a constant, so a
+# caller that declares nothing gets a "not checked" failure rather than a
+# pass - which is what the two tests at the bottom of this file pin.
+DECLARED_FRAME = (1080, 1920)
+
 def build_fixture_video(path, width=1080, height=1920, duration=2.0, has_text=True, audio_levels=(-14, -14), black_hole=False, freeze=False):
     # We will build the video by constructing a filtergraph
     
@@ -97,21 +103,21 @@ def plan_data(tmp_path):
 def test_clean_case(tmp_path, plan_data):
     video_path = str(tmp_path / "clean.mp4")
     build_fixture_video(video_path, has_text=True, audio_levels=(-14, -14))
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     assert len(failures) == 0, f"Expected 0 failures, got: {failures}"
 
 def test_geometry_defect(tmp_path, plan_data):
     video_path = str(tmp_path / "geom.mp4")
     build_fixture_video(video_path, width=1920, height=1080)
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     assert any(f.metric == 'geometry' for f in failures)
 
 def test_duration_defect(tmp_path, plan_data):
     video_path = str(tmp_path / "dur.mp4")
     build_fixture_video(video_path, duration=1.5)
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     assert len(failures) == 1
     assert failures[0].metric == "duration"
@@ -119,7 +125,7 @@ def test_duration_defect(tmp_path, plan_data):
 def test_audio_missing_speaker(tmp_path, plan_data):
     video_path = str(tmp_path / "audio.mp4")
     build_fixture_video(video_path, audio_levels=(-14, -99))
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     assert len(failures) == 1
     assert failures[0].metric == "audio_speakers"
@@ -128,7 +134,7 @@ def test_audio_missing_speaker(tmp_path, plan_data):
 def test_missing_caption(tmp_path, plan_data):
     video_path = str(tmp_path / "nocap.mp4")
     build_fixture_video(video_path, has_text=False)
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     assert len(failures) == 1
     assert failures[0].metric == "captions"
@@ -137,7 +143,7 @@ def test_missing_caption(tmp_path, plan_data):
 def test_black_hole(tmp_path, plan_data):
     video_path = str(tmp_path / "black.mp4")
     build_fixture_video(video_path, black_hole=True)
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     assert len(failures) == 1
     assert failures[0].metric == "black_frames"
@@ -146,7 +152,7 @@ def test_black_hole(tmp_path, plan_data):
 def test_freeze_frame(tmp_path, plan_data):
     video_path = str(tmp_path / "freeze.mp4")
     build_fixture_video(video_path, freeze=True)
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed and f.metric == 'freeze_frames']
     assert len(failures) == 1
     assert failures[0].metric == "freeze_frames"
@@ -155,7 +161,7 @@ def test_inherited_black_hole(tmp_path, plan_data):
     video_path = str(tmp_path / "black_inherited.mp4")
     build_fixture_video(video_path, black_hole=True)
     plan_data["master_holes"] = [{"at_seconds": 1.5, "length": 2}]
-    findings = run_checks(video_path, plan_data)
+    findings = run_checks(video_path, plan_data, expected_frame=DECLARED_FRAME)
     failures = [f for f in findings if not f.passed]
     # Inherited hole should not fail
     assert len(failures) == 0
@@ -276,3 +282,44 @@ def test_caption_blank_verdict_probes_the_span_not_one_instant(tmp_path):
     failures = [f for f in findings if not f.passed]
     assert failures == [], f"caption drawn across the span reported as failed: {failures}"
 
+
+
+# ── The shape is graded against a DECLARATION, not against vertical ───
+
+def test_a_declared_horizontal_render_is_not_a_geometry_defect(tmp_path,
+                                                               plan_data):
+    """A 1920x1080 file is correct where 1920x1080 was declared.
+
+    `check_geometry` read `width == 1080 and height == 1920`, so a
+    project delivering 16:9 long-form had every correct render marked a
+    defect - a gate that FAILS correct output (AGENTS.md 10.4).
+
+    The input that breaks this: putting the literal comparison back, or
+    defaulting `expected_frame` to (1080, 1920).
+    """
+    video_path = str(tmp_path / "wide.mp4")
+    build_fixture_video(video_path, width=1920, height=1080)
+    findings = run_checks(video_path, plan_data, expected_frame=(1920, 1080))
+    geometry = [f for f in findings if f.metric == "geometry"]
+    assert geometry and geometry[0].passed, geometry
+
+    # ... and the same file IS a defect where vertical was declared.
+    findings = run_checks(video_path, plan_data, expected_frame=(1080, 1920))
+    geometry = [f for f in findings if f.metric == "geometry"]
+    assert geometry and not geometry[0].passed
+
+
+def test_an_undeclared_frame_is_reported_never_passed(tmp_path, plan_data):
+    """No declared frame means the shape was NOT CHECKED, and says so.
+
+    The input that breaks this: making the no-frame case pass. An
+    unchecked shape reported as a pass is the exact incident this check
+    exists for - a correct vertical timeline rendering out landscape
+    with every other check green.
+    """
+    video_path = str(tmp_path / "clean.mp4")
+    build_fixture_video(video_path)
+    findings = run_checks(video_path, plan_data)
+    geometry = [f for f in findings if f.metric == "geometry"]
+    assert geometry and not geometry[0].passed
+    assert "not checked" in geometry[0].message
