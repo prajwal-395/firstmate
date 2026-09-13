@@ -4381,6 +4381,29 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
     return applied
 
 
+def pool_items_for(pool, filepath: str):
+    """EVERY media pool item for *filepath*, in pool order.
+
+    The plural half of `pool_item_for` below: a path normally holds
+    one item, but a metadata refresh (`import_pool_item`) imports a
+    second one beside a stale predecessor it must not delete (see
+    that function), so a lookup that stops at the first hit would
+    re-import on every rebuild - the unbounded duplication measured
+    on 2026-09-09, back by another door.
+    """
+    found = []
+
+    def _search(folder):
+        for item in folder.GetClipList() or ():
+            if item.GetClipProperty("File Path") == filepath:
+                found.append(item)
+        for sub in folder.GetSubFolderList() or ():
+            _search(sub)
+
+    _search(pool.GetRootFolder())
+    return found
+
+
 def pool_item_for(pool, filepath: str):
     """The media pool item for *filepath*, or None if it is not there yet.
 
@@ -4396,19 +4419,78 @@ def pool_item_for(pool, filepath: str):
     each, one per build attempt - because every build re-imported files
     that were already there.  A rebuild is the normal way to work on a
     reel, so the pool grew by the whole overlay set every time; the bin
-    held 1,210 items before the project was reset.
+    held 1,210 items before the project was reset. The plural form
+    is `pool_items_for` above, which the refresh path reads: a path
+    under repair holds TWO items until history releases the stale one.
     """
-    def _search(folder):
-        for item in folder.GetClipList() or ():
-            if item.GetClipProperty("File Path") == filepath:
-                return item
-        for sub in folder.GetSubFolderList() or ():
-            found = _search(sub)
-            if found:
-                return found
-        return None
+    items = pool_items_for(pool, filepath)
+    return items[0] if items else None
 
-    return _search(pool.GetRootFolder())
+
+def _fresh_pooled_item(pool, filepath: str):
+    """The pooled item for *filepath* whose metadata matches the file.
+
+    A lookup hit is only reusable when Resolve's cached stream
+    metadata still describes the bytes: artefacts are rewritten in
+    place at a stable path (a re-render under an unchanged drawing
+    digest, and `transcode_in_place`'s ProRes-to-qtrle carriage),
+    while the pool caches dimensions and codec at import where the
+    scripting API cannot refresh them. Measured 2026-09-13: 13 of 228
+    overlay items held a predecessor's metadata, and every render of
+    those frames failed decoding them.
+
+    The comparison is `pool_stream_meta` - the one `deliver-reel`'s
+    preflight refuses on, so the build heals what the deliver would
+    refuse. One ffprobe per call, only when the path is already
+    pooled; a fresh path imports with no probe at all.
+
+    Returns `(item, None)` on a reusable hit and `(None, record)` when
+    every pooled item disagrees, where `record` is the last
+    disagreement - the caller imports fresh and says this. A path
+    nothing comparable disagrees on reuses as before: an unreadable
+    file or an unreadable property is skipped, never flagged.
+
+    This NEVER deletes. The stale item stays pooled because the
+    approved timeline still plays it: `MediaPool.DeleteClips` on a
+    placed item takes media off that timeline, and promotion retires
+    the old timeline to Archive rather than deleting it, so the stale
+    item stays referenced by history either way
+    (`orphan_removal.assert_removable` refuses placed items for
+    exactly this reason). The staging timeline binds the fresh item;
+    promotion carries it; the stale item outlives its usefulness
+    beside the archive that still names it.
+    """
+    from library.tools import pool_stream_meta
+
+    candidates = pool_items_for(pool, filepath)
+    if not candidates:
+        return None, None
+    disk = pool_stream_meta.disk_stream(filepath)
+    last_stale = None
+    for candidate in candidates:
+        pool_sig = pool_stream_meta.pool_stream(candidate)
+        stale = pool_stream_meta.stream_disagreement(pool_sig, disk)
+        if stale is None:
+            return candidate, None
+        last_stale = stale
+    return None, last_stale
+
+
+def _say_refreshed(filepath: str, record: dict) -> None:
+    """The refresh, in the sentence an operator has to read."""
+    import sys
+
+    legs = []
+    if "resolution" in record["mismatches"]:
+        legs.append(f"pool says {record['pool_resolution']}, "
+                    f"disk carries {record['disk_resolution']}")
+    if "codec" in record["mismatches"]:
+        legs.append(f"pool says {record['pool_codec']!r}, "
+                    f"disk carries {record['disk_codec']!r}")
+    print(f"  pool metadata for {os.path.basename(filepath)} went stale "
+          f"({'; '.join(legs)}) - staging binds a fresh import; the "
+          f"stale item is left for the archive that still plays it, "
+          f"never deleted here", file=sys.stderr)
 
 
 def import_dest_bin(filepath: str, project_folder: str = "") -> tuple[str, ...]:
@@ -4498,6 +4580,17 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
 
     EVERY item this returns has had its overlay clip attributes
     applied, the lookup hit included - see `_carry` below.
+
+    A lookup hit is reused only when its cached stream metadata still
+    matches the file (`_fresh_pooled_item`, the same `pool_stream_meta`
+    comparison `deliver-reel` refuses on). A hit whose dimensions or
+    codec disagree is NOT reused: the file was rewritten in place under
+    it, and Resolve caches those where the scripting API cannot reach.
+    The build imports fresh beside it - so the staging timeline binds
+    the fresh item and promotion carries it - says the refresh on
+    stderr, and never deletes the stale item: the approved timeline
+    still plays it, and promotion retires that timeline to Archive
+    rather than deleting it.
     """
     def _carry(item):
         """The clip attributes an alpha artefact needs, on EVERY return.
@@ -4521,9 +4614,11 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
             apply_clip_attributes(item, filepath)
         return item
 
-    existing = pool_item_for(pool, filepath)
-    if existing is not None:
-        return _carry(existing)
+    fresh, stale_record = _fresh_pooled_item(pool, filepath)
+    if fresh is not None:
+        return _carry(fresh)
+    if stale_record is not None:
+        _say_refreshed(filepath, stale_record)
     if isinstance(project_folder, (tuple, list)) and dest is None:
         dest = tuple(project_folder)
         project_folder = ""

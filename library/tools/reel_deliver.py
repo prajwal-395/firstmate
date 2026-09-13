@@ -374,41 +374,27 @@ def _disk_resolution(path: str):
     None means there is no video stream to compare (audio-only, missing
     or unreadable) - the preflight proves staleness and nothing more,
     so what cannot be compared is skipped rather than flagged.
-    """
-    import subprocess
 
-    try:
-        probe = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height",
-             "-of", "csv=p=0", path],
-            capture_output=True, check=False, encoding="utf-8",
-            errors="replace", timeout=15,
-        )
-    except (OSError, subprocess.TimeoutExpired):
+    Read through `pool_stream_meta.disk_stream` - the one comparison
+    the reel build's refresh uses too, so the two cannot disagree
+    about what stale means.
+    """
+    from library.tools import pool_stream_meta
+
+    stream = pool_stream_meta.disk_stream(path)
+    if stream["width"] is None or stream["height"] is None:
         return None
-    parts = probe.stdout.strip().split(",")
-    if len(parts) != 2:
-        return None
-    try:
-        return (int(parts[0]), int(parts[1]))
-    except ValueError:
-        return None
+    return (stream["width"], stream["height"])
 
 
 def _pool_resolution(item) -> Optional[tuple]:
     """(width, height) Resolve's pool metadata claims for this item."""
-    try:
-        raw = item.GetClipProperty("Resolution")
-    except Exception:  # noqa: BLE001 - live API, judged by what returns
+    from library.tools import pool_stream_meta
+
+    stream = pool_stream_meta.pool_stream(item)
+    if stream["width"] is None or stream["height"] is None:
         return None
-    if not raw or not isinstance(raw, str) or "x" not in raw:
-        return None
-    try:
-        width, height = raw.split("x", 1)
-        return (int(width), int(height))
-    except ValueError:
-        return None
+    return (stream["width"], stream["height"])
 
 
 def _iter_bin_items(folder):
