@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "deliver-reel",
-    "watch-reel", "status",
+    "watch-reel", "touch-reel", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
@@ -1626,6 +1626,89 @@ def cmd_watch_reel(args):
           f"--record <answers.json>".replace("  ", " "))
 
 
+def cmd_touch_reel(args):
+    """Apply a structured change to a built reel's existing timeline.
+
+    The verb `composed_edit` was built for: instead of staging a
+    fresh timeline and promoting it over the old one (`build-reels`),
+    this duplicates the reel's own timeline into a staging copy,
+    routes the change through `composed_edit.apply_composed_edit`,
+    verifies by re-reading the track, and promotes by rename.
+    The approved timeline is never edited directly.
+
+    The change is stated structurally as JSON - which reel, which
+    item, what changes - via `--edits` or `--edits-file`.  Mapping a
+    captain's natural-language note onto such a change is a separate
+    task; this verb is the mechanism it will call.  See
+    library/tools/reel_touchup.py for the five ops and the
+    qualification gate that refuses what it cannot classify.
+    """
+    from library.tools import reel_touchup as _touchup
+    from library.tools import run_control as _hold
+
+    project_folder = _reel_project_folder(args.project)
+    hold = _hold.hold_requested(project_folder)
+    if hold is not None:
+        print(f"REFUSED: the handbrake is engaged on this project "
+              f"({hold.get('requested_by', 'unknown')}: "
+              f"{hold.get('reason', '')}). Release it before touching "
+              f"a reel.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.edits_file:
+        try:
+            with open(args.edits_file, encoding="utf-8") as handle:
+                edits = json.load(handle)
+        except (OSError, ValueError) as bad:
+            print(f"Error: cannot read edits file {args.edits_file}: "
+                  f"{bad}", file=sys.stderr)
+            sys.exit(1)
+    elif args.edits:
+        try:
+            edits = json.loads(args.edits)
+        except ValueError as bad:
+            print(f"Error: --edits is not JSON: {bad}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print("Error: pass the change with --edits JSON or "
+              "--edits-file PATH.", file=sys.stderr)
+        sys.exit(1)
+    if isinstance(edits, dict) and "edits" not in edits:
+        edits = {"edits": [edits]}
+    spec = {"reel": args.reel, "edits": edits["edits"]
+            if isinstance(edits, dict) else edits}
+
+    try:
+        receipt = _touchup.apply_touchup(
+            project_folder, spec,
+            allow_drops=args.allow_drop or None,
+            supersede=args.supersede or None)
+    except _touchup.TouchupRefused as refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        sys.exit(1)
+    except _touchup.TouchupError as failed:
+        print(f"FAILED: {failed}", file=sys.stderr)
+        sys.exit(1)
+
+    gate = receipt.get("gate", {})
+    print(f"Touched {receipt['final']!r} "
+          f"({gate.get('class', 'unqualified')})")
+    print(f"  cost: {gate.get('cost', '')}")
+    for note in gate.get("notes", ()):
+        print(f"  - {note}")
+    composed = receipt.get("composed", {})
+    print(f"  staged+composed+verified in "
+          f"{receipt.get('seconds', '?')}s wall clock "
+          f"(stage {receipt.get('stage_seconds', '?')}s, composed "
+          f"{receipt.get('composed_seconds', '?')}s, verify "
+          f"{receipt.get('verify_seconds', '?')}s)")
+    print(f"  placed {composed.get('placed', {}).get('asked', '?')} "
+          f"item(s), verified {composed.get('verified', {}).get('landed', '?')}")
+    print(f"  verification read: {json.dumps(receipt.get('verification_read', {}))}")
+    if receipt.get("retirement"):
+        print(f"  {receipt['retirement']}")
+
+
 def _commit_run_tail(project_folder: str) -> None:
     """Commit whatever the run's final state write left uncommitted.
 
@@ -1881,6 +1964,39 @@ def main():
              "asked. Files it onto the watch record beside the video. "
              "The answer is REPORTED, never gated")
     watch_reel_parser.set_defaults(func=cmd_watch_reel)
+
+    touch_reel_parser = sub.add_parser(
+        "touch-reel",
+        help="Apply a structured change to a built reel's existing "
+             "timeline through composed_edit, staged and verified")
+    touch_reel_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    touch_reel_parser.add_argument(
+        "reel", type=int,
+        help="The built reel number to change. Required: an edit "
+             "without naming one is refused")
+    touch_reel_parser.add_argument(
+        "--edits", default="",
+        help="The change as JSON: a list of edit objects (move, "
+             "swap_pixels, add_overlay, remove_overlay, retime) or "
+             "an object holding one under 'edits'. See "
+             "library/tools/reel_touchup.py")
+    touch_reel_parser.add_argument(
+        "--edits-file", default="",
+        help="Read the change JSON from this file instead of --edits")
+    touch_reel_parser.add_argument(
+        "--allow-drop", dest="allow_drop", action="append", default=[],
+        metavar="SPEC",
+        help="A row the replace guard may let shrink, by ROW never by "
+             "blanket (issue #925): `ROW` or `FINAL::ROW`. Repeatable")
+    touch_reel_parser.add_argument(
+        "--supersede", dest="supersede", action="append", default=[],
+        metavar="REEL",
+        help="A reel whose durable captain SIGN-OFF this touch-up may "
+             "replace. Repeatable. Absent means a touch-up over a "
+             "signed-off reel refuses by name")
+    touch_reel_parser.set_defaults(func=cmd_touch_reel)
 
     p_status = sub.add_parser("status", help="Show project status")
     p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
