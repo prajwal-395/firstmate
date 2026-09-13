@@ -348,6 +348,20 @@ def _preflight_check(manifest):
     if not project:
         errors.append("Missing 'project' settings")
 
+    # The frame the timeline is built at is DECLARED by the manifest
+    # (`compile_manifest` writes `resolve_delivery_format` there), never
+    # defaulted here. A `.get('resolution', [1080, 1920])` would read a
+    # missing declaration as vertical instead of failing (AGENTS.md
+    # 10.1: a promised key that is missing fails loudly).
+    resolution = (project or {}).get('resolution')
+    if not resolution or len(list(resolution)) < 2:
+        errors.append(
+            "manifest['project'] declares no 'resolution' - the frame "
+            "the timeline is built at. compile_manifest writes the "
+            "delivery format there; a manifest without one cannot be "
+            "built."
+        )
+
     tracks = manifest.get('tracks', {})
     v1_clips = tracks.get('V1', {}).get('clips', [])
     if not v1_clips:
@@ -498,8 +512,9 @@ def build_timeline(
 
     project_settings = manifest['project']
     timeline_name = project_settings.get('name', '4thWall_v3')
-    width = project_settings.get('resolution', [1080, 1920])[0]
-    height = project_settings.get('resolution', [1080, 1920])[1]
+    # Declared by the manifest, checked by _preflight_check above: no
+    # shape fallback survives here.
+    width, height = project_settings['resolution'][0], project_settings['resolution'][1]
     fps = project_settings.get('frame_rate', 30)
     total_duration = project_settings.get('duration_seconds', 46.0)
 

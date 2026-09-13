@@ -24,6 +24,10 @@ from library.tools import treatment_verify as tv
 
 CLIP_DUR = 600
 PLAYED = 72
+#: The source frame every verify call below states. The verify layer
+#: takes no default frame, so each call states it - the same numbers
+#: the removed builder defaults carried.
+SOURCE_RES = (1080, 1920)
 """The TV switch-off's own frame count: a 3-second window of 30 fps
 pool footage cut onto a 24000/1001 reel timeline."""
 
@@ -53,16 +57,18 @@ def test_an_equal_zoom_drift_resolves_as_planned_but_builds_neutral():
     resolved = resolve_vfx(
         [_reasoned_drift(zoom_start=1.0, zoom_end=1.0)], _spine(1, 2))
     assert len(resolved) == 1
-    neutral = build_effect_comp({"vignette": False}, CLIP_DUR)
+    neutral = build_effect_comp({"vignette": False}, CLIP_DUR,
+                                source_res=SOURCE_RES)
     drawn = build_effect_comp(
-        dict(resolved[0]["params"], vignette=False), CLIP_DUR)
+        dict(resolved[0]["params"], vignette=False), CLIP_DUR,
+        source_res=SOURCE_RES)
     assert drawn == neutral
 
 
 def test_equal_zoom_drift_fails_the_draw_gate():
     verdict = tv.verify_drift(
         {"zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0},
-        CLIP_DUR, played_frames=PLAYED)
+        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is False
     assert verdict["failure"] == "drew_nothing"
     assert verdict["changed_count"] == 0
@@ -73,7 +79,7 @@ def test_a_push_in_moves_start_to_end():
     verdict = tv.verify_drift(
         {"zoom_start": 1.0, "zoom_mid": 1.02, "zoom_end": 1.04,
          "source_in_frame": 0, "source_out_frame": 90},
-        CLIP_DUR, played_frames=PLAYED)
+        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["motion_over_time"] is True
     assert verdict["end_value"] > verdict["start_value"]
@@ -87,7 +93,7 @@ def test_a_pull_out_moves_the_other_way():
     verdict = tv.verify_drift(
         {"zoom_start": 1.04, "zoom_mid": 1.02, "zoom_end": 1.0,
          "source_in_frame": 0, "source_out_frame": 90},
-        CLIP_DUR, played_frames=PLAYED)
+        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["end_value"] < verdict["start_value"]
 
@@ -101,7 +107,7 @@ def test_a_pool_to_timeline_mismatch_still_draws():
     verdict = tv.verify_drift(
         {"zoom_start": 1.0, "zoom_mid": 1.02, "zoom_end": 1.04,
          "source_in_frame": 360, "source_out_frame": 450},
-        CLIP_DUR, played_frames=PLAYED)
+        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["end_value"] > verdict["start_value"]
 
@@ -115,7 +121,7 @@ def test_a_constant_reframe_passes_without_motion():
     """
     verdict = tv.verify_drift(
         {"zoom_start": 1.5, "zoom_mid": 1.5, "zoom_end": 1.5},
-        CLIP_DUR, played_frames=PLAYED)
+        CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["motion_over_time"] is False
 
@@ -123,14 +129,14 @@ def test_a_constant_reframe_passes_without_motion():
 def test_a_pan_only_drift_passes_without_motion():
     """A static recentre shifts the picture: kept, and said to be still."""
     verdict = tv.verify_drift(
-        {"pan_end": (0.45, 0.5)}, CLIP_DUR, played_frames=PLAYED)
+        {"pan_end": (0.45, 0.5)}, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["motion_over_time"] is False
 
 
 def test_no_drift_keys_arms_nothing():
     verdict = tv.verify_drift({"vignette": False}, CLIP_DUR,
-                              played_frames=PLAYED)
+                              played_frames=PLAYED, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["armed_nothing"] is True
 
@@ -140,18 +146,18 @@ def test_undo_restores_byte_identical_comp():
     effects = {"zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
                "tv_power_head": True}
     final, row = tv.verify_and_undo_drift(
-        effects, CLIP_DUR, played_frames=PLAYED)
+        effects, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert row["undone"] is True
     assert row["failure"] == "drew_nothing"
     assert final == {"tv_power_head": True}
-    assert (build_effect_comp(final, CLIP_DUR, played_frames=PLAYED)
+    assert (build_effect_comp(final, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
             == build_effect_comp({"tv_power_head": True}, CLIP_DUR,
-                                 played_frames=PLAYED))
+                                 played_frames=PLAYED, source_res=SOURCE_RES))
 
 
 def test_unarmed_drift_writes_no_row():
     final, row = tv.verify_and_undo_drift(
-        {"tv_power_head": True}, CLIP_DUR, played_frames=PLAYED)
+        {"tv_power_head": True}, CLIP_DUR, played_frames=PLAYED, source_res=SOURCE_RES)
     assert row is None
     assert final == {"tv_power_head": True}
 
@@ -182,6 +188,7 @@ def test_a_resolved_reel_drift_reaches_a_moving_comp():
         placements, {"power": {}}, resolved, fps)
     effects = manifest["fusion_effects"]["per_clip"][
         reel_look.clip_label(0)]
-    verdict = tv.verify_drift(effects, 600, played_frames=120)
+    verdict = tv.verify_drift(effects, 600, played_frames=120,
+                              source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["end_value"] > verdict["start_value"]

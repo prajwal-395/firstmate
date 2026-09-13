@@ -138,7 +138,8 @@ def test_a_declaration_draws_every_node_it_names():
     element that emits a name it does not read yields a comp without that
     effect and no warning."""
     look = resolve_look(FULL_DECLARATION)
-    comp = build_effect_comp(dict(look.fusion()), 120)
+    comp = build_effect_comp(dict(look.fusion()), 120,
+                             source_res=(1080, 1920))
     assert "BrightnessContrast" in comp, "contrast drew nothing"
     assert "SoftGlow" in comp, "glow drew nothing"
     assert "FilmGrain" in comp, "grain drew nothing"
@@ -196,7 +197,8 @@ def test_an_undeclared_element_emits_no_key_at_all():
     presence, so absence is the only thing that means 'not drawn'."""
     look = resolve_look({"name": "contrast_only", "contrast": 0.1})
     assert look.fusion() == {"grade_contrast": 0.1}
-    comp = build_effect_comp(dict(look.fusion()), 120)
+    comp = build_effect_comp(dict(look.fusion()), 120,
+                             source_res=(1080, 1920))
     assert "SoftGlow" not in comp
     assert "FilmGrain" not in comp
     assert "EllipseMask" not in comp
@@ -216,7 +218,8 @@ def test_a_removed_element_leaves_the_rest_drawn():
     assert fusion["grade_contrast"] == 0.2
     assert fusion["glow_gain"] == 0.3
     assert fusion["vignette_blend"] == 0.3
-    comp = build_effect_comp(dict(fusion), 120)
+    comp = build_effect_comp(dict(fusion), 120,
+                             source_res=(1080, 1920))
     assert "BrightnessContrast" in comp, "contrast lost with the grain removal"
     assert "SoftGlow" in comp, "glow lost with the grain removal"
     assert "EllipseMask" in comp, "vignette lost with the grain removal"

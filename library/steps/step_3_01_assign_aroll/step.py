@@ -51,7 +51,13 @@ def needs_conform(clip: dict, target_width: int, target_height: int, target_fps:
     return False
 
 
-def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int = 1080, target_height: int = 1920, target_fps: float = 30.0) -> dict:
+def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, target_height: int, target_fps: float = 30.0) -> dict:
+    """
+    Map speech blocks and hook to their A-roll video source files.
+
+    The target frame is REQUIRED - the delivery format the caller
+    resolved (`resolve_delivery_format`), never a shape literal here.
+    """
     """
     Map speech blocks and hook to their A-roll video source files.
     """

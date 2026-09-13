@@ -26,6 +26,11 @@ from library.tools.fusion.nodes import EASING_FUNCTIONS, BezierSpline
 
 CLIP_DUR = 600
 
+#: The source frame every build and verify call below states. The
+#: builders take no default frame, so each call states it - the same
+#: numbers the removed defaults carried.
+SOURCE_RES = (1080, 1920)
+
 #: The four drifts the captain approved for reel 09
 #: (`reel_motion_09.json`): which shots drift and in which direction is
 #: NOT this lane's to change, so the test pins all four exactly.
@@ -57,7 +62,8 @@ def _drift_curve(start=1.0, end=1.04):
     """The Size curve as Resolve holds it: parsed off the comp text."""
     effects = {"zoom_start": start, "zoom_mid": (start + end) / 2.0,
                "zoom_end": end, "vignette": False}
-    comp = build_effect_comp(dict(effects), CLIP_DUR)
+    comp = build_effect_comp(dict(effects), CLIP_DUR,
+                             source_res=SOURCE_RES)
     curves = tv.evaluate_comp(comp, CLIP_DUR)
     sizes = {n: v for n, v in curves.items() if n.endswith("Size")}
     assert sizes, "drift built no Size spline"
@@ -100,7 +106,8 @@ def test_verify_drift_reports_the_shape_it_did_not_gate():
     """`passed` still comes from the endpoints alone; the curve travels
     beside it, reported never enforced."""
     verdict = tv.verify_drift(
-        {"zoom_start": 1.0, "zoom_end": 1.04}, CLIP_DUR)
+        {"zoom_start": 1.0, "zoom_end": 1.04}, CLIP_DUR,
+        source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["motion_over_time"] is True
     assert verdict["eased"] is True
@@ -113,7 +120,7 @@ def test_a_linear_drift_reports_uneased_but_still_passes():
     linear ramp moves, passes, and says it is not eased."""
     verdict = tv.verify_drift(
         {"zoom_start": 1.0, "zoom_end": 1.04, "zoom_easing": "Linear"},
-        CLIP_DUR)
+        CLIP_DUR, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     assert verdict["eased"] is False
     assert verdict["max_linear_deviation"] < tv.EASED_THRESHOLD
@@ -122,7 +129,7 @@ def test_a_linear_drift_reports_uneased_but_still_passes():
 def test_the_undo_receipt_carries_the_shape():
     final, row = tv.verify_and_undo_drift(
         {"zoom_start": 1.0, "zoom_end": 1.04}, CLIP_DUR,
-        played_frames=None)
+        played_frames=None, source_res=SOURCE_RES)
     assert final == {"zoom_start": 1.0, "zoom_end": 1.04}
     assert row["undone"] is False
     assert row["eased"] is True
@@ -172,10 +179,12 @@ def test_stronger_gaps_build():
     for end in (1.06, 1.08, 1.10):
         effects = {"zoom_start": 1.0, "zoom_end": end, "vignette": False}
         normalize_effects(effects, True)  # as apply_fusion_comps does
-        comp = build_effect_comp(dict(effects), CLIP_DUR)
+        comp = build_effect_comp(dict(effects), CLIP_DUR,
+                             source_res=SOURCE_RES)
         assert "Transform1Size" in comp
         verdict = tv.verify_drift(
-            {"zoom_start": 1.0, "zoom_end": end}, CLIP_DUR)
+            {"zoom_start": 1.0, "zoom_end": end}, CLIP_DUR,
+            source_res=SOURCE_RES)
         assert verdict["passed"] is True
         assert verdict["eased"] is True
     from library.tools.fusion.nodes import MAX_ANIMATED_ZOOM
@@ -189,7 +198,7 @@ def test_a_runaway_zoom_is_still_refused():
     try:
         build_effect_comp(
             {"zoom_start": 1.0, "zoom_end": 1.16, "vignette": False},
-            CLIP_DUR)
+            CLIP_DUR, source_res=SOURCE_RES)
     except ValueError as exc:
         assert "1.16" in str(exc)
     else:
@@ -211,7 +220,8 @@ def test_reel_09_approved_directions_drift_eased():
         # much shorter than the span flattens any ease toward linear,
         # so the shape is read where the ramp actually plays.
         verdict = tv.verify_drift(normalized, CLIP_DUR,
-                                  played_frames=None)
+                                  played_frames=None,
+                                  source_res=SOURCE_RES)
         assert verdict["passed"] is True, spec
         assert verdict["eased"] is True, spec
     directions = {
@@ -231,5 +241,6 @@ def test_all_easing_names_build_a_drift():
         effects = {"zoom_start": 1.0, "zoom_end": 1.04,
                    "zoom_easing": name, "vignette": False}
         normalize_effects(effects, True)  # as apply_fusion_comps does
-        comp = build_effect_comp(dict(effects), CLIP_DUR)
+        comp = build_effect_comp(dict(effects), CLIP_DUR,
+                             source_res=SOURCE_RES)
         assert "Transform1Size" in comp, name

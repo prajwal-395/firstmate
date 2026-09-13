@@ -64,7 +64,18 @@ def run(video_path: str,
             video_path, declared_beats=declared_black_beats))
         results.append(render_qa.detect_freeze_frames(video_path))
         results.append(render_qa.measure_silence_under_picture(video_path))
-        width, height = (expected_resolution or [1080, 1920])[:2]
+        # The frame the render was built at: stated by the caller, else
+        # read off the project's own declaration
+        # (`library/tools/delivery_format.py` - project override over
+        # template over vertical). Never a shape literal here: a
+        # `.get`-style fallback to vertical would grade a render
+        # against a guessed frame.
+        frame = list(expected_resolution) if expected_resolution else None
+        if frame is None:
+            from library.tools.delivery_format import (
+                resolve_delivery_format)
+            frame = resolve_delivery_format(project_folder or None)
+        width, height = frame[:2]
         results.append(render_qa.verify_resolution(
             video_path, expected_width=width, expected_height=height))
         if expected_fps is None:

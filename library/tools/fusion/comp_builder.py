@@ -62,7 +62,15 @@ def normalize_effects(effects, has_zoom):
     return effects
 
 
-DEFAULT_SOURCE_RES = (1080, 1920)
+class MissingSourceFrame(ValueError):
+    """A comp was asked for and nobody stated the frame Fusion sees.
+
+    Raised rather than built at a guessed size. A Background smaller
+    than the source paints a hard-edged rectangle in the middle of the
+    picture, so a guessed canvas is a defect that ships silently -
+    the renderer (`execution/apply_fusion_comps`) reads the size off
+    the MediaPoolItem and refuses where Resolve will not state one.
+    """
 
 
 class UndeclaredEffectStrength(KeyError):
@@ -95,7 +103,7 @@ def _strength(effects: dict, armed_by: str, key: str) -> float:
 
 
 def build_effect_comp(effects: dict, clip_dur: int,
-                       source_res: tuple = None,
+                       source_res: tuple,
                        played_frames: int = None) -> str:
     """Turn one clip's effect parameters into a serialized Fusion comp.
 
@@ -107,11 +115,13 @@ def build_effect_comp(effects: dict, clip_dur: int,
     is why it is a plain function with a test rather than a loop body.
 
     ``source_res`` is the size of the image FUSION SEES - the source
-    clip's own frame, not the delivery format. Every Background node this
-    builds (the vignette, the fade, both transition halves) is a solid
-    image merged over ``MediaIn``, so a Background smaller than the
-    source paints a hard-edged rectangle in the middle of the picture and
-    leaves the rest ungraded.
+    clip's own frame, not the delivery format. REQUIRED: there is no
+    fallback size. Every Background node this builds (the vignette,
+    the fade, both transition halves) is a solid image merged over
+    ``MediaIn``, so a Background smaller than the source paints a
+    hard-edged rectangle in the middle of the picture and leaves the
+    rest ungraded. A caller that cannot state the frame raises
+    ``MissingSourceFrame`` rather than shipping that rectangle.
 
     ``source_in_frame`` / ``source_out_frame`` in the *effects* dict
     bound the segment the timeline actually plays, in SOURCE frame
@@ -130,7 +140,14 @@ def build_effect_comp(effects: dict, clip_dur: int,
     its switch-off.  It reaches the power builders, which clamp their
     horizon to it and refuse a ramp the clip has no room for.
     """
-    res = tuple(source_res) if source_res else DEFAULT_SOURCE_RES
+    if not source_res:
+        raise MissingSourceFrame(
+            "build_effect_comp needs source_res=(width, height) - the "
+            "SOURCE clip's own frame, read off the MediaPoolItem's "
+            "Resolution. Got nothing statable, so no canvas is sized "
+            "and no comp is built."
+        )
+    res = tuple(source_res)
     engine = CompEngine(clip_dur=clip_dur, width=res[0], height=res[1])
 
     # The played segment within the source.  None means "whole source".

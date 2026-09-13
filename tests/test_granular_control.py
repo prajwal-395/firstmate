@@ -14,7 +14,7 @@ from library.tools.custom_asset_bank import (
 )
 
 def test_engine_produces_valid_comp():
-    engine = CompEngine(clip_dur=100)
+    engine = CompEngine(clip_dur=100, width=1080, height=1920)
     engine.add(fx.zoom(100, start=1.0, mid=1.04, end=1.03))
     engine.add(fx.grade(gain=1.1, contrast=0.1, saturation=1.2))
     
@@ -29,7 +29,7 @@ def test_engine_produces_valid_comp():
     assert "BezierSpline" in comp_content
 
 def test_fx_blocks_compose_correctly():
-    engine = CompEngine(clip_dur=50)
+    engine = CompEngine(clip_dur=50, width=1080, height=1920)
     
     # 1. Zoom
     engine.add(fx.zoom(50, start=1.0, mid=1.04, end=1.03))
@@ -115,6 +115,10 @@ def test_apply_fusion_comps_uses_engine_path(monkeypatch, tmp_path):
         def GetClipProperty(self, prop):
             if prop == "File Path": return "test.mov"
             if prop == "Frames": return "100"
+            # A real MediaPoolItem states its stored frame; the applier
+            # refuses a comp where Resolve will not state one, so the
+            # mock states one like production does.
+            if prop == "Resolution": return "1080x1920"
             return None
             
     class MockTimeline:

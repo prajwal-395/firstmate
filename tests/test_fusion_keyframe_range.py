@@ -127,6 +127,7 @@ class TestTransitionKeyframesInPlayedWindow:
             HOOK_CLIP_DUR, ttype, dur_frames=7,
             source_in=HOOK_SOURCE_IN,
             source_out=HOOK_SOURCE_OUT,
+            res=(1080, 1920),
         )
         from library.tools.fusion.nodes import BezierSpline
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
@@ -146,6 +147,7 @@ class TestTransitionKeyframesInPlayedWindow:
             HOOK_CLIP_DUR, ttype, dur_frames=7,
             source_in=HOOK_SOURCE_IN,
             source_out=HOOK_SOURCE_OUT,
+            res=(1080, 1920),
         )
         from library.tools.fusion.nodes import BezierSpline
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
@@ -262,6 +264,7 @@ class TestFadeKeyframesInPlayedWindow:
             fade_out=10,
             source_in=HOOK_SOURCE_IN,
             source_out=HOOK_SOURCE_OUT,
+            res=(1080, 1920),
         )
         from library.tools.fusion.nodes import BezierSpline
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
@@ -280,6 +283,7 @@ class TestFadeKeyframesInPlayedWindow:
             fade_in=10,
             source_in=HOOK_SOURCE_IN,
             source_out=HOOK_SOURCE_OUT,
+            res=(1080, 1920),
         )
         from library.tools.fusion.nodes import BezierSpline
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]

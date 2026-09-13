@@ -75,6 +75,11 @@ def _mock_resolve(monkeypatch, imported):
                 return "a_roll.mov"
             if prop == "Frames":
                 return "600"
+            # A real MediaPoolItem states its stored frame; the
+            # applier refuses a comp where Resolve will not state
+            # one, so the mock states one like production does.
+            if prop == "Resolution":
+                return "1080x1920"
             return None
 
     class MockTimeline:

@@ -164,9 +164,15 @@ def _played_horizon(clip_dur: int, effects: dict,
 
 
 def build_treated(effects: dict, clip_dur: int,
-                  source_res: Optional[tuple] = None,
+                  *, source_res: tuple,
                   played_frames: Optional[int] = None) -> str:
-    """The comp with the treatment, as the applier would write it."""
+    """The comp with the treatment, as the applier would write it.
+
+    ``source_res`` is REQUIRED - the source clip's own frame, the same
+    value the renderer reads off the MediaPoolItem. There is no
+    fallback size: ``build_effect_comp`` raises ``MissingSourceFrame``
+    on a missing one rather than sizing a canvas by guess.
+    """
     from library.tools.fusion.comp_builder import build_effect_comp
 
     return build_effect_comp(dict(effects), clip_dur,
@@ -175,7 +181,7 @@ def build_treated(effects: dict, clip_dur: int,
 
 
 def build_untreated(effects: dict, key: str, clip_dur: int,
-                    source_res: Optional[tuple] = None,
+                    *, source_res: tuple,
                     played_frames: Optional[int] = None) -> str:
     """The comp with this treatment undone - the BEFORE half."""
     return build_treated(remove_treatment(effects, key), clip_dur,
@@ -184,8 +190,12 @@ def build_untreated(effects: dict, key: str, clip_dur: int,
 
 
 def build_alone(key: str, effects: dict, clip_dur: int,
+                *, source_res: tuple,
                 played_frames: Optional[int] = None) -> str:
     """This treatment's nodes and nothing else.
+
+    ``source_res`` is REQUIRED, as in ``build_treated``: the alone
+    comp is built by the same builder and sizes the same canvas.
 
     The treatment builders are self-contained blocks (their internal
     wiring is asserted in `tests/test_tv_power.py`), so the treatment's
@@ -198,7 +208,8 @@ def build_alone(key: str, effects: dict, clip_dur: int,
              if k in (key, f"{key}_timing",
                       "source_in_frame", "source_out_frame")}
     alone[key] = (effects or {}).get(key, True)
-    return build_treated(alone, clip_dur, played_frames=played_frames)
+    return build_treated(alone, clip_dur, source_res=source_res,
+                         played_frames=played_frames)
 
 
 def evaluate_comp(comp_text: str, played: int) -> Dict[str, List[float]]:
@@ -274,7 +285,7 @@ def check_window(curves: Dict[str, List[float]], window: Tuple[int, int],
 
 def verify_treatment(effects: dict, key: str, clip_dur: int,
                      played_frames: Optional[int] = None,
-                     source_res: Optional[tuple] = None) -> Dict[str, Any]:
+                     *, source_res: tuple) -> Dict[str, Any]:
     """The before/after verdict for one treatment on one clip.
 
     Builds the comp with and without the key, evaluates the treatment's
@@ -325,13 +336,14 @@ def verify_treatment(effects: dict, key: str, clip_dur: int,
         }
 
     try:
-        treated = build_treated(effects, clip_dur, source_res,
-                                played_frames)
+        treated = build_treated(effects, clip_dur, source_res=source_res,
+                                played_frames=played_frames)
     except TransitionLongerThanTheClip as exc:
         treated, refused = None, exc
     try:
-        untreated = build_untreated(effects, key, clip_dur, source_res,
-                                    played_frames)
+        untreated = build_untreated(effects, key, clip_dur,
+                                    source_res=source_res,
+                                    played_frames=played_frames)
     except TransitionLongerThanTheClip as exc:
         untreated, refused = None, exc
     if treated is None and untreated is not None:
@@ -345,7 +357,8 @@ def verify_treatment(effects: dict, key: str, clip_dur: int,
         # the verdict is still its to carry.
         try:
             alone_probe = build_alone(key, effects or {}, clip_dur,
-                                      played_frames)
+                                      source_res=source_res,
+                                      played_frames=played_frames)
         except TransitionLongerThanTheClip as exc:
             return _refusal_verdict(exc)
         treated, untreated = alone_probe, ""
@@ -371,7 +384,9 @@ def verify_treatment(effects: dict, key: str, clip_dur: int,
     w0, w1, neutral_end = treatment_window(key, effects or {}, first,
                                            last)
 
-    alone = build_alone(key, effects or {}, clip_dur, played_frames)
+    alone = build_alone(key, effects or {}, clip_dur,
+                        source_res=source_res,
+                        played_frames=played_frames)
     curves = evaluate_comp(alone, played)
 
     judged = {n: v for n, v in curves.items()
@@ -429,7 +444,7 @@ def verify_treatment(effects: dict, key: str, clip_dur: int,
 
 def verify_and_undo(effects: dict, clip_dur: int,
                     played_frames: Optional[int],
-                    source_res: Optional[tuple] = None
+                    *, source_res: tuple
                     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
     """Check each armed treatment; drop the ones that fail. The undo.
 
@@ -440,6 +455,11 @@ def verify_and_undo(effects: dict, clip_dur: int,
     the row says which key went and why. Never raises for a bad
     treatment: a render must survive its decorations, loudly (the rows
     are receipted) rather than either silently or not at all.
+
+    ``source_res`` is REQUIRED all the same: it is not a treatment
+    and a missing frame is not a bad value. The applier reads it off
+    the MediaPoolItem and refuses where Resolve will not state one,
+    so this layer never has to guess a canvas size.
     """
     final = dict(effects or {})
     rows: List[Dict[str, Any]] = []
@@ -497,7 +517,7 @@ def _drift_values(effects: dict) -> Tuple[float, float, float, Any]:
 
 def verify_drift(effects: dict, clip_dur: int,
                  played_frames: Optional[int] = None,
-                 source_res: Optional[tuple] = None) -> Dict[str, Any]:
+                 *, source_res: tuple) -> Dict[str, Any]:
     """The before/after verdict for one clip's Ken Burns drift.
 
     Builds the drift's own comp, evaluates its Transform Size spline
@@ -593,7 +613,8 @@ def verify_drift(effects: dict, clip_dur: int,
     alone = {k: v for k, v in normalized.items()
              if k in DRIFT_KEYS + DRIFT_CURVE_KEYS
              + ("source_in_frame", "source_out_frame")}
-    comp = build_treated(alone, clip_dur, source_res, played_frames)
+    comp = build_treated(alone, clip_dur, source_res=source_res,
+                         played_frames=played_frames)
     curves = evaluate_comp(comp, played)
     sizes = {n: v for n, v in curves.items() if n.endswith("Size")}
     if not sizes:
@@ -658,7 +679,7 @@ def verify_drift(effects: dict, clip_dur: int,
 
 def verify_and_undo_drift(effects: dict, clip_dur: int,
                           played_frames: Optional[int],
-                          source_res: Optional[tuple] = None
+                          *, source_res: tuple
                           ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
     """Check an armed drift; drop it when it drew nothing. The undo.
 
@@ -734,7 +755,8 @@ HEAD_JUDGE_FRAMES = (0, 2, 5, 10, 18)
 
 def sample_head_frames(effects: dict, clip_dur: int,
                        frames=HEAD_JUDGE_FRAMES,
-                       played_frames: Optional[int] = None
+                       played_frames: Optional[int] = None,
+                       *, source_res: tuple
                        ) -> List[Dict[str, Any]]:
     """What the switch-on draws at the judged frames: decoded, not asserted.
 
@@ -747,7 +769,8 @@ def sample_head_frames(effects: dict, clip_dur: int,
     not.
     """
     alone = build_alone("tv_power_head", effects or {}, clip_dur,
-                        played_frames)
+                        source_res=source_res,
+                        played_frames=played_frames)
     need = max(frames) + 1 if frames else 1
     played = max(int(played_frames) if played_frames else need, need)
     curves = evaluate_comp(alone, played)

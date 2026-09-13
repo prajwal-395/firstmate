@@ -2241,7 +2241,15 @@ def measure_silence_under_picture(
                               f"Error measuring silence under picture: {e}")
 
 
-def verify_resolution(video_path: str, expected_width: int = 1080, expected_height: int = 1920) -> RenderQAResult:
+def verify_resolution(video_path: str, expected_width: int, expected_height: int) -> RenderQAResult:
+    """Grade the render's frame against the DECLARED one.
+
+    Both dimensions are REQUIRED: a default here would grade a render
+    against a guessed frame, which is the defect this gate exists for
+    (AGENTS.md 10.1). Callers pass the delivery format the render was
+    built from; a caller with nothing declared reports NOT CHECKED
+    (see `run_full_render_qa`) rather than calling this at vertical.
+    """
     try:
         cmd = ['ffprobe', '-v', 'quiet', '-show_entries', 'stream=width,height', '-of', 'json', video_path]
         res = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
@@ -2393,7 +2401,10 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     to be right, so the gate correctly failed project 001's landscape
     master - but a series that legitimately declares
     `horizontal_1920x1080` would have failed its own correct render. A
-    gate has to check what was asked for, not what is usual.
+    gate has to check what was asked for, not what is usual. None
+    means the caller declared nothing, and the resolution result then
+    reports NOT CHECKED and fails - never a pass, never a silent
+    vertical.
 
     `framing_spans` are the per-clip framing declarations the manifest
     carries, laid out over the timeline so each sampled frame can be
@@ -2416,8 +2427,6 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
     """
     results = []
 
-    width, height = (expected_resolution or [1080, 1920])[:2]
-
     results.append(measure_lufs(video_path, target_lufs=target_lufs))
     results.append(detect_black_frames(video_path, declared_beats=declared_black_beats))
     results.append(detect_freeze_frames(video_path))
@@ -2433,8 +2442,23 @@ def run_full_render_qa(video_path: str, expected_duration: float = None, target_
         results.append(measure_speech_above_bed(
             video_path, music_path, music_automation, music_offset_seconds,
             spine_blocks=spine_blocks))
-    results.append(verify_resolution(video_path, expected_width=width,
-                                     expected_height=height))
+    # The frame the render was built at, declared by the caller - never
+    # defaulted here. A caller that names none gets a FAILING result
+    # saying the shape was not checked, never a pass and never a
+    # silent vertical: passing an unchecked shape is the exact defect
+    # this gate exists for (the slice-1 reels gates read the same way).
+    if expected_resolution is None:
+        results.append(RenderQAResult(
+            "resolution", False, None, None, "error",
+            "No declared frame to grade the render against - the shape "
+            "was not checked. Pass expected_resolution: the delivery "
+            "format the render was built from "
+            "(library/tools/delivery_format.py)."))
+    else:
+        width, height = expected_resolution[:2]
+        results.append(verify_resolution(video_path,
+                                         expected_width=width,
+                                         expected_height=height))
     results.append(verify_framerate(video_path)
                    if expected_fps is None else
                    verify_framerate(video_path, expected_fps=expected_fps))

@@ -140,7 +140,7 @@ def test_a_planned_effect_reaches_the_manifest_and_the_comp(recorded_run):
     # 4. and those parameters draw real nodes.
     params = {k: v for k, v in carrying[0].items() if not k.startswith("_")}
     params["vignette"] = False
-    comp = build_effect_comp(params, 120)
+    comp = build_effect_comp(params, 120, source_res=(1080, 1920))
     assert "Tools = {" in comp
     assert "Transform" in comp
 

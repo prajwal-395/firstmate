@@ -217,7 +217,21 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     video_path = rendered_output.get('output_path', '')
     project_settings = assembly_manifest.get('project', {})
     expected_fps = project_settings.get('frame_rate', 30)
-    expected_resolution = project_settings.get('resolution', [1080, 1920])
+    # The frame the render was built at is DECLARED by the manifest
+    # (`compile_manifest` writes `resolve_delivery_format` there). A
+    # `.get('resolution', [1080, 1920])` would read a missing
+    # declaration as vertical instead of failing (AGENTS.md 10.1: a
+    # promised key that is missing fails loudly) - and grading a
+    # render against a guessed frame is the incident this gate
+    # exists for.
+    expected_resolution = project_settings.get('resolution')
+    if not expected_resolution or len(list(expected_resolution)) < 2:
+        raise ValueError(
+            "assembly_manifest['project'] declares no 'resolution' - "
+            "the frame the render was built at. compile_manifest "
+            "writes the delivery format there; a manifest without one "
+            "cannot be validated."
+        )
     expected_duration = project_settings.get('duration_seconds', 0)
 
     checks = {}

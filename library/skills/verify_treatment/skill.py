@@ -9,6 +9,7 @@ shell:
     python3 -m library.skills.verify_treatment.skill \
         --effects '{"tv_power_head": true}' --clip-dur 600 \
         --treatment-key tv_power_head --played-frames 72 \
+        --source-res 1080 1920 \
         --project-folder /path/to/project --step-id plan_vfx
 
 Every invocation writes a RECEIPT to
@@ -77,6 +78,7 @@ def run(effects: Dict[str, Any], treatment_key: str, clip_dur: int,
         played_frames: Optional[int] = None,
         source_file: Optional[str] = None,
         source_fps: Optional[float] = None,
+        source_res: Optional[List[int]] = None,
         harness: str = "agent",
         ask_vision: bool = False,
         question: Optional[str] = None) -> Dict[str, Any]:
@@ -91,8 +93,27 @@ def run(effects: Dict[str, Any], treatment_key: str, clip_dur: int,
     from library.tools import pipeline_skills, treatment_verify
     from library.tools.window_frames import harness_shows_frames
 
+    # The frame the comp canvas is sized at: stated, measured off the
+    # source file, and never guessed. A caller that states neither a
+    # frame nor a file to measure one off is refused - a guessed
+    # canvas paints a wrong-size Background over the picture.
+    frame = tuple(source_res) if source_res else None
+    if frame is None and source_file and os.path.exists(source_file):
+        from library.tools.render_qa import _probe_video_size
+        try:
+            frame = _probe_video_size(source_file)
+        except Exception:  # noqa: BLE001 - probe failure is a refusal
+            frame = None
+    if frame is None:
+        raise ValueError(
+            "verify_treatment needs the source frame: pass "
+            "source_res=[width, height] or a source_file whose frame "
+            "ffprobe can read. Got neither, so no comp is built."
+        )
+
     verdict = treatment_verify.verify_treatment(
-        effects, treatment_key, clip_dur, played_frames=played_frames)
+        effects, treatment_key, clip_dur, played_frames=played_frames,
+        source_res=frame)
 
     shows = harness_shows_frames(harness)
     tmpdir = tempfile.mkdtemp(prefix="verify_treatment_")
@@ -181,6 +202,12 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--step-id", required=True)
     parser.add_argument("--source-file", default=None)
     parser.add_argument("--source-fps", type=float, default=None)
+    parser.add_argument("--source-res", type=int, nargs=2, default=None,
+                        metavar=("W", "H"),
+                        help="Source clip's own frame (width height). "
+                             "Without it the frame is measured off "
+                             "--source-file; with neither the skill "
+                             "refuses rather than guessing a canvas.")
     parser.add_argument("--harness", default="agent")
     parser.add_argument("--ask-vision", action="store_true",
                         help="Put the window stills to the local model; "
@@ -205,6 +232,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                      played_frames=args.played_frames,
                      source_file=args.source_file,
                      source_fps=args.source_fps,
+                     source_res=args.source_res,
                      harness=args.harness,
                      ask_vision=args.ask_vision,
                      question=args.question)

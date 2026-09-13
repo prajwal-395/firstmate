@@ -89,7 +89,8 @@ def test_declared_contrast_reaches_the_tool_verbatim():
     """0.12 declared is a pivot gain with 0 neutral, and so is Fusion's
     own Contrast: 0.0 renders byte-identical to no node at all. Emitting
     1.12 for a declared 0.12 shipped eight times the grade."""
-    comp = build_effect_comp({"grade_contrast": 0.12}, 120)
+    comp = build_effect_comp({"grade_contrast": 0.12}, 120,
+                             source_res=(1080, 1920))
     assert "Contrast = Input { Value = 0.12, }," in comp
     assert "Contrast = Input { Value = 1.12, }," not in comp
 
@@ -97,13 +98,14 @@ def test_declared_contrast_reaches_the_tool_verbatim():
 def test_zero_contrast_still_draws_no_grade_node():
     """The skip stays on the declaration: 0.0 means unmoved, not a
     1.0-contrast node carried for nothing."""
-    comp = build_effect_comp({}, 120)
+    comp = build_effect_comp({}, 120, source_res=(1080, 1920))
     assert "BrightnessContrast" not in comp
 
 
 def test_declared_look_fusion_half_draws_all_four_nodes_at_declared_values():
     look = resolve_look(TEST_LOOK)
-    comp = build_effect_comp(dict(look.fusion()), 120)
+    comp = build_effect_comp(dict(look.fusion()), 120,
+                             source_res=(1080, 1920))
     assert "BrightnessContrast" in comp
     assert "Contrast = Input { Value = 0.12, }," in comp
     assert "SoftGlow" in comp

@@ -20,6 +20,13 @@ from fusion.effects import EffectBlock, _reset_counters, fx
 from fusion.engine import CompEngine
 from fusion.nodes import BezierSpline, FusionNode
 
+#: The frame every builder below is stated at. The builders take no
+#: default frame since slice 3/4 of the delivery-format generalisation,
+#: so each call states the source frame it sizes its canvas at - the
+#: same numbers the removed defaults carried, which is what keeps the
+#: asserted bytes identical.
+RES = (1080, 1920)
+
 
 class TestEffectBlocks(unittest.TestCase):
     """Test individual effect block functions."""
@@ -80,7 +87,7 @@ class TestEffectBlocks(unittest.TestCase):
 
     def test_vignette(self):
         block = fx.vignette(clip_dur=90, width=1.0, height=1.0, soft=0.35,
-                            blend=0.25)
+                            blend=0.25, res=RES)
         # Background + Ellipse + Merge
         self.assertEqual(len(block.nodes), 3)
         types = {n.tool_type for n in block.nodes if isinstance(n, FusionNode)}
@@ -92,26 +99,26 @@ class TestEffectBlocks(unittest.TestCase):
         self.assertEqual(block.input_key, "Background")
 
     def test_fade_in(self):
-        block = fx.fade(90, fade_in=10)
+        block = fx.fade(90, fade_in=10, res=RES)
         self.assertTrue(len(block.nodes) > 0)
         # Should have a BezierSpline
         splines = [n for n in block.nodes if isinstance(n, BezierSpline)]
         self.assertTrue(len(splines) > 0)
 
     def test_fade_out(self):
-        block = fx.fade(90, fade_out=15)
+        block = fx.fade(90, fade_out=15, res=RES)
         self.assertTrue(len(block.nodes) > 0)
 
     def test_fade_no_frames_skips(self):
-        block = fx.fade(90)
+        block = fx.fade(90, res=RES)
         self.assertEqual(len(block.nodes), 0)
 
     def test_transition_tail_fade(self):
-        block = fx.transition_tail(90, "fade_to_black", 12)
+        block = fx.transition_tail(90, "fade_to_black", 12, res=RES)
         self.assertTrue(len(block.nodes) > 0)
 
     def test_transition_tail_zoom_blur(self):
-        block = fx.transition_tail(90, "zoom_blur", 10)
+        block = fx.transition_tail(90, "zoom_blur", 10, res=RES)
         self.assertTrue(len(block.nodes) > 0)
         # Should have Transform + DirectionalBlur
         types = {
@@ -121,20 +128,20 @@ class TestEffectBlocks(unittest.TestCase):
         self.assertIn("DirectionalBlur", types)
 
     def test_transition_tail_defocus(self):
-        block = fx.transition_tail(90, "defocus", 8)
+        block = fx.transition_tail(90, "defocus", 8, res=RES)
         self.assertTrue(len(block.nodes) > 0)
 
     def test_transition_tail_flash(self):
-        block = fx.transition_tail(90, "flash", 6)
+        block = fx.transition_tail(90, "flash", 6, res=RES)
         self.assertTrue(len(block.nodes) > 0)
 
     def test_transition_head_fade(self):
-        block = fx.transition_head(90, "fade_to_black", 12)
+        block = fx.transition_head(90, "fade_to_black", 12, res=RES)
         self.assertTrue(len(block.nodes) > 0)
 
     def test_transition_unknown_raises(self):
         with self.assertRaises(ValueError):
-            fx.transition_tail(90, "nonexistent_type", 10)
+            fx.transition_tail(90, "nonexistent_type", 10, res=RES)
 
 
 class TestCompEngine(unittest.TestCase):
@@ -142,14 +149,14 @@ class TestCompEngine(unittest.TestCase):
 
     def test_empty_comp(self):
         """Minimal comp with just MediaIn → MediaOut."""
-        comp = CompEngine(clip_dur=30).serialize()
+        comp = CompEngine(clip_dur=30, width=RES[0], height=RES[1]).serialize()
         self.assertIn("Composition {", comp)
         self.assertIn("MediaIn1 = MediaIn", comp)
         self.assertIn("MediaOut1 = MediaOut", comp)
         self.assertIn('SourceOp = "MediaIn1"', comp)
 
     def test_single_effect(self):
-        comp = (CompEngine(clip_dur=90)
+        comp = (CompEngine(clip_dur=90, width=RES[0], height=RES[1])
                 .add(fx.grade(gain=1.05))
                 .serialize())
         self.assertIn("BrightnessContrast", comp)
@@ -158,7 +165,7 @@ class TestCompEngine(unittest.TestCase):
         self.assertIn('SourceOp = "MediaIn1"', comp)
 
     def test_chained_effects(self):
-        comp = (CompEngine(clip_dur=90)
+        comp = (CompEngine(clip_dur=90, width=RES[0], height=RES[1])
                 .add(fx.zoom(90, start=1.0, end=1.03))
                 .add(fx.grade(gain=1.05))
                 .add(fx.glow(gain=0.08, threshold=0.75, size=3.5))
@@ -169,7 +176,7 @@ class TestCompEngine(unittest.TestCase):
         self.assertIn("SoftGlow", comp)
 
     def test_skip_neutral_effects(self):
-        comp = (CompEngine(clip_dur=90)
+        comp = (CompEngine(clip_dur=90, width=RES[0], height=RES[1])
                 .add(fx.zoom(90))  # neutral — skipped
                 .add(fx.grade(gain=1.0))  # neutral — skipped
                 .add(fx.glow(gain=0.08, threshold=0.75, size=3.5))  # active
@@ -186,6 +193,7 @@ class TestCompEngine(unittest.TestCase):
         """from_params should accept the old flat param format."""
         comp = CompEngine.from_params(
             clip_dur=90,
+            source_res=RES,
             zoom_start=1.0,
             zoom_mid=1.04,
             zoom_end=1.03,
@@ -206,6 +214,7 @@ class TestCompEngine(unittest.TestCase):
     def test_from_params_with_transitions(self):
         comp = CompEngine.from_params(
             clip_dur=90,
+            source_res=RES,
             tail_transition="fade_to_black",
             tail_transition_frames=12,
         )
@@ -216,9 +225,9 @@ class TestCompEngine(unittest.TestCase):
 
     def test_vignette_safety(self):
         """Vignette should always produce safe EllipseMask."""
-        comp = (CompEngine(clip_dur=90)
+        comp = (CompEngine(clip_dur=90, width=RES[0], height=RES[1])
                 .add(fx.vignette(clip_dur=90, width=1.0, height=1.0, soft=0.35,
-                            blend=0.25))
+                            blend=0.25, res=RES))
                 .serialize())
         # Must have Invert (the name the tool HAS - `Inverted` is
         # silently ignored and draws a black disc), MaskWidth,

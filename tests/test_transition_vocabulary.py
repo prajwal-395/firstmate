@@ -31,6 +31,10 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 HANDOFF = REPO / "library/steps/step_4_02_plan_transitions/handoff.md"
 TEMPLATES = sorted((REPO / "library/templates").glob("*.yaml"))
 CLIP_DUR = 90
+#: The source frame every builder below sizes its canvas at. The
+#: builders take no default frame, so each call states it - the same
+#: numbers the removed defaults carried.
+RES = (1080, 1920)
 
 
 # ── The vocabulary agrees with the renderer ──
@@ -42,7 +46,7 @@ def test_fusion_types_are_exactly_what_the_engine_draws():
 @pytest.mark.parametrize("ttype", FUSION_TYPES)
 def test_every_drawable_type_produces_real_nodes(ttype):
     for build in (fx.transition_tail, fx.transition_head):
-        block = build(CLIP_DUR, ttype, 10)
+        block = build(CLIP_DUR, ttype, 10, res=RES)
         assert isinstance(block, EffectBlock)
         assert block.nodes, f"{build.__name__}({ttype}) drew nothing"
         assert block.input_name
@@ -54,7 +58,7 @@ def test_an_undrawable_type_raises_instead_of_drawing_nothing(ttype):
     renderer, matched no branch, and produced a comp with nothing in it."""
     for build in (fx.transition_tail, fx.transition_head):
         with pytest.raises(ValueError, match="No Fusion transition builder"):
-            build(CLIP_DUR, ttype, 10)
+            build(CLIP_DUR, ttype, 10, res=RES)
 
 
 def test_cut_types_are_not_drawn():
@@ -62,7 +66,7 @@ def test_cut_types_are_not_drawn():
         assert is_cut(ttype)
         assert not is_drawn(ttype)
         with pytest.raises(ValueError):
-            fx.transition_tail(CLIP_DUR, ttype, 10)
+            fx.transition_tail(CLIP_DUR, ttype, 10, res=RES)
 
 
 # ── Nothing advertises what the renderer cannot honour ──

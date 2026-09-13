@@ -41,6 +41,10 @@ POOL_FPS = 30.0
 REEL_FPS = 24000 / 1001
 WINDOW_SECONDS = (12.0, 15.0)
 CLIP_DUR = 600
+#: The source frame every build, verify and skill call below states.
+#: The builders take no default frame, so each call states it - the
+#: same numbers the removed defaults carried.
+SOURCE_RES = (1080, 1920)
 
 
 def applier_effects(base):
@@ -70,7 +74,8 @@ def test_legacy_tail_without_horizon_draws_nothing_on_reel():
     from library.tools.fusion.transition_frames import (
         parse_splines, value_at)
 
-    comp = build_effect_comp(applier_effects(TAIL), CLIP_DUR)
+    comp = build_effect_comp(applier_effects(TAIL), CLIP_DUR,
+                             source_res=SOURCE_RES)
     rows = parse_splines(comp)
     assert rows, "the tail arms nodes - they just never play"
     for name, keys in rows.items():
@@ -92,7 +97,7 @@ def test_reel_tail_draws_with_a_played_horizon():
 
     verdict = tv.verify_treatment(
         applier_effects(TAIL), "tv_power_tail", CLIP_DUR,
-        played_frames=played_reel())
+        played_frames=played_reel(), source_res=SOURCE_RES)
     # NOTE: this passes only with the played_frames clamp in
     # build_effect_comp; without it the tail keys at 72..90 and the
     # verdict above (drew_nothing) is what comes back.
@@ -107,7 +112,7 @@ def test_head_opens_and_holds_neutral():
 
     verdict = tv.verify_treatment(
         applier_effects(HEAD), "tv_power_head", CLIP_DUR,
-        played_frames=90)
+        played_frames=90, source_res=SOURCE_RES)
     assert verdict["passed"] is True
     # The crop opens over 0..10 and the bloom gain settles by frame 18 -
     # the declared 18-frame animation, all inside its window.
@@ -132,7 +137,7 @@ def test_short_clip_head_never_settles_and_fails():
     verdict = tv.verify_treatment(
         {**applier_effects(HEAD),
          "source_in_frame": 0, "source_out_frame": 9},
-        "tv_power_head", CLIP_DUR, played_frames=10)
+        "tv_power_head", CLIP_DUR, played_frames=10, source_res=SOURCE_RES)
     assert verdict["passed"] is False
     assert verdict["failure"] == "never_settles"
 
@@ -150,8 +155,10 @@ def test_undo_restores_byte_identical_comp():
     assert restored == stripped
     # The proof is string equality, not an assertion of equality:
     # counter reset per build makes the same inputs the same bytes.
-    assert (build_effect_comp(restored, CLIP_DUR)
-            == build_effect_comp(stripped, CLIP_DUR))
+    assert (build_effect_comp(restored, CLIP_DUR,
+                              source_res=SOURCE_RES)
+            == build_effect_comp(stripped, CLIP_DUR,
+                                 source_res=SOURCE_RES))
 
 
 def test_window_gate_can_fail():
@@ -212,7 +219,7 @@ def test_verify_and_undo_is_surgical():
                                  "collapse_frames": 60},
     })
     final, rows = tv.verify_and_undo(effects, CLIP_DUR,
-                                     played_frames=played_reel())
+                                     played_frames=played_reel(), source_res=SOURCE_RES)
     by_key = {r["treatment"]: r for r in rows}
     assert by_key["tv_power_head"]["passed"] is True
     assert by_key["tv_power_head"]["undone"] is False
@@ -225,10 +232,10 @@ def test_verify_and_undo_is_surgical():
     # The undo restores the original frames: rebuild-from-removed is
     # byte-identical to build-from-absent.
     assert (build_effect_comp(final, CLIP_DUR,
-                              played_frames=played_reel())
+                              played_frames=played_reel(), source_res=SOURCE_RES)
             == build_effect_comp(
                 tv.remove_treatment(effects, "tv_power_tail"),
-                CLIP_DUR, played_frames=played_reel()))
+                CLIP_DUR, played_frames=played_reel(), source_res=SOURCE_RES))
 
 
 def test_verify_and_undo_drops_short_clip_treatments():
@@ -241,11 +248,11 @@ def test_verify_and_undo_drops_short_clip_treatments():
                "tv_power_tail_timing": switch_off_frames(),
                "source_in_frame": 0, "source_out_frame": 9}
     final, rows = tv.verify_and_undo(effects, CLIP_DUR,
-                                     played_frames=10)
+                                     played_frames=10, source_res=SOURCE_RES)
     assert all(r["undone"] for r in rows)
     assert final == {"source_in_frame": 0, "source_out_frame": 9}
     assert "PowerCrop" not in build_effect_comp(
-        final, CLIP_DUR, played_frames=10)
+        final, CLIP_DUR, played_frames=10, source_res=SOURCE_RES)
 
 
 def test_skill_run_writes_a_receipt_that_reads_back(tmp_path):
@@ -254,7 +261,7 @@ def test_skill_run_writes_a_receipt_that_reads_back(tmp_path):
     from library.tools import pipeline_skills
 
     record = run(dict(HEAD), "tv_power_head", CLIP_DUR,
-                 str(tmp_path), "plan_vfx", played_frames=90)
+                 str(tmp_path), "plan_vfx", played_frames=90, source_res=SOURCE_RES)
     assert record["passed"] is True
     receipts = pipeline_skills.read_receipts(str(tmp_path), "plan_vfx")
     assert "verify_treatment" in receipts
@@ -267,7 +274,7 @@ def test_skill_run_fails_a_drew_nothing_tail(tmp_path):
 
     record = run(applier_effects(TAIL), "tv_power_tail", CLIP_DUR,
                  str(tmp_path), "plan_vfx",
-                 played_frames=played_reel())
+                 played_frames=played_reel(), source_res=SOURCE_RES)
     assert record["passed"] is True
     # With the played horizon the clamp anchors the tail inside what
     # renders; the legacy no-horizon build is what drew nothing (see
@@ -282,7 +289,8 @@ def test_skill_refuses_an_unknown_key():
     from library.tools.treatment_verify import UnknownTreatment
 
     with pytest.raises(UnknownTreatment):
-        run({}, "slow_zoom", 600, "/nonexistent", "plan_vfx")
+        run({}, "slow_zoom", 600, "/nonexistent", "plan_vfx",
+            source_res=SOURCE_RES)
 
 
 def _reel_tail_manifest():
@@ -317,6 +325,11 @@ def _mock_resolve(monkeypatch, played):
                 return "a_roll.mov"
             if prop == "Frames":
                 return "600"
+            # A real MediaPoolItem states its stored frame; the applier
+            # refuses a comp where Resolve will not state one, so the
+            # mock states one like production does.
+            if prop == "Resolution":
+                return "1080x1920"
             return None
 
     class MockTimeline:
@@ -399,7 +412,7 @@ def test_head_samples_decode_the_opening_not_the_number():
 
     assert tv.HEAD_JUDGE_FRAMES == (0, 2, 5, 10, 18)
     rows = {r["frame"]: r for r in tv.sample_head_frames(
-        dict(HEAD), CLIP_DUR)}
+        dict(HEAD), CLIP_DUR, source_res=SOURCE_RES)}
     # Black: the band is shut to the line and there is no signal on it.
     assert rows[0]["kept_fraction"] == pytest.approx(0.02)
     assert rows[0]["gain"] == pytest.approx(0.0)
@@ -431,7 +444,8 @@ def test_a_retimed_switch_decodes_differently_both_ways():
 
     def by_frame(effects):
         return {r["frame"]: r
-                for r in tv.sample_head_frames(effects, CLIP_DUR)}
+                for r in tv.sample_head_frames(effects, CLIP_DUR,
+                                               source_res=SOURCE_RES)}
 
     base, slow = by_frame(default), by_frame(slower)
     # Both open on fully black - the shape's first state, either timing.
@@ -483,8 +497,10 @@ def test_head_samples_identically_on_both_picture_rows():
     assert {"reel_picture_akshita", "reel_picture_craig"} <= labels
 
     per_clip = manifest["fusion_effects"]["per_clip"]
-    v1 = tv.sample_head_frames(per_clip["reel_picture_akshita"], 600)
-    v2 = tv.sample_head_frames(per_clip["reel_picture_craig"], 600)
+    v1 = tv.sample_head_frames(per_clip["reel_picture_akshita"], 600,
+                               source_res=SOURCE_RES)
+    v2 = tv.sample_head_frames(per_clip["reel_picture_craig"], 600,
+                               source_res=SOURCE_RES)
     assert v1 == v2
     assert {r["frame"]: r for r in v1}[0]["kept_fraction"] == pytest.approx(
         0.02)

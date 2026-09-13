@@ -143,9 +143,13 @@ def resolve_broll(
     semantic_docs: list,
     temporal_indices: list,
     timed_spine: dict,
-    target_resolution: tuple = (1080, 1920),
+    target_resolution: tuple,
 ) -> dict:
-    """Resolve B-roll creative selections to execution data."""
+    """Resolve B-roll creative selections to execution data.
+
+    The target frame is REQUIRED - the delivery format the caller
+    resolved (`resolve_delivery_format`), never a shape literal here.
+    """
 
     catalog_lookup = {c["clip_id"]: c for c in clip_catalog}
     analysis_lookup = build_semantic_lookup(semantic_docs, clip_catalog)

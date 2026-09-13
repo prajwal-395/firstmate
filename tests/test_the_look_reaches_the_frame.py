@@ -55,6 +55,10 @@ from library.tools.fusion.comp_builder import (
 from library.tools.series_look import resolve_look
 
 CLIP_DUR = 120
+#: The source frame every comp below is built at. The builder takes no
+#: default frame, so each call states it - the same numbers the
+#: removed default carried.
+SOURCE_RES = (1080, 1920)
 
 # The look the captain chose on 2026-09-10 (`v04_teal_split`, picked from
 # five rendered variants), as a project declares it. Fixed here so the
@@ -84,7 +88,8 @@ def _value(comp: str, node: str, key: str) -> str:
 def test_the_vignette_matte_is_inverted():
     """Un-inverted, the mask is solid inside the ellipse and the black
     Background it gates draws as a disc in the middle of the frame."""
-    comp = build_effect_comp(dict(resolve_look(CHOSEN).fusion()), CLIP_DUR)
+    comp = build_effect_comp(dict(resolve_look(CHOSEN).fusion()), CLIP_DUR,
+                             source_res=SOURCE_RES)
     assert "Ellipse1 = EllipseMask" in comp
     assert _value(comp, "Ellipse1", "Invert") == "1"
     assert "Inverted" not in comp
@@ -114,7 +119,8 @@ def test_the_vignette_mask_is_rasterised_at_the_source_frame():
     ("Ellipse1", "SoftEdge", "0.3"),
 ])
 def test_each_declared_magnitude_arrives_unchanged(node, key, expected):
-    comp = build_effect_comp(dict(resolve_look(CHOSEN).fusion()), CLIP_DUR)
+    comp = build_effect_comp(dict(resolve_look(CHOSEN).fusion()), CLIP_DUR,
+                             source_res=SOURCE_RES)
     assert _value(comp, node, key) == expected
 
 
@@ -122,13 +128,15 @@ def test_contrast_is_not_translated_on_its_way_to_the_tool():
     """`1.0 + contrast` was eight times the declared grade. Fusion's own
     neutral is 0.0: `Contrast = 0.0` renders byte-identical to having no
     BrightnessContrast node at all."""
-    comp = build_effect_comp({"grade_contrast": 0.12}, CLIP_DUR)
+    comp = build_effect_comp({"grade_contrast": 0.12}, CLIP_DUR,
+                             source_res=SOURCE_RES)
     assert _value(comp, "BrightnessContrast1", "Contrast") == "0.12"
     assert "1.12" not in comp
 
 
 def test_a_neutral_contrast_draws_no_node_at_all():
-    assert "BrightnessContrast" not in build_effect_comp({}, CLIP_DUR)
+    assert "BrightnessContrast" not in build_effect_comp(
+        {}, CLIP_DUR, source_res=SOURCE_RES)
 
 
 # ── 3. An armed effect with no strength is REFUSED, never completed ──────
@@ -149,7 +157,8 @@ def test_an_armed_effect_with_no_strength_is_refused(effects, missing):
     `comp_builder` - the look catalogue this engine says it removed,
     still shipping through a different door."""
     with pytest.raises(UndeclaredEffectStrength, match=missing):
-        build_effect_comp(dict(effects), CLIP_DUR)
+        build_effect_comp(dict(effects), CLIP_DUR,
+                          source_res=SOURCE_RES)
 
 
 def test_shake_completes_its_other_axis_because_zero_is_a_neutral():
@@ -157,7 +166,8 @@ def test_shake_completes_its_other_axis_because_zero_is_a_neutral():
     are independent AXES and an absent one is 0.0, which is the axis not
     moving. It defaulted to 0.01 on both, which IS a strength and shook
     an axis the plan never named."""
-    comp = build_effect_comp({"shake_x": 0.004}, CLIP_DUR)
+    comp = build_effect_comp({"shake_x": 0.004}, CLIP_DUR,
+                             source_res=SOURCE_RES)
     assert "ShakeTransform" in comp
 
 

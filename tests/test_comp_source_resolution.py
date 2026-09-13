@@ -21,7 +21,8 @@ import re
 import pytest
 
 from library.tools.custom_asset_bank import comp_asset_key
-from library.tools.fusion.comp_builder import DEFAULT_SOURCE_RES, build_effect_comp
+from library.tools.fusion.comp_builder import (
+    MissingSourceFrame, build_effect_comp)
 
 APPLY_FUSION_COMPS = (pathlib.Path(__file__).resolve().parent.parent
                       / "library" / "tools" / "execution"
@@ -73,12 +74,20 @@ def test_backgrounds_match_a_vertical_source(name):
     assert all(s == VERTICAL for s in _background_sizes(comp))
 
 
-def test_an_unknown_source_falls_back_rather_than_inventing():
-    """None means "could not tell" - the documented default, not a guess."""
-    comp = build_effect_comp(
-        {"vignette": True, "vignette_blend": 0.25, "vignette_soft": 0.35},
-        CLIP_DUR)
-    assert _background_sizes(comp) == [DEFAULT_SOURCE_RES]
+def test_an_unknown_source_refuses_rather_than_guessing():
+    """None means "could not tell" - and an unstated frame refuses.
+
+    The builder used to fall back to a documented vertical default;
+    a 3840x2160 source built at that size carries a hard-edged
+    rectangle down the middle of the picture, so the fallback was a
+    defect that shipped silently. The renderer reads the size off the
+    MediaPoolItem and refuses where Resolve will not state one.
+    """
+    with pytest.raises(MissingSourceFrame, match="source_res"):
+        build_effect_comp(
+            {"vignette": True, "vignette_blend": 0.25,
+             "vignette_soft": 0.35},
+            CLIP_DUR, source_res=None)
 
 
 def test_the_asset_bank_key_changes_with_the_source_frame():
@@ -136,6 +145,10 @@ def test_the_renderer_passes_the_source_frame_to_the_builder():
     src = APPLY_FUSION_COMPS.read_text()
     assert "source_res = _source_resolution(mpi)" in src
     assert "build_effect_comp(effects, clip_dur, source_res," in src
+    # An unreadable MediaPoolItem refuses the comp, by clip, rather
+    # than sizing a canvas by guess.
+    assert "if source_res is None:" in src
+    assert "REFUSING to build" in src
     # The played horizon travels with it: an end-anchored animation
     # keyed past everything rendered never draws, so the builder is
     # told how many frames the timeline really renders for the clip.

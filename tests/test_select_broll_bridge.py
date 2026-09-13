@@ -251,10 +251,14 @@ RESOLVE_DOCS = [V3_PROFILE, _second_clip_doc()]
 
 
 def _resolve(creative, interjections=(), spine=None, catalog=None):
+    # The delivery frame, stated by the caller: vertical, the same
+    # numbers the removed default carried. Production resolves it via
+    # `resolve_delivery_format`; tests state it.
     return resolve_broll(
         list(creative), list(interjections),
         catalog if catalog is not None else RESOLVE_CATALOG,
         RESOLVE_DOCS, [], spine if spine is not None else SPINE,
+        target_resolution=(1080, 1920),
     )
 
 

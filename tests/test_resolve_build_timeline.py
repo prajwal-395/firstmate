@@ -166,7 +166,7 @@ def test_resolve_connection_failure():
     mock_dvr.scriptapp.return_value = None
     
     manifest = {
-        "project": {"name": "Test"},
+        "project": {"name": "Test", "resolution": [1080, 1920]},
         "tracks": {"V1": {"clips": [{"source_file": "test.mov", "timeline_in_frame": 0}]}}
     }
     

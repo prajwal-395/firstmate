@@ -82,13 +82,13 @@ def test_analyze_color_histogram(mock_run):
 @patch('subprocess.run')
 def test_verify_resolution(mock_run):
     mock_run.return_value = MagicMock(stdout='{"streams": [{"width": 1080, "height": 1920}]}', returncode=0)
-    res = verify_resolution("dummy.mp4")
+    res = verify_resolution("dummy.mp4", 1080, 1920)
     assert res.passed
 
 @patch('subprocess.run')
 def test_verify_resolution_fail(mock_run):
     mock_run.return_value = MagicMock(stdout='{"streams": [{"width": 1920, "height": 1080}]}', returncode=0)
-    res = verify_resolution("dummy.mp4")
+    res = verify_resolution("dummy.mp4", 1080, 1920)
     assert not res.passed
 
 @patch('subprocess.run')
@@ -113,7 +113,10 @@ def test_verify_duration(mock_run):
 @patch('library.tools.render_qa.verify_duration')
 @patch('library.tools.render_qa.verify_audio_streams')
 def test_run_full_render_qa(m1, m2, m3, m4, m5, m6, m7, m8):
-    results = run_full_render_qa("dummy.mp4", 30.0)
+    # The declared frame travels in: the gate grades what was asked
+    # for, never a defaulted shape.
+    results = run_full_render_qa("dummy.mp4", 30.0,
+                                 expected_resolution=[1080, 1920])
     # The eight original metrics plus the four measurements that need
     # nothing but the file: frame occupancy (P1), chroma presence (P2),
     # the face-crop guard and silence under picture (P8). The mix

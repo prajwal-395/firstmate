@@ -8,11 +8,12 @@ Usage:
     from fusion.engine import CompEngine
     from fusion.effects import fx
 
-    comp_str = (CompEngine(clip_dur=90)
+    comp_str = (CompEngine(clip_dur=90, width=1080, height=1920)
         .add(fx.zoom(90, start=1.0, mid=1.04, end=1.03))
         .add(fx.grade(gain=1.05, contrast=0.04, saturation=1.15))
-        .add(fx.glow(gain=0.08))
-        .add(fx.vignette(clip_dur=90))
+        .add(fx.glow(gain=0.08, threshold=0.75, size=3.5))
+        .add(fx.vignette(clip_dur=90, width=1.0, height=1.0,
+                         soft=0.35, blend=0.25, res=(1080, 1920)))
         .serialize())
 """
 
@@ -39,13 +40,16 @@ class CompEngine:
     cause keyframes to land at the wrong positions.
     """
 
-    def __init__(self, clip_dur: int, *, width: int = 1080, height: int = 1920):
+    def __init__(self, clip_dur: int, *, width: int, height: int):
         """Initialize a composition builder.
 
         Args:
             clip_dur: SOURCE clip total frame count (NOT timeline duration).
-            width: Composition width in pixels.
-            height: Composition height in pixels.
+            width: Composition width in pixels - the SOURCE clip's own
+                frame, never the delivery format. Required: a canvas
+                that guesses its size paints a wrong-size Background
+                over the picture.
+            height: Composition height in pixels. Required, as above.
         """
         _reset_counters()
         self.clip_dur = clip_dur
@@ -149,8 +153,16 @@ class CompEngine:
 
         source_res = params.get("source_res")
         if not source_res:
-            source_res = (params.get("width", 1080),
-                          params.get("height", 1920))
+            width = params.get("width")
+            height = params.get("height")
+            if width is None or height is None:
+                raise ValueError(
+                    "CompEngine.from_params needs the frame Fusion sees: "
+                    "pass source_res=(width, height) or width= and "
+                    f"height=. Got neither; params carry "
+                    f"{sorted(params)}."
+                )
+            source_res = (width, height)
 
         effects = {k: v for k, v in params.items()
                    if k not in ("source_res", "width", "height",

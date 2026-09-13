@@ -9,11 +9,13 @@ Provides a Python object model for Fusion .comp files with:
 Usage:
     from fusion import CompEngine, fx
 
-    # Compose effects
-    comp = (CompEngine(clip_dur=90)
+    # Compose effects. The frame is stated, never defaulted: it is the
+    # SOURCE clip's own, which the caller read off the MediaPoolItem.
+    comp = (CompEngine(clip_dur=90, width=1080, height=1920)
         .add(fx.zoom(90, start=1.0, mid=1.04, end=1.03))
         .add(fx.grade(gain=1.05, contrast=0.04))
-        .add(fx.vignette(clip_dur=90))
+        .add(fx.vignette(clip_dur=90, width=1.0, height=1.0,
+                         soft=0.35, blend=0.25, res=(1080, 1920)))
         .serialize())
 
     # Backward-compatible

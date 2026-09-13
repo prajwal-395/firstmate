@@ -47,6 +47,12 @@ from library.tools.tv_power import (
     validate_timing,
 )
 
+#: The source frame every comp below is built at. The builder takes no
+#: default frame, so each call states it - the same numbers the
+#: removed default carried, which is what keeps the asserted curves
+#: identical.
+SOURCE_RES = (1080, 1920)
+
 
 def _curves(comp: str, played: int) -> dict:
     """Every animated spline in `comp`, per rendered frame, keyed by the
@@ -173,7 +179,8 @@ def test_both_keys_draw_the_band_the_dot_and_the_gain():
     `"Crop" in comp` and passed throughout.
     """
     for key in ("tv_power_head", "tv_power_tail"):
-        comp = build_effect_comp({key: True}, 300)
+        comp = build_effect_comp({key: True}, 300,
+                                 source_res=SOURCE_RES)
         assert "RectangleMask" in comp
         assert "Background" in comp
         assert "Transform" in comp
@@ -184,7 +191,7 @@ def test_both_keys_draw_the_band_the_dot_and_the_gain():
 
 
 def test_absent_keys_draw_nothing():
-    comp = build_effect_comp({}, 300)
+    comp = build_effect_comp({}, 300, source_res=SOURCE_RES)
     assert "PowerBand" not in comp
     assert "PowerDot" not in comp
     assert "PowerDecay" not in comp
@@ -201,7 +208,7 @@ def test_the_switch_on_opens_on_fully_black():
     played = 200
     curves = _curves(build_effect_comp(
         {"tv_power_head": True, "source_in_frame": 0,
-         "source_out_frame": played - 1}, played), played)
+         "source_out_frame": played - 1}, played, source_res=SOURCE_RES), played)
     assert curves["Gain"][0] == pytest.approx(BLACK_GAIN)
     assert curves["Size"][0] == pytest.approx(DOT_SIZE)
     assert curves["Height"][0] == pytest.approx(1.0 - 2 * COLLAPSE_CROP)
@@ -218,7 +225,7 @@ def test_the_switch_off_closes_on_fully_black():
     played = 200
     curves = _curves(build_effect_comp(
         {"tv_power_tail": True, "source_in_frame": 0,
-         "source_out_frame": played - 1}, played), played)
+         "source_out_frame": played - 1}, played, source_res=SOURCE_RES), played)
     assert curves["Gain"][0] == pytest.approx(PICTURE_GAIN)
     assert curves["Gain"][-1] == pytest.approx(BLACK_GAIN)
     assert curves["Size"][-1] == pytest.approx(DOT_SIZE)
@@ -237,10 +244,10 @@ def test_switch_on_is_the_switch_off_reversed():
     played = 200
     head = _curves(build_effect_comp(
         {"tv_power_head": True, "source_in_frame": 0,
-         "source_out_frame": played - 1}, played), played)
+         "source_out_frame": played - 1}, played, source_res=SOURCE_RES), played)
     tail = _curves(build_effect_comp(
         {"tv_power_tail": True, "source_in_frame": 0,
-         "source_out_frame": played - 1}, played), played)
+         "source_out_frame": played - 1}, played, source_res=SOURCE_RES), played)
 
     assert set(head) == set(tail) == {"Height", "Size", "Gain"}
     last = played - 1
@@ -265,11 +272,11 @@ def test_a_declared_retime_moves_both_directions_together():
     head = _curves(build_effect_comp(
         {"tv_power_head": True, "tv_power_head_timing": declared,
          "source_in_frame": 0, "source_out_frame": played - 1},
-        played), played)
+        played, source_res=SOURCE_RES), played)
     tail = _curves(build_effect_comp(
         {"tv_power_tail": True, "tv_power_tail_timing": declared,
          "source_in_frame": 0, "source_out_frame": played - 1},
-        played), played)
+        played, source_res=SOURCE_RES), played)
     last = played - 1
     for name in head:
         assert head[name] == pytest.approx(
@@ -287,7 +294,7 @@ def test_animated_size_peak_stays_inside_the_ceiling():
         played = 200
         curves = _curves(build_effect_comp(
             {key: True, "source_in_frame": 0,
-             "source_out_frame": played - 1}, played), played)
+             "source_out_frame": played - 1}, played, source_res=SOURCE_RES), played)
         assert max(curves["Size"]) == pytest.approx(1.0)
 
 
@@ -306,8 +313,10 @@ def test_power_blocks_wire_their_own_internal_links():
     from library.tools.fusion.effects import fx
     from library.tools.fusion.nodes import FusionNode
 
-    for block in (fx.tv_power_head(600, source_in=0, source_out=600),
-                  fx.tv_power_tail(600, source_in=0, source_out=600)):
+    for block in (fx.tv_power_head(600, source_in=0, source_out=600,
+                                     res=(1080, 1920)),
+                  fx.tv_power_tail(600, source_in=0, source_out=600,
+                                   res=(1080, 1920))):
         tools = [n for n in block.nodes if isinstance(n, FusionNode)]
         assert len(tools) > 1, "both blocks are multi-node"
         names = [n.name for n in tools]
@@ -349,7 +358,7 @@ def test_a_zero_length_phase_collapses_to_one_key():
         comp = build_effect_comp(
             {key: True, f"{key}_timing": declared,
              "source_in_frame": 0, "source_out_frame": played - 1},
-            played)
+            played, source_res=SOURCE_RES)
         curves = _curves(comp, played)
         assert len(curves) == 3
     assert switch_total(declared) == 15

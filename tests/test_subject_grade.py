@@ -192,7 +192,7 @@ class TestSubjectGradeBlock:
         block = subject_grade.subject_grade_block(
             matte_file="/m/matte_00000.png",
             gain=1.173, contrast=0.0, saturation=1.311)
-        comp = (CompEngine(clip_dur=60)
+        comp = (CompEngine(clip_dur=60, width=1080, height=1920)
                 .add(fx.grade(gain=1.0, contrast=0.0, saturation=1.0))
                 .add(block).serialize())
         assert "Loader" in comp

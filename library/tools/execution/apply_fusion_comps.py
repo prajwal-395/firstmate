@@ -94,8 +94,8 @@ def _source_resolution(mpi):
 
     Read off the MediaPoolItem rather than assumed, and judged by what
     Resolve returns: `GetClipProperty("Resolution")` gives "1920x1080".
-    None means "could not tell", and the comp builder then falls back to
-    its documented default rather than inventing a size.
+    None means "could not tell", and the caller refuses the comp
+    rather than sizing a canvas by guess.
 
     Rotation is deliberately NOT applied. Resolve reports the STORED
     frame, and Fusion's MediaIn delivers the stored frame - the display
@@ -468,7 +468,18 @@ def apply_fusion_comps(manifest, project_folder,
             # the delivery format. Every Background node the comp builds
             # is a solid image merged over MediaIn, so the wrong size
             # paints a hard-edged rectangle in the middle of the picture.
+            # No fallback size: a MediaPoolItem that will not state its
+            # Resolution refuses the comp, by clip, rather than sizing
+            # a canvas by guess.
             source_res = _source_resolution(mpi)
+            if source_res is None:
+                raise RuntimeError(
+                    f"REFUSING to build: [{where}] {label} carries "
+                    f"effects ({sorted(effects)}) but its MediaPoolItem "
+                    f"states no Resolution, so no canvas can be sized. "
+                    f"A guessed size paints a wrong-size Background "
+                    f"over the picture."
+                )
 
             # The played segment within the source clip.  The manifest
             # carries source_in/source_out in seconds; convert to frames

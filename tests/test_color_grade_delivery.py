@@ -114,7 +114,8 @@ def test_a_declared_look_reaches_the_cdl():
 def test_a_declared_look_reaches_the_fusion_comp():
     """The Fusion half must draw nodes, not just appear in the JSON."""
     spec = _spec(DECLARED)
-    comp = build_effect_comp(dict(spec["fusion_look"]), 120)
+    comp = build_effect_comp(dict(spec["fusion_look"]), 120,
+                             source_res=(1080, 1920))
 
     assert "BrightnessContrast" in comp   # node_3, pivot contrast
     assert "SoftGlow" in comp             # node_4, bloom
@@ -141,7 +142,8 @@ def test_a_project_with_no_declared_look_gets_no_grade_at_all():
     assert "No look" in spec["look_notes"]
     # An empty Fusion half must not draw ANY node - not a grade, and not
     # the vignette the comp builder used to default to.
-    comp = build_effect_comp(dict(spec["fusion_look"]), 120)
+    comp = build_effect_comp(dict(spec["fusion_look"]), 120,
+                             source_res=(1080, 1920))
     assert "BrightnessContrast" not in comp
     assert "EllipseMask" not in comp
     assert "FilmGrain" not in comp

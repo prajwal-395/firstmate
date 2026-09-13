@@ -216,7 +216,7 @@ def _tv_power(clip_dur: int, *, direction: str,
               collapse_frames: int, dot_frames: int, decay_frames: int,
               collapse_crop=None, dot_gain=None, dot_size=None,
               source_in=None, source_out=None, played_frames=None,
-              res: tuple = (1080, 1920)):
+              res: tuple):
     """The old-TV switch, laid down forwards or backwards. ONE shape.
 
     ``library/tools/tv_power.py`` declares the shape as four STATES the
@@ -707,7 +707,7 @@ class fx:
         soft: float,
         blend: float,
         color: tuple = (0.0, 0.0, 0.0),
-        res: tuple = (1080, 1920),
+        res: tuple,
     ) -> EffectBlock:
         """Elliptical vignette.
 
@@ -777,7 +777,7 @@ class fx:
         *,
         fade_in: int = 0,
         fade_out: int = 0,
-        res: tuple = (1080, 1920),
+        res: tuple,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
     ) -> EffectBlock:
@@ -839,7 +839,7 @@ class fx:
         ttype: str = "fade_to_black",
         dur_frames: int = 7,
         *,
-        res: tuple = (1080, 1920),
+        res: tuple,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
     ) -> EffectBlock:
@@ -879,7 +879,7 @@ class fx:
         ttype: str = "fade_to_black",
         dur_frames: int = 7,
         *,
-        res: tuple = (1080, 1920),
+        res: tuple,
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
     ) -> EffectBlock:
@@ -1128,7 +1128,7 @@ class fx:
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         played_frames: Optional[int] = None,
-        res: tuple = (1080, 1920),
+        res: tuple,
     ) -> EffectBlock:
         """Old-TV switch-ON at the head of the clip: black to picture.
 
@@ -1168,7 +1168,7 @@ class fx:
         source_in: Optional[int] = None,
         source_out: Optional[int] = None,
         played_frames: Optional[int] = None,
-        res: tuple = (1080, 1920),
+        res: tuple,
     ) -> EffectBlock:
         """Old-TV switch-OFF at the tail of the clip: picture to black.
 

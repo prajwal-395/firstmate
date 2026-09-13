@@ -23,6 +23,10 @@ from library.tools.fusion.comp_builder import build_effect_comp
 REPO = pathlib.Path(__file__).resolve().parent.parent
 HANDOFF = REPO / "library/steps/step_4_03_plan_vfx/handoff.md"
 CLIP_DUR = 120
+#: The source frame every comp below is built at. The builder takes no
+#: default frame, so each call states it - the same numbers the
+#: removed default carried.
+SOURCE_RES = (1080, 1920)
 
 
 def _spine(*positions):
@@ -75,9 +79,11 @@ def test_the_ken_burns_spelling_reaches_the_renderer():
         _spine(1, 2),
     )
     assert len(resolved) == 1
-    neutral = build_effect_comp({"vignette": False}, CLIP_DUR)
+    neutral = build_effect_comp({"vignette": False}, CLIP_DUR,
+                                source_res=SOURCE_RES)
     drawn = build_effect_comp(
-        dict(resolved[0]["params"], vignette=False), CLIP_DUR)
+        dict(resolved[0]["params"], vignette=False), CLIP_DUR,
+        source_res=SOURCE_RES)
     assert drawn != neutral
 
 
@@ -127,15 +133,17 @@ def test_every_advertised_parameter_name_changes_the_comp(effect_type, names):
     alone, because some are MODIFIERS: `shake_decay_frames` shapes the
     shake that `shake_x` starts and reaches no dispatch on its own.
     """
-    neutral = build_effect_comp({"vignette": False}, CLIP_DUR)
+    neutral = build_effect_comp({"vignette": False}, CLIP_DUR,
+                                source_res=SOURCE_RES)
     base = {names[0]: _value_for(names[0]), "vignette": False}
-    base_comp = build_effect_comp(base, CLIP_DUR)
+    base_comp = build_effect_comp(base, CLIP_DUR, source_res=SOURCE_RES)
     assert base_comp != neutral, (
         f"{effect_type}: `{names[0]}` is advertised and draws nothing")
 
     for name in names[1:]:
         comp = build_effect_comp(
-            dict(base, **{name: _value_for(name)}), CLIP_DUR)
+            dict(base, **{name: _value_for(name)}), CLIP_DUR,
+            source_res=SOURCE_RES)
         assert comp != base_comp, (
             f"{effect_type}: `{name}` is advertised and changes nothing")
 
@@ -183,7 +191,8 @@ def test_no_value_is_bounded_or_substituted():
     assert resolved[0]["params"] == {
         "zoom_start": 1.9, "zoom_mid": 1.9, "zoom_end": 1.9}
     assert "1.9" in build_effect_comp(
-        dict(resolved[0]["params"], vignette=False), CLIP_DUR)
+        dict(resolved[0]["params"], vignette=False), CLIP_DUR,
+        source_res=SOURCE_RES)
 
 
 def test_a_static_reframe_is_actually_drawn():
@@ -191,7 +200,7 @@ def test_a_static_reframe_is_actually_drawn():
     so a cut_in produced a Transform with Size left at its default."""
     comp = build_effect_comp(
         {"zoom_start": 1.25, "zoom_mid": 1.25, "zoom_end": 1.25,
-         "vignette": False}, CLIP_DUR)
+         "vignette": False}, CLIP_DUR, source_res=SOURCE_RES)
     assert "Transform" in comp
     assert "1.25" in comp
 
@@ -199,14 +208,14 @@ def test_a_static_reframe_is_actually_drawn():
 def test_an_identity_zoom_still_draws_nothing():
     comp = build_effect_comp(
         {"zoom_start": 1.0, "zoom_mid": 1.0, "zoom_end": 1.0,
-         "vignette": False}, CLIP_DUR)
+         "vignette": False}, CLIP_DUR, source_res=SOURCE_RES)
     assert "Transform" not in comp
 
 
 def test_screen_shake_decays_to_stillness():
     comp = build_effect_comp(
         dict({"shake_x": 0.0037, "shake_y": 0.0037, "shake_decay_frames": 5}, vignette=False),
-        CLIP_DUR)
+        CLIP_DUR, source_res=SOURCE_RES)
     # Every key past the decay window sits at the neutral centre.
     settled = re.findall(r"\[(\d+)\] = \{ 0\.5,", comp)
     assert settled, "the shake never settles"

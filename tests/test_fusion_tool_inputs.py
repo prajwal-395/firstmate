@@ -125,7 +125,8 @@ def test_a_foreign_comp_is_exempt():
 def test_the_media_in_global_range_idiom_is_not_judged():
     """`["MediaIn1.GlobalStart"]` is instance-scoped and never appears in
     `GetInputList()`; judging it would refuse a comp Resolve authored."""
-    assert "Tools = {" in build_effect_comp({}, 30)
+    assert "Tools = {" in build_effect_comp({}, 30,
+                                             source_res=(1080, 1920))
 
 
 # ── Every tool this engine writes has been probed ────────────────────────

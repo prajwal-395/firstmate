@@ -303,6 +303,7 @@ def test_the_post_bridge_records_what_chose_the_window():
         [{"clip_id": "clip_001", "spine_block_position": 1,
           "preferred_moment": "close detail of a brick wall"}],
         [], catalog, [], [dict(INDEX, clip_id="clip_001")], spine,
+        target_resolution=(1080, 1920),
     )
     # No semantic document, so nothing describes the clip: the honest
     # answer is that nothing discriminated the window.
