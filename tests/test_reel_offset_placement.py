@@ -594,3 +594,59 @@ def test_offset_build_refuses_what_it_cannot_link():
     with pytest.raises(OffsetRefused, match="no covering picture"):
         plan_cutaway(before, FPS, "2",
                      (CUT_FRAME, CUT_FRAME + 24), cover_words=[])
+
+
+# ── a HELD FRAME is not an unlinked picture ─────────────────────
+# Measured 2026-09-12 rebuilding the captain's field-test project:
+# every reel whose ending declares `tail_hold: freeze` refused the
+# OFFSET build with "Offset build leaves 1 a-roll item(s) unlinked:
+# picture at 1650-1669 on Craig", after placing correctly. A held
+# frame is rendered by `reel_ending` onto the ending shot's own row
+# and carries no audio anywhere on the timeline, so there is nothing
+# for it to link TO. The ordinary rebuild's link pass records a
+# warning and carries on; only this census raised, which made the
+# whole variant path unreachable for any reel with a freeze ending.
+
+def _offset_census_timeline(tail_name, tail_pool):
+    """One linkable speech+picture pair plus one unlinked tail item."""
+    FakeTimeline._registry = {}
+    timeline = FakeTimeline()
+    plan = plan_layout({
+        "angles": [{"key": "1", "label": "Akshita",
+                    "speech_name": "Akshita CH1", "program_channel": 1}],
+        "has_broll": False, "has_frame": False, "caption_spans": [],
+        "mg_spans": [], "has_generators": False, "timed_text_spans": [],
+        "music_spans": [], "sfx_spans": [],
+    })
+    pic = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
+    speech = FakeItem("a.MXF", 0, 100, pool_path="/m/a.MXF")
+    tail = FakeItem(tail_name, 100, 119, pool_path=tail_pool)
+    for item in (pic, speech, tail):
+        FakeTimeline._registry[item.GetUniqueId()] = item
+    timeline.tracks = {("video", 1): [pic, tail], ("audio", 1): [speech]}
+    return timeline, plan, tail
+
+
+def test_offset_census_lets_a_held_frame_through():
+    timeline, plan, tail = _offset_census_timeline(
+        "reel_freeze_8da72bf764.mov", "/p/reel_freeze_8da72bf764.mov")
+    record = link_reel_groups(
+        timeline, plan,
+        offset_links=[OffsetLink(speech=(0, 100), pictures=((0, 100),))])
+    assert record["link_groups"], "the real speech group still links"
+    assert not tail.GetLinkedItems(), \
+        "the hold is not linked to anything - that is the whole point"
+
+
+def test_offset_census_still_refuses_an_unlinked_picture():
+    """The gate can still fail: rename the tail off the hold
+    convention and the same timeline refuses again. Without this the
+    test above would pass against a census that had simply stopped
+    looking."""
+    timeline, plan, _tail = _offset_census_timeline(
+        "b.MXF", "/m/b.MXF")
+    with pytest.raises(OffsetRefused, match="unlinked"):
+        link_reel_groups(
+            timeline, plan,
+            offset_links=[OffsetLink(speech=(0, 100),
+                                     pictures=((0, 100),))])

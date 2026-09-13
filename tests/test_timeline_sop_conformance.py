@@ -403,3 +403,53 @@ def test_verifier_without_a_plan_runs_structure_only_and_says_so():
     assert "aroll_linked" in report["checks_skipped"]
     assert "program_stream" in report["checks_skipped"]
     assert "no_empty_tracks" in report["checks_run"]
+
+
+# ── a HELD FRAME is not an unlinked picture ─────────────────────
+# Measured 2026-09-12 rebuilding the captain's field-test project:
+# Reel 09 placed correctly through the variant path and this verifier
+# removed it, naming the freeze tail - "Picture item at 1650 on Craig
+# links to nothing". A hold is rendered onto the ending shot's own
+# a-roll row and carries no audio anywhere on the timeline, so it can
+# never be linked to anything. `reel_ending.is_freeze_path` is the
+# convention's one reader.
+
+def _timeline_with_tail(tail_name, tail_pool):
+    FakeTimeline._registry = {}
+    tl = FakeTimeline()
+    pic = FakeItem("LC4930.MXF", 0, 100, pool_path="/media/LC4930.MXF")
+    speech = FakeItem("LC4930.MXF", 0, 100, pool_path="/media/LC4930.MXF",
+                      channel=1)
+    tail = FakeItem(tail_name, 100, 119, pool_path=tail_pool)
+    for it in (pic, speech, tail):
+        FakeTimeline._registry[it.GetUniqueId()] = it
+    tl.SetClipsLinked([pic, speech], True)
+    tl.tracks = {("video", 1): [pic, tail], ("video", 2): [],
+                 ("audio", 1): [speech]}
+    tl.names = {("video", 1): "Akshita", ("video", 2): "Subtitles",
+                ("audio", 1): "Akshita CH1"}
+    plan = plan_layout({
+        "angles": [{"key": "akshita", "label": "Akshita",
+                    "speech_name": "Akshita CH1", "program_channel": 1}],
+        "has_broll": False,
+        "caption_spans": [(0, 200)],
+        "mg_spans": [], "has_generators": False, "timed_text_spans": [],
+        "music_spans": [], "sfx_spans": [],
+    })
+    return tl, plan
+
+
+def test_held_frame_is_not_an_unlinked_picture():
+    tl, plan = _timeline_with_tail("reel_freeze_8da72bf764.mov",
+                                   "/renders/reel_freeze_8da72bf764.mov")
+    report = verify_timeline(tl, plan=plan)
+    assert "aroll_unlinked" not in {v["check"] for v in report["violations"]}, \
+        f"the hold must not read as a defect: {report['violations']}"
+
+
+def test_an_unlinked_picture_that_is_not_a_hold_still_fails():
+    """The gate can still fail: the identical timeline with the tail
+    named off the hold convention reports the violation again."""
+    tl, plan = _timeline_with_tail("LC4931.MXF", "/media/LC4931.MXF")
+    report = verify_timeline(tl, plan=plan)
+    assert "aroll_unlinked" in {v["check"] for v in report["violations"]}

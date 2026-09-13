@@ -6,6 +6,10 @@ caption inside a speech span with no link, two rows carrying what
 should be one row's role, a placed stream that is not the recorded
 program stream.
 
+One picture item is deliberately outside the link check: a rendered
+HOLD (`reel_ending.is_freeze_path`). It has no audio anywhere on the
+timeline, so it can never be linked and is not evidence of anything.
+
 Deterministic, and it can fail, so it is a real gate (AGENTS.md 10.4).
 Link and stream checks need the track plan (`library.tools.
 timeline_layout.TrackPlan`) - roles are what say which rows those
@@ -94,6 +98,28 @@ def _items(timeline, media_type: str, index: int):
         return timeline.GetItemListInTrack(media_type, index) or []
     except Exception:
         return []
+
+
+def _is_held_frame(item) -> bool:
+    """Whether this picture item is a rendered HOLD, not footage.
+
+    `reel_ending` owns both the artefact and the question; this asks it
+    with the path Resolve gives rather than restating the naming
+    convention. An item Resolve will not answer for is NOT called a
+    hold - the caller's default is to treat it as picture, which is the
+    safe way to be wrong.
+    """
+    from library.tools.reel_ending import is_freeze_path
+    try:
+        pool_item = item.GetMediaPoolItem()
+    except Exception:  # noqa: BLE001 - an unreadable item is not a hold
+        return False
+    if not pool_item:
+        return False
+    try:
+        return is_freeze_path(pool_item.GetClipProperty("File Path"))
+    except Exception:  # noqa: BLE001 - same reading
+        return False
 
 
 @under_lease("verify conformance", exclusive=False)
@@ -195,6 +221,18 @@ def verify_timeline(timeline, plan=None) -> dict:
                 })
     for row in plan.aroll_rows():
         for item in _items(timeline, "video", row.index):
+            if _is_held_frame(item):
+                # A HELD FRAME is a copy of a frame the reel already
+                # plays, laid on the ending shot's own row so it
+                # inherits that shot's framing and grade. It carries no
+                # audio anywhere on the timeline, so there is nothing
+                # here for it to link TO - "could not be linked" is not
+                # "was left unlinked", and a gate that cannot tell them
+                # apart refuses correct output (AGENTS.md 10.4).
+                # Measured 2026-09-12 rebuilding Reel 09 through the
+                # variant path: the reel placed correctly and this
+                # check removed it, naming the freeze at 1650.
+                continue
             if not _linked_ids(item):
                 span = _span(item)
                 violations.append({

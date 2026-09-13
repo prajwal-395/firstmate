@@ -784,10 +784,22 @@ def freeze_items(video_items) -> dict:
     out = {}
     for item in video_items or ():
         source = str(getattr(item, "source_file", "") or "")
-        name = source.rsplit("/", 1)[-1]
-        if name.startswith(FREEZE_PREFIX):
-            out[id(item)] = name
+        if is_freeze_path(source):
+            out[id(item)] = source.rsplit("/", 1)[-1]
     return out
+
+
+def is_freeze_path(source_file) -> bool:
+    """Whether this source path is a held frame this module rendered.
+
+    The one place the `FREEZE_PREFIX` convention is READ, so a caller
+    holding a path rather than a `.source_file` object asks here
+    instead of respelling `startswith` - two spellings of one
+    convention are two chances to stop recognising a hold. `freeze_items`
+    is the same question asked of a list of objects.
+    """
+    name = str(source_file or "").rsplit("/", 1)[-1]
+    return bool(name) and name.startswith(FREEZE_PREFIX)
 
 
 def assert_tail_fits(picture_placements, ending, fps: float,

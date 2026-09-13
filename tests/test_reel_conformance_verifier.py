@@ -2754,3 +2754,70 @@ class TestCaptionSlugFragments:
         passing quietly, it is staying in its lane."""
         items = self._items([(100, 40, "caption0001.mov")])
         assert check_caption_slugs(self.REEL, items) == []
+
+
+class TestRecordedPinsAreReadBeforeThePlanIsGraded:
+    """The CLI must grade the plan the build placed, not the raw file.
+
+    Measured 2026-09-12 on the rebuilt field-test project. The build's
+    in-process sweep PASSED; the same sweep run from the command line -
+
+        python3 -m library.tools.reel_conformance_verifier \\
+          --project 'Podcast (field test)' --master 'GEO Podcast - Synced' \\
+          --plan <project>/pipeline_output/review/reel_proposals_v2.json \\
+          --transcript <project>/.../transcript.json
+
+    - reported PLAN-MISMATCH as an ERROR on Reels 09, 26 and 28:
+    "+54 frames, +2.25s ... it is not the plan that built this reel".
+    Those are exactly the three built reels whose closer the captain's
+    `redraw_closer` pin moves, and 2.252s is exactly 54 frames at
+    23.976fps.
+
+    The cause was ORDERING, not logic. `_apply_recorded_pins` reads the
+    pins out of the project folder and returns the moments UNCHANGED
+    when it has none; the CLI can only DERIVE that folder from
+    `--plan`, and the derivation sat 70 lines below the call. So the
+    in-process caller, which passes the folder, applied the pins and
+    the CLI did not - a gate that fails correct output, which is no
+    more coverage than one that cannot fail (AGENTS.md 10.4).
+    """
+
+    def test_no_project_folder_means_the_pins_are_not_applied(self):
+        """The dependency itself, stated. This is WHY order matters:
+        without a folder the call is a no-op, silently."""
+        from library.tools.reel_conformance_verifier import (
+            _apply_recorded_pins,
+        )
+        import io
+
+        moments = [object(), object()]
+        out = _apply_recorded_pins(moments, {"segments": []}, "",
+                                   io.StringIO())
+        assert out == moments, (
+            "a folderless call must pass the moments straight through - "
+            "if this ever changes, the ordering test below is measuring "
+            "the wrong thing")
+
+    @pytest.mark.parametrize("reader, what", [
+        ("_apply_recorded_pins(", "the captain's recorded closer pins"),
+        ("declared_variants(project_folder)",
+         "which timelines are declared comparison variants"),
+        ("_declared_framing(project_folder)", "the declared framing"),
+    ])
+    def test_the_folder_is_derived_before_every_reader(self, reader, what):
+        """The pin on the defect: source order inside run_verification.
+
+        Each of these answers EMPTY on an empty folder rather than
+        raising, so a derivation that lands after one of them is
+        silent. Asserted on the source rather than by driving the whole
+        verifier, which needs a live Resolve. It can fail - move the
+        derivation back below any reader and this goes red.
+        """
+        import inspect
+        from library.tools.reel_conformance_verifier import run_verification
+
+        body = inspect.getsource(run_verification)
+        derive = body.index("if not project_folder and plan_path:")
+        assert derive < body.index(reader), (
+            f"run_verification derives project_folder AFTER it reads "
+            f"{what}, so every CLI run grades without it")

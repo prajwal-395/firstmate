@@ -679,6 +679,28 @@ def _item_uid(item):
         return None
 
 
+def _is_held_frame(item) -> bool:
+    """Whether this timeline item is a rendered HOLD, not footage.
+
+    `reel_ending` owns both the artefact and the question - this asks
+    it with the path Resolve gives, rather than restating the naming
+    convention where a later rename would not reach it. An item Resolve
+    will not answer for is NOT called a hold: the caller's default is
+    to treat it as picture, which is the safe way to be wrong here.
+    """
+    from library.tools.reel_ending import is_freeze_path
+    try:
+        pool_item = item.GetMediaPoolItem()
+    except Exception:  # noqa: BLE001 - an unreadable item is not a hold
+        return False
+    if not pool_item:
+        return False
+    try:
+        return is_freeze_path(pool_item.GetClipProperty("File Path"))
+    except Exception:  # noqa: BLE001 - same reading
+        return False
+
+
 def link_reel_groups(timeline, plan, offset_links=()) -> dict:
     """Picture to speech, captions into the group - in ONE call per start.
 
@@ -860,6 +882,16 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
     to nothing afterwards raises `OffsetRefused` naming it. On success
     the legacy warnings stand resolved and are cleared - every one of
     them names an item this pass just linked.
+
+    The one thing the picture census EXCLUDES is a rendered HOLD
+    (`_is_held_frame`), because a held frame has no audio anywhere on
+    the timeline and so cannot be linked to anything at all. That is
+    the difference between "was not linked" and "could not be" - and a
+    gate that cannot tell them apart refuses correct output (AGENTS.md
+    10.4). Nothing else is excluded: a full-frame CARD on an a-roll row
+    would hit this same census, and is NOT covered here because no
+    build has been measured doing it - this project declares
+    `effect.card_row_role`, so its cards ride the Motion Graphics row.
     """
     by_speech_span: Dict[tuple, list] = {}
     for start, end, item, _angle_key in speech_index:
@@ -1002,6 +1034,21 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
         except Exception:
             items = []
         for item in items:
+            if _is_held_frame(item):
+                # A HELD FRAME is a copy of a frame the reel already
+                # plays, laid on the ending shot's own row so it
+                # inherits that shot's framing and grade
+                # (`reel_ending`, AGENTS.md 10.4). It carries no audio
+                # and answers no speech, so there is nothing on this
+                # timeline for it to link TO - and an item that cannot
+                # be linked is not an item that was left unlinked.
+                # Measured 2026-09-12 rebuilding Reel 09 through the
+                # variant path: every reel whose ending declares
+                # `tail_hold: freeze` refused here with "picture at
+                # 1650-1669 on Craig", after placing correctly. The
+                # ordinary rebuild's own link pass records a warning
+                # and carries on; only this offset census raises.
+                continue
             if not _linked_ids(item):
                 span = _timeline_span(item)
                 unlinked.append(

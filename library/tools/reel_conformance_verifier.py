@@ -5529,6 +5529,62 @@ def run_verification(
         out = sys.stdout
     err = sys.stderr
 
+    # ── Which PROJECT this is, BEFORE anything reads a declaration ───
+    #
+    # Step 4.01 resolves the delivery format - and through it the safe
+    # area captions are grouped against - from the project folder. The
+    # plan lives at <project>/pipeline_output/review/, so the folder is
+    # derivable from it; taking it from the caller when given keeps a
+    # project addressed by absolute path (AGENTS.md 8) working either way.
+    #
+    # THIS RUNS FIRST, and that ordering is the whole point. Three
+    # readers below answer EMPTY on an empty folder rather than
+    # raising - `_apply_recorded_pins` (the captain's closer pins),
+    # `declared_variants` (which timelines are comparison variants) and
+    # the framing/look/card-row block - because a folder that cannot be
+    # found is a declaration store that cannot be read. The derivation
+    # used to sit below all three, so the in-process caller (the
+    # build's own gate, which PASSES `project_folder`) read every
+    # declaration and the CLI - which can only derive it - read none.
+    #
+    # Measured 2026-09-12 on the rebuilt field-test project, where the
+    # build's own sweep PASSED and
+    # `python3 -m library.tools.reel_conformance_verifier --plan ...`
+    # FAILED on the same nine timelines:
+    #
+    # * "+54 frames, +2.25s ... it is not the plan that built this
+    #   reel", ERROR on Reels 09, 26 and 28 - exactly the three built
+    #   reels whose closer the captain's `redraw_closer` pin moves, and
+    #   2.252s is exactly 54 frames at 23.976fps;
+    # * Reel 09's declared cutaway variant graded against the plan it
+    #   deviates from BY DESIGN, which `grades_as_a_reel` exists to
+    #   prevent.
+    #
+    # A gate that fails correct output is no more coverage than one
+    # that cannot fail (AGENTS.md 10.4).
+    if not project_folder and plan_path:
+        # Walk up until the candidate's own layout agrees that the plan
+        # sits where it says the review area is. That asks
+        # `project_layout` rather than restating "three parents up", so a
+        # layout change moves this with it.
+        from pathlib import Path
+
+        from library.tools.project_layout import Area, ProjectLayout
+        here = Path(plan_path).expanduser().resolve().parent
+        for candidate in (here, *here.parents):
+            try:
+                if ProjectLayout(candidate).read_dir(Area.REVIEW) == here:
+                    project_folder = str(candidate)
+                    break
+            except Exception:  # noqa: BLE001 - not a project root
+                continue
+    if plan_path and not project_folder:
+        print("WARNING: no project folder could be derived from "
+              f"{plan_path!r}, so the captain's recorded pins, the "
+              f"declared framing, look and card row are NOT read - "
+              f"every check that needs one grades a plan this project "
+              f"never placed.", file=err)
+
     # ── Connect ──────────────────────────────────────────────────────
     try:
         resolve = connect_resolve()
@@ -5754,28 +5810,6 @@ def run_verification(
 
     # ── Verify each reel ─────────────────────────────────────────────
     reel_results = []
-
-    # Step 4.01 resolves the delivery format - and through it the safe
-    # area captions are grouped against - from the project folder. The
-    # plan lives at <project>/pipeline_output/review/, so the folder is
-    # derivable from it; taking it from the caller when given keeps a
-    # project addressed by absolute path (AGENTS.md 8) working either way.
-    if not project_folder and plan_path:
-        # Walk up until the candidate's own layout agrees that the plan
-        # sits where it says the review area is. That asks
-        # `project_layout` rather than restating "three parents up", so a
-        # layout change moves this with it.
-        from pathlib import Path
-
-        from library.tools.project_layout import Area, ProjectLayout
-        here = Path(plan_path).expanduser().resolve().parent
-        for candidate in (here, *here.parents):
-            try:
-                if ProjectLayout(candidate).read_dir(Area.REVIEW) == here:
-                    project_folder = str(candidate)
-                    break
-            except Exception:  # noqa: BLE001 - not a project root
-                continue
 
     # ── What the project DECLARED the picture should look like ───────
     #
