@@ -512,13 +512,36 @@ def build_review_block(directory: str, rows: list, missing: list = ()) -> str:
 
 # ── Clause: a harness that cannot be shown a picture ──────────────────
 
-FRAME_INPUTS = ("broll_window_frames", "roughcut_window_frames")
-"""Every step input that carries a reference to frames drawn here.
+FRAME_INPUTS = ("broll_window_frames", "roughcut_window_frames",
+                "render_watch_frames")
+"""Every step input that carries a reference to frames on disk.
 
 `present_llm_step` walks this to WITHHOLD the block from a harness that
 cannot be shown a picture.  Unlike `brief_reference.REFERENCED_INPUTS`
 there is nothing to put back in its place: a picture has no smaller
 textual form, so the step falls back to the prose it had before.
+
+`render_watch_frames` is drawn by `library/tools/render_watch.py` off a
+RENDERED FILE rather than off source footage - a different surface, the
+same withholding clause, and one list so the runner keeps having exactly
+one place that knows a harness has no eyes.
+"""
+
+
+def _render_watch_notice(harness: str) -> str:
+    from library.tools.render_watch import withheld_notice as notice
+    return notice(harness)
+
+
+FRAME_INPUT_NOTICES = {
+    "render_watch_frames": _render_watch_notice,
+}
+"""Keys whose withholding notice is not this module's own.
+
+A withheld watch of a RENDER has to say *nothing has watched this
+render* - the whole reason the block exists is a step that claimed to be
+watching and was not, and a generic "frames were withheld" line would
+let it claim it again.  Anything absent here gets `withheld_notice`.
 """
 
 
@@ -549,6 +572,7 @@ def withhold_for_harness(inputs: dict, harness: str) -> tuple:
             continue
         if not withheld:
             inputs = dict(inputs)
-        inputs[key] = withheld_notice(harness)
+        notice = FRAME_INPUT_NOTICES.get(key, withheld_notice)
+        inputs[key] = notice(harness)
         withheld.append(key)
     return inputs, withheld

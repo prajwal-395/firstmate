@@ -62,7 +62,8 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # adding a subcommand without listing it here fails loudly rather than
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
-    "init-root", "list", "new", "propose-reels", "build-reels", "deliver-reel", "status",
+    "init-root", "list", "new", "propose-reels", "build-reels", "deliver-reel",
+    "watch-reel", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
@@ -1547,6 +1548,84 @@ def cmd_deliver_reel(args):
     print(f"  report: {full['report_path']}")
 
 
+def cmd_watch_reel(args):
+    """Show a model the PICTURE of a delivered reel and ask what it sees.
+
+    The reels process is `build_reels` then `verify_reels`, and both
+    halves are structural: the conformance verifier grades format, item
+    count, picture holes, audio holes and caption timing, and
+    `reel_quality_bar` judges from the transcript. Nothing on that path
+    had ever opened a frame. This verb does, and it asks the questions a
+    frame answers that a structure cannot - is a graphic clipped, is
+    text unreadable, is a shot of nothing.
+
+    It REPORTS. It fails no build and refuses no render: the structural
+    verifier is correct and stays the gate, and a gate that refuses on a
+    model's opinion is a new failure mode (AGENTS.md 10.4).
+
+    It RENDERS NOTHING. It reads the file `deliver-reel` already wrote,
+    so watching costs what the captain already paid and not a second
+    time. A reel that has not been delivered is refused with the verb
+    that would deliver it.
+
+    See library/tools/render_watch.py.
+    """
+    from library.tools import render_watch
+
+    project_folder = _reel_project_folder(args.project)
+    try:
+        if args.video:
+            video_path = os.path.abspath(args.video)
+            if not os.path.isfile(video_path):
+                raise render_watch.NotDelivered(
+                    f"no file at {video_path}")
+            subject = f"the rendered file {os.path.basename(video_path)}"
+        else:
+            row = render_watch.delivered_reel(project_folder, args.reel)
+            video_path = row["video_path"]
+            subject = (f"Reel {int(row['reel']):02d}"
+                       + (f" ({row['timeline_name']})"
+                          if row["timeline_name"] else ""))
+
+        frames_dir, record_path = render_watch.watch_paths(
+            project_folder, video_path)
+
+        if args.record:
+            with open(args.record, encoding="utf-8") as handle:
+                answer = json.load(handle)
+            record = render_watch.record_answer(record_path, answer)
+            print(f"Filed the watch answer onto {record_path}")
+            print(f"  strips:   {record['strips']}")
+            print(f"  gates:    no - this is a report, not a gate")
+            return
+
+        watch = render_watch.watch_video(
+            video_path, frames_dir, record_path, subject)
+    except (render_watch.NotDelivered,
+            render_watch.NothingWasWatched) as refused:
+        print(f"REFUSED: {refused}", file=sys.stderr)
+        sys.exit(1)
+
+    record = watch["record"]
+    print(f"Watching {subject}")
+    print(f"  file:     {video_path}")
+    print(f"  strips:   {record['strips']} covering "
+          f"{record['duration']:.3f}s at "
+          f"{record['seconds_unseen_between_samples']:g}s resolution")
+    print(f"  frames:   {record['frames_directory']}")
+    print(f"  record:   {watch['record_path']}")
+    print(f"  prompt:   {record['block_path']}")
+    if record["spans_not_drawn"]:
+        print(f"  NOT DRAWN: {', '.join(record['spans_not_drawn'])}")
+    print()
+    print(watch["block"])
+    print("Open the strips, answer the questions above, and file the "
+          "answer with:")
+    print(f"  manage_project.py watch-reel {args.project} "
+          f"{args.reel if args.reel is not None else ''} "
+          f"--record <answers.json>".replace("  ", " "))
+
+
 def _commit_run_tail(project_folder: str) -> None:
     """Commit whatever the run's final state write left uncommitted.
 
@@ -1780,6 +1859,28 @@ def main():
         "--timeout", type=int, default=1800,
         help="Seconds to wait for Resolve to finish (default: 1800)")
     deliver_reel_parser.set_defaults(func=cmd_deliver_reel)
+
+    watch_reel_parser = sub.add_parser(
+        "watch-reel",
+        help="Show a model the PICTURE of a delivered reel and ask what "
+             "it sees. Renders nothing")
+    watch_reel_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    watch_reel_parser.add_argument(
+        "reel", type=int, nargs="?", default=None,
+        help="The reel number to watch. It must already have been "
+             "rendered with deliver-reel: this verb reads that file and "
+             "never starts a render")
+    watch_reel_parser.add_argument(
+        "--video", default="",
+        help="Watch this file instead of looking a reel up by number")
+    watch_reel_parser.add_argument(
+        "--record", default="",
+        help="A JSON file holding the answer to the questions this verb "
+             "asked. Files it onto the watch record beside the video. "
+             "The answer is REPORTED, never gated")
+    watch_reel_parser.set_defaults(func=cmd_watch_reel)
 
     p_status = sub.add_parser("status", help="Show project status")
     p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")

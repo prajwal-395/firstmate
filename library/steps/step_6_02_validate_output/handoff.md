@@ -16,29 +16,61 @@
 
 ## System Context
 
-You are watching the RENDERED video and validating it against quality
-criteria. This is the ONLY step in the pipeline that evaluates the actual
-rendered output — everything else operates on specifications and data.
+You are validating the RENDERED output. This is the ONLY step in the
+pipeline that evaluates the finished file - everything else operates on
+specifications and data.
 
-The ultimate test: **"Would I post this?"**
+**You receive two things, and they are different.**
+
+`deterministic_validation` is the MEASUREMENTS: duration, resolution,
+frame rate, black frames, frame occupancy, face-intact, loudness, the
+mix, subtitle timing. Those are numbers off the file and they are not
+opinions.
+
+`render_watch_frames` is the PICTURE: real frame strips of the rendered
+file on disk, with the directory holding them. **Open them.** They are
+the only thing in this context that is a picture; everything else
+describes what was PLANNED.
+
+**When `render_watch_frames` is absent, or carries a line saying the
+frames were withheld, NOTHING HAS WATCHED THIS RENDER.** Say so in your
+answer and judge from the measurements alone. Do not write a visual
+verdict you did not look at - that is exactly what this step did before
+the frames existed, and it is why a gate whose prose claimed eyes reads
+as coverage it does not have.
+
+The captain's own bar is *"would I post this?"* - theirs to apply, and
+not a question you can check. Yours are the questions the block lists,
+each of which a specific frame answers yes or no.
 
 ---
 
 ## Task Prompt
 
-Watch the rendered video file and evaluate it against the quality criteria
-below. Produce a structured validation result.
+Open every strip `render_watch_frames` names, then evaluate the render
+and produce a structured validation result.
 
 ### Validation checks:
 
-1. **Visual quality**: Video plays smoothly — no stuttering, artifacts,
-   wrong clips, bad conform, or corruption
-2. **Audio quality**: Speech is audible, music is balanced, no clipping,
-   no sync issues
-3. **Subtitle accuracy**: Subtitles are readable, correctly timed, don't
-   overlap important visual content
-4. **Timing accuracy**: Duration is within the project's target duration
-   zone (if declared), transitions land correctly
+1. **The picture** (from the strips): text clipped by the frame edge,
+   captions too large or too small to read, graphics cut off or
+   overlapping, a face outside the frame or under an overlay, a shot
+   blurred or of nothing, a black bar inside the frame, something that
+   appears or jumps inside one continuous shot. Name the span and where
+   in the frame. A clean span is a real answer - say it is clean.
+2. **Audio quality** (from the measurements): speech audible, music
+   balanced, no clipping. You have no sound; report what was measured
+   and do not infer.
+3. **Subtitle accuracy**: readable and placed clear of what matters -
+   from the strips. Timing is measured, not watched: the strips sample
+   seconds apart and cannot see a few frames of drift.
+4. **Timing accuracy**: duration within the project's target zone (if
+   declared), from the measurements.
+
+**What the strips CANNOT tell you** is stated in the block itself, and
+it binds: anything shorter than the sampling resolution was never
+sampled, motion between two samples was never seen, and nothing here
+carries sound. Reporting on those is inventing a finding.
 
 ---
 
@@ -51,7 +83,10 @@ below. Produce a structured validation result.
 1. Status is "pass" only if ALL checks pass
 2. `distribution_ready` is `true` only if status is "pass"
 3. Issues must be specific (timestamps, descriptions)
-4. The "would I post this?" gut check is the ultimate quality bar
+4. A visual issue names the span it is in and where in the frame it is,
+   because a reader has to be able to open the same strip and see it
+5. If the picture was not seen, the answer says so - an unwatched render
+   is never reported as a watched one that passed
 
 ---
 
@@ -60,6 +95,8 @@ below. Produce a structured validation result.
 | Direction | State Key |
 |-----------|-----------|
 | Reads | `rendered_output` (the actual file) |
+| Reads | `deterministic_validation` (the measurements off that file) |
+| Reads | `render_watch_frames` (frame strips of that file, on disk) |
 | Writes | `validation_result` |
 
 ---

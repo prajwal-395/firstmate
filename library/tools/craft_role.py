@@ -686,11 +686,17 @@ WITHOUT_A_DECLARED_ROLE: Dict[str, str] = {
         "so its directory is not touched here."
     ),
     "validate": (
-        "Addressed as 'watching the RENDERED video and validating it'. "
-        "The only one of the eleven whose judgement is about the finished "
-        "render rather than a plan. Whether a QA pass wants a role at all - "
+        "Addressed as 'validating the RENDERED output', and since "
+        "2026-09-13 it is SHOWN that output: `render_watch_frames` puts "
+        "frame strips of the rendered file in front of it "
+        "(`library/tools/render_watch.py`). Until then the handoff said "
+        "'you are watching the RENDERED video' and the step was handed a "
+        "table, which is a stronger claim than any role makes. The only "
+        "one of the eleven whose judgement is about the finished render "
+        "rather than a plan. Whether a QA pass wants a role at all - "
         "a gate that is told it is an expert may become a gate with an opinion - "
-        "is a real question and it is the captain's."
+        "is a real question and it is STILL the captain's: showing it the "
+        "picture gives it capability, and a role would give it a stance."
     ),
 }
 

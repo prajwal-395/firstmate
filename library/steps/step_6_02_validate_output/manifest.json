@@ -35,6 +35,11 @@
         "name": "deterministic_validation",
         "type": "object",
         "description": "Bridge output: the deterministic half's verdict over the render - status, checks, all_issues, distribution_ready. post_bridge.py merges it with the model's validation_result with the deterministic half decisive, and run_hybrid_step preserves it in the step output. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "render_watch_frames",
+        "type": "string",
+        "description": "A map of the frame strips the deterministic half drew off the RENDERED FILE, with the directory holding them, the sampling resolution, the questions a still can answer and the boundary of what it cannot. Prompt-only: it is what makes this step's 'you are watching the rendered video' true. See library/tools/render_watch.build_watch_block. Absent on a run that drew none, and the handoff then says the picture was not seen rather than claiming it was. Withheld from a harness that cannot be shown a picture (window_frames.FRAME_INPUTS)."
       }
     ]
   },

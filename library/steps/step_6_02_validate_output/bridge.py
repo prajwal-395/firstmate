@@ -27,6 +27,7 @@ import traceback
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.render_qa import RenderQAResult, run_full_render_qa
+from library.tools import render_watch
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
 
@@ -209,6 +210,45 @@ def _music_bed(assembly_manifest: dict):
     offset = (float(clips[0].get("source_in", 0.0) or 0.0)
               - float(clips[0].get("timeline_in", 0.0) or 0.0))
     return music_path, automation, offset
+
+
+def build_watch_frames(video_path: str, project_folder: str) -> str:
+    """Draw the strips the LLM half WATCHES, and map them for the prompt.
+
+    The deterministic half draws them because drawing is measurement,
+    not judgement - the same split `step_3_03_review_rough_cut` makes
+    with `roughcut_window_frames`. The narrative half (handoff.md) is
+    what reads them.
+
+    This step's handoff opened "You are watching the RENDERED video"
+    while its three inputs were a manifest, a render report and a
+    folder: it was asked "would I post this" and shown a table. This is
+    the frames half of ending that, and the handoff now states which of
+    the two it got.
+
+    Returns "" when nothing could be drawn. `validate_output` records
+    that as `watched: false` rather than as a silent pass - see
+    library/tools/render_watch.py.
+    """
+    if not project_folder:
+        print("  No project_folder: no watch frames drawn", file=sys.stderr)
+        return ""
+    directory = str(ProjectLayout(project_folder).write_dir(
+        Area.QA_FRAMES, step="validate"))
+    # No duration is passed: the strips are of what was RENDERED, so
+    # the length comes off the file. A span planned past the end of the
+    # file is a strip of nothing.
+    drawn = render_watch.draw_watch_strips(
+        video_path, directory, label="render")
+    print(f"  {len(drawn['rows'])} watch strip(s) at {directory}"
+          + (f"; {len(drawn['missing'])} span(s) not drawn"
+             if drawn["missing"] else ""), file=sys.stderr)
+    if not drawn["rows"]:
+        return ""
+    return render_watch.build_watch_block(
+        drawn["directory"], drawn["rows"], drawn["missing"],
+        subject="the rendered video this step is validating",
+        duration=drawn["duration"])
 
 
 def validate_output(rendered_output: dict, assembly_manifest: dict,
@@ -439,9 +479,10 @@ def main():
     # export did not happen. Validating the build report instead used to
     # let a run finish "pass" with distribution_ready: false and nobody
     # noticing there was no video.
+    project_folder = input_data.get("project_folder", "")
     if rendered_output.get("output_path"):
         result = validate_output(rendered_output, assembly_manifest,
-                                 input_data.get("project_folder", ""))
+                                 project_folder)
     else:
         result = {
             "status": "fail",
@@ -467,7 +508,35 @@ def main():
             ),
         }
 
-    json.dump({"deterministic_validation": result}, sys.stdout, indent=2)
+    # ── The frames the LLM half WATCHES ──
+    #
+    # Emitted as its own key rather than folded into the verdict: the
+    # deterministic half MEASURES and this block is what the narrative
+    # half SEES, and the two have different readers. `watched` goes into
+    # the verdict so "nobody looked" and "somebody looked and saw
+    # nothing" stay different facts (library/tools/render_watch.py).
+    out = {"deterministic_validation": result}
+    block = ""
+    if rendered_output.get("output_path") and os.path.exists(
+            rendered_output["output_path"]):
+        try:
+            block = build_watch_frames(
+                rendered_output["output_path"], project_folder)
+        except Exception as exc:  # noqa: BLE001 - drawing is best-effort
+            print(f"Error drawing watch frames: {exc}", file=sys.stderr)
+    if block:
+        out["render_watch_frames"] = block
+    result["watched"] = bool(block)
+    if not block:
+        # A watch that did not happen is SAID. It never fails the gate -
+        # the picture half reports, it does not refuse (AGENTS.md 10.4) -
+        # but a verdict that is silent about having no eyes is the exact
+        # thing this step was doing before.
+        result.setdefault("all_issues", []).append(
+            "[watched] no frames were drawn from the render, so NOTHING "
+            "SAW THIS PICTURE - the verdict below is measurements only")
+
+    json.dump(out, sys.stdout, indent=2)
 
 if __name__ == "__main__":
     main()

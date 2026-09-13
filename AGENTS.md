@@ -445,7 +445,7 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
 **No raw value list reaches a prompt.** `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt)
 
-**A step that chooses a picture is SHOWN one, and the picture is of the window it will receive.** `library/tools/window_frames.py`. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
+**A step that chooses a picture is SHOWN one, and so is one that judges a RENDER.** `library/tools/window_frames.py`, `library/tools/render_watch.py` (REPORTS, never gates). [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
 
 **A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.** `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
@@ -557,7 +557,6 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 `render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
 `manifest_validator.py` checks the PLAN. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
 Chroma and the mix REPORT A NUMBER and pass. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
-`SPEECH_ABOVE_BED_GATES` stays False.
 Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
 
 **A clip gain is not a separation, and both halves now SAY which one they are holding.** `library/tools/music_behavior.py`.
