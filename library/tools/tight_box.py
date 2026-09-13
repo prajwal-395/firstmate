@@ -814,8 +814,56 @@ MEASURED_PAN_TILT_RAIL = 3840.0
 #: frame means probing it the way 2026-09-10 probed this one - set a
 #: known Pan/Tilt, read it back, find where the round-trip stops - and
 #: adding a row here.
+#:
+#: SECOND GEOMETRY, MEASURED 2026-09-13 (Resolve Studio 21.1): the
+#: 1920x1080 row below, `(Pan 7680, Tilt 4320)`. Probed the way
+#: 2026-09-10 probed the first - set a value, read it back, find where
+#: the round trip stops - by binary search on the exact float
+#: round-trip, in a SCRATCH project, at three geometries and two clip
+#: sizes:
+#:
+#:     timeline      clip        Pan rail   Tilt rail
+#:     1080x1920     904x480         4320        7680
+#:     1080x1920     1080x1920       4320        7680
+#:     1920x1080     904x480         7680        4320
+#:     1920x1080     1080x1920       7680        4320
+#:     3840x2160     904x480        15360        8640
+#:     3840x2160     1080x1920      15360        8640
+#:
+#: So the rail is `4 x timeline width` on Pan and `4 x timeline height`
+#: on Tilt, it does not depend on the clip's own size, and it does not
+#: move with the item's zoom (probed at 0.25, 0.5, 1, 2 and 4x - the
+#: rail was 4320/7680 at every one). Reproduced on the captain's own
+#: project against its own caption artefact, on the RETIRED Reel 26 at
+#: 1080x1920: Pan 4320, Tilt 7680.
+#:
+#: THIS CONTRADICTS THE 3840 ABOVE AND THE VERTICAL ROW IS LEFT ALONE
+#: ANYWAY. On 2026-09-10 that same vertical geometry read a Tilt clamp
+#: at exactly 3840 - -7680 was probed and held -3840 - and 37 caption
+#: items rode onto it. Today the same geometry, the same project and
+#: the same class of artefact hold -7680 exactly. Nothing measurable
+#: today explains the difference: not the clip size, not the zoom, not
+#: the project-level resolution (3840x2160, while the reel timelines
+#: carry custom 1080x1920 and the rails follow the CUSTOM settings).
+#: The untested variable is the Resolve build - 21.1 today, and the
+#: earlier reading is not stamped with its point release.
+#:
+#: So the vertical row keeps 3840. It is INSIDE today's measurement on
+#: both axes (4320 Pan, 7680 Tilt), so it refuses placements Resolve
+#: would in fact hold and can never let one ride onto a clamp - and
+#: guessing high is the dangerous direction. Widening it to the
+#: measured 4x law is a LOOSENING against a recorded incident, which
+#: is the captain's call, not this file's.
+#:
+#: What would settle it: re-run the 2026-09-10 probe and see whether
+#: 3840 reproduces. If it does, the rail depends on something neither
+#: probe has isolated and BOTH rows should drop to the conservative
+#: figure; if it does not, the 4x law stands and the vertical row
+#: widens to (4320, 7680).
 MEASURED_RAILS: dict = {
     (1080, 1920): (MEASURED_PAN_TILT_RAIL, MEASURED_PAN_TILT_RAIL),
+    # Pan = 4 x width, Tilt = 4 x height. Measured 2026-09-13; see above.
+    (1920, 1080): (7680.0, 4320.0),
 }
 
 

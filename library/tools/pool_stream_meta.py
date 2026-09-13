@@ -47,8 +47,31 @@ module's job.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from typing import Optional
+
+#: Resolve's codec name for a stream, against ffprobe's name for the
+#: same bytes. The two vocabularies do not overlap on a single value -
+#: measured 2026-09-13 across all 242 pooled items of the field-test
+#: project, every pair below observed live - so comparing the raw
+#: strings would read EVERY item as stale. A pair not in this table is
+#: NOT COMPARED (`codec_compared: False`): an unknown vocabulary is
+#: something this table has not learned, never evidence of staleness,
+#: and flagging it would be a gate that fails correct output
+#: (AGENTS.md 10.4).
+CODEC_VOCABULARY = {
+    "animation": "qtrle",
+    "apple prores 4444": "prores",
+    "apple prores 4444 xq": "prores",
+    "apple prores 422": "prores",
+    "apple prores 422 hq": "prores",
+    "apple prores 422 lt": "prores",
+    "apple prores 422 proxy": "prores",
+    "png": "png",
+    "h.264": "h264",
+    "h.265": "hevc",
+}
 
 
 def disk_stream(path: str, timeout: int = 15) -> dict:
@@ -59,40 +82,58 @@ def disk_stream(path: str, timeout: int = 15) -> dict:
     and nothing more, so what cannot be compared is skipped rather
     than flagged. One ffprobe call for all three, because the build
     pays this per lookup-hit artefact and two probes would double it.
+
+    READ BY NAME, never by position. `-show_entries` selects WHICH
+    fields are printed and does not order them: ffprobe emits its own
+    stream field order, so `stream=width,height,codec_name` prints
+    `qtrle,904,480` and a positional parse takes the codec for the
+    width. Measured 2026-09-13: that parse raised `ValueError` on
+    every artefact in the project, so this returned all-None, every
+    comparison read `comparable: False`, and the staleness check
+    landed in #1089 could not fire at all - while 13 genuinely stale
+    items sat in the pool.
     """
     record: dict = {"width": None, "height": None, "codec": None}
     try:
         probe = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height,codec_name",
-             "-of", "csv=p=0", path],
+             "-of", "json", path],
             capture_output=True, check=False, encoding="utf-8",
             errors="replace", timeout=timeout,
         )
     except (OSError, subprocess.TimeoutExpired):
         return record
-    parts = probe.stdout.strip().split(",")
-    if len(parts) != 3:
-        return record
     try:
-        record["width"] = int(parts[0])
-        record["height"] = int(parts[1])
+        streams = json.loads(probe.stdout or "{}").get("streams") or []
     except ValueError:
         return record
-    codec = (parts[2] or "").strip().lower()
+    if not streams:
+        return record
+    stream = streams[0]
+    width, height = stream.get("width"), stream.get("height")
+    if isinstance(width, int) and isinstance(height, int):
+        record["width"] = width
+        record["height"] = height
+    codec = str(stream.get("codec_name") or "").strip().lower()
     record["codec"] = codec or None
     return record
 
 
 def _pool_codec(item) -> Optional[str]:
-    """The codec Resolve's pool metadata claims, or None.
+    """The VIDEO codec Resolve's pool metadata claims, or None.
 
     Read off the item's FULL property dict (the no-arg
-    `GetClipProperty()` form) by name substring, never by one assumed
-    key: the scripting vocabulary for this property is unverified, and
-    a wrong key read as "" would silently disable the codec leg. No
-    dict, no codec key, or an empty value all read as None - compared
-    on resolution alone, said plainly.
+    `GetClipProperty()` form). The key must carry `video` as well as
+    `codec`: the dict measured live on Resolve 21.1 holds THREE keys
+    matching `codec` - `Audio Codec`, `Codec Bitrate` and
+    `Video Codec` - and `Audio Codec` comes first, so a plain
+    substring match returned `'Linear PCM'` for every overlay
+    artefact in the project on 2026-09-13 and compared an audio codec
+    against a video one. `Codec Bitrate` is not a codec at all.
+
+    No dict, no video-codec key, or an empty value all read as None -
+    compared on resolution alone, said plainly.
     """
     try:
         properties = item.GetClipProperty()
@@ -101,10 +142,32 @@ def _pool_codec(item) -> Optional[str]:
     if not isinstance(properties, dict):
         return None
     for key, value in properties.items():
-        if "codec" in str(key).lower():
+        name = str(key).lower()
+        if "codec" in name and "video" in name:
             text = str(value or "").strip().lower()
             return text or None
     return None
+
+
+def codecs_agree(pool_codec: str, disk_codec: str) -> Optional[bool]:
+    """Whether the two names describe the same codec, or None if unknown.
+
+    Resolve and ffprobe name the same bytes differently and share no
+    value: `Animation`/`qtrle`, `Apple ProRes 4444`/`prores`,
+    `XAVC High L5.1`/`h264`. Comparing the strings would call all 242
+    pooled items stale. So the pool side is translated through
+    `CODEC_VOCABULARY` and only then compared.
+
+    None means THIS TABLE DOES NOT KNOW the pool's name - the caller
+    drops the codec leg and says `codec_compared: False`. A camera
+    format the table has not learned must never read as staleness,
+    because a gate that fails correct output is no more coverage than
+    one that cannot fail (AGENTS.md 10.4).
+    """
+    translated = CODEC_VOCABULARY.get(pool_codec.strip().lower())
+    if translated is None:
+        return None
+    return translated == disk_codec.strip().lower()
 
 
 def pool_stream(item) -> dict:
@@ -155,8 +218,11 @@ def stream_disagreement(pool_sig: dict, disk_sig: dict) -> Optional[dict]:
     if (pool_sig.get("width"), pool_sig.get("height")) != (
             disk_sig.get("width"), disk_sig.get("height")):
         mismatches.append("resolution")
-    codec_compared = bool(pool_sig.get("codec") and disk_sig.get("codec"))
-    if codec_compared and pool_sig["codec"] != disk_sig["codec"]:
+    agree = None
+    if pool_sig.get("codec") and disk_sig.get("codec"):
+        agree = codecs_agree(pool_sig["codec"], disk_sig["codec"])
+    codec_compared = agree is not None
+    if agree is False:
         mismatches.append("codec")
     if not mismatches:
         return None

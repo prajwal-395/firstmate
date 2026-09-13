@@ -219,31 +219,49 @@ def test_placement_limits_are_the_measured_rail():
     assert placement_limits(1080, 1920) == (3840.0, 3840.0)
 
 
-def test_an_unmeasured_frame_gets_no_rail_and_refuses_the_transform():
-    """1920x1080 was NEVER probed, so it has no rail and no placement.
+def test_the_horizontal_rail_is_the_one_that_was_probed():
+    """1920x1080 was PROBED on 2026-09-13 and carries its own row.
 
-    This line used to read `placement_limits(1920, 1080) == (3840.0,
-    3840.0)` - an assertion with no measurement under it, in a module
-    whose own comment says one geometry cannot tell `2 x height` from a
-    constant. If the true law is `2 x height` the horizontal rail is
-    2160, and gating against 3840 would let captions ride onto a silent
-    clamp exactly as the captain's 37 did on 2026-09-09.
+    Pan 7680, Tilt 4320 - `4 x timeline width` and `4 x timeline
+    height`, by binary search on the exact float round-trip in a
+    scratch project, at three geometries and two clip sizes, and
+    reproduced on the captain's own project.
 
-    The input that breaks this test: putting any second geometry back
-    into `MEASURED_RAILS` without probing it, or making
-    `placement_limits` fall back to `MEASURED_PAN_TILT_RAIL` for a
-    frame it has no row for.
+    The row is NOT the vertical constant carried across. That is the
+    thing this test exists to catch: 3840 on both axes would be a
+    number nobody measured here, and on the Tilt axis it would sit
+    BELOW the real 4320 while reading as the measurement.
     """
     from library.tools.tight_box import placement_holds, placement_limits
 
-    assert placement_limits(1920, 1080) is None
-    assert placement_limits(1080, 1080) is None
+    assert placement_limits(1920, 1080) == (7680.0, 4320.0)
+    # Not the vertical constant wearing a second row's name.
+    assert placement_limits(1920, 1080) != placement_limits(1080, 1920)
 
-    # A placement well inside the vertical rail is still refused there,
-    # and the refusal NAMES the frame rather than reporting a number.
-    reason = placement_holds({"pan": 0.0, "tilt": -100.0}, 1920, 1080)
+    # A placement inside it now HOLDS, which is what unblocks a
+    # horizontal build from carrying every caption full-canvas.
+    assert placement_holds({"pan": 0.0, "tilt": -100.0}, 1920, 1080) == ""
+    assert placement_holds({"pan": 7000.0, "tilt": -4000.0}, 1920, 1080) == ""
+    # And past it still refuses, per axis, naming the frame.
+    reason = placement_holds({"pan": 0.0, "tilt": -4400.0}, 1920, 1080)
+    assert "1920x1080" in reason and "4320" in reason
+    reason = placement_holds({"pan": 7700.0, "tilt": 0.0}, 1920, 1080)
+    assert "1920x1080" in reason and "7680" in reason
+
+
+def test_a_frame_nobody_probed_still_gets_no_rail():
+    """A geometry with no row REFUSES rather than borrowing another's.
+
+    The input that breaks this: making `placement_limits` fall back to
+    `MEASURED_PAN_TILT_RAIL` for a frame it has no row for. 1080x1080
+    stands in for every unprobed delivery frame.
+    """
+    from library.tools.tight_box import placement_holds, placement_limits
+
+    assert placement_limits(1080, 1080) is None
+    reason = placement_holds({"pan": 0.0, "tilt": -100.0}, 1080, 1080)
     assert reason, "an unmeasured frame must refuse, not pass"
-    assert "1920x1080" in reason
+    assert "1080x1080" in reason
     assert "never been measured" in reason
 
     # And the vertical path is untouched: the same placement holds.
