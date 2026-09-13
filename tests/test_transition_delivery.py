@@ -11,6 +11,11 @@ from library.tools.fusion.comp_builder import build_effect_comp
 from library.steps.step_4_02_plan_transitions.post_bridge import resolve_transitions
 from library.tools.transition_vocabulary import FUSION_TYPES
 
+#: The source frame every comp below is built at. The builder takes no
+#: default frame, so each call states it - the same numbers the removed
+#: default carried (see tests/test_vfx_delivery.py).
+SOURCE_RES = (1080, 1920)
+
 
 def _spine(*positions):
     blocks = []
@@ -147,10 +152,10 @@ def test_renderer_reads_the_indexed_list_and_maps_tail_then_head():
 def test_a_transition_becomes_real_nodes_in_the_comp(ttype):
     tail = build_effect_comp(
         {"tail_transition": ttype, "tail_transition_frames": 10,
-         "vignette": False}, 90)
+         "vignette": False}, 90, source_res=SOURCE_RES)
     head = build_effect_comp(
         {"head_transition": ttype, "head_transition_frames": 10,
-         "vignette": False}, 90)
+         "vignette": False}, 90, source_res=SOURCE_RES)
     for comp in (tail, head):
         assert "Tools = {" in comp
         # More than just the MediaIn/MediaOut pair.
@@ -161,7 +166,8 @@ def test_an_undrawable_transition_in_the_manifest_raises():
     with pytest.raises(ValueError, match="No Fusion transition builder"):
         build_effect_comp(
             {"tail_transition": "cross_dissolve",
-             "tail_transition_frames": 10, "vignette": False}, 90)
+             "tail_transition_frames": 10, "vignette": False}, 90,
+            source_res=SOURCE_RES)
 
 
 # ── The QA station that never checked anything ──

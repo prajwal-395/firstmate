@@ -535,7 +535,7 @@ def test_multiple_generators_all_land_on_plan_row(mock_resolve, sample_manifest)
 
     with patch('os.path.exists', return_value=True), \
          patch('os.makedirs'), \
-         patch('subprocess.run', return_value=MagicMock(returncode=0, stderr="")):
+         patch('subprocess.run', return_value=MagicMock(returncode=0, stderr="", stdout="")):
         build_timeline(sample_manifest, project_folder="/tmp/test_project")
 
     v5_appends = [c for c in append_calls if c.get("trackIndex") == 2]

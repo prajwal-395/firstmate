@@ -246,6 +246,11 @@ def _drive_comp_pass(monkeypatch, tmp_path, after_import):
 
     class MockPool:
         def GetClipProperty(self, prop):
+            if prop == "Resolution":
+                # A real MediaPoolItem states its stored frame; the
+                # applier refuses a comp where Resolve will not state
+                # one, so the mock states one like production does.
+                return "1080x1920"
             return {"File Path": "a_roll.mov", "Frames": "600"}.get(prop)
 
     class MockTimeline:
