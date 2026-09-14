@@ -2446,8 +2446,14 @@ fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
       # deregisters the agent the moment the shell reclaims the foreground, so
       # a ctrl-z'd worker answers agent_not_found while its process is still
       # there, stopped, and resumable. Closing that tab would destroy live
-      # work, so the stopped-process evidence refuses here too.
-      fm_backend_endpoint_suspended herdr "$1:$2" && return 1
+      # work, so the stopped-process evidence refuses here too. The probe
+      # lives in bin/fm-backend.sh, which this adapter must also work without
+      # (isolated consumers source the adapter on its own), so its absence
+      # keeps the historical verdict rather than failing the read.
+      if command -v fm_backend_endpoint_suspended >/dev/null 2>&1 \
+        && fm_backend_endpoint_suspended herdr "$1:$2"; then
+        return 1
+      fi
       return 0
       ;;
     dead) return 0 ;;

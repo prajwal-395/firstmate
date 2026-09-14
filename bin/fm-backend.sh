@@ -54,13 +54,6 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-${FM_ROOT:-$FM_BACKEND_DEFAULT_ROOT}}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
-# The shared process-name vocabulary for the endpoint-evidence probes below
-# (suspension needs harness identity, not just a stopped state). Definition-only
-# on source, so this costs nothing at load time and keeps the classifier
-# available whether or not an adapter has been sourced yet.
-# shellcheck source=bin/fm-agent-process-lib.sh
-. "$FM_BACKEND_LIB_DIR/fm-agent-process-lib.sh"
-
 # Verified backend adapters. Extend only after a backend gets its own
 # bin/backends/<name>.sh and empirical verification, mirroring AGENTS.md
 # section 4's harness-verification discipline. herdr is EXPERIMENTAL (P2;
@@ -934,6 +927,14 @@ fm_backend_endpoint_tty() {  # <backend> <target>
 # verdicts the liveness classifiers depend on: a harness-named process merely
 # left running in the background of an idle pane is `S`, never `T`, so a
 # genuinely agent-free endpoint still classifies as agent-free.
+#
+# Load order: the name classifier lives in bin/fm-agent-process-lib.sh, which
+# the tmux and herdr adapters source when they load - and a non-empty <tty>
+# above only ever comes out of those adapters via fm_backend_endpoint_tty,
+# which sources the adapter first. So the classifier is always loaded before
+# this function can reach it; there is deliberately no top-level source here,
+# keeping fm-backend.sh loadable in minimal environments (isolated test roots)
+# that do not carry the full bin directory.
 fm_backend_tty_suspended_agent() {  # <tty>
   local tty=$1 state pid comm args argv0
   [ -n "$tty" ] || return 1
