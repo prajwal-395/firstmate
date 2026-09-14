@@ -106,9 +106,85 @@ test_clear_removes_evidence() {
   pass "clear removes the evidence best-effort"
 }
 
+test_idle_shape_text_is_blocked() {
+  local d="$TMP_ROOT/idle-shape"; mkdir -p "$d"
+  # No sidecar at all: the lane took the provider error and ended its turn,
+  # so the plugin cleared (or never wrote) the retry evidence. The pane tail
+  # still carries the cap verbatim - wrapped across rendered lines, exactly
+  # as the 2026-09-14 incident showed it. This is the entire bug: a detector
+  # that only reads the sidecar answers OPEN for this lane.
+  printf '%s\n' \
+    'working on the task...' \
+    'Free usage exceeded, subscri' \
+    'be to Go [retrying in 35s attempt #5]' \
+    'opencode>' > "$d/pane.txt"
+  "$HELPER" check "$d" lane1 >/dev/null 2>&1 \
+    && fail "the sidecar-only check must stay blind to the idle shape"
+  local out
+  out=$("$HELPER" check "$d" lane1 --text-file "$d/pane.txt") \
+    || fail "check with the pane tail must report the idle-after-cap lane"
+  assert_contains "$out" "status=blocked" "idle-after-cap text reads blocked"
+  assert_contains "$out" "source=text" "the evidence source is named"
+  assert_not_contains "$out" "horizon_s=" "an idle lane's bracketed duration is not claimed as a horizon"
+  out=$("$HELPER" scan-text --file "$d/pane.txt") \
+    || fail "scan-text must match the wrap-split phrase"
+  assert_contains "$out" "match=free-usage-exceeded" "the matched phrase is named"
+  out=$("$HELPER" verdict "$d" lane1 --text-file "$d/pane.txt") \
+    || fail "verdict must answer the idle-after-cap lane"
+  assert_contains "$out" "verdict=capped" "the three-state answer is capped"
+  pass "a lane idle after the cap is detected off its pane tail"
+}
+
+test_healthy_text_is_open_not_capped() {
+  local d="$TMP_ROOT/healthy-text"; mkdir -p "$d"
+  # Near-miss text a naive matcher would flag: a transient retry countdown
+  # plus the GENERIC rate-limit phrase, which this detector deliberately does
+  # not match - text alone carries no horizon to tell a throttle from a cap,
+  # and matching it would descend working lanes onto the paid rung.
+  printf '%s\n' \
+    'working on the task...' \
+    'Rate limit exceeded, retrying in 8s attempt #1' \
+    'done' \
+    'opencode>' > "$d/pane.txt"
+  "$HELPER" check "$d" lane1 --text-file "$d/pane.txt" >/dev/null 2>&1 \
+    && fail "healthy pane text must never read as capped"
+  "$HELPER" scan-text --file "$d/pane.txt" >/dev/null 2>&1 \
+    && fail "the generic rate-limit phrase must not match"
+  local out
+  out=$("$HELPER" verdict "$d" lane1 --text-file "$d/pane.txt") \
+    || fail "verdict must answer a healthy capture"
+  assert_contains "$out" "verdict=open" "a fresh clean capture renders open, never unknown"
+  assert_not_contains "$out" "capped" "a healthy lane is never capped"
+  pass "a healthy lane is not read as capped"
+}
+
+test_verdict_three_states() {
+  local d="$TMP_ROOT/three-states"; mkdir -p "$d"
+  printf 'all good, working\nopencode>\n' > "$d/clean.txt"
+  printf 'Free usage exceeded, subscribe to Go [retrying in 35s attempt #5]\n' > "$d/cap.txt"
+  local out
+  out=$("$HELPER" verdict "$d" lane1) || fail "verdict must always answer"
+  assert_contains "$out" "verdict=unknown" "no sidecar and no capture is unknown, never open"
+  assert_contains "$out" "reason=no-evidence" "the absence names itself"
+  out=$("$HELPER" verdict "$d" lane1 --text-file "$d/clean.txt") \
+    || fail "verdict must answer a clean capture"
+  assert_contains "$out" "verdict=open" "a clean capture renders open"
+  out=$("$HELPER" verdict "$d" lane1 --text-file "$d/cap.txt") \
+    || fail "verdict must answer a cap capture"
+  assert_contains "$out" "verdict=capped" "a cap capture renders capped"
+  assert_contains "$out" "episode=text-" "text evidence carries an episode identity"
+  "$HELPER" record "$d" lane1 3 "$(ms_from_now 79200)" || fail "record refused fixture"
+  out=$("$HELPER" verdict "$d" lane1) || fail "verdict must answer a blocking sidecar"
+  assert_contains "$out" "verdict=capped evidence=sidecar" "a blocking sidecar renders capped with its source named"
+  pass "capped, open, and unknown are separately expressible"
+}
+
 test_cap_horizon_is_blocked
 test_transient_horizon_is_waiting
 test_expired_sidecar_classifies_nothing
 test_malformed_degrades_to_nothing
 test_threshold_is_tunable
 test_clear_removes_evidence
+test_idle_shape_text_is_blocked
+test_healthy_text_is_open_not_capped
+test_verdict_three_states

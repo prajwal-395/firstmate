@@ -98,6 +98,26 @@ split_gate() {  # <run_gate-output>: sets GOT and NOTE
   NOTE=${1#*|}
 }
 
+# --- pane-capture stub -------------------------------------------------------
+# fm_opencode_ladder_pane_file captures through fm_backend_capture; the stub
+# serves per-target fixture text so the idle shape is exercised without a
+# real pane. Fixtures live under $FM_PANE_FIXTURES/<target>.txt; a target
+# with no fixture is uncapturable (unknown, never open).
+FM_PANE_FIXTURES="$TMP_ROOT/panes"
+mkdir -p "$FM_PANE_FIXTURES"
+fm_backend_capture() {  # <backend> <target> <lines> [label]
+  local fixture="$FM_PANE_FIXTURES/${2:-}.txt"
+  [ -f "$fixture" ] || return 1
+  cat "$fixture"
+}
+
+# write_lane_meta <state-dir> <id> <model>: the durable record the way a
+# spawn leaves it, with an endpoint the capture stub can serve.
+write_lane_meta() {  # <state-dir> <id> <model>
+  printf 'harness=opencode\nmodel=%s\nkind=scout\nbackend=tmux\nwindow=pane-%s\n' \
+    "$3" "$2" > "$1/$2.meta"
+}
+
 # --- 1. free is the default ---------------------------------------------------
 
 test_fresh_home_dispatches_free() {
@@ -335,6 +355,47 @@ test_spawn_defaults_to_free() {
   pass "a modelless opencode spawn dispatches free end to end"
 }
 
+test_idle_lane_falls_through_to_go() {
+  local state out
+  state=$(fresh_state idlecap)
+  write_lane_meta "$state" lane1 "$FREE"
+  # No sidecar: the lane took the provider error and ended its turn, so the
+  # plugin cleared (or never wrote) the retry evidence. Its pane still shows
+  # the cap verbatim - wrapped across rendered lines, as on 2026-09-14. This
+  # is the entire bug: the gate used to answer OPEN for this lane and route
+  # the next spawn onto the dead rung.
+  printf '%s\n' \
+    'working on the task...' \
+    'Free usage exceeded, subscri' \
+    'be to Go [retrying in 35s attempt #5]' \
+    'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_gate "$state" "$FREE") || fail "gate must never refuse, even past the cap"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "an idle-after-cap lane must fall through to Go, got '$GOT'"
+  case "$NOTE" in
+    *'pane'*|*'horizon'*) : ;;
+    *) fail "a text-evidence fall-through must own the missing horizon, said: ${NOTE:-<silent>}" ;;
+  esac
+  pass "an idle-after-cap lane falls through to Go"
+}
+
+test_idle_healthy_lane_stays_free() {
+  local state out
+  state=$(fresh_state idlehealthy)
+  write_lane_meta "$state" lane1 "$FREE"
+  # Idle turn, clean pane, no sidecar: no evidence of a cap anywhere. A gate
+  # that read this as capped would spend the captain's money for nothing.
+  printf '%s\n' \
+    'working on the task...' \
+    'done' \
+    'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_gate "$state" "$FREE") || fail "gate must never refuse"
+  split_gate "$out"
+  [ "$GOT" = "$FREE" ] || fail "an idle lane with a clean pane must stay free, got '$GOT'"
+  [ -z "$NOTE" ] || fail "a clean idle dispatch must stay silent, said: $NOTE"
+  pass "an idle lane with a clean pane stays on free"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_go
@@ -345,5 +406,7 @@ test_explicit_go_stands_despite_free_cap
 test_off_ladder_model_allowed_with_notice
 test_override_holds_free_past_cap
 test_unbound_cap_falls_through
+test_idle_lane_falls_through_to_go
+test_idle_healthy_lane_stays_free
 test_spawn_falls_through_on_proven_cap
 test_spawn_defaults_to_free
