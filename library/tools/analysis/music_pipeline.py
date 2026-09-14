@@ -183,9 +183,15 @@ def analyze_key(audio_path: str) -> dict:
             from collections import Counter
             most_common = Counter(all_keys).most_common(1)[0]
             consistency = round(most_common[1] / len(all_keys), 2)
+            window_note = ""
         else:
-            consistency = 1.0
-        
+            # No windowed estimate survived (or the track is shorter
+            # than one window): 1.0 would report a perfect stability
+            # nothing measured (AGENTS.md 10.3 - a default presented
+            # as a measurement).
+            consistency = None
+            window_note = "no windowed key estimates survived"
+
         result = {
             "method": "essentia-key-extractor",
             "key": key,
@@ -194,8 +200,11 @@ def analyze_key(audio_path: str) -> dict:
             "key_label": f"{key} {scale}",
             "consistency": consistency,
             "key_changes": key_changes[:20],  # Limit for JSON size
+            "note": window_note,
         }
-        print(f"  essentia: {key} {scale} (strength: {strength:.2f}, consistency: {consistency:.0%})",
+        consistency_display = (f"{consistency:.0%}" if consistency is not None
+                               else "unmeasured")
+        print(f"  essentia: {key} {scale} (strength: {strength:.2f}, consistency: {consistency_display})",
               file=sys.stderr)
         return result
         
@@ -510,17 +519,26 @@ def analyze_chord_progression(audio_path: str) -> dict:
                 if c["chord"] != deduped[-1]["chord"]:
                     deduped.append(c)
             chords = deduped
-        
+            chord_count: int | None = len(chords)
+            chord_note = ""
+        else:
+            # No windowed estimate survived (or the track is shorter
+            # than one window): 0 would report "no chord changes" as
+            # a measured fact nothing measured (AGENTS.md 10.3).
+            chord_count = None
+            chord_note = "no windowed chord estimates survived"
+
         # Sort by frequency
         chord_freq = sorted(chord_map.items(), key=lambda x: -x[1])
-        
+
         result = {
             "method": "essentia-key-windowed",
             "chord_progression": chords[:50],  # Limit for size
-            "chord_count": len(chords),
+            "chord_count": chord_count,
             "most_common_chords": [
                 {"chord": c, "occurrences": n} for c, n in chord_freq[:8]
             ],
+            "note": chord_note,
         }
         print(f"  chords: {len(chords)} changes, most common: {chord_freq[0][0] if chord_freq else 'none'}",
               file=sys.stderr)

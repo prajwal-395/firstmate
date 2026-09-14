@@ -155,11 +155,17 @@ def check_captions(video_path: str, plan_data: dict) -> List[RenderCheckFinding]
             try:
                 track_fps = float(subtitle_overlay.get("fps") or 30.0)
             except (TypeError, ValueError):
-                track_fps = 30.0
+                # Declared but unreadable: probing at a guessed rate
+                # would judge the caption off the wrong seconds, and a
+                # pass there would be a default presented as a
+                # measurement (AGENTS.md 10.3). Fail closed instead.
+                failures.append(RenderCheckFinding("captions", False, f"Caption {i} overlay fps is unreadable (cannot verify placement)"))
+                continue
         try:
             source_in = float(seg.get("source_in_frame") or 0.0) / track_fps
         except (TypeError, ValueError):
-            source_in = 0.0
+            failures.append(RenderCheckFinding("captions", False, f"Caption {i} source offset is unreadable (cannot verify placement)"))
+            continue
         n_probes = 5
         t_samples = [start + dur * (k + 0.5) / n_probes for k in range(n_probes)]
         

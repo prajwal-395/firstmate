@@ -1004,6 +1004,19 @@ def compute_optical_flow_direction(
                     except Exception:
                         pass
 
+            if best_score == float("inf"):
+                # No shift candidate survived for this pair: nothing
+                # about it was measured, so it contributes no vector
+                # rather than a zero one. A zero vector here would
+                # read downstream as measured stillness (AGENTS.md
+                # 10.3 - a default presented as a measurement).
+                print(
+                    "  WARNING: optical flow shift search failed for "
+                    f"frame pair {i}, leaving it unmeasured",
+                    file=sys.stderr,
+                )
+                continue
+
             # Normalize: divide by frame pixel range (0-255) → 0-1 per pixel
             magnitude = float(np.sqrt(best_dx ** 2 + best_dy ** 2)) / 8.0
             flow_vectors.append({
@@ -1014,7 +1027,11 @@ def compute_optical_flow_direction(
 
         # Classify dominant motion pattern across all vectors
         if not flow_vectors:
-            dominant = "static"
+            # Every pair went unmeasured (or there was nothing to
+            # compare): "unknown" is the admitted absence this
+            # function already returns when ffmpeg or numpy fails.
+            # "static" would claim a stillness nothing measured.
+            dominant = "unknown"
         else:
             mean_dx = float(np.mean([v["dx"] for v in flow_vectors]))
             mean_dy = float(np.mean([v["dy"] for v in flow_vectors]))
