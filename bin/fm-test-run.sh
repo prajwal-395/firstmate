@@ -106,10 +106,20 @@
 #
 # Exit status is non-zero if any selected script exits non-zero, a configured
 # --fail-on-gate-skip token appears, the measured duration exceeds
-# --max-wall-ms, timing-artifact finalization fails, or a concurrent worker
-# violates its isolation check. Other gate skips (first meaningful line
-# matching ^skip:) remain successful and are counted as skipped_gate; each one
-# is logged with its reason and recorded in the timing artifact.
+# --max-wall-ms, timing-artifact finalization fails, a concurrent worker
+# violates its isolation check, or a script whose family declares
+# expected_gate_skip=none gate-skips anyway. A gate skip (first meaningful line
+# matching ^skip:) in a family that DOES expect one remains successful and is
+# counted as skipped_gate; each one is logged with its reason and recorded in
+# the timing artifact.
+#
+# expected_gate_skip=none is this script's own claim that the named script has
+# no gate and therefore always executes. Enforcing that claim is what stops the
+# coverage guard's "every test file is scheduled" from quietly meaning "and some
+# of them never ran": the guard can prove a file was SCHEDULED, only this can
+# prove it EXECUTED. A script caught here is either misclassified (move it into
+# the family whose gate it actually has) or missing a dependency the lane must
+# install.
 #
 # expected_gate_skip classes name why a family is allowed to skip: herdr (the
 # pinned real-Herdr lane), optional-binary (a backend whose binary is optional),
@@ -1395,6 +1405,9 @@ families_for_changed_path() {
       printf '%s\n' session-bootstrap
       printf '%s\n' "__script__:fm-brief.test.sh"
       ;;
+    bin/fm-project-registry-validate.sh)
+      printf '%s\n' session-bootstrap
+      ;;
     bin/fm-quota-axi-lib.sh)
       printf '%s\n' session-bootstrap
       printf '%s\n' "__script__:fm-procevent-quota.test.sh"
@@ -2276,6 +2289,10 @@ record_script_result() {
     gate_skip=true
     gate_reason=$(gate_skip_reason "$out")
     SKIPPED_GATE=$((SKIPPED_GATE + 1))
+    if [ "$expected" = none ]; then
+      log "unexpected gate skip in $script: family=$family declares expected_gate_skip=none"
+      rc=1
+    fi
     # A capability skip is the runner's only record of what this host could not
     # exercise, so name it rather than leaving a silent green.
     log "gate skip: $script: ${gate_reason:-<no reason given>}"
