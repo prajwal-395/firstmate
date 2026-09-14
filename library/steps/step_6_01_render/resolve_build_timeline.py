@@ -486,6 +486,44 @@ def _ensure_transparent_carrier(
 
 # ─── Core: Build Timeline ────────────────────────────────────
 
+def caption_block_offsets(v1_clips, placed_by_label) -> dict:
+    """{spine block index: measured V1 start offset} for caption placement.
+
+    Each placed A-roll clip's live start minus its planned start is the
+    offset its block's captions shift by. A block whose placed item will
+    not answer for its start (`GetStart` raising `AttributeError`) is
+    LEFT OUT: the caption loop below already skips blocks missing from
+    this map, so an unreadable start reads as an unplaced block rather
+    than publishing offset 0 - "aligned" - with no measurement behind
+    it. Labels that never parse as `speech_N`/`hook_N` are not blocks
+    and never enter the map.
+    """
+    block_offsets = {}
+    for clip in v1_clips or []:
+        label = clip.get('label', '')
+        parts = label.split('_')
+        # e.g., "speech_3", "speech_3_seg0", "hook_1"
+        if len(parts) >= 2 and parts[0] in ('speech', 'hook'):
+            try:
+                block_idx = int(parts[1])
+                if block_idx not in block_offsets:
+                    if label in placed_by_label:
+                        placed = placed_by_label[label]
+                        try:
+                            actual_start = placed.GetStart()
+                        except AttributeError:
+                            print(f"  ⚠ {label}: placed item reports "
+                                  f"no start, leaving block "
+                                  f"{block_idx} out of the caption "
+                                  f"offsets", file=sys.stderr)
+                            continue
+                        estimated_start = clip.get('timeline_in_frame', 0)
+                        block_offsets[block_idx] = actual_start - estimated_start
+            except ValueError:
+                pass
+    return block_offsets
+
+
 @under_lease("render the edit timeline")
 def build_timeline(
     manifest: dict,
@@ -1346,28 +1384,8 @@ def build_timeline(
         print(f"\n── V{_caption_row} Subtitle Overlay: {len(sub_segments)} segments ──", file=sys.stderr)
         
         # Build mapping from spine block position -> actual V1 timeline position offset
-        block_offsets = {}
         placed_by_label = dict(zip(v1_placed_labels, v1_timeline_items))
-        
-        for clip in v1_clips:
-            label = clip.get('label', '')
-            parts = label.split('_')
-            # e.g., "speech_3", "speech_3_seg0", "hook_1"
-            if len(parts) >= 2 and parts[0] in ('speech', 'hook'):
-                try:
-                    block_idx = int(parts[1])
-                    if block_idx not in block_offsets:
-                        if label in placed_by_label:
-                            placed = placed_by_label[label]
-                            try:
-                                actual_start = placed.GetStart()
-                            except AttributeError:
-                                actual_start = clip.get('timeline_in_frame', 0)
-                                
-                            estimated_start = clip.get('timeline_in_frame', 0)
-                            block_offsets[block_idx] = actual_start - estimated_start
-                except ValueError:
-                    pass
+        block_offsets = caption_block_offsets(v1_clips, placed_by_label)
 
         import re
         v3_count = 0

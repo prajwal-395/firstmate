@@ -604,13 +604,21 @@ def _placed_channel(item) -> Optional[int]:
 
 
 def _speech_row_uids(timeline, plan) -> dict:
-    """{(audio row index): {item uids on it}} - one inventory snapshot."""
+    """{(audio row index): {item uids on it}} - one inventory snapshot.
+
+    A row Resolve will not list reads as None - UNKNOWN - never as
+    empty: an empty snapshot would make every pre-existing item on
+    that row look ADDED, and the sweep below would DELETE speech it
+    never placed. `sweep_placed_audio` skips enforcement on unknown
+    rows and reports them unverified.
+    """
     out = {}
     for row in plan.speech_rows():
         try:
             items = timeline.GetItemListInTrack("audio", row.index) or []
         except Exception:
-            items = []
+            out[row.index] = None
+            continue
         out[row.index] = {_item_uid(item) for item in items}
     return out
 
@@ -633,18 +641,37 @@ def sweep_placed_audio(timeline, plan, before: dict, target_row: int,
 
     Returns (kept, deleted, unverified). `deleted` names the row each
     stray sat on, because a spill on the next row and a wrong stream
-    on the right row are different failures with the same fix.
+    on the right row are different failures with the same fix. A row
+    the AFTER inventory would not list reports spill-unchecked: no
+    spill read is no spill found. A row the BEFORE snapshot never saw
+    (`_speech_row_uids` None) skips enforcement entirely and reports
+    unverified: nothing on it can be told added from pre-existing, so
+    deleting there would delete speech this placement may never have
+    added.
     """
     after_items: dict = {}
+    after_failed = []
     for row in plan.speech_rows():
         try:
             items = timeline.GetItemListInTrack("audio", row.index) or []
         except Exception:
-            items = []
+            after_failed.append(row.index)
+            continue
         after_items[row.index] = list(items)
     kept, deleted, unverified = [], [], []
+    for index in after_failed:
+        unverified.append(
+            f"{label} (A{index}): spill unchecked - the row would not "
+            f"list, so no spill read is reported as none found")
     for index, items in after_items.items():
         seen_before = before.get(index, set())
+        if seen_before is None:
+            unverified.append(
+                f"{label} (A{index}): before-inventory unreadable - "
+                f"added cannot be told from pre-existing, so "
+                f"enforcement is skipped and the row is kept")
+            kept.extend(items)
+            continue
         for item in items:
             if _item_uid(item) in seen_before:
                 continue
@@ -1044,7 +1071,12 @@ def _link_offset_unions(timeline, plan, record, verified_groups,
         try:
             items = timeline.GetItemListInTrack("video", row.index) or []
         except Exception:
-            items = []
+            # A row the census cannot read is not a row with nothing
+            # unlinked: it joins `unlinked` so the OffsetRefused below
+            # fires, rather than placing silently over an unchecked row.
+            unlinked.append(
+                f"picture census on {row.name} unreadable - unverified")
+            continue
         for item in items:
             if _is_held_frame(item):
                 # A HELD FRAME is a copy of a frame the reel already
@@ -2056,6 +2088,11 @@ def _remnant_has_timed_words(start: float, end: float,
     Any timed word - bound or straddling: where something was really
     said the remnant carries speech, whatever the segment's source
     status. Silence, breath and room tone time nothing.
+
+    A TIMED word whose span will not parse counts as spoken: it claims
+    speech somewhere the reader cannot bound, so absorbing the remnant
+    would delete words on the evidence of a parse failure. The caller
+    turns any non-None answer into its REFUSING error.
     """
     for segment in transcript.get("segments") or ():
         for word in segment.get("words") or ():
@@ -2065,7 +2102,7 @@ def _remnant_has_timed_words(start: float, end: float,
                 word_start = float(word["start"])
                 word_end = float(word["end"])
             except (KeyError, TypeError, ValueError):
-                continue
+                return str(word.get("word", ""))
             if word_end > word_start and word_start < end and word_end > start:
                 return str(word.get("word", ""))
     return None
@@ -8825,7 +8862,19 @@ def verify_cover_clip(source_file: str, source_in: float, source_out: float,
             try:
                 start, end = float(word["start"]), float(word["end"])
             except (KeyError, TypeError, ValueError):
-                continue
+                # A timed word with no readable span cannot be shown to
+                # sit outside the cover: placing it claims "no speech
+                # here" on the evidence of a parse failure. Refused like
+                # the unreadable picture size below it.
+                raise OffsetRefused(
+                    f"Cutaway cover {os.path.basename(source_file)} "
+                    f"over master {master_start:.2f}-{master_end:.2f}s: "
+                    f"{speaker} has a timed word "
+                    f"{(word.get('word', '?') if isinstance(word, dict) else '?')!r} "
+                    f"with no readable span - "
+                    f"speech inside the cover cannot be ruled out, so "
+                    f"the cover is refused rather than placed over "
+                    f"possible speech.")
             if start < master_end and end > master_start:
                 raise OffsetRefused(
                     f"Cutaway cover {os.path.basename(source_file)} "

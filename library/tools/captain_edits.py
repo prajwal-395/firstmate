@@ -590,7 +590,14 @@ def _opens_on_word_edge(when: float, transcript: dict,
             try:
                 start, end = float(word["start"]), float(word["end"])
             except (KeyError, TypeError, ValueError):
-                continue
+                # A TIMED word with no readable span cannot testify
+                # about this edge: it might strictly contain `when`
+                # (which refuses) or open exactly on it (which lands).
+                # Skipping it would read the edge as clean on the
+                # evidence of a parse failure, so the edge reads
+                # unproven - False - and the caller takes its CANNOT
+                # APPLY path.
+                return False
             if end <= start:
                 continue
             if start < when < end:

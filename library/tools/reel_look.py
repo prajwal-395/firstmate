@@ -268,6 +268,11 @@ def _footage_picture_items(timeline, track_plan, footage_sources,
         try:
             items = timeline.GetItemListInTrack("video", row) or []
         except Exception:
+            # A row Resolve will not list is not an empty row: its clips
+            # go ungraded either way, and the record must say the row was
+            # never seen rather than claim nothing on it needed grading.
+            record["skipped"].append(
+                f"V{row}: unreadable - {skip_note}")
             continue
         for item in items:
             try:

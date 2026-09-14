@@ -18,11 +18,19 @@ bound (AGENTS.md 10.4):
   an admitted absence into a refusal - or a gate that flags every
   `except: continue` - fails here first (a gate that fails correct
   output is no more coverage than one that cannot fail).
+
+Tranche 2 (`docs/WP1_P3B_CLASSIFICATION.md`, eleven sites in the
+reel/render/captain-edits subsystems) is pinned the same way below:
+one defect-direction test per site, each with the mirror proving the
+measured case still reads measured.
 """
 
+import json
 import subprocess
 import sys
 import types
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -31,10 +39,26 @@ numpy = pytest.importorskip(
 )
 
 from library.steps.step_1_04_temporal_index import step as step_1_04
+from library.steps.step_3_03_review_rough_cut.step import placed_windows
+from library.steps.step_6_01_render.resolve_build_timeline import (
+    caption_block_offsets,
+)
 from library.tools import beat_grid
+from library.tools import captain_edits
+from library.tools import reel_deliver
+from library.tools import reel_look
 from library.tools.analysis import music_pipeline
+from library.tools.reel_build import (
+    OffsetRefused,
+    ReelBuildError,
+    _link_offset_unions,
+    absorb_wordless_remnants,
+    sweep_placed_audio,
+    verify_cover_clip,
+)
 from library.tools.render_check import check_captions
 from library.tools.subject_framing import subject_center_reading
+from library.tools.timeline_layout import A_ROLL
 
 FRAME_SIZE = 160 * 90
 
@@ -245,3 +269,414 @@ def test_garbage_face_samples_read_as_unmeasurable_not_centred():
     )
     assert reading.position is None
     assert reading.status == "unmeasurable"
+
+
+# ── Tranche 2: the eleven reel/render/captain-edits sites ──────────
+#
+# Same contract as tranche 1: each defect-direction test goes red when
+# its fix is reverted, each mirror proves the measured case still reads
+# measured.
+
+
+def _a_roll_row(timeline_start, video_in=0.0, video_out=1.0):
+    return {
+        "spine_block_position": 1,
+        "block_type": "speech",
+        "timeline_start": timeline_start,
+        "timeline_end": 4.0,
+        "video_segments": [{
+            "clip_id": "clip_001",
+            "source_file": "clip_001.mp4",
+            "video_in": video_in,
+            "video_out": video_out,
+            "frame_rate": 30.0,
+        }],
+    }
+
+
+def test_garbled_review_timeline_start_is_unplaced_not_zero():
+    """A garbled `timeline_start` must not place the window at 0.0.
+
+    Pre-fix `placed_windows` published base 0.0, so a window whose
+    placement was never measured sorted and mapped as the cut's
+    opening frame.
+    """
+    rows = placed_windows(
+        {"a_roll_assignments": [_a_roll_row("fast")],
+         "b_roll_assignments": [], "b_roll_interjections": []})
+    assert len(rows) == 1
+    assert rows[0]["timeline_start"] is None
+
+
+def test_measured_review_timeline_start_still_places():
+    """The mirror: a readable start still offsets its segments."""
+    rows = placed_windows(
+        {"a_roll_assignments": [
+            _a_roll_row(2.5, video_in=0.0, video_out=1.0)],
+         "b_roll_assignments": [], "b_roll_interjections": []})
+    assert [r["timeline_start"] for r in rows] == [2.5]
+
+
+class _NoStart:
+    def GetStart(self):
+        raise AttributeError("Resolve will not answer")
+
+
+def test_unreadable_placed_start_leaves_the_block_out():
+    """An unreadable `GetStart` must not publish offset 0 ("aligned").
+
+    Pre-fix the caption map fell back to the planned start, so the
+    measured-minus-planned offset read exactly 0. The missing-block
+    skip below already fails closed, so leaving the block out routes
+    its captions there instead of misplacing them silently.
+    """
+    placed = _NoStart()
+    offsets = caption_block_offsets(
+        [{"label": "speech_3", "timeline_in_frame": 100}],
+        {"speech_3": placed},
+    )
+    assert offsets == {}
+
+
+def test_measured_placed_start_still_offsets():
+    """The mirror: a start Resolve answers still yields its offset."""
+    placed = SimpleNamespace(GetStart=lambda: 110)
+    offsets = caption_block_offsets(
+        [{"label": "speech_3", "timeline_in_frame": 100}],
+        {"speech_3": placed},
+    )
+    assert offsets == {3: 10}
+
+
+def _grade_plan(index=1):
+    return {"video_tracks": [{"role": A_ROLL, "occupant": "cam",
+                              "index": index}]}
+
+
+def test_unlistable_grade_row_is_recorded_not_empty():
+    """A row Resolve will not list is not an empty row.
+
+    Pre-fix `_footage_picture_items` skipped it silently, and the
+    record read "nothing on this row needed grading". The module's own
+    rule - everything skipped is RECORDED - names the row instead.
+    """
+    timeline = MagicMock()
+    timeline.GetItemListInTrack.side_effect = RuntimeError("boom")
+    record = {"applied": [], "skipped": [], "warnings": []}
+    assert list(reel_look._footage_picture_items(
+        timeline, _grade_plan(), ("/footage/a.mp4",),
+        record, "no CDL")) == []
+    assert record["skipped"] == ["V1: unreadable - no CDL"]
+
+
+def test_listed_non_footage_still_records_per_clip():
+    """The mirror: a row that lists still skips per clip, not per row."""
+    pool = MagicMock()
+    pool.GetClipProperty.side_effect = lambda key: {
+        "File Path": "/other/x.mp4", "File Name": "x.mp4"}[key]
+    item = MagicMock()
+    item.GetMediaPoolItem.return_value = pool
+    item.GetName.return_value = "x"
+    timeline = MagicMock()
+    timeline.GetItemListInTrack.return_value = [item]
+    record = {"applied": [], "skipped": [], "warnings": []}
+    assert list(reel_look._footage_picture_items(
+        timeline, _grade_plan(), ("/footage/a.mp4",),
+        record, "no CDL")) == []
+    assert record["skipped"] == ["x.mp4: not placed footage - no CDL"]
+
+
+def _sweep_timeline(items_by_row, fail_rows=()):
+    timeline = MagicMock()
+    def _listed(media_type, index):
+        if index in fail_rows:
+            raise RuntimeError("boom")
+        return list(items_by_row.get(index, ()))
+    timeline.GetItemListInTrack.side_effect = _listed
+    return timeline
+
+
+def _sweep_plan(*indices):
+    rows = [SimpleNamespace(index=i) for i in indices]
+    return SimpleNamespace(speech_rows=lambda: list(rows))
+
+
+def _placed_item(uid, channels):
+    item = MagicMock()
+    item.GetUniqueId.return_value = uid
+    item.GetSourceAudioChannelMapping.return_value = json.dumps(
+        {"track_mapping": {"1": {"channel_idx": list(channels)}}})
+    return item
+
+
+def test_sweep_skips_a_row_its_before_snapshot_never_saw():
+    """A failed BEFORE inventory must not read as empty.
+
+    Pre-fix the row inventoried as `[]`, so every pre-existing item on
+    it looked ADDED and the sweep DELETED speech this placement never
+    added. Now enforcement skips the unknown row and reports it.
+    """
+    item = _placed_item("u1", [2])
+    timeline = _sweep_timeline({1: [item]})
+    kept, deleted, unverified = sweep_placed_audio(
+        timeline, _sweep_plan(1), {1: None}, 1, 1, "A1 clip @0")
+    assert deleted == []
+    assert timeline.DeleteClips.call_count == 0
+    assert kept == [item]
+    assert any("A1" in u and "before" in u for u in unverified)
+
+
+def test_sweep_reports_a_row_its_after_inventory_would_not_list():
+    """A failed AFTER inventory must not read as none-added.
+
+    Pre-fix the row inventoried as `[]`, so a spill there was never
+    seen and "no spill found" published. Now the row reports
+    spill-unchecked.
+    """
+    timeline = _sweep_timeline({}, fail_rows=(1,))
+    kept, deleted, unverified = sweep_placed_audio(
+        timeline, _sweep_plan(1), {1: set()}, 1, 1, "A1 clip @0")
+    assert (kept, deleted) == ([], [])
+    assert any("A1" in u and "spill unchecked" in u
+               for u in unverified)
+
+
+def test_sweep_still_deletes_a_stray_it_can_prove():
+    """The mirror: a stray on a fully inventoried row is still swept."""
+    item = _placed_item("u1", [2])
+    timeline = _sweep_timeline({1: [item]})
+    kept, deleted, unverified = sweep_placed_audio(
+        timeline, _sweep_plan(1), {1: set()}, 1, 1, "A1 clip @0")
+    assert kept == []
+    assert len(deleted) == 1 and deleted[0]["row"] == 1
+    assert unverified == []
+
+
+def _aroll_plan(*names):
+    rows = [SimpleNamespace(index=i + 1, name=n)
+            for i, n in enumerate(names)]
+    return SimpleNamespace(aroll_rows=lambda: list(rows))
+
+
+def test_unreadable_census_row_refuses_instead_of_placing():
+    """A census row that will not list is not a row with nothing unlinked.
+
+    Pre-fix it contributed no items, so "none unlinked" published and
+    the build placed over an unchecked row. Now the row joins
+    `unlinked`, and the existing `OffsetRefused` fires.
+    """
+    timeline = MagicMock()
+    timeline.GetItemListInTrack.side_effect = RuntimeError("boom")
+    record = {"link_groups": [], "caption_links": [],
+              "warnings": ["legacy"]}
+    with pytest.raises(OffsetRefused, match="unreadable"):
+        _link_offset_unions(timeline, _aroll_plan("V1"), record, [], [],
+                            [], set(), ())
+
+
+def test_clean_census_still_links_nothing_and_passes():
+    """The mirror: rows that list empty pass without refusal."""
+    timeline = MagicMock()
+    timeline.GetItemListInTrack.return_value = []
+    record = {"link_groups": [], "caption_links": [],
+              "warnings": ["legacy"]}
+    assert _link_offset_unions(timeline, _aroll_plan("V1"), record,
+                               [], [], [], set(), ()) is None
+    assert record["warnings"] == []
+
+
+def _strike():
+    # Kept ranges AFTER the subtraction: one 0.2s remnant where the
+    # strike ends at 9.8s, under the 0.5s absorb floor.
+    return [(9.8, 10.0)], [(0.0, 9.8, "strike-1")]
+
+
+def test_malformed_timed_word_blocks_the_absorb():
+    """A timed word with no readable span counts as spoken.
+
+    Pre-fix it was skipped, so `spoken` read None and the remnant was
+    ABSORBED - deleted - on the evidence of a parse failure. Now the
+    existing REFUSING error fires.
+    """
+    ranges, intervals = _strike()
+    transcript = {"segments": [{"words": [
+        {"timed": True, "word": "hello"}]}]}
+    with pytest.raises(ReelBuildError, match="hello"):
+        absorb_wordless_remnants(ranges, intervals, transcript)
+
+
+def test_silent_remnant_still_absorbs():
+    """The mirror: a remnant carrying no timed words still folds."""
+    ranges, intervals = _strike()
+    transcript = {"segments": [{"words": [
+        {"timed": True, "word": "hi", "start": 1.0, "end": 1.5}]}]}
+    out, grown = absorb_wordless_remnants(ranges, intervals, transcript)
+    assert out == []
+    assert grown[0][:2] == (0.0, 10.0)
+
+
+def _cover_neighbour(source_file):
+    return SimpleNamespace(
+        track_type="video", source_file=source_file,
+        source_in=5.0, source_out=7.0,
+        timeline_start=50.0, timeline_end=52.0,
+        speaker="Craig")
+
+
+def _probe_result(stdout):
+    return subprocess.CompletedProcess(
+        args=["ffprobe"], returncode=0, stdout=stdout, stderr="")
+
+
+def test_cover_over_an_unparseable_word_refuses():
+    """A timed word with no readable span cannot be shown outside the cover.
+
+    Pre-fix it was skipped, so no overlap was found and the cover
+    placed over possible speech. Now the cover refuses, like the
+    unreadable picture size just below it.
+    """
+    import os as _os
+    import tempfile as _tempfile
+
+    from library.tools import reel_build as _reel_build
+
+    with _tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
+        neighbour = _cover_neighbour(_os.path.abspath(tmp.name))
+        transcript = {"segments": [{"speaker": "Craig", "words": [
+            {"word": "well", "start": "soon"}]}]}
+        with patch.object(
+                subprocess, "run",
+                return_value=_probe_result(
+                    "duration=10.0\nwidth=640\nheight=480\n")):
+            with pytest.raises(OffsetRefused, match="no readable span"):
+                verify_cover_clip(tmp.name, 1.0, 2.0, [neighbour],
+                                  transcript, 30.0, require_face=False)
+
+
+def test_cover_over_silence_still_places():
+    """The mirror: a cover whose span carries no speech still places."""
+    import os as _os
+    import tempfile as _tempfile
+
+    from library.tools import reel_build as _reel_build
+
+    with _tempfile.NamedTemporaryFile(suffix=".mp4") as tmp:
+        neighbour = _cover_neighbour(_os.path.abspath(tmp.name))
+        transcript = {"segments": [{"speaker": "Craig", "words": [
+            {"word": "hi", "start": 5.5, "end": 5.9}]}]}
+        frames = {"mean_luma": 100.0, "rim_diff": 0.0,
+                  "center_diff": 0.0, "face_shift": None,
+                  "face_note": ""}
+        with patch.object(
+                subprocess, "run",
+                return_value=_probe_result(
+                    "duration=10.0\nwidth=640\nheight=480\n")), \
+            patch.object(_reel_build, "_cover_frames_static",
+                         return_value=frames):
+            clip = verify_cover_clip(tmp.name, 1.0, 2.0, [neighbour],
+                                     transcript, 30.0, require_face=False)
+    assert (clip.source_in, clip.source_out) == (1.0, 2.0)
+
+
+def _deliver_pool(timeline_name, subs=(), clips=()):
+    """A fake pool: `subs` are (name_or_exc, child_folders, clips)."""
+    def _folder(name_or_exc, children, items):
+        folder = MagicMock()
+        if isinstance(name_or_exc, Exception):
+            folder.GetName.side_effect = name_or_exc
+        else:
+            folder.GetName.return_value = name_or_exc
+        folder.GetClipList.return_value = list(items)
+        folder.GetSubFolderList.return_value = list(children)
+        return folder
+
+    def _item(name, path, fail_path=False):
+        item = MagicMock()
+
+        def _prop(key):
+            if key == "File Path" and fail_path:
+                raise RuntimeError("boom")
+            return {"Clip Name": name, "File Path": path}[key]
+
+        item.GetClipProperty.side_effect = _prop
+        return item
+
+    reel = _folder(timeline_name, [],
+                   [_item(n, p, fail_path=fp) for n, p, fp in clips])
+    root = MagicMock()
+    root.GetSubFolderList.return_value = [
+        _folder(name, children, []) for name, children in subs] + [reel]
+    project = MagicMock()
+    project.GetMediaPool.return_value.GetRootFolder.return_value = root
+    return project
+
+
+def test_unnameable_bin_is_recorded_not_clean():
+    """A bin Resolve will not name cannot match - and neither can its
+    subtree, so it is unchecked rather than clean.
+
+    Pre-fix it was skipped, and `overlay_staleness` returning [] read
+    "every overlay decodes". Now it is a stale entry, which refuses
+    the deliver.
+    """
+    project = _deliver_pool("Reel 03 - hook",
+                            subs=[(RuntimeError("boom"), [])])
+    found = reel_deliver.overlay_staleness(project, "Reel 03 - hook")
+    assert len(found) == 1
+    assert found[0].get("unreadable") is True
+    assert "unchecked" in found[0].get("reason", "")
+    refusal = reel_deliver._refuse_stale_overlays(found)
+    assert "unchecked" in refusal
+
+
+def test_unreadable_pool_item_is_recorded_not_clean():
+    """A pool item whose file path will not read is unchecked, not clean.
+
+    Pre-fix it was skipped with the same "every overlay decodes"
+    claim. Now it is a stale entry naming the clip.
+    """
+    project = _deliver_pool("Reel 03 - hook",
+                            clips=[("sub_x.mov", "/exports/sub_x.mov",
+                                    True)])
+    found = reel_deliver.overlay_staleness(project, "Reel 03 - hook")
+    assert len(found) == 1
+    assert found[0].get("unreadable") is True
+    assert found[0]["clip"] == "sub_x.mov"
+
+
+def test_fully_readable_overlays_still_deliver_clean(tmp_path):
+    """The mirror: readable overlays that agree with disk stay clean."""
+    path = str(tmp_path / "sub_ok.mov")
+    open(path, "wb").write(b"\x00")
+    project = _deliver_pool("Reel 03 - hook",
+                            clips=[("sub_ok.mov", path, False)])
+    with patch.object(reel_deliver, "_disk_resolution",
+                      return_value=(904, 480)), \
+        patch.object(reel_deliver, "_pool_resolution",
+                     return_value=(904, 480)):
+        assert reel_deliver.overlay_staleness(
+            project, "Reel 03 - hook") == []
+
+
+def test_malformed_timed_word_unproves_the_edge():
+    """A timed word with no readable span cannot testify about an edge.
+
+    Pre-fix it was skipped, so an opening that word might contain read
+    as a clean edge and the redraw APPLIED. Now the edge reads
+    unproven - False - and the caller takes its CANNOT APPLY path.
+    """
+    transcript = {"segments": [{"words": [
+        {"timed": True, "word": "well", "start": 1.0, "end": 1.2},
+        {"timed": True, "word": "actually"},
+    ]}]}
+    assert captain_edits._opens_on_word_edge(1.0, transcript) is False
+
+
+def test_clean_edge_still_opens_and_midword_still_refuses():
+    """The mirror: a clean edge lands, a mid-word boundary does not."""
+    transcript = {"segments": [{"words": [
+        {"timed": True, "word": "well", "start": 1.0, "end": 1.2},
+        {"timed": True, "word": "actually", "start": 1.2, "end": 1.8},
+    ]}]}
+    assert captain_edits._opens_on_word_edge(1.0, transcript) is True
+    assert captain_edits._opens_on_word_edge(1.1, transcript) is False

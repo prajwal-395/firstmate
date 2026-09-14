@@ -413,17 +413,24 @@ def _iter_bin_items(folder):
         yield from _iter_bin_items(sub)
 
 
-def _timeline_bins(project, timeline_name: str) -> list:
+def _timeline_bins(project, timeline_name: str) -> tuple:
     """The pool folders carrying this reel's own overlays, by exact name.
 
     Caption and motion-graphics renders are filed under bins named for
     the timeline that placed them, so the bins named exactly the reel's
     name ARE its overlay set - no layout coupling beyond the name, and
     another reel's stale file can never refuse this reel's deliver.
+
+    Returns `(found, unreadable)`: the matching bins, plus one note per
+    bin Resolve would not name. A bin whose name cannot be read cannot
+    be matched - and neither can anything under it, since the search
+    cannot descend into it - so its subtree is UNCHECKED rather than
+    clean, and the caller records each note as a stale entry.
     """
     found = []
+    unreadable = []
 
-    def _search(folder):
+    def _search(folder, trail):
         try:
             subs = folder.GetSubFolderList() or ()
         except Exception:  # noqa: BLE001 - live API
@@ -432,34 +439,54 @@ def _timeline_bins(project, timeline_name: str) -> list:
             try:
                 name = sub.GetName()
             except Exception:  # noqa: BLE001 - live API
+                where = "/".join(trail) if trail else "the pool root"
+                unreadable.append(
+                    f"a pool bin under {where}: its name is unreadable, "
+                    f"so its subtree is unchecked")
                 continue
             if name == timeline_name:
                 found.append(sub)
-            _search(sub)
+            _search(sub, trail + [name])
 
     try:
-        _search(project.GetMediaPool().GetRootFolder())
+        _search(project.GetMediaPool().GetRootFolder(), [])
     except Exception:  # noqa: BLE001 - live API
         pass
-    return found
+    return found, unreadable
 
 
 def overlay_staleness(project, timeline_name: str) -> list:
     """Generated overlays whose pool metadata disagrees with their file.
 
     Each entry names the clip, its path, what the pool claims and what
-    the disk carries - or `missing: True` when the file is gone. Empty
-    means every overlay the reel binds decodes as what Resolve thinks
-    it is. Read-only: this refuses, it never repairs, because repairing
-    means rebinding the captain's timeline and that is a build's act,
-    not a deliver's.
+    the disk carries - or `missing: True` when the file is gone, or
+    `unreadable: True` with a reason when the pool entry itself could
+    not be read. Empty means every overlay the reel binds decodes as
+    what Resolve thinks it is: an unchecked overlay is recorded, never
+    read as a clean one. Read-only: this refuses, it never repairs,
+    because repairing means rebinding the captain's timeline and that
+    is a build's act, not a deliver's.
     """
     stale = []
-    for folder in _timeline_bins(project, timeline_name):
+    found, unreadable_bins = _timeline_bins(project, timeline_name)
+    for note in unreadable_bins:
+        stale.append({"clip": note, "path": "", "unreadable": True,
+                      "reason": "the pool bin could not be named, so its "
+                                "overlays are unchecked rather than clean"})
+    for folder in found:
         for item in _iter_bin_items(folder):
             try:
                 path = item.GetClipProperty("File Path")
             except Exception:  # noqa: BLE001 - live API
+                try:
+                    clip = item.GetClipProperty("Clip Name")
+                except Exception:  # noqa: BLE001 - live API
+                    clip = "?"
+                stale.append({"clip": str(clip or "?"), "path": "",
+                              "unreadable": True,
+                              "reason": "the pool item's file path could "
+                                        "not be read, so the overlay is "
+                                        "unchecked rather than clean"})
                 continue
             if not path:
                 continue
@@ -491,7 +518,10 @@ def _refuse_stale_overlays(stale: list) -> str:
         "queueing a job rather than burning a render to learn it:",
     ]
     for entry in stale:
-        if entry.get("missing"):
+        if entry.get("unreadable"):
+            lines.append(f"  - {entry['clip']}: "
+                         f"{entry.get('reason', 'unreadable')}")
+        elif entry.get("missing"):
             lines.append(f"  - {entry['clip']}: file is gone "
                          f"({entry['path']})")
         else:

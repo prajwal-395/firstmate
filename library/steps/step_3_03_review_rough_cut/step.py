@@ -480,7 +480,11 @@ def placed_windows(data: dict) -> list:
     A row is `{clip_id, position, timeline_start, source_file,
     video_in, video_out, fps, kind}`. Rows that name no range carry
     `video_in`/`video_out` as None - the caller NAMES them, so the
-    absence is not read as an absence of the window.
+    absence is not read as an absence of the window. A row whose
+    assignment names no readable `timeline_start` carries it as None
+    for the same reason: the strip is still drawn from the source
+    range, and the map names the placement unknown rather than
+    placing the window at 0.0.
     """
     rows = []
     for ar in data.get("a_roll_assignments", []) or []:
@@ -488,7 +492,7 @@ def placed_windows(data: dict) -> list:
         try:
             base = float(ar.get("timeline_start", 0.0))
         except (TypeError, ValueError):
-            base = 0.0
+            base = None
         offset = 0.0
         for seg in ar.get("video_segments", []) or []:
             try:
@@ -499,7 +503,8 @@ def placed_windows(data: dict) -> list:
             rows.append({
                 "clip_id": seg.get("clip_id", "?"),
                 "position": position,
-                "timeline_start": round(base + offset, 3),
+                "timeline_start": (round(base + offset, 3)
+                                   if base is not None else None),
                 "source_file": seg.get("source_file") or "",
                 "video_in": video_in,
                 "video_out": video_out,
@@ -589,7 +594,12 @@ def build_review_frames(data: dict) -> str:
         rows.append({
             "clip_id": window["clip_id"],
             "position": window["position"],
-            "timeline_start": window["timeline_start"],
+            # An unplaced window still draws its strip from the source
+            # range; the map names the placement unknown rather than
+            # printing the sort's 0.0 as a measurement.
+            "timeline_start": (window["timeline_start"]
+                               if window["timeline_start"] is not None
+                               else "unknown"),
             "video_in": video_in,
             "video_out": video_out,
             "frames": len(times),
