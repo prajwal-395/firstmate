@@ -75,6 +75,14 @@ and points here.
 - `_assert_sfx_distributed` stays: it catches a collapse (every SFX on one frame), not a sparse plan.
 - **A floor in a REVIEW step is still a floor.** `creative_cohesion` (5.03) reports the counts under `cohesion_review.measurements` and judges none of them; a pace check there needs a pace the creative direction DECLARED, which no step emits. **The step is therefore a pure OBSERVER**: every proposal it can still make routes to `OWNED_UPSTREAM`, so `adjustments` is empty for every input at every energy (#272). `ACTIONABLE_AT_COHESION` has an applier and no producer, which `library/tools/cohesion_scope.py` states and `tests/test_cohesion_scope.py::test_the_step_is_a_pure_observer` pins off the step's own source. **Do not read an empty `adjustments` as a clean bill of health.**
 - **How long a drawn transition holds comes from the PLAN.** The handoff asks for a `duration_feel` on every one; step 4.02's post-bridge renders that word into frames. A brand template's `transition_duration_ms` `{min, max}` is a RANGE, so it BOUNDS that choice and never replaces it; a scalar is a declared length. A drawn transition that neither declares is DROPPED with the reason, not held for a constant.
+
+WP3b (2026-09-14) binds the same principle beyond the incidents: shape 1
+sweeps every creative `.get()` fallback in `library/` (the seven
+literals above are the incident-shaped subset), shape 2 fingerprints
+catalogue-order picks and fetch truncations, and shape 3-of-three
+drives a sparse plan through EVERY declaring step's bridge. Each
+exemption names its category; each pattern ships with the removed
+line that proves it fires.
 """
 import json
 import os
@@ -85,7 +93,11 @@ from pathlib import Path
 
 import pytest
 
-from library.tools.creative_floors import QUOTA_PATTERNS, QUOTA_PHRASES
+from library.tools.creative_floors import (
+    QUOTA_PATTERNS,
+    QUOTA_PHRASES,
+    find_floors,
+)
 
 REPO = Path(__file__).resolve().parents[1]
 STEPS = REPO / "library" / "steps"
@@ -921,4 +933,749 @@ def test_bridge_guard_can_fire():
         assert hits, (
             f"the bridge guard does not catch {line!r} - add a pattern"
         )
+
+
+# ── WP3b: the guard binds the principle, not the incidents ──────────
+#
+# 2026-09-14 (vision principle 2, enforcement half). The scout
+# (`data/vep-vision-wp3-scripts-adjudicating-meaning/report.md`, section
+# 5) showed every surface above binds the one module its originating
+# incident landed in: the seven-literal `CREATIVE_SUBSTITUTIONS` list
+# sees only the seven lines it was written about, the bridge patterns
+# see quota language only, and ordering/truncation plus the six
+# un-driven creative bridges pass through untouched. PR 1138 removed
+# the five constants this extension would otherwise fail on (F1/F2
+# transition holds, F3 timed-text look, F4 b-roll substitution, F7
+# copy tiers), so the wider guard goes green on landing.
+#
+# Three shapes below (the scout's shapes 1, 2 and 4; shape 3 - numbers
+# without declared provenance - is out of scope on five open captain
+# holds). Every swept set is DERIVED, never listed: new files and new
+# model-reaching steps are covered whether or not anybody remembers to
+# add them. Every new pattern ships with the removed line that proves
+# it fires. Each registry entry names the exemption category it
+# honours, from the scout's own list: absence-sentinel,
+# absence-of-decoration, validity-floor-that-refuses,
+# closed-behind-refusal, closed-route, report-only,
+# admitted-absence-in-context, measurement-lookup,
+# reported-load-bearing-default, needs-captain.
+
+
+# ── Shape 1: a creative `.get()` with a literal fallback, everywhere ─
+#
+# The seven-literal list above is incident-shaped: F2
+# (`t.get("duration_frames", int(0.5 * fps))`) and F3
+# (`m.get("font_size", 42)` and five siblings) are this exact shape on
+# lines the list never named. So the guard sweeps every `.py` under
+# `library/tools` and `library/steps` for `.get(<creative key>,
+# <fallback>)` - keyed by the KEY (the decision), not by the literal
+# (the incident) - plus numeric completion of `duration_frames` by
+# subscript assignment (F1's `t['duration_frames'] = 15` shape; the
+# surviving `= 0` lines are the absence-of-decoration the cut branch
+# correctly writes, and are registry entries, not violations).
+
+# Keys whose fallback decides what the viewer sees or hears. Technical
+# keys (frame rates, timeouts, codecs, paths, measurements) are never
+# in this set: a grep for "default" fails on every legitimate frame
+# rate, which is the constraint that killed every naive version.
+CREATIVE_GET_KEYS = (
+    "effect_type",
+    "intensity",
+    "sfx_type",
+    "sfx_id",
+    "volume_db",
+    "duration_feel",
+    "duration_frames",
+    "target_energy",
+    "font_size",
+    "font_weight",
+    "text_shadow",
+    "fade_in_frames",
+    "fade_out_frames",
+    "font_family",
+    "text_align",
+    "type_role",
+    # F3 completed card position from 0.5 constants: a centred card is
+    # a look, and no live `.get("x"/"y")` remains to exempt.
+    "x",
+    "y",
+)
+
+_GET_KEY_PATTERN = re.compile(
+    r"\.get\(\s*['\"](?P<key>" + "|".join(CREATIVE_GET_KEYS) + r")['\"]\s*,"
+)
+_GET_COMMA_AT_EOL = re.compile(
+    r"\.get\(\s*['\"](?P<key>" + "|".join(CREATIVE_GET_KEYS) + r")['\"]\s*,\s*$"
+)
+_DURATION_ASSIGN_PATTERN = re.compile(
+    r"['\"]duration_frames['\"]\s*\]\s*=\s*(?P<value>\d+)"
+)
+
+# (relative path, key, normalised fallback) -> (exemption category, why
+# this fallback is not engine taste). A hit without an entry fails; an
+# entry matching nothing fails as stale. Fail-closed both directions.
+CREATIVE_GET_EXEMPTIONS = {
+    # Drop/refuse paths read the missing value only to name it.
+    ("library/steps/step_4_03_plan_vfx/post_bridge.py", "effect_type", '""'):
+        ("absence-sentinel",
+         "feeds not_a_spine_block/duplicate_block drop records, never a render"),
+    ("library/steps/step_4_03_plan_vfx/post_bridge.py", "effect_type", "'?'"):
+        ("report-only",
+         "names the dropped entry in stderr, never completes it"),
+    ("library/steps/step_4_04_plan_sfx/post_bridge.py", "sfx_id", "'?'"):
+        ("report-only",
+         "names the dropped entry in stderr, never completes it"),
+    ("library/steps/step_5_04_compile_manifest/step.py", "effect_type", '""'):
+        ("absence-sentinel",
+         "empty means undecided upstream; the entry is dropped, never drawn"),
+    ("library/steps/step_5_04_compile_manifest/step.py", "effect_type", "'?'"):
+        ("report-only",
+         "names malformed entries in refusal messages"),
+    ("library/steps/step_5_04_compile_manifest/step.py", "effect_type",
+     "v.get('type', '?')"):
+        ("report-only",
+         "falls back to a second key, then to an unknown marker in a refusal"),
+    # A cut IS zero-length; 0 draws nothing.
+    ("library/steps/step_5_04_compile_manifest/step.py", "duration_frames:assign", "0"):
+        ("absence-of-decoration",
+         "the cut branch (F1/F2 fix): a cut is 0, a drawn hold without one is refused"),
+    ("library/steps/step_5_04_compile_manifest/step.py", "duration_frames", "0"):
+        ("validity-floor-that-refuses",
+         "probes absence in the refusal that replaced the 15-frame completion"),
+    # The fusion emit path downgrades duration-less drawn effects to a
+    # hard cut with the reason recorded (F2 fix); each `= 0` there is
+    # that cut, and all three share the entry above.
+    # The renderer's last-resort hold sits behind a validator that
+    # refuses duration-less drawn effects, so it never fires on
+    # validated data. Removing it is a separate change, not this guard.
+    ("library/tools/execution/apply_fusion_comps.py", "duration_frames", "12"):
+        ("closed-behind-refusal",
+         "unreachable behind compile_manifest's refusal; recorded, not removed"),
+    ("library/tools/execution/apply_fusion_comps.py", "effect_type",
+     "vfx.get('preset', '')"):
+        ("absence-sentinel",
+         "forwards a second key, then empty; applied only `if preset:`"),
+    # DRP project-file surgery: the closed route (AGENTS.md 5), read by
+    # its own test only.
+    ("library/tools/execution/apply_native_transitions.py", "duration_frames", "24"):
+        ("closed-route",
+         "unwired legacy path; nothing in the pipeline imports it"),
+    # Same family as F7 at declaration level: an absent explainer tier
+    # renders at "supporting". The per-entry F7 fix (drop as
+    # no_type_role_declared) does not reach this line; the constant is
+    # unchanged here (out of scope) and the hold belongs to the captain.
+    ("library/tools/explainer_plan.py", "type_role", '"supporting"'):
+        ("needs-captain",
+         "surviving F7-family default, surfaced not silently kept"),
+    # 0 fade draws no fade.
+    ("library/tools/fusion/comp_builder.py", "fade_in_frames", "0"):
+        ("absence-of-decoration", "no fade in"),
+    ("library/tools/fusion/comp_builder.py", "fade_out_frames", "0"):
+        ("absence-of-decoration", "no fade out"),
+    ("library/tools/manifest_validator.py", "effect_type", "'?'"):
+        ("report-only", "names the entry a finding is about"),
+    # Sizing already-placed runs in pixels. The placed tier is decided
+    # upstream - and since the F7 fix an undeclared one is dropped
+    # before it reaches any measurement - so these fallbacks never
+    # choose emphasis, only measure it.
+    ("library/tools/mg_tight_box.py", "type_role", '"supporting"'):
+        ("measurement-lookup",
+         "measures runs the plan tiered; chooses none"),
+    ("library/tools/mg_tight_box.py", "type_role", '"micro"'):
+        ("measurement-lookup",
+         "measures runs the plan tiered; chooses none"),
+    # Exporters and QA describe; they never reach a timeline.
+    ("library/tools/step_exporter.py", "duration_frames", 't.get("duration", "?")'):
+        ("report-only", "export placeholder for an absent number"),
+    ("library/tools/step_exporter.py", "effect_type", '"?"'):
+        ("report-only", "export placeholder for an absent effect"),
+    ("library/tools/visual_qa_router.py", "duration_frames", "30"):
+        ("report-only",
+         "QA segment-check window around a transition, never placed"),
+    # The one surviving engine default, load-bearing for the shipped
+    # Night card which omits alignment (STYLE_MOMENT_KEYS). Reported in
+    # timed_text_overlay.py, not silently kept.
+    ("library/tools/timed_text_overlay.py", "text_align", '"center"'):
+        ("reported-load-bearing-default",
+         "the shipped card omits it and renders today"),
+    # The SFX pre-bridge's prompt table: "" is an admitted absence in a
+    # cell the model reads, never a placed value.
+    ("library/steps/step_4_04_plan_sfx/bridge.py", "duration_frames", '""'):
+        ("admitted-absence-in-context",
+         "prompt-table cell saying the transition states no hold"),
+}
+
+
+def _normalise_fallback(raw: str) -> str:
+    """One spelling for a fallback, so the registry cannot drift from it."""
+    return re.sub(r"\s+", " ", raw.strip().lower())
+
+
+def _fallback_after(line: str, match_end: int) -> str:
+    """The fallback expression after `.get(key,`, balanced.
+
+    Stops at the first depth-0 comma or closing paren, honouring
+    nesting and quotes - so `v.get('type', '?')` reads whole and a
+    trailing `, "next_arg"` is never glued onto the fallback.
+    """
+    depth = 0
+    quote = None
+    escaped = False
+    for pos in range(match_end, len(line)):
+        char = line[pos]
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+        elif char in "([":
+            depth += 1
+        elif char in ")]":
+            if depth == 0:
+                return line[match_end:pos]
+            depth -= 1
+        elif char == "," and depth == 0:
+            return line[match_end:pos]
+    return line[match_end:]
+
+
+def _swept_source_files():
+    """DERIVED: every `.py` under `library/tools` and `library/steps`.
+
+    No list to remember: a new module is swept whether or not anybody
+    adds it anywhere.
+    """
+    for base in (REPO / "library" / "tools", REPO / "library" / "steps"):
+        yield from sorted(base.rglob("*.py"))
+
+
+def _iter_code_lines(path: Path):
+    """Physical lines that can execute, without line numbers attached.
+
+    Skips full-line `#` comments and triple-quoted docstring bodies:
+    prose recording a removal (sfx_level's withdrawn VOLUME_MAP,
+    music_selection_contract's sorted-pick incident record) is not a
+    fallback the renderer reads. Yields `(lineno, text)`; a `.get(`
+    whose fallback continues on the next line is joined into one
+    logical line at the opening lineno, because F3 once wore exactly
+    that shape.
+    """
+    lines = path.read_text(encoding="utf-8").splitlines()
+    in_docstring = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        # Toggle on an ODD count of triple quotes: a one-line docstring
+        # opens and closes without changing state.
+        quotes = line.count('"""') + line.count("'''")
+        if in_docstring:
+            if quotes % 2 == 1:
+                in_docstring = False
+            i += 1
+            continue
+        stripped = line.strip()
+        if not stripped.startswith("#"):
+            if _GET_COMMA_AT_EOL.search(line):
+                # Join continuation lines until the call closes.
+                joined = [line.rstrip()]
+                depth = line.count("(") - line.count(")")
+                j = i + 1
+                while depth > 0 and j < len(lines):
+                    joined.append(lines[j].strip())
+                    depth += lines[j].count("(") - lines[j].count(")")
+                    j += 1
+                yield i + 1, " ".join(joined)
+                if quotes % 2 == 1:
+                    in_docstring = True
+                i = j
+                continue
+            yield i + 1, line
+        if quotes % 2 == 1:
+            in_docstring = True
+        i += 1
+
+
+def _creative_get_hits():
+    """Every creative-key `.get()` fallback and duration completion.
+
+    Returns `(relpath, key, fallback, lineno, text)` rows. `None` is
+    never a hit: an explicit None is an admitted absence, not taste.
+    """
+    hits = []
+    for path in _swept_source_files():
+        rel = str(path.relative_to(REPO))
+        for lineno, line in _iter_code_lines(path):
+            for match in _GET_KEY_PATTERN.finditer(line):
+                key = match.group("key")
+                norm = _normalise_fallback(_fallback_after(line, match.end()))
+                if norm in ("none", ""):
+                    continue
+                hits.append((rel, key, norm, lineno, line.strip()[:160]))
+            assign = _DURATION_ASSIGN_PATTERN.search(line)
+            if assign:
+                hits.append((rel, "duration_frames:assign",
+                             _normalise_fallback(assign.group("value")),
+                             lineno, line.strip()[:160]))
+    return hits
+
+
+def test_no_creative_get_fallback_anywhere():
+    """No creative `.get()` fallback outside the exemption registry.
+
+    Principle-bound where `CREATIVE_SUBSTITUTIONS` is incident-bound:
+    the keys are the decisions (effect, sound, level, hold, size,
+    weight, face, fade, shadow, position, tier), and any fallback for
+    one that is not an explicitly categorised exemption fails - even
+    on a file this guard has never named. A new exemption is a
+    decision with a reader: it names its category and why, and a
+    registry entry matching nothing fails as stale.
+    """
+    hits = _creative_get_hits()
+    unregistered = [
+        f"{rel}:{lineno}: .get({key!r}, {fallback}) [{text}]"
+        for rel, key, fallback, lineno, text in hits
+        if (rel, key, fallback) not in CREATIVE_GET_EXEMPTIONS
+    ]
+    assert not unregistered, (
+        "creative fallbacks outside the exemption registry (add a "
+        "categorised entry, or drop the entry with the reason instead "
+        "of completing it from a constant):\n" + "\n".join(unregistered)
+    )
+    matched = {(rel, key, fallback) for rel, key, fallback, _, _ in hits}
+    stale = sorted(
+        f"{rel} {key} {fallback} ({CREATIVE_GET_EXEMPTIONS[(rel, key, fallback)][0]})"
+        for (rel, key, fallback) in CREATIVE_GET_EXEMPTIONS
+        if (rel, key, fallback) not in matched
+    )
+    assert not stale, (
+        "stale exemption-registry entries (the line moved or the "
+        "constant is gone - delete the entry):\n" + "\n".join(stale)
+    )
+
+
+def test_creative_get_guard_can_fire():
+    """Every removed creative fallback trips the matcher; clean lines pass.
+
+    The firing half is the removed lines themselves: F2's emit-path
+    completion, all six of F3's look completions, and the seven
+    substitution literals. The quiet half is what the guard must never
+    flag: technical keys, non-creative keys, and explicit None.
+    """
+    firing = [
+        # F2, second code path for the same hold.
+        't.get("duration_frames", int(0.5 * fps))',
+        # F3, all six look completions (one shown joined, as it was).
+        'm.get("font_size", 42)',
+        'm.get("x", 0.5)',
+        'm.get("fade_in_frames", 10)',
+        'm.get("font_weight", 400)',
+        'm.get("text_shadow", "0px 4px 12px rgba(0,0,0,0.6)")',
+        'declaration.get("font_family", "Helvetica")',
+        # The seven substitution literals, in miniature.
+        '.get("effect_type", "slow_zoom_in")',
+        '.get("intensity", "moderate")',
+        '.get("sfx_type", "whoosh")',
+        '.get("volume_db", -14)',
+        '.get("duration_feel", "medium")',
+        '.get("target_energy", "moderate")',
+        # F1's assignment shape.
+        "t['duration_frames'] = 15  # default 15 frames (~0.5s at 30fps)",
+    ]
+    for snippet in firing:
+        key_hit = bool(_GET_KEY_PATTERN.search(snippet))
+        assign_hit = bool(_DURATION_ASSIGN_PATTERN.search(snippet))
+        assert key_hit or assign_hit, (
+            f"the shape-1 matcher does not fire on {snippet!r}"
+        )
+    # F3 once wore a joined shape: fallback on the next line. The
+    # continuation arm must see the opening half.
+    assert _GET_COMMA_AT_EOL.search('m.get("text_shadow",'), (
+        "the shape-1 matcher misses a fallback continued on the next line"
+    )
+    quiet = [
+        'data.get("frame_rate", 30.0)',
+        'clip.get("clip_name", clip.get("source_file", "clip_0"))',
+        'selection.get("audio_path")',
+        'moment.get("font_size")',
+        'props.get("type_role", None)',
+        't["duration_frames"] = end_f - start_f',
+    ]
+    for snippet in quiet:
+        key_hit = False
+        for match in _GET_KEY_PATTERN.finditer(snippet):
+            norm = _normalise_fallback(
+                _fallback_after(snippet, match.end()))
+            if norm not in ("none", ""):
+                key_hit = True
+        assign_hit = bool(_DURATION_ASSIGN_PATTERN.search(snippet))
+        assert not (key_hit or assign_hit), (
+            f"the shape-1 matcher fires on legitimate output {snippet!r}"
+        )
+
+
+# ── Shape 2: selection by ordering or truncation, never by judgement ──
+#
+# F4 settled which picture plays by alphabet
+# (`for clip_id in sorted(catalog_lookup)` in select_broll's
+# `_pick_alternative_clip`); F5 shapes the creative menu by platform
+# order (`keepers[:declaration.fetch_limit]` in music_selection's
+# bridge). A broad `sorted(` sweep cannot discriminate - dozens of
+# legitimate orderings sort by timeline position, for display, or for
+# stable output - so this shape fingerprints the two mechanisms, not
+# the builtin:
+#
+# 2a. `sorted()` over a clip/catalogue mapping (which picture plays
+#     settled by alphabet). Timeline sorts (`key=timeline_in`),
+#     display sorts and the model's-own-rank ordering (judge_reels)
+#     never match: the fingerprint names the collection, not the call.
+# 2b. Truncation of a creative-candidate list to a fetch cap
+#     (`keepers[:fetch_limit]`). The one live hit is the scout's
+#     [music-discovery-shape] captain hold, so it ships as a
+#     needs-captain registry entry - fail-closed (a second truncation
+#     fails; the hold resolving fails as stale) rather than as a
+#     firing rule a resource bound would trip.
+# 2c. Behaviour: an A-roll-duplicating cutaway is dropped, never
+#     substituted (the F4 fix, pinned where it lives).
+#
+# Deliberately not swept: the `" background music"` query suffix (one
+# literal under the same captain hold - a guard for it would be
+# incident-shaped by construction) and top-N reporting caps over
+# measured signal (`failed[:5]`, `scored[:2]`), which shape no menu.
+
+_CATALOG_ORDER_PATTERN = re.compile(
+    r"sorted\s*\([^)\n]*(catalog_lookup|clip_catalog|catalog)\b"
+)
+_FETCH_TRUNCATION_PATTERN = re.compile(
+    r"(keepers|candidates)\s*\[[^]\n]*:[^]\n]*(fetch_limit|limit)"
+)
+
+# (relative path, mechanism) -> (exemption category, why it is not a
+# menu shaped by order). Same fail-closed contract as shape 1.
+ORDERING_EXEMPTIONS = {
+    ("library/steps/step_2_04_music_selection/bridge.py", "fetch-truncation"): (
+        "needs-captain",
+        "scout hold [music-discovery-shape]: YouTube-order fetch "
+        "truncation shaping the candidate menu; the cap is a resource "
+        "bound, the ORDER is the hold",
+    ),
+}
+
+
+def _ordering_hits():
+    """Catalogue-alphabet picks and candidate-list truncations."""
+    hits = []
+    for path in _swept_source_files():
+        rel = str(path.relative_to(REPO))
+        for lineno, line in _iter_code_lines(path):
+            if _CATALOG_ORDER_PATTERN.search(line):
+                hits.append((rel, "catalog-order", lineno,
+                             line.strip()[:160]))
+            if _FETCH_TRUNCATION_PATTERN.search(line):
+                hits.append((rel, "fetch-truncation", lineno,
+                             line.strip()[:160]))
+    return hits
+
+
+def test_no_selection_by_catalogue_order_or_fetch_truncation():
+    """No menu is shaped by alphabet or by platform order, undeclared."""
+    hits = _ordering_hits()
+    unregistered = [
+        f"{rel}:{lineno}: {mechanism} [{text}]"
+        for rel, mechanism, lineno, text in hits
+        if (rel, mechanism) not in ORDERING_EXEMPTIONS
+    ]
+    assert not unregistered, (
+        "ordering/truncation shaping a creative menu outside the "
+        "exemption registry:\n" + "\n".join(unregistered)
+    )
+    matched = {(rel, mechanism) for rel, mechanism, _, _ in hits}
+    stale = sorted(
+        f"{rel} {mechanism} ({ORDERING_EXEMPTIONS[(rel, mechanism)][0]})"
+        for (rel, mechanism) in ORDERING_EXEMPTIONS
+        if (rel, mechanism) not in matched
+    )
+    assert not stale, (
+        "stale ordering-registry entries (the line moved or the hold "
+        "resolved - delete or re-file the entry):\n" + "\n".join(stale)
+    )
+
+
+def test_ordering_guard_can_fire():
+    """The removed F4 loop and the live truncation both trip the matcher;
+    legitimate orderings do not."""
+    firing = [
+        # F4, the line PR 1138 deleted.
+        "    for clip_id in sorted(catalog_lookup):",
+        # F5, the live truncation (fires; the registry exempts it as a
+        # captain hold rather than as clean output).
+        "    for result in keepers[:declaration.fetch_limit]:",
+    ]
+    assert _CATALOG_ORDER_PATTERN.search(firing[0]), (
+        "the shape-2 matcher does not fire on the removed F4 loop"
+    )
+    assert _FETCH_TRUNCATION_PATTERN.search(firing[1]), (
+        "the shape-2 matcher does not fire on the fetch truncation"
+    )
+    quiet = [
+        # Timeline order, display order, the model's own rank, measured
+        # signal with recorded ties: the orderings the scout clears.
+        'for clip in sorted(v1_clips, key=lambda c: c["timeline_in"]):',
+        "return [catalogue[name] for name in sorted(catalogue)]",
+        "for r in sorted(readings,",
+        "return max(windows, key=lambda w: w[1] - w[0])",
+        "not_read = sorted(",
+    ]
+    for snippet in quiet:
+        assert not _CATALOG_ORDER_PATTERN.search(snippet), (
+            f"the shape-2 matcher fires on a legitimate ordering: {snippet!r}"
+        )
+
+
+def test_broll_matching_its_own_aroll_is_dropped_not_substituted():
+    """Shape 2c, pinned where it lives: the F4 fix, behaviourally.
+
+    A cutaway naming its own A-roll clip is skipped with the reason
+    recorded; no alphabetically-first replacement is picked. One clip
+    stays zero clips - which picture replaces it is the model's
+    re-plan, never `sorted()` over the catalogue.
+    """
+    from library.steps.step_3_02_select_broll.post_bridge import (
+        resolve_broll,
+    )
+
+    spine = {
+        "structure": [{
+            "position": 1,
+            "block_type": "speech",
+            "clip_id": "clip_001",
+            "timeline_start": 0.0,
+            "timeline_end": 4.0,
+        }],
+    }
+    catalog = [
+        {"clip_id": "clip_001", "source_file": "/tmp/a.mov",
+         "duration_seconds": 30.0, "width": 1080, "height": 1920},
+        {"clip_id": "clip_002", "source_file": "/tmp/b.mov",
+         "duration_seconds": 30.0, "width": 1080, "height": 1920},
+    ]
+    creative = [{
+        "clip_id": "clip_001",
+        "spine_block_position": 1,
+        "preferred_moment": "the wide establishing shot",
+        "selection_rationale": "illustrates the line",
+    }]
+    resolved = resolve_broll(
+        creative, [], catalog, [], [], spine, (1080, 1920),
+    )
+    assert resolved["b_roll_assignments"] == [], (
+        f"a substitute was picked: {resolved['b_roll_assignments']}"
+    )
+    assert "clip_002" not in json.dumps(resolved), (
+        "the alphabetically-next clip reached the output unplanned"
+    )
+
+
+# ── Shape 3-of-three: every creative bridge accepts a sparse plan ───
+#
+# Surface C drives four bridges (broll, sfx, vfx, transitions) and the
+# scout names six more (mesh_spine, music_selection,
+# creative_direction, speech_sequence, render_motion_graphics,
+# color_grade). The swept set is DERIVED from
+# `undetermined.DECLARING_STEPS` - the same derivation Surface A uses
+# for prompts - so a new model-reaching step is covered whether or not
+# anybody remembers to add it, and `validate` is excluded the same way
+# (it checks a finished render and plans nothing).
+#
+# "Accepts" is asserted on behaviour, never vocabulary: the real
+# function runs over a sparse input and the output is diffed. Where
+# the bridge must refuse rather than pad (music_selection with no
+# track, like plan_sfx with no playable sound), the test pins the
+# loud refusal - never a substitution. creative_direction has no
+# bridge files at all, so the test pins that absence: there is nowhere
+# for a floor to live.
+#
+# If a bridge fails its sparse test, that is a finding, not a test to
+# adjust: the entry stays and the bridge is fixed.
+
+def _assert_no_quota_language(where: str, text: str):
+    """Captured stderr carries no floor, warning-shaped or otherwise."""
+    hits = find_floors(text or "")
+    assert not hits, (
+        f"{where} talks about count on a sparse plan ({hits})"
+    )
+
+
+def test_sparse_mesh_spine_accepts_an_empty_spine(capsys):
+    """No block planned is an empty spine, not an error."""
+    from library.steps.step_2_05_mesh_spine.post_bridge import enrich_spine
+
+    out = enrich_spine({"structure": []}, {"body_sequence": []}, {}, {})
+    assert out["audio_spine"]["structure"] == []
+    assert out["audio_spine"]["total_estimated_duration_seconds"] == 0
+    _assert_no_quota_language("mesh_spine", capsys.readouterr().err)
+
+
+def test_sparse_music_selection_refuses_without_substituting(tmp_path):
+    """No track chosen is refused loudly, never completed from the shelf.
+
+    Deviation from the scout's uniform "empty in, same out", recorded:
+    downstream (mesh_spine's bed, the mix, compile_manifest) reads
+    `audio_path` off this step's answer, so an empty selection passing
+    through would score the piece with something nobody chose - the
+    same reason plan_sfx refuses an unplayable sound rather than
+    dropping it quietly. What the guard pins is the principle: the
+    refusal names the remedy, and no `sorted(...)[0]` fallback picks a
+    track (the 001 defect `music_selection_contract` records).
+    """
+    payload = {
+        "music_candidates": {"candidates": [],
+                             "target_duration_seconds": 60.0},
+        "project_folder": str(tmp_path),
+        "music_selection": {},
+    }
+    proc = _run_bridge(STEPS / "step_2_04_music_selection" / "post_bridge.py",
+                       payload)
+    assert proc.returncode == 1, (
+        "an empty music selection passed - or the refusal broke.\n"
+        f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+    )
+    assert "must choose a track" in proc.stdout, (
+        f"the refusal names no remedy: {proc.stdout[:300]}"
+    )
+    assert "audio_path" not in proc.stdout, (
+        "the refusal carries a track nobody chose"
+    )
+
+
+def test_sparse_creative_direction_has_no_bridge_to_pad():
+    """Step 2.01 plans in the model call; no bridge runs after it."""
+    step = STEPS / "step_2_01_creative_direction"
+    for name in ("bridge.py", "post_bridge.py"):
+        assert not (step / name).exists(), (
+            f"{name} appeared under creative_direction - the sparse plan "
+            f"for this step is the model's own answer, and a new bridge "
+            f"needs its own sparse driver in SPARSE_DRIVERS below"
+        )
+    # The prompt itself is under Surface A's quota guard; downstream
+    # bridges already take `"creative_direction": {}` (the sfx, vfx and
+    # transitions sparse payloads above), so an undecided direction
+    # pads nothing downstream either.
+
+
+def test_sparse_speech_sequence_accepts_an_empty_body(tmp_path):
+    """No passage selected is an empty sequence, not a count violation."""
+    from library.steps.step_2_02_speech_sequence.post_bridge import (
+        enrich_speech_sequence,
+    )
+
+    out = enrich_speech_sequence({"body_sequence": []}, str(tmp_path))
+    assert out["body_sequence"] == []
+
+
+def test_sparse_motion_graphics_accepts_an_empty_plan(capsys):
+    """No element planned is no segment, not a padded layer."""
+    import sys as _sys
+
+    step_dir = str(STEPS / "step_4_06_render_motion_graphics")
+    _sys.path.insert(0, step_dir)
+    try:
+        from generate_motion_props import generate_motion_props
+    finally:
+        _sys.path.remove(step_dir)
+
+    spine = {"structure": [], "total_estimated_duration_seconds": 0.0}
+    segments, resolved = generate_motion_props(
+        [], spine, 30, width=1080, height=1920, project_folder="")
+    assert segments == []
+    assert getattr(resolved, "dropped", []) == []
+    _assert_no_quota_language("render_motion_graphics",
+                              capsys.readouterr().err)
+
+
+def test_sparse_color_grade_records_no_correction_needed():
+    """An empty colourist answer is a judged decision, not an approval."""
+    from library.steps.step_5_01_color_grade.post_bridge import (
+        resolve_color_grade,
+    )
+
+    out = resolve_color_grade(
+        {"project_folder": "", "color_correction": [],
+         "grade_assessment": {}})
+    spec = out["color_grade_spec"]
+    assert spec["per_clip_adjustments"] == []
+    assert spec["correction_basis"]["basis"] == "judged_no_correction_needed"
+
+
+def test_sparse_select_reels_accepts_an_empty_transcript():
+    """No turns found is no candidates, not a default reel."""
+    from library.steps.step_3_04_select_reels.bridge import build_context
+
+    out = build_context({})
+    assert out["reel_candidates"] == []
+    assert out["turns"] == []
+
+
+def test_sparse_judge_reels_accepts_empty_readings():
+    """No readings is an empty ordering, never an invented rank."""
+    from library.steps.step_3_05_judge_reels.post_bridge import resolve
+
+    out = resolve({}, {"timeline_transcript": {},
+                       "reel_selection": {"moments": []}})
+    assert out["reel_judgement"]["ordering"] == []
+    assert out["reel_judgement"]["readings"] == []
+
+
+def test_sparse_review_accepts_an_empty_cut():
+    """Nothing cut yet is an empty script, not a failing review."""
+    from library.steps.step_3_03_review_rough_cut.step import (
+        build_actual_script,
+    )
+
+    out = build_actual_script([], {"structure": []})
+    assert out["blocks"] == []
+    assert out["full_text"] == ""
+
+
+# Every declaring step (minus `validate`, which plans nothing) resolves
+# to the sparse test that drives it. A step with no entry here fails
+# this test - coverage cannot drift when a model-reaching step is
+# added. The four Surface-C originals resolve to their existing tests.
+SPARSE_DRIVERS = {
+    "select_broll": "test_select_broll_accepts_a_single_cutaway",
+    "plan_sfx": "test_plan_sfx_accepts_a_sparse_plan",
+    "plan_vfx": "test_plan_vfx_accepts_an_empty_plan",
+    "plan_transitions": "test_plan_transitions_accepts_an_empty_plan",
+    "mesh_spine": "test_sparse_mesh_spine_accepts_an_empty_spine",
+    "music_selection": "test_sparse_music_selection_refuses_without_substituting",
+    "creative_direction": "test_sparse_creative_direction_has_no_bridge_to_pad",
+    "speech_sequence": "test_sparse_speech_sequence_accepts_an_empty_body",
+    "render_motion_graphics": "test_sparse_motion_graphics_accepts_an_empty_plan",
+    "color_grade": "test_sparse_color_grade_records_no_correction_needed",
+    "select_reels": "test_sparse_select_reels_accepts_an_empty_transcript",
+    "judge_reels": "test_sparse_judge_reels_accepts_empty_readings",
+    "review_rough_cut": "test_sparse_review_accepts_an_empty_cut",
+}
+
+
+def test_every_declaring_step_has_a_sparse_driver():
+    """The sparse set is derived, and the drivers are fail-closed."""
+    from library.tools.undetermined import DECLARING_STEPS
+
+    expected = set(DECLARING_STEPS) - {"validate"}
+    assert set(SPARSE_DRIVERS) == expected, (
+        "sparse-driver drift: missing "
+        f"{sorted(expected - set(SPARSE_DRIVERS))}, extra "
+        f"{sorted(set(SPARSE_DRIVERS) - expected)}. A new "
+        f"model-reaching step needs a sparse driver, not an exception."
+    )
+    missing = [name for name in SPARSE_DRIVERS.values()
+               if name not in globals()]
+    assert not missing, (
+        f"sparse drivers naming no test in this module: {missing}"
+    )
 
