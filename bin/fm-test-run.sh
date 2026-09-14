@@ -124,7 +124,8 @@
 # expected_gate_skip classes name why a family is allowed to skip: herdr (the
 # pinned real-Herdr lane), optional-binary (a backend whose binary is optional),
 # live-capability (a live-harness guard governed by fm_live_gate, which records
-# unavailable tools and explicit policy skips; see tests/lib.sh), or none.
+# unavailable tools and explicit policy skips; see tests/lib.sh),
+# windows-native (a script that only executes under native Windows Node), or none.
 #
 # Every selected script runs isolated from the host's global and system Git
 # configuration, including one that sources no test helper of its own;
@@ -394,6 +395,13 @@ family_for_basename() {
     fm-backend-orca.test.sh)
       printf '%s\n' orca
       ;;
+    fm-pi-windows-shell-invocation.test.sh)
+      # Single-member family: the script exercises the Pi extension through a
+      # native Windows Node and gate-skips everywhere else BY DESIGN, so it
+      # declares that gate rather than failing the expected_gate_skip=none
+      # guard that keeps unclassified scripts honest.
+      printf '%s\n' windows-gated
+      ;;
     fm-branch-supervision.test.sh|fm-busy-adapter-wiring.test.sh|\
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
     fm-claude-stop-autoarm.test.sh|fm-cursor-harness.test.sh|\
@@ -422,6 +430,7 @@ expected_gate_skip_for_family() {
     live-harness-optin) printf '%s\n' live-capability ;;
     cmux|zellij|orca) printf '%s\n' optional-binary ;;
     snapshot-bearings) printf '%s\n' optional-binary ;;
+    windows-gated) printf '%s\n' windows-native ;;
     *) printf '%s\n' none ;;
   esac
 }
@@ -441,6 +450,7 @@ snapshot-bearings
 cmux
 zellij
 orca
+windows-gated
 standalone
 unclassified
 EOF

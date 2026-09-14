@@ -919,6 +919,33 @@ SH
   pass "a gate skip fails the run under expected_gate_skip=none and still passes in a gated family"
 }
 
+test_declared_windows_gate_stays_successful() {
+  # fm-pi-windows-shell-invocation only executes under native Windows Node and
+  # declares that gate in its own single-member family, so its skip is an
+  # expected gate skip and stays successful - the guard must not be satisfiable
+  # only by failing every skip everywhere.
+  local tmp win_f out
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-windows-gate.XXXXXX")
+  win_f="$tmp/fm-pi-windows-shell-invocation.test.sh"
+  out="$tmp/out.txt"
+  cat >"$win_f" <<'SH'
+#!/usr/bin/env bash
+echo "skip: native Windows Node required"
+exit 0
+SH
+  chmod +x "$win_f"
+  "$RUNNER" "$win_f" >"$out" 2>"$tmp/err.txt" \
+    || { rm -rf "$tmp"; fail "a DECLARED windows gate skip must still pass"; }
+  grep -q 'expected_gate_skip=windows-native' "$out" \
+    || { rm -rf "$tmp"; fail "BEGIN marker must declare expected_gate_skip=windows-native: $(grep '^FM_TEST_BEGIN' "$out")"; }
+  grep -Eq '^FM_TEST_END .+ exit=0 duration_ms=[0-9]+ gate_skip=true$' "$out" \
+    || { rm -rf "$tmp"; fail "declared windows gate skip must stay a pass: $(grep '^FM_TEST_END' "$out")"; }
+  grep -q 'FM_TEST_SUMMARY total=1 failed=0 skipped_gate=1' "$out" \
+    || { rm -rf "$tmp"; fail "declared windows gate skip summary wrong: $(grep FM_TEST_SUMMARY "$out")"; }
+  rm -rf "$tmp"
+  pass "a declared windows-native gate skip stays successful"
+}
+
 test_gate_skip_reason_is_recorded() {
   local tmp skip_f out json
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-skipreason.XXXXXX")
@@ -1765,6 +1792,7 @@ test_timing_markers_and_json
 test_aggregate_exit_behavior
 test_gate_skip_accounting
 test_unexpected_gate_skip_fails_the_run
+test_declared_windows_gate_stays_successful
 test_gate_skip_reason_is_recorded
 test_a_run_that_ran_records_no_skip_reason
 test_live_guards_expect_a_capability_skip_class
