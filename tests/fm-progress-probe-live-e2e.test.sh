@@ -28,19 +28,19 @@
 # provisioning and requires an identical fleet state after teardown.
 set -u
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-if [ "${FM_PROGRESS_PROBE_LIVE:-0}" != 1 ]; then
-  echo "skip: set FM_PROGRESS_PROBE_LIVE=1 to run the live progress-probe guard (spends model tokens)"
-  exit 0
-fi
+# The shared live-capability gate owns every entry point: FM_LIVE=0 skips with
+# the fleet-wide line the live-guard sweep asserts, an unset variable skips as
+# opt-in, and =1 with herdr or jq absent fails naming the request.
+fm_live_gate opt-in FM_PROGRESS_PROBE_LIVE herdr jq
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # shellcheck source=tests/herdr-test-safety.sh
 . "$ROOT/tests/herdr-test-safety.sh"
 herdr_forget_inherited_pane
-
-command -v herdr >/dev/null 2>&1 || { echo "not ok - FM_PROGRESS_PROBE_LIVE=1 but herdr is not installed" >&2; exit 1; }
-command -v jq >/dev/null 2>&1 || { echo "not ok - FM_PROGRESS_PROBE_LIVE=1 but jq is not installed" >&2; exit 1; }
 
 LAB=$(fm_herdr_lab_name progress-probe) || exit 1
 CHECKED=0

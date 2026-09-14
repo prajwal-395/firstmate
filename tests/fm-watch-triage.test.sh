@@ -1881,8 +1881,8 @@ test_terminal_stale_unchanged_hash_churn_suppressed() {
 
   # Phase B2: churn again with the status file still untouched. The latched
   # repeat suppresses this one: no wake, no queue entry, suppressor advanced.
-  printf 'finished, awaiting review - spinner \\' > "$capture_file"
-  pane_hash=$(hash_text "finished, awaiting review - spinner \\")
+  printf 'finished, awaiting review - spinner +' > "$capture_file"
+  pane_hash=$(hash_text "finished, awaiting review - spinner +")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   : > "$out"
