@@ -333,15 +333,11 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 
 ## 9. Environment and dependencies
 
-- **`run` needs the dedicated `.venv`; nothing else in the CLI does.**
-  `manage_project.py` checks for `mlx_vlm`/`whisperx`/`easyocr`/`torch` only for the commands in `ML_DEPENDENT_COMMANDS`, which is `run` alone: the ML packages are imported by pipeline STEPS, and `run` launches them with `sys.executable`, so the interpreter running the CLI is the one that must carry them.
-  `tests/test_cli_ml_preflight.py`.
-  ML packages are checked for `run` only (`ML_DEPENDENT_COMMANDS`). All other commands (`dashboard`, `list`, `status`, etc.) work without them. Never move that check back to import time. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
-- Set `RESOLVE_SCRIPT_API` and `RESOLVE_SCRIPT_LIB` to your DaVinci Resolve installation.
-- Set `HF_TOKEN` for HuggingFace models like Audio Flamingo Next.
-- Set `PIPELINE_SFX_LIBRARY`, `PIPELINE_MUSIC_LIBRARY` and `PIPELINE_PROJECTS_ROOT` to absolute paths.
+- **`run` needs the dedicated `.venv`; nothing else in the CLI does.** The check is NEVER at import time; `manage_project.py`'s `ML_DEPENDENT_COMMANDS` is the list and carries why. `tests/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
+- Set `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB` to your DaVinci Resolve installation, `HF_TOKEN` for HuggingFace models, and `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY`/`PIPELINE_PROJECTS_ROOT` to absolute paths.
 - Python dependencies are in `requirements.txt`. `librosa` is required by `music_analysis`; without it the step reports `available: false` and the run fails rather than continuing silently.
 - External tools: `ffmpeg` and `ffprobe`. Node.js for Remotion subtitle rendering.
+- **A shared dependency lives ONCE PER MACHINE, outside every checkout; a checkout FINDS it, and absence REFUSES rather than skipping or falling back.** `library/tools/shared_environment.py` locates the Node store and the ML interpreter: `docs/SHARED_ENVIRONMENT.md`. Building the venv: `docs/ML_ENVIRONMENT.md`.
 - GPU acceleration is required for Gemma 4, SAM 2, WhisperX and EasyOCR.
 - **Every `subprocess.run` capturing text must pass `encoding="utf-8"`.** `text=True` decodes with the locale codec, and this pipeline writes UTF-8 status glyphs. [why](docs/RULE_EVIDENCE.md#text-true-decodes-with-the-locale-codec)
 - **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. Only `LC_CTYPE` is restored - `LC_NUMERIC` is untouched, because handing fusionscript a decimal comma would corrupt every number crossing the boundary. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - `resolve_relinker`, `timeline_serializer`, `resolve_health`, `resolve_project_sync`, `qa/timeline_sync_qa`, `execution/resolve_render`, `execution/apply_fusion_comps` and `probe_resolve_capabilities`.

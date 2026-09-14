@@ -69,7 +69,11 @@ class TestMissingCapabilitiesFromReasons:
         assert len(caps) == 1
         assert caps[0].name == "remotion"
         assert caps[0].skip_count == 1
-        assert "npm install" in caps[0].install_hint
+        # The hint is the ONE install, not a per-checkout `npm install`
+        # (docs/SHARED_ENVIRONMENT.md): a gate that told a reader to fill
+        # this lane's own node_modules would teach the 585-MB-per-lane
+        # duplication the store replaced.
+        assert "install_node_deps.sh" in caps[0].install_hint
 
     def test_ffmpeg_skips_are_grouped(self):
         reasons = [

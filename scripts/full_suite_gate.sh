@@ -39,7 +39,22 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "${REPO_ROOT}"
 
-PYTHON="${FULL_SUITE_GATE_PYTHON:-python3}"
+# `FULL_SUITE_GATE_PYTHON` still wins.  Without it, ASK the resolution
+# rather than taking the ambient `python3`: on this machine that is 3.14
+# with none of the ML stack, so the heavy tier went unmeasured unless
+# somebody remembered the variable - and docs/ML_ENVIRONMENT.md had to
+# carry a paragraph saying so in bold.  A default that finds the durable
+# venv is what removes that paragraph's reason to exist.
+PYTHON="${FULL_SUITE_GATE_PYTHON:-}"
+if [ -z "${PYTHON}" ]; then
+  PYTHON="$(python3 -c "
+import sys
+sys.path.insert(0, '${REPO_ROOT}')
+from library.tools.shared_environment import python_interpreter
+print(python_interpreter('${REPO_ROOT}')[0])
+" 2>/dev/null || true)"
+fi
+PYTHON="${PYTHON:-python3}"
 
 # These two drive the RUNNING DaVinci Resolve and switch the current
 # timeline out from under whoever is using the app.  CI has no Resolve,

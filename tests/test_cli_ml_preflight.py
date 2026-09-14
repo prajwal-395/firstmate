@@ -130,11 +130,25 @@ def test_advice_names_the_activate_script_that_exists(tmp_path):
         assert Path(token).exists(), f"advice names a path that does not exist: {token}"
 
 
-def test_advice_says_so_when_there_is_no_venv(tmp_path):
-    """The old message told the captain to source a file that is not there."""
+def test_advice_sends_the_reader_to_the_ONE_location(tmp_path, monkeypatch):
+    """The old message told the captain to build a venv per checkout.
+
+    That is 4 GB of the same packages per lane, it dies with the lane,
+    and `docs/ML_ENVIRONMENT.md` had already moved the real environment
+    outside every checkout for exactly that reason - the advice simply
+    had not followed it (docs/SHARED_ENVIRONMENT.md).
+    """
+    from library.tools import shared_environment
+
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
     lines = cli._venv_advice(tmp_path)
     text = "\n".join(lines)
-    assert "no virtual environment" in text
+    durable = str(tmp_path / "vep" / shared_environment.DURABLE_VENV_DIRNAME)
+    assert durable in text, "the advice does not name the per-machine location"
+    assert text.index(durable) < text.index(str(tmp_path / ".venv")), (
+        "the per-checkout venv is offered before the shared one")
+    assert "ONCE PER MACHINE" in text
+    assert "ML_ENVIRONMENT.md" in text
     # 3.12 EXPLICITLY. Bare `python3` is 3.14 on the build machine, and
     # following that instruction rebuilds the environment
     # requirements.txt forbids - see test_advice_does_not_send_anyone_to
@@ -147,15 +161,20 @@ def test_advice_says_so_when_there_is_no_venv(tmp_path):
 
 
 def test_run_advice_is_true_of_this_checkout(ml_stack_absent, capsys):
-    """Whatever this checkout is, the printed advice describes it."""
+    """Whatever this machine is, the printed advice describes it.
+
+    Measured 2026-09-14: no checkout on the build machine has a `.venv`,
+    so the branch that named one was the branch nobody ever saw.
+    """
+    from library.tools import shared_environment
+
     with pytest.raises(SystemExit):
         cli.preflight_check("run")
     out = capsys.readouterr().out
-    has_venv = (REPO_ROOT / ".venv" / "bin" / "activate").is_file()
-    if has_venv:
-        assert str(REPO_ROOT / ".venv" / "bin" / "activate") in out
-    else:
-        assert "no virtual environment" in out
+    durable = shared_environment.vep_home() / shared_environment.DURABLE_VENV_DIRNAME
+    assert str(durable) in out
+    if (REPO_ROOT / ".venv" / "bin" / "python3").is_file():
+        assert str(REPO_ROOT / ".venv") in out
 
 
 # ── 3. The dashboard really starts without the ML stack ─────────

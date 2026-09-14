@@ -24,9 +24,11 @@ section 4 says to, because the dashboard's interpreter is the one that
 carries the ML stack.  The panel's is not: Resolve launches whatever
 Python it finds - stock `/usr/bin/python3` on macOS - and
 `run_pipeline.py` imports `whisperx`, `mlx_vlm` and `torch` through its
-steps.  So the panel resolves the checkout's own `.venv/bin/python3` and
-REFUSES BY NAME when there is none, rather than launching an interpreter
-that will die on the first import forty seconds in.
+steps.  So the panel resolves an interpreter that carries the stack -
+`shared_environment.python_interpreter`, the durable per-machine venv
+first and the checkout's own `.venv` after it - and REFUSES BY NAME with
+every rung it tried when there is none, rather than launching an
+interpreter that will die on the first import forty seconds in.
 """
 
 from __future__ import annotations
@@ -44,12 +46,18 @@ from library.tools import (
     run_control,
     run_profile,
     run_scope,
+    shared_environment,
 )
 
 
 # ── Which interpreter runs the pipeline ──────────────────────────────
 
 VENV_INTERPRETER = os.path.join(".venv", "bin", "python3")
+"""The checkout's own venv - the LAST rung, not the only one.
+
+Kept as a name because it is still a real place to find an interpreter;
+the ladder that contains it lives in `shared_environment`.
+"""
 
 
 def pipeline_interpreter(repo_root: str) -> Tuple[str, str]:
@@ -59,16 +67,22 @@ def pipeline_interpreter(repo_root: str) -> Tuple[str, str]:
     interpreter with none of the ML stack, and a run launched with it
     dies inside a step's import with a traceback the captain has to go
     looking for in a log.
+
+    It used to look ONLY at `<repo>/.venv/bin/python3`.  Measured
+    2026-09-14: no checkout on the build machine has one - the working
+    environment is the durable venv outside every checkout
+    (`docs/ML_ENVIRONMENT.md`) - so the panel refused every run on a
+    machine that could have made one.  The rung is still tried; it is
+    just no longer the only rung, and the refusal now names every rung
+    it tried rather than the one it knew about.
     """
-    candidate = os.path.join(repo_root, VENV_INTERPRETER)
-    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-        return candidate, ""
+    interpreter, why_not = shared_environment.python_interpreter(repo_root)
+    if interpreter:
+        return interpreter, ""
     return "", (
-        f"This checkout has no {VENV_INTERPRETER}. `run_pipeline.py` imports "
-        f"whisperx, mlx_vlm and torch through its steps, and the interpreter "
-        f"Resolve launched this panel with ({sys.executable}) carries none of "
-        f"them. Make one with `python3 -m venv .venv && pip install -r "
-        f"requirements.txt` in {repo_root}, or start the run from a terminal.")
+        f"{why_not}\nThe interpreter Resolve launched this panel with "
+        f"({sys.executable}) carries none of them either. Start the run from "
+        f"a terminal if you have one that does.")
 
 
 # ── The configuration, previewed ─────────────────────────────────────
@@ -393,4 +407,5 @@ def resume_hint(project_folder: str) -> str:
         return ("This project has no recorded run to resume. Start one from "
                 "the Run tab.")
     return run_breakpoints.resume_command(
-        [os.path.join("<repo>", RUNNER)] + list(argv), "<repo>/.venv/bin/python3")
+        [os.path.join("<repo>", RUNNER)] + list(argv),
+        shared_environment.python_interpreter()[0] or "<python3>")

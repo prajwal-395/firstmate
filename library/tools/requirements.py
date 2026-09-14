@@ -117,6 +117,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
+from library.tools import shared_environment as _node_env
+
 _LIBRARY_ROOT = Path(__file__).resolve().parents[1]
 _REPO_ROOT = _LIBRARY_ROOT.parent
 
@@ -544,7 +546,14 @@ def _importable(module: str) -> bool:
         return False
 
 
-REMOTION_DIR = _REPO_ROOT / "remotion-subtitles"
+REMOTION_DIR = _node_env.remotion_dir()
+"""Where the renderer's source is.
+
+Read from `shared_environment` rather than derived here: this module used
+to recompute `_REPO_ROOT / "remotion-subtitles"`, which made it the third
+place that answered the question and the one that would not have
+followed `PIPELINE_REMOTION_DIR` anywhere.
+"""
 
 
 def _remotion_installed() -> bool:
@@ -555,9 +564,14 @@ def _remotion_installed() -> bool:
     defect this layer exists to remove, reintroduced by the fix for it.
     `node_modules/` is what `npx remotion render` actually needs, and on
     a fresh worktree it is absent.
+
+    The second half now asks `shared_environment`, which follows the bind
+    into the per-machine store.  A checkout holding a symlink answers
+    True, and a DANGLING one answers False - which is the truth, because
+    node would fail on it.
     """
     return ((REMOTION_DIR / "package.json").is_file()
-            and (REMOTION_DIR / "node_modules").is_dir())
+            and _node_env.dependencies_present(REMOTION_DIR))
 
 
 def _env_requirement(name: str, describe: str, consumers: Tuple[str, ...],
@@ -645,9 +659,11 @@ ENVIRONMENT: Tuple[Requirement, ...] = (
         "the Remotion project in remotion-subtitles/ is installed",
         _SUBTITLE_RENDERERS,
         _remotion_installed,
-        "run `npm install` in remotion-subtitles/ - package.json is in "
-        "git and is always present, so it is node_modules/ that is "
-        "missing",
+        f"run `{_node_env.INSTALL_SCRIPT}` - package.json is in git and is "
+        f"always present, so it is the dependencies that are missing. They "
+        f"install ONCE PER MACHINE into the store under "
+        f"`{_node_env.store_root()}` and this checkout is bound to them; "
+        f"see docs/SHARED_ENVIRONMENT.md",
         "remotion"),
     _env_requirement(
         "env.parselmouth",

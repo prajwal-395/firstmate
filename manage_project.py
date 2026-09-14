@@ -210,18 +210,30 @@ def _venv_advice(repo_root: Path) -> list[str]:
     # a whisperx below the declared floor, and transcription is broken
     # again in a way that imports cleanly.  Following the advice has to
     # produce a working environment or it is not advice.
+    # ONE PER MACHINE, not one per checkout.  This advice used to name
+    # `<checkout>/.venv` first, which is 4 GB of the same packages per
+    # lane and dies with the lane; `docs/ML_ENVIRONMENT.md` had already
+    # moved the real environment outside every checkout for that reason,
+    # and the advice had not followed it.  Same ruling as the Node store
+    # (`docs/SHARED_ENVIRONMENT.md`), same day.
+    from library.tools import shared_environment
+
+    durable = shared_environment.vep_home() / shared_environment.DURABLE_VENV_DIRNAME
     return [
-        f"This checkout has no virtual environment: {repo_root / '.venv'} does not exist.",
-        "Create one on PYTHON 3.12 - requirements.txt explains why no other "
-        "version works - and install the pipeline's dependencies:",
-        f"    python3.12 -m venv {repo_root / '.venv'}",
-        f"    source {repo_root / '.venv' / 'bin' / 'activate'}",
-        f"    pip install -r {repo_root / 'requirements.txt'}",
-        "",
-        "With uv, which resolves this stack faster and can fetch 3.12 itself:",
-        f"    uv venv --python 3.12 {repo_root / '.venv'}",
-        f"    uv pip install --python {repo_root / '.venv' / 'bin' / 'python3'} "
+        "No Python interpreter carrying the ML stack was found.",
+        f"Build it ONCE PER MACHINE, on PYTHON 3.12 - requirements.txt "
+        f"explains why no other version works - at {durable}:",
+        f"    uv venv --python 3.12 {durable}",
+        f"    uv pip install --python {durable / 'bin' / 'python3'} "
         f"-r {repo_root / 'requirements.txt'}",
+        "",
+        "Without uv, any real 3.12 interpreter works:",
+        f"    python3.12 -m venv {durable}",
+        f"    {durable / 'bin' / 'pip'} install -r {repo_root / 'requirements.txt'}",
+        "",
+        f"docs/ML_ENVIRONMENT.md is the full procedure and its four checks. "
+        f"A per-checkout {repo_root / '.venv'} still works and is still "
+        f"looked for, after the durable one - but it dies with the checkout.",
     ]
 
 

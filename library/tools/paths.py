@@ -20,6 +20,11 @@ Usage:
 import os
 from pathlib import Path
 
+try:
+    from library.tools.shared_environment import REMOTION_DIRNAME
+except ImportError:  # imported as `tools.paths` from inside library/
+    from tools.shared_environment import REMOTION_DIRNAME
+
 
 # ─── .env Loader ─────────────────────────────────────────────
 # Load .env file from repo root if it exists. We avoid adding a
@@ -154,7 +159,20 @@ REMOTION_COMPOSITIONS = Path(os.environ.get(
 ))
 
 # ─── Remotion Engine ─────────────────────────────────────────
-REMOTION_DIR = PILOT_ROOT / "remotion-subtitles"
+#
+# The renderer's own SOURCE is tracked code, so it lives in the checkout
+# by default, like every other repo directory above.  Its DEPENDENCIES do
+# not: `library/tools/shared_environment.py` owns where those are stored
+# and how a checkout binds to them, and it is the ONE place that answers
+# either question.  Nothing else may recompute it.
+#
+# `PIPELINE_REMOTION_DIR` exists so this is not the one external path in
+# this module without an override - which it was until 2026-09-14, and
+# which is the reason 61 tests skipped in every checkout but one.
+REMOTION_DIR = Path(os.environ.get(
+    "PIPELINE_REMOTION_DIR",
+    str(PILOT_ROOT / REMOTION_DIRNAME),
+))
 
 # ─── Video Projects Root ─────────────────────────────────────
 # All video projects live here, outside the repo. Each project is

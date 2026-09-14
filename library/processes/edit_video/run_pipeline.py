@@ -2882,14 +2882,14 @@ def run_pipeline(
     # REFUSES.
     #
     # An ENVIRONMENT requirement being unmet means this machine is not
-    # provisioned - `npm install` has not been run, parselmouth is not
-    # importable. That is a different claim, and it is REPORTED rather
+    # provisioned - `scripts/install_node_deps.sh` has not been run,
+    # parselmouth is not importable. That is a different claim, and it is REPORTED rather
     # than refused, for two reasons. The repository already treats a
     # missing `remotion-subtitles/node_modules` as an ordinary state and
     # skips honestly on it in twenty-odd tests; and a run may legitimately
     # never reach the renderer - it may stop at a review gate, or be
-    # scoped short. Refusing every run on a box that has not npm-installed
-    # would forbid work that succeeds today, which is a gate that fails
+    # scoped short. Refusing every run on a box whose checkout is not
+    # bound to the store would forbid work that succeeds today, which is a gate that fails
     # correct input (AGENTS.md 10.4) - no more coverage than one that
     # cannot fail.
     #

@@ -102,13 +102,16 @@ from library.tools.caption_asset_gc import (
     record_rendered_segments,
 )
 from library.tools.reel_proposal import refuse_rejected_reel_timeline
+from library.tools import shared_environment as _node_env
 
-# Where the Remotion project lives, repo-relative.  A module constant so
-# a caller can point the render somewhere else without reconstructing
-# the path from `__file__` itself.
+# Where the Remotion project lives.  READ from `shared_environment`, never
+# rebuilt from `__file__`: that module is the one answer, and a step that
+# derived its own would not follow `PIPELINE_REMOTION_DIR` (AGENTS.md 9,
+# docs/SHARED_ENVIRONMENT.md).  Still a module constant, so a caller can
+# point the render somewhere else.
 PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__)))))
-REMOTION_DIR = os.path.join(PILOT_ROOT, "remotion-subtitles")
+REMOTION_DIR = str(_node_env.remotion_dir())
 
 # Above this share of failed segment renders the step refuses rather
 # than delivering a partial overlay track.

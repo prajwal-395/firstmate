@@ -65,7 +65,16 @@ import sys
 # is HELD at 53,072 rather than lowered by the net saving, so the file
 # carries ~1,000 chars of global headroom: an exact-fit file re-blocks
 # the next lane, which is the incident this move repairs.
-CEILING = 53061
+# LOWERED 2026-09-14 with `## 9`, from 53,061: `## 9` gained ONE index row - the
+# shared dependency store, `docs/SHARED_ENVIRONMENT.md` - and paid for it twice over
+# inside its own budget.  The ML-preflight bullet restated its own second line
+# ("checked for `run` only (ML_DEPENDENT_COMMANDS)" against "only for the commands
+# in ML_DEPENDENT_COMMANDS, which is `run` alone") and then explained
+# `sys.executable` in words `manage_project.py:46-57` already carries verbatim; it
+# is now a headline plus that pointer.  The three consecutive "Set <var>" bullets
+# became one, with every variable name kept.  The 115 characters left over went off
+# the ceiling rather than back into the spare.
+CEILING = 52946
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,
@@ -130,7 +139,7 @@ SECTION_BUDGETS = {
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
-    "## 9. Environment and dependencies": 6316,
+    "## 9. Environment and dependencies": 6201,
     "## 10. Cross-cutting rules": 16912,
     "## 11. Third-Party Asset Licenses": 1313,
     "## 12. The look": 558,

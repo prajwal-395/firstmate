@@ -39,7 +39,7 @@ keeps the headline and points here.
 - **What the captain is LOOKING AT outranks what they last clicked**, and the prompt says which is which. `prompt_block` is bounded and says what it cut.
 - **A large output is drilled down, never dumped.** `panel/trace.py` navigates one LEVEL at a time; a path that does not exist is refused by name.
 - **The run is previewed before it starts**: the profile, the steps it will and will not fire with each reason, and the `run_scope` refusal VERBATIM. `panel/run_view.py` calls the same resolver the runner does and has no opinion of its own.
-- **The panel launches the runner with the checkout's `.venv/bin/python3`, never `sys.executable`.** A checkout with no venv is REFUSED by name.
+- **The panel launches the runner with an interpreter that carries the ML stack, never `sys.executable`.** `shared_environment.python_interpreter` is the ladder - the durable per-machine venv first, the checkout's own `.venv` after it - and when no rung exists the panel is REFUSED with every rung it tried, by path.
 - **The handbrake stays advisory** and the panel never kills the runner.
 - **It holds no credential**: the model is reached by shelling out to the already-authenticated `claude` CLI, overridable with `VEP_PANEL_MODEL`. Nothing secret is written into Resolve's application-support folder.
 - **The FRAME under the playhead goes with the question.** `library/tools/panel/frame_attach.py` decides placement; `marker_capture.grab_still` is the ONE grabber. Stills go to `~/.vep_panel/frames/`, never under the project. A grab that cannot happen degrades to text-only with a stated reason. `VEP_PANEL_NO_FRAME=1` declines it. [why](docs/RULE_EVIDENCE.md#the-model-was-told-a-filename-and-not-shown-the-frame)

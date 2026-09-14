@@ -254,13 +254,55 @@ async function apiSurface() {
 // every judgement stays in Python, where it already has tests that never
 // open Resolve.  The JavaScript side reads Resolve and draws; it decides
 // nothing.
+// The interpreter resolution ladder, in the ONE language that cannot
+// import `library/tools/shared_environment.py`.  These two literals are
+// diffed by `tests/test_shared_environment.py`, so they cannot drift:
+// `INTERPRETER_CANDIDATES` there is this array, in this order.
+//
+// It used to be `<REPO_ROOT>/.venv/bin/python3` or `/usr/bin/python3`.
+// Measured 2026-09-14: NO checkout on the build machine has a `.venv` -
+// the working environment is the durable one outside every checkout
+// (docs/ML_ENVIRONMENT.md) - so this button always took the second rung,
+// and `/usr/bin/python3` carries none of whisperx, mlx_vlm or torch.
+// The bridge therefore died inside a step's import, reporting a package
+// nobody mentioned, on the one surface the captain actually presses.
+const INTERPRETER_CANDIDATES = [
+    ['env', 'PIPELINE_PYTHON'],
+    ['vep_home', 'venv-py312/bin/python3'],
+    ['repo', '.venv/bin/python3'],
+];
+
+// `vep_home()` from that module, in JavaScript: PIPELINE_VEP_HOME, else
+// $XDG_DATA_HOME/vep, else ~/.local/share/vep.  Derived, never baked.
+function vepHome() {
+    if (process.env.PIPELINE_VEP_HOME) return process.env.PIPELINE_VEP_HOME;
+    const xdg = process.env.XDG_DATA_HOME;
+    const base = xdg || path.join(os.homedir(), '.local', 'share');
+    return path.join(base, 'vep');
+}
+
+function interpreterCandidates() {
+    const out = [];
+    for (const [kind, spec] of INTERPRETER_CANDIDATES) {
+        if (kind === 'env') {
+            if (process.env[spec]) out.push(process.env[spec]);
+        } else if (kind === 'vep_home') {
+            out.push(path.join(vepHome(), ...spec.split('/')));
+        } else if (kind === 'repo') {
+            if (REPO_ROOT) out.push(path.join(REPO_ROOT, ...spec.split('/')));
+        }
+    }
+    return out;
+}
+
+// `''` when no rung exists. There is deliberately NO stock-interpreter
+// fallback: `run_pipeline.py` imports the ML stack through its steps, so
+// a stock Python does not fail where the message would be read.
 function pythonExecutable() {
-    // The panel's rule (AGENTS.md section 15), and it applies here for
-    // the same reason: Electron is launched by Resolve, so there is no
-    // useful interpreter on PATH.  The checkout's own venv or nothing.
-    const venv = path.join(REPO_ROOT, '.venv', 'bin', 'python3');
-    if (REPO_ROOT && fs.existsSync(venv)) return venv;
-    return '/usr/bin/python3';
+    for (const candidate of interpreterCandidates()) {
+        if (fs.existsSync(candidate)) return candidate;
+    }
+    return '';
 }
 
 function bridge(event, request) {
@@ -270,8 +312,24 @@ function bridge(event, request) {
             resolve({ ok: false, error: 'REPO_ROOT was not stamped in; run scripts/install_workflow_integration.sh', ms: 0 });
             return;
         }
+        const python = pythonExecutable();
+        if (!python) {
+            // Refuse HERE, naming every rung, rather than launching a
+            // stock interpreter that dies inside a step forty seconds
+            // later with a traceback about a package nobody mentioned.
+            resolve({
+                ok: false,
+                ms: 0,
+                error: 'No Python interpreter carrying the ML stack was found. '
+                    + 'Tried, in order: ' + interpreterCandidates().join(', ')
+                    + '. Build the durable one once per machine at '
+                    + path.join(vepHome(), 'venv-py312')
+                    + '; docs/ML_ENVIRONMENT.md is the procedure.',
+            });
+            return;
+        }
         const child = execFile(
-            pythonExecutable(),
+            python,
             ['-m', 'library.tools.workflow_bridge'],
             { cwd: REPO_ROOT, maxBuffer: 64 * 1024 * 1024, encoding: 'utf-8' },
             (err, stdout, stderr) => {

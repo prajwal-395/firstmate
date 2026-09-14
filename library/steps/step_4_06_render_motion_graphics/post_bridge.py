@@ -128,15 +128,14 @@ class MotionGraphicsRenderRefused(Exception):
 
 
 def _remotion_dir() -> str:
-    """The one Remotion project, from this file's own location.
+    """The one Remotion project, from the one module that locates it.
 
-    The same four `dirname` calls `render_motion_graphics` already made
-    inline, so a caller that has no `data` dict can find it too.
+    Was four `dirname` calls from this file, which is a third derivation
+    of a path `shared_environment` owns and the only one that would not
+    have followed `PIPELINE_REMOTION_DIR` (docs/SHARED_ENVIRONMENT.md).
     """
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(
-            os.path.dirname(os.path.abspath(__file__))))),
-        "remotion-subtitles")
+    from library.tools import shared_environment
+    return str(shared_environment.remotion_dir())
 
 
 def _render_motion_graphics_file(props_path: str, dest_path: str,
@@ -544,10 +543,13 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     # the context and the plan comes back here already decided.
     motion_graphics_plan = data.get(PLAN_KEY)
 
-    # Find Remotion project (repo-relative)
+    # The Remotion project comes from `_remotion_dir`, which is the one
+    # locator, rather than a fourth derivation beside it.  PILOT_ROOT is
+    # still needed below, to put `library/` on sys.path - that is the
+    # REPO, which is a different question from where the renderer is.
     PILOT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__)))))
-    REMOTION_DIR = os.path.join(PILOT_ROOT, "remotion-subtitles")
+    REMOTION_DIR = _remotion_dir()
 
     if not os.path.isdir(REMOTION_DIR):
         print(f"ERROR: Remotion project not found at {REMOTION_DIR}",

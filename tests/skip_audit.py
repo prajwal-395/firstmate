@@ -145,18 +145,20 @@ ENVIRONMENT_CONDITIONS = (
     ),
     EnvironmentCondition(
         pattern=r"needs remotion-subtitles/node_modules, npx and ffmpeg",
-        false_when="`npm install` has been run in remotion-subtitles/ and "
-                   "npx and ffmpeg are on PATH",
+        false_when="the Node dependencies are installed and this checkout "
+                   "is bound to them (scripts/install_node_deps.sh), "
+                   "and npx and ffmpeg are on PATH",
         capability="remotion",
-        install_hint="cd remotion-subtitles && npm install",
+        install_hint="scripts/install_node_deps.sh",
     ),
     EnvironmentCondition(
         pattern=r"remotion-subtitles/node_modules/typescript",
-        false_when="`npm install` has been run in remotion-subtitles/, "
-                   "which fetches the TypeScript dev dependency the node "
-                   "harness type-checks against",
+        false_when="the Node dependencies are installed and this checkout "
+                   "is bound to them (scripts/install_node_deps.sh), "
+                   "which brings the TypeScript dev dependency the "
+                   "node harness type-checks against",
         capability="remotion",
-        install_hint="cd remotion-subtitles && npm install",
+        install_hint="scripts/install_node_deps.sh",
     ),
     # The stills-gated markers: the render needs ffmpeg, a still only
     # needs the installed Remotion deps and npx.  Split out when the
@@ -165,18 +167,20 @@ ENVIRONMENT_CONDITIONS = (
     # a run without node_modules exited 1 with zero failures.
     EnvironmentCondition(
         pattern=r"needs remotion-subtitles/node_modules and npx",
-        false_when="`npm install` has been run in remotion-subtitles/ and "
-                   "npx is on PATH",
+        false_when="the Node dependencies are installed and this checkout "
+                   "is bound to them (scripts/install_node_deps.sh), "
+                   "and npx is on PATH",
         capability="remotion",
-        install_hint="cd remotion-subtitles && npm install",
+        install_hint="scripts/install_node_deps.sh",
     ),
     EnvironmentCondition(
         pattern=r"needs node and remotion-subtitles/node_modules/typescript",
-        false_when="`npm install` has been run in remotion-subtitles/ "
-                   "(fetching the TypeScript dev dependency) and `node` "
-                   "is on PATH",
+        false_when="the Node dependencies are installed and this checkout "
+                   "is bound to them (scripts/install_node_deps.sh, "
+                   "which brings the TypeScript dev dependency) and "
+                   "`node` is on PATH",
         capability="remotion",
-        install_hint="cd remotion-subtitles && npm install",
+        install_hint="scripts/install_node_deps.sh",
     ),
     EnvironmentCondition(
         pattern=r"could not import ['\"](?:cv2|yaml|tiktoken)['\"]",

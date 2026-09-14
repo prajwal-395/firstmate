@@ -129,20 +129,32 @@ def test_an_adopted_profile_is_reported(project):
 
 # ── Which interpreter runs the pipeline ──────────────────────────────
 
-def test_a_checkout_with_no_venv_refuses_by_name(tmp_path):
+def test_no_interpreter_anywhere_refuses_naming_every_rung(tmp_path,
+                                                          monkeypatch):
     """Never `sys.executable`: under Resolve that is a stock interpreter
     with none of the ML stack, and a run launched with it dies inside a
-    step's import."""
+    step's import.
+
+    `PIPELINE_VEP_HOME` is pointed at an empty directory so this measures
+    the ladder rather than whatever the build machine happens to carry.
+    """
+    monkeypatch.delenv("PIPELINE_PYTHON", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "empty"))
     path, why_not = run_view.pipeline_interpreter(str(tmp_path))
     assert path == ""
     assert ".venv" in why_not
+    assert "venv-py312" in why_not, "the durable rung must be named too"
     assert "whisperx" in why_not
 
 
-def test_a_checkout_with_a_venv_uses_it(tmp_path):
+def test_a_checkout_with_a_venv_uses_it_when_no_durable_one_exists(
+        tmp_path, monkeypatch):
+    """The checkout's own venv is still a rung - just no longer the only one."""
     import os
     import stat
 
+    monkeypatch.delenv("PIPELINE_PYTHON", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "empty"))
     venv = tmp_path / ".venv" / "bin"
     venv.mkdir(parents=True)
     interpreter = venv / "python3"
@@ -152,6 +164,28 @@ def test_a_checkout_with_a_venv_uses_it(tmp_path):
     assert path == str(interpreter)
     assert why_not == ""
     assert os.path.isfile(path)
+
+
+def test_the_durable_venv_is_used_when_the_checkout_has_none(tmp_path,
+                                                             monkeypatch):
+    """The case that was refused on every machine this repo runs on.
+
+    Measured 2026-09-14: no checkout on the build machine has a `.venv`,
+    so the panel told the captain to make one while the interpreter it
+    needed already existed outside every checkout.
+    """
+    import stat
+
+    monkeypatch.delenv("PIPELINE_PYTHON", raising=False)
+    monkeypatch.setenv("PIPELINE_VEP_HOME", str(tmp_path / "vep"))
+    durable = tmp_path / "vep" / "venv-py312" / "bin" / "python3"
+    durable.parent.mkdir(parents=True)
+    durable.write_text("#!/bin/sh\n")
+    durable.chmod(durable.stat().st_mode | stat.S_IXUSR)
+
+    path, why_not = run_view.pipeline_interpreter(str(tmp_path))
+    assert path == str(durable)
+    assert why_not == ""
 
 
 def test_the_argv_carries_what_the_preview_resolved(project, tmp_path):

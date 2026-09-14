@@ -40,7 +40,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Sequence
 
-REMOTION_DIRNAME = "remotion-subtitles"
+from library.tools import shared_environment as _node_env
+
+#: Re-exported so existing importers keep working. The definition, and
+#: the location logic that used to sit in this module, belong to
+#: `shared_environment` - the one place that answers where the renderer and
+#: its dependencies are (AGENTS.md 9).
+REMOTION_DIRNAME = _node_env.REMOTION_DIRNAME
 BATCH_SCRIPT = "render-batch.mjs"
 
 
@@ -60,8 +66,31 @@ class RenderJob:
 
 
 def remotion_dir(repo_root: Optional[str] = None) -> Path:
-    root = Path(repo_root) if repo_root else Path(__file__).resolve().parents[2]
-    return root / REMOTION_DIRNAME
+    """Forwards to `shared_environment`, which owns the answer.
+
+    This module used to derive the location a second time, from
+    `__file__`, in parallel with `paths.REMOTION_DIR`.  Two derivations
+    of one path is two places to point somewhere else and one of them to
+    be forgotten.
+    """
+    return _node_env.remotion_dir(repo_root)
+
+
+def _require_dependencies(directory: Path, error: type) -> None:
+    """Refuse a render whose dependencies are absent, by name.
+
+    Without this the absence reaches `node`, which reports it as
+    `ERR_MODULE_NOT_FOUND` for whichever package `render-batch.mjs`
+    imports first - a name no step chose and no remedy follows from.
+    `shared_environment.missing_message` names the store entry and the
+    install command instead.
+
+    Raised as the caller's own error type so this changes which MESSAGE
+    a failing batch carries, never which exception it raises.
+    """
+    if _node_env.dependencies_present(directory):
+        return
+    raise error(_node_env.missing_message(directory))
 
 
 def frame_concurrency() -> int:
@@ -235,6 +264,7 @@ def render_batch(jobs: Sequence[RenderJob],
             f"{script} does not exist, so no overlay can be rendered. "
             f"The Remotion surface is the pipeline's renderer; a step "
             f"does not draw its own.")
+    _require_dependencies(directory, RemotionBatchError)
 
     Path(work_dir).mkdir(parents=True, exist_ok=True)
     exclude_from_indexing(work_dir)
@@ -360,6 +390,7 @@ class PersistentRenderer:
                 f"{script} does not exist, so no overlay can be rendered. "
                 f"The Remotion surface is the pipeline's renderer; a step "
                 f"does not draw its own.")
+        _require_dependencies(directory, RendererUnavailable)
 
         import tempfile
         handle, spec = tempfile.mkstemp(suffix=".json",
