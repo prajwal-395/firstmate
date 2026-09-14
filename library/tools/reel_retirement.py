@@ -305,7 +305,21 @@ def collect_superseded(project, pool, existing_names, finals,
         # until a reel is retired a SECOND time.
         collected = sorted(name for name in
                            (t.GetName() for t in targets) if name)
-        pool.DeleteTimelines(targets)
+        # Judged by what Resolve RETURNS, never by `hasattr` (AGENTS.md
+        # 5): a falsy delete RAISES rather than reporting the names
+        # collected. Measured 2026-09-14 against a real Resolve
+        # (`docs/LIVE_DEMO_1107_COMPARISON_RETIREMENT.md`) - the report
+        # listed a timeline under `collected` while the census still
+        # showed it present. The refused note is already a handled,
+        # rendered outcome (`reel_build` catches it and the run
+        # continues - the reels are promoted), and the generation stays
+        # archived, so the next build plans it again.
+        if not pool.DeleteTimelines(targets):
+            raise RetirementRefused(
+                f"Resolve declined to delete {len(collected)} archived "
+                f"generation(s) ({', '.join(collected)}). They are still "
+                f"in the project under their archived names - nothing "
+                f"was reported collected.")
         record["collected"] = collected
     return record
 

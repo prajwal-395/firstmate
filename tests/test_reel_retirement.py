@@ -214,6 +214,27 @@ def test_the_collected_names_are_read_before_the_delete():
     assert retire.archived_name(REEL, 2) in retire.render(record)
 
 
+def test_a_delete_resolve_declines_is_refused_not_reported_collected():
+    """The live-demo defect, 2026-09-14
+    (`docs/LIVE_DEMO_1107_COMPARISON_RETIREMENT.md`): `DeleteTimelines`
+    returned falsy and the name was kept under `collected` anyway, while
+    the census still showed it present. Fails on the old shape (no
+    raise, name reported collected); passes on the new (refused, the
+    timeline still present for the next build to plan again)."""
+    class DecliningProject(FakeProject):
+        def _delete(self, timelines):
+            return False
+
+    live = FakeTimeline(REEL)
+    newest = FakeTimeline(retire.archived_name(REEL, 3))
+    older = FakeTimeline(retire.archived_name(REEL, 2))
+    project = DecliningProject([live, newest, older])
+    with pytest.raises(retire.RetirementRefused):
+        retire.collect_superseded(
+            project, project.pool, project.names(), [REEL])
+    assert retire.archived_name(REEL, 2) in project.names()
+
+
 def test_a_signed_off_reel_keeps_every_generation_through_resolve():
     newest = FakeTimeline(retire.archived_name(REEL, 3))
     older = FakeTimeline(retire.archived_name(REEL, 2))
