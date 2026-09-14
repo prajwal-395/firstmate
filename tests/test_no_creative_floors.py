@@ -1579,14 +1579,9 @@ def test_sparse_speech_sequence_accepts_an_empty_body(tmp_path):
 
 def test_sparse_motion_graphics_accepts_an_empty_plan(capsys):
     """No element planned is no segment, not a padded layer."""
-    import sys as _sys
-
-    step_dir = str(STEPS / "step_4_06_render_motion_graphics")
-    _sys.path.insert(0, step_dir)
-    try:
-        from generate_motion_props import generate_motion_props
-    finally:
-        _sys.path.remove(step_dir)
+    from library.steps.step_4_06_render_motion_graphics.generate_motion_props import (  # noqa: E402
+        generate_motion_props,
+    )
 
     spine = {"structure": [], "total_estimated_duration_seconds": 0.0}
     segments, resolved = generate_motion_props(
