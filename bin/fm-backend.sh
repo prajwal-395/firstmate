@@ -54,6 +54,20 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-${FM_ROOT:-$FM_BACKEND_DEFAULT_ROOT}}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 FM_BACKEND_CONFIG_DIR="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
+# The shared process-name vocabulary for the endpoint-evidence probes below
+# (suspension needs harness identity, not just a stopped state). Eager, not
+# adapter-lazy, on purpose: the suspension probe answers in its CALLER's shell
+# while the adapter it reads the tty through loads inside a command
+# substitution whose definitions are discarded on return, so by probe time the
+# adapter is present but a lazily loaded classifier would not be. Guarded on
+# existence rather than assumed: isolated consumers (test fake-roots) source
+# this file without the full bin directory, and there the probe degrades to
+# unprovable rather than breaking the load.
+# shellcheck source=bin/fm-agent-process-lib.sh
+if [ -f "$FM_BACKEND_LIB_DIR/fm-agent-process-lib.sh" ]; then
+  . "$FM_BACKEND_LIB_DIR/fm-agent-process-lib.sh"
+fi
+
 # Verified backend adapters. Extend only after a backend gets its own
 # bin/backends/<name>.sh and empirical verification, mirroring AGENTS.md
 # section 4's harness-verification discipline. herdr is EXPERIMENTAL (P2;
@@ -926,15 +940,10 @@ fm_backend_endpoint_tty() {  # <backend> <target>
 # outside the foreground process group without weakening the negative
 # verdicts the liveness classifiers depend on: a harness-named process merely
 # left running in the background of an idle pane is `S`, never `T`, so a
-# genuinely agent-free endpoint still classifies as agent-free.
-#
-# Load order: the name classifier lives in bin/fm-agent-process-lib.sh, which
-# the tmux and herdr adapters source when they load - and a non-empty <tty>
-# above only ever comes out of those adapters via fm_backend_endpoint_tty,
-# which sources the adapter first. So the classifier is always loaded before
-# this function can reach it; there is deliberately no top-level source here,
-# keeping fm-backend.sh loadable in minimal environments (isolated test roots)
-# that do not carry the full bin directory.
+# genuinely agent-free endpoint still classifies as agent-free. The name
+# classifier it consults is loaded eagerly at this file's top (guarded on
+# existence), because this probe runs in its caller's shell while the adapter
+# load it depends on for the tty happens inside a discarded subshell.
 fm_backend_tty_suspended_agent() {  # <tty>
   local tty=$1 state pid comm args argv0
   [ -n "$tty" ] || return 1

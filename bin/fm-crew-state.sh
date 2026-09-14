@@ -195,9 +195,7 @@ fi
 # bounds the same thing instead - a later writer (bin/fm-pr-check.sh records pr=
 # into it) can only move that forward, which lengthens the grace rather than
 # shortening it, and long is the safe direction for a guard whose failure mode
-# is a duplicate agent. That fallback is grace-only: log_last_line below reads
-# spawned_at= content directly, because for a staleness guard a moved-forward
-# mtime errs in the destructive direction.
+# is a duplicate agent.
 record_published_at() {
   local at
   at=$(meta_value spawned_at)
@@ -253,18 +251,19 @@ within_spawn_grace() {
 # A line predating THIS incarnation's publication is not this crew's: after a
 # relaunch the log still ends with the previous incarnation's last line until
 # the replacement appends its own, and reading it would misattribute the old
-# verdict to the new worker. The publication clock is spawned_at= content
-# alone, never the record file's mtime: later writers (bin/fm-pr-check.sh
-# records pr= into the meta) move the mtime forward, and the fleet snapshot
-# reads through a freshly copied meta whose mtime is the copy time, so either
-# would discard lines this incarnation actually wrote. A record with no
-# readable spawned_at= gets no guard - without a publication time there is
-# nothing to compare against, and the historical behavior is to read the log.
+# verdict to the new worker. The publication clock is spawned_at= content when
+# the record carries it (bin/fm-spawn.sh stamps it on every fresh spawn and
+# every relaunch, and content survives later meta rewrites and snapshot
+# copies), falling back to the record file's own mtime for older records -
+# whose staleness proof is weaker but still rejects an ancient log.
+# The mtime fallback compares against the ORIGINAL record's mtime: the fleet
+# snapshot must preserve it when capturing metadata (cp -p), because a
+# freshly copied meta would discard lines this incarnation actually wrote.
 log_last_line() {
   [ -f "$LOG" ] || return 1
 
   local at log_mtime
-  at=$(meta_value spawned_at)
+  at=$(record_published_at)
   case "$at" in
     ''|*[!0-9]*) ;;
     *)
