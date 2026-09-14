@@ -297,12 +297,29 @@ def test_a_cutaway_never_claims_more_timeline_than_its_source_can_fill():
     assert claimed < 4.0
 
 
-def test_broll_matching_its_own_aroll_is_substituted_not_placed():
-    """Cutting to the clip already on screen reads as a glitch, not a cut."""
+def test_broll_matching_its_own_aroll_is_skipped_not_substituted(capsys):
+    """Cutting to the clip already on screen reads as a glitch, not a cut.
+
+    Which picture replaces it is a creative outcome: settling it by
+    catalogue order decided what the viewer sees by alphabet (AGENTS.md
+    10.5). Nothing is substituted for a clip nothing chose - the
+    selection is dropped with the reason recorded, and the A-roll
+    picture plays.
+    """
     out = _resolve([{"clip_id": "clip_009", "spine_block_position": 1}])
-    entry = out["b_roll_assignments"][0]
-    assert entry["clip_id"] == "clip_001"
-    assert "auto-substituted" in entry["selection_rationale"]
+    assert out["b_roll_assignments"] == []
+    err = capsys.readouterr().err
+    assert "same clip as its A-roll" in err
+    assert "no alternative clip is substituted" in err
+
+
+def test_the_skip_names_the_block_and_the_clip(capsys):
+    """A dropped value is recorded, never silently swallowed."""
+    _resolve([{"clip_id": "clip_009", "spine_block_position": 2}])
+    err = capsys.readouterr().err
+    assert "block 2" in err
+    assert "clip_009" in err
+    assert "same clip as its A-roll" in err
 
 
 def test_broll_matching_its_own_aroll_is_dropped_when_nothing_replaces_it():
@@ -312,6 +329,17 @@ def test_broll_matching_its_own_aroll_is_dropped_when_nothing_replaces_it():
         catalog=[RESOLVE_CATALOG[0]],
     )
     assert out["b_roll_assignments"] == []
+
+
+def test_an_interjection_matching_its_own_aroll_is_skipped(capsys):
+    """The interjection path substitutes nothing either."""
+    out = _resolve(
+        [],
+        [{"clip_id": "clip_009", "over_spine_block_position": 1,
+          "timeline_start": 0.0, "timeline_end": 4.0}],
+    )
+    assert out["b_roll_interjections"] == []
+    assert "same clip as its A-roll" in capsys.readouterr().err
 
 
 def test_only_one_cutaway_reaches_a_block():

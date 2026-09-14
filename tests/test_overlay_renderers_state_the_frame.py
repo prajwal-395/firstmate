@@ -165,8 +165,11 @@ def _timed_text_declaration():
         "font_family": "Helvetica",
         "moments": [{
             "text": "Night 1", "color": "#FFFFFF",
+            "font_size": 42, "font_weight": 400,
+            "text_shadow": "none",
             "start_frame": 0, "duration_frames": 60,
             "x": 0.5, "y": 0.5,
+            "fade_in_frames": 10, "fade_out_frames": 10,
         }],
     }}
 

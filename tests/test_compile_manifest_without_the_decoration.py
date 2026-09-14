@@ -344,3 +344,112 @@ def test_the_four_specs_are_declared_optional():
     for name in ("transition_spec", "enhancement_spec", "sfx_spec",
                  "color_grade_spec"):
         assert name in optional, f"{name} is still declared required"
+
+
+# ── A drawn transition with no hold is a hard cut, never 15 frames ────
+#
+# AGENTS.md 10.5: how long a drawn transition holds comes from the plan's
+# `duration_feel` (bounded by the brand template), and the engine supplies
+# neither. Step 4.02's post-bridge drops such entries at plan time; the
+# compile serves only state that reached it some other way (stale
+# pipeline_data, a revised review gate). What ships is the hard cut the
+# boundary already is - the absence of decoration - recorded in
+# `transitions_downgraded` beside the withdrawn types, never silent, and
+# never a half-second effect nothing chose.
+
+def _compile_with_transitions(project, spec):
+    """Run the real step with `plan_transitions.transition_spec` replaced."""
+    from unittest.mock import patch
+
+    from library.steps.step_5_04_compile_manifest import step
+
+    project_dir, layout, outputs, sfx_file = project
+    outputs = copy.deepcopy(outputs)
+    outputs["plan_transitions"] = {"transition_spec": spec}
+    layout.pipeline_data_path.write_text(
+        json.dumps({"step_outputs": outputs,
+                    "project_folder": str(project_dir)}),
+        encoding="utf-8")
+    with patch.object(step, "load_sfx_catalog", return_value=[
+            {"sfx_id": "whoosh.wav", "path": sfx_file,
+             "duration_seconds": 0.5, "transient_offset_sec": 0.0}]):
+        return step.compile_manifest(str(layout.output_root))
+
+
+def test_a_drawn_transition_with_no_hold_ships_a_hard_cut_and_says_so(
+        project, capsys):
+    """No duration anywhere: no 15-frame invention, a recorded downgrade."""
+    manifest = _compile_with_transitions(project, [
+        {"transition_id": "trans_001", "transition_type": "crash_zoom",
+         "cut_point_timeline": 2.285}])
+    shipped = manifest["transitions"][0]
+    assert shipped["transition_type"] == "hard_cut"
+    assert shipped["duration_frames"] == 0
+    # A hard cut needs no comp: nothing drawn reaches the renderer.
+    assert manifest["fusion_effects"]["transitions"] == []
+    # The downgrade is on the record, with what was asked and why.
+    (record,) = manifest["transitions_downgraded"]
+    assert record["transition_id"] == "trans_001"
+    assert record["requested_type"] == "crash_zoom"
+    assert record["shipped_type"] == "hard_cut"
+    assert record["reason"]
+    assert "trans_001" in capsys.readouterr().err
+    # The cut boundary itself survives: both A-roll clips still play.
+    assert len(manifest["tracks"]["V1"]["clips"]) == 2
+
+
+def test_a_drawn_transition_with_zero_frames_is_not_given_fifteen(project):
+    """An explicit zero is undecided too: nothing completes it to 15."""
+    manifest = _compile_with_transitions(project, [
+        {"transition_id": "trans_001", "transition_type": "crash_zoom",
+         "cut_point_timeline": 2.285, "duration_frames": 0}])
+    assert manifest["transitions"][0]["transition_type"] == "hard_cut"
+    assert manifest["fusion_effects"]["transitions"] == []
+    assert len(manifest["transitions_downgraded"]) == 1
+
+
+def test_a_declared_hold_still_reaches_the_fusion_comp(project):
+    """The control: a hold somebody stated is carried, not downgraded."""
+    manifest = _compile_with_transitions(project, [
+        {"transition_id": "trans_001", "transition_type": "crash_zoom",
+         "cut_point_timeline": 2.285, "duration": 0.4, "after_clip": 0}])
+    (comp,) = manifest["fusion_effects"]["transitions"]
+    assert comp["type"] == "zoom_blur"  # canonical form of crash_zoom
+    assert comp["duration_frames"] == 12  # 0.4s at 30fps, as declared
+    assert manifest["transitions_downgraded"] == []
+
+
+def test_validation_refuses_a_durationless_drawn_transition():
+    """The backstop: validation never completes a hold, it stops the run.
+
+    The fusion emit path above downgrades such entries before validation
+    runs, so this fires only for data that reached the validator some
+    other way - and that data refuses with the transition named and the
+    remedy stated, rather than compiling past an undecided effect.
+    """
+    from library.steps.step_5_04_compile_manifest.step import (
+        _apply_manifest_qa_checks,
+    )
+
+    with pytest.raises(ValueError) as exc:
+        _apply_manifest_qa_checks({"transitions": [
+            {"transition_id": "trans_001", "transition_type": "crash_zoom",
+             "cut_point_timeline": 2.285}]})
+    message = str(exc.value)
+    assert "trans_001" in message
+    assert "--rerun plan_transitions" in message
+
+
+def test_validation_leaves_cuts_and_held_transitions_alone():
+    """Cuts are zero-length by definition; stated holds are carried."""
+    from library.steps.step_5_04_compile_manifest.step import (
+        _apply_manifest_qa_checks,
+    )
+
+    manifest = {"transitions": [
+        {"transition_id": "trans_001", "transition_type": "hard_cut"},
+        {"transition_id": "trans_002", "transition_type": "crash_zoom",
+         "cut_point_timeline": 2.285, "duration_frames": 12},
+    ]}
+    _apply_manifest_qa_checks(manifest)  # must not raise
+    assert manifest["transitions"][0]["duration_frames"] == 0

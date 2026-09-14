@@ -350,7 +350,11 @@ def test_consumer_timed_text_carries_the_inset_and_refuses_the_ui_band():
         return {"timed_text_overlay": {
             "font_family": "Montserrat",
             "moments": [{"text": "Night 1", "color": "#D4A34A",
-                         "start_frame": 0, "duration_frames": 60, "y": y}]}}
+                          "font_size": 72, "font_weight": 400,
+                          "text_shadow": "none",
+                          "start_frame": 0, "duration_frames": 60,
+                          "x": 0.5, "y": y,
+                          "fade_in_frames": 9, "fade_out_frames": 12}]}}
 
     ok = plan_timed_text_segments(declaration(0.545),
                                    width=1080, height=1920)

@@ -70,18 +70,48 @@ def _all_templates() -> dict[str, dict]:
 
 
 def _moment(**overrides) -> dict:
+    """A moment stating its full look, as a declaration now must.
+
+    Size, fade, weight, shadow and position are artwork the project
+    states (AGENTS.md 10.5, 14) - `library.tools.timed_text_overlay`
+    raises on an omission rather than rendering in an engine constant.
+    Only `text_align` is left out on purpose, exercising the one
+    surviving default the shipped Night card relies on (see
+    `STYLE_MOMENT_KEYS`).
+    """
     moment = {
         "text": "Moment",
         "color": "#FFFFFF",
+        "font_size": 42,
+        "font_weight": 400,
+        "text_shadow": "0px 4px 12px rgba(0,0,0,0.6)",
         "start_frame": 30,
         "duration_frames": 30,
+        "x": 0.5,
+        "y": 0.5,
+        "fade_in_frames": 10,
+        "fade_out_frames": 10,
     }
     moment.update(overrides)
     return moment
 
 
 def _declaration(*moments, **declaration) -> dict:
-    return {"timed_text_overlay": {"moments": list(moments), **declaration}}
+    base = {"font_family": "Montserrat"}
+    base.update(declaration)
+    return {"timed_text_overlay": {"moments": list(moments), **base}}
+
+
+# The look, for inline declarations that do not go through `_moment`.
+_LOOK = {
+    "font_size": 42,
+    "font_weight": 400,
+    "text_shadow": "0px 4px 12px rgba(0,0,0,0.6)",
+    "x": 0.5,
+    "y": 0.5,
+    "fade_in_frames": 10,
+    "fade_out_frames": 10,
+}
 
 
 # ─────────────────────────────────────────────────────────
@@ -96,6 +126,8 @@ SAMPLE_DECLARATION = {
                 "text": "First moment",
                 "color": "#D4A34A",
                 "font_size": 48,
+                "font_weight": 400,
+                "text_shadow": "0px 4px 12px rgba(0,0,0,0.6)",
                 "start_frame": 30,
                 "duration_frames": 60,
                 "x": 0.5,
@@ -107,6 +139,9 @@ SAMPLE_DECLARATION = {
                 "text": "Second moment",
                 "color": "#00BFFF",
                 "font_size": 42,
+                "font_weight": 700,
+                "text_align": "center",
+                "text_shadow": "none",
                 "start_frame": 120,
                 "duration_frames": 75,
                 "x": 0.5,
@@ -460,6 +495,7 @@ def test_a_moment_anchors_to_a_spine_block():
         _declaration({
             "text": "EPISODE 001", "color": "#fff",
             "block": 1, "duration_seconds": 2.0,
+            **_LOOK,
         }),
         spine_structure=_SPINE, width=1080, height=1920)
     assert len(segments) == 1
@@ -472,6 +508,7 @@ def test_an_anchored_moment_takes_an_offset():
         _declaration({
             "text": "EPISODE 001", "color": "#fff",
             "block": 2, "offset_seconds": 0.5, "duration_seconds": 1.0,
+            **_LOOK,
         }),
         spine_structure=_SPINE, width=1080, height=1920)
     assert segments[0]["timeline_start"] == 12.5
@@ -482,6 +519,7 @@ def test_a_moment_may_anchor_to_the_end_of_its_block():
         _declaration({
             "text": "OUT", "color": "#fff", "block": 0,
             "anchor": "end", "offset_seconds": -1.0, "duration_seconds": 1.0,
+            **_LOOK,
         }),
         spine_structure=_SPINE, width=1080, height=1920)
     assert segments[0]["timeline_start"] == 3.0
@@ -493,6 +531,7 @@ def test_an_anchored_moment_moves_when_the_edit_is_recut():
     declaration = _declaration({
         "text": "EPISODE 001", "color": "#fff",
         "block": 2, "duration_seconds": 1.0,
+        **_LOOK,
     })
     recut = [dict(b) for b in _SPINE]
     recut[1]["timeline_end"] = 9.0
@@ -634,29 +673,88 @@ def test_schema_omitted_is_none():
 
 
 # ─────────────────────────────────────────────────────────
-# Default values and edge cases
+# The look is declared, never defaulted (AGENTS.md 10.5)
 # ─────────────────────────────────────────────────────────
 
-def test_default_values_applied():
-    """Moments with minimal keys get sensible defaults."""
-    result = generate_timed_text_overlay_props({
-        "timed_text_overlay": {
-            "moments": [{
-                "text": "Hello",
-                "color": "#fff",
-                "start_frame": 0,
-                "duration_frames": 30,
-            }]
-        }
-    }, width=1080, height=1920)
-    m = result["moments"][0]
-    assert m["fontSize"] == 42  # default
-    assert m["x"] == 0.5  # default center
-    assert m["y"] == 0.5  # default center
-    assert m["fadeInFrames"] == 10  # default
-    assert m["fadeOutFrames"] == 10  # default
-    assert m["fontWeight"] == 400  # default
-    assert m["textAlign"] == "center"  # default
+def test_a_moment_with_no_look_raises_naming_what_is_missing():
+    """Size, fade, weight, shadow and position are artwork.
+
+    The engine states none of them: a moment omitting one raises
+    rather than rendering in a constant nobody chose - the same
+    refusal bookends.py makes on a malformed declaration.
+    """
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        generate_timed_text_overlay_props({
+            "timed_text_overlay": {
+                "font_family": "Montserrat",
+                "moments": [{
+                    "text": "Hello",
+                    "color": "#fff",
+                    "start_frame": 0,
+                    "duration_frames": 30,
+                }]
+            }
+        }, width=1080, height=1920)
+    message = str(exc.value)
+    for key in ("font_size", "fade_in_frames", "fade_out_frames",
+                "font_weight", "text_shadow", "x", "y"):
+        assert key in message, f"{key} not named in: {message}"
+
+
+def test_an_omitted_typeface_raises_rather_than_substituting():
+    """The family a card is drawn in is artwork the project declares."""
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        generate_timed_text_overlay_props({
+            "timed_text_overlay": {
+                "moments": [dict(_moment(), text="X")],
+            }
+        }, width=1080, height=1920)
+    assert "font_family" in str(exc.value)
+
+
+@pytest.mark.parametrize("key", [
+    "font_size", "fade_in_frames", "fade_out_frames", "font_weight",
+    "text_shadow", "x", "y",
+])
+def test_each_look_key_is_required_on_its_own(key):
+    """Dropping any one key drops nothing silently: it raises, by name."""
+    moment = _moment()
+    del moment[key]
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(_declaration(moment), width=1080,
+                                 height=1920)
+    assert key in str(exc.value)
+
+
+@pytest.mark.parametrize("bad,needle", [
+    ({"font_size": 0}, "positive number"),
+    ({"font_size": -12}, "positive number"),
+    ({"font_size": "big"}, "positive number"),
+    ({"text_shadow": None}, "omits its look"),
+    ({"text_shadow": 12}, "text-shadow string"),
+])
+def test_a_moment_with_an_unstatable_look_raises(bad, needle):
+    """A look that states nothing renderable is malformed, not defaulted."""
+    with pytest.raises(TimedTextDeclarationError) as exc:
+        plan_timed_text_segments(_declaration(_moment(**bad)), width=1080,
+                                 height=1920)
+    assert needle in str(exc.value)
+
+
+def test_an_omitted_alignment_still_renders_centred():
+    """The one surviving default, pinned until the captain decides it.
+
+    The shipped Night card omits `text_align` and renders today
+    (see STYLE_MOMENT_KEYS): requiring it would stop that project's
+    render, so the `center` default stays and this test pins that an
+    omission renders centred rather than raising.
+    """
+    segments = plan_timed_text_segments(
+        _declaration(_moment()), width=1080, height=1920)
+    assert segments[0]["props"]["moments"][0]["textAlign"] == "center"
+    declared = plan_timed_text_segments(
+        _declaration(_moment(text_align="right")), width=1080, height=1920)
+    assert declared[0]["props"]["moments"][0]["textAlign"] == "right"
 
 
 def test_custom_fps_and_dimensions():
@@ -669,17 +767,6 @@ def test_custom_fps_and_dimensions():
     assert result["width"] == 1920
     assert result["height"] == 1080
     assert result["durationInFrames"] == 3600
-
-
-def test_default_font_family():
-    """When font_family is omitted, Helvetica is the default."""
-    result = generate_timed_text_overlay_props({
-        "timed_text_overlay": {
-            "moments": [{"text": "X", "color": "#fff",
-                         "start_frame": 0, "duration_frames": 30}]
-        }
-    }, width=1080, height=1920)
-    assert result["fontFamily"] == "Helvetica"
 
 
 # ─────────────────────────────────────────────────────────
@@ -782,7 +869,8 @@ def test_an_unbundled_family_without_a_file_raises():
     declaration = {"timed_text_overlay": {
         "font_family": "Nanum Pen Script",
         "moments": [{"text": "Night 1", "color": "#D4A34A",
-                     "start_frame": 0, "duration_frames": 30}],
+                      "start_frame": 0, "duration_frames": 30,
+                      **_LOOK}],
     }}
     with pytest.raises(TimedTextDeclarationError) as raised:
         plan_timed_text_segments(declaration, width=1080, height=1920)
@@ -797,7 +885,8 @@ def test_a_project_font_reaches_the_props_as_a_static_path():
         "font_family": "Nanum Pen Script",
         "font_file": "NanumPenScript-Regular.ttf",
         "moments": [{"text": "Night 1", "color": "#D4A34A",
-                     "start_frame": 0, "duration_frames": 30}],
+                      "start_frame": 0, "duration_frames": 30,
+                      **_LOOK}],
     }}
     props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
     assert props["fontFamily"] == "Nanum Pen Script"
@@ -815,7 +904,8 @@ def test_a_bundled_or_accepted_family_needs_no_file():
         declaration = {"timed_text_overlay": {
             "font_family": family,
             "moments": [{"text": "x", "color": "#FFFFFF",
-                         "start_frame": 0, "duration_frames": 30}],
+                          "start_frame": 0, "duration_frames": 30,
+                          **_LOOK}],
         }}
         props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
         assert props["fontFamily"] == family

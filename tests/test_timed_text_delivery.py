@@ -68,6 +68,7 @@ DECLARATION = {
                 "font_weight": 700,
                 "block": 1,                 # 1.00s -> timeline frame 30
                 "duration_seconds": 0.6,    # 18 frames
+                "x": 0.5,
                 "y": 0.3,
                 "fade_in_frames": 0,
                 "fade_out_frames": 0,
@@ -81,6 +82,7 @@ DECLARATION = {
                 "block": 1,
                 "offset_seconds": 0.2,      # overlaps ALPHA by 12 frames
                 "duration_seconds": 0.6,
+                "x": 0.5,
                 "y": 0.7,
                 "fade_in_frames": 0,
                 "fade_out_frames": 0,

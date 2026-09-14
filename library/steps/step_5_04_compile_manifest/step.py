@@ -339,8 +339,25 @@ def _apply_manifest_qa_checks(manifest: dict):
         if is_cut(t.get('transition_type')):
             t['duration_frames'] = 0
         elif t.get('duration_frames', 0) <= 0:
-            t['duration_frames'] = 15  # default 15 frames (~0.5s at 30fps)
-            logger.warning(f"Transition at {t.get('cut_point_timeline', '?')}s had zero duration, defaulted to 15 frames")
+            # REFUSED, never completed. A drawn effect with no hold is
+            # an undecided plan reaching the compiler: neither the
+            # plan's `duration_feel` nor a selected brand template said
+            # how long to hold it, and inventing 15 frames here put a
+            # half-second effect on the timeline nothing chose
+            # (AGENTS.md 10.5). The fusion emit path below downgrades
+            # such entries to a hard cut with the reason recorded, so
+            # this fires only for data that reached validation some
+            # other way - and that data stops here rather than
+            # compiling past an undecided effect.
+            raise ValueError(
+                f"Transition {t.get('transition_id', '?')} "
+                f"({t.get('transition_type', '?')}) at "
+                f"{t.get('cut_point_timeline', '?')}s is a drawn effect "
+                f"with no duration_frames. No hold is invented - re-run "
+                f"plan_transitions (manage_project.py run <slug> --rerun "
+                f"plan_transitions), which drops such entries with the "
+                f"reason recorded."
+            )
 
     # Check 4: VFX Position Field Validation
     malformed_vfx = [
@@ -2171,6 +2188,45 @@ def compile_manifest(out_dir: str) -> dict:
         if is_cut(comp_type):
             continue
 
+        # A drawn transition whose hold nobody stated is the same shape
+        # as a withdrawn type above: the boundary the plan named is
+        # real, but neither the plan's `duration_feel` nor a selected
+        # brand template said how long to hold it, so there is nothing
+        # to render the effect for. Emitting it at zero frames leaves a
+        # comp that draws nothing (the unread-parameter failure of
+        # AGENTS.md 10.2); completing it from a constant is the
+        # invented-taste failure of 10.5. What ships is the hard cut
+        # the boundary already is - the absence of decoration, never a
+        # choice of effect - recorded in `transitions_downgraded`
+        # beside the withdrawn types, never silent. Step 4.02's
+        # post-bridge drops such entries at plan time with the same
+        # reasoning; this path serves only state that reached the
+        # compile some other way (stale pipeline_data, a revised
+        # review gate), and it serves it honestly rather than stopping
+        # a run whose picture is still fully decided.
+        dur = t.get("duration_frames")
+        if (not isinstance(dur, (int, float)) or isinstance(dur, bool)
+                or dur <= 0):
+            transitions_downgraded.append({
+                "transition_id": t.get("transition_id", "?"),
+                "requested_type": raw_type,
+                "shipped_type": "hard_cut",
+                "reason": (
+                    "the plan states no duration_feel and no selected "
+                    "brand template states a single transition duration, "
+                    "so nothing has said how long to hold it"
+                ),
+            })
+            print(
+                f"  Transition {t.get('transition_id', '?')} requested "
+                f"{raw_type!r} with no duration, shipping a hard cut: "
+                f"nothing stated how long to hold it",
+                file=sys.stderr,
+            )
+            t["transition_type"] = "hard_cut"
+            t["duration_frames"] = 0
+            continue
+
         cut_time = t.get("cut_point_timeline", t.get("cut_point_original"))
         after_clip = _v1_index_ending_at(v1_clips, cut_time)
         if after_clip is None:
@@ -2190,10 +2246,14 @@ def compile_manifest(out_dir: str) -> dict:
                 f"clip for its head effect"
             )
 
+        # The key is read directly, never defaulted: the downgrade
+        # above guarantees every drawn transition reaching here carries
+        # a stated hold, and a missing key is a programming error that
+        # must fail loudly rather than invent one (AGENTS.md 10.5).
         fusion_transitions.append({
             "type": comp_type,
             "after_clip": after_clip,
-            "duration_frames": t.get("duration_frames", int(0.5 * fps)),
+            "duration_frames": t["duration_frames"],
         })
 
     # Audio config

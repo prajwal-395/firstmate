@@ -260,6 +260,60 @@ def test_an_element_that_needs_copy_and_has_none_is_dropped():
     assert resolve([e]).dropped[0].reason == "no_copy_for_an_element_that_needs_one"
 
 
+# ── Emphasis is declared, never assigned (AGENTS.md 10.5) ─────────────
+#
+# A run's text is the model's; its tier (`display` vs `supporting`) is
+# presentation the plan must state - the handoff asks for copy as a
+# mapping of role to text. A bare string, or a role the vocabulary does
+# not know, states no tier, so the entry is dropped with the reason
+# recorded rather than printed at an emphasis nobody chose.
+
+def test_a_bare_string_declares_no_tier_and_is_dropped():
+    resolved = resolve([entry(copy="A NAME")])
+    assert resolved.dropped[0].reason == "no_type_role_declared"
+    assert "A NAME" in resolved.dropped[0].detail
+
+
+def test_a_list_of_strings_declares_no_tier_and_is_dropped():
+    resolved = resolve([entry(copy=["A NAME", "A TITLE"])])
+    assert resolved.dropped[0].reason == "no_type_role_declared"
+
+
+def test_an_unknown_role_is_not_guessed_as_supporting():
+    """A key outside the vocabulary states no tier; it is not supporting."""
+    resolved = resolve([entry(copy={"display": "A NAME",
+                                    "headline": "A TITLE"})])
+    dropped = resolved.dropped[0]
+    assert dropped.reason == "no_type_role_declared"
+    assert "A TITLE" in dropped.detail
+
+
+def test_a_run_without_a_role_in_a_list_is_dropped():
+    resolved = resolve([entry(copy=[{"text": "A NAME"}])])
+    assert resolved.dropped[0].reason == "no_type_role_declared"
+
+
+def test_a_declared_mapping_of_roles_still_resolves():
+    """The handoff's own shape - every run names its tier - draws."""
+    resolved = resolve([entry(copy={"display": "A NAME",
+                                    "supporting": "A TITLE"})])
+    assert not resolved.dropped
+    assert [(r["text"], r["type_role"])
+            for r in resolved.moments[0]["runs"]] == [
+        ("A NAME", "display"), ("A TITLE", "supporting")]
+    record = resolved.basis_record()
+    assert record["resolved"] == 1
+
+
+def test_the_undeclared_tier_drop_is_recorded_with_its_meaning():
+    """A dropped value is recorded, never silently swallowed."""
+    resolved = resolve([entry(copy="A NAME")])
+    row = resolved.basis_record()["dropped"][0]
+    assert row["reason"] == "no_type_role_declared"
+    assert row["what_the_reason_means"] == mgp.DROP_REASONS[row["reason"]]
+    assert resolved.basis == mgp.EVERY_ENTRY_DROPPED
+
+
 def test_a_tracked_anchor_is_dropped_rather_than_pinned_to_a_point():
     resolved = resolve([entry(anchor=mgp.ANCHOR_NEEDS_MEASUREMENT)])
     assert (resolved.dropped[0].reason

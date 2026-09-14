@@ -180,6 +180,13 @@ DROP_REASONS: Dict[str, str] = {
         "(motion_graphics_vocabulary.COPY_SOURCE_IS_UNSET), so an empty "
         "run cannot be filled in from anywhere."
     ),
+    "no_type_role_declared": (
+        "The entry's copy states no typographic tier the vocabulary "
+        "knows. Emphasis (`display` vs `supporting`) is presentation "
+        "the plan declares - the handoff asks for copy as a mapping of "
+        "role to text - and printing an undeclared run at an engine-set "
+        "tier would be choosing how loudly the graphic speaks."
+    ),
     "collides_with_the_caption_band": (
         "The element draws copy, its anchor is in the vertical band this "
         "project's captions occupy, and its span touches a block "
@@ -465,19 +472,28 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
     A run is `{text, type_role}`. `type_role` is the vocabulary's axis
     and carries no size: what `display` and `micro` MEASURE is the
     composition's business, and what they MEAN is the vocabulary's.
-    Nothing here supplies a run the plan did not write.
+    Nothing here supplies a run the plan did not write, and nothing
+    here supplies a TIER the plan did not state: a run whose emphasis
+    the entry never declared carries `type_role: ""`, and `resolve_plan`
+    drops an entry carrying such a run as `no_type_role_declared`
+    rather than printing it at an emphasis nobody chose (AGENTS.md
+    10.5). The handoff asks for copy as a mapping of role to text, so
+    a bare string is an answer that declined the axis, not one that
+    named it.
     """
     raw = entry.get("copy")
     runs: List[dict] = []
     if isinstance(raw, str):
         text = raw.strip()
         if text:
-            runs.append({"text": text, "type_role": "display"})
+            runs.append({"text": text, "type_role": ""})
         return runs
     if isinstance(raw, dict):
         # A mapping of type_role -> text, in the roles' own order so a
         # display run is never printed under its supporting run because
-        # a dict happened to be built the other way round.
+        # a dict happened to be built the other way round. A key that
+        # is not a role of the vocabulary states no tier: it is carried
+        # undeclared rather than guessed as `supporting`.
         for role in TYPE_ROLES:
             text = _text(raw.get(role))
             if text:
@@ -487,14 +503,14 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
                 continue
             text = _text(value)
             if text:
-                runs.append({"text": text, "type_role": "supporting"})
+                runs.append({"text": text, "type_role": ""})
         return runs
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, str):
                 text = item.strip()
                 if text:
-                    runs.append({"text": text, "type_role": "display"})
+                    runs.append({"text": text, "type_role": ""})
             elif isinstance(item, dict):
                 text = _text(item.get("text"))
                 if not text:
@@ -502,7 +518,7 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
                 role = _text(item.get("type_role"))
                 runs.append({
                     "text": text,
-                    "type_role": role if role in TYPE_ROLES else "supporting",
+                    "type_role": role if role in TYPE_ROLES else "",
                 })
     return runs
 
@@ -663,6 +679,13 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
         runs = _copy_runs(entry)
         if element.copy == "required" and not runs:
             drop(entry, key, "no_copy_for_an_element_that_needs_one")
+            continue
+        undeclared = sorted({r["text"] for r in runs
+                             if r.get("type_role") not in TYPE_ROLES})
+        if undeclared:
+            drop(entry, key, "no_type_role_declared",
+                 "runs without a declared tier: "
+                 + ", ".join(repr(t) for t in undeclared))
             continue
 
         # Where the captions are, and when. Checked after the copy is

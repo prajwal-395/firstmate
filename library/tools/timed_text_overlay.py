@@ -19,11 +19,22 @@ What a declaration looks like::
           - text: "Night 1"
             color: "#D4A34A"
             font_size: 64
+            font_weight: 400
+            text_shadow: "0px 2px 6px rgba(18,11,7,0.9)"
             block: hook             # spine block position ("hook" or an int)
             anchor: end             # or `start`; default `start`
             offset_seconds: 0.15
             duration_seconds: 2.0
+            x: 0.5
             y: 0.545
+            fade_in_frames: 9
+            fade_out_frames: 12
+
+    Every style key above is REQUIRED: size, fade, weight, shadow and
+    position are artwork the project states (AGENTS.md 10.5, 14), and a
+    moment omitting one raises rather than rendering in an engine
+    constant. Only ``text_align`` keeps an engine default - the shipped
+    Night card omits it (see ``STYLE_MOMENT_KEYS``).
 
 A moment is timed from the SPINE - ``docs/ASSET_LIBRARY_PLAN.md``
 section 5, "no absolute frames, no assumed total" - so re-cutting the
@@ -101,13 +112,53 @@ from library.tools.render_fonts import (
 # remotion-subtitles/src/Root.tsx.
 TIMED_TEXT_COMPOSITION = "TimedTextOverlay"
 
-# Keys a moment must carry itself. Everything else has a default, because
-# a default cannot be wrong in a way that renders the wrong picture.
+# Keys a moment must carry itself: what it says and when it says it.
+# Everything else about its look is ARTWORK the project declares (AGENTS.md
+# 14), so the look has no engine default: a default here would be the
+# engine stating a look the project never chose (AGENTS.md 10.5).
 REQUIRED_MOMENT_KEYS = ("text", "color", "start_frame", "duration_frames")
+
+# The look a moment states for itself - size, fade, weight, shadow and
+# position. Each decides what the viewer sees, so each is required and
+# `generate_timed_text_overlay_props` reads it directly rather than
+# completing it from a constant.
+#
+# Deliberately absent: `text_align`. The one shipped declaration on file
+# - the Through the 4th Wall Night card
+# (`tests/fixtures/night_card_project/project.yaml`, mirroring the real
+# per-episode project.yaml outside this repo) - states every key above
+# and omits only the alignment, and it renders today. Requiring the
+# alignment would stop that project's render over one line, so the
+# `"center"` default below stays until the captain either states the
+# alignment on the real declaration or accepts the default as the
+# series' declared look. Reported, not silently kept: this paragraph is
+# the record, and a test pins that an omitted alignment still renders
+# centred rather than raising.
+STYLE_MOMENT_KEYS = ("font_size", "fade_in_frames", "fade_out_frames",
+                     "font_weight", "text_shadow", "x", "y")
 
 
 class TimedTextDeclarationError(ValueError):
     """A template's ``effect.timed_text_overlay`` declaration is malformed."""
+
+
+def _require_moment_style(moment: dict, index: int) -> None:
+    """A moment states its own look, or it states nothing renderable.
+
+    Size, fade, weight, shadow and position are artwork: the project
+    declares them and the engine substitutes none (AGENTS.md 10.5, 14).
+    A moment omitting one raises rather than rendering in a constant
+    nobody chose - the same refusal ``bookends.py`` makes on a malformed
+    declaration. (``text_align`` is exempt: see ``STYLE_MOMENT_KEYS``.)
+    """
+    label = f"timed_text_overlay moment {index}"
+    missing = [k for k in STYLE_MOMENT_KEYS if moment.get(k) is None]
+    if missing:
+        raise TimedTextDeclarationError(
+            f"{label} omits its look ({', '.join(missing)}); size, fade, "
+            f"weight, shadow and position are artwork the project "
+            f"declares, and the engine states none of them (AGENTS.md "
+            f"10.5, 14)")
 
 
 def generate_timed_text_overlay_props(
@@ -137,21 +188,36 @@ def generate_timed_text_overlay_props(
     if not raw_moments:
         return None
 
+    # The same refusals `plan_timed_text_segments` makes, so a direct
+    # caller gets a named missing key rather than a KeyError on the
+    # reads below. The look is required here too: these reads index the
+    # style keys directly, and an omission must fail loudly rather than
+    # render in a constant (AGENTS.md 10.5).
+    for index, moment in enumerate(raw_moments):
+        if not isinstance(moment, dict):
+            raise TimedTextDeclarationError(
+                f"timed_text_overlay moment {index} must be a mapping, "
+                f"got {type(moment).__name__}")
+        _require_moment_style(moment, index)
+    _validate_font(declaration)
+
     moments = [
         {
             "text": m["text"],
             "color": m["color"],
-            "fontSize": m.get("font_size", 42),
+            "fontSize": m["font_size"],
             "startFrame": m["start_frame"],
             "durationFrames": m["duration_frames"],
-            "x": m.get("x", 0.5),
-            "y": m.get("y", 0.5),
-            "fadeInFrames": m.get("fade_in_frames", 10),
-            "fadeOutFrames": m.get("fade_out_frames", 10),
-            "fontWeight": m.get("font_weight", 400),
+            "x": m["x"],
+            "y": m["y"],
+            "fadeInFrames": m["fade_in_frames"],
+            "fadeOutFrames": m["fade_out_frames"],
+            "fontWeight": m["font_weight"],
+            # The one surviving engine default: `text_align` is
+            # load-bearing for the shipped Night card, which omits it
+            # (see STYLE_MOMENT_KEYS). Reported there, not silently kept.
             "textAlign": m.get("text_align", "center"),
-            "textShadow": m.get(
-                "text_shadow", "0px 4px 12px rgba(0,0,0,0.6)"),
+            "textShadow": m["text_shadow"],
         }
         for m in raw_moments
     ]
@@ -159,7 +225,7 @@ def generate_timed_text_overlay_props(
     safe_area = safe_area or resolve_safe_area(width=width, height=height)
     props = {
         "moments": moments,
-        "fontFamily": declaration.get("font_family", "Helvetica"),
+        "fontFamily": declaration["font_family"],
         "fps": fps,
         "width": width,
         "height": height,
@@ -289,7 +355,10 @@ def _validate_font(declaration: dict) -> None:
     """
     family = declaration.get("font_family")
     if family is None:
-        return
+        raise TimedTextDeclarationError(
+            "effect.timed_text_overlay states no font_family; the "
+            "typeface a card is drawn in is artwork the project declares "
+            "(AGENTS.md 10.5, 14), and the engine substitutes none")
     if not isinstance(family, str) or not family.strip():
         raise TimedTextDeclarationError(
             f"effect.timed_text_overlay has font_family={family!r}; a "
@@ -330,9 +399,27 @@ def _validate_moment(moment: dict, index: int,
             f"{label} is missing {missing}; a moment with no {missing[0]} "
             f"has nothing to draw or no time to draw it at")
 
+    # The look, before the values: a moment that omits its size, fade,
+    # weight, shadow or position raises here, naming the key, rather
+    # than rendering downstream in an engine constant.
+    _require_moment_style(moment, index)
+
     if not str(moment["text"]).strip():
         raise TimedTextDeclarationError(
             f"{label} has empty text; declare the moment or remove it")
+
+    size = moment["font_size"]
+    if (not isinstance(size, (int, float)) or isinstance(size, bool)
+            or size <= 0):
+        raise TimedTextDeclarationError(
+            f"{label} has font_size={size!r}; a moment's size is a "
+            f"positive number of pixels the declaration states")
+
+    if (not isinstance(moment["text_shadow"], str)):
+        raise TimedTextDeclarationError(
+            f"{label} has text_shadow={moment['text_shadow']!r}; the "
+            f"shadow is a CSS text-shadow string the declaration states "
+            f"(`none` draws no shadow)")
 
     start = moment["start_frame"]
     duration = moment["duration_frames"]
@@ -346,8 +433,8 @@ def _validate_moment(moment: dict, index: int,
             f"{label} has duration_frames={duration!r}; a moment that "
             f"lasts no frames appears in no frame")
 
-    fade_in = moment.get("fade_in_frames", 10)
-    fade_out = moment.get("fade_out_frames", 10)
+    fade_in = moment["fade_in_frames"]
+    fade_out = moment["fade_out_frames"]
     for name, value in (("fade_in_frames", fade_in),
                         ("fade_out_frames", fade_out)):
         if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -360,7 +447,7 @@ def _validate_moment(moment: dict, index: int,
             f"{duration}-frame moment, so it never reaches full opacity")
 
     for axis in ("x", "y"):
-        value = moment.get(axis, 0.5)
+        value = moment[axis]
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise TimedTextDeclarationError(
                 f"{label} has {axis}={value!r}; position is a number "
@@ -377,8 +464,8 @@ def _validate_moment(moment: dict, index: int,
     # there was nothing to resolve this against, which is why the module
     # docstring said the geometry was normalised against the whole frame.
     if safe_area is not None:
-        x = float(moment.get("x", 0.5))
-        y = float(moment.get("y", 0.5))
+        x = float(moment["x"])
+        y = float(moment["y"])
         if not safe_area.contains_normalised(x, y):
             raise TimedTextDeclarationError(
                 f"{label} is centred at x={x}, y={y} - pixel "

@@ -30,7 +30,7 @@ import json
 import os
 import sys
 
-from library.tools.semantic_index import build_semantic_lookup, describe_clip
+from library.tools.semantic_index import build_semantic_lookup
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.cutaway_window import choose_window
 
@@ -122,20 +122,6 @@ def _place_without_overlap(start: float, end: float, occupied: list):
     return max(windows, key=lambda w: w[1] - w[0])
 
 
-def _pick_alternative_clip(
-    excluded_clip_id: str,
-    catalog_lookup: dict,
-    analysis_lookup: dict,
-) -> str | None:
-    """Pick a different catalog clip that has a real visual description."""
-    for clip_id in sorted(catalog_lookup):
-        if clip_id == excluded_clip_id:
-            continue
-        if describe_clip(analysis_lookup.get(clip_id, {})):
-            return clip_id
-    return None
-
-
 def resolve_broll(
     broll_creative: list,
     broll_interjections: list,
@@ -199,31 +185,23 @@ def resolve_broll(
 
         # B-roll must show something OTHER than the A-roll it covers.
         # Cutting to the same source clip is not a cutaway; on screen it
-        # reads as a glitch in the same shot.
+        # reads as a glitch in the same shot. The selection is dropped
+        # and the A-roll picture plays - which picture replaces it is a
+        # creative outcome, and settling it by catalogue order
+        # (`sorted()` over the clip ids) decided what the viewer sees by
+        # alphabet. Nothing is substituted for a clip nothing chose
+        # (AGENTS.md 10.5): the model re-plans the slot, or the block
+        # simply has no cutaway.
         covered_clip = spine_block["clip_id"]
         if covered_clip and clip_id == covered_clip:
-            substitute = _pick_alternative_clip(
-                clip_id, catalog_lookup, analysis_lookup,
-            )
-            if substitute is None:
-                print(
-                    f"WARNING: B-roll for block {spine_pos} selected "
-                    f"{clip_id}, the same clip as its A-roll, and no "
-                    f"alternative clip has a description - skipping",
-                    file=sys.stderr,
-                )
-                continue
             print(
-                f"  Block {spine_pos}: B-roll {clip_id} matched its own "
-                f"A-roll; substituted {substitute}",
+                f"WARNING: B-roll for block {spine_pos} selected "
+                f"{clip_id}, the same clip as its A-roll - skipping. "
+                f"The A-roll picture plays; no alternative clip is "
+                f"substituted.",
                 file=sys.stderr,
             )
-            clip_id = substitute
-            clip = catalog_lookup[clip_id]
-            rationale = (
-                f"{rationale} (auto-substituted: original selection "
-                f"duplicated the A-roll clip)"
-            ).strip()
+            continue
 
         timeline_start = spine_block["timeline_start"]
         timeline_end = spine_block["timeline_end"]
@@ -301,18 +279,13 @@ def resolve_broll(
         spine_block = block_lookup.get(str(spine_pos), {})
         covered_clip = spine_block.get("clip_id")
         if covered_clip and clip_id == covered_clip:
-            substitute = _pick_alternative_clip(
-                clip_id, catalog_lookup, analysis_lookup,
+            print(
+                f"WARNING: interjection over block {spine_pos} selected "
+                f"{clip_id}, the same clip as its A-roll - skipping. "
+                f"No alternative clip is substituted.",
+                file=sys.stderr,
             )
-            if substitute is None:
-                print(
-                    f"WARNING: interjection over block {spine_pos} selected "
-                    f"{clip_id}, the same clip as its A-roll - skipping",
-                    file=sys.stderr,
-                )
-                continue
-            clip_id = substitute
-            clip = catalog_lookup[clip_id]
+            continue
 
         default_tl_start = spine_block.get("timeline_start", 0.0)
 
