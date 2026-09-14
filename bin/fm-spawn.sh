@@ -1208,27 +1208,6 @@ ID=${POS[0]:-}
   echo "error: missing <task-id> positional; usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>] [--model <name>] [--effort <level>] [--backend <name>] (ship), fm-spawn.sh <task-id> <project-dir> --scout [...] (scout), fm-spawn.sh <task-id> [<firstmate-home>] [...] --secondmate" >&2
   exit 1
 }
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
-  # Ship and scout spawns take the project directory as the second positional.
-  # Refusing a missing or non-path argument here - before backend selection,
-  # locks, and any fleet mutation - is what keeps a spawn from ever guessing
-  # which project to launch into. A bare project NAME is never a target: it
-  # would resolve against the caller's cwd instead of the home. Absolute paths
-  # and projects/<name> (resolved through the home below) are the accepted
-  # forms; anything else carrying a slash still faces the resolution refusal
-  # where the directory is entered.
-  [ "${#POS[@]}" -ge 2 ] || {
-    echo "error: missing <project-dir> positional; ship and scout spawns require the project's absolute directory path (or projects/<name>) as the second positional, never a bare project name" >&2
-    exit 1
-  }
-  case "${POS[1]}" in
-    */*) ;;
-    *)
-      echo "error: project argument '${POS[1]}' is not a directory path; pass an absolute directory path or projects/<name>, not a bare project name" >&2
-      exit 1
-      ;;
-  esac
-fi
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -1247,6 +1226,28 @@ fi
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 if [ "$RELAUNCH" -ne 1 ]; then
   fm_lease_forbid_branch "new-task spawn (fm-spawn)"
+fi
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
+  # Ship and scout spawns take the project directory as the second positional.
+  # Refusing a missing or non-path argument here - after the role-partition
+  # refusal above (which owns precedence as the security boundary) but before
+  # backend selection, locks, and any fleet mutation - is what keeps a spawn
+  # from ever guessing which project to launch into. A bare project NAME is
+  # never a target: it would resolve against the caller's cwd instead of the
+  # home. Absolute paths and projects/<name> (resolved through the home below)
+  # are the accepted forms; anything else carrying a slash still faces the
+  # resolution refusal where the directory is entered.
+  [ "${#POS[@]}" -ge 2 ] || {
+    echo "error: missing <project-dir> positional; ship and scout spawns require the project's absolute directory path (or projects/<name>) as the second positional, never a bare project name" >&2
+    exit 1
+  }
+  case "${POS[1]}" in
+    */*) ;;
+    *)
+      echo "error: project argument '${POS[1]}' is not a directory path; pass an absolute directory path or projects/<name>, not a bare project name" >&2
+      exit 1
+      ;;
+  esac
 fi
 if [ "$RELAUNCH" -eq 1 ]; then
   SPAWN_CONTROL_LOCK="$STATE/.control-$ID.lock"

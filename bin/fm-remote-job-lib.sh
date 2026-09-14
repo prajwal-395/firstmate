@@ -102,6 +102,7 @@ FM_REMOTE_JOB_SEQ_CLAIM_REAP_INTERVAL=3600
 # probe's 10s freshness window, so the ownership wait must outlast it.
 # Readiness cannot arrive before ownership does, so the readiness wait must
 # outlast that in turn.
+# shellcheck disable=SC2034 # Shared protocol constants consumed by the worker and sourcing callers.
 FM_REMOTE_JOB_OWNERSHIP_WAIT_SECONDS=20
 FM_REMOTE_JOB_READY_WAIT_SECONDS=30
 # shellcheck disable=SC2034 # Shared protocol constant consumed by the worker and sourcing callers.
