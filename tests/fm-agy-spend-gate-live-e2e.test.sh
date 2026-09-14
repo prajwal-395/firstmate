@@ -29,20 +29,13 @@ set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [ "${FM_AGY_SPEND_GATE_LIVE_E2E:-0}" != 1 ]; then
-  echo "skip: set FM_AGY_SPEND_GATE_LIVE_E2E=1 to run the credentialed live agy spend-gate guard"
-  exit 0
-fi
-
 # shellcheck source=tests/lib.sh
 . "$ROOT/tests/lib.sh"
+# The shared live gate, not a private env check: the fm-live-gate family sweep
+# runs every live guard with FM_LIVE=0 and requires the shared refusal line.
+fm_live_gate opt-in FM_AGY_SPEND_GATE_LIVE_E2E agy herdr jq
 # shellcheck source=bin/fm-agy-descent-lib.sh
 . "$ROOT/bin/fm-agy-descent-lib.sh"
-
-for tool in agy herdr jq; do
-  command -v "$tool" >/dev/null 2>&1 \
-    || fail "$tool is not installed, so this guard checked nothing; install it or do not claim this evidence"
-done
 
 AGY_VERSION=$(agy --version 2>/dev/null | head -1)
 [ -n "$AGY_VERSION" ] || fail "agy did not report a version; refusing to record evidence against an unknown build"
