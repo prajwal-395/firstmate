@@ -166,23 +166,43 @@ def test_an_unknown_renderer_kind_is_refused(tmp_path):
 
 # ── Lazy: a pass that draws nothing pays nothing ──────────────────────
 
-def test_the_persistent_renderer_builds_lazily():
+def _no_spawn_recorder(calls):
+    """The single spawn path, refused. `PersistentRenderer.start()` is
+    the only caller of `Popen`, and only `render()` calls `start()`, so
+    a laziness pin belongs here - not on a machine-global `pgrep`
+    count, which a concurrent probe in another lane flips with nothing
+    started here (measured 2026-09-14: the `pgrep -f render-batch.mjs`
+    form of this pin failed the full-suite gate and fails ~5/25 beside
+    tight probe loops). An eager adapter still turns these red: the
+    first spawn raises out of construction or out of the block."""
+
+    def _no_spawn(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError(
+            "a caption renderer spawned a child before any card asked "
+            "to be drawn - the bundle is paid lazily, on the first "
+            "render, not at construction")
+
+    return _no_spawn
+
+
+def test_the_persistent_renderer_builds_lazily(monkeypatch):
     """Construction must not spawn anything. `render_one_segment` can
     return without rendering - a region-scoped pass skips most cards -
     so an eager bundle would pay its whole cost to draw one card and
     make that path SLOWER than what it replaced."""
     import subprocess as sp
 
-    def running():
-        return int(sp.run("pgrep -f render-batch.mjs | wc -l", shell=True,
-                          capture_output=True, text=True,
-                          check=False).stdout.strip() or 0)
-
-    before = running()
+    calls = []
+    monkeypatch.setattr(sp, "Popen", _no_spawn_recorder(calls))
     engine = r405.PersistentCaptionRenderer(REMOTION)
-    assert running() == before, "constructing the renderer started work"
+    assert engine._inner._proc is None, (
+        "constructing the renderer started work")
+    assert calls == [], (
+        f"constructing the renderer spawned a child: {calls}")
     engine.close()  # never started: must be a no-op, never a raise
-    assert running() == before
+    assert calls == [], (
+        f"closing an unstarted renderer spawned a child: {calls}")
 
 
 def test_a_persistent_renderer_that_never_started_closes_quietly():
@@ -191,21 +211,23 @@ def test_a_persistent_renderer_that_never_started_closes_quietly():
     engine.close()
 
 
-def test_the_adapter_is_usable_as_a_context_manager_without_starting():
+def test_the_adapter_is_usable_as_a_context_manager_without_starting(
+        monkeypatch):
     """The orchestrator closes what it built via `close()`; callers
     holding one renderer across passes will use `with`. Entering must
     not start the bundle - that stays lazy to the first real card."""
     import subprocess as sp
 
-    def running():
-        return int(sp.run("pgrep -f render-batch.mjs | wc -l", shell=True,
-                          capture_output=True, text=True,
-                          check=False).stdout.strip() or 0)
-
-    before = running()
-    with r405.PersistentCaptionRenderer(REMOTION):
-        assert running() == before
-    assert running() == before
+    calls = []
+    monkeypatch.setattr(sp, "Popen", _no_spawn_recorder(calls))
+    with r405.PersistentCaptionRenderer(REMOTION) as engine:
+        assert engine._inner._proc is None, (
+            "entering the block started a process before any card asked "
+            "to be drawn")
+        assert calls == [], (
+            f"entering the block spawned a child: {calls}")
+    assert calls == [], (
+        f"leaving the block spawned a child: {calls}")
 
 
 # ── The two failure kinds are not the same ────────────────────────────

@@ -624,21 +624,39 @@ def test_the_bundle_is_lazy_so_a_pass_that_draws_nothing_pays_nothing():
     slower than the thing it replaced. `step_4_05_render_subtitles`
     builds ONE renderer for the whole pass, so eager construction there
     would cost every scoped re-render a full bundle.
+
+    Laziness is pinned by intercepting the single spawn path -
+    `PersistentRenderer.start()` is the only caller of `Popen`, and only
+    `render()` calls `start()` - rather than by counting processes named
+    `render-batch.mjs` in the machine-global table. That counting was
+    removed 2026-09-14 after it failed the full-suite gate with
+    `assert running() == before` reading 1: `pgrep -f` matches ANY
+    process whose argv carries the string, so a concurrent probe in
+    another lane, an `rg` search, or a real render elsewhere on the box
+    flips the count with nothing started here. Reproduced at will: this
+    test fails ~5/25 beside three tight `pgrep` loops and 25/25 alone.
+    An eager renderer still turns this red - `start()` reaching `Popen`
+    raises out of the block.
     """
-    import subprocess as sp
+    calls = []
 
-    def running():
-        return int(sp.run("pgrep -f render-batch.mjs | wc -l", shell=True,
-                          capture_output=True, text=True,
-                          check=False).stdout.strip() or 0)
+    def _no_spawn(*args, **kwargs):
+        calls.append(args)
+        raise AssertionError(
+            "PersistentRenderer spawned a child before any card asked "
+            "to be drawn - the bundle is paid lazily, on the first "
+            "render, not at construction")
 
-    before = running()
-    with PersistentRenderer(composition="SubtitleOverlay") as renderer:
-        assert renderer._proc is None, (
-            "entering the block started a process before any card asked "
-            "to be drawn")
-        assert running() == before
-    assert running() == before
+    with patch("subprocess.Popen", side_effect=_no_spawn):
+        with PersistentRenderer(composition="SubtitleOverlay") as renderer:
+            assert renderer._proc is None, (
+                "entering the block started a process before any card asked "
+                "to be drawn")
+            assert calls == [], (
+                f"entering the block spawned a child: {calls}")
+        assert renderer._proc is None
+        assert calls == [], (
+            f"leaving the block spawned a child: {calls}")
 
 
 def test_it_satisfies_the_seam_the_step_declares():
