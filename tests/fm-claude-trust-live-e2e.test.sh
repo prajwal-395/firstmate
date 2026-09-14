@@ -41,6 +41,7 @@ TRUST_DIALOG="Is this a project you created or one you trust"
 # seed_store_entry <project> <approved-json> <warning-json>: set the two
 # external-imports flags on one project entry, preserving everything else.
 seed_store_entry() {
+  # shellcheck disable=SC2016 # ${...} are JavaScript template literals, not shell.
   node -e '
     const fs = require("node:fs");
     const [store, key, approved, warning] = process.argv.slice(1);
@@ -55,6 +56,7 @@ seed_store_entry() {
 
 # drop_store_entries <project...>: remove whole project entries again.
 drop_store_entries() {
+  # shellcheck disable=SC2016 # ${...} are JavaScript template literals, not shell.
   node -e '
     const fs = require("node:fs");
     const [store, ...keys] = process.argv.slice(1);
@@ -114,6 +116,7 @@ cleanup() {
     # Backstop for entries the verified removal below did not reach: match
     # the lab directory marker (project paths) and the lab repo basenames
     # (treehouse pool paths, which never contain the lab directory).
+    # shellcheck disable=SC2016 # ${...} are JavaScript template literals, not shell.
     node -e '
       const fs = require("node:fs");
       const store = process.argv[1];
