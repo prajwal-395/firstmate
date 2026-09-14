@@ -250,55 +250,117 @@ fm_opencode_descent_due() {  # <state-dir> [<now>]
   [ $((now - stamp)) -ge "$FM_OPENCODE_DESCENT_INTERVAL" ]
 }
 
+# fm_opencode_descent_when: the human time phrase for a cap horizon. A numeric
+# horizon renders as "next retry in ~22h34m"; text-only evidence carries no
+# trustworthy horizon (an idle lane's bracketed retry duration may never
+# fire), so it owns that instead of printing a broken "next retry in ~?".
+fm_opencode_descent_when() {  # <horizon>
+  case "$1" in
+    ''|*[!0-9]*)
+      printf 'the cap is showing in its pane with no retry horizon on record' ;;
+    *)
+      printf 'next retry in %s' "$(fm_opencode_ladder_horizon_human "$1")" ;;
+  esac
+}
+
 # fm_opencode_descent_cap: the quota-scale verdict for one lane, reusing both
-# owners and re-deriving neither. Prints "<horizon_s> <bound> <next>" and
-# returns 0 only when the sidecar classifies blocked through
-# bin/fm-opencode-retry.sh AND the busy record still latches the session-retry
-# event that wrote it - the same two halves bin/fm-crew-state.sh requires
-# before it calls a lane blocked. <bound> is `free`, `go`, `other`, or
-# `unbound`, from the sidecar's own model binding; <next> is the vendor's own
-# scheduled-retry timestamp, which identifies the cap episode. Anything else
-# returns 1: a stale sidecar beside a resumed turn, a transient backoff,
-# expired evidence, or no evidence at all.
+# owners and re-deriving neither. Prints "<horizon_s|unknown> <bound>
+# <episode>" and returns 0 on either shape:
+#   structural - the sidecar classifies blocked through bin/fm-opencode-retry.sh
+#     AND the busy record still latches the session-retry event that wrote it
+#     (the same two halves bin/fm-crew-state.sh requires before it calls a
+#     lane blocked). <bound> is `free`, `go`, `other`, or `unbound`, from the
+#     sidecar's own model binding; <episode> is the vendor's own
+#     scheduled-retry timestamp, which identifies the cap episode.
+#   idle (2026-09-14) - no quota-scale sidecar, but the busy record says the
+#     turn ended on the plugin's idle event AND the lane's pane tail carries
+#     the cap verbatim through bin/fm-opencode-retry.sh scan-text (the text
+#     wins over a merely transient sidecar for an idle lane: the lane is not
+#     retrying, it has stopped). <bound> is `free` when the lane is recorded
+#     on the free tier (the phrase names Go as the remedy, so it is free that
+#     is exhausted), else `unbound`; <horizon_s> is the literal word `unknown`;
+#     <episode> is the text fingerprint scan-text reports. Busy lanes are
+#     deliberately excluded: a working lane with old cap text in its scrollback
+#     is making progress, and moving it would spend the captain's money for
+#     nothing.
+# Anything else returns 1: a stale sidecar beside a resumed turn, a transient
+# backoff, expired evidence, a clean pane tail, an uncapturable pane, or no
+# evidence at all.
 fm_opencode_descent_cap() {  # <state-dir> <id>
   local state_dir=$1 id=$2 out rec word bound='' horizon='' status='' next=''
-  local r_state='' r_source='' r_event=''
+  local r_state='' r_source='' r_event='' episode=''
+  local meta lane_model cap_file scan_out
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 1
   [ -x "$_FM_OPENCODE_DESCENT_RETRY" ] || return 1
-  out=$("$_FM_OPENCODE_DESCENT_RETRY" check "$state_dir" "$id" 2>/dev/null) || return 1
-  for word in $out; do
-    case "$word" in
-      status=*) status=${word#status=} ;;
-      horizon_s=*) horizon=${word#horizon_s=} ;;
-      model=*)
-        case "${word#model=}" in
-          "$FM_OPENCODE_LADDER_FREE") bound=free ;;
-          "$FM_OPENCODE_LADDER_GO") bound=go ;;
-          *) bound=other ;;
-        esac
+  if out=$("$_FM_OPENCODE_DESCENT_RETRY" check "$state_dir" "$id" 2>/dev/null); then
+    for word in $out; do
+      case "$word" in
+        status=*) status=${word#status=} ;;
+        horizon_s=*) horizon=${word#horizon_s=} ;;
+        model=*)
+          case "${word#model=}" in
+            "$FM_OPENCODE_LADDER_FREE") bound=free ;;
+            "$FM_OPENCODE_LADDER_GO") bound=go ;;
+            *) bound=other ;;
+          esac
+          ;;
+      esac
+    done
+    if [ "$status" = blocked ]; then
+      case "$horizon" in ''|*[!0-9]*) : ;; *)
+        [ -n "$bound" ] || bound=unbound
+        # The latch: the record the plugin maintains must still name the retry
+        # event. A genuinely resumed turn writes session-busy first, which
+        # drops a stale sidecar even before its horizon expires.
+        if rec=$(fm_busy_record_read "$state_dir" "$id" 2>/dev/null); then
+          r_state=${rec%% *}; rec=${rec#* }
+          r_source=${rec%% *}; rec=${rec#* }
+          r_event=${rec%% *}
+          if [ "$r_state" = busy ] && [ "$r_source" = opencode-plugin ] \
+            && [ "$r_event" = session-retry ]; then
+            # The episode identity comes from the sidecar the check just
+            # classified: the check passed, so the record is present, one
+            # line, and well-formed, and its vendor timestamp names the
+            # refusal this episode belongs to.
+            next=$(tr ' ' '\n' < "$state_dir/$id.opencode-retry" 2>/dev/null \
+              | sed -n 's/^next=\([0-9][0-9]*\)$/\1/p' | head -n 1)
+            if [ -n "$next" ]; then
+              printf '%s %s %s\n' "$horizon" "$bound" "$next"
+              return 0
+            fi
+          fi
+        fi
         ;;
-    esac
-  done
-  [ "$status" = blocked ] || return 1
-  case "$horizon" in ''|*[!0-9]*) return 1 ;; esac
-  [ -n "$bound" ] || bound=unbound
-  # The latch: the record the plugin maintains must still name the retry
-  # event. A genuinely resumed turn writes session-busy first, which drops a
-  # stale sidecar even before its horizon expires.
+      esac
+    fi
+  fi
+  # The idle shape: the turn ended on the plugin's idle event, so the sidecar
+  # is gone by design - the pane tail is the only evidence left. Detection
+  # stays owned by bin/fm-opencode-retry.sh; this only supplies the capture.
   rec=$(fm_busy_record_read "$state_dir" "$id" 2>/dev/null) || return 1
   r_state=${rec%% *}; rec=${rec#* }
   r_source=${rec%% *}; rec=${rec#* }
   r_event=${rec%% *}
-  [ "$r_state" = busy ] || return 1
+  [ "$r_state" = idle ] || return 1
   [ "$r_source" = opencode-plugin ] || return 1
-  [ "$r_event" = session-retry ] || return 1
-  # The episode identity comes from the sidecar the check just classified:
-  # the check passed, so the record is present, one line, and well-formed,
-  # and its vendor timestamp names the refusal this episode belongs to.
-  next=$(tr ' ' '\n' < "$state_dir/$id.opencode-retry" 2>/dev/null \
-    | sed -n 's/^next=\([0-9][0-9]*\)$/\1/p' | head -n 1)
-  [ -n "$next" ] || return 1
-  printf '%s %s %s\n' "$horizon" "$bound" "$next"
+  case "$r_event" in session-idle|session-status-idle) ;; *) return 1 ;; esac
+  command -v fm_opencode_ladder_pane_file >/dev/null 2>&1 || return 1
+  cap_file=$(fm_opencode_ladder_pane_file "$state_dir" "$id" 2>/dev/null) || return 1
+  scan_out=$("$_FM_OPENCODE_DESCENT_RETRY" scan-text --file "$cap_file" 2>/dev/null) \
+    || { rm -f "$cap_file"; return 1; }
+  rm -f "$cap_file"
+  episode=''
+  for word in $scan_out; do
+    case "$word" in episode=*) episode=${word#episode=} ;; esac
+  done
+  [ -n "$episode" ] || return 1
+  bound=unbound
+  meta="$state_dir/$id.meta"
+  if [ -f "$meta" ]; then
+    lane_model=$(fm_meta_get "$meta" model 2>/dev/null) || lane_model=''
+    [ "$lane_model" = "$FM_OPENCODE_LADDER_FREE" ] && bound=free
+  fi
+  printf 'unknown %s %s\n' "$bound" "$episode"
 }
 
 # fm_opencode_descent_tick: one evaluation of this home's live opencode lanes.
@@ -316,8 +378,8 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
 # decision be exercised without the watcher's wake, lock, and recovery graph.
 fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
-  local meta id harness model kind cap horizon bound human note ctl_out reason
-  local recorded after next rest hold_reason
+  local meta id harness model kind cap horizon bound note ctl_out reason
+  local recorded after next rest hold_reason when
 
   fm_opencode_descent_off "$state_dir" && return 0
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 0
@@ -355,7 +417,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     fi
     horizon=${cap%% *}; rest=${cap#* }
     bound=${rest%% *}; next=${rest#* }
-    human=$(fm_opencode_ladder_horizon_human "$horizon")
+    when=$(fm_opencode_descent_when "$horizon")
 
     # One automatic attempt per cap episode. A failed move is not retried
     # here - each attempt stops a live worker, so the refusal wake hands the
@@ -378,8 +440,8 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     [ -n "$hold_reason" ] || hold_reason=$(fm_opencode_task_pin "$state_dir" "$id" 2>/dev/null) || hold_reason=
     if [ -n "$hold_reason" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'override %s %s is capped (next retry in %s) but the captain'"'"'s hold is keeping it there: %s\n' \
-          "$id" "${model:-<no model>}" "$human" "$hold_reason"
+        printf 'override %s %s is capped (%s) but the captain'"'"'s hold is keeping it there: %s\n' \
+          "$id" "${model:-<no model>}" "$when" "$hold_reason"
       fi
       continue
     fi
@@ -388,22 +450,22 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     # per episode, none of them ever reaching the control plane.
     if [ -z "$model" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'refused %s records no model and a quota-scale cap is proven (next retry in %s); refusing to move it blind - firstmate decision needed\n' \
-          "$id" "$human"
+        printf 'refused %s records no model and a quota-scale cap is proven (%s); refusing to move it blind - firstmate decision needed\n' \
+          "$id" "$when"
       fi
       continue
     fi
     if [ "$model" = "$FM_OPENCODE_LADDER_GO" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'refused %s is on the Go tier %s and it is capped too (next retry in %s); the ladder has no third rung - firstmate decision needed\n' \
-          "$id" "$model" "$human"
+        printf 'refused %s is on the Go tier %s and it is capped too (%s); the ladder has no third rung - firstmate decision needed\n' \
+          "$id" "$model" "$when"
       fi
       continue
     fi
     if [ "$kind" = secondmate ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
-        printf 'refused %s is a secondmate on capped free (next retry in %s); automatic relaunch never touches a persistent supervision agent - firstmate decision needed\n' \
-          "$id" "$human"
+        printf 'refused %s is a secondmate on capped free (%s); automatic relaunch never touches a persistent supervision agent - firstmate decision needed\n' \
+          "$id" "$when"
       fi
       continue
     fi
@@ -411,7 +473,12 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     # The move: the proven free cap relaunches the lane onto Go. The handoff
     # note owns the ambiguity when the cap evidence carries no model binding,
     # exactly as the dispatch gate's own notice does.
-    note="opencode descent: free tier $FM_OPENCODE_LADDER_FREE is proven exhausted (quota-scale retry backoff, next retry in $human"
+    case "$horizon" in
+      ''|*[!0-9]*)
+        note="opencode descent: free tier $FM_OPENCODE_LADDER_FREE is proven exhausted (free-tier cap shown in the lane's pane, no retry horizon on record" ;;
+      *)
+        note="opencode descent: free tier $FM_OPENCODE_LADDER_FREE is proven exhausted (quota-scale retry backoff, $when" ;;
+    esac
     if [ "$bound" = unbound ]; then
       note="$note, with no model binding on the cap evidence - biasing toward Go rather than stalling"
     fi

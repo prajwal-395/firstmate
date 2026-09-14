@@ -64,9 +64,23 @@ fresh_state() {  # <name> -> empty state dir
 }
 
 # write_meta <state-dir> <id> <harness> <model> <kind>: the durable record the
-# way a spawn leaves it - the routed tier, not the requested one.
+# way a spawn leaves it - the routed tier, not the requested one - with an
+# endpoint the capture stub below can serve.
 write_meta() {  # <state-dir> <id> <harness> <model> <kind>
-  printf 'harness=%s\nmodel=%s\nkind=%s\n' "$3" "$4" "$5" > "$1/$2.meta"
+  printf 'harness=%s\nmodel=%s\nkind=%s\nbackend=tmux\nwindow=pane-%s\n' \
+    "$3" "$4" "$5" "$2" > "$1/$2.meta"
+}
+
+# --- pane-capture stub -------------------------------------------------------
+# fm_opencode_descent_cap captures the pane tail for the idle shape; the stub
+# serves per-target fixture text so that shape is exercised without a real
+# pane. A target with no fixture is uncapturable (unknown, never a move).
+FM_PANE_FIXTURES="$TMP_ROOT/panes"
+mkdir -p "$FM_PANE_FIXTURES"
+fm_backend_capture() {  # <backend> <target> <lines> [label]
+  local fixture="$FM_PANE_FIXTURES/${2:-}.txt"
+  [ -f "$fixture" ] || return 1
+  cat "$fixture"
 }
 
 # arm_busy <state-dir> <id> <event>: the REAL busy writer the way the
@@ -74,6 +88,15 @@ write_meta() {  # <state-dir> <id> <harness> <model> <kind>
 arm_busy() {  # <state-dir> <id> <event>
   "$BUSY" arm "$1" "$2" >/dev/null || return 1
   "$BUSY" apply "$1" "$2" busy --current-gen \
+    --source opencode-plugin --event "$3" >/dev/null || return 1
+}
+
+# arm_idle <state-dir> <id> <event>: the plugin's own turn-end write - state
+# idle on session-idle / session-status-idle, which also clears the retry
+# sidecar. This is the record an idle-after-cap lane carries.
+arm_idle() {  # <state-dir> <id> <event>
+  "$BUSY" arm "$1" "$2" >/dev/null || return 1
+  "$BUSY" apply "$1" "$2" idle --current-gen \
     --source opencode-plugin --event "$3" >/dev/null || return 1
 }
 
@@ -402,11 +425,69 @@ test_evaluation_rate_limited() {
   pass "the evaluation is rate-limited off the watcher poll"
 }
 
+# --- 1b. the idle shape: capped and idle, with no sidecar --------------------
+# The 2026-09-14 blind spot: four lanes took the provider error, ended their
+# turn, and went idle with no retry sidecar. Only the pane tail still shows
+# the cap verbatim. The descent must move those lanes exactly as it moves an
+# actively-retrying one.
+
+test_idle_after_cap_relaunches_to_go() {
+  local state out
+  state=$(fresh_state idlecap)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_idle "$state" lane1 session-idle || fail "busy writer refused fixture"
+  # No record_cap: the sidecar is gone by design. The pane tail carries the
+  # cap verbatim, wrapped across rendered lines as the incident showed it.
+  printf '%s\n' \
+    'working on the task...' \
+    'Free usage exceeded, subscri' \
+    'be to Go [retrying in 35s attempt #5]' \
+    'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_tick "$state") || fail "tick must never fail past the cap"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "an idle-after-cap lane must relaunch, said: ${out:-<silent>}" ;;
+  esac
+  stub_called || fail "an idle-after-cap lane must reach the control plane"
+  case "$(stub_calls)" in
+    *'relaunch'*"$GO"*) : ;;
+    *) fail "the move must be a relaunch onto the Go tier, called: $(stub_calls)" ;;
+  esac
+  case "$(stub_calls)" in
+    *'no retry horizon on record'*) : ;;
+    *) fail "the handoff note must own the missing horizon, called: $(stub_calls)" ;;
+  esac
+  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] \
+    || fail "the durable record must name Go after the move"
+  # A relaunched lane wakes in a fresh pane: the next evaluation sees clean
+  # text and stays silent rather than re-firing on the old capture.
+  printf '%s\n' 'fresh session, working' 'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_tick "$state") || fail "tick must never fail"
+  [ -z "$out" ] || fail "a relaunched lane with a clean pane must stay silent, said: $out"
+  pass "an idle-after-cap lane relaunches onto Go"
+}
+
+test_idle_healthy_lane_stays() {
+  local state out
+  state=$(fresh_state idlehealthy)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_idle "$state" lane1 session-idle || fail "busy writer refused fixture"
+  printf '%s\n' 'working on the task...' 'done' 'opencode>' > "$FM_PANE_FIXTURES/pane-lane1.txt"
+  out=$(run_tick "$state") || fail "tick must never fail"
+  [ -z "$out" ] || fail "an idle lane with a clean pane must stay silent, said: $out"
+  stub_called && fail "an idle lane with a clean pane must never reach the control plane"
+  pass "an idle lane with a clean pane stays put"
+}
+
 test_healthy_lane_is_silent
 test_transient_retry_stays
 test_expired_cap_stays
 test_stale_sidecar_needs_latch
 test_recorded_refusal_relaunches_to_go
+test_idle_after_cap_relaunches_to_go
+test_idle_healthy_lane_stays
 test_go_lane_surfaces
 test_secondmate_surfaces
 test_off_ladder_silent
