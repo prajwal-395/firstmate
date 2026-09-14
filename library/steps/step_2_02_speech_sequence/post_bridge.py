@@ -48,6 +48,54 @@ class PassageAlignmentError(ValueError):
     """A passage could not be resolved to real word-level timings."""
 
 
+class SpeechDurationError(ValueError):
+    """The speech sequence misses the project's declared duration zone."""
+
+
+def total_speech_seconds(body_sequence: list) -> float:
+    """Sum of enriched passage durations, in seconds.
+
+    Read off the ALIGNED `start_time`/`end_time` - the WhisperX word
+    timings `apply_enrichment` wrote back - never off the LLM's hint.
+    """
+    total = 0.0
+    for passage in body_sequence or []:
+        start = passage.get("start_time")
+        end = passage.get("end_time")
+        if start is not None and end is not None:
+            total += (end - start)
+    return total
+
+
+def refuse_out_of_zone_sequence(total_duration: float, zone) -> None:
+    """Raise SpeechDurationError when a DECLARED zone is missed.
+
+    The summation is exact and the zone is the project's own
+    declaration (`library/tools/duration_targets.py`), so the verdict
+    belongs to the script, not to the model that was asked to pre-add
+    the same total under a hard MUST.  Which passages to cut to fit
+    stays the model's judgement: the refusal carries the numbers back
+    to it through the post-bridge retry path, bounded, rather than
+    proceeding on an over-long sequence step 3.03's gate would fail a
+    stage later.
+
+    A run that declares no target is UNCHECKED, not passed: measuring
+    against an invented minute is the defect `duration_targets`
+    removed.
+    """
+    if zone is None:
+        return
+    min_dur, target_dur, max_dur = zone
+    if total_duration > max_dur or total_duration < min_dur:
+        raise SpeechDurationError(
+            f"Total speech duration ({total_duration:.1f}s) is outside "
+            f"the declared target zone ({min_dur:.1f}-{max_dur:.1f}s, "
+            f"target {target_dur:.1f}s). Select fewer or shorter "
+            f"passages so the sequence fits; document what was cut in "
+            f"excluded_passages."
+        )
+
+
 # A passage whose aligned words share less than this fraction of its text
 # is not the passage the LLM meant - refuse it rather than cut to it.
 MIN_TEXT_OVERLAP = 0.5
@@ -821,13 +869,7 @@ def main():
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.
     # Captain's directive 2026-09-02: remove hardcoded creative values.
-    body = enriched.get("body_sequence", [])
-    total_duration = 0.0
-    for passage in body:
-        start = passage.get("start_time")
-        end = passage.get("end_time")
-        if start is not None and end is not None:
-            total_duration += (end - start)
+    total_duration = total_speech_seconds(enriched.get("body_sequence", []))
 
     from library.tools.duration_targets import (
         NO_TARGET_DECLARED, get_target_duration_zone)
@@ -838,9 +880,16 @@ def main():
         print(f"NOTE: speech duration ({total_duration:.1f}s) not checked - "
               f"{NO_TARGET_DECLARED}.", file=sys.stderr)
     else:
-        min_dur, target_dur, max_dur = zone
-        if total_duration > max_dur or total_duration < min_dur:
-            print(f"WARNING: Total speech duration ({total_duration:.1f}s) is out of bounds ({min_dur:.1f}-{max_dur:.1f}s).", file=sys.stderr)
+        # HARD: an over-long sequence used to sail through on a WARNING
+        # and fail a stage later at step 3.03's total-duration gate,
+        # where the only recovery is a re-run. Refusing here carries the
+        # numbers back to the model that chose the passages, bounded by
+        # the post-bridge retry path (library/tools/post_bridge_retry.py).
+        try:
+            refuse_out_of_zone_sequence(total_duration, zone)
+        except SpeechDurationError as exc:
+            print(json.dumps({"error": str(exc), "step": "2.02_bridge"}))
+            sys.exit(1)
 
     # No provenance key beside the output: run_hybrid_step merges this
     # dict into the step's final output and validate_step_output refuses

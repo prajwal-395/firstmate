@@ -343,6 +343,28 @@ def test_conform_is_flagged_on_a_clip_that_is_not_the_delivery_shape():
     assert entry["needs_conform"] is True
 
 
+def test_a_wrong_needs_conform_from_the_model_is_overwritten():
+    """The prompt asks the model to compute `needs_conform` from width,
+    height and rotation - a 3-number comparison. The script recomputes
+    it on every assignment regardless of what the model wrote, so a
+    wrong value is corrected, not carried. clip_009 needs conforming;
+    the model saying otherwise changes nothing."""
+    out = _resolve([{"clip_id": "clip_009", "spine_block_position": 1,
+                      "needs_conform": False}],
+                   spine={"structure": [dict(SPINE["structure"][0],
+                                             clip_id="clip_001")]})
+    assert out["b_roll_assignments"][0]["needs_conform"] is True
+
+
+def test_a_wrong_needs_conform_true_from_the_model_is_overwritten():
+    """The other direction: clip_001 already matches the 1080x1920
+    delivery frame, so a model-claimed `needs_conform: True` is
+    corrected to False rather than conforming a clip that needs none."""
+    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1,
+                      "needs_conform": True}])
+    assert out["b_roll_assignments"][0]["needs_conform"] is False
+
+
 def test_an_interjection_is_trimmed_around_broll_already_on_v2():
     """Two clips cannot share frames of a track.
 

@@ -35,6 +35,7 @@ import os
 from library.tools.pipeline_validation import require_keys
 from library.tools.spine_contract import (
     BOOKEND_BLOCK_TYPES,
+    validate_passage_coverage,
     validate_spine_blocks,
 )
 from library.tools.bookends import (
@@ -166,6 +167,14 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
             f"{len(unresolved)} spine block(s) to speech passages:\n  - "
             + "\n  - ".join(unresolved)
         )
+
+    # No content loss, checked exactly: every body passage must appear
+    # in the spine, and no passage twice across speech blocks. Which
+    # passage opens, continues or closes is the editorial decision; the
+    # integer bookkeeping around it is not. A hook reusing a body
+    # passage is permitted (see validate_passage_coverage).
+    validate_passage_coverage(
+        enriched_blocks, len(speech_sequence.get("body_sequence", [])))
 
     # ── Bookends: intro / outro / end card ──
     # Only what the brand template declares (Q7). A template that declares

@@ -38,13 +38,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools import window_frames as wf
+from library.tools.duration_tolerance import DURATION_TOLERANCE
 from library.tools.project_layout import Area, ProjectLayout
 
 
 OUTPUT_KEY = "roughcut_window_frames"
-
-
-DURATION_TOLERANCE = 0.15  # seconds
 
 
 def check_duration_invariant(a_roll_assignments: list) -> dict:
@@ -371,6 +369,109 @@ def run_mechanical_checks(data: dict) -> dict:
     return result
 
 
+def build_actual_script(a_roll_assignments: list, audio_spine: dict) -> dict:
+    """What the viewer HEARS, block by block, from measured words.
+
+    Check 5 asks the model to look up the temporal index for each
+    A-roll range and concatenate the words in timeline order - range
+    lookup plus string joining over word timings the pipeline already
+    holds. This builds it instead, so the narrative review judges the
+    measured script rather than a reconstruction.
+
+    The words are the spine's own `word_timestamps`: the temporal
+    index's words as step 2.02 bound them to each block, in the source
+    domain the A-roll segments also play in. Reading them here needs
+    no second mechanism beside `timeline_transcript.py` - that module
+    rebuilds timeline audio and transcribes it with Whisper for LIVE
+    Resolve timelines that carry no measured words at all, which is a
+    different job for a different input. Forcing this concatenation
+    into it would be a second mechanism in the module, so it lives
+    here, beside the mechanical checks whose inputs it shares.
+
+    Returns {"blocks": [...], "full_text": str, "unvoiced": [...]}.
+    A played range with no measured words is NAMED in `unvoiced`,
+    never silently skipped: heard audio with no transcript is a fact
+    the review must see, not a gap the join may close over.
+    """
+    structure = (audio_spine or {}).get("structure", [])
+    by_position = {}
+    for block in structure or []:
+        if isinstance(block, dict) and "position" in block:
+            by_position[str(block["position"])] = block
+
+    blocks = []
+    unvoiced = []
+    ordered = sorted(a_roll_assignments or [],
+                     key=lambda ar: ar.get("timeline_start", 0))
+    for ar in ordered:
+        if not isinstance(ar, dict):
+            continue
+        position = ar.get("spine_block_position", "?")
+        block = by_position.get(str(position), {})
+        words = block.get("word_timestamps") or []
+        for seg in ar.get("video_segments", []) or []:
+            clip_id = seg.get("clip_id", "?")
+            try:
+                lo = float(seg.get("video_in"))
+                hi = float(seg.get("video_out"))
+            except (TypeError, ValueError):
+                unvoiced.append({
+                    "spine_block_position": position,
+                    "clip_id": clip_id,
+                    "reason": "the segment names no source range, so no "
+                              "words can be looked up for it",
+                })
+                continue
+            if not words:
+                unvoiced.append({
+                    "spine_block_position": position,
+                    "clip_id": clip_id,
+                    "source_in": lo,
+                    "source_out": hi,
+                    "reason": "the spine block carries no word timings, "
+                              "so what this range says is undetermined",
+                })
+                continue
+            spoken = [
+                w for w in words
+                if isinstance(w, dict)
+                and w.get("source_start") is not None
+                and w.get("source_end") is not None
+                and float(w["source_start"]) < hi
+                and float(w["source_end"]) > lo
+            ]
+            text = " ".join(
+                str(w.get("word", "")) for w in spoken).strip()
+            if not text:
+                unvoiced.append({
+                    "spine_block_position": position,
+                    "clip_id": clip_id,
+                    "source_in": lo,
+                    "source_out": hi,
+                    "reason": "no measured words fall inside the played "
+                              "range - silence, music, or an untranscribed "
+                              "stretch",
+                })
+                continue
+            blocks.append({
+                "spine_block_position": position,
+                "block_type": ar.get("block_type",
+                                    block.get("block_type", "?")),
+                "clip_id": clip_id,
+                "timeline_start": ar.get("timeline_start", 0.0),
+                "source_in": lo,
+                "source_out": hi,
+                "text": text,
+                "word_count": len(spoken),
+            })
+
+    return {
+        "blocks": blocks,
+        "full_text": " ".join(b["text"] for b in blocks),
+        "unvoiced": unvoiced,
+    }
+
+
 def placed_windows(data: dict) -> list:
     """Every source window the cut plays, in timeline order.
 
@@ -530,6 +631,12 @@ def main():
     print(f"{'='*60}\n", file=sys.stderr)
 
     out = {"rough_cut_review": result}
+    # Check 5's reconstruction, built by the script instead of the
+    # model: what the viewer hears, from the spine's measured words.
+    # Declared in manifest.json outputs and context_fields, so the
+    # narrative review reads this rather than re-deriving it.
+    out["actual_script"] = build_actual_script(
+        data.get("a_roll_assignments", []), data.get("audio_spine", {}))
     frames_block = build_review_frames(data)
     if frames_block:
         out[OUTPUT_KEY] = frames_block

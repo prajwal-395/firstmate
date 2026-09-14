@@ -120,6 +120,64 @@ def is_bookend_block(block: dict) -> bool:
     return block.get("block_type") in BOOKEND_BLOCK_TYPES
 
 
+def validate_passage_coverage(blocks: list, body_sequence_len: int) -> None:
+    """Raise SpineContractError when the spine loses or doubles a passage.
+
+    Step 2.05's handoff asks the model for "No content loss: Every
+    speech passage from body_sequence appears in exactly one speech
+    block" - set coverage over small integers, exactly computable, and
+    the script already recomputes everything around it (durations,
+    positions, the duration zone). The post-bridge refuses DANGLING
+    refs (a `passage_ref` naming no position) where they are found;
+    this refuses the other two clerical failures:
+
+    * a passage NO block references - content loss: a passage the
+      model chose never reaches the timeline;
+    * a passage TWO speech blocks reference - the same source audio
+      laid down twice back to back, the repeat 2.02's structural
+      overlap check refuses at the source.
+
+    A hook reusing a body passage is NEITHER: the handoff explicitly
+    permits the hook as a snippet of a body passage (intentional
+    shortform technique). Hook references count toward coverage but
+    never toward doubling.
+    """
+    referenced = set()
+    speech_refs = []
+    for block in blocks or []:
+        if not isinstance(block, dict):
+            continue
+        if block.get("block_type") not in SPEECH_BLOCK_TYPES:
+            continue
+        ref = (block.get("content") or {}).get("passage_ref")
+        if ref is None:
+            continue
+        referenced.add(ref)
+        if block.get("block_type") == "speech":
+            speech_refs.append(ref)
+
+    expected = set(range(1, (body_sequence_len or 0) + 1))
+    problems = []
+    missing = sorted(expected - referenced)
+    if missing:
+        problems.append(
+            f"passages {missing} from the speech_sequence body_sequence "
+            f"appear in no spine block - content loss: a chosen passage "
+            f"never reaches the timeline"
+        )
+    doubled = sorted({r for r in set(speech_refs) if speech_refs.count(r) > 1})
+    if doubled:
+        problems.append(
+            f"passages {doubled} appear in more than one speech block - "
+            f"the same source audio would play twice"
+        )
+    if problems:
+        raise SpineContractError(
+            "Spine passage coverage violated:\n  - "
+            + "\n  - ".join(problems)
+        )
+
+
 def _bookend_problems(block: dict, label: str) -> list:
     """What is wrong with a bookend block's declaration, if anything.
 

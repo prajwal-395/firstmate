@@ -18,6 +18,7 @@ import uuid
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+from library.tools.duration_tolerance import DURATION_TOLERANCE  # noqa: E402
 
 # TARGET_WIDTH / TARGET_HEIGHT / TARGET_FRAME_RATE were here, described as
 # "used only by callers that import the helpers directly".  There were no
@@ -159,7 +160,10 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
     # For each A-roll assignment, the total source duration of its video
     # segments should match the timeline allocation. If they don't match,
     # warn loudly — this will cause speech truncation downstream.
-    DURATION_TOLERANCE = 0.15  # seconds
+    # The slack is the pipeline's one duration tolerance
+    # (library/tools/duration_tolerance.py), shared with step 3.03's
+    # refusing gate so a warning here and a verdict there can never
+    # disagree about what counts.
     for asgn in a_roll_assignments:
         tl_dur = round(
             asgn.get("timeline_end", 0) - asgn.get("timeline_start", 0), 3

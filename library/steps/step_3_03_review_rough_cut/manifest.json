@@ -82,6 +82,11 @@
         "name": "rough_cut_review",
         "type": "object",
         "description": "State output: rough_cut_review"
+      },
+      {
+        "name": "actual_script",
+        "type": "object",
+        "description": "Check 5's reconstruction, built by the deterministic half (step.py build_actual_script), not the model: what the viewer hears - one text per A-roll block in timeline order plus the joined full_text - read off the spine's measured word timings inside each played source range. Shape: {\"blocks\": [{\"spine_block_position\", \"block_type\", \"clip_id\", \"timeline_start\", \"source_in\", \"source_out\", \"text\", \"word_count\"}], \"full_text\": str, \"unvoiced\": [{\"spine_block_position\", \"clip_id\", \"source_in\", \"source_out\", \"reason\"}]}. A played range with no measured words is named in unvoiced, never skipped. The narrative half judges this script, not a reconstruction of its own."
       }
     ],
     "llm_outputs": [
@@ -139,6 +144,7 @@
     "view:transcript",
     "render_qa_findings",
     "rough_cut_review",
+    "actual_script",
     "audio_spine",
     "-audio_spine.structure.*.word_timestamps",
     "-audio_spine.structure.*.content.word_timestamps",
