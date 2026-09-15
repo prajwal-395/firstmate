@@ -267,6 +267,20 @@ ENVIRONMENT_CONDITIONS = (
         capability="projects_root",
         install_hint="export PIPELINE_PROJECTS_ROOT=/path/to/projects",
     ),
+    # The installer guard's real-target case: the does-not-fire direction
+    # on an actual durable checkout, reached through the environment so no
+    # machine's path is stamped into the test.  Where nothing is
+    # configured the synthetic main checkout under tmp_path still proves
+    # it, so this skip is narrowing, not baseline.
+    EnvironmentCondition(
+        pattern=r"no durable checkout configured via PIPELINE_DURABLE_CHECKOUT"
+                r"|PIPELINE_DURABLE_CHECKOUT does not point at a directory",
+        false_when="PIPELINE_DURABLE_CHECKOUT is set to a real main "
+                   "checkout on disk - the captain's, on a machine that "
+                   "has one",
+        capability="durable_checkout",
+        install_hint="export PIPELINE_DURABLE_CHECKOUT=/path/to/a/durable/main/checkout",
+    ),
     EnvironmentCondition(
         pattern=r'could not import "mlx_vlm"',
         false_when="mlx and mlx_vlm are installed - they are macOS-only "

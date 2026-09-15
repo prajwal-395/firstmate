@@ -17,8 +17,11 @@ all is a third answer - `unknown` - and it refuses too, rather than
 passing silently.
 
 Per AGENTS.md section 10.4 both directions are proved: the guard FIRES
-on a linked worktree and does NOT fire on a main checkout - including
-the captain's real one, where it exists.  No test here writes to a real
+on a linked worktree and does NOT fire on a main checkout.  The
+synthetic main checkout under tmp_path proves the property; the
+configured durable checkout below proves it on the real target where
+one is configured, reached through a PIPELINE_* env var rather than a
+hardcoded path.  No test here writes to a real
 install location: the Scripts installer runs with HOME redirected into
 tmp_path, and the Workflow installer is driven through a copy whose
 destinations are rewritten into tmp_path (a real run would write into
@@ -43,11 +46,15 @@ SCRIPTS_INSTALLER = REPO / "scripts" / "install_resolve_scripts.sh"
 WFI_INSTALLER = REPO / "scripts" / "install_workflow_integration.sh"
 PLUGIN_ID = "com.videoeditingpilot.vep"
 
-# The durable checkout this guard must never fire on.
-CAPTAIN_CHECKOUT = Path("/Users/prajwal/Documents/content_stuff/video_editing_pilot")
+# A durable checkout this guard must never fire on, reached through the
+# environment so no machine's path is stamped into this file.  Set
+# PIPELINE_DURABLE_CHECKOUT to a real main checkout (e.g. the captain's)
+# where one exists; unset and the test skips, with the synthetic main
+# checkout under tmp_path still proving the does-not-fire direction.
+DURABLE_CHECKOUT_ENV = "PIPELINE_DURABLE_CHECKOUT"
 
 NO_GIT = "git is not on PATH, so no worktree harness can be built here"
-NO_CAPTAIN = "the captain's durable checkout is not on this machine"
+NO_CONFIGURED = "no durable checkout configured via PIPELINE_DURABLE_CHECKOUT"
 
 UTILITY = Path(
     "Library/Application Support/Blackmagic Design/DaVinci Resolve/"
@@ -163,11 +170,18 @@ def test_a_checkout_git_cannot_vouch_for_is_unknown(tmp_path):
     assert _durability(tmp_path / "does-not-exist") == "unknown"
 
 
-@pytest.mark.skipif(not CAPTAIN_CHECKOUT.is_dir(), reason=NO_CAPTAIN)
-def test_the_captains_checkout_is_durable():
-    """The negative direction, on the literal checkout the guard must
-    never fire on.  It runs the classifier only: no installer, no write."""
-    assert _durability(CAPTAIN_CHECKOUT) == "durable"
+def test_the_configured_durable_checkout_is_durable():
+    """The negative direction, on a real durable checkout where one is
+    configured.  It runs the classifier only: no installer, no write.
+    Where no checkout is configured this skips, and the synthetic main
+    checkout under tmp_path still proves the does-not-fire direction."""
+    raw = os.environ.get(DURABLE_CHECKOUT_ENV, "").strip()
+    if not raw:
+        pytest.skip(NO_CONFIGURED)
+    target = Path(raw)
+    if not target.is_dir():
+        pytest.skip(f"{DURABLE_CHECKOUT_ENV} does not point at a directory: {raw!r}")
+    assert _durability(target) == "durable"
 
 
 # ── The Scripts installer, end to end with HOME redirected ───────────
