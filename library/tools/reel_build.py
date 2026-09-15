@@ -6911,6 +6911,41 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"deleted", file=_sys.stderr)
         retirement["refused"] = f"{retirement_failed}"
 
+    # ── COMPARISONS, bounded the way the archive is ──────────────
+    # Suffix verification builds (`name_suffix`, e.g. `... (baseline
+    # scratch)`) promote into suffixed finals that sit pending a human
+    # decision, and nothing ever retired or collected them - the same
+    # accumulation the archive above was built to stop, arriving by
+    # the door it does not watch
+    # (`library/tools/comparison_retirement.py`). On the next
+    # promotion touching a base reel, its superseded live comparisons
+    # retire to the same archive and its archived ones beyond one per
+    # reel are collected under the same guard, never touching a
+    # sign-off, a hold, a variant or a plan final.
+    #
+    # Never fatal, for the block above's reason: the reels are
+    # promoted, and a comparison lifecycle that breaks a build is
+    # worse than one that skips a round loudly.
+    from library.tools import comparison_retirement as _comp
+    comparison_retirement: dict = {"bases": [], "retired": {},
+                                   "unfiled": [], "collect": [],
+                                   "collected": [], "kept": [],
+                                   "planned_retire": [],
+                                   "planned_collect": [],
+                                   "refused": "", "notes": []}
+    try:
+        comparison_retirement = _comp.collect_for_bases(
+            project, pool, project_folder, ok_finals,
+            master_timeline_name)
+        print(_comp.render(comparison_retirement), flush=True)
+    except Exception as comparison_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  comparison retirement refused ({comparison_failed}) - "
+              f"the reels are promoted; superseded comparisons are "
+              f"still in the project and nothing was deleted",
+              file=_sys.stderr)
+        comparison_retirement["refused"] = f"{comparison_failed}"
+
     # A declared supersession ends the sign-off it was declared
     # against - AFTER the rename landed, so a promotion that refused
     # later never retires an approval it did not replace. Recorded as
@@ -7054,6 +7089,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             "refused": dict(refused),
             "markers": carried_markers,
             "retirement": retirement,
+            "comparison_retirement": comparison_retirement,
             "round": stamped_round,
             "superseded_signoffs": superseded_signoffs}
 
