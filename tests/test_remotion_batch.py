@@ -20,11 +20,32 @@ import pytest
 from library.tools.remotion_batch import (
     RemotionBatchError,
     RenderJob,
+    _require_dependencies as _real_require_dependencies,
     encoder_threads,
     frame_concurrency,
     render_batch,
     remotion_dir,
 )
+
+
+@pytest.fixture(autouse=True)
+def _node_store_bound():
+    """The batch plumbing is tested with the renderer mocked out, so it
+    must not depend on this checkout being bound to the shared Node
+    store.
+
+    2026-09-15: six tests in this file failed in every fresh worktree -
+    not because the code was wrong but because `render_batch` and
+    `PersistentRenderer.start` refuse an unbound checkout BEFORE reaching
+    the mocked subprocess, so the gate reported an environment gap as six
+    test failures. The tests that really render skip through the
+    `remotion` capability instead and narrow the verdict by name; these
+    unit tests pin the binding aside, and the refusal itself is pinned by
+    the two `unbound_checkout` tests below against a tmp layout.
+    """
+    with patch("library.tools.remotion_batch._require_dependencies",
+               lambda directory, error: None):
+        yield
 
 
 def _jobs(n: int, tmp_path: Path):
@@ -106,6 +127,57 @@ def test_a_missing_batch_script_is_refused(tmp_path):
             render_batch(jobs, composition="SubtitleOverlay",
                          work_dir=str(tmp_path))
     assert "does not exist" in str(excinfo.value)
+
+
+def _unbound_layout(tmp_path):
+    """A checkout-shaped directory with the script but no node_modules -
+    the shape a fresh worktree has before it is bound to the store.
+
+    Carries the real lockfile so the refusal names the store entry and
+    the install command rather than reporting an incomplete checkout,
+    which is a different defect."""
+    checkout = tmp_path / "checkout"
+    remote = checkout / "remotion-subtitles"
+    remote.mkdir(parents=True)
+    (remote / "render-batch.mjs").write_text(
+        "// stand-in: only presence matters here, nothing is executed")
+    real = remotion_dir()
+    for name in ("package.json", "package-lock.json"):
+        (remote / name).write_bytes((real / name).read_bytes())
+    return checkout
+
+
+def test_render_batch_refuses_an_unbound_checkout_with_the_remedy(tmp_path):
+    """The refusal the autouse fixture pins aside still fires where it
+    should: through the real entry point, against a layout with no
+    node_modules, naming the command that fixes it."""
+    checkout = _unbound_layout(tmp_path)
+    with patch("library.tools.remotion_batch._require_dependencies",
+               _real_require_dependencies):
+        with pytest.raises(RemotionBatchError) as excinfo:
+            render_batch(_jobs(1, tmp_path), composition="SubtitleOverlay",
+                         work_dir=str(tmp_path / "work"),
+                         repo_root=str(checkout))
+    assert "install_node_deps" in str(excinfo.value)
+
+
+def test_the_persistent_renderer_refuses_an_unbound_checkout(tmp_path):
+    """Same refusal through the other entry point. It must fire before
+    any child is spawned, so nothing is left in the open registry."""
+    from library.tools.remotion_batch import (
+        PersistentRenderer,
+        RendererUnavailable,
+    )
+
+    checkout = _unbound_layout(tmp_path)
+    before = list(PersistentRenderer._open)
+    with patch("library.tools.remotion_batch._require_dependencies",
+               _real_require_dependencies):
+        with pytest.raises(RendererUnavailable) as excinfo:
+            PersistentRenderer(composition="X",
+                               repo_root=str(checkout)).start()
+    assert "install_node_deps" in str(excinfo.value)
+    assert PersistentRenderer._open == before
 
 
 def test_the_batch_script_ships():
