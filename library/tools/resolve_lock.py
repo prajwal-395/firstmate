@@ -90,6 +90,43 @@ and the work was placing the lease at eight entry points rather than at
 every write. `tests/test_resolve_guard_wiring.py` pins that the entry
 points hold it and that the refusal cannot be turned off from inside
 `library/`.
+
+The captain's signal: deference, not just detection
+---------------------------------------------------
+Detection protects the agent FROM the captain. The other direction -
+protecting the captain from the agents - is a file the captain owns,
+next to the lease, whose mere presence means "hands off, I am
+editing": `captain_hold()` sets it, `captain_release()` clears it,
+`captain_present()` reads it, and
+`python -m library.tools.resolve_lock captain-status` says aloud
+whether it is set. Every `resolve_lease` acquisition waits for it to
+clear before contending for the flock; `prefer_lease` does not, because
+a human-initiated action never queues behind its own owner's signal.
+
+Four properties, stated so a later reader does not renegotiate them:
+
+* An agent that finds the captain present WAITS, not fails. Failing
+  would punish the captain for touching their own editor, and failing
+  mid-build is its own damage. This is the opposite of what
+  `cursor_fence` does to a foreign cursor move on purpose, and both
+  behaviours are correct for their own direction.
+* A held lease is NEVER revoked. An agent inside its critical section
+  when the signal appears finishes the section - seconds long, cursor
+  already established - and releases. A half-written timeline is worse
+  than a delayed one, which is the same reason the handbrake finishes
+  the step it is in before stopping (`run_control.py`). The fence
+  still detects any cursor move that actually happened meanwhile.
+* A stale signal raises instead of wedging or expiring. The wait is
+  bounded by the acquisition's own timeout; past it, `CaptainPresent`
+  (a `ResolveBusy`, so the live-Resolve suite still skips on it) names
+  the signal path, its age, and the exact clear command. Nothing
+  auto-clears it: expiring the hold behind the captain's back would
+  make the guarantee a lie exactly when they are relying on it, and
+  proceeding while it stands would too.
+* Presence is the signal, and presence fail-closed. An unreadable
+  signal file still counts as set - failing open would run the build
+  the captain asked to stop, the same rule `run_control` holds for
+  `pipeline.hold`.
 """
 
 from __future__ import annotations
@@ -97,6 +134,7 @@ from __future__ import annotations
 import json
 import os
 import socket
+import sys
 import tempfile
 import time
 from contextlib import contextmanager
@@ -136,6 +174,18 @@ class UnguardedPlacementError(RuntimeError):
 
 class ResolveBusy(RuntimeError):
     """Another writer holds the instance. Carries who, since when."""
+
+
+class CaptainPresent(ResolveBusy):
+    """The captain is in Resolve, by their own signal. Wait, then this.
+
+    Raised only where a lease acquisition waited the whole timeout for
+    the captain's signal to clear and it never did. A `ResolveBusy`
+    subclass, so anything that already handles "could not take the
+    instance" - including the live-Resolve suite's skip - keeps
+    working, with the message naming the signal, its age, and how to
+    clear it instead of naming a lane.
+    """
 
 
 # ── Where the lease lives ───────────────────────────────────────────
@@ -236,6 +286,143 @@ def default_owner() -> str:
     return f"pid-{os.getpid()}"
 
 
+# ── The captain's signal ────────────────────────────────────────────
+#
+# One Resolve per machine, so the signal lives next to the lease:
+# machine-wide, in the same directory, under the same
+# `PIPELINE_RESOLVE_LOCK_DIR` redirect the tests use. Presence is the
+# whole protocol - the captain creates it and deletes it, the way
+# firstmate's own away posture is the presence of its record.
+#
+# At a terminal, from the repository root:
+#
+#     python -m library.tools.resolve_lock captain-hold --note "grading"
+#     python -m library.tools.resolve_lock captain-status
+#     python -m library.tools.resolve_lock captain-release
+#
+# A bare `touch` of the signal path also counts (an unreadable file is
+# still a set signal - see the module docstring), but the CLI records
+# when it was set and why, which is what the wait notice reads back.
+
+CAPTAIN_FILENAME = "resolve_captain.flag"
+
+#: How often a waiter waiting on the captain says so aloud. Silence
+#: would read as a hang, and a signal left on by accident must be
+#: visible in the very log the waiter is writing.
+CAPTAIN_NOTICE_SECONDS = 30.0
+
+
+def captain_path() -> Path:
+    return lock_dir() / CAPTAIN_FILENAME
+
+
+@dataclass(frozen=True)
+class CaptainHold:
+    """The captain's signal, read back: when it was set, and why."""
+
+    since: float
+    note: str
+    path: str
+
+    def age(self) -> float:
+        return max(0.0, time.time() - self.since)
+
+    def describe(self) -> str:
+        when = time.strftime("%Y-%m-%dT%H:%M:%S",
+                             time.localtime(self.since))
+        note = f": {self.note}" if self.note else ""
+        return (f"captain's signal {self.path}, set {when} "
+                f"({self.age():.0f}s ago){note}")
+
+
+def captain_present() -> Optional[CaptainHold]:
+    """The captain's signal if it stands, else None. Fail-closed.
+
+    A file that is present but unreadable still counts as set. Failing
+    open here would run the build the captain asked to stop.
+    """
+    path = captain_path()
+    if not path.exists():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+        since = float(body.get("since", 0) or 0)
+        note = str(body.get("note", "") or "")
+    except (OSError, ValueError, TypeError, AttributeError):
+        since, note = 0.0, ""
+    if not since:
+        try:
+            since = path.stat().st_mtime
+        except OSError:
+            since = time.time()
+    return CaptainHold(since=since, note=note, path=str(path))
+
+
+def captain_hold(note: str = "") -> CaptainHold:
+    """Set the captain's signal. Agents wait until it is released."""
+    lock_dir().mkdir(parents=True, exist_ok=True)
+    record = {"since": time.time(), "note": note,
+              "pid": os.getpid(), "host": socket.gethostname()}
+    captain_path().write_text(json.dumps(record, indent=2) + "\n",
+                              encoding="utf-8")
+    return captain_present()  # the record as a waiter will read it
+
+
+def captain_release() -> bool:
+    """Clear the captain's signal. True if one stood."""
+    try:
+        captain_path().unlink()
+    except FileNotFoundError:
+        return False
+    except OSError:
+        return False
+    return True
+
+
+def captain_status() -> str:
+    """One line saying whether the signal stands, for a human."""
+    record = captain_present()
+    if record is None:
+        return "captain: not in Resolve - the instance is free for agents."
+    return (f"captain: IN RESOLVE - {record.describe()} - agents wait. "
+            f"Clear with: "
+            f"python -m library.tools.resolve_lock captain-release")
+
+
+def _wait_for_captain(purpose: str, timeout: float) -> None:
+    """Wait for the captain's signal to clear, bounded by `timeout`.
+
+    Raises `CaptainPresent` naming the hold where it never clears.
+    Never clears it, never proceeds past it: both would make the
+    guarantee a lie. This wait has its own full timeout budget,
+    separate from the flock contention wait that follows it, so each
+    refusal names the phase that actually ran out.
+    """
+    deadline = time.time() + timeout
+    last_notice = 0.0
+    first = True
+    while True:
+        record = captain_present()
+        if record is None:
+            return
+        now = time.time()
+        if now >= deadline:
+            raise CaptainPresent(
+                f"the captain is in Resolve ({record.describe()}) - "
+                f"waited {timeout:g}s for {purpose!r} without the signal "
+                f"clearing. The hold is theirs to clear and nothing "
+                f"auto-expires it: python -m library.tools.resolve_lock "
+                f"captain-release. Not starting is the guarantee - no "
+                f"agent writes while the signal stands.")
+        if first or now - last_notice >= CAPTAIN_NOTICE_SECONDS:
+            print(f"waiting: {record.describe()} - holding this lease "
+                  f"acquisition for {purpose!r} until "
+                  f"`captain-release` clears it.",
+                  file=sys.stderr)
+            first, last_notice = False, now
+        time.sleep(min(_POLL_SECONDS, max(0.0, deadline - now)))
+
+
 # ── The lease ───────────────────────────────────────────────────────
 
 _depth = 0
@@ -322,7 +509,8 @@ def assume_sole_writer(reason: str):
 @contextmanager
 def resolve_lease(purpose: str, exclusive: bool = True,
                   timeout: Optional[float] = None,
-                  owner: Optional[str] = None):
+                  owner: Optional[str] = None,
+                  honor_captain: bool = True):
     """Hold the Resolve instance for one critical section.
 
     Exclusive by default: a cursor operation is a write even when it
@@ -336,9 +524,17 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     it. A SHARED holder asking to upgrade RAISES rather than
     deadlocking on itself.
 
+    Where the captain's signal stands, the acquisition WAITS for it to
+    clear first - up to the same `timeout` - and only then contends for
+    the flock, which gets its own full budget. `honor_captain=False`
+    is the human-initiated case and belongs to `prefer_lease` alone:
+    the owner's own action never queues behind the owner's signal.
+
     Raises `ResolveBusy` naming the current holder rather than waiting
     forever. A wait with no bound and no diagnostic is what wedged four
-    full-suite runs at 0% CPU on 2026-09-11.
+    full-suite runs at 0% CPU on 2026-09-11. Where the wait was on the
+    captain's signal, the refusal is `CaptainPresent`, which names the
+    signal, its age, and how to clear it.
     """
     global _depth, _mode
     inherited = inherited_holder()
@@ -364,8 +560,11 @@ def resolve_lease(purpose: str, exclusive: bool = True,
             _depth -= 1
         return
 
-    deadline = time.time() + (default_timeout() if timeout is None
-                              else float(timeout))
+    resolved_timeout = (default_timeout() if timeout is None
+                        else float(timeout))
+    if honor_captain:
+        _wait_for_captain(purpose, resolved_timeout)
+    deadline = time.time() + resolved_timeout
     lock_dir().mkdir(parents=True, exist_ok=True)
     handle = open(lock_path(), "a+", encoding="utf-8")
     try:
@@ -375,7 +574,7 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                 raise ResolveBusy(
                     f"Resolve is held by "
                     f"{current.describe() if current else 'another process'}"
-                    f" - waited {default_timeout() if timeout is None else timeout:g}s "
+                    f" - waited {resolved_timeout:g}s "
                     f"for {purpose!r}. One instance, no isolation: the "
                     f"only route is to wait or to come back.")
             time.sleep(_POLL_SECONDS)
@@ -419,9 +618,15 @@ def prefer_lease(purpose: str, timeout: float = 2.0):
     pretending it was guarded. Contention here is not silent: the agent
     holding the instance finds out through its own fence, which is the
     detection half doing exactly the job it exists for.
+
+    The captain's signal does not stop this path: a human-initiated
+    action never queues behind its own owner's hold, so the acquisition
+    below bypasses the captain wait (`honor_captain=False`). An agent
+    holding the instance still finds out through its fence.
     """
     try:
-        with resolve_lease(purpose, exclusive=True, timeout=timeout) as lease:
+        with resolve_lease(purpose, exclusive=True, timeout=timeout,
+                           honor_captain=False) as lease:
             yield lease
         return
     except ResolveBusy:
@@ -723,3 +928,54 @@ def assert_current_timeline(project, expected_timeline):
             f"Timeline race: expected {expected_timeline.GetName()}, but "
             f"got {current.GetName() if current else 'None'}. Mutator "
             f"changed it!")
+
+
+# ── The captain's terminal: set it, see it, clear it ────────────────
+
+def _main(argv=None) -> int:
+    """`python -m library.tools.resolve_lock captain-hold|status|release`.
+
+    The whole human interface to the signal: one command to set it,
+    one to see whether it stands, one to clear it. Exit 0 where the
+    instance is free for agents, 1 where the signal stands, 2 on a
+    usage error - so a glance at the prompt after `captain-status`
+    answers the question even before the line is read.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(
+        prog="python -m library.tools.resolve_lock",
+        description="The captain's hold on the Resolve instance: while "
+                    "the signal stands, every agent lease acquisition "
+                    "waits instead of writing.")
+    sub = parser.add_subparsers(dest="command", required=True)
+    hold = sub.add_parser("captain-hold",
+                          help="set the signal: agents wait until it clears")
+    hold.add_argument("--note", default="",
+                      help="what you are doing, read back to waiting agents")
+    sub.add_parser("captain-status",
+                   help="say whether the signal stands")
+    sub.add_parser("captain-release",
+                   help="clear the signal: agents may build again")
+    args = parser.parse_args(argv)
+    if args.command == "captain-hold":
+        record = captain_hold(note=args.note)
+        print(f"captain: HOLDING Resolve - {record.describe()} - agents "
+              f"will wait. Clear with: python -m library.tools.resolve_lock "
+              f"captain-release")
+        return 1
+    if args.command == "captain-status":
+        line = captain_status()
+        print(line)
+        return 1 if captain_present() is not None else 0
+    if args.command == "captain-release":
+        if captain_release():
+            print("captain: released - the instance is free for agents.")
+        else:
+            print("captain: no signal stood - nothing was holding agents.")
+        return 0
+    parser.error(f"unknown command {args.command!r}")
+    return 2  # pragma: no cover - argparse exits first
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

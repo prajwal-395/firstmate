@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import textwrap
+import threading
 import time
 from pathlib import Path
 
@@ -510,3 +511,159 @@ def test_an_excursion_still_refuses_without_a_lease(lock_dir, unguarded):
         with resolve_lock.cursor_excursion(project, other, "read"):
             pass
     assert project.set_calls == []
+
+
+# ── The captain's signal: deference, not just detection ─────────────
+#
+# The asymmetry under test: an agent that finds the captain present
+# WAITS, where a fence that finds a foreign cursor move RAISES. Both
+# behaviours are correct for their own direction, and the lease is the
+# choke point that carries the new one - `cursor_fence` and
+# `under_lease` honour it by calling `resolve_lease`, `prefer_lease`
+# bypasses it because a human-initiated action never queues behind its
+# own owner's hold.
+
+def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir):
+    """Set signal, acquire in a thread, prove it waits, clear it, proceed.
+
+    Fails on the old shape, where no signal exists to wait on: the
+    thread would walk straight into the lease instead of holding.
+    """
+    resolve_lock.captain_hold("grading the finale")
+    acquired = threading.Event()
+    outcome = {}
+
+    def wait_for_it():
+        try:
+            with resolve_lease("an agent build", timeout=30.0):
+                outcome["lease"] = True
+        except Exception as error:  # noqa: BLE001 - reported below
+            outcome["error"] = error
+        finally:
+            acquired.set()
+
+    waiter = threading.Thread(target=wait_for_it, daemon=True)
+    try:
+        waiter.start()
+        assert not acquired.wait(1.5), (
+            "the acquisition did not wait for the captain's signal - "
+            f"{outcome}")
+        assert "error" not in outcome, outcome.get("error")
+        assert resolve_lock.captain_release() is True
+        assert acquired.wait(30), (
+            "the acquisition never proceeded after the signal cleared")
+        assert "error" not in outcome, outcome.get("error")
+        assert outcome.get("lease") is True
+    finally:
+        resolve_lock.captain_release()
+        waiter.join(timeout=30)
+
+
+def test_absent_signal_leaves_acquisition_exactly_as_today(lock_dir):
+    """No signal, no change: the lease behaves as it always has.
+
+    Passes on the old shape too - that is the point. The new gear adds
+    a wait; it replaces nothing.
+    """
+    assert resolve_lock.captain_present() is None
+    started = time.time()
+    with resolve_lease("an agent build", owner="lane-12", timeout=5.0):
+        recorded = json.loads(
+            resolve_lock.lease_path().read_text(encoding="utf-8"))
+        assert recorded["owner"] == "lane-12"
+    assert not resolve_lock.lease_path().exists()
+    assert time.time() - started < 5.0
+
+
+def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir):
+    """The stale decision: bounded wait, then a refusal that names the hold.
+
+    Fails on the old shape, where the acquisition would take the lease
+    straight through the captain's hold. Nothing auto-clears it and
+    nothing proceeds past it - the raise IS the guarantee, stated.
+    """
+    resolve_lock.captain_hold("left on overnight")
+    try:
+        started = time.time()
+        with pytest.raises(resolve_lock.CaptainPresent) as raised:
+            with resolve_lease("an agent build", timeout=1.0):
+                pass  # pragma: no cover - the wait never clears
+        elapsed = time.time() - started
+        assert elapsed >= 1.0, elapsed
+        assert elapsed < 10.0, elapsed
+        message = str(raised.value)
+        assert resolve_lock.CAPTAIN_FILENAME in message, message
+        assert "captain-release" in message, message
+        assert issubclass(resolve_lock.CaptainPresent,
+                          resolve_lock.ResolveBusy)
+    finally:
+        resolve_lock.captain_release()
+
+
+def test_a_held_lease_is_never_revoked_by_the_signal(lock_dir):
+    """The holder finishes its section; finishing is not clearing.
+
+    A half-written timeline is worse than a delayed one, so the signal
+    gates ACQUISITION only. The fence still detects any cursor move
+    that actually happened meanwhile - that half is unchanged.
+    """
+    mine = FakeTimeline("Reel 03", uid="a")
+    project = FakeProject(current=mine)
+    with resolve_lease("an agent build", timeout=5.0):
+        resolve_lock.captain_hold("walked in mid-build")
+        assert_current_timeline(project, mine)
+    assert project.set_calls == ["Reel 03"]
+    try:
+        assert resolve_lock.captain_present() is not None
+    finally:
+        resolve_lock.captain_release()
+
+
+def test_the_captains_button_never_queues_behind_their_signal(lock_dir):
+    """`prefer_lease` is the human-initiated path: it does not wait."""
+    resolve_lock.captain_hold("editing by hand")
+    try:
+        started = time.time()
+        with prefer_lease("capture a frame for firstmate",
+                          timeout=5.0) as got:
+            assert got is not None, (
+                "the lease was free and the captain's own button "
+                "should have taken it")
+        assert time.time() - started < 2.0
+    finally:
+        resolve_lock.captain_release()
+
+
+def test_captain_hold_release_and_status_roundtrip(lock_dir):
+    assert resolve_lock.captain_present() is None
+    assert "not in Resolve" in resolve_lock.captain_status()
+    record = resolve_lock.captain_hold("grading")
+    assert record.note == "grading"
+    assert record.age() >= 0.0
+    present = resolve_lock.captain_present()
+    assert present is not None and present.note == "grading"
+    status = resolve_lock.captain_status()
+    assert "IN RESOLVE" in status and "grading" in status, status
+    assert resolve_lock.captain_release() is True
+    assert resolve_lock.captain_present() is None
+    assert resolve_lock.captain_release() is False
+
+
+def test_an_unreadable_signal_still_counts_as_set(lock_dir):
+    """Fail-closed, like `pipeline.hold`: presence is the signal."""
+    resolve_lock.captain_path().write_text("not json{{{", encoding="utf-8")
+    try:
+        assert resolve_lock.captain_present() is not None
+    finally:
+        resolve_lock.captain_release()
+
+
+def test_the_captain_cli_sets_shows_and_clears(lock_dir, capsys):
+    """The terminal interface: set it, see it, clear it."""
+    assert resolve_lock._main(["captain-hold", "--note", "grade"]) == 1
+    assert resolve_lock._main(["captain-status"]) == 1
+    shown = capsys.readouterr().out
+    assert "IN RESOLVE" in shown and "grade" in shown, shown
+    assert resolve_lock._main(["captain-release"]) == 0
+    assert resolve_lock._main(["captain-status"]) == 0
+    assert "not in Resolve" in capsys.readouterr().out
