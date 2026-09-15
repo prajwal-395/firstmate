@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
 # Backend-neutral harness-process identity.
-# Sourced by bin/backends/tmux.sh and bin/backends/herdr.sh. This file is
-# sourced by scripts and has no side effects on source.
+# Sourced by bin/backends/herdr.sh. This file is sourced by scripts and has no
+# side effects on source.
 #
-# Why one owner: every runtime backend that proves an agent is alive does it by
-# attributing operating-system processes - the pane's foreground process group
-# on tmux, Herdr's `pane process-info` view plus the pane shell's descendants
-# on Herdr - and the two must agree on what a given process name means, or a
-# harness one backend recognizes silently reads as a dead pane on the other.
-# The classifier moved here verbatim from the tmux adapter, where it was born;
-# docs/tmux-backend.md "Agent liveness probe" owns the empirical basis for the
-# names below, and tests/fm-tmux-agent-liveness.test.sh plus
-# tests/fm-harness-liveness-drift-live-e2e.test.sh keep them honest.
+# Why one owner: the runtime backend proves an agent is alive by attributing
+# operating-system processes - Herdr's `pane process-info` view plus the pane
+# shell's descendants - and every reader must agree on what a given process
+# name means, or a harness one reader recognizes silently reads as a dead pane
+# on another. The classifier was born in the removed tmux adapter and moved
+# here verbatim; data/fm-backend-design-d7/report.md owns the empirical basis
+# for the names below, and tests/fm-harness-liveness-drift-live-e2e.test.sh
+# keeps them honest.
 
 # shellcheck source=bin/fm-session-lock-lib.sh
 . "$(dirname -- "${BASH_SOURCE[0]}")/fm-session-lock-lib.sh"
@@ -50,10 +49,10 @@ fm_agent_process_classify_name() {  # <path> [argv0] -> agent|shell|other
     *)
       if fm_harness_path_name "$path" >/dev/null || fm_harness_path_name "$argv0" >/dev/null; then
         printf 'agent'
-      # cursor-agent runs as a bundled node script, so tmux reports the pane
-      # command as a bare `node` that no name pattern above can own, and its
+      # cursor-agent runs as a bundled node script, so the pane command presents
+      # as a bare `node` that no name pattern above can own, and its
       # other installed name is the far-too-generic `agent` (verified live on
-      # cursor-agent 2026.08.11-e8db854: #{pane_current_command} is `node` while
+      # cursor-agent 2026.08.11-e8db854: the pane's current command is `node` while
       # `ps -o comm=` carries the cursor-agent install path). Identity therefore
       # comes from the narrowed structural rule in bin/fm-cursor-lib.sh, which
       # demands Cursor's own name or install tree in the path or argv[0]. An
