@@ -28,6 +28,10 @@ Two halves, because that is what failed
   catalogue or not on disk, a missing justification, a duration that
   cannot plausibly score the edit, and a title that names a register the
   model itself recorded as forbidden.
+* **The resolution** - :func:`resolve_audio_path` turns the model's
+  title-plus-source into the catalogue path the verdict demands, matched
+  EXACTLY.  The model names the track; the script supplies the path, so
+  no hand-copied path reaches the timeline.
 
 Duration sanity
 ---------------
@@ -137,6 +141,81 @@ def acquired_media_dir(project_folder: str) -> str:
 
     return str(ProjectLayout(project_folder).write_dir(
         Area.ACQUIRED_MEDIA, step="music_selection"))
+
+
+def resolve_audio_path(
+    title: Optional[str],
+    source: Optional[str],
+    candidates: List[dict],
+) -> Tuple[Optional[str], List[str]]:
+    """The catalogue path for a NAMED track, matched EXACTLY.
+
+    The model names the track it chose - ``title`` plus ``source`` - and
+    the script supplies the ``audio_path``, so no hand-copied path
+    reaches the timeline.  The match is exact on both fields: the title
+    must equal the candidate's title character for character, and the
+    source must equal the candidate's source label.  No nearest match,
+    no case folding, no guessing (AGENTS.md 10.5).
+
+    Returns ``(path, [])`` on the single exact match, ``(None, reasons)``
+    otherwise.  An absent title is refused with what IS held under that
+    source, so the answer says what to pick from.  An ambiguous title -
+    one entry's name on two files - is refused with every matching path,
+    because resolving it by picking the first would let sorted order
+    decide what the viewer hears.
+    """
+    title = (title or "").strip()
+    if not title:
+        return None, [
+            "music_selection.title is empty - name the track you chose."
+        ]
+
+    source = (source or "").strip().lower()
+    if source not in CATALOGUE_SOURCES:
+        return None, [
+            f"music_selection.source is {source!r}; a title resolves to a "
+            f"catalogue path only for sources {list(CATALOGUE_SOURCES)}. "
+            f"An 'external' track is fetched from its source_url instead."
+        ]
+
+    matches = [
+        c for c in (candidates or [])
+        if (c.get("title") or "") == title
+        and (c.get("source") or "") == source
+    ]
+    if len(matches) == 1:
+        path = (matches[0].get("audio_path") or "").strip()
+        if not path:
+            return None, [
+                f"the catalogue entry titled {title!r} under source "
+                f"{source!r} names no audio_path - the catalogue is "
+                f"incomplete, and there is no file to play."
+            ]
+        return path, []
+
+    if not matches:
+        available = sorted({
+            (c.get("title") or "") for c in (candidates or [])
+            if (c.get("source") or "") == source and c.get("title")
+        })
+        hint = (
+            f" Held under source {source!r}: "
+            f"{available}." if available
+            else f" Nothing is held under source {source!r} at all."
+        )
+        return None, [
+            f"no candidate titled {title!r} under source {source!r} among "
+            f"the {len(candidates or [])} catalogued candidates.{hint}"
+        ]
+
+    paths = sorted({(c.get("audio_path") or "").strip() for c in matches})
+    return None, [
+        f"{title!r} names {len(matches)} candidates under source "
+        f"{source!r} - {paths}. A title that fits more than one file "
+        f"resolves to nothing: picking the first would let sorted order "
+        f"decide what the viewer hears. Name the audio_path verbatim "
+        f"from the candidate you mean."
+    ]
 
 
 def _tokens(text: str) -> set:

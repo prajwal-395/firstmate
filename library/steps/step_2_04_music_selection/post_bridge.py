@@ -56,6 +56,8 @@ from library.tools.music_measurement import (  # noqa: E402
     selection_measurements,
 )
 from library.tools.music_selection_contract import (  # noqa: E402
+    CATALOGUE_SOURCES,
+    resolve_audio_path,
     validate_selection,
     acquired_media_dir,
 )
@@ -112,6 +114,25 @@ def resolve_selection(
             and not (selection.get("audio_path") or "").strip() \
             and (selection.get("source_url") or "").strip():
         selection = _fetch_external(selection, project_folder)
+
+    # The model names the track; the script supplies the path.  A local
+    # selection that names a title but no path is resolved against the
+    # catalogue here, exactly - before the verdict below, which still
+    # demands an exact catalogue member.  A selection that already names
+    # a path is left alone for the verdict to judge as before.
+    if (selection.get("source") or "").strip().lower() in CATALOGUE_SOURCES \
+            and not (selection.get("audio_path") or "").strip():
+        path, resolution_errors = resolve_audio_path(
+            selection.get("title"), selection.get("source"), candidates)
+        if resolution_errors:
+            raise ValueError(
+                "The music selection names no resolvable track:\n"
+                + "\n".join(f"  - {e}" for e in resolution_errors)
+            )
+        selection = dict(selection)
+        selection["audio_path"] = path
+        print(f"  Resolved {selection.get('title')!r} to {path}",
+              file=sys.stderr)
 
     # Never trust a stated duration when the file is on disk. The stated
     # number is what a model wrote; the measured one is what will play.
