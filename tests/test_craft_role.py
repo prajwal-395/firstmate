@@ -61,14 +61,14 @@ def test_the_role_is_prepended_to_the_prompt_the_model_reads(tmp_path,
     handoff.write_text("# Step\n\nSENTINEL_HANDOFF_BODY\n", encoding="utf-8")
 
     responses = layout.write_dir(Area.LLM_RESPONSES)
-    original_sleep = run_pipeline.time.sleep
+    original_sleep = run_pipeline._agent_sleep
 
     def _sleep(seconds):
         (responses / f"{node_id}.json").write_text(
             json.dumps({"sfx_creative": []}))
         return original_sleep(0)
 
-    monkeypatch.setattr(run_pipeline.time, "sleep", _sleep)
+    monkeypatch.setattr(run_pipeline, "_agent_sleep", _sleep)
 
     run_pipeline.present_llm_step(
         str(handoff),

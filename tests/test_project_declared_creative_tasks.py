@@ -109,14 +109,14 @@ def _run_task(monkeypatch, project, name, context, answer):
     layout = layout_for(str(project))
     layout.ensure()
     responses = layout.write_dir(Area.LLM_RESPONSES)
-    original_sleep = run_pipeline.time.sleep
+    original_sleep = run_pipeline._agent_sleep
 
     def _sleep(seconds):
         (responses / f"{creative_tasks.task_key(name)}.json").write_text(
             json.dumps(answer))
         return original_sleep(0)
 
-    monkeypatch.setattr(run_pipeline.time, "sleep", _sleep)
+    monkeypatch.setattr(run_pipeline, "_agent_sleep", _sleep)
     undetermined.reset()
     return creative_tasks.present_creative_task(
         str(project), name, context, full_auto="agent", llm_timeout=5)

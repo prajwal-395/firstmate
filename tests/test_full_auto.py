@@ -52,8 +52,9 @@ def test_full_auto_agent_writes_request(temp_project_dir):
     requests_dir = Path(temp_project_dir) / "pipeline_output" / "llm_requests"
     responses_dir = Path(temp_project_dir) / "pipeline_output" / "llm_responses"
     
-    # Mock time.sleep and time.time to make the timeout happen instantly
-    with patch("time.sleep"), patch("time.time", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]):
+    # Stub the agent wait loop's own sleep/clock, not the GLOBAL
+    # time.sleep/time.time every other thread calls (run_pipeline._agent_sleep).
+    with patch("library.processes.edit_video.run_pipeline._agent_sleep"), patch("library.processes.edit_video.run_pipeline._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]):
         with pytest.raises(LLMError, match="Timeout"):
             present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agent", llm_timeout=1)
             
@@ -83,7 +84,7 @@ def test_full_auto_agent_reads_response(temp_project_dir):
         with open(res_file, "w") as f:
             json.dump(res_data, f)
             
-    with patch("time.sleep", side_effect=mock_sleep):
+    with patch("library.processes.edit_video.run_pipeline._agent_sleep", side_effect=mock_sleep):
         # Should read the response file and return the dict
         output = present_llm_step(str(prompt_path), inputs, "test_step", full_auto="agent", llm_timeout=5)
     

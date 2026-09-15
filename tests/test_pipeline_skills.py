@@ -381,14 +381,14 @@ def test_skill_block_reaches_the_archived_request(tmp_path, monkeypatch):
                        encoding="utf-8")
 
     responses = layout.write_dir(Area.LLM_RESPONSES)
-    original_sleep = run_pipeline.time.sleep
+    original_sleep = run_pipeline._agent_sleep
 
     def _sleep(seconds):
         (responses / f"{node_id}.json").write_text(
             json.dumps({"validation_result": {"status": "pass"}}))
         return original_sleep(0)
 
-    monkeypatch.setattr(run_pipeline.time, "sleep", _sleep)
+    monkeypatch.setattr(run_pipeline, "_agent_sleep", _sleep)
 
     manifest = json.loads(
         (REPO / "library/steps/step_6_02_validate_output/manifest.json"
@@ -433,7 +433,7 @@ def _hybrid_step_dir(tmp_path, node_id):
 
 def _agent_answer(monkeypatch, run_pipeline, responses_dir, node_id,
                   payload, on_attempt=None):
-    original_sleep = run_pipeline.time.sleep
+    original_sleep = run_pipeline._agent_sleep
     attempts = {"n": 0}
 
     def _sleep(seconds):
@@ -443,7 +443,7 @@ def _agent_answer(monkeypatch, run_pipeline, responses_dir, node_id,
         (responses_dir / f"{node_id}.json").write_text(json.dumps(payload))
         return original_sleep(0)
 
-    monkeypatch.setattr(run_pipeline.time, "sleep", _sleep)
+    monkeypatch.setattr(run_pipeline, "_agent_sleep", _sleep)
     return attempts
 
 

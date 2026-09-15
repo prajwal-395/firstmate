@@ -80,6 +80,33 @@ class LLMError(Exception): pass
 class PostBridgeError(Exception): pass
 
 
+def _agent_sleep(seconds: float) -> None:
+    """Wait inside the agent-backend poll loop.
+
+    A module-level name so tests stub the wait THIS loop performs
+    without patching the GLOBAL `time.sleep` every other thread in
+    the process calls. Measured 2026-09-15 (PR 1154's chain): a stray
+    thread from an earlier test spinning on `time.sleep(0.05)` kept
+    running inside later agent-stub tests, and because those stubbed
+    the global sleep, every stray sleep rewrote the later test's own
+    response file concurrent with its read - surfacing as an
+    unreproducible `LLMError` parse failure at suite scale only.
+    Patch `run_pipeline._agent_sleep`, never `time.sleep`.
+    """
+    time.sleep(seconds)
+
+
+def _agent_clock() -> float:
+    """Clock inside the agent-backend poll loop.
+
+    Same reason as `_agent_sleep`: tests answering the agent backend
+    fast-forward THIS clock without consuming `time.time` readings a
+    stray thread performs. Patch `run_pipeline._agent_clock`, never
+    `time.time`.
+    """
+    return time.time()
+
+
 def looks_like_a_path(value: str) -> bool:
     """Whether a `source` value is naming a FILE at all.
 
@@ -2048,12 +2075,12 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             sys.stdout.flush()
             
             print(f"  Waiting for agent response for {node_id} (timeout {llm_timeout}s)...", file=sys.stderr)
-            start_wait = time.time()
-            start_time_llm = time.time()
+            start_wait = _agent_clock()
+            start_time_llm = _agent_clock()
             
-            while time.time() - start_wait < llm_timeout:
+            while _agent_clock() - start_wait < llm_timeout:
                 if res_file.exists():
-                    time.sleep(0.5)
+                    _agent_sleep(0.5)
                     try:
                         with open(res_file, "r") as f:
                             res_content = f.read()
@@ -2067,14 +2094,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                             step_id=node_id,
                             event_type="llm_generation",
                             backend="agent",
-                            latency=round(time.time() - start_time_llm, 2),
+                            latency=round(_agent_clock() - start_time_llm, 2),
                             token_count={
                                 "prompt": int(raw_input_tokens + len(prompt.split()) * 1.3),
                                 "response": int(response_tokens)
                             }
                         )
                     break
-                time.sleep(2)
+                _agent_sleep(2)
                 
             if parsed_result is None:
                 raise LLMError(f"Timeout ({llm_timeout}s) waiting for agent LLM response at {res_file}")

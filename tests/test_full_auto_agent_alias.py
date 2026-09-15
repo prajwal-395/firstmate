@@ -72,8 +72,8 @@ def test_full_auto_agent_writes_request(tmp_path):
     project_dir.mkdir()
     inputs = {"project_folder": str(project_dir), "some_data": 456}
 
-    with patch("time.sleep"), patch(
-        "time.time", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
+    with patch("library.processes.edit_video.run_pipeline._agent_sleep"), patch(
+        "library.processes.edit_video.run_pipeline._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
     ):
         with pytest.raises(LLMError, match="Timeout"):
             present_llm_step(
@@ -95,8 +95,8 @@ def test_full_auto_agy_alias_still_writes_request(tmp_path, capsys):
     project_dir.mkdir()
     inputs = {"project_folder": str(project_dir)}
 
-    with patch("time.sleep"), patch(
-        "time.time", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
+    with patch("library.processes.edit_video.run_pipeline._agent_sleep"), patch(
+        "library.processes.edit_video.run_pipeline._agent_clock", side_effect=[0, 0, 0, 10, 10, 10, 10, 10]
     ):
         with pytest.raises(LLMError, match="Timeout"):
             present_llm_step(
@@ -122,7 +122,7 @@ def test_full_auto_agent_reads_response(tmp_path):
         res_file.parent.mkdir(parents=True, exist_ok=True)
         res_file.write_text(json.dumps(res_data), encoding="utf-8")
 
-    with patch("time.sleep", side_effect=mock_sleep):
+    with patch("library.processes.edit_video.run_pipeline._agent_sleep", side_effect=mock_sleep):
         output = present_llm_step(
             _write_handoff(project_dir), inputs, "test_step",
             full_auto="agent", llm_timeout=5)
