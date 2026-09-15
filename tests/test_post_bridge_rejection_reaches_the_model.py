@@ -54,17 +54,43 @@ def _step_dir(tmp_path: Path, fail_attempts: int) -> Path:
 
 
 def _answerer(req: Path, res: Path, answers: list, seen: list):
+    """Answer up to `len(answers)` agent requests, then STOP - loudly.
+
+    The surplus answers are deliberate: the bounded-retry tests offer MORE
+    answers than the step may consume, to prove the step stops asking on
+    its own.  But a thread that never meets its last request used to spin
+    on `time.sleep(0.05)` until its 120 s deadline - minutes after its own
+    test, and file, had finished.  At suite scale that stray was still
+    alive inside LATER agent-stub tests, which patch the GLOBAL
+    `time.sleep`: every stray sleep became a rewrite of the later test's
+    own response file, concurrent with that test's read, and a read
+    landing between truncate and write parsed as empty.  Measured
+    2026-09-15 as `LLMError: Failed to read or parse agent LLM response
+    as JSON` in `test_project_declared_creative_tasks.py` at suite scale
+    only (12/12 in isolation).  So the thread's lifetime ends HERE, owned
+    by the test that started it: call the returned stopper in a `finally`.
+    """
+    stop = threading.Event()
+
     def run():
         deadline = time.time() + 120
         for payload in answers:
-            while time.time() < deadline:
+            while time.time() < deadline and not stop.is_set():
                 if req.exists() and not res.exists():
                     seen.append(json.loads(req.read_text(encoding="utf-8")))
                     res.parent.mkdir(parents=True, exist_ok=True)
                     res.write_text(json.dumps(payload), encoding="utf-8")
                     break
                 time.sleep(0.05)
-    threading.Thread(target=run, daemon=True).start()
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+
+    def stop_answerer():
+        stop.set()
+        thread.join(timeout=10)
+
+    return stop_answerer
 
 
 def _drive(tmp_path, fail_attempts, answer_count):
@@ -74,19 +100,23 @@ def _drive(tmp_path, fail_attempts, answer_count):
     req = project / "pipeline_output" / "llm_requests" / "mesh_spine.json"
     res = project / "pipeline_output" / "llm_responses" / "mesh_spine.json"
     seen = []
-    _answerer(req, res, [{"structure": [{"block": "hook"}]}] * answer_count,
-              seen)
+    stop_answerer = _answerer(
+        req, res, [{"structure": [{"block": "hook"}]}] * answer_count,
+        seen)
     manifest = {"interface": {"outputs": [{"name": "structure"}]}}
-    return project, step, manifest, seen
+    return project, step, manifest, seen, stop_answerer
 
 
 def test_the_second_context_carries_the_violation(tmp_path):
     """The 29 Aug defect, from the other side: attempt two now differs."""
-    project, step, manifest, seen = _drive(tmp_path, fail_attempts=1,
-                                           answer_count=2)
-    result = run_hybrid_step(
-        step, {"project_folder": str(project)}, "mesh_spine",
-        manifest=manifest, full_auto="agent", llm_timeout=60)
+    project, step, manifest, seen, stop_answerer = _drive(
+        tmp_path, fail_attempts=1, answer_count=2)
+    try:
+        result = run_hybrid_step(
+            step, {"project_folder": str(project)}, "mesh_spine",
+            manifest=manifest, full_auto="agent", llm_timeout=60)
+    finally:
+        stop_answerer()
 
     assert result == {"timed_spine": {"ok": True}}
     assert len(seen) == 2, f"expected two model calls, saw {len(seen)}"
@@ -106,12 +136,15 @@ def test_the_second_context_carries_the_violation(tmp_path):
 
 
 def test_the_retry_is_bounded_and_fails_carrying_the_last_violation(tmp_path):
-    project, step, manifest, seen = _drive(
+    project, step, manifest, seen, stop_answerer = _drive(
         tmp_path, fail_attempts=99,
         answer_count=post_bridge_retry.MAX_ATTEMPTS + 2)
-    with pytest.raises(PostBridgeError) as exc:
-        run_hybrid_step(step, {"project_folder": str(project)}, "mesh_spine",
-                        manifest=manifest, full_auto="agent", llm_timeout=60)
+    try:
+        with pytest.raises(PostBridgeError) as exc:
+            run_hybrid_step(step, {"project_folder": str(project)}, "mesh_spine",
+                            manifest=manifest, full_auto="agent", llm_timeout=60)
+    finally:
+        stop_answerer()
 
     assert len(seen) == post_bridge_retry.MAX_ATTEMPTS, (
         f"the retry is not bounded at {post_bridge_retry.MAX_ATTEMPTS} "
@@ -124,12 +157,15 @@ def test_the_retry_is_bounded_and_fails_carrying_the_last_violation(tmp_path):
 def test_the_feedback_blocks_accumulate_and_stay_bounded(tmp_path):
     """What happens at the bound: the context grows by a fixed, small
     amount and no more - one elided block per failed attempt."""
-    project, step, manifest, seen = _drive(
+    project, step, manifest, seen, stop_answerer = _drive(
         tmp_path, fail_attempts=99,
         answer_count=post_bridge_retry.MAX_ATTEMPTS + 2)
-    with pytest.raises(PostBridgeError):
-        run_hybrid_step(step, {"project_folder": str(project)}, "mesh_spine",
-                        manifest=manifest, full_auto="agent", llm_timeout=60)
+    try:
+        with pytest.raises(PostBridgeError):
+            run_hybrid_step(step, {"project_folder": str(project)}, "mesh_spine",
+                            manifest=manifest, full_auto="agent", llm_timeout=60)
+    finally:
+        stop_answerer()
     contexts = [s["context"] for s in seen]
     counts = [c.count(post_bridge_retry.HEADING) for c in contexts]
     assert counts == list(range(post_bridge_retry.MAX_ATTEMPTS)), counts
@@ -156,10 +192,14 @@ def test_a_step_with_no_post_bridge_still_calls_once(tmp_path):
     req = project / "pipeline_output" / "llm_requests" / "creative_direction.json"
     res = project / "pipeline_output" / "llm_responses" / "creative_direction.json"
     seen = []
-    _answerer(req, res, [{"creative_direction": {"target_mood": "wry"}}], seen)
-    result = run_hybrid_step(
-        step, {"project_folder": str(project)}, "creative_direction",
-        manifest={"interface": {"outputs": [{"name": "creative_direction"}]}},
-        full_auto="agent", llm_timeout=30)
+    stop_answerer = _answerer(
+        req, res, [{"creative_direction": {"target_mood": "wry"}}], seen)
+    try:
+        result = run_hybrid_step(
+            step, {"project_folder": str(project)}, "creative_direction",
+            manifest={"interface": {"outputs": [{"name": "creative_direction"}]}},
+            full_auto="agent", llm_timeout=30)
+    finally:
+        stop_answerer()
     assert result == {"creative_direction": {"target_mood": "wry"}}
     assert len(seen) == 1
