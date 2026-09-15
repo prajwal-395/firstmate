@@ -5150,6 +5150,71 @@ def apply_offset_specs(placements_list: Sequence[dict], fps: float,
     return placements_list, subtitle_segments, offset_links, offset_reports
 
 
+def _place_transition_element(pool, project, timeline, name: str,
+                              placement, pool_item,
+                              transitions_row: int, fps: float) -> None:
+    """Place one project-declared transition element, and judge the write.
+
+    The append is judged by what it RETURNS and by a RE-READ of the
+    track, never by whether it was called (AGENTS.md 5): a declined
+    append leaves no trace at placement time and surfaces a whole
+    stage later as an F18 placed-against-planned mismatch, far from
+    its cause. The re-read is the verdict, not the handle - a
+    colliding append returns a truthy list of zombie handles and
+    places nothing (`composed_edit` step 6), so the track wins over
+    the return value.
+
+    No `mediaType` is passed on purpose: transition elements are
+    project-supplied artwork that may carry INTENTIONAL audio, and
+    `mediaType: 1` would trade one silent drop for another. That
+    choice belongs to the transition owner, not this judgement.
+
+    Raises `ReelBuildError` naming the element where the append
+    returns nothing or the track holds no item of the planned length
+    at the planned frame.
+    """
+    # `startFrame`/`endFrame` are in the POOL ITEM's OWN frames, not
+    # the timeline's - AGENTS.md 5. `record_frame` and
+    # `duration_frames` stay TIMELINE frames, because that is what
+    # the planner computed the cut's position in.
+    element_fps = float(pool_item.GetClipProperty("FPS") or fps)
+    source_frames = int(round(placement.element_seconds * element_fps))
+    assert_current_timeline(project, timeline)
+    placed = pool.AppendToTimeline([{
+        "mediaPoolItem": pool_item,
+        "startFrame": 0,
+        "endFrame": source_frames,
+        "trackIndex": transitions_row,
+        "recordFrame": placement.record_frame,
+    }])
+    if not placed:
+        raise ReelBuildError(
+            f"{name}: Resolve would not place the transition element "
+            f"{placement.element_path!r} on V{transitions_row} - "
+            f"AppendToTimeline returned nothing, and an unplaced "
+            f"element the record claims is a build F18 refuses")
+    row_items = timeline.GetItemListInTrack(
+        "video", transitions_row) or []
+    landed = False
+    for row_item in row_items:
+        span = _timeline_span(row_item)
+        if span is None:
+            continue
+        start, end = span
+        if (start == placement.record_frame
+                and end - start == placement.duration_frames):
+            landed = True
+            break
+    if not landed:
+        raise ReelBuildError(
+            f"{name}: Resolve would not place the transition element "
+            f"{placement.element_path!r} on V{transitions_row} at "
+            f"frame {placement.record_frame} - the track holds no "
+            f"{placement.duration_frames}-frame item there, and an "
+            f"unplaced element the record claims is a build F18 "
+            f"refuses")
+
+
 def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
@@ -5949,16 +6014,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # and it is not a fresh guess: F18 in the conformance verifier
         # compares the placed length against the planned one, so a wrong
         # reading of it fails the next verification rather than shipping.
-        element_fps = float(items[0].GetClipProperty("FPS") or fps)
-        source_frames = int(round(placement.element_seconds * element_fps))
-        assert_current_timeline(project, timeline)
-        pool.AppendToTimeline([{
-            "mediaPoolItem": items[0],
-            "startFrame": 0,
-            "endFrame": source_frames,
-            "trackIndex": transitions_row,
-            "recordFrame": placement.record_frame,
-        }])
+        _place_transition_element(
+            pool, project, timeline, name, placement, items[0],
+            transitions_row, fps)
 
 
     # The explainer. ADDITIVE, exactly as the captions above are: it is
