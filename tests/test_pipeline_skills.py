@@ -14,7 +14,7 @@ skill. These pin the four things that make the catalogue trustworthy:
 - `ask_the_footage` reports: its deterministic half carries the
   verdict while the model's opinion is recorded, never enforced;
 - a step that skips a declared gating skill fails, read back from the
-  receipt on disk rather than from the answer's claim - and a third
+  receipt on disk rather than from the answer's claim - and a further
   skill joins without touching runner code.
 """
 import json
@@ -183,8 +183,8 @@ def test_harness_enumeration_is_complete():
 # ── A third skill joins without touching runner code ──────────────
 
 def test_third_skill_needs_only_a_registry_row(monkeypatch):
-    """The hook the timeline-SOP lane will use: catalogue growth is a
-    row plus a directory, never a runner change."""
+    """The hook the timeline-SOP lane used to join as `verify_timeline`:
+    catalogue growth is a row plus a directory, never a runner change."""
     third = pipeline_skills.Skill(
         name="timeline_sop_check",
         kind=pipeline_skills.GATE,

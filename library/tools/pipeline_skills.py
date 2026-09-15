@@ -15,12 +15,12 @@ catalogue nothing is told about is 177 more tools in `library/tools/`.
 This module is the single owner of what skills exist and how they are
 rendered into a prompt - the same shape as `craft_role`: one function
 returning a block, empty for a step that declares none, so a step that
-gains a skill needs no change in the runner. Adding a third skill
-costs one `SKILLS` row plus its directory under `library/skills/`; the
-runner, the prompt site, the receipt paths and the gating check all
-read the registry, so none of them changes. `tests/test_pipeline_skills.py`
-pins that by registering a synthetic third skill against the registry
-without touching runner code.
+gains a skill needs no change in the runner. Adding a skill costs one
+`SKILLS` row plus its directory under `library/skills/`; the runner,
+the prompt site, the receipt paths and the gating check all read the
+registry, so none of them changes. `tests/test_pipeline_skills.py`
+pins that by registering a synthetic further skill against the
+registry without touching runner code.
 
 A manifest declares its skills at the TOP LEVEL under `skills`, a list
 of names. The `context_fields` precedent
@@ -40,8 +40,11 @@ is REFUSED, not ignored - in BOTH directions:
 Kinds
 -----
 - `gate`: deterministic, reads real state, can fail. `verify_render`
-  wraps the file-only half of `render_qa`. A step that declares a
-  gating skill and does not run it FAILS (`GatingSkillSkipped`),
+  wraps the file-only half of `render_qa`; `verify_treatment` wraps
+  the before/after half of `treatment_verify`; `verify_timeline`
+  wraps `timeline_conformance.verify_timeline` over the live
+  timeline. A step that declares a gating skill and does not run it
+  FAILS (`GatingSkillSkipped`),
   enforced in `run_hybrid_step` through the post-bridge retry path -
   the violation is carried back to the model bounded, and at the bound
   the step fails with the reason named. Skills feed the existing
@@ -234,6 +237,30 @@ SKILLS: Dict[str, Skill] = {
                   "say which and what it measured, and do not ship the "
                   "treatment. Change or drop the entry instead: the "
                   "applier undoes a failed treatment itself."),
+        pipeline_args=None,
+    ),
+    "verify_timeline": Skill(
+        name="verify_timeline",
+        kind=GATE,
+        module="library.skills.verify_timeline",
+        when=("You just built or placed a timeline, or you are about "
+              "to approve, revise or build on one. Run this FIRST, "
+              "before writing any judgement of your own. Never to "
+              "judge a plan on paper - that is verify_treatment - or "
+              "a finished file - that is verify_render: it reads the "
+              "live timeline in Resolve, and with no timeline it "
+              "refuses rather than passes."),
+        cost=("A shared read lease on the one Resolve instance - "
+              "seconds, no render, no model, no GPU. Needs Resolve "
+              "running with the exact project open; otherwise it "
+              "refuses rather than passes. Pass the build result's "
+              "track_plan or the link and stream checks are skipped "
+              "openly."),
+        returns=("A verdict that GATES: `passed`, one row per check "
+                 "it ran, the checks it openly skipped, and the SOP "
+                 "violations. `passed: false` means the timeline "
+                 "disobeys the SOP - say which check failed and what "
+                 "it measured, and do not approve the timeline."),
         pipeline_args=None,
     ),
 }

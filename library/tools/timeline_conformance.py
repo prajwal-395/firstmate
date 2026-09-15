@@ -16,10 +16,11 @@ timeline_layout.TrackPlan`) - roles are what say which rows those
 checks apply to. Without a plan only the structural checks run, and the
 rest are reported as SKIPPED, never as passing.
 
-Ship shape: `verify_timeline` is the callable surface (a separate task
-wraps it as a pipeline skill); the CLI below points it at a timeline by
-name and prints the structured report as JSON. Status logs go to
-stderr; stdout carries JSON only.
+Ship shape: `verify_timeline` is the callable surface, wrapped as the
+`verify_timeline` gating pipeline skill in
+`library/skills/verify_timeline/`; the CLI below points it at a
+timeline by name and prints the structured report as JSON. Status logs
+go to stderr; stdout carries JSON only.
 """
 
 from library.tools.resolve_lock import under_lease
