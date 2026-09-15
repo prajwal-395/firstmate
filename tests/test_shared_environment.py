@@ -378,54 +378,18 @@ def test_the_install_script_exists_and_reports_without_installing(tmp_path):
     assert "NODE DEPS: PRESENT" in result.stdout
 
 
-# ── the PYTHON half: one ladder, in two languages ────────────────────
-
-PLUGIN_MAIN = (REPO_ROOT / "resolve_workflow_integration"
-               / "com.videoeditingpilot.vep" / "main.js")
-
-
-def _js_interpreter_candidates() -> list:
-    """The plugin's ladder, read out of its own source as data.
-
-    Parsed rather than trusted: the point of the check is that the two
-    literals are the SAME ladder, and a test that read a comment saying
-    so would pass while they diverged.
-    """
-    import re
-
-    source = PLUGIN_MAIN.read_text(encoding="utf-8")
-    block = re.search(r"const INTERPRETER_CANDIDATES = \[(.*?)\n\];",
-                      source, re.S)
-    assert block, "main.js has no INTERPRETER_CANDIDATES array to compare"
-    return [tuple(pair) for pair in re.findall(
-        r"\[\s*'([^']+)'\s*,\s*'([^']+)'\s*\]", block.group(1))]
-
-
-def test_the_plugin_carries_the_same_interpreter_ladder():
-    """The one caller that CANNOT import the module still obeys it.
-
-    `main.js` is JavaScript inside Resolve's Electron host, so it cannot
-    read `shared_environment` at all - which is exactly how it came to
-    resolve `<REPO_ROOT>/.venv/bin/python3` long after no checkout on
-    this machine had one.
-    """
-    assert _js_interpreter_candidates() == list(ne.INTERPRETER_CANDIDATES)
-
-
-def test_the_plugin_has_no_stock_interpreter_fallback():
-    """`/usr/bin/python3` is not a fallback; it is a slower failure.
-
-    It carries none of whisperx, mlx_vlm or torch, so the bridge died
-    inside a step's import reporting a package nobody mentioned, on the
-    one surface the captain actually presses.
-    """
-    source = PLUGIN_MAIN.read_text(encoding="utf-8")
-    code = [line for line in source.splitlines()
-            if not line.lstrip().startswith("//")]
-    offenders = [line for line in code if "/usr/bin/python3" in line]
-    assert not offenders, (
-        "the plugin still falls back to a stock interpreter: "
-        + "; ".join(offenders))
+# ── the PYTHON half: one ladder, queried, never mirrored ─────────────
+#
+# The plugin is JavaScript inside Resolve's Electron host and cannot
+# import `shared_environment`, so it ASKS the ladder instead of carrying
+# it: `js/interpreter.js` runs
+# `python3 -m library.tools.shared_environment --resolve-interpreter`.
+# A mirrored rung literal in `main.js` with a test diffing the two was
+# tried (PR 1141) and removed: a diffed duplicate is still a duplicate,
+# stale the moment only one side is reinstalled. The no-mirror contract
+# and both query directions live in
+# `tests/test_plugin_interpreter_query.py`; what stays here is the
+# ladder's own ordering and refusal.
 
 
 def test_the_durable_venv_outranks_a_checkouts_own():

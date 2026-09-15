@@ -254,10 +254,21 @@ async function apiSurface() {
 // every judgement stays in Python, where it already has tests that never
 // open Resolve.  The JavaScript side reads Resolve and draws; it decides
 // nothing.
-// The interpreter resolution ladder, in the ONE language that cannot
-// import `library/tools/shared_environment.py`.  These two literals are
-// diffed by `tests/test_shared_environment.py`, so they cannot drift:
-// `INTERPRETER_CANDIDATES` there is this array, in this order.
+// Which interpreter runs the bridge: ASKED, never derived and never
+// stamped.  `js/interpreter.js` shells out to any `python3` to ask the
+// ONE ladder in `library/tools/shared_environment.py` at call time, and
+// the bridge launches with the answered path or refuses loudly.
+//
+// Stamp-vs-query, decided for query: the installer already stamps
+// REPO_ROOT, and stamping the interpreter beside it would be simpler -
+// no bootstrap, no second spawn. But a stamp goes stale the moment the
+// environment moves after install (the durable venv built later, a
+// checkout `.venv` appearing or vanishing, PIPELINE_PYTHON set for one
+// series), and the plugin survives Resolve restarts, so a stale stamp
+// would answer wrongly for weeks with nothing re-asking. The query costs
+// tens of milliseconds of stdlib-only startup per bridge call and is
+// current on every call by construction; there is no invalidation step
+// to forget because there is nothing cached to invalidate.
 //
 // It used to be `<REPO_ROOT>/.venv/bin/python3` or `/usr/bin/python3`.
 // Measured 2026-09-14: NO checkout on the build machine has a `.venv` -
@@ -266,68 +277,25 @@ async function apiSurface() {
 // and `/usr/bin/python3` carries none of whisperx, mlx_vlm or torch.
 // The bridge therefore died inside a step's import, reporting a package
 // nobody mentioned, on the one surface the captain actually presses.
-const INTERPRETER_CANDIDATES = [
-    ['env', 'PIPELINE_PYTHON'],
-    ['vep_home', 'venv-py312/bin/python3'],
-    ['repo', '.venv/bin/python3'],
-];
-
-// `vep_home()` from that module, in JavaScript: PIPELINE_VEP_HOME, else
-// $XDG_DATA_HOME/vep, else ~/.local/share/vep.  Derived, never baked.
-function vepHome() {
-    if (process.env.PIPELINE_VEP_HOME) return process.env.PIPELINE_VEP_HOME;
-    const xdg = process.env.XDG_DATA_HOME;
-    const base = xdg || path.join(os.homedir(), '.local', 'share');
-    return path.join(base, 'vep');
-}
-
-function interpreterCandidates() {
-    const out = [];
-    for (const [kind, spec] of INTERPRETER_CANDIDATES) {
-        if (kind === 'env') {
-            if (process.env[spec]) out.push(process.env[spec]);
-        } else if (kind === 'vep_home') {
-            out.push(path.join(vepHome(), ...spec.split('/')));
-        } else if (kind === 'repo') {
-            if (REPO_ROOT) out.push(path.join(REPO_ROOT, ...spec.split('/')));
-        }
-    }
-    return out;
-}
-
-// `''` when no rung exists. There is deliberately NO stock-interpreter
-// fallback: `run_pipeline.py` imports the ML stack through its steps, so
-// a stock Python does not fail where the message would be read.
-function pythonExecutable() {
-    for (const candidate of interpreterCandidates()) {
-        if (fs.existsSync(candidate)) return candidate;
-    }
-    return '';
-}
+// There is deliberately still NO stock-interpreter fallback: a stock
+// Python does not fail where the message would be read.
+const interpreter = require('./js/interpreter.js');
 
 function bridge(event, request) {
     const t0 = Date.now();
-    return new Promise((resolve) => {
+    return (async () => {
         if (!REPO_ROOT) {
-            resolve({ ok: false, error: 'REPO_ROOT was not stamped in; run scripts/install_workflow_integration.sh', ms: 0 });
-            return;
+            return { ok: false, error: 'REPO_ROOT was not stamped in; run scripts/install_workflow_integration.sh', ms: 0 };
         }
-        const python = pythonExecutable();
-        if (!python) {
-            // Refuse HERE, naming every rung, rather than launching a
-            // stock interpreter that dies inside a step forty seconds
+        const resolved = await interpreter.resolvePython(REPO_ROOT);
+        if (!resolved.ok) {
+            // Refuse HERE, in the ladder's own words, rather than launching
+            // a stock interpreter that dies inside a step forty seconds
             // later with a traceback about a package nobody mentioned.
-            resolve({
-                ok: false,
-                ms: 0,
-                error: 'No Python interpreter carrying the ML stack was found. '
-                    + 'Tried, in order: ' + interpreterCandidates().join(', ')
-                    + '. Build the durable one once per machine at '
-                    + path.join(vepHome(), 'venv-py312')
-                    + '; docs/ML_ENVIRONMENT.md is the procedure.',
-            });
-            return;
+            return { ok: false, ms: Date.now() - t0, error: resolved.error };
         }
+        const python = resolved.python;
+        return await new Promise((resolve) => {
         const child = execFile(
             python,
             ['-m', 'library.tools.workflow_bridge'],
@@ -349,7 +317,8 @@ function bridge(event, request) {
             });
         child.stdin.write(JSON.stringify(request));
         child.stdin.end();
-    });
+        });
+    })();
 }
 
 // ── Media ────────────────────────────────────────────────────────────

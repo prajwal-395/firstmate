@@ -147,15 +147,34 @@ Three places carried the same assumption:
 | `scripts/full_suite_gate.sh` | `FULL_SUITE_GATE_PYTHON`, else ambient `python3` | the variable still wins; the default now asks the ladder |
 | `manage_project.py`'s advice | "make a venv in this checkout" | build the per-machine one; the checkout's is named as the alternative |
 
-### The ladder is DATA, because one caller cannot import it
+### The ladder is QUERIED, because two callers cannot import it
 
-`main.js` is JavaScript inside Resolve's Electron host. It can never
-import a Python module, so the ladder is declared as a list of
-`(kind, spec)` pairs in both languages, and
-`tests/test_shared_environment.py` **parses the JavaScript literal and
-diffs it against the Python one**. Two array literals a test compares
-cannot drift; a rule restated in a comment drifts the first time it
-changes.
+`main.js` is JavaScript inside Resolve's Electron host and
+`scripts/full_suite_gate.sh` is bash. Neither can import a Python
+module, so both ASK the ladder instead of carrying it: `js/interpreter.js`
+shells out to any `python3` to run
+`python -m library.tools.shared_environment --resolve-interpreter`, and
+the gate does the same through `python_interpreter()` directly. A rung
+literal mirrored into a second language was tried first (PR 1141, a test
+diffing the two) and removed: a diffed duplicate is still a duplicate,
+stale the moment only one side is reinstalled. A caller that queries
+cannot drift, because there is nothing on its side to drift.
+
+Stamp-vs-query was decided for query, against the environment moving
+after install: stamping the answered path at install time goes stale the
+moment the durable venv is built later, a checkout `.venv` appears or
+vanishes, or `PIPELINE_PYTHON` is set for one series - and the plugin
+survives Resolve restarts, so a stale stamp answers wrongly for weeks
+with nothing re-asking. The query costs tens of milliseconds of
+stdlib-only startup per bridge call and is current on every call by
+construction.
+
+The bootstrap is neither a second ladder nor the old fallback: answering
+evaluates only stdlib path predicates whose answer is identical whichever
+interpreter asks (the module stays parseable by a stock 3.9, pinned by
+`tests/test_plugin_interpreter_query.py`), and the bootstrap never
+executes pipeline code - the bridge launches only with the answered path,
+and every other outcome refuses loudly where the message is read.
 
 ```
 INTERPRETER_CANDIDATES = (

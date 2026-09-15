@@ -343,13 +343,14 @@ INTERPRETER_CANDIDATES = (
 `(kind, spec)` in order of preference. `kind` says what `spec` is
 relative to: an environment variable, `vep_home()`, or the checkout.
 
-It is data because the one caller that cannot import this module -
-`resolve_workflow_integration/com.videoeditingpilot.vep/main.js`, which
-is JavaScript inside Resolve's Electron host - has to carry the same
-ladder, and `tests/test_shared_environment.py` compares the two literals
-so they cannot drift.  A ladder duplicated in prose would have drifted
-the first time it changed; a ladder duplicated in two array literals
-that a test diffs cannot.
+It is data because the ladder has callers that cannot import this
+module and must still obey it - `scripts/full_suite_gate.sh` and
+`resolve_workflow_integration/com.videoeditingpilot.vep/js/interpreter.js`
+both ASK it, through `interpreter_report()` below, rather than carrying
+their own copy. A ladder duplicated in prose would have drifted the
+first time it changed; a ladder duplicated in a second language already
+did (the plugin's mirrored array, removed 2026-09-15). A caller that
+queries cannot drift, because there is nothing on its side to drift.
 
 There is NO stock-interpreter rung, and there must not be one. The panel
 has refused rather than fall back since it was written (AGENTS.md 15,
@@ -412,3 +413,65 @@ def _no_interpreter_message(repo_root: Optional[str | Path] = None) -> str:
         f"{vep_home() / DURABLE_VENV_DIRNAME}; docs/ML_ENVIRONMENT.md is the "
         f"procedure.")
     return "\n".join(lines)
+
+
+# ── the query endpoint: the ladder as data for callers that cannot import it
+#
+# `js/interpreter.js` (Resolve's Electron host) and
+# `scripts/full_suite_gate.sh` both reach the ladder this way.  The query
+# vehicle may be ANY `python3` - including a stock one that could never
+# run the pipeline - because answering it evaluates only stdlib path
+# predicates (`is_file`, `X_OK`) whose answer does not depend on the
+# asker's version.  The asker NEVER runs pipeline code; the bridge is
+# launched only with the answered path, and an unanswered query refuses.
+# That is what keeps the bootstrap from being a fallback wearing a query's
+# clothes.
+#
+# The constraint this imposes is real and is pinned by
+# `tests/test_plugin_interpreter_query.py`: this module must stay
+# parseable by the oldest stock interpreter a machine may carry (grammar
+# `ast.parse(..., feature_version=(3, 9))`, stdlib use to long-stable
+# calls), or the vehicle cannot even ask.
+
+def interpreter_report(repo_root: Optional[str | Path] = None) -> dict:
+    """The ladder's answer as JSON-serializable data.
+
+    `{"python": path or "", "error": "" or why-not, "tried": [...]}`.
+    A transport success with an empty `python` is the ladder finding
+    nothing - the caller refuses with `error` VERBATIM, so the wording
+    has exactly one source.
+    """
+    path, why_not = python_interpreter(repo_root)
+    return {
+        "python": path,
+        "error": why_not,
+        "tried": [str(c) for c in interpreter_candidates(repo_root)],
+    }
+
+
+def main(argv=None) -> int:
+    """`python -m library.tools.shared_environment --resolve-interpreter
+    [--repo-root <checkout>]`.
+
+    Prints one JSON `interpreter_report()` on stdout.  Exit 0 means the
+    query was answered - even when the answer is "nothing found" - so a
+    nonzero exit always means the vehicle itself failed, never the ladder.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Ask the interpreter ladder; print the answer as JSON.")
+    parser.add_argument("--resolve-interpreter", action="store_true",
+                        help="print interpreter_report() as JSON")
+    parser.add_argument("--repo-root", default=None,
+                        help="the checkout the `repo` rung is tried against")
+    args = parser.parse_args(argv)
+    if not args.resolve_interpreter:
+        parser.print_usage()
+        return 2
+    print(json.dumps(interpreter_report(args.repo_root)))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
