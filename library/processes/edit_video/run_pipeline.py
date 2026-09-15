@@ -488,7 +488,9 @@ def load_pipeline_state(project_dir: str) -> dict:
     # not to the scan: steps in phases 2, 3 and 4 need it and none of them
     # is downstream of scan's project_config. Absolute paths are kept as
     # given, so a brief may live in a read-only planning tree outside the
-    # project and is never copied in.
+    # project and is never MOVED in. Its bytes ARE snapshotted in, once
+    # per run, into `pipeline_output/provenance/` - the fixed versioned
+    # home its free path cannot have (library/tools/brief_snapshot.py).
     #
     # ATTACHING IT IS THE PROJECT'S CHOICE, and every reading of that
     # choice is stated.  It used to be automatic - a declared path went
@@ -3001,7 +3003,32 @@ def run_pipeline(
         json.dump(summary, sys.stdout, indent=2)
         return summary
 
-    
+    # The creative brief's versioned home.  The declared path may sit
+    # outside the project folder, where no static allow-list can reach
+    # it - so the run snapshots the bytes it actually read into
+    # `pipeline_output/provenance/`, which the allow-list already
+    # versions, and the per-build commit carries them beside the step
+    # outputs they shaped.  Once per run, here, and never in
+    # `gather_step_inputs`: the replay bench calls that function and it
+    # must not touch the project (see `record_delivery` below).  After
+    # the dry-run return above, for the same reason a dry run reports
+    # and writes nothing.  See library/tools/brief_snapshot.py.
+    from library.tools import brief_snapshot as _brief_snapshot
+    _brief_record = _brief_snapshot.record_brief_for_run(
+        project_dir, state.get("creative_brief") or "")
+    if _brief_record.get("snapshotted") and not _brief_record.get("unchanged"):
+        print(f"  Creative brief snapshotted from "
+              f"{_brief_record['source']!r} "
+              f"(sha256 {_brief_record['sha256'][:12]}…)",
+              file=sys.stderr)
+    elif _brief_record.get("cleared"):
+        print(f"  Creative brief: {_brief_record['reason']}",
+              file=sys.stderr)
+    elif not _brief_record.get("snapshotted") and _brief_record.get("reason"):
+        if _brief_record["reason"] not in (
+                "no brief attached and no snapshot on file",):
+            print(f"  Warning: {_brief_record['reason']}", file=sys.stderr)
+
     completed = []
     failed = []
     awaiting_llm = []

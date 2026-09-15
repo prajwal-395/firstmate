@@ -117,15 +117,21 @@ def test_allow_list_versions_text_only(tmp_path):
 #      feedback_ledger, marker_resolution, marker_capture
 #   timeline_captures/                 <- hand-edit evidence (pinned above
 #      in TEXT_FILES)
+#   pipeline_output/provenance/creative_brief_snapshot.md (+ digest
+#      sidecar)                       <- brief_snapshot, asserted in
+#      tests/test_brief_snapshot.py rather than below
 #
 # Deliberately NOT tracked, and why:
 #   creative_brief (the project.yaml-declared path; live: the
 #      root-level creative_brief.md) - read by nine steps BY REFERENCE,
 #      but the declaration is a free per-project path that may sit
 #      outside the project folder entirely, so no static allow-list can
-#      name it. The versioned project.yaml records WHERE it was, which
-#      bounds the loss. Fixing that means constraining the brief to a
-#      fixed in-project location, not widening this list.
+#      name it. The versioned project.yaml records WHERE it was - and
+#      the run snapshots WHAT it said into
+#      `pipeline_output/provenance/creative_brief_snapshot.md` plus its
+#      digest sidecar (library/tools/brief_snapshot.py), which this
+#      allow-list DOES version. The path stays free; the versioning
+#      stopped being static. See tests/test_brief_snapshot.py.
 #   brand_assets/, assets/, compositions/ - the captain's artwork and
 #      source tree. Binary-capable (PNG, .drx, fonts, .mov), and the
 #      allow-list's stated purpose is text-only; the versioned
