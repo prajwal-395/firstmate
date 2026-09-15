@@ -2111,8 +2111,9 @@ def _remnant_has_timed_words(start: float, end: float,
 def absorb_wordless_remnants(
         ranges: Sequence[Tuple[float, float]],
         intervals: Sequence[tuple],
-        transcript: dict) -> tuple:
-    """Fold a strike's own edge-dust back into the strike.
+        transcript: dict,
+        kind: str = "keep exclusion") -> tuple:
+    """Fold a cut's own edge-dust back into the cut.
 
     Cutting at exact word boundaries can strand a sub-floor nub where
     the master clip starts just before the first word - Reel 09's
@@ -2121,11 +2122,16 @@ def absorb_wordless_remnants(
     A remnant under `ABSORB_REMNANT_SECONDS` that touches the cut that
     made it and carries NO timed words is absorbed: the cut extends
     over silence nobody can hear. One that carries speech REFUSES,
-    naming the exclusion - extending over words would delete speech
-    the captain never struck, and shrinking past them invents the
-    boundary instead. Returns `(ranges, intervals)` with the intervals
-    extended to what was actually cut, so the mid-word check and the
-    operator both read the true edges.
+    naming the cut - extending over words would delete speech nobody
+    cut, and shrinking past them invents the boundary instead. Returns
+    `(ranges, intervals)` with the intervals extended to what was
+    actually cut, so the mid-word check and the operator both read the
+    true edges.
+
+    `kind` names what cut the intervals: the default `"keep exclusion"`
+    keeps the strike wording byte-identical; `"take cut"` reads the
+    take-cut wording instead (redraw the span past the take, which a
+    strike cannot do and a take cut can).
     """
     out = [(float(a), float(b)) for a, b in ranges]
     grown = [(float(c[0]), float(c[1]),
@@ -2154,6 +2160,14 @@ def absorb_wordless_remnants(
                 out = [(x, y) for x, y in out if (x, y) != span]
                 s, e = (a, e) if side == "behind" else (s, b)
                 grown[index] = (s, e, ident)
+            elif kind == "take cut":
+                raise ReelBuildError(
+                    f"REFUSING to build: {ident} strands a "
+                    f"{(b - a):.2f}s fragment ({a:.2f}-{b:.2f}s) "
+                    f"carrying the word {spoken!r} - placing it fails "
+                    f"the readability floor, and cutting it would "
+                    f"delete speech the cutter kept. Redraw the span "
+                    f"past the take instead.")
             else:
                 raise ReelBuildError(
                     f"REFUSING to build: keep exclusion {ident!r} "
@@ -2165,6 +2179,33 @@ def absorb_wordless_remnants(
                     f"include the fragment or start past it.")
     out = [(a, b) for a, b in out if b - a > MIN_RANGE_SECONDS]
     return out, grown
+
+
+def absorb_wordless_take_gaps(
+        ranges: Sequence[Tuple[float, float]],
+        cuts: Sequence["Cut"],
+        transcript: dict) -> List[Tuple[float, float]]:
+    """Fold wordless dust stranded BETWEEN take cuts back into a cut.
+
+    Two adjacent take cuts can leave a wordless island between them -
+    Reel 15 keeps 1221.51-1221.73s (0.22s of room tone) between dropping
+    "if you're a salon that specializes in 3D nail art" and "and your
+    content is built around that niche, ...", and placing that island
+    is a 5-frame picture+audio item the F7 floor refuses, exactly the
+    death Reel 13 died with its strike's tail. The strike path absorbs
+    its own edge-dust (`absorb_wordless_remnants`); the take path never
+    did, so the island survived `reel_ranges` and waited for the gate.
+    The island carries no timed words, so one cut extends over it; an
+    island carrying speech REFUSES, naming the cut, because cutting it
+    would delete speech the cutter kept.
+    """
+    intervals = [(
+        float(cut.dropped_start), float(cut.dropped_end),
+        "take cut %.2f-%.2f" % (cut.dropped_start, cut.dropped_end),
+    ) for cut in (cuts or [])]
+    out, _grown = absorb_wordless_remnants(
+        ranges, intervals, transcript, kind="take cut")
+    return out
 
 
 class ExclusionWipesBody(ReelBuildError):
@@ -2441,9 +2482,11 @@ def reel_ranges(moment, transcript: dict,
     the body exactly like take cuts do: one reel in, one reel out,
     fewer seconds, never two reels. Empty (the default) builds exactly
     what this built before, so every caller without a project in hand
-    is untouched. A sub-floor nub the cut strands off a clip's lead-in
+    is untouched. A sub-floor nub a cut strands off a clip's lead-in
     is absorbed where it carries no timed words and refused where it
-    carries speech (`absorb_wordless_remnants`). A strike covering the
+    carries speech (`absorb_wordless_remnants` for strikes,
+    `absorb_wordless_take_gaps` for the wordless islands take cuts
+    strand between them). A strike covering the
     whole body raises `ExclusionWipesBody` - the loop drops that reel
     WITH the reason rather than building an empty timeline. A strike
     edge through a word refuses like a take edge, naming the exclusion
@@ -2482,6 +2525,11 @@ def reel_ranges(moment, transcript: dict,
     assert_takes_are_whole(cuts, moment.timeline_start, moment.timeline_end,
                            transcript)
     ranges = keep_ranges(moment.timeline_start, moment.timeline_end, cuts)
+    # Wordless dust two take cuts strand between them is folded back
+    # into a cut here - Reel 15's 0.22s island - for the same reason a
+    # strike's edge-dust is below: placing it fails the F7 floor, and
+    # it carries no words anyone would miss.
+    ranges = absorb_wordless_take_gaps(ranges, cuts, transcript)
     intervals = [(float(c[0]), float(c[1]),
                   (str(c[2]) if len(c) > 2 else ""))
                  for c in (extra_cuts or [])]

@@ -4874,6 +4874,13 @@ def _derive_plan_from_master(
                                     transcript or {})[0]
         cuts = tuple(cuts_list)
         kr = compute_keep_ranges(span_start, span_end, cuts_list)
+        # Wordless islands the take cuts strand between them are
+        # absorbed HERE too, in the same place `reel_ranges` absorbs
+        # them - a reel cannot be built to one rule and checked
+        # against another, and without this every absorbed island
+        # reads as "planned N items, found N-1".
+        from library.tools.reel_build import absorb_wordless_take_gaps
+        kr = absorb_wordless_take_gaps(kr, cuts_list, transcript or {})
         # The captain's recorded strikes, cut the same way the builder
         # cuts them (`reel_build.reel_ranges(extra_cuts=...)`): a reel
         # cannot be built to one rule and checked against another, and
