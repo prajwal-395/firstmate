@@ -253,7 +253,14 @@ status_paused_until() {  # <status-line> -> epoch on stdout
 #   needs-decision: [key=api-shape] <summary>
 #   needs-decision: <summary> [key=api-shape]
 #   resolved       [key=api-shape]: <how it was decided>
-#   resolved: <how it was decided> [key=api-shape]
+# The end position is asymmetric BY VERB: it OPENS (needs-decision, blocked,
+# working, ...) but never CLOSES. A closing verb (resolved, captain-held)
+# with a trailing token is prose quoting a key - "resolved: docs still
+# mention [key=q1]" must not close q1 - because a false close silently loses
+# a live escalation while a false open is noise a human dismisses, and a
+# missed close leaves the decision visibly open instead of silently gone.
+# A worker closes an end-opened decision with either previously accepted
+# close shape (resolved [key=x]: ... or resolved: [key=x] ...).
 # All three positions state the same key and yield the same note (a consumed
 # note-head or note-end token is key metadata, stripped from the note);
 # precedence is before-colon, then note-head, then note-end, and a token in a
@@ -392,6 +399,23 @@ _fm_key_at_note_end() {  # <status-line> -> raw slug
   token=${token%\]}
   printf '%s' "$token"
 }
+# 0 when a note-end "[key=...]" token on <status-line> states the line's key.
+# The end position opens but never closes: a closing verb (the resolve verb
+# or the captain-held transfer verb, with their FM_CLASSIFY_* overrides
+# honored) keeps a trailing token as prose. Single owner of the asymmetry;
+# both _fm_decision_key and status_line_note ask here so the two can never
+# disagree on whether the token was metadata or text.
+_fm_note_end_states_key() {  # <status-line>
+  local verb resolve held
+  _fm_key_at_note_end "$1" >/dev/null || return 1
+  verb=$(status_line_verb "$1")
+  resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
+  held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
+  case "$verb" in
+    "$resolve"|"$held") return 1 ;;
+  esac
+  return 0
+}
 # 0 when a stated key slug is well-formed: nonempty, A-Za-z0-9._- only.
 _fm_decision_slug_ok() {  # <slug>
   case "$1" in
@@ -408,13 +432,15 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
   # A token that states this line's key (no before-colon token, valid slug in
   # the winning note position) is key metadata, not note text: strip it so all
   # three stated-key positions yield the same note. Precedence mirrors
-  # _fm_decision_key below: note-head outranks note-end.
+  # _fm_decision_key below: note-head outranks note-end, and note-end strips
+  # only where it states the key (never on a closing verb).
   if ! _fm_key_before_colon "$1" && k=$(_fm_key_at_note_head "$1") \
     && _fm_decision_slug_ok "$k"; then
     n=${n#"[key=$k]"}
     n=${n#"${n%%[![:space:]]*}"}
   elif ! _fm_key_before_colon "$1" && ! _fm_key_at_note_head "$1" >/dev/null \
-    && k=$(_fm_key_at_note_end "$1") && _fm_decision_slug_ok "$k"; then
+    && _fm_note_end_states_key "$1" && k=$(_fm_key_at_note_end "$1") \
+    && _fm_decision_slug_ok "$k"; then
     n=${n%"${n##*[![:space:]]}"}
     n=${n%"[key=$k]"}
     n=${n%"${n##*[![:space:]]}"}
@@ -438,7 +464,10 @@ _fm_decision_key() {  # <status-line> -> key slug, or "default" when no token
     printf '%s' "$k"
     return 0
   fi
-  if k=$(_fm_key_at_note_end "$1"); then
+  # The end position opens but never closes: on a closing verb the trailing
+  # token is prose (see _fm_note_end_states_key), so the line folds as
+  # default rather than closing a live decision it merely mentions.
+  if _fm_note_end_states_key "$1" && k=$(_fm_key_at_note_end "$1"); then
     _fm_decision_slug_ok "$k" || return 1
     printf '%s' "$k"
     return 0
@@ -750,7 +779,10 @@ _fm_open_decisions_cursor_path() {  # <status-file>
 # 7: a "[key=...]" token at the very end of the note states the key like the
 # note-head position, so lines that previously folded into "default" now open
 # and close under their stated key.
-FM_OPEN_DECISIONS_FOLD_VERSION=7
+# 8: that end position opens but never closes - a closing verb (resolved,
+# captain-held) with a trailing token folds as prose under "default", so a
+# summary merely quoting a key can no longer close a live decision.
+FM_OPEN_DECISIONS_FOLD_VERSION=8
 
 # Portable device:inode identity for the rotation/recreation check below.
 _fm_open_decisions_file_ident() {  # <file> -> strongest available identity

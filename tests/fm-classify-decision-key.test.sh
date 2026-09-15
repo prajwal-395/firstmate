@@ -339,8 +339,8 @@ test_stale_version5_cursor_is_invalidated() {
   new_version=$(head -1 "$cf")
   [ "$new_version" = "version=$FM_OPEN_DECISIONS_FOLD_VERSION" ] \
     || fail "the cursor was not rewritten with the current version: got '$new_version'"
-  [ "$FM_OPEN_DECISIONS_FOLD_VERSION" = "7" ] \
-    || fail "the fold version is $FM_OPEN_DECISIONS_FOLD_VERSION, want 7"
+  [ "$FM_OPEN_DECISIONS_FOLD_VERSION" = "8" ] \
+    || fail "the fold version is $FM_OPEN_DECISIONS_FOLD_VERSION, want 8"
   pass "a stale version-5 cursor is invalidated and refolds to resolved"
 }
 
@@ -349,10 +349,10 @@ test_stale_version5_cursor_is_invalidated() {
 # Workers handed a brief that names the token without a position put it where
 # it reads naturally, which is the end - and two such lines then shared the
 # "default" bucket, so the second silently overwrote the first. The end
-# position is therefore equivalent: it opens, closes, and strips exactly like
-# the note-head form. A token with prose after it stays prose (see the
-# mid-note test below), so a summary merely mentioning "[key=x]" mid-sentence
-# still cannot open or close that decision.
+# position is asymmetric by verb: it opens and strips like the note-head form,
+# but never closes (see test_end_of_line_close_across_positions). A token
+# with prose after it stays prose (see the mid-note test below), so a summary
+# merely mentioning "[key=x]" mid-sentence still cannot open that decision.
 test_end_of_line_key_opens_stated_key() {
   local dir before endline
   dir=$(case_dir end-position)
@@ -388,10 +388,15 @@ test_two_end_of_line_decisions_stay_distinct() {
   pass "two end-of-line keyed decisions never collapse into one shared bucket"
 }
 
-# An end-of-line open closes through either previously accepted close shape,
-# and an end-of-line close settles either previously accepted open shape -
+# An end-of-line open closes through either previously accepted close shape -
 # which is what lets fm-send's before-colon --resolve-key close answer an
-# end-of-line decision.
+# end-of-line decision. The reverse does NOT hold: the end position is
+# asymmetric by verb, accepted when opening, refused when closing. A
+# `resolved:` line whose note merely ENDS in a key token is prose quoting
+# that key, not a close - CI caught the symmetric form of this fix closing
+# q1 on exactly such a line (tests/fm-watch-triage.test.sh). A false close
+# silently loses a live escalation; a missed close leaves the decision
+# visibly open, re-closeable with a documented-position line.
 test_end_of_line_close_across_positions() {
   local dir
   dir=$(case_dir end-cross-close)
@@ -399,14 +404,16 @@ test_end_of_line_close_across_positions() {
   printf 'resolved [key=seam-max-bound]: answered: use 4\n' >> "$dir/a.status"
   assert_fold "$dir/a.status" "" "documented resolution closing an end-of-line open"
 
-  printf 'needs-decision [key=seam-max-bound]: pick the bound\n' > "$dir/b.status"
-  printf 'resolved: answered: use 4 [key=seam-max-bound]\n' >> "$dir/b.status"
-  assert_fold "$dir/b.status" "" "end-of-line resolution closing a documented open"
+  printf 'needs-decision: pick the bound [key=seam-max-bound]\n' > "$dir/b.status"
+  printf 'resolved: [key=seam-max-bound] answered: use 4\n' >> "$dir/b.status"
+  assert_fold "$dir/b.status" "" "note-head resolution closing an end-of-line open"
 
-  printf 'needs-decision: [key=other] a second colon-form question\n' > "$dir/c.status"
-  printf 'resolved: cleared on its own [key=other]\n' >> "$dir/c.status"
-  assert_fold "$dir/c.status" "" "end-of-line resolution closing a colon-first open"
-  pass "an end-of-line key opens and closes across all three key positions"
+  printf 'needs-decision [key=q1]: real choice\n' > "$dir/c.status"
+  printf 'resolved: docs still mention [key=q1]\n' >> "$dir/c.status"
+  assert_fold "$dir/c.status" \
+    "$(printf 'q1\tneeds-decision\treal choice\n')" \
+    "a resolved note ending in a key token must not close that key"
+  pass "an end-of-line open closes through the two accepted shapes, never through a trailing token"
 }
 
 # A token with prose after it is still prose, never a stated key: only a
