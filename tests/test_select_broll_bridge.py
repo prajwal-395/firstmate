@@ -297,6 +297,86 @@ def test_a_cutaway_never_claims_more_timeline_than_its_source_can_fill():
     assert claimed < 4.0
 
 
+def test_a_short_cutaway_over_speech_is_shortened_and_declared():
+    """A-roll plays underneath a speech block, so returning to it early
+    is safe - but the plan must SAY so. The shortening used to be
+    announced on stderr only, which nothing downstream can read, so
+    compile_manifest's undeclared-black check was the first thing that
+    noticed. `coverage_shortfall_seconds` carries it in the plan."""
+    out = _resolve([{"clip_id": "clip_001", "spine_block_position": 1}])
+    entry = out["b_roll_assignments"][0]
+    claimed = round(entry["timeline_end"] - entry["timeline_start"], 3)
+    assert claimed < 4.0
+    assert entry["coverage_shortfall_seconds"] > 0
+    assert entry["coverage_shortfall_seconds"] == pytest.approx(
+        round(4.0 - claimed, 3), abs=0.002)
+
+
+def test_a_cutaway_covering_its_block_declares_zero_shortfall():
+    """0.0 is full cover. The declaration is present even when there is
+    nothing to declare, so a reader never has to guess whether the key
+    is missing or the cover is complete."""
+    out = _resolve(
+        [{"clip_id": "clip_009", "spine_block_position": 1}],
+        spine={"structure": [dict(SPINE["structure"][0],
+                                  clip_id="clip_001")]},
+    )
+    entry = out["b_roll_assignments"][0]
+    assert entry["timeline_end"] == 4.0
+    assert entry["coverage_shortfall_seconds"] == 0.0
+
+
+@pytest.mark.parametrize("block_type", ["transition_slot", "intro", "outro"])
+def test_a_short_cutaway_with_nothing_underneath_refuses(block_type):
+    """The line is V1 membership, not a duration threshold: a
+    transition_slot, intro or outro block puts no clip on V1, so a
+    cutaway that cannot fill the slot would leave black no A-roll
+    fills. That REFUSES here - naming the clip and the shortfall, so
+    the post-bridge rejection reaches the model that chose it -
+    instead of failing a whole stage later at compile_manifest with
+    the evidence about WHY gone."""
+    spine = {"structure": [{"position": 1, "block_type": block_type,
+                             "clip_id": None,
+                             "timeline_start": 0.0, "timeline_end": 4.0}]}
+    with pytest.raises(ValueError, match="clip_001"):
+        _resolve([{"clip_id": "clip_001", "spine_block_position": 1}],
+                 spine=spine)
+
+
+def test_the_refusal_names_the_shortfall():
+    """A refusal that does not say what is short of what cannot be
+    acted on."""
+    spine = {"structure": [{"position": 1, "block_type": "transition_slot",
+                             "clip_id": None,
+                             "timeline_start": 0.0, "timeline_end": 4.0}]}
+    with pytest.raises(ValueError) as excinfo:
+        _resolve([{"clip_id": "clip_001", "spine_block_position": 1}],
+                 spine=spine)
+    message = str(excinfo.value)
+    assert "transition_slot" in message
+    assert "shortfall" in message
+    assert "black" in message
+
+
+def test_a_short_interjection_is_shortened_and_declared():
+    """An interjection adds picture to a free V2 window rather than
+    covering a block, so shortening it cannot CREATE a hole - the
+    stretch underneath is the assignment/V1 layer's answer either way.
+    It is still DECLARED on the clip, for the same reason: a
+    shortening nothing downstream can read is a hole found a stage
+    later."""
+    out = _resolve(
+        [],
+        [{"clip_id": "clip_001", "over_spine_block_position": 1,
+          "timeline_start": 0.0, "timeline_end": 4.0}],
+    )
+    placed = out["b_roll_interjections"][0]
+    clip = placed["assigned_clip"]
+    claimed = round(clip["video_out"] - clip["video_in"], 3)
+    assert placed["timeline_end"] - placed["timeline_start"] <= claimed + 0.001
+    assert clip["coverage_shortfall_seconds"] > 0
+
+
 def test_broll_matching_its_own_aroll_is_skipped_not_substituted(capsys):
     """Cutting to the clip already on screen reads as a glitch, not a cut.
 

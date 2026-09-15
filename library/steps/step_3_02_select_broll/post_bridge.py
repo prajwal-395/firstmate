@@ -33,6 +33,7 @@ import sys
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.cutaway_window import choose_window
+from library.tools.transition_carriers import block_reaches_v1
 
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
@@ -221,11 +222,47 @@ def resolve_broll(
         )
         video_in, video_out = choice.as_tuple()
 
-        # A cutaway can be shorter than the block it covers - we simply
-        # return to A-roll early. It must never CLAIM more timeline than
-        # its source can fill, or V2 shows a hole mid-cutaway.
+        # A cutaway can be shorter than the block it covers - but only
+        # where something plays underneath. A speech or hook block (or a
+        # bookend card) puts a clip on V1 - `block_reaches_v1`, the one
+        # statement of V1 membership compile_manifest builds its V1 track
+        # from, so the two cannot drift - and returning to A-roll early is
+        # safe there. The shortfall is DECLARED on the assignment as
+        # `coverage_shortfall_seconds`: the stderr line below is gone by
+        # the time anything downstream reads the plan, and
+        # compile_manifest's undeclared-black check must not be the first
+        # thing that notices a shortened cutaway.
+        #
+        # A transition_slot, intro or outro block puts NOTHING on V1 - the
+        # cutaway is the only picture. Shortening it there leaves a hole no
+        # A-roll fills, which used to fail a whole stage later at
+        # compile_manifest with the evidence about WHY gone. That case
+        # REFUSES here, naming the clip and the shortfall, so the
+        # post-bridge rejection reaches the model that chose it
+        # (`library/tools/post_bridge_retry.py`) instead of arriving as
+        # black frames a stage later.
+        #
+        # The line is V1 membership, not a duration threshold: a 0.2s
+        # shortfall on a transition_slot is a hole, and a 2.8s shortfall on
+        # a speech block is an early return to A-roll. No tolerance number
+        # is invented here - the 0.001s epsilon below is the pre-existing
+        # float-noise guard between independently rounded durations, not a
+        # judgement about how much black is acceptable.
         available = round(video_out - video_in, 3)
+        shortfall = max(0.0, round(block_duration - available, 3))
         if available < block_duration - 0.001:
+            if not block_reaches_v1(spine_block):
+                raise ValueError(
+                    f"B-roll for block {spine_pos} "
+                    f"({spine_block.get('block_type', '?')}) cannot be placed: "
+                    f"{clip_id} can only supply {available:.3f}s of the "
+                    f"{block_duration:.3f}s slot (shortfall {shortfall:.3f}s, "
+                    f"{choice.basis}: {choice.basis_detail}) - and a "
+                    f"{spine_block.get('block_type', '?')} block puts no clip "
+                    f"on V1, so shortening the cutaway would leave "
+                    f"{shortfall:.3f}s of black with nothing underneath. "
+                    f"Pick a clip that covers the slot."
+                )
             print(
                 f"  Block {spine_pos}: {clip_id} can only supply "
                 f"{available:.3f}s of the {block_duration:.3f}s slot - "
@@ -247,6 +284,12 @@ def resolve_broll(
             "duration_seconds": round(video_out - video_in, 3),
             "timeline_start": timeline_start,
             "timeline_end": timeline_end,
+            # Seconds of the slot the cutaway does not cover, with the
+            # A-roll picture playing underneath. 0.0 is full cover. The
+            # shortening used to be announced on stderr only, which nothing
+            # downstream can read - compile_manifest's undeclared-black
+            # check must not be the first thing that notices.
+            "coverage_shortfall_seconds": shortfall,
             "needs_conform": needs_conform,
             "selection_rationale": rationale,
             # What chose these seconds, recorded beside them. A window
@@ -331,8 +374,13 @@ def resolve_broll(
 
         # Same invariant the assignment path enforces: a cutaway may end
         # early, but it must never claim more timeline than its source can
-        # fill, or V2 freezes mid-cutaway.
+        # fill, or V2 freezes mid-cutaway. An interjection makes no coverage
+        # promise - it is a visual break placed in a free V2 window, and
+        # which picture owns the stretch underneath is the assignment/V1
+        # layer's answer, still guarded by compile_manifest - so the
+        # shortfall is DECLARED on the clip rather than refused here.
         available = round(video_out - video_in, 3)
+        interjection_shortfall = max(0.0, round(block_duration - available, 3))
         if available < block_duration - 0.001:
             print(
                 f"  Interjection over block {spine_pos}: {clip_id} can only "
@@ -365,6 +413,11 @@ def resolve_broll(
                 "video_in": video_in,
                 "video_out": video_out,
                 "duration_seconds": round(video_out - video_in, 3),
+                # Seconds of the placed window the cutaway does not cover.
+                # 0.0 is full cover. Same declaration the assignment path
+                # carries, for the same reason: a shortening nothing
+                # downstream can read is a hole found a stage later.
+                "coverage_shortfall_seconds": interjection_shortfall,
                 "needs_conform": needs_conform,
                 "selection_rationale": rationale,
                 "window_basis": choice.basis,
