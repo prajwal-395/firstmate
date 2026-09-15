@@ -3,9 +3,14 @@
 # Put this repository's DaVinci Resolve scripts where Workspace > Scripts
 # can see them.
 #
-#     scripts/install_resolve_scripts.sh              # install
-#     scripts/install_resolve_scripts.sh --dry-run    # say what it would do
-#     scripts/install_resolve_scripts.sh --uninstall  # take them out again
+#     scripts/install_resolve_scripts.sh [--allow-disposable] [--dry-run|--uninstall]
+#
+# The stamp below OUTLIVES this checkout, so installing from a disposable
+# lane (a linked git worktree, or anything git cannot vouch for) is
+# REFUSED - the installed copy would break silently when the lane is
+# reclaimed.  `--allow-disposable` stamps it anyway, deliberately, for
+# the developer testing from a lane; `--dry-run` only reports the
+# verdict; `--uninstall` always works.
 #
 # The repository is the source of truth.  Each script is COPIED into the
 # Scripts folder with this checkout's path stamped into it, so the copy
@@ -38,20 +43,46 @@ SOURCE_DIR="$(cd "${THIS_DIR}/.." && pwd -P)/resolve_scripts"
 DEST_DIR="${HOME}/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility"
 
 MODE="install"
-case "${1:-}" in
-  --dry-run)   MODE="dry-run" ;;
-  --uninstall) MODE="uninstall" ;;
-  "")          ;;
-  *) echo "usage: $0 [--dry-run|--uninstall]" >&2; exit 64 ;;
-esac
+ALLOW_DISPOSABLE=0
+for arg in "$@"; do
+  case "${arg}" in
+    --dry-run)   MODE="dry-run" ;;
+    --uninstall) MODE="uninstall" ;;
+    --allow-disposable) ALLOW_DISPOSABLE=1 ;;
+    *) echo "usage: $0 [--allow-disposable] [--dry-run|--uninstall]" >&2; exit 64 ;;
+  esac
+done
 
 if [ ! -d "${SOURCE_DIR}" ]; then
   echo "✗ no ${SOURCE_DIR} in this checkout" >&2
   exit 1
 fi
 
+# The stamp below outlives this checkout, so a disposable lane must not
+# be stamped silently: `linked-worktree` (a worktree tool may reclaim
+# it) and `unknown` (nothing vouches for it) both refuse a real install.
+# Uninstall always works - removing a stale install must succeed from
+# anywhere, including the lane that caused it.
+. "${THIS_DIR}/lib/guard_durable_checkout.sh"
+DURABILITY="$(vep_checkout_durability "${REPO_ROOT}")"
+if [ "${DURABILITY}" != "durable" ] && [ "${ALLOW_DISPOSABLE}" -eq 1 ] \
+    && [ "${MODE}" = "install" ]; then
+  echo "proceeding from a ${DURABILITY} checkout by explicit --allow-disposable." >&2
+fi
+if [ "${MODE}" = "install" ] && [ "${DURABILITY}" != "durable" ] \
+    && [ "${ALLOW_DISPOSABLE}" -ne 1 ]; then
+  vep_refuse_disposable_checkout "${REPO_ROOT}" "${DURABILITY}" "$0"
+  exit 1
+fi
+
 echo "repository: ${REPO_ROOT}"
 echo "scripts to: ${DEST_DIR}"
+echo
+if [ "${MODE}" = "dry-run" ] && [ "${DURABILITY}" != "durable" ] \
+    && [ "${ALLOW_DISPOSABLE}" -ne 1 ]; then
+  echo "note: install from here would be REFUSED (${DURABILITY}); pass"
+  echo "--allow-disposable to stamp it deliberately."
+fi
 echo
 
 shopt -s nullglob

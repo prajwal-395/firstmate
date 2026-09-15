@@ -29,10 +29,16 @@ UTILITY = Path(
 
 
 def _run(home, *args):
+    # The mechanics below are tested with HOME redirected into tmp_path,
+    # so no durable surface is stamped - but the checkout under test may
+    # itself be a linked worktree (a crewmate lane), which the installer
+    # refuses by default.  The override is explicit and per-invocation,
+    # which is exactly the deliberate case; the guard itself is covered
+    # in tests/test_installer_disposable_guard.py.
     env = dict(os.environ, HOME=str(home))
     return subprocess.run(
-        ["bash", str(INSTALLER), *args], env=env, capture_output=True,
-        encoding="utf-8", check=False,
+        ["bash", str(INSTALLER), "--allow-disposable", *args], env=env,
+        capture_output=True, encoding="utf-8", check=False,
     )
 
 
@@ -119,11 +125,19 @@ def test_an_unknown_flag_is_refused_rather_than_treated_as_install(tmp_path):
 def test_only_the_installer_names_the_scripts_folder(suffix):
     needle = "Fusion/Scripts"
     offenders = []
+    # Test files that drive the installer with HOME redirected into
+    # tmp_path name the folder to assert WHERE the install landed (and
+    # that nothing outside it was touched).  They are enumerated here,
+    # never exempted by pattern.
+    harness_files = {
+        Path(__file__).resolve(),
+        REPO / "tests" / "test_installer_disposable_guard.py",
+    }
     for path in REPO.rglob(f"*{suffix}"):
         if any(part in (".git", "node_modules", ".venv", "__pycache__")
                for part in path.parts):
             continue
-        if path in (INSTALLER, Path(__file__).resolve()) \
+        if path in (INSTALLER, *harness_files) \
                 or path.parent == SOURCE_DIR:
             continue
         if needle in path.read_text(encoding="utf-8", errors="ignore"):

@@ -3,9 +3,15 @@
 # Put this repository's Workflow Integration where
 # Workspace > Workflow Integrations can see it.
 #
-#     scripts/install_workflow_integration.sh              # install
-#     scripts/install_workflow_integration.sh --dry-run    # say what it would do
-#     scripts/install_workflow_integration.sh --uninstall   # take it out again
+#     scripts/install_workflow_integration.sh [--allow-disposable] [--dry-run|--uninstall]
+#
+# The stamp below OUTLIVES this checkout AND Resolve restarts, and the
+# panel stays blank until someone opens it - so installing from a
+# disposable lane (a linked git worktree, or anything git cannot vouch
+# for) is REFUSED, not warned: a warning printed into a terminal nobody
+# reads again is not a control here.  `--allow-disposable` stamps it
+# anyway, deliberately, for the developer testing from a lane;
+# `--dry-run` only reports the verdict; `--uninstall` always works.
 #
 # The repository is the source of truth.  The plugin directory is COPIED
 # into the Workflow Integration Plugins root with this checkout's path
@@ -42,12 +48,15 @@ DEST_DIR="${PLUGIN_ROOT}/${PLUGIN_ID}"
 SDK_NODE="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Workflow Integrations/Examples/SamplePlugin/WorkflowIntegration.node"
 
 MODE="install"
-case "${1:-}" in
-  --dry-run)   MODE="dry-run" ;;
-  --uninstall) MODE="uninstall" ;;
-  "")          ;;
-  *) echo "usage: $0 [--dry-run|--uninstall]" >&2; exit 64 ;;
-esac
+ALLOW_DISPOSABLE=0
+for arg in "$@"; do
+  case "${arg}" in
+    --dry-run)   MODE="dry-run" ;;
+    --uninstall) MODE="uninstall" ;;
+    --allow-disposable) ALLOW_DISPOSABLE=1 ;;
+    *) echo "usage: $0 [--allow-disposable] [--dry-run|--uninstall]" >&2; exit 64 ;;
+  esac
+done
 
 echo "repository: ${REPO_ROOT}"
 echo "plugin to:  ${DEST_DIR}"
@@ -70,6 +79,24 @@ if [ ! -d "${SOURCE_DIR}" ]; then
   exit 1
 fi
 
+# The stamp below outlives this checkout and every Resolve restart, and
+# a stale one fails INVISIBLY (the panel loads nothing; 2026-08-31 was
+# found by audit, not by an error).  So a disposable lane - a linked
+# git worktree a worktree tool may reclaim, or anything git cannot vouch
+# for - refuses a real install.  Uninstall already returned above and
+# dry-run only reports; neither is blocked.
+. "${REPO_ROOT}/scripts/lib/guard_durable_checkout.sh"
+DURABILITY="$(vep_checkout_durability "${REPO_ROOT}")"
+if [ "${MODE}" = "install" ] && [ "${DURABILITY}" != "durable" ] \
+    && [ "${ALLOW_DISPOSABLE}" -ne 1 ]; then
+  vep_refuse_disposable_checkout "${REPO_ROOT}" "${DURABILITY}" "$0"
+  exit 1
+fi
+if [ "${MODE}" = "install" ] && [ "${DURABILITY}" != "durable" ] \
+    && [ "${ALLOW_DISPOSABLE}" -eq 1 ]; then
+  echo "proceeding from a ${DURABILITY} checkout by explicit --allow-disposable." >&2
+fi
+
 if [ ! -f "${SDK_NODE}" ]; then
   echo "✗ Blackmagic's WorkflowIntegration.node is not on this machine at:" >&2
   echo "    ${SDK_NODE}" >&2
@@ -83,6 +110,10 @@ if [ "${MODE}" = "dry-run" ]; then
   echo "  would copy     ${SOURCE_DIR}  ->  ${DEST_DIR}"
   echo "  would copy     WorkflowIntegration.node from the Resolve installation"
   echo "  would stamp    REPO_ROOT = '${REPO_ROOT}'  into main.js"
+  if [ "${DURABILITY}" != "durable" ] && [ "${ALLOW_DISPOSABLE}" -ne 1 ]; then
+    echo "  note: install from here would be REFUSED (${DURABILITY}); pass"
+    echo "  --allow-disposable to stamp it deliberately."
+  fi
   exit 0
 fi
 
