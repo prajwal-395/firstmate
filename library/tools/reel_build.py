@@ -3181,6 +3181,77 @@ def plan_cutaway(placements_list: Sequence[dict], fps: float,
                 })
 
 
+def resolve_cutaway_window_frames(cutaway: dict, cover_clip,
+                                  placements_list: Sequence[dict],
+                                  fps: float) -> tuple:
+    """The reel-frame window a cutaway spec means on THIS build.
+
+    `cutaway["window_seconds"]` are REEL seconds - they move on every
+    rebuild that moves the reel's timing (a head card's lead, a
+    retimed span, a redrawn closer), while the cover's SOURCE span
+    (`cover.source_in/source_out`, checked onto the master clock by
+    `verify_cover_clip`) does not. Measured on Reel 09, 2026-09-13: a
+    recorded window of frames 574..598 silently meant different
+    content after a rebuild, because `plan_cutaway` compares the
+    recorded seconds against reel frames and nothing re-derived them.
+
+    So where a cover rides along, the window is re-derived from where
+    the cover's placements land on this build, and the recorded window
+    is only a cross-check: agreement within one frame returns the
+    recorded frames, and anything else raises `OffsetRefused` naming
+    the recorded window, where the cover now plays, and the
+    re-recorded seconds. A stale window is never used silently.
+
+    Shape (a), deliberately, not source-anchored storage: the cover's
+    source span already IS the stable record of intent, so a second
+    source-anchored window field would duplicate it with no rule for
+    which wins when the two disagree. One anchor, one check.
+
+    Without a cover there is no second anchor, so the recorded window
+    is returned as-is - the behaviour this replaced. Master-anchoring
+    that case is follow-up work, named by the caller, not done here.
+    """
+    import os
+
+    window_seconds = cutaway["window_seconds"]
+    recorded = (int(round(float(window_seconds[0]) * fps)),
+                int(round(float(window_seconds[1]) * fps)))
+    if cover_clip is None:
+        return recorded
+    source_file = str(getattr(cover_clip, "source_file", "?") or "?")
+    held = os.path.basename(source_file)
+    spans = [_placement_span_frames(place, fps)
+             for place in placements_list
+             if place.get("clip") is cover_clip]
+    if not spans:
+        raise OffsetRefused(
+            f"Cutaway cover {held} "
+            f"[{float(getattr(cover_clip, 'source_in', 0)):.3f}, "
+            f"{float(getattr(cover_clip, 'source_out', 0)):.3f}) "
+            f"plays nowhere on this reel - the ranges no longer cover "
+            f"its master span - so the recorded window "
+            f"[{recorded[0]}, {recorded[1]}) has nothing to reveal. "
+            f"Re-record the cover span and the window, or drop the "
+            f"cutaway. Refused rather than hiding an absence.")
+    derived = (min(start for start, _ in spans),
+               max(end for _, end in spans))
+    if (abs(derived[0] - recorded[0]) <= 1
+            and abs(derived[1] - recorded[1]) <= 1):
+        return recorded
+    raise OffsetRefused(
+        f"Cutaway window [{recorded[0]}, {recorded[1]}) "
+        f"({recorded[0] / fps:.2f}-{recorded[1] / fps:.2f}s) is stale: "
+        f"the cover {held} "
+        f"[{float(getattr(cover_clip, 'source_in', 0)):.3f}, "
+        f"{float(getattr(cover_clip, 'source_out', 0)):.3f}) now plays "
+        f"at reel frames [{derived[0]}, {derived[1]}) "
+        f"({derived[0] / fps:.2f}-{derived[1] / fps:.2f}s). A recorded "
+        f"reel-seconds window moves on every rebuild - re-record "
+        f"window_seconds as [{derived[0] / fps:.4f}, "
+        f"{derived[1] / fps:.4f}] and rebuild. The stale window is "
+        f"refused rather than used.")
+
+
 def shift_captions_for_audio_lead(segments: Sequence[dict],
                                   join_record_frame: int,
                                   lead_frames: int,
@@ -9480,12 +9551,14 @@ def build_reel_variants(project_slug: str, reel_number: int,
     checked = []
     for spec, final in zip(variants, finals):
         clips = list(master_clips)
+        cover_clip = None
         if spec.get("cover") is not None:
             cover = spec["cover"]
-            clips.append(verify_cover_clip(
+            cover_clip = verify_cover_clip(
                 cover["source_file"], float(cover["source_in"]),
                 float(cover["source_out"]), master_clips,
-                transcript, fps))
+                transcript, fps)
+            clips.append(cover_clip)
         variant_placements = placements(
             ranges, clips, fps, lead_frames=lead_frames(cards, fps))
         if spec.get("j_cut") is not None:
@@ -9494,15 +9567,35 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 int(round(float(spec["j_cut"]["join_seconds"]) * fps)),
                 int(round(float(spec["j_cut"]["lead_seconds"]) * fps)),
                 words=spec["j_cut"].get("words", ()))
+        effective = spec
         if spec.get("cutaway") is not None:
-            window = spec["cutaway"]["window_seconds"]
+            # The window is re-derived from the cover on THIS build
+            # (`resolve_cutaway_window_frames`) - a stale recording
+            # refuses here, in seconds and with nothing placed, never
+            # after its sibling already built. What the rest of the
+            # build receives is the re-derived window, so the dry-run
+            # above and the timeline below cannot disagree about what
+            # the spec means.
+            window = resolve_cutaway_window_frames(
+                spec["cutaway"], cover_clip, variant_placements, fps)
+            if cover_clip is None:
+                print(f"  {final}: cutaway window "
+                      f"[{window[0]}, {window[1]}) is reel seconds with "
+                      f"no cover to check it against - re-verify it "
+                      f"after any rebuild that moves the reel's timing "
+                      f"(master-anchoring it is follow-up work).",
+                      file=sys.stderr)
             plan_cutaway(
                 variant_placements, fps,
                 str(spec["cutaway"]["hide_angle"]),
-                (int(round(float(window[0]) * fps)),
-                 int(round(float(window[1]) * fps))),
+                window,
                 cover_words=spec["cutaway"].get("cover_words", ()))
-        checked.append((spec, final, clips))
+            effective = dict(
+                spec,
+                cutaway=dict(spec["cutaway"],
+                             window_seconds=[window[0] / fps,
+                                             window[1] / fps]))
+        checked.append((effective, final, clips))
 
     built = {}
     try:

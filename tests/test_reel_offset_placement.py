@@ -650,3 +650,122 @@ def test_offset_census_still_refuses_an_unlinked_picture():
             timeline, plan,
             offset_links=[OffsetLink(speech=(0, 100),
                                      pictures=((0, 100),))])
+
+
+# ── a recorded reel-seconds window goes stale across rebuilds ──
+# Reel 09, 2026-09-13: the recorded cutaway window ([23.9406,
+# 24.9416], frames 574..598) silently meant different content after a
+# rebuild moved the reel's timing, because `window_seconds` are REEL
+# seconds and `plan_cutaway` compares them against reel frames. The
+# cover's SOURCE span is the anchor that does not move, so the window
+# is re-derived from where the cover lands on THIS build
+# (`resolve_cutaway_window_frames`) and a stale recording refuses
+# loudly rather than being used.
+
+COVER_MASTER_START = 9.5
+COVER_MASTER_END = 10.5
+COVER_START_F = int(round(COVER_MASTER_START * FPS))
+COVER_SPAN_F = int(round((COVER_MASTER_END - COVER_MASTER_START) * FPS))
+LEAD_SHIFT = 24
+"""One head-card second of moved timing between the two builds."""
+
+
+def _cover_clip(tl_start, tl_end):
+    """An external cutaway cover already checked onto the master clock.
+
+    `verify_cover_clip` is out of reach here (ffprobe, media reads);
+    what the window resolution needs is only the clip's identity in
+    the placements, so a plain TimelineClip on the neighbour's row
+    stands in for it.
+    """
+    return _clip("video", 1, "Akshita", "Akshita", "/m/akshita-cover.MXF",
+                 tl_start, tl_end, src_in=3000.0)
+
+
+def _cover_spans(placed, cover):
+    return sorted(_span_frames(p) for p in placed if p["clip"] is cover)
+
+
+def test_a_stale_recorded_window_is_used_silently_by_plan_cutaway():
+    """The defect as found: the same recorded window builds cleanly on
+    moved timing while covering different content - nothing refuses,
+    nothing says the meaning changed."""
+    cover = _cover_clip(COVER_MASTER_START, COVER_MASTER_END)
+    clips = _master_clips() + [cover]
+    recorded_window = [COVER_START_F / FPS,
+                       (COVER_START_F + COVER_SPAN_F) / FPS]
+    assert _cover_spans(placements([(0.0, 20.0)], clips, FPS),
+                        cover) == [(COVER_START_F,
+                                    COVER_START_F + COVER_SPAN_F)], \
+        "on the build the window was recorded from, it IS the cover"
+    moved = placements([(0.0, 20.0)], clips, FPS,
+                       lead_frames=LEAD_SHIFT)
+    assert _cover_spans(moved, cover) == [
+        (COVER_START_F + LEAD_SHIFT,
+         COVER_START_F + COVER_SPAN_F + LEAD_SHIFT)], \
+        "the cover re-derives onto the moved timing; the recording does not"
+    stale_frames = (int(round(recorded_window[0] * FPS)),
+                    int(round(recorded_window[1] * FPS)))
+    plan = plan_cutaway(moved, FPS, "2", stale_frames, cover_words=[])
+    assert plan.report["window_record_frames"] == list(stale_frames), \
+        "the stale window is used exactly as recorded"
+    assert tuple(plan.report["window_record_frames"]) != tuple(
+        _cover_spans(moved, cover)[0]), \
+        "and it no longer covers the cover - used silently"
+
+
+def test_resolve_cutaway_window_returns_the_recorded_window_when_fresh():
+    """Agreement within a frame builds exactly what the captain
+    recorded - the resolver changes nothing on a fresh spec."""
+    from library.tools.reel_build import resolve_cutaway_window_frames
+    cover = _cover_clip(COVER_MASTER_START, COVER_MASTER_END)
+    placed = placements([(0.0, 20.0)], _master_clips() + [cover], FPS,
+                        lead_frames=LEAD_SHIFT)
+    span = _cover_spans(placed, cover)[0]
+    cutaway = {"hide_angle": "2",
+               "window_seconds": [span[0] / FPS, span[1] / FPS]}
+    assert resolve_cutaway_window_frames(
+        cutaway, cover, placed, FPS) == span
+
+
+def test_resolve_cutaway_window_refuses_a_stale_recorded_window():
+    """The fix: the moved build above refuses, naming the recording
+    and where the cover now plays - never used silently."""
+    from library.tools.reel_build import resolve_cutaway_window_frames
+    cover = _cover_clip(COVER_MASTER_START, COVER_MASTER_END)
+    clips = _master_clips() + [cover]
+    stale = {"hide_angle": "2",
+             "window_seconds": [COVER_START_F / FPS,
+                                (COVER_START_F + COVER_SPAN_F) / FPS]}
+    moved = placements([(0.0, 20.0)], clips, FPS,
+                       lead_frames=LEAD_SHIFT)
+    with pytest.raises(OffsetRefused, match="stale"):
+        resolve_cutaway_window_frames(stale, cover, moved, FPS)
+    with pytest.raises(OffsetRefused, match="re-record"):
+        resolve_cutaway_window_frames(stale, cover, moved, FPS)
+
+
+def test_resolve_cutaway_window_refuses_a_cover_that_never_plays():
+    """The ranges no longer cover the cover's master span: the window
+    has nothing to reveal, refused rather than hiding an absence."""
+    from library.tools.reel_build import resolve_cutaway_window_frames
+    cover = _cover_clip(COVER_MASTER_START, COVER_MASTER_END)
+    placed = placements([(0.0, 5.0)], _master_clips() + [cover], FPS)
+    assert _cover_spans(placed, cover) == []
+    cutaway = {"hide_angle": "2",
+               "window_seconds": [COVER_START_F / FPS,
+                                  (COVER_START_F + COVER_SPAN_F) / FPS]}
+    with pytest.raises(OffsetRefused, match="plays nowhere"):
+        resolve_cutaway_window_frames(cutaway, cover, placed, FPS)
+
+
+def test_resolve_cutaway_window_without_a_cover_uses_the_recorded_window():
+    """No cover, no second anchor: the recorded window is returned
+    as-is. This is the boundary of the fix, stated rather than
+    covered - master-anchoring that case is follow-up work."""
+    from library.tools.reel_build import resolve_cutaway_window_frames
+    placed = placements([(0.0, 20.0)], _master_clips(), FPS)
+    cutaway = {"hide_angle": "2", "window_seconds": [9.5, 10.5]}
+    assert resolve_cutaway_window_frames(
+        cutaway, None, placed, FPS) == (
+            int(round(9.5 * FPS)), int(round(10.5 * FPS)))
