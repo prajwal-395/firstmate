@@ -59,7 +59,7 @@ One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the
 - **Reading is not gating.** The summary block runs AFTER `status` is decided and assigns nothing; promoting a report-only check is still one boolean in `render_qa`. The test pins that ordering off the runner's own source.
 - **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
 - **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of both producers and checks BOTH directions.
-- **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. They carry their own legend, because `handoff.md` is frozen (the `CUTS_LEGEND` route), and the legend says plainly that a finding is not grounds to reject a rough cut.
+- **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. **Step 3.03's own `handoff.md` defines every field and states plainly that a finding is not grounds to reject a rough cut** - the prose carries it since the freeze lifted 2026-09-09, so nothing ships a legend beside the table.
 - `tests/test_qa_findings_reach_a_reader.py`.
 """
 
@@ -456,43 +456,12 @@ def summary_lines(qa: QAFindings) -> List[str]:
 
 # ── What review_rough_cut is handed ──────────────────────────────────
 #
-# Step 3.03's `handoff.md` is under the captain's freeze, so the table
-# carries its own legend - the route `music_measurement.MEASUREMENT_LEGEND`
-# and `transition_carriers.CUTS_LEGEND` already take (AGENTS.md sections 5
-# and 10.5).  The legend says what a column IS.  It never says what to
-# conclude, and it states plainly that none of this is grounds to reject
-# the rough cut, because an advisory note turned into a hard rejection is
-# a silent problem converted into a loud wrong one.
-
-QA_FINDINGS_LEGEND = {
-    "what_this_is": (
-        "Measurements of a PREVIOUS render of this project, taken by step "
-        "6.02 on the finished file. They are not checks on the rough cut "
-        "in front of you, and they are not part of the mechanical gate."),
-    "why_it_is_here": (
-        "Several of them are consequences of decisions made at or before "
-        "this step - which passage was anchored where, and how long each "
-        "block holds. Nothing else in the pipeline reads them."),
-    "not_grounds_for_rejection": (
-        "Do NOT reject the rough cut because of a finding here. Reject "
-        "only on the mechanical checks and the narrative criteria in this "
-        "handoff. A finding is context; say what it implies for this cut "
-        "if it implies anything, and otherwise leave it."),
-    "metric": "the check's name in exports/qa_report.json",
-    "severity": "error | warning | info - how loud the check itself is",
-    "verdict": (
-        f"{FAILING} = the check did not pass; "
-        f"{ADVISORY} = it passed the gate and still missed its own target, "
-        f"deliberately not gating; {CLEAN} = nothing to say"),
-    "owned_by": (
-        "the pipeline step whose decision the finding is about, as a DAG "
-        "node id. An empty owner means no reader is declared for it."),
-    "detail": "the check's own sentence, verbatim",
-    "readings": (
-        "one sentence per metric that has something to say, saying what a "
-        "reader does with it. A clean check has no reading because there "
-        "is nothing to read; its row is still in the table."),
-}
+# What each field IS - and the rule that none of it is grounds to reject
+# a rough cut - is stated in step 3.03's own `handoff.md`, under
+# "`render_qa_findings` - measurements of the LAST render".  It travelled
+# beside the table as a `QA_FINDINGS_LEGEND` dict only while that file
+# was under the captain's freeze; the freeze was lifted 2026-09-09, and a
+# definition living in two places is worse than either.
 
 
 def findings_for_review(qa: QAFindings) -> Dict[str, Any]:
@@ -505,7 +474,6 @@ def findings_for_review(qa: QAFindings) -> Dict[str, Any]:
     """
     ordered = sorted(qa.findings, key=_sort_key)
     return {
-        "legend": QA_FINDINGS_LEGEND,
         "source": qa.source,
         "source_detail": qa.source_detail,
         "counts": qa.counts(),

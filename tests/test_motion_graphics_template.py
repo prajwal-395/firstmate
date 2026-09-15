@@ -233,3 +233,40 @@ def test_a_span_is_bounded_by_the_spine_length(start, duration):
         plan(color="#FF8A3D", start_seconds=start, duration_seconds=duration),
         {})
     assert _elements(segs)[0]["timeline_end"] <= timeline_duration(SPINE)
+
+
+# ── The brand rules live in the prompt, not beside the data ──────────
+#
+# `brand_refinement` used to carry two constant strings - how a colour is
+# resolved, and what a template absence means - because step 4.06's
+# `handoff.md` was under the captain's freeze. The freeze lifted
+# 2026-09-09, so the prompt carries them and the bridge carries per-run
+# facts only. A rule in both places is worse than either: the day they
+# disagree, nothing says which one the model followed.
+
+def test_brand_refinement_carries_per_run_facts_and_no_rules():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "mg_bridge",
+        os.path.join(PROJECT_ROOT, "library", "steps",
+                     "step_4_06_render_motion_graphics", "bridge.py"))
+    bridge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bridge)
+
+    out = bridge.brand_refinement({}, {})
+    assert set(out) == {"declares_a_palette", "palette_roles",
+                        "template_effect_slots_declared"}, (
+        "brand_refinement states what THIS project declares; a rule "
+        "belongs in handoff.md")
+
+
+def test_the_prompt_states_how_a_colour_is_resolved_and_what_absence_means():
+    handoff = " ".join(open(os.path.join(
+        PROJECT_ROOT, "library", "steps",
+        "step_4_06_render_motion_graphics", "handoff.md"),
+        encoding="utf-8").read().split())
+    assert "`colour_role`" in handoff and "`color`" in handoff
+    assert "the entry is dropped" in handoff
+    assert "There is no house colour" in handoff
+    assert "not a project with a reduced layer" in handoff

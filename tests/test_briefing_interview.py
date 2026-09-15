@@ -83,12 +83,21 @@ def test_select_reels_is_interviewed_without_a_brief():
     assert bi.asks("select_reels", brief_attached=True) is False
 
 
-def test_mesh_spine_is_interviewed_though_its_handoff_never_names_a_brief():
+def test_a_step_is_interviewed_off_its_manifest_not_its_prompt():
     """A step is asked because its MANIFEST asked for a brief, not
-    because its prompt mentions one (AGENTS.md 10.1)."""
+    because its prompt mentions one (AGENTS.md 10.1).
+
+    `mesh_spine` was the case that proved it: it declared the brief for
+    months while its `handoff.md` - under the captain's freeze - never
+    named one, and it was interviewed correctly throughout. The freeze
+    lifted 2026-09-09 and the prompt now names it too, so the proof
+    moved to the derivation itself rather than to that one file's
+    silence.
+    """
     assert "mesh_spine" in bi.ASKING_STEPS
-    handoff = Path(PROJECT_ROOT) / "library/steps/step_2_05_mesh_spine/handoff.md"
-    assert "creative_brief" not in handoff.read_text(encoding="utf-8")
+    assert bi.ASKING_STEPS == bi._steps_declaring_the_brief(), (
+        "the asking set is DERIVED from what the manifests declare; a "
+        "prompt mentioning a brief neither adds a step nor removes one")
 
 
 def test_a_step_that_never_asked_for_a_brief_is_never_interviewed():

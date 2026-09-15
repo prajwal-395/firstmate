@@ -30,7 +30,10 @@ out of the answer before validation, reporting and never gating, with an
 empty answer and an absent one read differently.  This is deliberately
 its twin rather than a second invention - same `take`/`record`/
 `summary_lines` surface, same collector, same route into the prompt as
-DATA beside the context because the handoffs are frozen.
+DATA beside the context.  That route is REUSE: the same words go to
+every flagging step, and N copies in N `handoff.md` files is N things
+to keep equal.  It is not the captain's handoff freeze, lifted
+2026-09-09.
 
 **Where it differs, and why.**  The sibling has THREE readings; this has
 FOUR.  A gap is named by naming it, so `what` alone is a complete entry
@@ -89,7 +92,7 @@ against nine clips one of which measures 53 luma.
 **The inventory this marking comes from, and what it judged.**
 Prose-as-evidence flows found 2026-09-07 by joining every step manifest's
 `context_fields` against the producing step's output schema (calibrated:
-the sweep was checked against `CUT_VERDICT_LEGEND` and
+the sweep was checked against 4.02's `narrative_verdict` prose and
 `direction_justification.why_not_forbidden`, both known present, before
 any absence was believed).  The line drawn: whole-object prose keyed by
 its authoring step (`creative_direction`, `rough_cut_review`,
@@ -103,8 +106,9 @@ not, and those are what `VISION_PROSE_PATHS` marks:
   `EVIDENCE_SOURCES`).  A downstream DECISION (contradicted vs not)
   rested on unattributed text: prose-vs-prose read as CONTRADICTED.
 * ALREADY MARKED - `cut_decisions` verdict+note reaches 4.02 as
-  `narrative_verdict` / `verdict_note` with `CUT_VERDICT_LEGEND`
-  (`library/tools/cut_verdicts.py`); the B-roll `description` column is
+  `narrative_verdict` / `verdict_note`, and step 4.02's `handoff.md`
+  states in its own prose that a verdict is the review's JUDGEMENT
+  rather than a measurement; the B-roll `description` column is
   vision prose travelling beside measured framing/stability/tags, and
   4.02's `outgoing/incoming_footage` deliberately carries measurements
   only.  Pinned by test, not rebuilt.
@@ -119,8 +123,9 @@ not, and those are what `VISION_PROSE_PATHS` marks:
   The drop IS the marking.  Pinned by test.
 * GENUINELY JUST PROSE - `topics_toon` / `transcripts_toon`
   (2.02's own prompt tables, consumed only by its own prompt),
-  `CUTS_LEGEND` / `MEASUREMENT_LEGEND` definitional text, run-summary
-  lines.  No decision rests on them as evidence.
+  the derived-column definitions each planning handoff now carries in
+  its own prose, run-summary lines.  No decision rests on them as
+  evidence.
 
 
 Rules relocated from AGENTS.md 3
@@ -132,7 +137,7 @@ and points here.
 
 One enumeration, `library/tools/direction_contradiction.py`. On 001's 29 Aug run "emotion" and "energy" appear ZERO times in the semantic documents and FOUR times each in the `creative_direction` block at stations 2 and 3: step 2.01 reads the footage once and every creative step after it inherits that reading whole, with no way to say what it measured disagrees. Prosody (#417) is the first deterministic measurement that CAN disagree with an inherited affect reading.
 - **Captain's ruling, 2026-09-01: a step MAY FLAG and MAY NOT ACT.** Nothing reads a flag's content, nothing gates on one, and the field is SPLIT OUT of the answer before validation - so the output a flagging step produces is byte-for-byte the one it would have produced silently. Escalation to the captain happens OUTSIDE the pipeline.
-- **It is `undetermined.py`'s twin carrying different cargo** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA beside the context because the handoffs are frozen. Do not build a second mechanism.
+- **It is `undetermined.py`'s twin carrying different cargo** - same `take`/`record`/`summary_lines` surface, same collector, same route into the prompt as DATA beside the context, and for the same reason: one instruction asked of many steps is single-sourced here rather than copied into each prompt. Do not build a second mechanism.
 - **FOUR readings, not the sibling's three.** A gap is named by naming it; a CONTRADICTION is a claim ABOUT a measurement, and a claim with no measurement is a model politely disagreeing with its brief. `contradicted` needs an entry naming a `direction_field` in `DIRECTION_KEYS`, a `measurement`, and a `measured_in` the step was really routed. Everything else is `unevidenced` - kept verbatim, reported as itself, and NEVER counted as a contradiction. `nothing_contradicted` (`[]`) and `not_declared` (key absent) are the other two, and they are not each other.
 - **Every step that reaches a model except the one that authors the direction - nine of them.** `color_grade` joined on 2026-09-03 by DERIVATION alone when 5.01 stopped being deterministic. A step needs a prompt to say it in, an inherited direction claim and a routed measurement. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`; the routed half is DERIVED from `dag.json`, so a new edge cannot leave it stale, and `render_motion_graphics` joined by that derivation alone when 4.06 stopped being deterministic. `creative_cohesion` declares `creative_direction` and is deterministic, so it has nothing to say it in. `validate` reaches a model and holds measurements but is handed no inherited direction, so it is out on the direction half - recorded in `CONSIDERED_AND_EXCLUDED` rather than left as a derivation side-effect.
 - **`MEASURED_OUTPUTS` and `DECLINED_OUTPUTS` must together account for every output of every deterministic step**, and an unaccounted one raises at import - a new deterministic output says which side it is on before it can go quiet.
@@ -233,7 +238,7 @@ MEASURED_OUTPUTS = {
 # planning genuinely need to know what the footage shows).  What changes
 # is that `prompt_block` names them as NOT measurements for every step
 # routed the document, so a downstream decision can tell a measurement
-# from a reading.  The handoffs are frozen, so this takes the
+# from a reading.  One instruction, many steps, so this takes the
 # MEASUREMENT_LEGEND / CUTS_LEGEND route: the words travel as data
 # beside the context.
 #
@@ -711,7 +716,7 @@ def prompt_block_for(evidence: Dict[str, str]) -> str:
 def prompt_block(step_id: str) -> str:
     """The instruction, delivered as DATA beside the context.
 
-    The handoffs are frozen, so this takes the route
+    One instruction asked of many steps, so this takes the route
     `music_measurement.MEASUREMENT_LEGEND` and `CUTS_LEGEND` already
     take: the words travel with the call rather than being edited into
     the prompt file.

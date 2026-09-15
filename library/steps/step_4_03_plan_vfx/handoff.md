@@ -100,6 +100,25 @@ The `vfx_candidates_toon` table provides a summarized list of clips with the fol
 - `text`: Summary text for the segment.
 - `vfx_suggested`: Pre-computed suggestion on whether VFX are needed based on motion/pose data.
 
+Two more columns are DERIVED from where the picture is PLACED. Each says
+what it measures; neither says what to conclude.
+
+- `picture_track`: Which video track carries the picture this block shows -
+  `V1`, `V2` or `none`. A speech, hook or bookend block puts a clip on V1;
+  every other block - a `transition_slot` above all - shows a B-roll
+  cutaway, and every B-roll placement goes on V2. An effect is a per-clip
+  Fusion comp and the renderer builds them on V1 and V2 alike, so a block
+  reading `V1` or `V2` can carry one. **A block reading `none` has no clip
+  at all**: an effect planned there is dropped with that reason and never
+  reaches the picture.
+- `track_basis`: Which clip the effect would draw on, and what else is on
+  screen over it. An effect on a V2 cutaway modifies the CUTAWAY's own
+  frames - a zoom zooms the cutaway, a shake shakes it - because a per-clip
+  comp reads the clip it sits on and nothing else; it cannot read or alter
+  the A-roll on V1. *"behind the cutaway for that stretch"* means a cutaway
+  is placed over this block, so an effect here draws on a picture the viewer
+  does not see while the cutaway plays.
+
 Use this data to decide which effects to apply.
 
 ---
@@ -133,7 +152,10 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 
 1. Every effect earns its place - it is there because the moment wants it,
    not to satisfy a count
-2. Parameters within style spec ranges
+2. Every effect's `params` use names the renderer dispatches on, and the
+   VALUES in them are the plan's own. There is no style-spec range, no
+   scale the engine offers and no ceiling - only the one MECHANICAL
+   refusal above (an ANIMATED Transform Size peaking over 1.04)
 3. No effect changes clip in/out points or timeline position
 
 ---

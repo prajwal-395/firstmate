@@ -105,7 +105,7 @@ and points here.
 - **Enforcement is not warrant.** Establishing warrant means RUNNING the step without the input; `tests/test_compile_manifest_without_the_decoration.py` does that for every input of the one step that reads state directly instead of taking `gather_step_inputs`' word for it.
 - A required input the step nonetheless runs without is recorded in `REQUIRED_THOUGH_THE_STEP_RUNS_WITHOUT_IT` with what would go silently missing - and the test checks the record BOTH ways, so an entry for an input that really refuses is stale and fails.
 - The line is AGENTS.md section 10.5's: `[]` for transitions is the absence of decoration and is optional; `{}` for the audio mix is the spine's declared `music_behavior` going missing and is not.
-- `UNCONSUMED_DECLARATIONS` records an input read by neither the step's code nor its prompt, still declared because unrouting it would leave a frozen `handoff.md` documenting a read that no longer happens. `UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT` is its MIRROR - the declaration has gone and the frozen line has stayed - and `creative_direction.prosody_analysis` is its one entry, held open until the captain rules on `step_2_01_creative_direction/handoff.md:127`. It fails from BOTH sides: an entry whose input is declared again is stale, and so is one whose handoff no longer names the key.
+- `UNCONSUMED_DECLARATIONS` records an input read by neither the step's code nor its prompt, still declared because unrouting it would leave a `handoff.md` documenting a read that no longer happens. `UNROUTED_THOUGH_THE_HANDOFF_DOCUMENTS_IT` is its MIRROR - the declaration has gone and the handoff line has stayed. It is EMPTY: its one entry, `creative_direction.prosody_analysis`, closed on 2026-09-01 when the captain re-wired step 1.05 and the handoff line agreed again. It fails from BOTH sides: an entry whose input is declared again is stale, and so is one whose handoff no longer names the key.
 - **A step with no `handoff.md` reaches no prompt, and its CODE is the only consumer it can have.** `step_has_a_prompt` asks `run_pipeline.get_step_implementation`, and `trace_step_values` then asks whether the value the key yields REACHES A USE - naming the key is not reading it.
 - **That half REPORTS; it does not fail**, because escalating a pre-existing finding is the captain's call. `unread_by_a_prompt_less_step` is the report; `disagreements` is unchanged.
 - **The value read is one-sided and says so.** `_UNTRACEABLE` is what it reads as USED rather than guessing about - anything but a plain function the step's own files define, an alias, a second hop.
@@ -159,16 +159,18 @@ UNCONSUMED_DECLARATIONS = {
 }
 
 
-# ── Unrouted, though a frozen handoff still documents the read ───────
+# ── Unrouted, though the handoff still documents the read ───────────
 #
 # The other side of the same disagreement.  Above, the input is still
 # DECLARED because unrouting it would leave the handoff documenting a
 # read that no longer happens.  Here the declaration has GONE and the
 # handoff line has stayed, because the two are owned by different
 # people: the declaration is this engine's, the `handoff.md` is the
-# captain's and is frozen.
+# captain's.  (Their freeze on it was lifted 2026-09-09, so a stale
+# line here is now editable rather than merely recordable - but the
+# ruling on what the line should SAY is still theirs.)
 #
-# So an entry here is a record that a frozen file and the DAG disagree,
+# So an entry here is a record that the prose and the DAG disagree,
 # held open until the captain rules on the line.  It is NOT a way to go
 # quiet: `disagreements` fails it from BOTH sides - if the input is
 # declared again the entry is stale, and if the handoff stops naming

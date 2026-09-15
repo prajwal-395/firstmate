@@ -149,8 +149,11 @@ def test_the_bridge_carries_tempo_key_and_grid_on_every_candidate(
     assert proc.returncode == 0, proc.stderr
     catalogue = json.loads(proc.stdout)["music_candidates"]
 
+    # The definitions moved into 2.04's prompt when the freeze lifted;
+    # the inventory is what the import guard reads.
+    assert "measurement_legend" not in catalogue
     for key in RHYTHM_SCALARS | {"beat_grid"}:
-        assert key in catalogue["measurement_legend"], key
+        assert key in mm.MEASURED_KEYS, key
 
     by_title = {c["title"]: c for c in catalogue["candidates"]}
     fast, slow = by_title["fast bed"], by_title["slow bed"]

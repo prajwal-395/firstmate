@@ -221,19 +221,40 @@ def test_nothing_emitted_is_a_taste_label(tmp_path):
         assert declined not in rhythm
 
 
-def test_the_legend_defines_every_key_that_is_emitted(tmp_path):
-    """A column whose units are unstated is not a measurement anyone can use.
+def test_the_inventory_names_every_key_that_is_emitted(tmp_path):
+    """A measurement missing from the inventory escapes the import guard.
 
-    Step 2.04's handoff.md is under a captain freeze and cannot name the
-    new columns, so the definitions ship beside the numbers. A key with no
-    legend entry reaches the model as a bare float.
+    `MEASURED_KEYS` is what `_UNACCOUNTED` is asked of, so a key emitted
+    and not listed is a measurement nobody decided about.
     """
     track = _tone(tmp_path / "t.wav", 30.0, 0.2)
     measured = mm.measure_track(str(track), window_seconds=20.0)
 
     for key in measured:
-        assert key in mm.MEASUREMENT_LEGEND, key
-    assert set(mm.MEASUREMENT_LEGEND) == EMITTED_KEYS | RHYTHM_KEYS
+        assert key in mm.MEASURED_KEYS, key
+    assert set(mm.MEASURED_KEYS) == EMITTED_KEYS | RHYTHM_KEYS
+
+
+def test_the_prompt_defines_every_key_that_reaches_it(tmp_path):
+    """A column whose units are unstated is not a measurement anyone can
+    use.  The definitions used to ship beside the numbers because step
+    2.04's handoff.md was under the captain's freeze; the freeze lifted
+    2026-09-09, so the prompt carries them and this is the gate that
+    stops the table and the prose drifting apart.
+    """
+    handoff = " ".join((
+        REPO / "library/steps/step_2_04_music_selection/handoff.md"
+    ).read_text(encoding="utf-8").split())
+    for key in mm.SELECTION_MEASUREMENT_KEYS:
+        assert f"`{key}`" in handoff, (
+            f"{key} travels with the chosen track and 2.04's prompt never "
+            f"says what it is")
+    # A key deliberately WITHHELD must not be defined as though the model
+    # could read one: describing data nobody ships is the same defect in
+    # reverse.
+    for key in ("window_envelope_dbfs", "beat_grid"):
+        assert f"`{key}`" not in handoff, (
+            f"{key} is withheld from the prompt and the prompt defines it")
 
 
 def test_declined_measurements_records_why_each_one_is_out():
@@ -242,8 +263,8 @@ def test_declined_measurements_records_why_each_one_is_out():
     # choice time instead of being left out.
     assert "bpm" not in mm.DECLINED_MEASUREMENTS
     assert "musical_key" not in mm.DECLINED_MEASUREMENTS
-    assert "tempo_bpm" in mm.MEASUREMENT_LEGEND
-    assert "musical_key" in mm.MEASUREMENT_LEGEND
+    assert "tempo_bpm" in mm.MEASURED_KEYS
+    assert "musical_key" in mm.MEASURED_KEYS
     for name, reason in mm.DECLINED_MEASUREMENTS.items():
         assert len(reason) > 40, name
 
@@ -293,8 +314,7 @@ def test_an_unreadable_file_is_reported_unmeasured(tmp_path):
 
 # ── the bridge really ships it ───────────────────────────────────────
 
-def test_the_bridge_emits_the_measurements_and_the_legend(tmp_path,
-                                                          monkeypatch):
+def test_the_bridge_emits_the_measurements(tmp_path, monkeypatch):
     """Drive the real bridge against a project built under tmp_path.
 
     Nothing here reaches a real project: the music library and the project
@@ -323,7 +343,8 @@ def test_the_bridge_emits_the_measurements_and_the_legend(tmp_path,
     assert proc.returncode == 0, proc.stderr
     catalogue = json.loads(proc.stdout)["music_candidates"]
 
-    assert set(catalogue["measurement_legend"]) == EMITTED_KEYS | RHYTHM_KEYS
+    # The definitions are in 2.04's prompt, not beside the numbers.
+    assert "measurement_legend" not in catalogue
 
     by_title = {c["title"]: c for c in catalogue["candidates"]}
     assert by_title["steady bed"]["measured"] is True

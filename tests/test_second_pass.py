@@ -28,7 +28,7 @@ sys.path.insert(0, REPO)
 
 from library.tools import second_pass  # noqa: E402
 from library.tools.music_measurement import (  # noqa: E402
-    SECTION_ENVELOPE_LEGEND, section_envelopes,
+    section_envelopes,
 )
 
 POST_BRIDGE = os.path.join(
@@ -151,10 +151,25 @@ def test_every_shortlisted_section_gets_a_row_whether_or_not_it_measured():
     assert all(r["measured"] is False for r in rows)
 
 
-def test_the_legend_says_what_a_key_is_and_never_what_to_conclude():
-    joined = " ".join(SECTION_ENVELOPE_LEGEND.values()).lower()
+def test_the_prompt_says_what_a_key_is_and_never_what_to_conclude():
+    """The definitions moved into 2.04's prompt when the freeze lifted,
+    so the no-conclusion rule is asserted where the model reads them."""
+    handoff = " ".join(open(os.path.join(
+        REPO, "library", "steps", "step_2_04_music_selection", "handoff.md"),
+        encoding="utf-8").read().split())
+    start = handoff.index("When that second pass arrives")
+    section = handoff[start:].lower()
+    for key in ("envelope_dbfs", "mean_dbfs", "spread_db", "measured"):
+        assert f"`{key}`" in handoff, key
     for banned in ("best", "prefer", "should choose", "recommend"):
-        assert banned not in joined
+        assert banned not in section[:section.index("---")]
+
+
+def test_the_definition_does_not_also_travel_beside_the_numbers():
+    source = open(os.path.join(
+        REPO, "library", "steps", "step_2_04_music_selection",
+        "post_bridge.py"), encoding="utf-8").read()
+    assert '"section_measurements_legend"' not in source
 
 
 # ── The exchange ─────────────────────────────────────────────────────
@@ -214,7 +229,9 @@ def test_pass_one_answers_with_the_measurements_and_asks_again(track, capsys):
         (0.0, 60.0), (60.0, 120.0), (100.0, 160.0)], (
         "each row is the section the model named, in the order it named "
         "them")
-    assert "section_measurements_legend" in body
+    # The definitions are in 2.04's prompt, already read by the time
+    # this block arrives; they do not travel beside the numbers.
+    assert "section_measurements_legend" not in body
     if HAS_FFMPEG:
         assert all(len(r["envelope_dbfs"]) == 12 for r in rows)
     else:

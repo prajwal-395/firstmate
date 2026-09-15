@@ -154,9 +154,12 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 
 - B-roll interjections go on video track V2, overlaying A-roll on V1.
   The A-roll audio continues uninterrupted on A1.
-- The `needs_conform` flag should be `true` if the clip's resolution or
-  rotation doesn't match the 1080x1920 portrait target. Check width,
-  height, and rotation from the clip catalog.
+- **Do not answer `needs_conform`.** Whether a clip's resolution or
+  rotation has to be conformed to the delivery frame is measured from the
+  catalog by `check_needs_conform`
+  (`library/steps/step_3_02_select_broll/post_bridge.py`), which overwrites
+  the field on every assignment and every interjection. Nothing you write
+  there survives.
 - If insufficient B-roll exists in the catalog, FLAG it — some blocks may
   need A-roll with visual treatment (zoom/crop) instead of separate B-roll.
 - Interjection duration is a guideline, not a rigid constraint. The purpose

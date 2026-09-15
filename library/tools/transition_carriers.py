@@ -82,7 +82,7 @@ keeps the headline and points here.
 One enumeration, `library/tools/transition_carriers.py`.
 - `block_reaches_v1` is the single statement of V1 membership - a bookend card, a `speech` or `hook` block - and `compile_manifest` builds its V1 track from that same predicate, so the two cannot drift.
 - Every B-roll placement goes on V2, so a cut whose OUTGOING block is a `transition_slot` has no V1 clip ending on it and `compile_manifest` refuses the transition by name. A cut whose outgoing clip is the LAST thing on V1 is refused too: the effect is a tail AND a head.
-- `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. `CUTS_LEGEND` defines both columns as DATA, because `handoff.md` is frozen - the same route `music_measurement.MEASUREMENT_LEGEND` takes for step 2.04.
+- `cut_carriers` reads that off the spine before the run, and step 4.02's bridge puts it in `cuts_toon` as `can_carry_drawn_transition` / `carry_basis`. **Both columns are DEFINED in step 4.02's `handoff.md`**, under "Context data available". They travelled beside the table as a `CUTS_LEGEND` dict only while that file was under the captain's freeze; the freeze was lifted 2026-09-09 and the definition moved into the prose, because one living in two places is worse than either.
 - **The table is never filtered or re-ranked.** Every cut is still offered; the model is told the truth and still chooses (section 10.5).
 - `tests/test_transition_carriers.py`.
 """
@@ -98,8 +98,8 @@ NO_V1_CLIP_ENDS_HERE = "no"
 
 # The basis names WHERE THE TWO HALVES LAND, because a drawn transition
 # is a tail and a head and they can land on different pictures.  One
-# short phrase per row: the mechanism behind it is said once in
-# CUTS_LEGEND rather than fifteen times in the table.
+# short phrase per row: the mechanism behind it is said once in step
+# 4.02's handoff.md rather than fifteen times in the table.
 BASIS_DRAWS_THROUGH = (
     "outgoing {outgoing} on V1, incoming {incoming} on V1: draws through "
     "this cut")
@@ -108,36 +108,6 @@ BASIS_HEAD_AFTER_THE_CUTAWAY = (
     "here, the head on the next V1 clip after the cutaway")
 BASIS_OUTGOING_ON_V2 = "outgoing {outgoing} on V2: no V1 clip ends here"
 BASIS_NOTHING_FOLLOWS = "outgoing {outgoing} on V1 but it ends the V1 track"
-
-#: What the two derived columns of ``cuts_toon`` ARE.  Step 4.02's
-#: ``handoff.md`` is under the captain's freeze and cannot name them, so
-#: the definition travels as data beside the table - the same route
-#: ``music_measurement.MEASUREMENT_LEGEND`` takes for step 2.04.  It says
-#: what each column measures; it never says what to conclude.
-CUTS_LEGEND = {
-    "can_carry_drawn_transition":
-        "Whether a DRAWN transition (fade_to_black, zoom_blur, defocus, "
-        "flash) can be built at this cut. 'yes' or 'no'. A drawn "
-        "transition is a tail on the outgoing V1 clip and a head on the "
-        "next one, so it needs a V1 clip ending at the cut with another "
-        "V1 clip after it. A cut reading 'no' fails compilation if a "
-        "drawn transition is planned on it. The undrawn types "
-        "(hard_cut, jump_cut, match_cut) place nothing and are "
-        "unaffected: they are buildable at every cut.",
-    "carry_basis":
-        "Which track the blocks either side of this cut play on, and "
-        "therefore where the effect's two halves land. A speech, hook or "
-        "bookend block puts a clip on V1; every other block - a "
-        "transition_slot above all - is covered by B-roll, and every "
-        "B-roll placement goes on V2. 'draws through this cut' means the "
-        "tail and the head land on the two pictures either side of it. "
-        "'the head on the next V1 clip after the cutaway' means the "
-        "incoming picture is B-roll on V2, so the effect brackets the "
-        "cutaway instead of drawing through the cut - it is buildable, "
-        "and it is not the same gesture. 'ends the V1 track' means there "
-        "is no V1 clip left to draw the head half onto.",
-}
-
 
 def block_reaches_v1(block: dict) -> bool:
     """True when this spine block puts a clip on the V1 video track.

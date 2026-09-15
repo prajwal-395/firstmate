@@ -12,7 +12,7 @@ selecting a one minute stretch of music blindly"*.
 
 Three ceilings, and none of them was in the prompt
 --------------------------------------------------
-Step 2.04's frozen ``handoff.md`` has asked for splices since it was
+Step 2.04's ``handoff.md`` has asked for splices since it was
 written - *"a 3-minute track is never used in full; pick the sections that
 fit particular moments"* - and for a *"single continuous section is as
 valid as multiple splices"*.  The model has been answering.  What stopped

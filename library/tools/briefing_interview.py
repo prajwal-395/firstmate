@@ -38,8 +38,12 @@ questions matter becomes the interviewer (AGENTS.md 10.4).
 This is `undetermined.py`'s and `direction_contradiction.py`'s third
 sibling: the same `declares`/`schema_entry`/`prompt_block`/`take`/
 `record`/`summary_lines` surface, the same collector, the same route
-into the prompt as DATA beside the context because the handoffs are
-frozen, and the same two counting rules - one record per model ATTEMPT,
+into the prompt as DATA beside the context - which here is REUSE, not
+a freeze workaround: one instruction is asked of every step that
+declares a brief, and pasting it into each `handoff.md` would be the
+same words in N files with nothing keeping them equal.  The captain's
+freeze was lifted 2026-09-09 and this route was kept deliberately.
+Same two counting rules - one record per model ATTEMPT,
 numbered, with `final_by_step` the per-step reading; and
 `state["briefing_questions"]` MERGED rather than replaced, with carried
 rows marked `from_a_previous_run`.  Do not build a fourth shape.

@@ -31,7 +31,7 @@ from library.tools.broll_coverage import (
 )
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools.vfx_carriers import (
-    VFX_CANDIDATES_LEGEND, picture_carriers,
+    picture_carriers,
 )
 from library.tools.vision_schema_adapter import (
     adapt_semantic_document,
@@ -329,12 +329,12 @@ def main():
     # "color_wash", "intensity": 0.5}]}` - a creative decision nobody made,
     # presented to the model as a prior choice. The post-bridge writes
     # the real `enhancement_spec` after the model answers.
+    # `picture_track` and `track_basis` are DEFINED in this step's
+    # handoff.md ("Context data available"), not shipped beside the table.
+    # They travelled as a `vfx_candidates_legend` dict only while that
+    # file was under the captain's freeze, lifted 2026-09-09.
     compressed = {
         "vfx_candidates_toon": vfx_toon,
-        # The handoff is frozen and cannot name the derived columns, so
-        # their definition travels as data - the route step 4.02 takes
-        # for CUTS_LEGEND and step 2.04 for MEASUREMENT_LEGEND.
-        "vfx_candidates_legend": dict(VFX_CANDIDATES_LEGEND),
     }
 
     print(json.dumps(compressed))

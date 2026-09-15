@@ -126,7 +126,7 @@ def test_no_raw_value_list_travels_onward():
 def test_every_measurement_is_either_carried_or_recorded_as_withheld():
     accounted = (set(mm.SELECTION_MEASUREMENT_KEYS)
                  | set(mm.WITHHELD_FROM_THE_SELECTION))
-    assert set(mm.MEASUREMENT_LEGEND) <= accounted
+    assert set(mm.MEASURED_KEYS) <= accounted
 
 
 def test_a_track_that_was_not_measured_says_so():

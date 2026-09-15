@@ -113,9 +113,11 @@ the pipeline has two kinds of step:
 * `DELIVERY_PROMPT` - the step has a `handoff.md` and reads a prompt.  It
   declares `timeline_notes` in its manifest and `gather_step_inputs`
   hands it `prompt_block()` - the captain's words with a legend saying
-  what they are, taking the same route `music_measurement.MEASUREMENT_LEGEND`
-  and `transition_carriers.CUTS_LEGEND` take, because the twelve
-  `handoff.md` files are frozen and cannot be told about a new input.
+  what they are.  The NOTES are per-run data and can only travel as
+  data; the legend beside them is the same sentence for every step, so
+  it is single-sourced here rather than copied into twelve prompts.
+  Not the handoff freeze, lifted 2026-09-09 - every one of the twelve
+  now carries a "Timeline Notes" section of its own.
 * `DELIVERY_REPORT` - the step is deterministic and has no prompt at all.
   The note is still routed, still recorded and still reported; it is
   stated as not prompt-deliverable, with the reason, rather than being
@@ -155,8 +157,8 @@ One enumeration, `library/tools/marker_routing.py`.
 - **Two bases, and two non-answers.** `declared` is authoritative. Otherwise the note's words must name EXACTLY ONE step's decision. Two is `ambiguous`; none is `unrouted`. No score, no ranking, no tie-break, no default.
 - **Delivery is `prompt` or `report`, declared per step.** A step with a `handoff.md` declares
   the `timeline_notes` input and `gather_step_inputs` hands it `prompt_block()` - the words
-  plus a legend, the route `MEASUREMENT_LEGEND` and `CUTS_LEGEND` take, because the handoffs
-  are frozen. A deterministic step has no prompt at all; the note is still routed, recorded
+  plus a legend, single-sourced here because it is the same sentence for all twelve, not
+  because of the handoff freeze, which was lifted 2026-09-09. A deterministic step has no prompt at all; the note is still routed, recorded
   and reported, with that reason stated. `run_pipeline.project_step_context` restores
   `timeline_notes` BY NAME, so a `context_fields` allow-list neither has to list it nor can
   drop it (§10.1).
@@ -1085,7 +1087,8 @@ def prompt_block(routed_notes) -> dict:
     """What `gather_step_inputs` hands a step that declares the input.
 
     A legend plus the notes, in the shape `MEASUREMENT_LEGEND` and
-    `CUTS_LEGEND` travel in: the twelve `handoff.md` files are frozen, so
+    a derived column's definition travels in: the legend is one
+    sentence shared by twelve steps, so
     a new input has to say what it is inside the data itself.
     """
     return {

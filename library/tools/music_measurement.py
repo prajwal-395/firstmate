@@ -31,8 +31,10 @@ was in the context.  This module puts it there.
 **It measures.  It does not classify.**  No mood, no genre, no "energy"
 word, no ranking, no recommendation - those are the model's to write and
 inventing one here is the taste-fabrication AGENTS.md 10.5 forbids.  What
-comes out is numbers and one curve, with :data:`MEASUREMENT_LEGEND` saying
-what each one IS rather than what to conclude from it.
+comes out is numbers and one curve.  What each one IS, in what unit, is
+stated in step 2.04's own ``handoff.md`` - never what to conclude from
+it - and :data:`MEASURED_KEYS` is this module's inventory of them, which
+the import-time guard below is asked of.
 
 What is measured, and why each one
 ----------------------------------
@@ -130,7 +132,7 @@ and points here.
 
 **Every candidate is MEASURED, and nothing about it is classified.**
 `library/tools/music_measurement.py` is that half: integrated loudness, loudness range, RMS spread, the envelope over the played window, true peak and the share of energy in the speech band.
-- **The measurements ship with `MEASUREMENT_LEGEND`**. It defines what a key IS; it never says what to conclude.
+- **What each measurement IS is defined in step 2.04's `handoff.md`**, where the model reads it - the unit and nothing about what to conclude. `MEASURED_KEYS` here is the inventory the import-time guard is asked of, not a second copy of the definitions: a key measured and neither travelling with the selection nor recorded as withheld fails at import.
 - **A candidate the duration check already rejected is not opened**, and says so rather than leaving a blank column. That is mechanical - it cannot be selected either way.
 - `DECLINED_MEASUREMENTS` records what was left out and why. Tempo and key used to be declined there (2.06 measures them after the choice); the captain's decision of 2026-09-07 reversed that, so they are measured per candidate at choice time instead. [why](docs/RULE_EVIDENCE.md#what-searching-for-music-costs)
 - The bed's own level is what decides whether a planned `music_behavior` offset lands - see §10.4.
@@ -178,10 +180,17 @@ ANALYSIS_SAMPLE_RATE = 48000
 FFMPEG_TIMEOUT_SECONDS = 900
 
 # Everything this module measures about one candidate, keyed the same way
-# whether it is read here or downstream.  Shipped beside the numbers because step
-# 2.04's handoff.md is under a captain freeze and cannot name them, and a
-# column whose units are unstated is not a measurement anyone can use.
-# Definitions only - what to conclude from a number is the model's call.
+# whether it is read here or downstream.  **This is the INVENTORY, not a
+# legend**: what each key IS, in what unit, is stated in step 2.04's own
+# `handoff.md` under "What was measured about each candidate", which is
+# where the model reads it.  The definitions shipped beside the numbers as
+# a `measurement_legend` dict only while that file was under the captain's
+# freeze, lifted 2026-09-09.
+#
+# The inventory itself stays, because it is what the import-time guard
+# below is asked of: a key measured here that neither travels with the
+# chosen selection nor is recorded as deliberately withheld is a
+# measurement nobody decided about, and that fails at import.
 #
 # Rhythm and harmony (the `tempo_*`, `musical_key`/`key_*` and `beat_grid`
 # keys) are measured per candidate by the SAME functions step 2.06 uses -
@@ -196,89 +205,31 @@ FFMPEG_TIMEOUT_SECONDS = 900
 # the librosa path (~5.3s per 90s), sequential, one whole-track decode
 # each.  Key is null with a stated note wherever essentia is not
 # installed - an absent measurement is stated, never defaulted.
-MEASUREMENT_LEGEND = {
-    "integrated_lufs":
-        "BS.1770 integrated loudness of the whole track, in LUFS "
-        "(ffmpeg loudnorm). Lower is quieter.",
-    "loudness_range_lu":
-        "BS.1770 loudness range (LRA) of the whole track, in LU. It is "
-        "gated: passages below its own relative threshold are excluded.",
-    "true_peak_dbtp":
-        "True peak of the whole track, in dBTP. 0.0 is full scale.",
-    "rms_spread_db":
-        "p95 minus p5 of per-second RMS windows across the whole track, "
-        "in dB. Ungated, so unlike loudness_range_lu it counts near-silent "
-        "passages.",
-    "window_spread_db":
-        "The same p95 minus p5 read, over the played window only.",
-    "window_envelope_dbfs":
-        "Per-second RMS over the first target_duration_seconds from the "
-        "head of the file - the section that plays when no section is "
-        "declared - averaged into "
-        f"{ENVELOPE_BUCKETS} equal buckets, in dBFS, in time order. "
-        "track_sections below describes every other playable span.",
-    "window_seconds":
-        "How long the played window is, in seconds. Each envelope bucket "
-        "covers window_seconds / "
-        f"{ENVELOPE_BUCKETS} of it.",
-    "track_sections":
-        "Every section of the track that is long enough to play under the "
-        "whole edit: successive non-overlapping spans of window_seconds "
-        "from 0, plus the last span that still fits. Each row is "
-        "{start_seconds, end_seconds, mean_dbfs, spread_db}, in time "
-        "order. A section may start anywhere, not only at a row boundary; "
-        "these are a description of the track at the granularity of what "
-        "plays, not a list of the options. window_envelope_dbfs is the "
-        "shape of the section starting at 0.",
-    "track_sections_note":
-        "Why the section table is absent or short, when it is.",
-    "speech_band_ratio_db":
-        f"RMS in the {SPEECH_BAND_HZ[0]}-{SPEECH_BAND_HZ[1]} Hz speech "
-        "band minus full-band RMS, in dB. How much of the track's energy "
-        "sits in the same band as a voice.",
-    "measured":
-        "Whether the file was opened and measured. False means the "
-        "numbers above are absent, never that they are zero.",
-    "measurement_note":
-        "Why a candidate was not measured, when measured is false.",
-    "tempo_bpm":
-        "Detected tempo in beats per minute, from the same beat tracker "
-        "step 2.06 runs (madmom RNN+DBN where installed, librosa "
-        "otherwise). None when no usable grid was found.",
-    "tempo_method":
-        "Which tracker answered: madmom-rnn-dbn or librosa-beat-track. "
-        "The two disagree by up to a few BPM and librosa doubles or "
-        "halves the true tempo on some tracks.",
-    "tempo_beat_count":
-        "How many beats the tracker found across the whole track. Below "
-        "eight there is no grid to snap to, only noise.",
-    "tempo_downbeat_count":
-        "How many bar starts were found. A cut on a downbeat reads as "
-        "intentional where a cut on any beat can read as busy.",
-    "tempo_stable":
-        "Whether the instantaneous tempo holds steady across the track. "
-        "A drifting tempo has one BPM number and no single grid.",
-    "tempo_note":
-        "Why there is no usable tempo, when tempo_bpm is None.",
-    "musical_key":
-        "Detected key as a label such as 'C major', from the same key "
-        "extractor step 2.06 runs (essentia). None where essentia is "
-        "not installed - the note says so.",
-    "key_method":
-        "Which extractor answered.",
-    "key_strength":
-        "The extractor's own confidence, 0 to 1. What to conclude from "
-        "it is the model's call.",
-    "key_note":
-        "Why there is no key, when musical_key is None.",
-    "beat_grid":
-        "The tracker's own grid: {beats, downbeats} in file seconds, "
-        "ascending. The full arrays live here, on the candidate, for "
-        "code to read - they never reach a prompt (step 2.04's manifest "
-        "drops this key, the same way downstream manifests drop "
-        "music_analysis.tempo.beats). What the model decides from is "
-        "the tempo_* scalars above.",
-}
+MEASURED_KEYS = frozenset({
+    "integrated_lufs",
+    "loudness_range_lu",
+    "true_peak_dbtp",
+    "rms_spread_db",
+    "window_spread_db",
+    "window_envelope_dbfs",
+    "window_seconds",
+    "track_sections",
+    "track_sections_note",
+    "speech_band_ratio_db",
+    "measured",
+    "measurement_note",
+    "tempo_bpm",
+    "tempo_method",
+    "tempo_beat_count",
+    "tempo_downbeat_count",
+    "tempo_stable",
+    "tempo_note",
+    "musical_key",
+    "key_method",
+    "key_strength",
+    "key_note",
+    "beat_grid",
+})
 
 # Measurements that were considered for this table and left out, with the
 # reason.  A record, so the next person weighing one of these is arguing
@@ -380,7 +331,7 @@ WITHHELD_FROM_THE_SELECTION = {
 }
 
 # A key that is in neither list is a measurement nobody decided about.
-_UNACCOUNTED = (set(MEASUREMENT_LEGEND)
+_UNACCOUNTED = (set(MEASURED_KEYS)
                 - set(SELECTION_MEASUREMENT_KEYS)
                 - set(WITHHELD_FROM_THE_SELECTION))
 if _UNACCOUNTED:  # pragma: no cover - import-time guard
@@ -497,31 +448,18 @@ def bed_level_after_gain(bed: dict, level_db):
 # pipeline predicts whether a sound will be heard.
 #
 # So the bed's own level at the block a sound is placed on travels into
-# that step's candidate table, as DATA with a legend - the route
-# MEASUREMENT_LEGEND and CUTS_LEGEND already take, because the handoff
-# is frozen.
+# that step's candidate table, as the `music_behavior` and `bed_under_it`
+# columns.  **What those two columns ARE is stated in step 4.04's own
+# `handoff.md`**, under "Context data available" and "What a level is
+# measured against"; they shipped beside the table as a
+# BED_UNDER_THE_BLOCK_LEGEND dict only while that file was under the
+# captain's freeze, lifted 2026-09-09.
 #
 # **It states a level and never a target.**  What separation a sound
 # should have over the bed is the same undeclared decision
 # `music_behavior.SEPARATION_TARGETS_DB` is empty for, and an
 # engine-supplied one would be a strength nobody chose arriving one
 # level up (AGENTS.md 10.5).
-
-BED_UNDER_THE_BLOCK_LEGEND = {
-    "music_behavior":
-        "what the plan says the bed does under this block - prominent, "
-        "background, fade_in, fade_out or silent "
-        "(library/tools/music_behavior.py).",
-    "bed_under_it":
-        "the clip gain that behaviour applies to the bed, and where that "
-        "puts the bed's own measured loudness. A sound placed on this "
-        "block is heard against THAT. `bed level unmeasured` means step "
-        "2.04 recorded no measurement for the chosen track - never that "
-        "the bed is silent. NOTHING here says how loud a sound should "
-        "be: no separation target is declared anywhere in this pipeline, "
-        "and the level is yours to choose.",
-}
-
 
 def bed_under_block(block: dict, bed: dict) -> tuple:
     """`(behaviour, one sentence about the bed)` for one spine block.
@@ -849,25 +787,6 @@ def section_envelopes(audio_path: str,
         out.append(row)
     return out
 
-
-SECTION_ENVELOPE_LEGEND = {
-    "envelope_dbfs":
-        "the SHAPE of this span: its level averaged into twelve equal "
-        "buckets, in time order, in dBFS. This is the measurement that "
-        "used to exist only for seconds 0 to the length of the edit, "
-        "which is why you are being asked again - a section that rises "
-        "across the minute and one that falls across it have the same "
-        "mean and the same spread.",
-    "mean_dbfs":
-        "the power mean of this span, the same statistic track_sections "
-        "reports, repeated here so the shape and the level are read "
-        "together.",
-    "spread_db":
-        "how far the loud and quiet parts of this span are apart.",
-    "measured":
-        "false with a stated note means this span could not be measured. "
-        "It never means the span is silent.",
-}
 
 def measure_candidates(candidates: List[dict],
                        window_seconds: float) -> List[dict]:

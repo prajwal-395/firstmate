@@ -49,13 +49,19 @@ Select and place sound effects at appropriate moments in the timeline.
   a moment earns one and nowhere else. Do NOT add an effect to reach a
   count, and never write a rationale that justifies a sound by how many
   there are.
-- Volume levels: `subtle`, `low`, `medium`, `prominent` - choose what
-  the moment calls for
+- **How loud a sound plays is `volume_db`, a NUMBER, and you write it.**
+  The four-word ladder this line used to offer - `subtle`, `low`,
+  `medium`, `prominent` - is WITHDRAWN, along with the `volume_level` key
+  that named it and the engine-side levels it mapped to
+  (`library/tools/sfx_level.py` keeps the record). There is no ladder, no
+  default and no engine level to fall back on: **an entry naming no
+  `volume_db` is DROPPED with the reason**, because a sound at a level
+  nobody chose is what made the one sound in a previous run inaudible.
 - Be aware of how SFX interact with speech and music - balance is a
   creative decision, not a formula
 - Layering is allowed: two or more sounds at the same position is how
   real sound design works (whoosh + bass hit, riser under a textural bed).
-  Each layered sound carries its own volume_level
+  Each layered sound carries its own `volume_db`
 - Match the music rhythm and energy
 
 ### Context data available:
@@ -66,8 +72,28 @@ The `sfx_candidates_toon` table provides a summarized list of clips and events w
 - `segment_id`: The ID of the segment.
 - `text`: Summary text for the segment.
 - `action_sfx_suggested`: Pre-computed suggestion on whether SFX are needed based on audio transients.
+- `music_behavior`: What the plan says the bed does under this block -
+  `prominent`, `background`, `fade_in`, `fade_out` or `silent`
+  (`library/tools/music_behavior.py`).
+- `bed_under_it`: The clip gain that behaviour applies to the bed, and
+  where that puts the bed's own measured loudness. A sound placed on this
+  block is heard against THAT. *"bed level unmeasured"* means step 2.04
+  recorded no measurement for the chosen track - **never** that the bed is
+  silent.
 
 Use this data to decide which sound effects to apply.
+
+### What a level is measured against
+
+**Speech (A1) is the mix's reference and plays at 0 dB.** Every `volume_db`
+you write is against that, and `bed_under_it` says where the music sits
+under the same block - so you can see both ends of the relationship a sound
+has to land inside.
+
+**Nothing in this pipeline declares how far above or below either a sound
+OUGHT to sit.** No separation target is declared anywhere, and none is
+supplied here. The relationship is yours to choose; these two facts are
+here so that it can be chosen at all, not so a number can be read off them.
 
 ---
 
@@ -98,7 +124,8 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 
 1. Every SFX earns its place - none exists to reach a count
 2. SFX timing aligns with events they accompany
-3. Volume levels are deliberate choices, not defaults
+3. Every sound carries a `volume_db` you chose, in dB against speech's
+   0 dB reference - not a default, and not a word
 4. Layered sounds at the same position each carry a distinct purpose
 5. SFX don't compete with prominent music moments
 

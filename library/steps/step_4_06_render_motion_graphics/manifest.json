@@ -71,11 +71,6 @@
         "description": "Bridge output: the roster's axes as a TOON table (axis, ranges_over, positions, continuous, resolved_against) - the magnitudes the plan may state per entry. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
       },
       {
-        "name": "motion_elements_legend",
-        "type": "object",
-        "description": "Bridge output: what each roster column means, carried as DATA because handoff.md is frozen. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
-      },
-      {
         "name": "timeline_context_toon",
         "type": "string",
         "description": "Bridge output: the spine as context, one row per block with its span, type and what is said in it - where the speech and cutaways are, not a grid the plan must land on. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
@@ -101,7 +96,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-          "description": "The motion graphics this video carries. Each entry: element (a key from the roster), anchor, row, copy, color or colour_role, entrance, exit, why. A TIMED entry carries start_seconds and duration_seconds in TIMELINE seconds. An ANCHORED entry instead carries subject (free text saying what the span of speech is about, in your own words), anchor_phrase (words from timeline_context_toon the graphic arrives on) and optionally hold_seconds - and OMITS start_seconds and duration_seconds; naming both timings drops the entry as conflicting_timing. An empty list is a decision that the piece wants none."
+        "description": "The motion graphics this video carries. Each entry: element (a key from the roster), anchor, row, copy, color or colour_role, entrance, exit, why. A TIMED entry carries start_seconds and duration_seconds in TIMELINE seconds. An ANCHORED entry instead carries subject (free text saying what the span of speech is about, in your own words), anchor_phrase (words from timeline_context_toon the graphic arrives on) and optionally hold_seconds - and OMITS start_seconds and duration_seconds; naming both timings drops the entry as conflicting_timing. An empty list is a decision that the piece wants none."
       }
     ]
   },
@@ -123,7 +118,6 @@
       "context": [
         "motion_elements_toon",
         "motion_axes_toon",
-        "motion_elements_legend",
         "timeline_context_toon",
         "motion_graphics_frame",
         "brand_refinement"

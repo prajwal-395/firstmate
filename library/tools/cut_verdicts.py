@@ -40,10 +40,14 @@ Where it goes now, and why there
   addressed per cut, so neither is wired.  Adding one is a row here and a
   ``data_mapping`` key, not a new mechanism.
 
-``handoff.md`` is under the captain's freeze and cannot name the new
-columns, so :data:`CUT_VERDICT_LEGEND` travels as data beside the table -
-the route ``transition_carriers.CUTS_LEGEND`` and
-``music_measurement.MEASUREMENT_LEGEND`` already take.
+Both columns are DEFINED in step 4.02's ``handoff.md``, under "Context
+data available", and that is where the attribution lives too: the prose
+says in as many words that ``narrative_verdict`` is the rough-cut
+review's JUDGEMENT rather than a measurement, so a downstream reading of
+it is a reading of prose whose author is named.  The definitions
+travelled beside the table as a ``CUT_VERDICT_LEGEND`` dict only while
+``handoff.md`` was under the captain's freeze; the freeze was lifted
+2026-09-09.
 
 What this module refuses to do
 ------------------------------
@@ -124,9 +128,10 @@ and points here.
 One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#the-review-answered-and-nobody-read-it)
 - **A row that names a CUT goes to step 4.02**, folded onto `cuts_toon` as `narrative_verdict` and
   `verdict_note` keyed on `cut_point_position` - the identifier both tables already share, so there
-  is no join. `CUT_VERDICT_LEGEND` defines the two columns as DATA, because `handoff.md` is frozen
-  (the `CUTS_LEGEND` route). **4.01 `plan_subtitles` cannot be the reader**: it is `deterministic`
-  and has no prompt at all.
+  is no join. **Step 4.02's `handoff.md` defines both columns in its prose**, including that a
+  verdict is the review's JUDGEMENT and not a measurement - the attribution
+  `direction_contradiction` reads. **4.01 `plan_subtitles` cannot be the reader**: it is
+  `deterministic` and has no prompt at all.
 - **A row that names NO cut goes to the run summary**, printed after `status` is decided. A route
   back to the owning step does not exist and is stated rather than quietly closed.
   **Nothing is filtered by `decision`, `scope` or severity**: whatever picks which findings matter
@@ -145,7 +150,7 @@ One enumeration, `library/tools/cut_verdicts.py`. [why](docs/RULE_EVIDENCE.md#th
 - `tests/test_cut_decisions_reach_a_reader.py`.
 """
 
-#: The vocabulary, in the order step 3.03's frozen ``handoff.md`` states
+#: The vocabulary, in the order step 3.03's ``handoff.md`` states
 #: it - Check 7, *"Rate each transition as: smooth | acceptable | jarring
 #: | broken"*.  Ordered mildest to worst because the handoff's own
 #: rejection rule is ordinal (*"Any broken transition is a rejection.
@@ -178,30 +183,6 @@ WITHDRAWN_READINGS = {
         "as written and marked, so the model reads the judgement AND the "
         "fact that it is off-schema.",
 }
-
-#: What the two derived columns of ``cuts_toon`` ARE.  Step 4.02's
-#: ``handoff.md`` is frozen and cannot name them, so the definition
-#: travels as data beside the table - the route
-#: ``transition_carriers.CUTS_LEGEND`` takes.  It says what each column
-#: holds; it never says what to conclude from it.
-CUT_VERDICT_LEGEND = {
-    "narrative_verdict":
-        "The rough-cut review's judgement of how this cut READS as "
-        "narrative - one of 'smooth', 'acceptable', 'jarring', 'broken', "
-        "written by step 3.03 after reconstructing what the viewer "
-        "actually hears. 'unjudged' means the review named no verdict "
-        "for this cut; it is the absence of a judgement and NOT the "
-        "verdict 'smooth'. A word outside those four is the review's own "
-        "and is shown as written, with 'unrecognised' beside it. This is "
-        "a reading of the SPEECH either side of the cut, not of the "
-        "picture: 'jarring' does not mean a transition belongs here, and "
-        "'smooth' does not mean one does not.",
-    "verdict_note":
-        "The review's own sentence about this cut, verbatim, or empty "
-        "when it gave none. Whitespace is collapsed so the row survives "
-        "the table; nothing else is rewritten.",
-}
-
 
 def _rows(cut_decisions):
     """The list of per-cut records, however the answer was shaped.

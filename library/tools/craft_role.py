@@ -57,8 +57,7 @@ the rest of the document is read in.
 
 **It goes in the prompt.** A role may carry a correction in `corrects`,
 naming a line in the handoff. The same route
-`music_measurement.MEASUREMENT_LEGEND` and
-`sfx_level.SPEECH_REFERENCE_LEGEND` take - the correction travels as
+`music_measurement.MEASUREMENT_LEGEND` takes - the correction travels as
 DATA beside the context.
 
 Membership
@@ -94,7 +93,7 @@ One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the 
 - **A role is THREE things and no fourth**: a DISCIPLINE named and addressed in the second person; what that discipline READS THE MEASUREMENTS WITH (craft knowledge a number does not carry - a colourist knows a dark shot can be dark on purpose); and what is this step's to DECIDE and what is not. An authority statement with no boundary reads as licence.
 - **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
 - **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
-- **It goes in the prompt**, and a role may carry a `corrects` line naming a withdrawn instruction still in a handoff - the `SPEECH_REFERENCE_LEGEND` route. 4.04's role corrects its handoff's volume words like `subtle|low|medium|prominent`.
+- **It goes in the prompt**, and a role may carry a `corrects` line naming a withdrawn instruction still in a handoff - but ONLY where that line is the captain's to edit. Since the freeze lifted 2026-09-09 there is one: 4.04's SFX toolkit table, which still offers `foley`, `ambient` and `reverse_cymbal` (AGENTS.md 10.5).
 - **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Eight are declared; six are not, each with what it is addressed as today.
 - `tests/test_craft_role.py`.
 """
@@ -125,10 +124,15 @@ class CraftRole:
             the questions it is being asked, not as answers to them.
         defers: What is not this step's, and who owns it instead.  An
             authority statement with no boundary reads as licence.
-        corrects: Lines in this step's own frozen `handoff.md` that the
-            engine has withdrawn elsewhere, each carried here as DATA
-            because the handoff is the captain's to edit and not ours.
-            `sfx_level.SPEECH_REFERENCE_LEGEND` is the same route.
+        corrects: Lines in this step's own `handoff.md` that the engine
+            has withdrawn elsewhere, each carried here as DATA because
+            that particular line is the captain's to edit and not ours.
+            The captain's freeze on `handoff.md` was lifted 2026-09-09,
+            so a correction belongs here ONLY where the line is reserved
+            to them by name - 4.04's SFX toolkit table is the one such
+            case. Everything else was folded into the prose and the
+            correction deleted: a rule living in two places is worse
+            than either.
     """
 
     step_id: str
@@ -533,12 +537,12 @@ ROLES: Dict[str, CraftRole] = {
         ),
         corrects=(
             "The same file's toolkit table still offers the words `foley`, "
-            "`ambient` and `reverse_cymbal`, and its volume line still "
-            "offers `subtle|low|medium|prominent`. None of the four is "
+            "`ambient` and `reverse_cymbal`. None of the three is "
             "answerable: the schema asks for an `sfx_id` out of the "
-            "catalogue and a `volume_db` in dB. "
-             "`sfx_level.SPEECH_REFERENCE_LEGEND` carries the level half of "
-             "this correction in the context beside you.",
+            "catalogue, and the library cannot play those words. The "
+            "table is the captain's to correct (AGENTS.md 10.5), so the "
+            "correction stays here rather than being edited into the "
+            "prompt.",
         ),
     ),
     "plan_transitions": CraftRole(

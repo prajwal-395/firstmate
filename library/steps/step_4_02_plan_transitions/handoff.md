@@ -76,6 +76,40 @@ The `cuts_toon` table provides a summarized list of cut points with the followin
 - `outgoing_footage`: The mood and tags of the clip ending at the cut.
 - `incoming_footage`: The mood and tags of the clip starting at the cut.
 
+Four more columns are DERIVED, two from the spine and two from step 3.03's
+review. Each says what it measures; none of them says what to conclude.
+
+- `can_carry_drawn_transition`: Whether a DRAWN transition
+  (`fade_to_black`, `zoom_blur`, `defocus`, `flash`) can be BUILT at this
+  cut - `yes` or `no`. A drawn transition is a tail on the outgoing V1 clip
+  and a head on the next one, so it needs a V1 clip ending at the cut with
+  another V1 clip after it. **A cut reading `no` fails compilation if a
+  drawn transition is planned on it.** The undrawn types (`hard_cut`,
+  `jump_cut`, `match_cut`) place nothing and are unaffected: they are
+  buildable at every cut.
+- `carry_basis`: Which track the blocks either side of this cut play on,
+  and therefore where the effect's two halves land. A speech, hook or
+  bookend block puts a clip on V1; every other block - a `transition_slot`
+  above all - is covered by B-roll, and every B-roll placement goes on V2.
+  *"draws through this cut"* means the tail and the head land on the two
+  pictures either side of it. *"the head on the next V1 clip after the
+  cutaway"* means the incoming picture is B-roll on V2, so the effect
+  brackets the cutaway instead of drawing through the cut - it is
+  buildable, and it is not the same gesture. *"ends the V1 track"* means
+  there is no V1 clip left to draw the head half onto.
+- `narrative_verdict`: **The rough-cut review's judgement**, not a
+  measurement - one of `smooth`, `acceptable`, `jarring`, `broken`, written
+  by step 3.03 after reconstructing what the viewer actually hears.
+  `unjudged` means the review named no verdict for this cut; it is the
+  ABSENCE of a judgement and NOT the verdict `smooth`. A word outside those
+  four is the review's own and is shown as written, with `unrecognised`
+  beside it. This is a reading of the SPEECH either side of the cut, not of
+  the picture: `jarring` does not mean a transition belongs here, and
+  `smooth` does not mean one does not.
+- `verdict_note`: **The review's own sentence** about this cut, verbatim,
+  or empty when it gave none. Whitespace is collapsed so the row survives
+  the table; nothing else is rewritten.
+
 Use this data to decide which transitions to apply. Prefer placing major creative
 transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.
 

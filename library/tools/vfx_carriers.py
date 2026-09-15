@@ -39,6 +39,8 @@ stating the stack is what makes it askable.
 
 from __future__ import annotations
 
+import pathlib
+
 from library.tools.broll_coverage import coverage_by_block, covering_assignment
 from library.tools.transition_carriers import block_reaches_v1
 
@@ -48,7 +50,7 @@ ON_V2 = "V2"
 NO_PICTURE = "none"
 
 # One short phrase per row.  The mechanism behind them is said once in
-# VFX_CANDIDATES_LEGEND rather than sixteen times in the table.
+# step 4.03's handoff.md rather than sixteen times in the table.
 BASIS_V1_CLIP = "{block_type} plays on V1: the effect draws on that clip"
 BASIS_V1_UNDER_A_CUTAWAY = (
     "{block_type} plays on V1, and cutaway {clip_id} covers {covered} of it "
@@ -60,34 +62,6 @@ BASIS_V2_CUTAWAY = (
 BASIS_NO_PICTURE = (
     "{block_type} puts no clip on V1 and no cutaway covers it: there is no "
     "picture to draw an effect on")
-
-#: What the two derived columns of ``vfx_candidates_toon`` ARE.  Step
-#: 4.03's ``handoff.md`` is frozen and cannot name them, so the definition
-#: travels as data beside the table - the same route
-#: ``transition_carriers.CUTS_LEGEND`` takes for step 4.02 and
-#: ``music_measurement.MEASUREMENT_LEGEND`` for step 2.04.  It says what
-#: each column measures; it never says what to conclude.
-VFX_CANDIDATES_LEGEND = {
-    "picture_track":
-        "Which video track carries the picture this block shows: 'V1', "
-        "'V2' or 'none'. A speech, hook or bookend block puts a clip on "
-        "V1; every other block - a transition_slot above all - shows a "
-        "B-roll cutaway, and every B-roll placement goes on V2. An effect "
-        "is a per-clip Fusion comp and the renderer builds them on V1 and "
-        "V2 alike, so a block reading 'V1' or 'V2' can carry one. A block "
-        "reading 'none' has no clip at all: an effect planned there is "
-        "dropped with that reason and never reaches the picture.",
-    "track_basis":
-        "Which clip the effect would draw on, and what else is on screen "
-        "over it. An effect on a V2 cutaway modifies the CUTAWAY's own "
-        "frames - a zoom zooms the cutaway, a shake shakes it - because a "
-        "per-clip comp reads the clip it sits on and nothing else; it "
-        "cannot read or alter the A-roll on V1. 'behind the cutaway for "
-        "that stretch' means a cutaway is placed over this block, so an "
-        "effect here draws on a picture the viewer does not see while the "
-        "cutaway plays.",
-}
-
 
 def _overlap_seconds(block: dict, entry: dict) -> float:
     """How much of the block the cutaway is on screen for, in seconds."""
@@ -163,22 +137,32 @@ def picture_carriers(structure: list, b_roll_assignments=None) -> list[dict]:
 
 
 def assert_legend_is_well_formed() -> None:
-    """Every column says what it is, in a sentence."""
-    for key, reading in VFX_CANDIDATES_LEGEND.items():
-        if not isinstance(reading, str) or len(reading.split()) < 8:
+    """Step 4.03's prompt still says what each derived column IS.
+
+    The definitions used to travel beside the table as
+    ``VFX_CANDIDATES_LEGEND`` because ``handoff.md`` was under the
+    captain's freeze.  The freeze lifted 2026-09-09 and the prose took
+    them over, so this checks the prose - a column that reaches the
+    table with the prompt silent about it is the drift the data route
+    made impossible for free.
+    """
+    handoff = (
+        pathlib.Path(__file__).resolve().parents[2]
+        / "library" / "steps" / "step_4_03_plan_vfx" / "handoff.md"
+    ).read_text(encoding="utf-8")
+    for column in ("picture_track", "track_basis"):
+        if f"`{column}`" not in handoff:
             raise ValueError(
-                f"VFX_CANDIDATES_LEGEND[{key!r}] must state what the column "
-                f"measures in a sentence"
+                f"step 4.03's handoff.md never says what {column!r} is, "
+                f"and the bridge ships it on every row"
             )
 
 
 def _main() -> None:
     assert_legend_is_well_formed()
     print("Where a spine block's picture plays\n")
-    for name, reading in (("picture_track", VFX_CANDIDATES_LEGEND[
-            "picture_track"]), ("track_basis", VFX_CANDIDATES_LEGEND[
-            "track_basis"])):
-        print(f"  {name}\n      {reading}\n")
+    print("  Defined in library/steps/step_4_03_plan_vfx/handoff.md, "
+          "under 'Context data available'.\n")
 
 
 if __name__ == "__main__":

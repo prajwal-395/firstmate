@@ -51,7 +51,6 @@ from library.tools.music_section import (  # noqa: E402
     validate_section,
 )
 from library.tools.music_measurement import (  # noqa: E402
-    SECTION_ENVELOPE_LEGEND,
     section_envelopes,
     selection_measurements,
 )
@@ -230,14 +229,16 @@ def _measure_shortlist(shortlist: list, selection: dict,
 
 
 def _shortlist_block(measurements: list) -> str:
-    """The measurements, plus the legend that says what each key IS.
+    """The measurements of the shortlisted sections, as numbers.
 
-    The legend never says what to conclude - the same line
-    `MEASUREMENT_LEGEND` holds.
+    What each key IS is stated in step 2.04's own `handoff.md`, under
+    "The second pass", which the model has already read when this block
+    reaches it.  The definitions travelled beside the numbers as a
+    `section_measurements_legend` only while that file was under the
+    captain's freeze, lifted 2026-09-09.
     """
     return json.dumps({
         "section_measurements": measurements,
-        "section_measurements_legend": SECTION_ENVELOPE_LEGEND,
     }, indent=2)
 
 

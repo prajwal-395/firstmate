@@ -44,7 +44,13 @@ For every A-roll assignment, assert:
 source_out - source_in == timeline_end - timeline_start
 ```
 
-**Tolerance:** 0.1 seconds (to account for float rounding).
+**Tolerance:** `DURATION_TOLERANCE` in
+`library/tools/duration_tolerance.py` - 0.15 seconds, which steps 3.01 and
+3.03 both import rather than carrying their own literal. It is there for
+float rounding across segment summation (a full frame at 23.976 fps is
+0.042s, and three rounded segments can stack past a frame), not for
+editorial latitude. This check is run in Python; you are not asked to
+perform the comparison.
 
 **Why this matters:** If source duration > timeline duration, the clip is
 silently truncated — speech gets cut off mid-sentence. If source duration
@@ -109,19 +115,32 @@ A window the map names as having no strip is one you cannot see: judge
 it from the prose and say so. If the map is absent entirely, no strips
 were drawn and the whole review proceeds from the prose.
 
-### Check 5: Reconstruct the Actual Script
+### Check 5: Read the Actual Script
 
-For each A-roll assignment, determine what speech actually plays:
+**It is already built, and you must not rebuild it.** `actual_script` in
+your context is what the viewer HEARS, assembled by the deterministic half
+(`build_actual_script` in `library/steps/step_3_03_review_rough_cut/step.py`)
+from the spine's own measured word timings, restricted to the source range
+each A-roll segment actually plays, in timeline order:
 
-- The source audio from `source_in` to `source_in + timeline_duration` is
-  what the viewer hears.
-- Look up the temporal index for the corresponding clip_id to find the
-  word-level transcript within that source range.
-- Concatenate all blocks in timeline order to produce the **actual script**
-  — the verbatim text the viewer will hear.
+- `actual_script.blocks[]` - one entry per played A-roll segment, carrying
+  `spine_block_position`, `block_type`, `clip_id`, `timeline_start`,
+  `source_in`, `source_out`, the `text` and its `word_count`.
+- `actual_script.full_text` - those texts joined, in timeline order. This is
+  the monologue.
+- `actual_script.unvoiced[]` - every played range that produced no words,
+  with the reason (no measured word timings on the block, no words inside
+  the range, or a segment naming no source range at all). **A range here is
+  audio the viewer hears that nothing transcribed.** It is named rather than
+  skipped precisely so you can weigh it; do not read a gap in the joined
+  text as a gap in the audio.
 
-**This is the most important step.** Everything else in Part 2 evaluates
-this reconstructed script, NOT the intended text from the speech sequence.
+Reading it is the point. Joining words inside a range is clerical work the
+script does exactly; judging whether the result is a coherent piece of
+speech is not, and that is Checks 6 to 9. Everything else in Part 2
+evaluates THIS script, NOT the intended text from the speech sequence -
+and NOT a reconstruction of your own, which would be a second answer to a
+question that already has one.
 
 ### Check 6: Sentence Completion
 
@@ -175,6 +194,43 @@ Flag any key moment that was intended but is not present in the final cut.
 
 ---
 
+## `render_qa_findings` - measurements of the LAST render
+
+When this project has been rendered before, `render_qa_findings` carries
+what step 6.02 measured on that finished file. **They are not checks on the
+rough cut in front of you, and they are not part of the mechanical gate.**
+
+They are here because several of them are consequences of decisions made at
+or before this step - which passage was anchored where, and how long each
+block holds. Nothing else in the pipeline reads them.
+
+**Do NOT reject the rough cut because of a finding here.** Reject only on
+the mechanical checks and the narrative criteria above. A finding is
+context: say what it implies for this cut if it implies anything, and
+otherwise leave it. An advisory note turned into a hard rejection is a
+silent problem converted into a loud wrong one.
+
+What each field holds:
+
+- `metric` - the check's name in `exports/qa_report.json`.
+- `severity` - `error | warning | info`: how loud the check itself is.
+- `verdict` - `failing` = the check did not pass; `advisory` = it passed
+  the gate and still missed its own target, deliberately not gating;
+  `clean` = nothing to say.
+- `owned_by` - the pipeline step whose decision the finding is about, as a
+  DAG node id. An empty owner means no reader is declared for it.
+- `detail` - the check's own sentence, verbatim.
+- `readings` - one sentence per metric that has something to say, saying
+  what a reader does with it. A clean check has no reading because there is
+  nothing to read; its row is still in the table.
+- `source` / `source_detail` - where the findings were read from.
+- `counts` - how many are failing, advisory and clean.
+- `unrouted_metrics` - findings for which no reader is declared anywhere.
+
+Every row travels, clean ones included. Nothing was filtered for you.
+
+---
+
 
 ### Timeline Notes
 If the input includes `timeline_notes`, you MUST read and weigh them. Your output MUST include a `note_acknowledgements` array saying what was done about each note and why - including 'I did not act on this and here is why', since a note you cannot act on should be left alone rather than guessed at.
@@ -189,9 +245,10 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
    reject. No "it's close enough" — the invariants exist for a reason.
 2. **Actionable feedback**: Every rejection must name the specific upstream
    step that needs to change and what the change should be.
-3. **Script reconstruction accuracy**: The reconstructed script must be
-   derived from actual temporal index data, not from the speech_sequence's
-   intended text.
+3. **The script that was judged is `actual_script`**, not the
+   speech_sequence's intended text and not a reconstruction written in the
+   review. A finding that quotes words outside `actual_script.full_text` is
+   a finding about something the viewer does not hear.
 4. **Arc sensitivity**: The review should understand that shortform video
    doesn't need every arc element to be elaborate — but it does need the
    key emotional beats to land.
@@ -202,7 +259,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 
 | Parameter | Value |
 |-----------|-------|
-| Duration tolerance | 0.1 seconds |
+| Duration tolerance | `library/tools/duration_tolerance.DURATION_TOLERANCE` (0.15s) |
 | Key moments coverage target | 100% (all must be present or justified) |
 
 ---
@@ -233,6 +290,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 | Reads | `b_roll_assignments` |
 | Reads | `audio_spine` |
 | Reads | `speech_sequence` |
+| Reads | `actual_script` (Check 5's reconstruction, built by this step's own deterministic half) |
 | Reads | `temporal_index` |
 | Reads | `creative_direction` |
 | Reads | `roughcut_window_frames` (frame strips of the placed windows) |

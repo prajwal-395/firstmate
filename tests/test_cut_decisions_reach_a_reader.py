@@ -155,9 +155,19 @@ def test_the_verdict_is_in_the_table_the_handoff_names():
         "the location changes with no motivation")
     assert by_cut["3"]["narrative_verdict"] == "smooth"
 
-    # The frozen handoff cannot name the columns, so the definition
-    # travels as data beside the table.
-    assert set(cv.CUT_VERDICT_LEGEND) <= set(out["cuts_legend"])
+    # The definition is in step 4.02's handoff.md prose, and with it the
+    # ATTRIBUTION `direction_contradiction` reads: a verdict is the
+    # review's JUDGEMENT, not a measurement. It travelled as a
+    # `cuts_legend` dict only while that file was frozen.
+    assert "cuts_legend" not in out
+    handoff = (REPO / "library" / "steps"
+               / "step_4_02_plan_transitions" / "handoff.md").read_text(
+        encoding="utf-8")
+    assert "`narrative_verdict`" in handoff and "`verdict_note`" in handoff
+    assert "rough-cut review's judgement" in handoff.lower(), (
+        "4.02's prompt no longer says whose judgement a narrative_verdict "
+        "is - the marking direction_contradiction relies on")
+    assert "unjudged" in handoff.lower()
 
 
 def test_an_unjudged_cut_does_not_borrow_the_mild_end_of_the_scale():
@@ -341,7 +351,6 @@ def test_an_unjudged_cut_leaves_no_undeclared_field_on_the_step_output():
         "one not - or this test proves nothing")
     output = {
         "cuts_toon": out["cuts_toon"],
-        "cuts_legend": out["cuts_legend"],
         "transition_spec": [{"_probe": 1}],
     }
     output.update(out)

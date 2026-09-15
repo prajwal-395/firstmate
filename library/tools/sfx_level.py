@@ -49,9 +49,13 @@ sits under**, and it already was: step 4.04's candidate table carries
 ``music_measurement.bed_under_block`` - the clip gain the bed takes there
 and where that puts the bed's own measured loudness.  What it did not
 carry is the other end of the comparison, which is not a measurement but a
-definition of the mix: **speech (A1) is the reference at 0 dB**.
-:data:`SPEECH_REFERENCE_LEGEND` is that line, and it is stated as the
-definition it is rather than smuggled in as a target.
+definition of the mix: **speech (A1) is the reference at 0 dB**.  Step
+4.04's own ``handoff.md`` states it, under "What a level is measured
+against", as the definition it is rather than smuggled in as a target.
+It travelled beside the table as a ``SPEECH_REFERENCE_LEGEND`` dict only
+while that file was under the captain's freeze, lifted 2026-09-09; the
+prose carries it now, and the withdrawn ``volume_level`` line it existed
+to correct is gone from the prompt rather than contradicted beside it.
 
 **No separation target is declared anywhere in this pipeline** -
 ``music_behavior.SEPARATION_TARGETS_DB`` is empty and the master loudness
@@ -68,7 +72,7 @@ until it was split by subsystem; the wording is unchanged, so each rule
 is findable by its own words, and AGENTS.md 10.5 keeps the headline
 and points here.
 
-- **HOW LOUD a sound plays is the plan's own `volume_db`, and no layer substitutes one.** One enumeration, `library/tools/sfx_level.py`. The four-word ladder `VOLUME_MAP` (`subtle|low|medium|prominent` -> -18|-14|-10|-6) is REMOVED on the ruling that removed `INTENSITY_MAP`, `TRACK_LEVELS["A3_sfx"].base_level_db` (-12, *"Subtle - felt more than heard"*) and `A4_transition_audio` are REMOVED, and `compile_manifest`'s `get("volume_db", -14)` is gone. **Nothing is renumbered** - `WITHDRAWN_VOLUME_LADDER` and `WITHDRAWN_TRACK_LEVELS` are the record. An entry naming no level is DROPPED with the reason. **The model can only reason about a relationship it can see**: `bed_under_it` already said what the bed does under the block, and `SPEECH_REFERENCE_LEGEND` adds the other end - speech (A1) is the reference at 0 dB - as the definition it is, never as a target. `tests/test_sfx_level.py`.
+- **HOW LOUD a sound plays is the plan's own `volume_db`, and no layer substitutes one.** One enumeration, `library/tools/sfx_level.py`. The four-word ladder `VOLUME_MAP` (`subtle|low|medium|prominent` -> -18|-14|-10|-6) is REMOVED on the ruling that removed `INTENSITY_MAP`, `TRACK_LEVELS["A3_sfx"].base_level_db` (-12, *"Subtle - felt more than heard"*) and `A4_transition_audio` are REMOVED, and `compile_manifest`'s `get("volume_db", -14)` is gone. **Nothing is renumbered** - `WITHDRAWN_VOLUME_LADDER` and `WITHDRAWN_TRACK_LEVELS` are the record. An entry naming no level is DROPPED with the reason. **The model can only reason about a relationship it can see**: `bed_under_it` says what the bed does under the block, and step 4.04's `handoff.md` states the other end - speech (A1) is the reference at 0 dB - as the definition it is, never as a target. `tests/test_sfx_level.py`.
 """
 
 from __future__ import annotations
@@ -83,30 +87,6 @@ VOLUME_KEY = "volume_db"
 # refused rather than silently clamped into a level nobody chose.
 MIN_VOLUME_DB = -100.0
 MAX_VOLUME_DB = 30.0
-
-SPEECH_REFERENCE_LEGEND = {
-    "speech_reference_db":
-        "speech (A1) is the mix's reference and plays at 0 dB. Every "
-        "`volume_db` you write is against THAT, and `bed_under_it` says "
-        "where the music sits under the same block. Nothing in this "
-        "pipeline declares how far above or below either a sound OUGHT to "
-        "sit - no separation target is declared anywhere - so the "
-        "relationship is yours to choose.",
-    "volume_db":
-        "the level you want this sound played at, in dB against speech's "
-        "0 dB reference. There is no ladder of words and no default: an "
-        "entry naming no volume_db is dropped, because a sound at a level "
-        "nobody chose is what made the one sound in the last run "
-        "inaudible.",
-    "volume_level":
-        "WITHDRAWN. Step 4.04's handoff.md is frozen and still says a "
-        "layered sound 'carries its own volume_level'; the four-word "
-        "ladder that word named - subtle, low, medium, prominent - is "
-        "gone, and an entry naming volume_level and no volume_db is "
-        "dropped. Write volume_db. This line is the correction, carried "
-        "as DATA beside the context because the handoff is not ours to "
-        "edit.",
-}
 
 WITHDRAWN_TRACK_LEVELS = {
     "A3_sfx.base_level_db": (

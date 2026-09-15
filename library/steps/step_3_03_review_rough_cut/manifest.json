@@ -46,7 +46,7 @@
         "name": "render_qa_findings",
         "type": "object",
         "required": false,
-        "description": "The LAST render's QA findings, read off exports/qa_report.json by library/tools/qa_findings.py. No DAG edge carries it: the producer is step 6.02, the final node, so an edge here would be a back edge and the topological sort would refuse it. It is filled by name in gather_step_inputs for the steps that declare it, and it is absent on a project that has never rendered. It carries its own legend, because handoff.md is frozen. NOT a gate: an advisory finding must never reject a rough cut."
+        "description": "The LAST render's QA findings, read off exports/qa_report.json by library/tools/qa_findings.py. No DAG edge carries it: the producer is step 6.02, the final node, so an edge here would be a back edge and the topological sort would refuse it. It is filled by name in gather_step_inputs for the steps that declare it, and it is absent on a project that has never rendered. What each field IS, and that none of it is grounds to reject a rough cut, is stated in this step's own handoff.md - it carried its own legend only while that file was under the captain's freeze, lifted 2026-09-09. NOT a gate: an advisory finding must never reject a rough cut."
       },
       {
         "name": "speech_sequence",

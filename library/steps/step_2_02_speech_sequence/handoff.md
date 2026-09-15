@@ -20,10 +20,10 @@ You are a narrative editor constructing the spoken backbone of a shortform
 video. You have access to the creative direction (your compass) and the
 per-clip semantic analyses (your raw material).
 
-Your job is SELECTION AND PLACEMENT — choose which speech passages to use,
-in what order, and resolve each to precise source timestamps using the
-temporal event indices. You are building a TIMESTAMP-RESOLVED speech
-sequence ready for direct timeline placement.
+Your job is SELECTION AND PLACEMENT — choose which speech passages to use
+and in what order. The exact source timings are resolved for you: the
+post-bridge aligns the verbatim text you give it against WhisperX word
+timings and writes the real in and out points back.
 
 ---
 
@@ -48,7 +48,8 @@ speech sequence for the video.
 Each passage needs:
 - clip_id (which clip it's from)
 - text (exact verbatim words from the temporal index transcript)
-- source_start / source_end (source timestamps from the temporal index)
+- source_start / source_end (roughly WHERE in that clip the text sits - a
+  location hint, not a timing; see "Where the passage is" below)
 - role (describe the structural function of this passage in your own words, e.g. "hook", "development", "punchline")
 - flow_note (how this passage connects to the next)
 - engagement (how strongly this passage holds a viewer, judged ONLY
@@ -60,18 +61,35 @@ Each passage needs:
   and say why in `basis`. An unjudged passage must read as
   unjudged.
 
-### Timestamp resolution:
-For each passage you select, look up the `transcripts_toon` data for that
-clip_id and find the region containing the verbatim text. Copy the
-region's `start` and `end` values into `source_start` and `source_end`.
+### Where the passage is (a hint, not a timing)
 
-**Never invent a timestamp.** `source_start`/`source_end` are a lookup
-hint, not a guess: the bridge re-derives the real timings by aligning your
-`text` against WhisperX word timings, and it FAILS THE STEP when your text
-cannot be found in the transcript. A round-number range you made up
-(`0.0`-`5.0`, `60.0`-`65.0`) will not survive - it will stop the pipeline.
-If you cannot find a passage's verbatim text in the transcript, do not
-select that passage.
+**The exact in and out points are not yours to compute, and no answer you
+give here becomes a timeline range.** The post-bridge
+(`library/steps/step_2_02_speech_sequence/post_bridge.py`,
+`_align_words_to_text`) searches the clip's WhisperX word timings for your
+`text`, tries every occurrence of its first word, and ranks the candidates
+by how much of the passage aligned, then by the shortest span, then by the
+smallest leading gap. Whatever it picks becomes `start_time`/`end_time`,
+and those are what reach the spine. It FAILS THE STEP when your text
+cannot be found in the transcript at all.
+
+Your `source_start`/`source_end` are the LAST tie-break in that ranking -
+a proximity hint used only when two equally complete anchors are otherwise
+indistinguishable, which is what disambiguates a sentence the speaker says
+twice. So:
+
+- Give the approximate location from the `transcripts_toon` region you
+  found the text in. Close is enough; the alignment does the rest.
+- Do not hand-trim a range to the word, and do not treat the numbers as
+  the passage's duration - they are not read as one.
+- **Never invent one.** A round-number range you made up (`0.0`-`5.0`,
+  `60.0`-`65.0`) points the tie-break at the wrong occurrence, which is how
+  a mis-anchor gets past a perfectly valid-looking alignment.
+- If you cannot find a passage's verbatim text in the transcript, do not
+  select that passage.
+
+The `text` is the part that has to be exact. The numbers beside it only
+have to be roughly right.
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows. The available fields are `clip_id`, `start`, `end`, and `text` for transcripts, and `clip_id`, `topics` for topics.
 
@@ -95,22 +113,32 @@ brief is provided, rely on the creative direction output from Step 2.1.
 
 ## Duration Limit
 
-Read `project_config.target_duration_seconds` from the input if available.
-This value comes from the project's `project.json`.
+**The project declares a target duration zone, and the sequence has to fit
+inside it. You are not the one who adds it up.** The post-bridge sums the
+ALIGNED durations - the real ones, off the word timings, not the hints you
+gave - and `refuse_out_of_zone_sequence`
+(`library/steps/step_2_02_speech_sequence/post_bridge.py`) REFUSES the step
+when the total falls outside the declared zone, handing you the numbers and
+the zone so you can cut. Any arithmetic you do here is on estimates the
+alignment is about to replace, so do not present a total as a fact.
 
-- If a target is set, the total speech sequence MUST fit within it. Select
-  only the strongest passages. If all candidate passages sum to more than
-  the target, aggressively cut - keep only passages that directly serve the
-  creative direction's narrative theme and key moments.
-- Leave room for B-roll, transitions, intro and outro - how much speech
-  vs. visual content the piece needs is a creative call that depends on
-  the footage and the creative direction.
-- Document in `excluded_passages` any passages cut to meet the duration
-  target, with `reason_excluded: "cut to meet duration target of Xs"`.
+What that leaves you is the judgement the refusal cannot make:
 
-If `project_config` is not available, include all speech passages that
-serve the creative direction. Do not artificially cap the duration - the
-downstream mesh_spine step will coordinate speech and music timing.
+- **Which passages go, when something has to.** Keep only what serves the
+  creative direction's narrative theme and key moments. Cutting the weakest
+  passage and cutting the shortest one are different decisions and only one
+  of them is editorial.
+- **Leaving room for B-roll, transitions, intro and outro** - how much of
+  the piece is speech versus visual is a creative call that depends on the
+  footage and the creative direction, and the zone measures speech alone.
+- **Documenting the cut** in `excluded_passages`, with
+  `reason_excluded: "cut to meet duration target of Xs"`.
+
+**A run that declares no target is UNCHECKED, not unbounded.** With no
+`target_duration_seconds` the post-bridge measures nothing - judging against
+an invented minute is the defect `library/tools/duration_targets.py`
+removed. Include the passages that serve the creative direction and let step
+2.5 coordinate speech and music timing.
 
 ---
 
@@ -142,15 +170,16 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 | Parameter | Value |
 |-----------|-------|
 | Target body passages | However many the duration limit above and the creative direction call for. There is no count to hit. |
-| Target total duration| Should serve the creative direction; if project_config sets a target, respect it |
+| Target total duration| The project's declared zone, checked on the aligned durations by `refuse_out_of_zone_sequence`. Unchecked when the project declares none. |
 
 ---
 
 ## Important Notes
 
-- This step produces TIMESTAMP-RESOLVED passages. Each passage includes
-  source start/end timestamps looked up from the temporal event index.
-  No separate timestamp resolution step is needed.
+- This step produces passages that BECOME timestamp-resolved: you give the
+  verbatim text and roughly where it sits, and the post-bridge resolves the
+  real timings before anything downstream reads them. There is no separate
+  timestamp resolution step.
 - The hook CAN be a snippet of a body passage — this is intentional and
   common in shortform. Use word-level timestamps to trim precisely. A body
   passage that is the whole hook rather than a longer version of it gets

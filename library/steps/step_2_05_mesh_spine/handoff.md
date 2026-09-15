@@ -29,8 +29,21 @@ direction. Now they must be woven into one coherent timeline plan.
 
 Speech and music are two halves of one backbone — neither anchors the other.
 You must not let either input silently stretch the timeline past the target duration band.
-Your spine's `total_estimated_duration_seconds` must fall within the project's target duration zone.
-The resolved zone is in `duration_zone` in your context: `minimum_seconds`, `target_seconds`, `maximum_seconds`.
+The project's target duration zone is in `duration_zone` in your context:
+`minimum_seconds`, `target_seconds`, `maximum_seconds`.
+
+**You do not add the total up, and you are not asked to.** The post-bridge
+recomputes `total_estimated_duration_seconds` from the enriched blocks
+after it has replaced every speech block's estimate with the passage's
+real measured duration, and `validate_spine_blocks`
+(`library/tools/spine_contract.py`) REFUSES the step when that recomputed
+total falls outside the zone. Declared bookend blocks are excluded from
+the comparison, because a brand card is not a length you chose.
+
+What is yours is the shape that lands inside the zone: which passages
+open and close, how many transition slots the piece wants and how long
+each one breathes. If the refusal fires, it comes back to you with the
+real numbers and you cut or lengthen the non-speech blocks accordingly.
 If the music track is longer than the target duration, do NOT fill the timeline to match the music length; the music will be trimmed or faded out downstream.
 If the speech content is shorter than the target duration, you may add non-speech blocks (transition slots, intro, outro) to reach the target, but do NOT add dead air or silence at the head of the video. Silence at the head of a video is a gap, not spine.
 If the speech content is longer than the target duration, you may need to adjust pacing or recommend speech cuts, but do not just blindly accept a longer video that exceeds the target band.
@@ -146,6 +159,25 @@ the only way to tell the pipeline "this is intentional."
 
 ---
 
+## Creative Brief
+
+When a `creative_brief` is provided in the input, it contains the captain's
+editorial vision as a rich markdown document. **This step sets every gap
+length and every `music_behavior` in the piece**, and until the captain's
+freeze on this file lifted it was the only planning step of the seven whose
+prompt never mentioned the brief. Read it for:
+
+- Pacing philosophy: how much breathing room the piece wants, and where
+- Where music should lead and where it should get out of the way
+- The shape of the opening - a cold open, a hook into a music beat, a
+  straight start
+- How the piece should end
+
+Let the brief shape the structure, not just the words in it. If no creative
+brief is provided, follow the creative direction's energy arc.
+
+---
+
 
 ### Timeline Notes
 If the input includes `timeline_notes`, you MUST read and weigh them. Your output MUST include a `note_acknowledgements` array saying what was done about each note and why - including 'I did not act on this and here is why', since a note you cannot act on should be left alone rather than guessed at.
@@ -182,7 +214,9 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 4. **Music-speech fit**: Music behavior is appropriate for each block type
 5. **No content loss**: Every speech passage from body_sequence appears in
    exactly one speech block
-6. **Duration plausibility**: Estimated total falls within the target duration band
+6. **Duration plausibility**: The shape you chose lands inside the target
+   duration band once the real passage durations replace your estimates.
+   The summation and the verdict are `validate_spine_blocks`'.
 
 ---
 
@@ -198,29 +232,22 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 - If speech and music don't mesh well, propose cutting a speech segment
   or swapping a music splice — document the change and rationale.
 
-### Precision tool: RMS energy contour (embedded)
+### The music is already measured, and you are not the one measuring it
 
-To make data-driven pacing decisions, analyze the music track's energy:
+Step 2.06 (`music_analysis`) measures the chosen track with librosa: the
+per-second energy curve, the tempo, the beats and the downbeats. None of
+those raw series reach you, and that is deliberate - this step's
+`context_fields` withhold `music_analysis.tempo.beats`,
+`music_analysis.tempo.downbeats` and
+`music_analysis.energy_dynamics.energy_curve_1hz` by name (AGENTS.md 10.1,
+"No raw value list reaches a prompt"). What you get is the reading:
+`music_analysis` summary scalars and the music's own behaviour words.
 
-```python
-import librosa
-
-y, sr = librosa.load("music_track.wav", sr=22050)
-rms = librosa.feature.rms(y=y)[0]
-rms_times = librosa.frames_to_time(range(len(rms)), sr=sr)
-# Plot or analyze: high RMS = energetic (good for prominent music)
-# Low RMS = quiet (good for background under speech)
-```
-
-### Precision tool: Beat tracking (embedded)
-
-To align transition slot boundaries to musical beats:
-
-```python
-tempo, beat_frames = librosa.beat.beat_track(y=y, sr=sr)
-beat_times = librosa.frames_to_time(beat_frames, sr=sr)
-# beat_times = [0.5, 1.0, 1.5, ...] — use for transition slot boundaries
-```
+So do not try to derive a beat grid or an energy contour here. You have no
+shell, no audio file and no measurements to run one on, and a number you
+produced by describing an analysis you did not run is an invented number.
+Where a boundary should land on a beat, say so in the block's
+`visual_note` and let step 4.02 - which has the grid - place it.
 
 ---
 

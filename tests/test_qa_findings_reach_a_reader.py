@@ -352,7 +352,19 @@ def test_the_runner_hands_the_findings_to_the_step_that_asked(tmp_path):
     assert payload["source"] == qa.SOURCE_FILE
     assert {f["metric"] for f in payload["findings"]} == {
         r["metric"] for r in THE_FOUR + [A_CLEAN_ROW]}
-    assert payload["legend"]["not_grounds_for_rejection"]
+    # The definition and the not-grounds-for-rejection rule live in
+    # step 3.03's own prompt now, not beside the table. The freeze that
+    # forced a `legend` key was lifted 2026-09-09.
+    assert "legend" not in payload
+    handoff = (PROJECT_ROOT / "library" / "steps"
+               / "step_3_03_review_rough_cut" / "handoff.md").read_text(
+        encoding="utf-8")
+    assert "render_qa_findings" in handoff
+    assert "Do NOT reject the rough cut because of a finding here" in handoff
+    for field in ("metric", "severity", "verdict", "owned_by", "detail",
+                  "readings"):
+        assert f"`{field}`" in handoff, (
+            f"{field} reaches 3.03 and its prompt never says what it is")
 
 
 def test_a_step_that_did_not_ask_is_handed_nothing(tmp_path):

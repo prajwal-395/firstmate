@@ -29,6 +29,7 @@ import ast
 import os
 import re
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -406,3 +407,90 @@ def test_describe_roster_reports_the_spread_and_the_reachability():
 def test_the_cli_check_passes():
     assert mgv.main(["--check"]) == 0
     assert mgv.main([]) == 0
+
+
+# ── 4.06's prompt states the renderer's real ceiling ─────────────────
+#
+# The captain's named failure was that the model planned text graphics
+# and small icons when asked for animation, and their reading was that
+# better instruction would have fixed it. That is half right:
+# docs/ANIMATED_REEL_CEILING.md recorded what the vocabulary cannot
+# express at all, and a prompt rewritten without saying so would teach
+# the model to ask for things that get dropped by name.
+#
+# So the prompt states the ceiling - and these pin the two halves of
+# that statement that CAN rot silently: a count it asserts about the
+# roster, and a limit that would stop being true the day the renderer
+# gains the node. A prompt that claims a limit the renderer no longer
+# has is as misleading as one that claims a capability it never had.
+
+HANDOFF_4_06 = (
+    Path(__file__).resolve().parents[1] / "library" / "steps"
+    / "step_4_06_render_motion_graphics" / "handoff.md"
+)
+
+
+def _handoff_4_06() -> str:
+    return " ".join(HANDOFF_4_06.read_text(encoding="utf-8").split())
+
+
+def test_the_prompt_s_copy_counts_match_the_roster():
+    """The prompt tells the model how copy-shaped this roster is, to
+    explain why reaching for text is not purely its own doing. A count
+    that drifts from the roster is a false explanation."""
+    from collections import Counter
+
+    counts = Counter(row["copy"] for row in mgv.roster_rows())
+    handoff = _handoff_4_06()
+    words = {11: "eleven", 3: "three", 4: "four", 18: "Eighteen"}
+    assert f"{words[18]} elements" in handoff, (
+        f"the roster holds {len(mgv.ELEMENTS_BY_KEY)} elements and "
+        f"the prompt says otherwise")
+    assert len(mgv.ELEMENTS_BY_KEY) == 18
+    for value, count in (("required", counts["required"]),
+                         ("optional", counts["optional"]),
+                         ("none", counts["none"])):
+        assert count in words, (
+            f"copy={value} is now {count} and this test only spells "
+            f"{sorted(words)}; update both it and the prompt")
+        assert words[count] in handoff, (
+            f"the prompt no longer states that copy is {value} on "
+            f"{words[count]} elements")
+
+
+def test_the_prompt_names_every_element_that_draws_no_copy():
+    """These four are the whole non-copy set, and the prompt leans on
+    that fact to say where the non-text range is."""
+    handoff = _handoff_4_06()
+    silent = [row["element"] for row in mgv.roster_rows()
+              if row["copy"] == "none"]
+    assert len(silent) == 4
+    for element in silent:
+        assert f"`{element}`" in handoff, element
+
+
+def test_the_prompt_states_the_tracked_anchor_is_unavailable():
+    """`tracked` is the one anchor with no measurement behind it, and
+    `tracked_label` is the one element that is not reachable_now. The
+    day either changes, this prompt is lying to the planner."""
+    handoff = _handoff_4_06()
+    assert "`tracked`" in handoff
+    unreachable = [key for key, element in mgv.ELEMENTS_BY_KEY.items()
+                   if element.reachable != mgv.REACHABLE_NOW]
+    assert unreachable == ["tracked_label"], (
+        f"the unreachable set is now {unreachable}; 4.06's prompt names "
+        f"only tracked_label and would be stating a stale ceiling")
+
+
+def test_the_prompt_does_not_promise_a_video_node():
+    """No element in this layer composites a video file. `BrandMotion`
+    exists and belongs to the full-frame and bookend path; the prompt
+    says so rather than letting the planner reach for it."""
+    composition = (
+        Path(__file__).resolve().parents[1] / "remotion-subtitles"
+        / "src" / "compositions" / "MotionGraphics" / "index.tsx"
+    ).read_text(encoding="utf-8")
+    assert "OffthreadVideo" not in composition, (
+        "MotionGraphics gained a video node - 4.06's prompt still tells "
+        "the planner it has none")
+    assert "No element composites a video file" in _handoff_4_06()

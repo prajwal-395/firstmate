@@ -36,6 +36,70 @@ library (`PIPELINE_MUSIC_LIBRARY`, source `library`) and the project's own
 `duration_seconds`, a `duration_ok` flag and, when that flag is false, a
 `duration_note` saying why.
 
+### What was measured about each candidate
+
+Every candidate was opened and measured. These say what each number IS and
+what it is in; **none of them says what to conclude** - no target level, no
+target tempo and no preferred key is declared anywhere in this pipeline,
+and none is supplied here.
+
+Loudness and dynamics:
+
+- `integrated_lufs`: BS.1770 integrated loudness of the whole track, in
+  LUFS (ffmpeg loudnorm). Lower is quieter.
+- `loudness_range_lu`: BS.1770 loudness range (LRA) of the whole track, in
+  LU. It is gated: passages below its own relative threshold are excluded.
+- `true_peak_dbtp`: True peak of the whole track, in dBTP. `0.0` is full
+  scale.
+- `rms_spread_db`: p95 minus p5 of per-second RMS windows across the whole
+  track, in dB. Ungated, so unlike `loudness_range_lu` it counts
+  near-silent passages.
+- `window_spread_db`: The same p95-minus-p5 read, over the played window
+  only.
+- `window_seconds`: How long the played window is, in seconds.
+- `speech_band_ratio_db`: RMS in the 300-3400 Hz speech band minus
+  full-band RMS, in dB. How much of the track's energy sits in the same
+  band as a voice.
+
+Whether it was measured at all:
+
+- `measured`: Whether the file was opened and measured. **`false` means the
+  numbers above are ABSENT, never that they are zero.**
+- `measurement_note`: Why a candidate was not measured, when `measured` is
+  false.
+
+Rhythm:
+
+- `tempo_bpm`: Detected tempo in beats per minute, from the same beat
+  tracker step 2.06 runs (madmom RNN+DBN where installed, librosa
+  otherwise). `None` when no usable grid was found.
+- `tempo_method`: Which tracker answered - `madmom-rnn-dbn` or
+  `librosa-beat-track`. The two disagree by up to a few BPM, and librosa
+  doubles or halves the true tempo on some tracks.
+- `tempo_beat_count`: How many beats the tracker found across the whole
+  track. Below eight there is no grid to snap to, only noise.
+- `tempo_downbeat_count`: How many bar starts were found. A cut on a
+  downbeat reads as intentional where a cut on any beat can read as busy.
+- `tempo_stable`: Whether the instantaneous tempo holds steady across the
+  track. A drifting tempo has one BPM number and no single grid.
+- `tempo_note`: Why there is no usable tempo, when `tempo_bpm` is `None`.
+
+Harmony:
+
+- `musical_key`: Detected key as a label such as `C major`, from the same
+  key extractor step 2.06 runs (essentia). `None` where essentia is not
+  installed - the note says so.
+- `key_method`: Which extractor answered.
+- `key_strength`: The extractor's own confidence, 0 to 1. What to conclude
+  from it is your call.
+- `key_note`: Why there is no key, when `musical_key` is `None`.
+
+**Two things are measured and deliberately do NOT reach you**: the
+per-second envelope curve and the full beat/downbeat arrays. Raw value
+lists do not go in a prompt (AGENTS.md 10.1); the scalars above are the
+reading of them, and the section shape you get in the second pass below is
+the reading of the envelope.
+
 **You may choose from that list, or from outside it.** A track held
 nowhere locally is a legitimate answer - name it with source `external`
 and a `source_url`. Nothing is preferred by virtue of being on disk; the
@@ -51,11 +115,15 @@ is the half that used to be missing.
    each one why your track does not do it.
 2. **Consider the candidates.** Record what you looked at and why you
    rejected it in `candidates_evaluated` - including anything ruled out on
-   duration.
+   duration, which the row's own `duration_ok`/`duration_note` already
+   decided for you.
 3. **Decide.** Take the best track, local or external.
 4. **Identify splices** (source_in/source_out) for the sections you intend
-   to use.
-5. **Copy `audio_path` verbatim** from the candidate you chose. Do not
+   to use, and **shortlist the sections you are weighing**
+   (`section_shortlist`) so their shape is measured before you commit.
+5. **Say which second the bed starts on** (`section`), when the track is
+   longer than the edit.
+6. **Copy `audio_path` verbatim** from the candidate you chose. Do not
    retype or shorten it.
 
 ### Selection principles
@@ -69,13 +137,20 @@ is the half that used to be missing.
 4. **BPM is critical** - needed for beatmatching transitions in Phase 4
 5. **Entry and exit matter** - consider how the track starts and stops in
    context: fades, hard starts, or cuts to silence are all tools
-6. **Duration has to be plausible.** The track must be at least as long as
-   the edit, because music is placed at 0 and run to the end of the
-   timeline. It must also be no longer than
-   `music_candidates.max_track_duration_seconds`: something an order of
-   magnitude longer than the piece is a compilation, not a track. A
-   3914-second file once scored a 55-second edit because nothing asked
-   this question.
+6. **Duration is already judged - read the verdict, do not re-derive it.**
+   The bridge measured every candidate and put the answer on the row:
+   `duration_ok` is the flag and `duration_note` says why when it is false.
+   A track must be at least as long as the edit (music is placed at 0 and
+   run to the end of the timeline) and no longer than
+   `music_candidates.max_track_duration_seconds` - something an order of
+   magnitude longer than the piece is a compilation, not a track; a
+   3914-second file once scored a 55-second edit because nothing asked.
+   `validate_selection` (`library/tools/music_selection_contract.py`)
+   applies both bounds again to whatever you choose and REJECTS the step
+   on either, and it re-measures the file rather than trusting a stated
+   number. So do not recompute the comparison and do not argue with a
+   `duration_ok: false` row: either take a candidate the flag passed, or
+   name an external track and say why.
 7. **Identify specific splices** - a 3-minute track is never used in full;
    pick the sections that fit particular moments
 
@@ -91,6 +166,62 @@ is the half that used to be missing.
 - Identify the sections of the track you intend to use
 - A single continuous section is as valid as multiple splices
 - Splices should be clean cut points - on beat boundaries when possible
+- `splices` are in SOURCE time and name no timeline position. Two disjoint
+  pieces of one track are two entries, and that is expected. Step 2.5
+  decides which piece plays where (`library/tools/music_bed.py`).
+- The bed is not one continuous stretch of one track unless you decide it
+  is. `tracks` names EVERY additional track you want the bed to be able to
+  use beyond the primary; the primary is the one at the top level and is
+  the one whose tempo is analysed. Name only tracks you really intend
+  pieces of.
+
+### Which SECOND of the track the bed starts on
+
+**This is your decision, and nothing in the pipeline picks one.** There is
+no best-section rule - a "pick the flattest window" or "pick the loudest"
+rule would be a creative value hardcoded into the engine
+(`library/tools/music_section.py` records why there must not be one).
+
+`section` is `{source_in, why}`: `source_in` is the second OF THE TRACK the
+bed starts at - the bed is placed once and runs under the whole video from
+there - and `why` says what in the measurements decided it. It is REQUIRED
+when the track is longer than the edit.
+
+**Omitting `section` plays from the head of the file, and that reads as the
+ABSENCE of a decision, not as a choice of the opening.** A track whose first
+minute is an unresolved intro and whose second minute is the settled body is
+two completely different beds depending on where it starts.
+
+`resolve_section` REFUSES a section that does not fit rather than sliding it
+back, because moving the start is choosing which part plays. The beat grid
+moves with your offset; you do not adjust for it.
+
+### The second pass: you are asked again with the shape in front of you
+
+Only the mean level and spread of each section have been measured when you
+first answer. **`section_shortlist` is the list of sections you are
+SERIOUSLY CONSIDERING** - `{track (optional), source_in, source_out, why}`,
+as many as you are weighing, across as many tracks as you are weighing.
+
+Naming them has their SHAPE measured and you are asked once more with those
+numbers in front of you before the choice stands. **Name none and no shape
+is measured**: your first answer stands as given.
+
+When that second pass arrives, `section_measurements` carries one row per
+shortlisted span:
+
+- `envelope_dbfs`: **the SHAPE of the span** - its level averaged into
+  twelve equal buckets, in time order, in dBFS. This is the measurement
+  that exists only for seconds 0 to the length of the edit on the first
+  pass, which is why you are being asked again: a section that rises across
+  the minute and one that falls across it have the same mean and the same
+  spread.
+- `mean_dbfs`: the power mean of the span - the same statistic
+  `track_sections` reports, repeated here so the shape and the level are
+  read together.
+- `spread_db`: how far the loud and quiet parts of the span are apart.
+- `measured`: `false` with a stated note means this span could not be
+  measured. **It never means the span is silent.**
 
 ---
 
@@ -129,8 +260,9 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
    target mood, the registers it forbids, and why this track avoids each
    one. A choice that contradicts the direction must be visible in what
    you wrote, not only in how it sounds
-3. **Duration sanity**: the track is at least as long as the edit and no
-   longer than `max_track_duration_seconds`
+3. **Duration sanity**: the chosen track's `duration_ok` is true. The
+   verdict is `validate_selection`'s, measured off the file, not a
+   comparison you were asked to perform
 4. **Practical splicing**: Splices must have valid timestamps within the
    track, with clean entry/exit points
 5. **Completeness**: Selected splices cover the intended use in the video

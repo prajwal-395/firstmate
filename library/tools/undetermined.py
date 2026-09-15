@@ -51,7 +51,7 @@ is findable by its own words, and AGENTS.md 3 keeps the headline
 and points here.
 
 One enumeration, `library/tools/undetermined.py`. Across all nine model responses of 001's 29 Aug run there is exactly ONE hedge; nothing invited the models to declare their own gaps, so "where are the bottlenecks" had no demand signal to read.
-- The TEN steps that reach a model are asked for `could_not_determine` in the RENDERED schema, with the instruction carried as DATA beside the context (the `CUTS_LEGEND`/`MEASUREMENT_LEGEND` route, because the handoffs are frozen). **Every one of them, not a subset**: choosing a subset answers, in advance and from outside, the question the field exists to collect data for. `render_motion_graphics` joined on 2026-09-02 when 4.06 grew a handoff, and `color_grade` on 2026-09-03 when 5.01 did; **a step that starts reaching a model and is left off the list is the subset this refuses to choose.**
+- The TEN steps that reach a model are asked for `could_not_determine` in the RENDERED schema, with the instruction carried as DATA beside the context. That is REUSE, not the lifted handoff freeze: ten steps are asked the SAME words, and ten copies in ten `handoff.md` files is ten things to keep equal. **Every one of them, not a subset**: choosing a subset answers, in advance and from outside, the question the field exists to collect data for. `render_motion_graphics` joined on 2026-09-02 when 4.06 grew a handoff, and `color_grade` on 2026-09-03 when 5.01 did; **a step that starts reaching a model and is left off the list is the subset this refuses to choose.**
 - **THREE readings, not two.** `[]` is `nothing_missing` - a complete answer; an absent key is `not_declared` - a non-answer, recorded as one and never read as "nothing was missing". Same line as `usable_ranges` `[]`/`unmeasured` (§10.3).
 - **The field is SPLIT OUT of the answer** before anything validates or reads it: it is a demand signal, not one of the step's outputs, and `validate_step_output` refuses an unexpected key.
 - **It reports and never gates.** The run summary prints it after `status` is decided and it lands on `state["undetermined_declarations"]`. Nothing reads a declaration's CONTENT - whatever picks which gaps matter becomes the reviewer (§10.4).
@@ -201,10 +201,10 @@ def schema_entry() -> dict:
 def prompt_block() -> str:
     """The instruction, delivered as DATA beside the context.
 
-    The handoffs are frozen, so this takes the route
-    `music_measurement.MEASUREMENT_LEGEND` and `CUTS_LEGEND` already
-    take: the words travel with the call rather than being edited into
-    the prompt file.
+    The same words go to TEN steps, so they travel with the call
+    rather than being pasted into ten prompt files with nothing
+    keeping them equal.  Not the handoff freeze, which was lifted
+    2026-09-09: this route was kept on its own merits.
     """
     return (
         "\n\n## What you could not determine\n\n"

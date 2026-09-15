@@ -154,12 +154,14 @@ DROP_REASONS = {
 }
 
 
-# ── What the reader is told each key is ───────────────────────────────
+# ── What each key of `planning_basis` is ──────────────────────────────
 #
-# A legend says what a key IS.  It never says what to conclude from it.
-# Same route `music_measurement.MEASUREMENT_LEGEND` and
-# `transition_carriers.CUTS_LEGEND` take, and for the same reason: step
-# 4.03's `handoff.md` is frozen, so a column definition travels as DATA.
+# This is NOT a prompt route and never was: `planning_basis` is step
+# 4.03's own OUTPUT, so nothing here is shipped to a model and the
+# captain's handoff freeze was never the reason it exists.  It is the
+# self-description `_main` prints and `assert_vocabulary_is_well_formed`
+# checks, so a key added to the output without a sentence saying what it
+# holds fails here rather than reaching a reader bare.
 BASIS_LEGEND = {
     "basis": "which of PLAN_BASES the length of this plan rests on",
     "proposed": "how many entries the planner named",

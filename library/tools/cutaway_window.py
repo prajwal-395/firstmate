@@ -71,10 +71,11 @@ AUDIO_SIGNALS = {
 
 # ── What a candidate window is described by ───────────────────────────
 #
-# Column definitions as DATA, so route 2 - handing these rows to the model
-# and letting it choose the window - needs no edit to the step's frozen
-# `handoff.md`.  Same route `music_measurement.MEASUREMENT_LEGEND` and
-# `transition_carriers.CUTS_LEGEND` take.
+# Column definitions as DATA.  Route 2 - handing these rows to the model
+# and letting it choose the window - is not taken today, so there is no
+# prompt for them to live in yet; the day it is, they belong in that
+# step's prose.  The captain's freeze on `handoff.md` was lifted
+# 2026-09-09 and is no longer the reason.
 #
 # A legend says what a key IS.  It never says what to conclude from it.
 CANDIDATE_LEGEND = {

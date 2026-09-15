@@ -75,7 +75,7 @@ def main():
     # refuses a drawn transition there - it failed 001's run of record
     # that way. This states the fact per cut; nothing is filtered,
     # re-ordered or chosen for the model (AGENTS.md 10.5).
-    from library.tools.transition_carriers import CUTS_LEGEND, cut_carriers
+    from library.tools.transition_carriers import cut_carriers
 
     carriers = {str(row["position"]): row for row in cut_carriers(spine_blocks)}
 
@@ -164,15 +164,13 @@ def main():
 
     cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_footage", "incoming_footage"], cut_rows)
 
-    cuts_legend = dict(CUTS_LEGEND)
-    cuts_legend.update(cv.CUT_VERDICT_LEGEND)
-
+    # The four derived columns are DEFINED in this step's handoff.md
+    # ("Context data available"), not shipped beside the table as data.
+    # They travelled as a `cuts_legend` dict only while handoff.md was
+    # under the captain's freeze; the freeze was lifted 2026-09-09 and
+    # a definition living in two places is worse than either.
     compressed = {
         "cuts_toon": cuts_toon,
-        # The handoff is frozen and cannot name the derived columns, so
-        # their definition travels as data - the route step 2.04 takes
-        # for MEASUREMENT_LEGEND.
-        "cuts_legend": cuts_legend,
     }
 
     # How much of the review's judgement is missing, said rather than

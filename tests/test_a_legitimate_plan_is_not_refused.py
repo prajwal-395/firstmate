@@ -47,7 +47,7 @@ sys.path.insert(0, str(REPO))
 
 from library.steps.step_5_04_compile_manifest.step import compile_manifest
 from library.tools.vfx_carriers import (
-    NO_PICTURE, ON_V1, ON_V2, VFX_CANDIDATES_LEGEND,
+    NO_PICTURE, ON_V1, ON_V2,
     assert_legend_is_well_formed, picture_carriers,
 )
 
@@ -323,11 +323,16 @@ def test_the_legend_travels_with_the_table(media):
 
     header = out["vfx_candidates_toon"].splitlines()[0]
     assert "picture_track" in header and "track_basis" in header
-    assert out["vfx_candidates_legend"] == VFX_CANDIDATES_LEGEND
+    # The definition is in the PROMPT now. It travelled beside the table
+    # as a `vfx_candidates_legend` dict only while handoff.md was under
+    # the captain's freeze, lifted 2026-09-09.
+    assert "vfx_candidates_legend" not in out
+    handoff = " ".join((REPO / "library" / "steps" / "step_4_03_plan_vfx"
+                        / "handoff.md").read_text(encoding="utf-8").split())
+    assert "`picture_track`" in handoff and "`track_basis`" in handoff
     # It says what an effect on a cutaway DOES, which is the second thing
     # the planner was never told.
-    assert "cannot read or alter the A-roll" in (
-        out["vfx_candidates_legend"]["track_basis"])
+    assert "cannot read or alter the A-roll" in handoff
 
 
 def test_a_block_with_no_picture_at_all_says_so():

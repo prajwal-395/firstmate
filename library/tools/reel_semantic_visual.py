@@ -174,7 +174,6 @@ def bridge_context(reel_spine: dict, project_folder: str, fps: float) -> dict:
              "resolved_against"],
             [{k: _cell(v) for k, v in row.items()}
              for row in vocabulary.axis_rows()]),
-        "motion_elements_legend": dict(vocabulary.ROSTER_LEGEND),
         "timeline_context_toon": bridge.format_toon(
             ["block_position", "block_type", "timeline_start",
              "timeline_end", "says"], rows),
@@ -230,6 +229,13 @@ def handoff_text() -> str:
 
     Read from the handoff file rather than respelled, so the reel's
     planner and the master's planner can never drift into two asks.
+
+    It is also where the roster's COLUMN DEFINITIONS live: they shipped
+    beside the table as a `motion_elements_legend` dict while 4.06's
+    `handoff.md` was under the captain's freeze, and moved into its prose
+    when the freeze lifted.  Because this request carries that prose
+    verbatim, the reel's planner is told what a column is by the same
+    words the master's planner is.
     """
     here = os.path.dirname(os.path.abspath(__file__))
     path = os.path.join(here, "..", "steps",

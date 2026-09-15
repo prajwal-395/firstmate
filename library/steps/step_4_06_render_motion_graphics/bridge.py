@@ -88,30 +88,28 @@ def timeline_rows(audio_spine: dict) -> list:
 
 
 def brand_refinement(brand_style: dict, brand_effect: dict) -> dict:
-    """What the template refines, said either way.
+    """What THIS project's template declares, said either way.
 
-    A project with no template gets `declares_a_palette: false` and a
-    note saying the plan states its own colours. It does NOT get a
-    reduced set of elements, a substitute palette or a switched-off
-    layer - that gate is the defect this step was rebuilt to remove.
+    A project with no template gets `declares_a_palette: false`. It does
+    NOT get a reduced set of elements, a substitute palette or a
+    switched-off layer - that gate is the defect this step was rebuilt
+    to remove.
+
+    **Per-run facts only.** How a colour is resolved, and what a
+    template absence means, are RULES rather than facts about this run,
+    and `handoff.md` states both under "Colour, and what the brand
+    template does". They travelled here as two constant strings while
+    that file was under the captain's freeze; the freeze lifted
+    2026-09-09 and a rule living in the prompt AND beside the data is
+    worse than either - the day they disagree, nothing says which one
+    the model followed.
     """
     roles = roles_from_palette((brand_style or {}).get("color_palette")) or {}
     return {
         "declares_a_palette": bool(roles),
         "palette_roles": roles,
-        "how_a_colour_is_resolved": (
-            "State `colour_role` and a declared palette resolves it. "
-            "State `color` as a hex value and that is used instead. "
-            "State neither and the entry is dropped - there is no house "
-            "colour to fall back to."
-        ),
         "template_effect_slots_declared": sorted(
             k for k, v in (brand_effect or {}).items() if v is not None),
-        "what_a_template_absence_means": (
-            "Nothing. A project that names no brand template plans the "
-            "same layer; the template only saves the plan from having to "
-            "state a colour itself."
-        ),
     }
 
 
@@ -158,7 +156,6 @@ def main():
             [{k: _cell(v) for k, v in row.items()}
              for row in vocabulary.axis_rows()],
         ),
-        "motion_elements_legend": dict(vocabulary.ROSTER_LEGEND),
         "timeline_context_toon": format_toon(
             ["block_position", "block_type", "timeline_start",
              "timeline_end", "says"],

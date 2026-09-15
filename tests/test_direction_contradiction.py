@@ -512,14 +512,25 @@ def test_vision_prose_paths_name_real_reader_columns():
 
 
 def test_the_inventory_s_existing_markings_still_hold():
-    """The adjudicated half of the inventory cannot rot silently: the
-    verdict legend still defines its columns, the music justification is
-    still dropped where the inventory says it is, and the direction is
-    still prose-by-construction with a closed key set."""
-    from library.tools import cut_verdicts as cv
-    assert "narrative_verdict" in cv.CUT_VERDICT_LEGEND
-    assert "verdict_note" in cv.CUT_VERDICT_LEGEND
-    assert "rough-cut review" in cv.CUT_VERDICT_LEGEND["narrative_verdict"]
+    """The adjudicated half of the inventory cannot rot silently: 4.02's
+    prompt still says whose judgement a verdict is, the music
+    justification is still dropped where the inventory says it is, and
+    the direction is still prose-by-construction with a closed key set.
+
+    The verdict columns were MARKED by `CUT_VERDICT_LEGEND` travelling
+    beside the table while 4.02's `handoff.md` was frozen. The freeze
+    was lifted 2026-09-09 and the definition moved into the prompt, so
+    the marking is asserted where it now lives - the prompt the model
+    actually reads.
+    """
+    handoff = (Path(__file__).resolve().parents[1] / "library" / "steps"
+               / "step_4_02_plan_transitions" / "handoff.md").read_text(
+        encoding="utf-8")
+    assert "`narrative_verdict`" in handoff
+    assert "`verdict_note`" in handoff
+    assert "rough-cut review's judgement" in handoff.lower(), (
+        "the attribution is gone: a downstream decision would rest on "
+        "prose whose author the prompt no longer names")
 
     for step_dir, key in (
         ("step_2_05_mesh_spine",

@@ -357,10 +357,10 @@ STRIP_LEGEND = {
 }
 """What each column IS.  It never says what to conclude from one.
 
-The same route `music_measurement.MEASUREMENT_LEGEND` and
-`transition_carriers.CUTS_LEGEND` take, and for the same reason: step
-3.02's `handoff.md` is frozen, so a table that reaches the prompt has to
-carry its own definitions.
+**Not a freeze workaround any more**: the captain's freeze on
+`handoff.md` was lifted 2026-09-09.  This one was left as data by the
+fold of that day and is on the record as still foldable - the columns
+are constants and 3.02's prose could carry them.
 """
 
 _HEADERS = ("clip_id", "video_in", "strip_end", "frames", "file")

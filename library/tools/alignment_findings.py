@@ -31,8 +31,12 @@ Two readers, one module, the shape `qa_findings` already has:
   the step whose job is to look at the assembled cut and say what is
   wrong with it, and it is the last step before the transitions and VFX
   planners commit.  It has no `bridge.py`, so the legend travels as a
-  view rather than as a pre-bridge table - the `CUTS_LEGEND` route by
-  another door, and for the same reason: `handoff.md` is frozen.
+  view rather than as a pre-bridge table.  **Not a freeze workaround
+  any more**: the captain's freeze on `handoff.md` was lifted
+  2026-09-09 and the definition-in-the-prompt fold of that day covered
+  4.02, 4.03, 4.04, 3.03 and 2.04.  This one was left as data and is on
+  the record as still foldable - the columns are constants and 3.03's
+  prose could carry them.
 """
 
 from __future__ import annotations

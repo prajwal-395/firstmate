@@ -54,7 +54,6 @@ Input:  { "creative_direction": {...}, "project_folder": "..." }
 Output: { "music_candidates": {
             "target_duration_seconds": 60.0,
             "max_track_duration_seconds": 600.0,
-            "measurement_legend": { "<key>": "what it is" },
             "search": { "requested", "declaration", "cost", "rejected" },
             "duplicate_groups": [{ "representative", "also", ... }],
             "searched": [{ "source", "directory", "exists", "count" }],
@@ -97,7 +96,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from library.tools.music_measurement import (  # noqa: E402
-    MEASUREMENT_LEGEND,
     measure_candidates,
     measure_rhythm_candidates,
 )
@@ -255,10 +253,6 @@ def catalogue_music(project_folder: str, target_duration: float) -> dict:
     return {
         "target_duration_seconds": round(target_duration, 3),
         "max_track_duration_seconds": round(ceiling, 3),
-        # Shipped with the numbers because step 2.04's handoff.md is under
-        # a captain freeze and cannot name the new columns. A definition,
-        # never a conclusion.
-        "measurement_legend": dict(MEASUREMENT_LEGEND),
         "searched": searched,
         "candidates": candidates,
     }

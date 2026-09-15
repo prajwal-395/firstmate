@@ -70,7 +70,7 @@
         "name": "creative_brief",
         "type": "string",
         "required": false,
-        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none. This step sets every gap length and every music_behavior and was the only planning step of the seven with no brief (audit round 2 F7, round 3 B9/R9). Its handoff.md is under the captain's freeze and does not name a brief, so the declaration is what asks for it; the runner restores the value around the projection BY NAME, so context_fields neither has to list it nor can drop it (AGENTS.md 10.1)."
+        "description": "The captain's creative direction as markdown, injected by the runner from the project's creative_brief path. Empty when the project declares none. This step sets every gap length and every music_behavior and was the only planning step of the seven with no brief (audit round 2 F7, round 3 B9/R9). Its handoff.md now names the brief in its own 'Creative Brief' section, added when the captain's freeze on that file lifted 2026-09-09; this declaration is what routes it. The runner restores the value around the projection BY NAME, so context_fields neither has to list it nor can drop it (AGENTS.md 10.1)."
       },
       {
         "name": "project_context",

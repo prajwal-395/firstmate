@@ -525,8 +525,11 @@ def _stability(data: dict) -> dict:
 
     **Nothing here resolves the disagreement.**  Whatever picked a winner
     would become the measurement (AGENTS.md 10.5).  It is DATA with a
-    legend, the `MEASUREMENT_LEGEND` / `CUTS_LEGEND` route, because the
-    handoffs are frozen.
+    legend beside it.  **Not a freeze workaround any more** - the
+    captain's freeze on `handoff.md` was lifted 2026-09-09 - and this
+    view was not folded into any one prompt's prose because a view is
+    routed to whichever steps declare it, so its columns have no single
+    prompt to live in.  On the record as foldable per consumer.
 
     A clip neither signal measured is left out; a clip only one of them
     measured is `one_sided` and says so rather than reading as agreement.

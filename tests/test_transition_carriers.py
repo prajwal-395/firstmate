@@ -15,13 +15,14 @@ from pathlib import Path
 import pytest
 
 from library.tools.transition_carriers import (
-    CUTS_LEGEND,
     block_reaches_v1,
     cut_carriers,
 )
 
 REPO = Path(__file__).resolve().parents[1]
-BRIDGE = REPO / "library" / "steps" / "step_4_02_plan_transitions" / "bridge.py"
+STEP = REPO / "library" / "steps" / "step_4_02_plan_transitions"
+BRIDGE = STEP / "bridge.py"
+HANDOFF = STEP / "handoff.md"
 
 # `narrative_verdict` and `verdict_note` are step 3.03's per-cut judgement,
 # folded in beside the buildability columns by the same bridge
@@ -222,13 +223,12 @@ def test_the_fact_reaches_the_table_the_prompt_reads():
     assert [p for p, v in verdicts.items() if v == "no"] == [
         "2", "5", "7", "9", "14"]
 
-    # The columns are DEFINED, because handoff.md is frozen and cannot
-    # name them.  Same route as step 2.04's measurement legend.
-    # `<=`, not `==`: the legend is the union of every derived column's
-    # definition, and step 3.03's verdict columns add their own
-    # (library/tools/cut_verdicts.CUT_VERDICT_LEGEND).
-    assert dict(CUTS_LEGEND).items() <= out["cuts_legend"].items()
-    assert set(CUTS_LEGEND) == {"can_carry_drawn_transition", "carry_basis"}
+    # The definition is in the PROMPT now, not shipped beside the table.
+    # The freeze that forced a `cuts_legend` dict was lifted 2026-09-09,
+    # and a definition living in two places is worse than either.
+    assert "cuts_legend" not in out, (
+        "the derived columns are defined in handoff.md; shipping the "
+        "definition as data too is the duplication the fold removed")
 
 
 def test_the_bridge_filters_nothing_and_re_ranks_nothing():
@@ -250,14 +250,40 @@ def test_the_bridge_filters_nothing_and_re_ranks_nothing():
     assert len(rows) == len(SPINE_001) - 1
 
 
-def test_the_legend_states_what_a_column_is_and_never_what_to_do():
-    """A legend that ranks or advises would be the prompt-side floor in
-    another costume."""
-    for text in CUTS_LEGEND.values():
-        lowered = text.lower()
-        for steer in ("prefer ", "you should", "avoid ", "must use",
-                      "instead use", "choose "):
-            assert steer not in lowered, f"{steer!r} in the legend"
+def _derived_column_prose() -> str:
+    """The handoff paragraph that defines the derived `cuts_toon` columns.
+
+    Bounded to the block between the derived-column heading and the
+    sentence that closes it, so a steer word somewhere else in the
+    prompt - the toolkit table says "when to use" by design - is not
+    read as a steer inside a column definition.
+    """
+    text = HANDOFF.read_text(encoding="utf-8")
+    start = text.index("Four more columns are DERIVED")
+    end = text.index("Use this data to decide which transitions to apply",
+                     start)
+    return text[start:end]
+
+
+def test_the_handoff_defines_every_derived_column():
+    """The prose is the definition now, so it has to name each column it
+    ships.  This is the gate that stops the table and the prompt drifting
+    apart, which is the one thing the data route did for free."""
+    prose = _derived_column_prose()
+    for column in ("can_carry_drawn_transition", "carry_basis",
+                   "narrative_verdict", "verdict_note"):
+        assert f"`{column}`" in prose, (
+            f"{column} reaches the table and the prompt never says what "
+            f"it is")
+
+
+def test_the_definition_states_what_a_column_is_and_never_what_to_do():
+    """A definition that ranks or advises would be the prompt-side floor
+    in another costume."""
+    lowered = _derived_column_prose().lower()
+    for steer in ("prefer ", "you should", "avoid ", "must use",
+                  "instead use", "choose "):
+        assert steer not in lowered, f"{steer!r} in the column definitions"
 
 
 @pytest.mark.parametrize("structure", [None, [], [speech("1", 0.0, 1.0)]])

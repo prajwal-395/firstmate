@@ -22,7 +22,6 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
 from library.tools.sfx_level import (  # noqa: E402
-    SPEECH_REFERENCE_LEGEND,
     SfxLevelRefused,
     WITHDRAWN_TRACK_LEVELS,
     WITHDRAWN_VOLUME_LADDER,
@@ -89,29 +88,52 @@ def test_a_level_outside_what_a_clip_can_carry_is_refused_not_clamped():
         read_volume_db({"volume_db": -400})
 
 
+def _handoff() -> str:
+    return " ".join(open(
+        os.path.join(SFX, "handoff.md"), encoding="utf-8").read().split())
+
+
 def test_the_model_is_told_what_the_sound_sits_under():
-    """It cannot reason about a relationship it cannot see."""
-    joined = " ".join(SPEECH_REFERENCE_LEGEND.values())
-    assert "0 dB" in joined
-    assert "bed_under_it" in joined
-    assert "yours to choose" in joined
-    # And nothing in the legend states a target.
+    """It cannot reason about a relationship it cannot see.
+
+    The definition used to travel beside the candidate table as
+    ``SPEECH_REFERENCE_LEGEND`` because 4.04's ``handoff.md`` was under
+    the captain's freeze. The freeze lifted 2026-09-09, so it is
+    asserted where the model reads it.
+    """
+    handoff = _handoff()
+    assert "0 dB" in handoff
+    assert "`bed_under_it`" in handoff
+    assert "yours to choose" in handoff
+    # And nothing in that section states a target.
+    lowered = handoff.lower()
+    section = lowered[lowered.index("what a level is measured against"):]
     for banned in ("should be at", "aim for", "typically"):
-        assert banned not in joined.lower()
+        assert banned not in section
 
 
-def test_the_legend_reaches_the_prompt_side_table():
+def test_the_definition_does_not_also_travel_as_data():
+    """A definition living in the prompt AND beside the table is worse
+    than either: one of them rots and nothing says which."""
     source = open(os.path.join(SFX, "bridge.py"), encoding="utf-8").read()
-    assert "SPEECH_REFERENCE_LEGEND" in source
-    assert "sfx_candidates_legend" in source
+    assert "SPEECH_REFERENCE_LEGEND" not in source
+    assert "sfx_candidates_legend" not in source
 
 
-def test_the_frozen_handoffs_withdrawn_word_is_corrected_as_data():
-    """4.04's handoff.md is frozen and still says `volume_level`."""
-    handoff = open(os.path.join(SFX, "handoff.md"), encoding="utf-8").read()
-    assert "volume_level" in handoff, (
-        "if the freeze lifts and the word goes, drop this correction too")
-    assert "WITHDRAWN" in SPEECH_REFERENCE_LEGEND["volume_level"]
+def test_the_withdrawn_volume_ladder_is_gone_from_the_prompt():
+    """The freeze lifted, so the correction was applied rather than
+    carried: the prompt no longer ASKS for `volume_level` or offers the
+    four-word ladder, and it says `volume_db` is a number."""
+    handoff = _handoff()
+    assert "`volume_db`" in handoff
+    assert "WITHDRAWN" in handoff, (
+        "the prompt should still record that the ladder was withdrawn - "
+        "a word that silently vanishes teaches nothing")
+    for ladder_ask in ("carries its own volume_level",
+                       "Volume levels: `subtle`"):
+        assert ladder_ask not in handoff, (
+            f"the prompt still asks for the withdrawn ladder: "
+            f"{ladder_ask!r}")
 
 
 # ── The case the captain named ───────────────────────────────────────

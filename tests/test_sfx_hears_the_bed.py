@@ -24,7 +24,6 @@ import pytest
 
 from library.tools.music_behavior import MusicBehaviorError
 from library.tools.music_measurement import (
-    BED_UNDER_THE_BLOCK_LEGEND,
     bed_level_after_gain,
     bed_reading,
     bed_under_block,
@@ -77,14 +76,22 @@ def test_a_behaviour_outside_the_vocabulary_raises():
                          "music_behavior": "ducked"}, MEASURED_BED)
 
 
-def test_the_legend_states_a_level_and_never_a_target():
-    text = " ".join(BED_UNDER_THE_BLOCK_LEGEND.values()).lower()
-    assert "no separation target is declared" in text
-    for instruction in ("should be at", "must be", "aim for", "at least"):
-        assert instruction not in text
+def test_the_prompt_states_a_level_and_never_a_target():
+    """The definition moved into 4.04's prompt when the freeze lifted, so
+    the no-target rule is asserted where the model reads it."""
+    handoff = " ".join((ROOT / "library" / "steps" / "step_4_04_plan_sfx"
+                        / "handoff.md").read_text(encoding="utf-8").split())
+    assert "`music_behavior`" in handoff and "`bed_under_it`" in handoff
+    lowered = handoff.lower()
+    assert "no separation target is declared anywhere" in lowered
+    assert "bed level unmeasured" in lowered
+    # The prompt must not turn the two facts into a level to read off.
+    start = lowered.index("what a level is measured against")
+    for instruction in ("should be at", "aim for", "at least"):
+        assert instruction not in lowered[start:]
 
 
-def test_the_table_carries_the_bed_and_the_legend_travels_with_it():
+def test_the_table_carries_the_bed_and_the_prompt_defines_it():
     spec = importlib.util.spec_from_file_location(
         "sfx_bridge", ROOT / "library" / "steps" / "step_4_04_plan_sfx"
         / "bridge.py")
@@ -112,8 +119,11 @@ def test_the_table_carries_the_bed_and_the_legend_travels_with_it():
     assert by_id[1]["bed_under_it"] == "-6 dB gain, bed at -21.17 LUFS"
     assert by_id[2]["bed_under_it"] == "-18 dB gain, bed at -33.17 LUFS"
 
-    # The legend is what the frozen handoff cannot say.
+    # The definition is in the PROMPT now, not shipped beside the table.
+    # The freeze that forced a `sfx_candidates_legend` dict was lifted
+    # 2026-09-09, and a definition living in two places is worse than
+    # either.
     source = (ROOT / "library" / "steps" / "step_4_04_plan_sfx"
               / "bridge.py").read_text()
-    assert '"sfx_candidates_legend"' in source
+    assert '"sfx_candidates_legend"' not in source
     assert '"music_behavior",' in source and '"bed_under_it"' in source

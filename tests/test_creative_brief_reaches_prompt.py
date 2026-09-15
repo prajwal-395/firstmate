@@ -78,6 +78,12 @@ def test_the_brief_is_documented_by_the_steps_we_think_it_is():
         "step_2_01_creative_direction",
         "step_2_02_speech_sequence",
         "step_2_04_music_selection",
+        # Joined 2026-09-09, when the captain's freeze on handoff.md
+        # lifted. It DECLARED the brief before that and could not say so
+        # in its own prompt - the gap two audits kept finding (round 2
+        # F7, round 3 B9/R9), because this is the step that sets every
+        # gap length and every music_behavior in the piece.
+        "step_2_05_mesh_spine",
         "step_3_02_select_broll",
         "step_4_02_plan_transitions",
         # The ninth, 2026-09-03: 5.01 became hybrid and its NEW handoff
@@ -124,19 +130,22 @@ def test_a_step_that_documents_the_brief_declares_it(step_dir):
     )
 
 
-def test_mesh_spine_declares_the_brief_without_a_handoff_line():
+def test_mesh_spine_declares_the_brief_and_now_names_it():
     """The eighth consumer, and the one the two audits kept finding.
 
     `mesh_spine` sets every gap length and every `music_behavior` and was
     the only planning step with no brief at all (round 2 F7, round 3
-    B9/R9). Its `handoff.md` is under the captain's freeze and does not
-    name a brief, so the manifest DECLARATION is what asks for it - the
-    runner injects a process-level input into steps that declare it, and
-    the documenting-set test above is one-way on purpose.
+    B9/R9). The manifest declaration was the only half of it that could
+    be fixed while `handoff.md` was under the captain's freeze; the
+    freeze lifted 2026-09-09 and the prompt now names the brief too, so
+    the model is TOLD to read what the runner supplies.
     """
     step = STEPS_ROOT / "step_2_05_mesh_spine"
     assert "creative_brief" in _declared_inputs(step)
-    assert "creative_brief" not in (step / "handoff.md").read_text()
+    handoff = (step / "handoff.md").read_text(encoding="utf-8")
+    assert "creative_brief" in handoff, (
+        "the brief reaches this step and its prompt does not mention it")
+    assert "## Creative Brief" in handoff
 
 
 def test_creative_brief_is_a_process_level_input():

@@ -64,8 +64,14 @@ and produce a structured validation result.
 3. **Subtitle accuracy**: readable and placed clear of what matters -
    from the strips. Timing is measured, not watched: the strips sample
    seconds apart and cannot see a few frames of drift.
-4. **Timing accuracy**: duration within the project's target zone (if
-   declared), from the measurements.
+4. **Timing accuracy**: **read the verdict, do not re-derive it.** The
+   bridge already compared the rendered duration against the project's
+   declared target and wrote the answer to
+   `deterministic_validation.checks.duration` as a `pass` flag plus the
+   `issues` that explain a failure. Report that verdict and what it means
+   for the deliverable. Do not restate the arithmetic, and do not reach a
+   different conclusion from the same numbers - the measurement is the
+   measurement.
 
 **What the strips CANNOT tell you** is stated in the block itself, and
 it binds: anything shorter than the sampling resolution was never

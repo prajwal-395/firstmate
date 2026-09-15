@@ -15,7 +15,7 @@ What was wrong
 --------------
 Nothing decided it, and nothing could.  ``compile_manifest`` wrote
 ``"source_in": 0.0`` as a literal, so every track played from its head
-whatever the model said.  Step 2.04's frozen handoff has asked for
+whatever the model said.  Step 2.04's handoff has asked for
 ``splices`` - "a 3-minute track is never used in full; pick the sections
 that fit particular moments" - since it was written, and the model has
 been answering; ``splices`` reached ``pipeline_data.json`` and then
@@ -72,7 +72,7 @@ and points here.
 
 **Which SECTION of the track plays is the model's decision, and there is no best-section rule.**
 `library/tools/music_section.py`. [why](docs/RULE_EVIDENCE.md#the-splices-that-reached-nothing)
-- The model is asked for `section: {source_in, why}` through the manifest's `interface.llm_outputs`, which is what builds the injected schema; `handoff.md` is frozen and is not touched.
+- The model is asked for `section: {source_in, why}` through the manifest's `interface.llm_outputs`, which is what builds the injected schema, AND in step 2.04's `handoff.md` prose ("Which SECOND of the track the bed starts on"), which the captain's freeze used to keep it out of.
 - It decides from `music_measurement.track_sections` - one row per playable span of the track, with its mean level and spread. A DESCRIPTION at the granularity of what plays, not a menu and not a ranking.
 - **A selection that declares none plays from the head of the file, and that is the ABSENCE of a decision** - the same reading `CUT_TYPES` and `NEUTRAL_CDL` get.
 - **The beat grid moves with it.** `beat_positions`/`downbeat_positions` take the selection and return TIMELINE time; the argument is required, because a default of "no offset" is the value that is silently wrong. `assert_music_offset_is_the_chosen_section` holds the other end. `plan_sfx` is routed `music_selection` for this.
@@ -88,8 +88,8 @@ from typing import Any, Dict, List, Optional
 
 # The key the model writes its decision under.  Asked for through step
 # 2.04's manifest `interface.llm_outputs`, which is what builds the
-# injected output schema - handoff.md is under a captain freeze and names
-# no such key.
+# injected output schema.  Step 2.04's `handoff.md` names it too, since
+# the captain's freeze on that file was lifted 2026-09-09.
 SECTION_KEY = "section"
 
 # Where the bed starts when nothing chose.  The head of the file: the

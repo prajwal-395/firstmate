@@ -142,10 +142,8 @@ def test_an_edge_routed_output_is_credited(rows):
 
 @pytest.mark.parametrize("node,name", [
     ("plan_transitions", "cuts_toon"),
-    ("plan_transitions", "cuts_legend"),
     ("plan_vfx", "vfx_candidates_toon"),
     ("plan_sfx", "sfx_candidates_toon"),
-    ("plan_sfx", "sfx_candidates_legend"),
     ("speech_sequence", "topics_toon"),
     ("speech_sequence", "transcripts_toon"),
     ("select_reels", "reel_candidates"),
