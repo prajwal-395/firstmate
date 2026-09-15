@@ -23,7 +23,7 @@ Fullscreen can bury steering messages by rewriting scrollback, so Firstmate avoi
 
 Pi-signed is the signed wrapper identity verified on version 0.82.0.
 Firstmate records `pi-signed` without normalization and refuses rather than falling back to `pi` when that wrapper is unavailable.
-The observed signed process tree has an exact `pi-signed` wrapper parent with the Pi application as its child, while tmux reports the foreground command as the exact `pi-launcher` name for either selected executable.
+The observed signed process tree has an exact `pi-signed` wrapper parent with the Pi application as its child, while the pane's foreground command reads as the exact `pi-launcher` name for either selected executable.
 The installed plain `pi` command also execs that signed launcher.
 The router's Detection section owns how launch markers and ancestry select between the identities.
 

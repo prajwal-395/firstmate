@@ -29,7 +29,7 @@ The path must be absolute because the instructions live outside the task worktre
 Sending before readiness was reproduced as a silent drop with zero exit status, an empty composer, `context: 0%`, no echoed user message, and a healthy-looking idle pane.
 The startup input-readiness window is the established cause; the banner is not.
 An early Enter can expand the composer to multiple content rows, leaving pointer text on the first row and the cursor on an empty later row.
-The shared tmux reader therefore locates the complete bordered composer and treats real text on any content row as positive evidence that submission remains pending.
+The shared classifier therefore locates the complete bordered composer and treats real text on any content row as positive evidence that submission remains pending.
 No rendering signal proves Kimi will accept input during this window, so delivery retries Enter through the shared submit core and retains the postcondition verification rather than relaxing readiness.
 
 Observed spinner captures had optional leading whitespace, a moon-phase glyph, whitespace around `·`, and rotating tip text, including during tool execution.
