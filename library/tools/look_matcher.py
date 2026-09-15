@@ -141,17 +141,14 @@ def match_clips_to_reference(reference_image: str, clip_frames: dict) -> dict:
     results = {}
     
     for clip_id, frame_path in clip_frames.items():
-        if os.path.exists(frame_path):
-            target_stats = analyze_frame_colors(frame_path)
-            cdl = compute_match_cdl(ref_stats, target_stats)
-            results[clip_id] = cdl
-        else:
-            # Identity fallback
-            results[clip_id] = {
-                "slope": [1.0, 1.0, 1.0],
-                "offset": [0.0, 0.0, 0.0],
-                "power": [1.0, 1.0, 1.0],
-                "saturation": 1.0
-            }
+        if not os.path.exists(frame_path):
+            raise FileNotFoundError(
+                f"Cannot match clip {clip_id!r}: frame path "
+                f"{frame_path!r} does not exist. A match from an "
+                f"unmeasured frame is fiction, so the match refuses "
+                f"rather than returning an identity CDL.")
+        target_stats = analyze_frame_colors(frame_path)
+        cdl = compute_match_cdl(ref_stats, target_stats)
+        results[clip_id] = cdl
             
     return results

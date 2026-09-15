@@ -109,6 +109,13 @@ class TestAnalyzeRefusesUnmeasurableFrames(unittest.TestCase):
             with self.assertRaises(Exception):
                 match_clips_to_reference(ref, {"clip_001": bad})
 
+    def test_match_refuses_a_missing_clip_frame_path(self):
+        with tempfile.TemporaryDirectory() as d:
+            ref = self._red_square(d)
+            missing = os.path.join(d, "never-extracted.png")
+            with self.assertRaises(FileNotFoundError):
+                match_clips_to_reference(ref, {"clip_001": missing})
+
     def test_measured_frame_still_returns_three_zones(self):
         with tempfile.TemporaryDirectory() as d:
             stats = analyze_frame_colors(self._red_square(d))
