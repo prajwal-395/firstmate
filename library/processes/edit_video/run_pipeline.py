@@ -3754,6 +3754,29 @@ def run_pipeline(
         print(f"  WARNING: could not read the briefing questions: {exc}",
               file=sys.stderr)
 
+    # The model answers the last reels build still owes, counted
+    # across reels. A reel built with no answer on file builds without
+    # that layer and says so per reel on stderr - but the per-reel
+    # lines are SAID, not REPORTED, and the run summary's SUCCESS is
+    # DAG-completion only, so a build that owes a model answer
+    # reported success and said nothing about it. This names the
+    # incomplete reels. Read from the records the build wrote, never
+    # re-derived. See library/tools/awaiting_model_answers.py.
+    #
+    # Reading is not gating: `status` is decided above this block.
+    # An unanswered ask never fails a run - a build the captain wants
+    # to look at is still worth building; what is not acceptable is
+    # claiming it is finished (AGENTS.md 10.4).
+    awaiting_report = {"reels": [], "outstanding_answers": 0}
+    try:
+        from library.tools import awaiting_model_answers as _awaiting
+        awaiting_report = _awaiting.collect(project_dir, state=state)
+        for _line in _awaiting.summary_lines(awaiting_report):
+            print(f"  {_line}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the outstanding model answers: "
+              f"{exc}", file=sys.stderr)
+
     print(f"{'═'*60}\n", file=sys.stderr)
 
     # Output final state
@@ -3762,6 +3785,7 @@ def run_pipeline(
         "undetermined_declarations": undetermined_records,
         "direction_contradictions": contradiction_records,
         "briefing_questions": briefing_records,
+        "awaiting_model_answers": awaiting_report,
         "restart": (run_restart.as_record(_restart)
                     if _restart.is_restart else None),
         "qa_findings": qa_summary,

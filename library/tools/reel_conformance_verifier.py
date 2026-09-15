@@ -81,6 +81,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 # last-of-block clause cannot survive on the placed path.
 from library.tools.explainer_plan import EXPLAINER_TRACK, RENDER_PREFIX
 from library.tools.reel_semantic_visual import (
+    AWAITING_MODEL_ANSWER as SEMANTIC_AWAITING_ANSWER)
+from library.tools.reel_semantic_visual import (
     RENDER_PREFIX as SEMANTIC_RENDER_PREFIX)
 from library.tools.reel_semantic_visual import SEMANTIC_TRACK
 from library.tools.speaker_identity import (
@@ -3221,7 +3223,10 @@ def check_semantic_visuals(reel_name: str,
     Given no recorded plan at all this returns NOTHING rather than
     guessing: a reel built before semantic visuals existed has no
     record, and grading it against an absence would fail every correct
-    reel.
+    reel. A record whose basis is `awaiting_model_answer` with nothing
+    placed is REPORTED as a warning - the reel owes a model answer and
+    built without one, which must be named rather than graded as a
+    clean pass.
     """
     findings: List[Finding] = []
     items = sorted(semantic_items or [], key=lambda i: i.start_frame)
@@ -3253,6 +3258,26 @@ def check_semantic_visuals(reel_name: str,
                     f"build recorded no semantic visual for this reel "
                     f"({planned.get('basis')})"),
                 detail={"items": len(items),
+                        "basis": planned.get("basis")}))
+            return findings
+        if planned.get("basis") == SEMANTIC_AWAITING_ANSWER:
+            # The build owes a model answer for this reel and built
+            # without visuals. That is the normal state of a headless
+            # build - it never blocks on a model - so this REPORTS as
+            # a warning rather than failing the gate: a build the
+            # captain wants to look at is still worth building, but a
+            # reel that is waiting on its plan must be NAMED rather
+            # than grading as a clean pass with nothing said about
+            # its incompleteness (AGENTS.md 10.4).
+            findings.append(Finding(
+                finding_class=FindingClass.F22, reel=reel_name,
+                message=(
+                    f"no model answer on file for this reel's "
+                    f"semantic-visual ask ({SEMANTIC_AWAITING_ANSWER}): "
+                    f"it built without visuals and is incomplete, "
+                    f"not finished"),
+                severity="warning",
+                detail={"items": 0,
                         "basis": planned.get("basis")}))
         return findings
 

@@ -8527,6 +8527,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         write_span_records as _write_span_records)
     _write_span_records(project_folder, span_records)
 
+    # The model answers this build still owes, counted across reels.
+    # The per-reel stderr lines above are SAID, not REPORTED - nothing
+    # answered "this build owes N model answers", and a build that
+    # owes one must not read as finished without naming it
+    # (`library/tools/awaiting_model_answers.py`, AGENTS.md 10.4).
+    # Read from the records just written (plus this build's motion
+    # list, which lives on the record below rather than a file), so a
+    # partial build still counts the reels it did not touch. Printed
+    # and carried on the record; never a gate - a build the captain
+    # wants to look at is still worth building.
+    from library.tools import awaiting_model_answers as _awaiting
+    awaiting_report = _awaiting.collect(
+        project_folder, motion_records=motion_records)
+    for _line in _awaiting.summary_lines(awaiting_report):
+        print(f"  {_line}", file=sys.stderr)
+
     # Record which plan we built from, so the verifier can detect
     # if the plan changes before verification runs.
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
@@ -8768,6 +8784,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # left empty (`library/tools/reel_look.py`, MOTION_BASES).
         "look": reel_look_decl,
         "picture_motion": motion_records,
+        # The model answers this build still owes, counted across
+        # reels from the records above (`awaiting_model_answers`).
+        # Carried so the run summary and the dashboard can name the
+        # incomplete reels without re-reading the record files.
+        "awaiting_model_answers": awaiting_report,
         # What verification this build owes, computed pre-build from
         # real state (`library/tools/proof_scope.py`) - FULL for a new
         # mechanism, stills-for-changed-regions for a re-run. Guidance
