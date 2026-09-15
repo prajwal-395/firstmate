@@ -299,6 +299,38 @@ def test_the_collected_names_are_read_before_the_delete(project_folder):
     assert None not in report["collected"]
 
 
+class DecliningDeleteProject(FakeProject):
+    def _delete(self, timelines):
+        return False
+
+
+def test_a_delete_resolve_declines_is_refused_not_reported_collected(
+        project_folder):
+    """The live-demo defect's sibling: PR 1149 settled this exact shape
+    for `reel_retirement.collect_superseded`, and `choose` carries its
+    own copy - `DeleteTimelines` returns falsy and the names are kept
+    under `collected` anyway, while the census still shows them present
+    (`docs/LIVE_DEMO_1107_COMPARISON_RETIREMENT.md`). Fails on the old
+    shape (no raise, the name reported collected while still present);
+    passes on the new (refused, the generation still present for the
+    next choice to plan again)."""
+    tight = f"{REEL} (tight)"
+    loose = f"{REEL} (loose)"
+    older = f"{JCUT} (archived round 001)"
+    choice.record_build(project_folder, 9, REEL, " (tight)", rows(1))
+    choice.record_build(project_folder, 9, REEL, " (loose)", rows(1))
+    project = DecliningDeleteProject([
+        FakeTimeline(REEL), FakeTimeline(older),
+        FakeTimeline(tight), FakeTimeline(loose)])
+    with pytest.raises(choice.ChoiceRefused) as refusal:
+        choice.choose(project, project.pool, project_folder, 9, REEL,
+                      " (loose)", "the loose framing breathes",
+                      variant_names={JCUT, CUTAWAY, tight, loose})
+    assert older in str(refusal.value)
+    assert "nothing was reported collected" in str(refusal.value)
+    assert older in project.names()
+
+
 def _built(project_folder):
     choice.record_build(project_folder, 9, REEL, " (j-cut)", rows(2))
     choice.record_build(project_folder, 9, REEL, " (reaction-cutaway)",

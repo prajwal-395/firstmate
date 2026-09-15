@@ -553,7 +553,28 @@ def choose(project, pool, project_folder, reel_number: int,
             # carries the same note and the same fix).
             collected = sorted(name for name in
                                (t.GetName() for t in targets) if name)
-            pool.DeleteTimelines(targets)
+            # Judged by what Resolve RETURNS, never by `hasattr`
+            # (AGENTS.md 5): a falsy delete RAISES rather than reporting
+            # the names collected - the same defect PR 1149 fixed in
+            # `reel_retirement.collect_superseded`, measured 2026-09-14
+            # against a real Resolve
+            # (`docs/LIVE_DEMO_1107_COMPARISON_RETIREMENT.md`). Refusal
+            # for that PR's reason, established of THIS caller rather
+            # than assumed from it: the sole production caller
+            # (`manage_project.py variant choose`) already wraps the
+            # choice in a handled refusal path (`REFUSED: ...`, exit 1).
+            # The choice's renames already landed; only the retention
+            # cleanup did not, and the next choice plans the
+            # still-present generation again.
+            if not pool.DeleteTimelines(targets):
+                raise ChoiceRefused(
+                    f"Resolve declined to delete {len(collected)} "
+                    f"superseded generation(s) ({', '.join(collected)}). "
+                    f"They are still in the project under their archived "
+                    f"names - nothing was reported collected. The "
+                    f"choice's renames already landed; only the "
+                    f"retention cleanup did not, and the next choice "
+                    f"will plan it again.")
             report["collected"] = collected
 
     # The record follows the picture. A sign-off the CHOSEN variant
