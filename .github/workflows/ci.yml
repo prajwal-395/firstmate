@@ -165,7 +165,6 @@ jobs:
           path: ${{ runner.temp }}/fm-test/fm-test-timing-portable-parallel-2.json
           if-no-files-found: warn
 
-<<<<<<< HEAD
   tests-portable-parallel-3:
     name: Behavior portable parallel 3
     runs-on: ubuntu-latest

@@ -794,6 +794,7 @@ tests/fm-afk-contract.test.sh 16785
 tests/fm-afk-inject-e2e.test.sh 35986
 tests/fm-afk-pi-herdr-return-e2e.test.sh 103
 tests/fm-afk-return.test.sh 22109
+tests/fm-agent-process-liveness.test.sh 213
 tests/fm-agy-harness.test.sh 36683
 tests/fm-agy-ladder-enforcement.test.sh 11489
 tests/fm-agy-live-descent.test.sh 83992
