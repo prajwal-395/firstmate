@@ -174,6 +174,14 @@ OPERATIONS: Tuple[Operation, ...] = (
         exclusion=RESOLVE_READ,
         why="Reads a built timeline back and compares against the plan."),
     Operation(
+        name="verify a timeline against the SOP",
+        entry_point="library.skills.verify_timeline.skill.run",
+        exclusion=RESOLVE_READ,
+        why="The skill entry point over the row above. A skill is invoked "
+            "by import OR by shell, so it is dispatchable on its own and "
+            "must contend as the read it is - routing only the tool it "
+            "wraps would leave the shell form free."),
+    Operation(
         name="read a reel",
         entry_point="library.tools.reel_read.read_reel",
         exclusion=RESOLVE_READ,

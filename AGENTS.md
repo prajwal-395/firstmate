@@ -333,21 +333,21 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 
 ## 9. Environment and dependencies
 
-- **`run` needs the dedicated `.venv`; nothing else in the CLI does.** The check is NEVER at import time; `manage_project.py`'s `ML_DEPENDENT_COMMANDS` is the list and carries why. `tests/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
+- **`run` is NOT the only command needing the dedicated `.venv`: `build-reels` does too, and `ML_DEPENDENT_COMMANDS` does not list it.** The preflight is NEVER at import time and checks that list, so `reel_look` refuses the punch-in far later, inside the build, when cv2 has no Haar cascade (>=4.8,<5). A build also needs those variables set and the manager PARKED in the project's `resolve.folder` - it reads the CURRENT folder (`library/tools/timeline_ingest.py`). `tests/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
 - Set `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB` to your DaVinci Resolve installation, `HF_TOKEN` for HuggingFace models, and `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY`/`PIPELINE_PROJECTS_ROOT` to absolute paths.
 - Python dependencies are in `requirements.txt`. `librosa` is required by `music_analysis`; without it the step reports `available: false` and the run fails rather than continuing silently.
 - External tools: `ffmpeg` and `ffprobe`. Node.js for Remotion subtitle rendering.
 - **A shared dependency lives ONCE PER MACHINE, outside every checkout; a checkout FINDS it, and absence REFUSES rather than skipping or falling back.** `library/tools/shared_environment.py` locates the Node store and the ML interpreter: `docs/SHARED_ENVIRONMENT.md`. Building the venv: `docs/ML_ENVIRONMENT.md`.
 - GPU acceleration is required for Gemma 4, SAM 2, WhisperX and EasyOCR.
 - **Every `subprocess.run` capturing text must pass `encoding="utf-8"`.** `text=True` decodes with the locale codec, and this pipeline writes UTF-8 status glyphs. [why](docs/RULE_EVIDENCE.md#text-true-decodes-with-the-locale-codec)
-- **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. Only `LC_CTYPE` is restored - `LC_NUMERIC` is untouched, because handing fusionscript a decimal comma would corrupt every number crossing the boundary. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - `resolve_relinker`, `timeline_serializer`, `resolve_health`, `resolve_project_sync`, `qa/timeline_sync_qa`, `execution/resolve_render`, `execution/apply_fusion_comps` and `probe_resolve_capabilities`.
+- **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. Only `LC_CTYPE` is restored, never `LC_NUMERIC`. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - that list, and why `LC_NUMERIC` stays put, in `library/tools/resolve_locale.py`.
 
 ### What CI actually checks
 
 **The build has one gate that CAN fail and one report that cannot, and the two run under DIFFERENT ruff configs.**
 `ruff-ci-gate.toml` at the repository root is the enforcing half - what is enforced, what is deferred and the count of each are written down in it.
 `.github/workflows/ci.yml` runs it with NO `|| true`; the unfiltered run beside it keeps `|| true` and keeps annotating everything.
-[why - run 33667912850 emitted 2,896 error annotations and concluded SUCCESS](docs/RULE_EVIDENCE.md#the-build-that-declined-to-look)
+[why](docs/RULE_EVIDENCE.md#the-build-that-declined-to-look)
 
 - **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is exempt from that rule entirely, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
 - **The runner installs ffmpeg**, because 27 library files shell out to it and every audio and video measurement path skipped itself without it. The suite skipped HONESTLY, which is what made it invisible.

@@ -117,3 +117,63 @@ def test_check_creates_no_files(tmp_path):
 def test_not_covered_names_its_missing_reader():
     assert "live timeline" in layer_coherence.NOT_COVERED["look_grade"]
     assert layer_coherence.main.__doc__ is not None
+
+
+def _record_report(root, report):
+    """Store a report where a reels build stores it, and return bytes.
+
+    `reel_build.rebuild_reels_in_project` writes its record under
+    `step_outputs.build_reels.reel_build`, and the state writer
+    rewrites the whole of `pipeline_data.json` after every step.
+    """
+    path = os.path.join(root, "pipeline_data.json")
+    document = {}
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+    document.setdefault("step_outputs", {}).setdefault(
+        "build_reels", {}).setdefault(
+            "reel_build", {})["coherence"] = report
+    _write(path, document)
+    return os.path.getsize(path)
+
+
+def test_the_scan_does_not_find_its_own_stored_findings(tmp_path):
+    """The feedback loop that grew one project's state file to 12.2 GB.
+
+    `check_wording` scans `pipeline_data.json` (regenerated step
+    outputs are a display) and a reels build stores this report back
+    into that same file. Before the fix each run re-found the previous
+    run's rows - quoted inside their own `found` and `context` fields -
+    and the file doubled on every build. Measured on the captain's
+    `geo-podcast` 2026-09-16: 31,982 of 32,011 rows were self-inflicted.
+
+    Two runs is enough to show it: run two must not be larger than run
+    one, and the state file must not grow from having been scanned.
+    """
+    root = _fixture_project(str(tmp_path))
+    _write(os.path.join(root, "subtitle_plans", "a_subtitles.json"),
+           {"cards": [{"text": "say lucy to the camera"}]})
+
+    first = layer_coherence.check_project(root)["wording"]
+    assert len(first) == 1, "the real divergence is the one in the plan"
+    first_bytes = _record_report(root, first)
+
+    second = layer_coherence.check_project(root)["wording"]
+    second_bytes = _record_report(root, second)
+
+    assert len(second) == len(first), (
+        f"run two found {len(second)} row(s) where run one found "
+        f"{len(first)}: the scan is reading its own stored output")
+    assert second_bytes == first_bytes, (
+        f"the state file grew {first_bytes} -> {second_bytes} bytes "
+        f"across two runs that changed nothing")
+
+    third = layer_coherence.check_project(root)["wording"]
+    assert len(third) == len(first)
+    # The row that survives is the real one, by identity - not merely
+    # a count that happens to match.
+    assert third[0]["found"] == "lucy"
+    assert "a_subtitles.json" in third[0]["layer_file"]
+    assert all("pipeline_data.json" not in row["layer_file"]
+               for row in third)

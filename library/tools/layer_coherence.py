@@ -103,6 +103,53 @@ def _load_json(path: str):
 _HISTORY_RE = re.compile(r"_20\d{6}T\d+Z\.json$")
 
 
+#: Where this module's own findings come to rest. A reels build
+#: records this report into the pipeline's state file under
+#: `step_outputs.build_reels.reel_build.coherence`
+#: (`library/tools/reel_build.py`), and `check_wording` scans
+#: `pipeline_data.json` because regenerated step outputs are a display
+#: like any other. Each half is right alone; together they are a
+#: measurement that measures itself, so the report is lifted out of
+#: the document before the scan reads it.
+OWN_REPORT_ROUTE = ("step_outputs", "build_reels", "reel_build",
+                    "coherence")
+
+
+def _without_own_report(document):
+    """`document` with this module's own stored findings removed.
+
+    The same rule as the `transcript.json` correction stamp in
+    `check_wording`: a record of the pass HAVING RUN is machinery, not
+    divergence. Measured on the captain's `geo-podcast` 2026-09-16 -
+    28,245,754 of 28,245,899 wording rows were this scan reading its
+    own previous output, 145 were real, and `pipeline_data.json`
+    doubled on every build, 7,062,699 bytes to 12,196,676,126 over ten.
+    docs/RULE_EVIDENCE.md, `the-scan-that-measured-itself`.
+
+    The removal is BY ROUTE, not by filename: 116 of those 145 real
+    rows were found inside `pipeline_data.json` too, in other step
+    outputs, and dropping the file wholesale would have lost them.
+
+    Only the spine down to the report is copied, never the document:
+    the file this matters on is measured in gigabytes.
+    """
+    if not isinstance(document, dict):
+        return document
+    pruned = dict(document)
+    cursor = pruned
+    for key in OWN_REPORT_ROUTE[:-1]:
+        branch = cursor.get(key)
+        if not isinstance(branch, dict):
+            return document
+        branch = dict(branch)
+        cursor[key] = branch
+        cursor = branch
+    if OWN_REPORT_ROUTE[-1] not in cursor:
+        return document
+    cursor.pop(OWN_REPORT_ROUTE[-1])
+    return pruned
+
+
 def _iter_json_files(root: str):
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames
@@ -178,6 +225,10 @@ def check_wording(project_folder: str, corrections: list) -> list:
             if os.path.basename(path) == "transcript.json":
                 document = {k: v for k, v in document.items()
                             if k != "transcript_corrections_applied"}
+            # And this module's own findings, wherever a build stored
+            # them, are the same kind of thing: the proof this scan
+            # ran, never something it may find again.
+            document = _without_own_report(document)
             found: list = []
             _scan_text(document, heard_re, found, path, "")
             for row in found:

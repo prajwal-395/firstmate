@@ -1694,6 +1694,33 @@ class TestClosingCallToAction:
         assert plan.keep_ranges[-1] == (468.0, 476.0)
         assert plan.keep_ranges[0] == (600.0, 660.0)
 
+    def test_the_plan_can_be_derived_with_a_project_folder(self, tmp_path):
+        """The card branch, which no test reached until it broke.
+
+        `_derive_plan_from_master` only plans cards when it is given BOTH
+        a `moment` and a `project_folder`; every other test here passes
+        neither, so the `plan_cards` call was never executed. PR #1095
+        made `plan_cards` take a required `width`/`height` - the declared
+        delivery frame - and updated its three callers in `reel_build`
+        and `captain_edits` but not this one. The verifier then raised
+        `TypeError` the first time a build reached the gate, and
+        `verify_built_reels` turned that into "Reel conformance verifier
+        failed to run", which discarded five correctly staged reels.
+
+        The same shape as PR #524's required `fps` on `placements`, noted
+        at the top of this section. A branch nothing runs is a branch
+        that breaks silently, so this runs it.
+        """
+        from library.tools.reel_conformance_verifier import (
+            _derive_plan_from_master)
+
+        plan = _derive_plan_from_master(
+            "Reel 01 - retrieval", 1, 600.0, 660.0, self._master(),
+            {"segments": []}, moment=self._moment(),
+            project_folder=str(tmp_path))
+        assert plan.placements, "the derivation still produces a plan"
+        assert plan.cards == (), "nothing is declared, so no card is planned"
+
     def test_the_derived_plan_lists_the_closers_own_placements(self):
         """F4 compares planned item count to what is on the timeline. A
         plan that omits the closer reports a correct build as defective."""

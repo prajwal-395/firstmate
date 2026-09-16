@@ -33,6 +33,8 @@ import json
 import sys
 from typing import Any, Dict, List, Optional
 
+from library.tools.resolve_lock import under_lease
+
 SKILL_NAME = "verify_timeline"
 
 
@@ -126,6 +128,7 @@ def _refusal(project_folder: str, step_id: str, timeline_name: str,
     return verdict
 
 
+@under_lease("verify a timeline against the SOP", exclusive=False)
 def run(timeline_name: str,
         project_folder: str,
         step_id: str,
@@ -140,6 +143,13 @@ def run(timeline_name: str,
     when any check fails - this skill GATES. A timeline that cannot be
     reached, or a plan that cannot be rebuilt, is a refusal verdict,
     never an exception and never a pass.
+
+    SHARED lease, taken HERE rather than only inside
+    `timeline_conformance.verify_timeline`: this skill makes its own
+    `scriptapp` connection in `open_timeline` before that call, and an
+    unleased handshake is the twelve-minute block the routing table
+    exists to end (`docs/DUAL_WORKFLOW_SYNC_2026-09-12.md`). The lease
+    is reentrant, so the inner shared one nests.
     """
     from library.tools import pipeline_skills
     from library.tools.timeline_conformance import verify_timeline

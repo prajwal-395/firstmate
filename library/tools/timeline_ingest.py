@@ -273,6 +273,19 @@ def resolve_project_exactly(project_manager, name: str):
     `in` or "closest name" match on `"Podcast"` finds the ORIGINAL.  The
     only safe address is the exact string as Resolve's own project list
     reports it, and the only safe response to its absence is to refuse.
+
+    IT LOOKS IN THE PROJECT MANAGER'S *CURRENT FOLDER* and does not
+    navigate, so where the manager is parked is part of the address.
+    `project.yaml`'s `resolve.folder` names where a project lives
+    (`geo-podcast`: `Lucie Content/Social Media/Podcast`) - park the
+    manager there before building.
+
+    Measured 2026-09-16: a read-only lane finished with
+    `pm.GotoRootFolder()`, which is what "leave the instance as found"
+    asks for, and the next reel build could not find
+    `Podcast (field test)` at all.  The two conventions collide, and
+    this side refuses rather than guessing - which is safe, and is why
+    the collision shows up as a puzzling refusal rather than as damage.
     """
     listed = project_manager.GetProjectListInCurrentFolder() or []
     if name in listed:

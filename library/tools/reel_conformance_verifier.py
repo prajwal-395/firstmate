@@ -4842,6 +4842,7 @@ def _derive_plan_from_master(
         placements as compute_placements,
         plan_cards as compute_cards,
         redundant_takes,
+        reel_resolution as compute_reel_resolution,
     )
 
     fps = master_snapshot.fps
@@ -4974,8 +4975,16 @@ def _derive_plan_from_master(
         # (`reel_ending.ending_tail_frames`). Re-deriving without it
         # would place every declared closing element 19 frames early
         # and report the built one as a plan mismatch.
+        # The DECLARED delivery frame, off the same reader the build
+        # uses (`reel_build.reel_resolution` -> delivery_format). A
+        # full-frame card IS the frame, so planning one against an
+        # assumed frame checks a different picture than the one built -
+        # the same "built to one rule, checked against another" the
+        # keep-insistence withdrawal above exists to prevent.
+        card_width, card_height = compute_reel_resolution(project_folder)
         planned_cards = compute_cards(
             moment, transcript or {}, kr, project_folder, fps,
+            width=card_width, height=card_height,
             ending=ending_declaration,
             look=_reel_look_declaration(project_folder))
         cards = tuple(PlannedCard(render_name=c.render_name,

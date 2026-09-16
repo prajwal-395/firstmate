@@ -985,6 +985,19 @@ It printed a bare `source .venv/bin/activate`.
 The venv is per checkout and gitignored; the captain's checkout has none, so obeying the instruction produced a second and more confusing error than the first.
 The workflow is real - every worktree that runs the pipeline has one, made by hand - so the message now names the activate script by absolute path when the checkout really has one, and gives the `python3 -m venv` / `pip install -r requirements.txt` pair when it does not.
 
+**WITHDRAWN 2026-09-16, the half of the rule that said "nothing else".**
+The rule this entry supported read, verbatim:
+
+> **`run` needs the dedicated `.venv`; nothing else in the CLI does.**
+
+The second clause is false and was withdrawn.  `build-reels` needs it too: `reel_look` aims the reels punch-in with a Haar cascade, which `opencv-python` ships only at `>=4.8,<5`, and the system interpreter on the captain's machine carries cv2 5.0.0 where `CascadeClassifier` is gone.  Measured 2026-09-16, mid-build, after five reels had already been derived:
+
+    library.tools.reel_look.ReelLookRefused: Reel 01 …: the punch-in cannot be
+    aimed on LC4930.MXF (131.42-151.40s) - no face detector in this interpreter
+    (cv2 5.0.0, CascadeClassifier absent)
+
+The FIRST clause stands and is the part that matters: the check is never at import time, and `ML_DEPENDENT_COMMANDS` is the list.  What this incident adds is that the list is INCOMPLETE - `build-reels` is not on it - so the refusal arrives from deep inside the build rather than from the preflight, after the derivation has been paid for.  The refusal is honest and leaves nothing behind, which is why this is a documentation fix rather than a defect: the cost is the wasted derivation, not a bad build.
+
 **The slug could not have resolved either, and the reason was masked.**
 `PROJECTS_ROOT` is `~/Documents/content_stuff/video_projects`; project 001 lives at `~/Documents/content_stuff/post a day keeps the apple away/001`.
 `get_project` has accepted a path since #79 and has said so in its error since then, but the import-time check killed the process before argparse ran, so that message was never printed.
@@ -7515,6 +7528,82 @@ render, the sweep and the gates, which is most of the 112 s - but it is
 not 50x, and on a reel whose rebuild is mostly the comp pass it is no
 saving at all. The captain should hear that before this is used on his
 reels.
+
+## the-scan-that-measured-itself
+
+Measured 2026-09-16 on the captain's `geo-podcast`, when a five-reel rebuild did not survive to
+promote what it had staged.
+
+`pipeline_data.json` was **12,196,676,126 bytes**, and it had been doubling on every build:
+
+| written | bytes |
+|---|---:|
+| 2026-09-12 15:03 | 7,062,699 |
+| 2026-09-12 15:07 | 14,592,602 |
+| 2026-09-12 15:14 | 30,741,544 |
+| 2026-09-12 15:15 | 65,120,833 |
+| 2026-09-12 15:17 | 138,399,008 |
+| 2026-09-12 19:51 | 293,952,649 |
+| 2026-09-12 20:06 | 621,891,672 |
+| 2026-09-13 02:39 | 1,313,345,813 |
+| 2026-09-13 02:47 | 2,767,599,563 |
+| 2026-09-13 03:24 | 5,815,337,810 |
+| 2026-09-15 23:56 | 12,196,676,126 |
+
+All of it was one list, `step_outputs.build_reels.reel_build.coherence.wording`, and the loop was
+two modules apart. `layer_coherence.check_wording` scans `pipeline_data.json` - regenerated step
+outputs are a display like any other, and the module says so. `reel_build` records this report
+back into that same file. Each half is right alone. Together, every build re-found the previous
+build's rows, quoted inside their own `found` and `context` fields, and stored them again.
+
+Streaming the array at its peak: **28,245,899 rows, of which 28,245,754 were the scan reading its
+own output** and 145 were real findings. The self-inflicted rows collapsed into four shapes - two
+found forms (`lucy`, `Lucy`) under two locations, both beneath the report's own route.
+
+The cost was not only disk. The state file is read and rewritten between every node, so it bought
+about 13 minutes of pure I/O per node boundary, and the build that produced it died mid-verify
+carrying it - with no traceback, no crash report and no jetsam record, so the kill itself was
+never proved.
+
+The fix is the rule the module already stated for the correction stamp on `transcript.json`: **a
+record of the pass HAVING RUN is machinery, not divergence**, so this report is lifted out of the
+document before the scan reads it.
+
+Two things worth keeping from the repair. The drop had to be BY ROUTE, never by filename: 116 of
+the 145 real rows lived inside `pipeline_data.json` outside the report's own route, and a
+filename-based drop would have destroyed every one. And the check that the repair was right was
+not a count - it was running the FIXED scanner over the repaired project and getting exactly those
+145 rows back, identical by identity.
+
+`tests/test_layer_coherence.py::test_the_scan_does_not_find_its_own_stored_findings` demonstrates
+the feedback rather than asserting a shape: two runs that change nothing must find the same rows
+and leave the file the same size. On the pre-fix code, run two finds 3 rows where run one found 1.
+
+## the-gate-that-could-not-start-for-three-days
+
+PR #1095 (2026-09-13 04:13) gave `reel_build.plan_cards` a required keyword-only `width`/`height`
+- the DECLARED delivery frame, because a full-frame card IS the frame - and updated its three
+callers in `reel_build` and `captain_edits`. It missed the fourth, in
+`reel_conformance_verifier._derive_plan_from_master`.
+
+That call site runs only when the derivation is given BOTH a `moment` and a `project_folder`,
+which is every real build and no test. So the reels conformance gate raised
+
+    TypeError: plan_cards() missing 2 required keyword-only arguments: 'width' and 'height'
+
+on every build from then on, which `verify_built_reels` reports as "Reel conformance verifier
+failed to run". The last reel promoted before it was Reel 09 at 2026-09-13 03:27 - **46 minutes
+earlier** - and no reel was built again until 2026-09-16, so nothing found out for three days.
+
+It cost a build. `verify_reels` discards the staging containers when the gate refuses, so five
+correctly staged reels went. The approved timelines were never named and were untouched, which is
+the refusal path behaving exactly as designed - the damage was the forty minutes, not the reels.
+
+This is `whisperx-paid-twice`'s sibling in a different key, and it is the SECOND time this exact
+shape has hit this verifier: PR #524 gave `reel_build.placements` a required `fps` and missed the
+same function, which the test file already records. A branch nothing runs is a branch that breaks
+silently, so the new test runs it - derive a plan WITH a project folder and assert it still
+produces one.
 
 ## Section 15 - the captain's notes
 
