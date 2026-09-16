@@ -1515,21 +1515,6 @@ def verify_frames(full_paths: list[str], tight_paths: list[str],
     }
 
 
-def verify_movs(full_mov: str, tight_mov: str, box: TightBox,
-                work_dir: str) -> dict:
-    """Decode both movs and `verify_frames` them. Extraction failures
-    raise: an unverifiable pair is not a passing pair."""
-    import os
-
-    full_dir = os.path.join(work_dir, "verify_full")
-    tight_dir = os.path.join(work_dir, "verify_tight")
-    return verify_frames(
-        extract_frames(full_mov, full_dir),
-        extract_frames(tight_mov, tight_dir),
-        box,
-    )
-
-
 def crop_probe_to_tight(probe_mov: str, overlay_path: str,
                         box: TightBox) -> tuple[int, int]:
     """Crop the probe render to the tight canvas, as `qtrle` RGBA with alpha.
