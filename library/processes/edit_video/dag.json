@@ -990,6 +990,13 @@
       }
     },
     {
+      "from": "creative_direction",
+      "to": "audio_mix",
+      "data_mapping": {
+        "creative_direction": "creative_direction"
+      }
+    },
+    {
       "from": "catalog",
       "to": "plan_sfx",
       "data_mapping": {

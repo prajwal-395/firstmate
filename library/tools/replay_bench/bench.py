@@ -181,15 +181,20 @@ def compare(snapshot_ref: str, step: str, rev_a: str, rev_b: str,
 # but the archived request does, in `expected_schema`.  Read it from there
 # rather than guessing, and say so on every row.
 def _llm_authored_from_archive(request: dict) -> list:
-    # `could_not_determine` and `contradicts_direction` are in the schema
-    # and are NOT among the step's outputs: both are split out of the
-    # answer before anything validates or records it, so neither is ever
-    # in the recorded state this is subtracting from.  Naming them here
-    # would claim the model authored keys the state has never held.
+    # `could_not_determine`, `contradicts_direction` and `value_decisions`
+    # are in the schema and are NOT among the step's outputs: all three are
+    # split out of the answer before anything validates or records it, so
+    # none is ever in the recorded state this is subtracting from.  Naming
+    # them here would claim the model authored keys the state has never
+    # held.  `value_decisions` is the one that is nonetheless LOAD-BEARING -
+    # a post-bridge acts on it - but what the state records is the
+    # DECISION, on the step's own output, not the answer.
     from library.tools.undetermined import FIELD as _UNDETERMINED_FIELD
     from library.tools.direction_contradiction import (
         FIELD as _CONTRADICTION_FIELD)
-    _split_out = {_UNDETERMINED_FIELD, _CONTRADICTION_FIELD}
+    from library.tools.decided_value import FIELD as _DECIDED_VALUE_FIELD
+    _split_out = {_UNDETERMINED_FIELD, _CONTRADICTION_FIELD,
+                  _DECIDED_VALUE_FIELD}
     try:
         return [o.get("name") for o in json.loads(request.get("expected_schema") or "[]")
                 if o.get("name") and o.get("name") not in _split_out]

@@ -46,8 +46,8 @@ are.  Nothing is substituted, at any layer: ``compile_manifest``'s
 **The model can only reason about this because it is told what the sound
 sits under**, and it already was: step 4.04's candidate table carries
 ``music_behavior`` and ``bed_under_it`` per block through
-``music_measurement.bed_under_block`` - the clip gain the bed takes there
-and where that puts the bed's own measured loudness.  What it did not
+``music_measurement.bed_under_block`` - the bed's own measured level
+under that block, and what the plan says it is doing there.  What it did not
 carry is the other end of the comparison, which is not a measurement but a
 definition of the mix: **speech (A1) is the reference at 0 dB**.  Step
 4.04's own ``handoff.md`` states it, under "What a level is measured

@@ -417,6 +417,20 @@ def reconstruct(tree: Path, state: dict, node_id: str, project_dir: str,
                     except Exception:  # noqa: BLE001 - wording only
                         _reading, _basis = "", ""
                     prompt += briefing_interview.prompt_block(_reading, _basis)
+            try:
+                from library.tools import decided_value
+            except ImportError:
+                notes.append("this tree has no library.tools.decided_value: "
+                             "the schema is reconstructed without the "
+                             "value_decisions field")
+            else:
+                # The fourth appender.  Mirrored here for the same reason
+                # as the three above: `verify` is a gate, and a step whose
+                # replayed prompt is missing a field the run really asked
+                # for is a difference it cannot account for.
+                if decided_value.decides(node_id):
+                    schema_outputs.append(decided_value.schema_entry())
+                    prompt += decided_value.prompt_block(node_id)
             expected_schema = json.dumps(schema_outputs)
             schema_text = generate_output_schema_text(schema_outputs)
             marker = "<!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->"

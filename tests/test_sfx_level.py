@@ -33,9 +33,14 @@ MIX = os.path.join(REPO, "library", "steps", "step_5_02_audio_mix")
 
 
 def _mix_module():
+    """Step 5.02's shared half, which owns `TRACK_LEVELS`.
+
+    It was `step.py` until 2026-09-16, when the step became hybrid and
+    the deterministic half moved to `mix.py`.
+    """
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "audio_mix_step", os.path.join(MIX, "step.py"))
+        "audio_mix_mix", os.path.join(MIX, "mix.py"))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

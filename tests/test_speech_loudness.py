@@ -22,7 +22,32 @@ from pathlib import Path
 import pytest
 
 from library.tools import speech_loudness as sl
-from library.steps.step_5_02_audio_mix.step import define_audio_mix
+from library.steps.step_5_02_audio_mix import mix as mix_module
+
+# What a mix engineer decided on one run. No module holds a level since
+# the captain's ruling of 2026-09-16, so a test that wants one supplies
+# it the way a run does.
+DECIDED = {"prominent": -6.0, "background": -18.0}
+
+
+def define_audio_mix(spine, selection, a_roll_assignments=None,
+                     decided=None, answers=None):
+    """`{"audio_mix_spec": ...}` for a spine, at decided levels."""
+    pre = mix_module.measure(spine, selection, a_roll_assignments)
+    by_scope = {
+        scope: {"value": value,
+                "answer": (answers or {}).get(scope)}
+        for scope, value in (DECIDED if decided is None else decided).items()}
+    automation, undetermined = mix_module.solve_automation(pre, by_scope)
+    # One record per scope, the shape `decide` produces: `answer` is the
+    # separation somebody named, and its absence is what tells a decided
+    # target apart from a level with no judgement behind it.
+    decisions = [{"slot": mix_module.SLOT, "scope": scope,
+                  "basis": "reasoned" if entry["answer"] is not None
+                           else "fallback",
+                  "value": entry["value"], "answer": entry["answer"]}
+                 for scope, entry in by_scope.items()]
+    return mix_module.assemble(pre, decisions, automation, undetermined)
 
 FFMPEG = shutil.which("ffmpeg") is not None
 
@@ -69,8 +94,8 @@ def test_the_separation_is_arithmetic_over_two_measurements():
 
 
 def test_nothing_here_supplies_a_target():
-    assert "not supplied" in sl.NO_TARGET_IS_SUPPLIED
-    assert "SEPARATION_TARGETS_DB is empty" in sl.NO_TARGET_IS_SUPPLIED
+    assert "not measured HERE" in sl.NO_TARGET_IS_SUPPLIED
+    assert "never will be" in sl.NO_TARGET_IS_SUPPLIED
     # No module-level number that could be read as one.
     numbers = {name: value for name, value in vars(sl).items()
                if isinstance(value, (int, float))
@@ -140,9 +165,27 @@ def test_the_mix_spec_records_the_speech_and_the_delivered_separation(
     assert isinstance(hook["speech_lufs"], float)
     assert hook["separation_delivered_db"] == pytest.approx(
         hook["speech_lufs"] - hook["bed_level_after_gain_lufs"], abs=0.01)
-    # And nothing was compared with anything.
+    # Nothing is compared with anything until somebody decides a
+    # separation; this fixture supplies levels but no judgement behind
+    # them, so the window carries the gain and no target.
     assert hook["separation_target_db"] is None
     assert spec["separation_targets_declared"] is False
+
+
+@pytest.mark.skipif(not FFMPEG, reason="ffmpeg/ffprobe not available")
+def test_a_decided_separation_reaches_the_window_that_delivers_it(tmp_path):
+    """The reader that had nothing to read. `render_qa` has always looked
+    for `separation_target_db` and always found None; since 2026-09-16
+    the mix engineer's own number is what lands there."""
+    clip = _tone(tmp_path / "speech.m4a", seconds=6.0)
+    spec = define_audio_mix(SPINE, SELECTION, [{
+        "spine_block_position": "hook",
+        "video_segments": [{"source_file": str(clip),
+                            "video_in": 0.836, "video_out": 3.234}],
+    }], answers={"background": 11.0, "prominent": -2.0})["audio_mix_spec"]
+
+    assert spec["music_automation"][0]["separation_target_db"] == 11.0
+    assert spec["separation_targets_declared"] is True
 
 
 def test_a_block_with_no_assignment_records_none_and_never_zero():
@@ -151,15 +194,19 @@ def test_a_block_with_no_assignment_records_none_and_never_zero():
         assert window["speech_lufs"] is None
         assert window["separation_delivered_db"] is None
     # The plan is still complete: the mix is not gated on the measurement.
-    assert spec["music_automation"][0]["target_level_db"] == -18
+    assert spec["music_automation"][0]["target_level_db"] == \
+        DECIDED["background"]
 
 
-def test_the_step_still_says_the_target_is_the_one_undeclared_thing():
-    spec = define_audio_mix(SPINE, SELECTION, [])["audio_mix_spec"]
-    note = spec["separation_target_is_undeclared"]
-    assert "OUGHT to deliver" in note
-    assert "open captain decision" in note
-    assert spec["speech_loudness_note"] == sl.NO_TARGET_IS_SUPPLIED
+def test_this_module_measures_and_names_who_decides():
+    """It says what it does NOT answer, and - since 2026-09-16 - who
+    does. A measurement module inventing a target would be a strength
+    nobody chose; one that cannot say where the target comes from leaves
+    a reader to assume."""
+    note = sl.NO_TARGET_IS_SUPPLIED
+    assert "OUGHT to deliver is not measured HERE" in note
+    assert "decided_value" in note
+    assert "5.02" in note
 
 
 def test_the_cost_is_measured_rather_than_assumed():

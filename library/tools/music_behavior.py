@@ -31,7 +31,8 @@ and points here.
 
 **`music_behavior` has ONE vocabulary: `library/tools/music_behavior.py`.**
 Five words - `prominent`, `background`, `fade_in`, `fade_out`, `silent` - and `silent` is one of them, because a planned silence is a decision.
-`mesh_spine` declares it, `spine_contract` rejects a word outside it, `audio_mix` turns it into the dB, `compile_manifest` CARRIES it onto `_spine_blocks` rather than recomputing it, and `render_qa` judges the render against it.
+`mesh_spine` declares it, `spine_contract` rejects a word outside it, `audio_mix` DECIDES the dB for the two words that carry one, `compile_manifest` CARRIES it onto `_spine_blocks` rather than recomputing it, and `render_qa` judges the render against it.
+**The five dB are GONE (captain, 2026-09-16) and a word no longer carries a number.** `DECIDED_BEHAVIORS` is the two whose level step 5.02 decides per run over what the bed and the speech measure; `silent` is the absence of music and `fade_in`/`fade_out` are a MOVE that takes the level of the block it moves to (`level_for_block`). `WITHDRAWN_LEVELS_DB` records each old number and where it went. [why](docs/CREATIVE_VALUE_DECISION.md)
 Resolve a block that declares none through `resolve_music_behavior`, never with a local default: `WITHDRAWN_BEHAVIORS` records why the two-word `full`/`ducked` form is out. [why](docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
 `tests/test_music_behavior_vocabulary.py`.
 **The timeline's length comes from the spine, never from a passage's `end_time`.**
@@ -46,53 +47,116 @@ is findable by its own words, and AGENTS.md 10.4 keeps the headline
 and points here.
 
 **A clip gain is not a separation, and both halves now SAY which one they are holding.**
-`music_behavior.SEPARATION_TARGETS_DB` is EMPTY - no behaviour declares a separation.
-`measure_speech_above_bed` reads a declared target or falls back to clip gain, recording `required_margin_basis` per window and `judged_on_clip_gain` on the result.
+**And the SEPARATION is what the model is asked for**, since 2026-09-16: a gain is a number about a FILE, a separation is a number about what a person hears, and only the second is a thing a mix engineer can be asked.
+`music_behavior.SEPARATION_TARGETS_DB` stays EMPTY and is not the route: a per-run judgement is not a module-level dict. Step 5.02 asks a mix engineer for the separation over the bed's and the speech's own measurements, and the clip gain is arithmetic (`decided_value._solve_bed_gain`).
+`measure_speech_above_bed` reads a declared target or falls back to clip gain, recording `required_margin_basis` per window and `judged_on_clip_gain` on the result - and the decided separation is what now reaches it on `music_automation[].separation_target_db`.
 """
 
-# word -> (bed level in dB against a 0 dB speech reference, what it means)
+from typing import Any, Mapping, Sequence
+
+# ── The vocabulary, and what is no longer in it ──────────────────────
+#
+# Five words, and until 2026-09-16 each carried a dB.  The captain ruled
+# that day that how loud the bed sits is not a number anybody picks:
+#
+#     *"these all stand as things that should be covered by creative
+#     reasoning by the LLM to see if music is sitting too loud, too soft,
+#     or just right. there is no hard coded number that hits this.
+#     perhaps a formula or some kind of audio anaysis that allows that
+#     judgement to be made is what im referring to"*
+#
+# So the words stay - the vocabulary was never the defect - and the
+# numbers left.  What replaced them is not a different number: step 5.02
+# asks a mix engineer how far above the bed the voice should sit in THIS
+# piece, and the clip gain is arithmetic over that judgement and two
+# measurements (`library/tools/decided_value.py`, slot
+# `mix.speech_above_bed_db`).  The five old gains survive ONLY as that
+# slot's registered fallback, owned by the series that preferred them.
+#
+# word -> what it means
 MUSIC_BEHAVIORS = {
-    "prominent":  (-6,  "music leads; no competing speech"),
-    "background": (-18, "music plays quietly under speech"),
-    "fade_in":    (-12, "moving up from silent or background"),
-    "fade_out":   (-12, "moving down from prominent"),
-    "silent":     (-96, "no music at all - a chosen hole in the bed"),
+    "prominent":  "music leads; no competing speech",
+    "background": "music plays quietly under speech",
+    "fade_in":    "moving up from silent or background",
+    "fade_out":   "moving down from prominent",
+    "silent":     "no music at all - a chosen hole in the bed",
 }
 
 SILENT = "silent"
 
-# ── A clip gain is not a separation ─────────────────────────────────
+# The two words whose level is DECIDED, per run, by the step that can see
+# what the bed and the speech measure.  The other three are not values
+# anybody decides, and saying so is what keeps this a two-word question
+# instead of a five-number one:
 #
-# The dB above is a CLIP GAIN: how far the bed is pushed down from
-# whatever level the file already carries.  It is not the gap the ear
-# hears between the voice and the bed, and the two agree only when the
-# music file's own level sits at or below the speech's.  On project 001
-# the bed is mastered about 8.6 dB hotter than the iPhone speech, so -18
-# dB of gain buys about 12.5 dB of separation and no mix setting reaches
-# 18 (AGENTS.md 10.4; `render_qa.SPEECH_ABOVE_BED_GATES` records the
-# per-window numbers).
+#   `silent` is the ABSENCE of music.  -96 dB is not a level somebody
+#   chose, it is the bottom of the fader, and it sits in the same
+#   category as `transition_vocabulary.CUT_TYPES` and
+#   `series_look.NEUTRAL_CDL` - the absence of decoration rather than a
+#   choice of it (AGENTS.md 10.5).
 #
-# `render_qa.measure_speech_above_bed` measures the separation.  What it
-# has never had is a separation to measure AGAINST, so it reads the clip
-# gain as though it were one - which is why it reports 1 of 11 windows
-# meeting "the plan's own margin" on an edit whose plan never declared a
-# margin at all.
+#   `fade_in` and `fade_out` are a MOVE between two levels, not a third
+#   level.  The old -12 was a plateau in the middle of a ramp
+#   `otio_mix.music_curve` already draws, so it stated a level nobody
+#   planned; a fade now resolves to the level it is moving TO.
+DECIDED_BEHAVIORS = ("prominent", "background")
+FADE_BEHAVIORS = ("fade_in", "fade_out")
+
+# The bottom of the fader.  `otio_mix.MIN_VOLUME_DB` is the delivery
+# floor this has to sit at or above, and the two are asserted equal-or-
+# above in tests/test_audio_mix_delivery.py.
+SILENT_LEVEL_DB = -96
+
+# What the five words used to carry, and where each number went.  Kept
+# because a number that merely disappears is a number a future reader
+# re-invents - the same reason `WITHDRAWN_BEHAVIORS` below is kept.
+WITHDRAWN_LEVELS_DB = {
+    "prominent": (-6, "decided per run; the old gain is the registered "
+                      "fallback of decided_value slot "
+                      "mix.speech_above_bed_db"),
+    "background": (-18, "decided per run; the old gain is the registered "
+                        "fallback of the same slot"),
+    "fade_in": (-12, "a fade is a move, not a level: it resolves to the "
+                     "level it moves TO (`level_for_block`)"),
+    "fade_out": (-12, "a fade is a move, not a level: it resolves to the "
+                      "level it moves TO, or to silence at the end of the "
+                      "piece"),
+    "silent": (-96, "not withdrawn and not decided - the absence of "
+                    "music, kept as SILENT_LEVEL_DB"),
+}
+
+# ── A clip gain is not a separation, and the separation is now DECIDED ─
 #
-# So the plan may now CARRY one, per behaviour, and today none is
-# declared.  The number is not the engine's to choose: it is the same
-# registered captain decision as the five clip gains above, and an
-# engine-supplied separation target would be a strength nobody chose
-# arriving one level up (AGENTS.md 10.5, and section 12's rule that no
-# element has a default and none has a bound).
+# A clip gain is how far the bed is pushed down from whatever level the
+# file already carries.  It is not the gap the ear hears between the
+# voice and the bed, and the two agree only when the music file's own
+# level sits at or below the speech's.  On project 001 the bed is
+# mastered about 8.6 dB hotter than the iPhone speech, so the old -18 dB
+# of gain bought about 12.5 dB of separation and no mix setting reached
+# 18 (AGENTS.md 10.4).
+#
+# That gap is why the five numbers could not generalise and why the
+# captain removed them.  A gain is a number about a FILE; a separation is
+# a number about what a person hears, and it is the one a mix engineer
+# can actually be asked for.  So the question runs the other way round
+# now: step 5.02 asks for the SEPARATION, over what the bed and the
+# speech measure, and the gain that delivers it is arithmetic
+# (`decided_value._solve_bed_gain`).
+#
+# `SEPARATION_TARGETS_DB` stays EMPTY and is not the route.  A per-run
+# judgement cannot live in a module-level dict - a constant is exactly
+# what it stopped being - and the decided separation travels as a
+# decision record on `audio_mix_spec.value_decisions`, where it says who
+# decided it and what it was decided over.
 SEPARATION_TARGETS_DB: dict = {}
 
 UNDECLARED_SEPARATION = (
-    "no separation target is declared for this behaviour. The dB beside "
-    "it is a clip gain, which is what the bed is pushed down BY, not the "
-    "gap it ends up at under the voice. Declaring one is the same open "
-    "decision as the clip gains themselves; until it is taken, a check "
-    "judging against the clip gain is judging against a number that was "
-    "not a separation target."
+    "no separation target is declared for this behaviour as a constant, "
+    "and none will be: it is decided per run by step 5.02 over the bed's "
+    "and the speech's own measurements, and recorded on "
+    "`audio_mix_spec.value_decisions` (library/tools/decided_value.py, "
+    "slot mix.speech_above_bed_db). A reader wanting the separation this "
+    "run planned reads the decision record, never this dict."
 )
 
 # A block that carries speech has a voice to sit under; one that does not
@@ -141,13 +205,74 @@ def resolve_music_behavior(declared, *, block_carries_speech: bool) -> str:
     return declared
 
 
-def music_level_db(behavior: str) -> int:
-    """The bed level the behaviour plans, in dB under speech."""
+def is_decided_behavior(behavior) -> bool:
+    """True when this word's level is DECIDED rather than structural."""
+    return behavior in DECIDED_BEHAVIORS
+
+
+def is_fade(behavior) -> bool:
+    """True when this word is a MOVE between two levels."""
+    return behavior in FADE_BEHAVIORS
+
+
+def level_for_block(index: int, behaviors: Sequence[str],
+                    decided: Mapping[str, Any]):
+    """The bed level one block plays at, given the decided levels.
+
+    `decided` maps the two DECIDED_BEHAVIORS to the clip gain step 5.02
+    solved for them this run.  The other three words are structural and
+    are resolved here rather than decided anywhere:
+
+    * `silent` is :data:`SILENT_LEVEL_DB` - the absence of music.
+    * a fade takes the level it is moving TO: the nearest following
+      block that is not itself a fade.  A fade with nothing after it
+      looks BACKWARD instead, and a `fade_out` that ends the piece ends
+      in silence, which is what a fade out at the end of a video is.
+
+    Returns `(level, why, scope)`.  `level` is None when nothing decided
+    it - never 0, which reads as silence, and never a stand-in.  `scope`
+    is the DECIDED_BEHAVIORS word whose decision this block's level came
+    from, or None when no decision is behind it (silence, or a fade that
+    ends the piece), so a reader can join a window back to the judgement
+    that set it without re-deriving the fade rule.
+    """
+    behavior = behaviors[index]
     if not is_known_behavior(behavior):
         raise MusicBehaviorError(
             f"unknown music_behavior {behavior!r}; the vocabulary is "
             f"{sorted(MUSIC_BEHAVIORS)}")
-    return MUSIC_BEHAVIORS[behavior][0]
+
+    if is_silent(behavior):
+        return SILENT_LEVEL_DB, "silent: no music plays under this block", None
+
+    if is_decided_behavior(behavior):
+        level = decided.get(behavior)
+        if level is None:
+            return None, (f"nothing decided a level for {behavior!r} on this "
+                          f"run"), behavior
+        return level, f"the level decided for {behavior!r} this run", behavior
+
+    # A fade. It resolves FORWARD and only forward, because a fade is a
+    # move TO something: taking the level it moved FROM would plateau it
+    # at its own starting point, which is a fade that does not fade.
+    cursor = index + 1
+    while cursor < len(behaviors):
+        if not is_fade(behaviors[cursor]):
+            level, why, scope = level_for_block(cursor, behaviors, decided)
+            if level is None:
+                return None, (f"{behavior!r} resolves to the block it moves "
+                              f"to, and {why}"), scope
+            return level, (f"{behavior!r} is a move, not a level: it takes "
+                           f"the level of the block it moves to ({why})"), scope
+        cursor += 1
+
+    if behavior == "fade_out":
+        return SILENT_LEVEL_DB, ("fade_out with nothing after it: the piece "
+                                 "ends in silence"), None
+    # A fade_in that moves to nothing is a plan nobody can deliver, and
+    # the mix says so rather than inventing a level for it.
+    return None, (f"{behavior!r} is the last block and has nothing to move "
+                  f"to, so there is no level for it to take"), None
 
 
 def separation_target_db(behavior: str):

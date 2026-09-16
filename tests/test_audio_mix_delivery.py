@@ -27,7 +27,7 @@ if str(REPO) not in sys.path:
     sys.path.insert(0, str(REPO))
 
 from library.tools import otio_mix
-from library.tools.music_behavior import music_level_db
+from library.tools.music_behavior import SILENT_LEVEL_DB
 from library.tools.project_layout import Area, ProjectLayout
 
 FPS = 30.0
@@ -77,19 +77,35 @@ def _otio(tracks):
                 for name, kind, children in tracks]}}
 
 
+# What a mix engineer decided on one run, solved into clip gains by step
+# 5.02.  Until 2026-09-16 these came from a table in `music_behavior` and
+# this file read them from there; there is no such table now, so the
+# levels are the fixture's own - which is the right shape for this file
+# anyway.  `otio_mix` DELIVERS whatever the automation carries and never
+# revises one, and that is the only thing tested here.
+#
+# `fade_in` carries the level of the block it moves to, because a fade is
+# a move between two levels rather than a third one of its own.
+LEVELS = {
+    "silent": SILENT_LEVEL_DB,
+    "background": -19.5,
+    "prominent": -7.5,
+    "fade_in": -19.5,
+}
+
 AUTOMATION = [
     {"spine_block_position": "hook", "timeline_start": 0.0, "timeline_end": 2.4,
-     "music_behavior": "silent", "target_level_db": music_level_db("silent")},
+     "music_behavior": "silent", "target_level_db": LEVELS["silent"]},
     {"spine_block_position": 1, "timeline_start": 2.4, "timeline_end": 5.4,
-     "music_behavior": "fade_in", "target_level_db": music_level_db("fade_in")},
+     "music_behavior": "fade_in", "target_level_db": LEVELS["fade_in"]},
     {"spine_block_position": 2, "timeline_start": 5.4, "timeline_end": 8.4,
-     "music_behavior": "background", "target_level_db": music_level_db("background")},
+     "music_behavior": "background", "target_level_db": LEVELS["background"]},
     {"spine_block_position": 3, "timeline_start": 8.4, "timeline_end": 18.4,
-     "music_behavior": "background", "target_level_db": music_level_db("background")},
+     "music_behavior": "background", "target_level_db": LEVELS["background"]},
     {"spine_block_position": 4, "timeline_start": 18.4, "timeline_end": 20.9,
-     "music_behavior": "prominent", "target_level_db": music_level_db("prominent")},
+     "music_behavior": "prominent", "target_level_db": LEVELS["prominent"]},
     {"spine_block_position": 5, "timeline_start": 20.9, "timeline_end": 30.0,
-     "music_behavior": "silent", "target_level_db": music_level_db("silent")},
+     "music_behavior": "silent", "target_level_db": LEVELS["silent"]},
 ]
 
 
@@ -134,8 +150,8 @@ def test_a_planned_silence_is_silent_in_the_middle_of_its_block():
     -96 dB is inside Resolve's own parameter bounds, so it needs no
     special case - only delivering."""
     curve = _curve()
-    assert _level_at(curve, 15) == music_level_db("silent")      # 0.5s
-    assert _level_at(curve, 750) == music_level_db("silent")     # 25.0s
+    assert _level_at(curve, 15) == LEVELS["silent"]      # 0.5s
+    assert _level_at(curve, 750) == LEVELS["silent"]     # 25.0s
 
 
 def test_runs_of_one_level_become_one_plateau():
@@ -145,16 +161,16 @@ def test_runs_of_one_level_become_one_plateau():
     seam = int(8.4 * FPS)      # where the two background blocks meet
     near_seam = [f for f in curve if abs(f - seam) <= FPS]
     assert near_seam == [], f"a ramp at a seam between equal levels: {near_seam}"
-    assert _level_at(curve, seam) == music_level_db("background")
+    assert _level_at(curve, seam) == LEVELS["background"]
 
 
 def test_the_ramp_sits_between_the_plateaus():
     curve = _curve()
     boundary = int(2.4 * FPS)
-    assert _level_at(curve, boundary - 20) == music_level_db("silent")
-    assert _level_at(curve, boundary + 20) == music_level_db("fade_in")
+    assert _level_at(curve, boundary - 20) == LEVELS["silent"]
+    assert _level_at(curve, boundary + 20) == LEVELS["fade_in"]
     middle = _level_at(curve, boundary)
-    assert music_level_db("silent") < middle < music_level_db("fade_in")
+    assert LEVELS["silent"] < middle < LEVELS["fade_in"]
 
 
 def test_the_curve_never_leaves_the_clip():
@@ -174,7 +190,7 @@ def test_frames_are_measured_from_the_clip_not_the_timeline():
     early = _curve()
     shifted = {f - 150 for f in late if 0 < f < 899}
     assert shifted <= set(early) | {f - 150 for f in late}
-    assert _level_at(late, int(18.4 * FPS) - 150 + 15) == music_level_db("prominent")
+    assert _level_at(late, int(18.4 * FPS) - 150 + 15) == LEVELS["prominent"]
 
 
 def test_a_short_block_still_keeps_a_plateau():
@@ -221,7 +237,7 @@ def test_the_level_is_db_with_no_conversion():
 
 
 def test_silence_is_inside_resolves_own_bounds():
-    assert otio_mix.MIN_VOLUME_DB <= music_level_db("silent") <= otio_mix.MAX_VOLUME_DB
+    assert otio_mix.MIN_VOLUME_DB <= LEVELS["silent"] <= otio_mix.MAX_VOLUME_DB
 
 
 def test_a_level_outside_the_bounds_is_clamped_not_dropped():

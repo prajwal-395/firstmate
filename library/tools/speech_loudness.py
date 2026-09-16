@@ -59,14 +59,16 @@ MEASURED_COST = {
 # every reading rather than assumed by a reader.
 SPEECH_AUDIO_STREAM = 0
 
-# What this module deliberately does not answer.
+# What this module deliberately does not answer, and who does.
 NO_TARGET_IS_SUPPLIED = (
     "this measures what the speech IS, and the separation a window will "
     "deliver follows from it by subtraction. What separation a window "
-    "OUGHT to deliver is not measured and not supplied: "
-    "music_behavior.SEPARATION_TARGETS_DB is empty and the master "
-    "loudness target is an open captain decision. A number invented here "
-    "would be a strength nobody chose (AGENTS.md 10.4, 10.5)."
+    "OUGHT to deliver is not measured HERE and never will be: a number "
+    "invented in a measurement module would be a strength nobody chose "
+    "(AGENTS.md 10.4, 10.5). Since 2026-09-16 it is DECIDED, by step "
+    "5.02's mix engineer, over this measurement and the bed's - read "
+    "`audio_mix_spec.value_decisions` for what was decided and on what "
+    "basis (library/tools/decided_value.py)."
 )
 
 FFMPEG_TIMEOUT_SECONDS = 120

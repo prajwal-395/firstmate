@@ -108,6 +108,15 @@ DECLARING_STEPS = frozenset({
     "plan_sfx",
     "render_motion_graphics",
     "color_grade",
+    # Added 2026-09-16 for the same reason `color_grade` was, and by the
+    # same derivation: step 5.02 stopped turning a behaviour word into a
+    # dB it was handed and grew a handoff that asks a mix engineer how
+    # far above the bed the voice should sit in THIS piece
+    # (library/tools/decided_value.py). It reaches a model and makes a
+    # craft judgement, which is the whole membership rule, and the field
+    # is where it says the bed or the speech was never measured - the one
+    # thing it genuinely cannot determine.
+    "audio_mix",
     "validate",
 })
 

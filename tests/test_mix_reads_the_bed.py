@@ -20,8 +20,13 @@ nothing without - an unmeasured bed is an admitted absence and never a
 level of 0, and the render-side check says when the margin it judged
 against was a clip gain rather than a separation somebody declared.
 
-Nothing here asserts a level.  The five clip gains are a registered open
-captain decision and this change moved none of them.
+Nothing here asserts a level, and since 2026-09-16 there is no level to
+assert: the captain removed the five clip gains, step 5.02 asks a mix
+engineer for the SEPARATION over these same measurements, and the gain is
+solved from it (`library/tools/decided_value.py`).  What this file pins is
+unchanged by that - the measurements reach the step, an unmeasured bed is
+an admitted absence, and the render-side check says which kind of number
+it judged against.
 """
 import json
 import sys
@@ -41,15 +46,22 @@ STEP_DIR = REPO / "library" / "steps" / "step_5_02_audio_mix"
 SELECTION_STEP_DIR = REPO / "library" / "steps" / "step_2_04_music_selection"
 
 
-def _load_step_module():
-    """Step 5.02's own `step.py`, loaded as a module."""
-    import importlib.util
+# What a mix engineer decided on one run. The test supplies it because no
+# module holds one any more.
+DECIDED = {"prominent": -7.5, "background": -19.5}
 
-    spec = importlib.util.spec_from_file_location(
-        "step_5_02_audio_mix_under_test", STEP_DIR / "step.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+
+def _mix_spec(spine, selection, decided=None):
+    """`audio_mix_spec` for one spine and one bed, at decided levels."""
+    from library.steps.step_5_02_audio_mix import mix as mix_module
+
+    pre = mix_module.measure(spine, selection)
+    by_scope = {scope: {"value": value, "answer": None}
+                for scope, value in (DECIDED if decided is None
+                                     else decided).items()}
+    automation, undetermined = mix_module.solve_automation(pre, by_scope)
+    return mix_module.assemble(pre, [], automation,
+                               undetermined)["audio_mix_spec"]
 
 
 def _load_post_bridge():
@@ -172,35 +184,31 @@ def test_the_post_bridge_folds_the_measurements_onto_the_selection(tmp_path):
 # ── Step 5.02 reads them ────────────────────────────────────────────
 
 def test_the_mix_reads_the_bed_and_says_where_the_gain_puts_it():
-    step = _load_step_module()
-    spec = step.define_audio_mix(
+    spec = _mix_spec(
         _spine("background", "prominent"),
         {"title": "rise", "audio_path": "/library/rise.mp3",
          "measurements": mm.selection_measurements(
              {"audio_path": "/library/rise.mp3"},
-             [_candidate("/library/rise.mp3")])},
-    )["audio_mix_spec"]
+             [_candidate("/library/rise.mp3")])})
 
     assert spec["bed"]["measured"] is True
     assert spec["bed"]["integrated_lufs"] == -13.9
     assert spec["bed"]["speech_band_ratio_db"] == -2.8
 
     background, prominent = spec["music_automation"]
-    # The clip gain is untouched; where it PUTS the bed is the new fact,
-    # and it is arithmetic on the measurement, not a chosen number.
-    assert background["target_level_db"] == mb.music_level_db("background")
+    # Where the gain PUTS the bed is arithmetic on the measurement, not a
+    # chosen number - and the gain itself is now the decided one.
+    assert background["target_level_db"] == DECIDED["background"]
     assert background["bed_level_after_gain_lufs"] == pytest.approx(
-        -13.9 + mb.music_level_db("background"))
+        -13.9 + DECIDED["background"])
     assert prominent["bed_level_after_gain_lufs"] == pytest.approx(
-        -13.9 + mb.music_level_db("prominent"))
+        -13.9 + DECIDED["prominent"])
 
 
 def test_an_unmeasured_bed_is_an_admitted_absence_never_a_level():
-    step = _load_step_module()
-    spec = step.define_audio_mix(
+    spec = _mix_spec(
         _spine("background"),
-        {"title": "hand-picked", "audio_path": "/elsewhere/track.wav"},
-    )["audio_mix_spec"]
+        {"title": "hand-picked", "audio_path": "/elsewhere/track.wav"})
 
     assert spec["bed"]["measured"] is False
     assert spec["bed"]["measurement_note"], \
@@ -210,20 +218,22 @@ def test_an_unmeasured_bed_is_an_admitted_absence_never_a_level():
         "None means unknown; 0 would read as a bed at full scale"
     # The plan is still complete - the mix is not gated on the measurement.
     assert spec["music_automation"][0]["target_level_db"] == \
-        mb.music_level_db("background")
+        DECIDED["background"]
 
 
 def test_the_step_declares_only_what_it_reads():
     manifest = json.loads((STEP_DIR / "manifest.json").read_text("utf-8"))
     declared = {i["name"] for i in manifest["interface"]["inputs"]}
-    assert declared == {"audio_spine", "music_selection",
-                        "a_roll_assignments"}, (
-        "creative_direction reaches this step through the spine's own "
-        "music_behavior, which mesh_spine decided; enhancement_spec "
-        "described a feature nobody built. Re-declaring either needs a "
-        "reader in the same commit. `a_roll_assignments` arrived WITH "
-        "its reader: it names the source ranges the speech is measured "
-        "over (library/tools/speech_loudness.py).")
+    assert declared == {"audio_spine", "music_selection", "a_roll_assignments",
+                        "creative_direction", "project_folder"}, (
+        "enhancement_spec described a feature nobody built; re-declaring "
+        "it needs a reader in the same commit. `a_roll_assignments` "
+        "arrived WITH its reader: it names the source ranges the speech is "
+        "measured over (library/tools/speech_loudness.py). "
+        "`creative_direction` and `project_folder` arrived with theirs on "
+        "2026-09-16: the ladder in library/tools/decided_value.py tries a "
+        "stated project preference and a declared direction value before "
+        "it asks the model.")
 
     dag = json.loads(
         (REPO / "library" / "processes" / "edit_video" / "dag.json")
@@ -232,20 +242,25 @@ def test_the_step_declares_only_what_it_reads():
     for edge in dag["edges"]:
         if edge["to"] == "audio_mix":
             routed |= set(edge["data_mapping"])
-    assert routed == declared, \
-        "a DAG edge routing a key no manifest declares is the same defect"
+    assert routed == declared - {"project_folder"}, (
+        "a DAG edge routing a key no manifest declares is the same defect, "
+        "and so is a manifest declaring an input no edge carries - which is "
+        "what `creative_direction` was for the hour between this step "
+        "declaring it and the edge landing. `project_folder` is the one "
+        "exception and it is not an exception to the rule: the runner "
+        "injects it into every step, so no edge carries it for any of them.")
 
 
 def test_no_mix_level_is_chosen_here():
-    """The five clip gains are the captain's; this change moved none."""
-    assert mb.MUSIC_BEHAVIORS["prominent"][0] == -6
-    assert mb.MUSIC_BEHAVIORS["background"][0] == -18
-    assert mb.MUSIC_BEHAVIORS["fade_in"][0] == -12
-    assert mb.MUSIC_BEHAVIORS["fade_out"][0] == -12
-    assert mb.MUSIC_BEHAVIORS["silent"][0] == -96
+    """No module holds a level for a behaviour, and none may again."""
+    for word, meaning in mb.MUSIC_BEHAVIORS.items():
+        assert isinstance(meaning, str), (
+            f"{word} carries a number again: {meaning!r}. The five clip "
+            f"gains were removed on the captain's ruling of 2026-09-16")
     assert mb.SEPARATION_TARGETS_DB == {}, (
-        "a separation target is the same open decision as the clip gains. "
-        "An engine-supplied one is a strength nobody chose, one level up.")
+        "a separation target is decided per run over the measurements, on "
+        "`audio_mix_spec.value_decisions`. A module-level dict of them is "
+        "the constant coming back in a new place.")
     for behaviour in mb.MUSIC_BEHAVIORS:
         assert mb.separation_target_db(behaviour) is None
 
@@ -275,7 +290,7 @@ def _automation(separation_target_db):
         "timeline_start": 0.0,
         "timeline_end": 2.0,
         "music_behavior": "background",
-        "target_level_db": mb.music_level_db("background"),
+        "target_level_db": DECIDED["background"],
         "separation_target_db": separation_target_db,
     }]
 
@@ -284,14 +299,15 @@ BLOCKS = [{"position": 0, "block_type": "speech"}]
 
 
 def test_the_check_names_a_clip_gain_when_that_is_what_it_judged(monkeypatch):
-    _fake_master(monkeypatch, music_gain_db=-18.0, speech_db=-20.0)
+    _fake_master(monkeypatch, music_gain_db=DECIDED["background"],
+                 speech_db=-20.0)
 
     result = render_qa.measure_speech_above_bed(
         "MASTER", "MUSIC", _automation(None), 0.0, BLOCKS)
 
     window = result.value["windows"][0]
     assert window["required_margin_basis"] == "clip_gain_read_as_separation"
-    assert window["required_margin_db"] == 18.0
+    assert window["required_margin_db"] == abs(DECIDED["background"])
     assert result.threshold["judged_on_clip_gain"] is True
     assert "CLIP GAIN" in result.detail, (
         "the report must say the margin was a clip gain, or a reader takes "
@@ -299,7 +315,11 @@ def test_the_check_names_a_clip_gain_when_that_is_what_it_judged(monkeypatch):
 
 
 def test_a_declared_separation_target_is_what_the_check_uses(monkeypatch):
-    _fake_master(monkeypatch, music_gain_db=-18.0, speech_db=-20.0)
+    """The decided separation is what now lands in that field: since
+    2026-09-16 `music_automation[].separation_target_db` carries what the
+    mix engineer asked for, so this reader stopped being vacuous."""
+    _fake_master(monkeypatch, music_gain_db=DECIDED["background"],
+                 speech_db=-20.0)
 
     result = render_qa.measure_speech_above_bed(
         "MASTER", "MUSIC", _automation(8.0), 0.0, BLOCKS)
@@ -315,5 +335,7 @@ def test_a_declared_separation_target_is_what_the_check_uses(monkeypatch):
 
 def test_the_gate_is_still_off():
     assert render_qa.SPEECH_ABOVE_BED_GATES is False, (
-        "promoting it needs a declared separation target and a measurement "
-        "of the speech's loudness; this change built neither number")
+        "one of the two conditions beside this boolean changed on "
+        "2026-09-16 - the plan now carries a real separation target rather "
+        "than a clip gain read as one - and promoting a report to a gate "
+        "is still the captain's call, not a consequence of that")

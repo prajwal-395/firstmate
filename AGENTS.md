@@ -553,15 +553,12 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 `render_qa.py` measures the RENDER: [why](docs/RULE_EVIDENCE.md#a-dim-shot-is-not-a-letterbox-bar)
 `manifest_validator.py` checks the PLAN. [why](docs/RULE_EVIDENCE.md#the-caption-box-is-not-one-line)
 Chroma and the mix REPORT A NUMBER and pass. [why](docs/RULE_EVIDENCE.md#baseline-craft-properties)
-Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target-is-not-a-separation)
-
-**A clip gain is not a separation, and both halves now SAY which one they are holding.** `library/tools/music_behavior.py`.
 
 **The bed is fitted at the SECTION that plays, and the offset is a REQUIRED argument.** `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-fitted-from-the-wrong-second)
 
 **The bed is bounded by the PICTURE, not by V1.** `library/steps/step_5_04_compile_manifest/step.py`. [why](docs/RULE_EVIDENCE.md#the-bed-was-trimmed-to-the-last-v1-clip)
 
-**The bed's own measurements reach the mix, because a step that cannot see the music cannot act on any answer about it.** `library/tools/music_measurement.py`.
+**The bed's own measurements reach the mix.** `library/tools/music_measurement.py`.
 
 **Every QA finding has a reader, and one that has none is reported.** `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the-qa-report-had-no-reader)
 
@@ -571,6 +568,10 @@ Detail: `library/tools/render_qa.py`. [why](docs/RULE_EVIDENCE.md#the-mix-target
 
 **The pipeline never invents a creative judgement on the model's behalf.**
 A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect, a sound, an energy word) and it goes. A MECHANICAL default is a safe technical value (a frame rate, a timeout, a codec) and it stays. Where a creative value is genuinely absent, FAIL or REPORT PLAINLY. [why](docs/RULE_EVIDENCE.md#the-pipeline-invented-taste-where-no-step-ran)
+
+**A creative value is DECIDED, and the decision SAYS what decided it.**
+A stated preference, then the declared direction, then the model reasoning over MEASURED signal, then a fallback naming WHOSE preference it is.
+Detail: `library/tools/decided_value.py`. [why](docs/CREATIVE_VALUE_DECISION.md)
 
 - Two things are NOT taste, and are why the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
 - A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.

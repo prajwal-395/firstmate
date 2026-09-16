@@ -75,11 +75,13 @@ The `sfx_candidates_toon` table provides a summarized list of clips and events w
 - `music_behavior`: What the plan says the bed does under this block -
   `prominent`, `background`, `fade_in`, `fade_out` or `silent`
   (`library/tools/music_behavior.py`).
-- `bed_under_it`: The clip gain that behaviour applies to the bed, and
-  where that puts the bed's own measured loudness. A sound placed on this
-  block is heard against THAT. *"bed level unmeasured"* means step 2.04
-  recorded no measurement for the chosen track - **never** that the bed is
-  silent.
+- `bed_under_it`: The bed's OWN measured loudness under this block, and
+  what the plan says it is doing there. A sound placed on this block is
+  heard against that. How far the bed is pushed down is decided later, at
+  the mix (step 5.02, over what the bed and the speech measure), so this
+  column states the bed's level and never a gain. *"unmeasured"* means
+  step 2.04 recorded no measurement for the chosen track - **never** that
+  the bed is silent.
 
 Use this data to decide which sound effects to apply.
 

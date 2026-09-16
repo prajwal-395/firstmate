@@ -59,6 +59,7 @@ import logging
 
 from library.tools.pipeline_logger import get_logger, step_timer
 from library.tools import (brief_attachment, briefing_interview,
+                           decided_value,
                            craft_role, creative_tasks,
                            direction_contradiction,
                            operations, post_bridge_retry, run_restart,
@@ -1889,7 +1890,14 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         # The call is skipped rather than made and discarded.  This is a
         # property of the schema, not of any step's name: declare
         # `interface.llm_outputs` and the call happens again.
-        if not llm_outputs:
+        # A step that DECIDES a creative value has something to ask even
+        # when it declares no `llm_outputs`: its question is the
+        # appended `value_decisions` field, and its answer is split back
+        # out rather than becoming one of the step's outputs.  Step 5.02
+        # is the standing case - what it emits is the automation it
+        # computes, and what it asks is how far above the bed the voice
+        # sits.  See library/tools/decided_value.py.
+        if not llm_outputs and not decided_value.decides(node_id):
             print(f"  [llm] {node_id}: no LLM output declared - "
                   f"nothing to ask, skipping the call", file=sys.stderr)
             return {}
@@ -1990,6 +1998,21 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
             except Exception:  # noqa: BLE001 - wording only; never fatal
                 _reading, _basis = "", ""
             prompt += briefing_interview.prompt_block(_reading, _basis)
+
+        # The creative values this step DECIDES, asked for over the
+        # measurements its own bridge put in front of the model.  The
+        # fourth appender, and the same three rules as its siblings: the
+        # words live in ONE place rather than in N handoffs, the answer
+        # is split back out before anything validates it, and nothing
+        # here states how the judgement should come out.
+        #
+        # Unlike its siblings it is LOAD-BEARING - the step cannot write
+        # its automation without it - so `run_hybrid_step` hands what was
+        # split out to the post-bridge under `decided_value.MERGE_KEY`.
+        # See library/tools/decided_value.py.
+        if decided_value.decides(node_id):
+            schema_outputs.append(decided_value.schema_entry())
+            prompt += decided_value.prompt_block(node_id)
 
         # `schema_outputs` is now complete, and it is rendered TWICE: as
         # prose for the prompt, and as JSON for the agent request file's
@@ -2246,6 +2269,20 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
                     detail=direction_contradiction.as_records([_flag])[0],
                 )
 
+        # And the decided values, split out for the same reasons. An
+        # entry naming a slot this step does not decide, or carrying no
+        # `why`, is dropped inside `take` rather than travelling: a mix
+        # level nobody can review is what this route exists to replace.
+        parsed_result, _decided = decided_value.take(node_id, parsed_result)
+        if decided_value.decides(node_id):
+            decided_value.stash(node_id, _decided)
+            if logger:
+                logger.log(
+                    step_id=node_id,
+                    event_type="value_decisions_answered",
+                    detail={"answered": decided_value.stashed(node_id)},
+                )
+
         def validate_for_llm(nid, out, man):
             issues = validate_step_output(nid, out, man)
             if issues:
@@ -2386,6 +2423,12 @@ def run_hybrid_step(step_dir: Path, inputs: dict, node_id: str, manifest: dict =
         # forever and re-measures on every attempt. See
         # library/tools/second_pass.py.
         merge_data[second_pass.PASS_KEY] = passes_made
+        # What the model decided, for a post-bridge that has to act on
+        # it. The field was split out of the answer above, so this is the
+        # only route it travels. See library/tools/decided_value.py.
+        if decided_value.decides(node_id):
+            merge_data[decided_value.MERGE_KEY] = decided_value.stashed(
+                node_id)
         if isinstance(llm_output, dict):
             merge_data.update(llm_output)
         else:
@@ -3056,6 +3099,7 @@ def run_pipeline(
     undetermined.reset()
     direction_contradiction.reset()
     briefing_interview.reset()
+    decided_value.reset()
     _previous_status = run_control.read_run_status(project_dir)
     _restart = run_restart.classify(_previous_status, state)
     run_control.begin_run_status(project_dir, run_mode, steps_to_run,
@@ -3734,6 +3778,31 @@ def run_pipeline(
             save_pipeline_state(project_dir, state)
     except Exception as exc:  # noqa: BLE001 - a report must not fail a run
         print(f"  WARNING: could not read the step declarations: {exc}",
+              file=sys.stderr)
+
+    # What decided each creative value this run, and on what basis. Read
+    # off the deciding step's own output rather than a collector, because
+    # the decision is made in a post-bridge SUBPROCESS - and because the
+    # record belongs on the step's output anyway, where a reader of the
+    # spec finds it beside the value it explains.
+    # See library/tools/decided_value.py.
+    value_decision_records = []
+    try:
+        for _step_id in {s.deciding_step for s in decided_value.SLOTS.values()}:
+            _out = (state.get("step_outputs", {}) or {}).get(_step_id) or {}
+            for _key in _out:
+                value_decision_records.extend(
+                    decided_value.records_from(_out.get(_key)))
+        for _line in decided_value.summary_lines(value_decision_records):
+            print(f"  {_line}", file=sys.stderr)
+        if value_decision_records:
+            # MERGED, not replaced - the sibling keys' reasoning exactly.
+            value_decision_records = decided_value.merge_records(
+                state.get(decided_value.STATE_KEY), value_decision_records)
+            state[decided_value.STATE_KEY] = value_decision_records
+            save_pipeline_state(project_dir, state)
+    except Exception as exc:  # noqa: BLE001 - a report must not fail a run
+        print(f"  WARNING: could not read the value decisions: {exc}",
               file=sys.stderr)
 
     # Where a step's measurements contradicted the creative direction it

@@ -100,7 +100,7 @@ VOLUME_PARAMETER_ID = "volume"
 MIN_VOLUME_DB = -100.0
 MAX_VOLUME_DB = 30.0
 """Resolve's own bounds, read off the parameter it writes when a level is
-set.  `music_behavior.MUSIC_BEHAVIORS["silent"]` is -96 dB, which is
+set.  `music_behavior.SILENT_LEVEL_DB` is -96 dB, which is
 inside them - silence does not need a special case."""
 
 RESOLVE_METADATA_KEY = "Resolve_OTIO"
@@ -245,7 +245,8 @@ def music_curve(automation: list, *, fps: float, clip_start_frame: int,
 
     `automation` is `audio_mix.music_automation` verbatim - one entry per
     spine block, carrying `timeline_start`, `timeline_end` and the
-    `target_level_db` that `music_behavior.music_level_db` decided.  This
+    `target_level_db` step 5.02 solved from the separation its mix
+    engineer decided (`library/tools/decided_value.py`).  This
     function DELIVERS those numbers; it never revises one.
 
     Each run of blocks planning the same level becomes one plateau, and

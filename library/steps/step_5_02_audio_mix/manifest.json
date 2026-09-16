@@ -2,7 +2,7 @@
   "id": "step_5_02_audio_mix",
   "name": "Audio Mix",
   "version": "1.0.0",
-  "description": "Balances and mixes audio streams for the final output, against the measured level of the bed that was chosen.",
+  "description": "Decides how far above the music bed the voice sits on this material, and turns that judgement into the per-window clip gain the render delivers.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -21,37 +21,67 @@
       {
         "name": "a_roll_assignments",
         "type": "array",
+        "required": true,
+        "description": "The source ranges the edit really plays, which is what makes the speech measurable: the BRIDGE runs one ffmpeg loudnorm pass per block over them and records speech_lufs (library/tools/speech_loudness.py). REQUIRED since 2026-09-16: without it the mix engineer is asked how far above the bed a voice should sit having been shown no voice, which is a judgement with half its arithmetic missing."
+      },
+      {
+        "name": "creative_direction",
+        "type": "object",
         "required": false,
-        "description": "The source ranges the edit really plays, which is what makes the speech measurable: step 5.02 runs one ffmpeg loudnorm pass per block over them and records speech_lufs and the separation each window will deliver (library/tools/speech_loudness.py). Optional because a spec without it is still a whole spec - every window then records speech_lufs as an admitted absence rather than a level. Declared WITH its reader, per AGENTS.md 10.4."
+        "description": "State input: creative_direction. Read by the ladder in library/tools/decided_value.py, which tries a value the direction really DECLARED before asking the model. No direction key states how loud music sits under a voice today, and the slot records that as the reason that rung is skipped rather than leaving it implicit."
+      },
+      {
+        "name": "project_folder",
+        "type": "string",
+        "required": false,
+        "description": "Path to the project folder. Read by the ladder for a preference the project STATES under pipeline.creative_preferences, which wins over the model's judgement (library/tools/decided_value.py)."
       }
     ],
     "outputs": [
       {
+        "name": "bed_measurements",
+        "type": "object",
+        "description": "Bridge output: what the chosen bed measures - its own integrated loudness, loudness range, speech-band ratio and peaks - or the stated absence of a measurement. It is the table the prompt reads AND the measurement post_bridge.py solves the gain from, so the loudness passes run once and the two halves of the step cannot disagree."
+      },
+      {
+        "name": "mix_windows",
+        "type": "array",
+        "description": "Bridge output: one row per spine block in play order - the behaviour the spine planned, the measured speech loudness under it, and what separation the level the engine used to hold would deliver on this material. Declared for the same reason as bed_measurements."
+      },
+      {
+        "name": "mix_decision_legend",
+        "type": "object",
+        "description": "Bridge output: what each column IS and what a separation is measured against. The MEASUREMENT_LEGEND route - it defines the vocabulary and never says what to conclude."
+      },
+      {
         "name": "audio_mix_spec",
         "type": "object",
-        "description": "State output: audio_mix_spec - the track levels, the per-block music automation with the clip gain and where it puts the measured bed, what the bed measures, and the separation target, which is undeclared."
+        "description": "State output: audio_mix_spec - the track levels, the per-block music automation carrying the solved clip gain and the separation it delivers, what the bed measures, and `value_decisions`: what decided each level, on what basis, over which measurements (library/tools/decided_value.py)."
       }
-    ]
+    ],
+    "llm_outputs": []
   },
   "classification": {
     "stage": "edit",
-    "determinism": "deterministic",
-    "archetype": "data_transformation",
-    "idempotent": true
+    "determinism": "hybrid",
+    "archetype": "creative_selection",
+    "idempotent": false
   },
   "dependencies": [
-    "step_2_05_mesh_spine"
+    "step_2_04_music_selection",
+    "step_2_05_mesh_spine",
+    "step_3_01_assign_aroll"
   ],
   "tags": [
-    "data_transformation",
+    "creative_selection",
     "video-editing",
-    "deterministic"
+    "nondeterministic"
   ],
   "domain": "video-editing",
   "implementation": {
     "default": {
       "runtime": "python",
-      "entry_point": "step.py"
+      "entry_point": "bridge.py"
     },
     "variants": {},
     "test_entry_point": ""
@@ -61,5 +91,13 @@
     "created": "2026-07-20",
     "last_modified": "2026-07-20",
     "source_process": "video_editing_pipeline"
-  }
+  },
+  "context_fields": [
+    "bed_measurements",
+    "mix_windows",
+    "mix_decision_legend"
+  ],
+  "decides": [
+    "mix.speech_above_bed_db"
+  ]
 }

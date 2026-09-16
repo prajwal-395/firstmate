@@ -121,6 +121,11 @@ def test_every_step_that_reaches_a_model_declares():
         # grew a handoff asking a colourist whether the footage needs
         # correcting.
         "color_grade",
+        # Joined 2026-09-16: step 5.02 stopped turning a behaviour word
+        # into a dB the engine had picked and grew a handoff asking a mix
+        # engineer how far above the bed the voice should sit on this
+        # material (library/tools/decided_value.py).
+        "audio_mix",
         "validate",
     })
     assert not undetermined.declares("semantic_analysis"), (

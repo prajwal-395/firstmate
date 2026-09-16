@@ -1480,6 +1480,132 @@ def test_broll_matching_its_own_aroll_is_dropped_not_substituted():
     )
 
 
+
+# ── Shape 4: a creative value that survives, and how it survives ─────
+#
+# The three shapes above catch a constant. This one is the EXIT they
+# leave open, and it is deliberately the only one: a creative value that
+# has to exist anyway becomes a SLOT in `library/tools/decided_value.py`,
+# which costs a question, a measurement with a named producer, a
+# model-reaching step to decide it, a reader, a trace and - where the
+# value survives absence at all - a fallback with a named OWNER.
+#
+# Everything here is DERIVED from the registry. A new slot is swept
+# whether or not anybody remembers to add it, which is the rule Surfaces
+# A and D already live by.
+
+
+def _slots():
+    from library.tools import decided_value
+
+    return decided_value.SLOTS
+
+
+def test_every_decided_value_is_decided_by_a_step_that_reaches_a_model():
+    """A deterministic step cannot decide a creative value.
+
+    That is the constant this mechanism replaces, one level up: step
+    5.02 held five of them precisely because nothing ever asked
+    anybody.
+    """
+    from library.tools.undetermined import DECLARING_STEPS
+
+    for key, slot in _slots().items():
+        assert slot.deciding_step in DECLARING_STEPS, (
+            f"{key} is decided by {slot.deciding_step}, which reaches no "
+            f"model")
+
+
+def test_every_decided_value_is_declared_by_the_step_that_decides_it():
+    """The registry and the manifest agree, or the question reaches
+    nobody - the `could_not_determine` escape, refused in advance."""
+    from library.tools.project_layout import STEPS as STEP_DIRS
+
+    for key, slot in _slots().items():
+        entry = next((s for s in STEP_DIRS
+                      if s.node_id == slot.deciding_step), None)
+        assert entry, f"{key} names a step no layout knows"
+        manifest = json.loads(
+            (STEPS / f"step_{entry.dirname}" / "manifest.json")
+            .read_text("utf-8"))
+        assert key in (manifest.get("decides") or []), (
+            f"{slot.deciding_step}'s manifest does not declare {key} in its "
+            f"top-level `decides`, so the runner never asks for it")
+
+
+def test_every_decided_value_has_a_reader_and_a_measured_producer():
+    """A declared value with no reader is the defect output_contract
+    refuses; a measurement with no producer is a claim."""
+    import importlib
+
+    for key, slot in _slots().items():
+        assert slot.readers, f"{key} has no reader"
+        for measurement in slot.measurements:
+            module_path, _, func = measurement.produced_by.partition("::")
+            module = importlib.import_module(
+                module_path.replace("/", ".").removesuffix(".py"))
+            assert hasattr(module, func), (
+                f"{key} claims {measurement.name} is produced by "
+                f"{measurement.produced_by}, which does not exist")
+
+
+def test_every_surviving_fallback_names_whose_preference_it_is():
+    """The captain's own reading of what a default may be: "the style
+    that is preferred for the Lucie videos ... rather exist as a
+    fallback if no preference is mentioned". A fallback the ENGINE owns
+    is a constant with better paperwork."""
+    for key, slot in _slots().items():
+        if slot.fallback is None:
+            continue
+        whose = slot.fallback.whose.lower()
+        assert whose.strip(), f"{key}'s fallback names no owner"
+        assert "engine" not in whose, (
+            f"{key}'s fallback is owned by the engine, which is the thing "
+            f"a fallback may not be")
+        assert slot.fallback.superseded_by.strip(), (
+            f"{key}'s fallback does not say what would have answered "
+            f"instead")
+
+
+def test_the_decided_value_guard_can_fire():
+    """Each check above ships with the shape that trips it."""
+    from library.tools import decided_value
+
+    good = decided_value.SLOTS["mix.speech_above_bed_db"]
+
+    # A step that reaches no model.
+    import dataclasses
+
+    with pytest.raises(decided_value.MalformedSlot):
+        _assert_one(dataclasses.replace(good, deciding_step="compile_manifest"))
+    # A fallback nobody owns.
+    with pytest.raises(decided_value.MalformedSlot):
+        _assert_one(dataclasses.replace(
+            good, fallback=decided_value.Fallback(
+                value=1, whose="", why="x", superseded_by="y")))
+    # Answered in one unit, delivered in another, with no registered
+    # formula - so the conversion would be invented at the call site.
+    with pytest.raises(decided_value.MalformedSlot):
+        _assert_one(dataclasses.replace(good, solver=None))
+    # A value nothing reads.
+    with pytest.raises(decided_value.MalformedSlot):
+        _assert_one(dataclasses.replace(good, readers=()))
+
+
+def _assert_one(slot):
+    """Run the registry check over a single candidate row."""
+    from library.tools import decided_value
+
+    original = dict(decided_value.SLOTS)
+    try:
+        decided_value.SLOTS.clear()
+        decided_value.SLOTS[slot.key] = slot
+        decided_value.assert_registry_is_well_formed()
+    finally:
+        decided_value.SLOTS.clear()
+        decided_value.SLOTS.update(original)
+
+
 # ── Shape 3-of-three: every creative bridge accepts a sparse plan ───
 #
 # Surface C drives four bridges (broll, sfx, vfx, transitions) and the
@@ -1636,6 +1762,68 @@ def test_sparse_review_accepts_an_empty_cut():
     assert out["full_text"] == ""
 
 
+def test_sparse_audio_mix_decides_nothing_it_was_not_told():
+    """An answer that names no separation gets no invented one.
+
+    The fallback is REACHED, and it is recorded AS a fallback naming
+    whose mix it is - which is a different fact from a decision that
+    happened to land on the same number, and the record is what tells
+    them apart.
+    """
+    from library.steps.step_5_02_audio_mix.post_bridge import (
+        resolve_audio_mix,
+    )
+
+    out = resolve_audio_mix({
+        "project_folder": "",
+        "bed_measurements": {"measured": False,
+                             "measurement_note": "nothing measured it"},
+        "mix_windows": [],
+        "mix_decision_legend": {},
+    })
+    spec = out["audio_mix_spec"]
+    assert spec["music_automation"] == []
+    assert spec["separation_targets_declared"] is False
+    bases = {d["basis"] for d in spec["value_decisions"]}
+    assert bases == {"fallback"}, (
+        "an answer with nothing in it must not read as a decision")
+    for decision in spec["value_decisions"]:
+        assert decision["answer"] is None
+        assert "Lucie" in decision["source"], (
+            "a fallback must name whose preference it is")
+
+
+def test_audio_mix_does_not_clamp_the_separation_it_was_given():
+    """No bound, in either direction, and no scale to snap to.
+
+    The captain's ruling is that a value outside any range the engine
+    would have offered may be exactly right for one piece.
+    """
+    from library.steps.step_5_02_audio_mix.post_bridge import (
+        resolve_audio_mix,
+    )
+
+    for separation in (-40.0, 0.0, 64.0):
+        out = resolve_audio_mix({
+            "project_folder": "",
+            "bed_measurements": {"measured": True, "integrated_lufs": -13.9},
+            "mix_windows": [{
+                "spine_block_position": 0, "timeline_start": 0.0,
+                "timeline_end": 4.0, "music_behavior": "background",
+                "carries_speech": True, "speech_lufs": -22.4,
+                "speech_loudness": {}, "block_type": "speech"}],
+            "mix_decision_legend": {},
+            "__value_decisions": [
+                {"slot": "mix.speech_above_bed_db", "scope": "background",
+                 "value": separation, "why": "this material needs it"}],
+        })
+        window = out["audio_mix_spec"]["music_automation"][0]
+        assert window["target_level_db"] == pytest.approx(
+            (-22.4 - separation) - -13.9, abs=0.01), (
+            f"a separation of {separation} was clamped or rounded to a "
+            f"scale; the plan's number is the plan's")
+
+
 # Every declaring step (minus `validate`, which plans nothing) resolves
 # to the sparse test that drives it. A step with no entry here fails
 # this test - coverage cannot drift when a model-reaching step is
@@ -1654,6 +1842,7 @@ SPARSE_DRIVERS = {
     "select_reels": "test_sparse_select_reels_accepts_an_empty_transcript",
     "judge_reels": "test_sparse_judge_reels_accepts_empty_readings",
     "review_rough_cut": "test_sparse_review_accepts_an_empty_cut",
+    "audio_mix": "test_sparse_audio_mix_decides_nothing_it_was_not_told",
 }
 
 

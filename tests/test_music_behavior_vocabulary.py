@@ -24,16 +24,32 @@ The path, traced (docs/RULE_EVIDENCE.md#silence-lost-in-the-two-word-vocabulary)
 
 import pytest
 
-from library.steps.step_5_02_audio_mix.step import define_audio_mix
+from library.steps.step_5_02_audio_mix.mix import measure, solve_automation
 from library.steps.step_5_04_compile_manifest.step import _spine_block_entry
 from library.tools.music_behavior import (
+    DECIDED_BEHAVIORS,
     MUSIC_BEHAVIORS,
     MusicBehaviorError,
+    SILENT_LEVEL_DB,
     WITHDRAWN_BEHAVIORS,
     is_silent,
-    music_level_db,
+    level_for_block,
     resolve_music_behavior,
 )
+
+# What a mix engineer decided this run.  The numbers are this test's, not
+# the engine's: since 2026-09-16 no module holds a level for a behaviour,
+# so a test that wants one has to supply it the way a run does.
+DECIDED = {"prominent": -7.5, "background": -19.5}
+
+
+def _automation_for(structure, decided=None):
+    """`music_automation` for a spine, at the levels `decided` names."""
+    pre = measure({"structure": structure}, {})
+    by_scope = {scope: {"value": value, "answer": None}
+                for scope, value in (DECIDED if decided is None
+                                     else decided).items()}
+    return solve_automation(pre, by_scope)
 from library.tools.spine_contract import SpineContractError, validate_spine_blocks
 
 
@@ -73,7 +89,40 @@ class TestTheVocabulary:
         assert is_silent("silent")
 
     def test_silence_is_a_level_the_ear_reads_as_no_music(self):
-        assert music_level_db("silent") == -96
+        assert SILENT_LEVEL_DB == -96
+        assert level_for_block(0, ["silent"], DECIDED)[0] == -96
+
+    def test_no_word_carries_a_level_of_its_own_any_more(self):
+        """The five dB are GONE (captain, 2026-09-16). A word means what
+        the bed DOES; how loud that is, is decided per run."""
+        for word, meaning in MUSIC_BEHAVIORS.items():
+            assert isinstance(meaning, str), (
+                f"{word} still carries a number: {meaning!r}")
+
+    def test_only_two_words_have_a_level_anybody_decides(self):
+        """`silent` is the absence of music and the two fades are a MOVE,
+        so neither is a value a mix engineer is asked for."""
+        assert set(DECIDED_BEHAVIORS) == {"prominent", "background"}
+        assert "silent" not in DECIDED_BEHAVIORS
+
+    def test_a_fade_takes_the_level_it_moves_to(self):
+        """The old -12 was a plateau in the middle of a ramp: a level
+        nobody planned. A fade has no level of its own."""
+        words = ["silent", "fade_in", "background"]
+        level, why, scope = level_for_block(1, words, DECIDED)
+        assert level == DECIDED["background"]
+        assert scope == "background"
+        assert "move" in why
+
+    def test_a_fade_out_that_ends_the_piece_ends_in_silence(self):
+        level, why, _ = level_for_block(1, ["prominent", "fade_out"], DECIDED)
+        assert level == SILENT_LEVEL_DB
+
+    def test_a_word_nothing_decided_carries_no_level_rather_than_zero(self):
+        """Never 0, which is a real level and reads as the file's own."""
+        level, why, _ = level_for_block(0, ["background"], {})
+        assert level is None
+        assert "nothing decided" in why
 
     def test_the_two_word_form_is_withdrawn_and_named_as_such(self):
         """`full`/`ducked` are not merely absent: asking for one says why."""
@@ -85,7 +134,7 @@ class TestTheVocabulary:
 
     def test_an_unknown_word_raises_rather_than_becoming_a_level(self):
         with pytest.raises(MusicBehaviorError):
-            music_level_db("quiet-ish")
+            level_for_block(0, ["quiet-ish"], DECIDED)
 
     def test_a_block_that_declares_nothing_takes_one_documented_default(self):
         """A card is assembled by bookends.py and plans no behaviour. The
@@ -142,22 +191,36 @@ class TestCompileManifestCarriesTheWord:
 class TestAudioMixTranslatesTheWord:
 
     def test_a_silent_block_is_planned_at_the_silent_level(self):
-        spine = {"structure": [_block("transition_slot",
-                                      music_behavior="silent")]}
-        window = define_audio_mix(spine, {})["audio_mix_spec"][
-            "music_automation"][0]
-        assert window["music_behavior"] == "silent"
-        assert window["target_level_db"] == -96
+        automation, _ = _automation_for(
+            [_block("transition_slot", music_behavior="silent")])
+        assert automation[0]["music_behavior"] == "silent"
+        assert automation[0]["target_level_db"] == -96
 
-    def test_the_level_is_the_vocabulary_s_own_number_for_every_word(self):
-        spine = {"structure": [
-            _block("transition_slot", position=i, music_behavior=word)
-            for i, word in enumerate(MUSIC_BEHAVIORS)]}
-        windows = define_audio_mix(spine, {})["audio_mix_spec"][
-            "music_automation"]
-        for window in windows:
-            assert window["target_level_db"] == \
-                music_level_db(window["music_behavior"])
+    def test_every_word_reaches_a_level_and_says_where_it_came_from(self):
+        structure = [_block("transition_slot", position=i,
+                            music_behavior=word)
+                     for i, word in enumerate(MUSIC_BEHAVIORS)]
+        # `background` last so the fades have something to move to.
+        structure.append(_speech_block(position=99,
+                                       music_behavior="background"))
+        automation, undetermined = _automation_for(structure)
+        assert undetermined == []
+        for window in automation:
+            assert window["target_level_db"] is not None
+            assert window["target_level_basis"]
+
+    def test_the_decided_level_is_what_reaches_the_automation(self):
+        automation, _ = _automation_for(
+            [_speech_block(position=1, music_behavior="background")])
+        assert automation[0]["target_level_db"] == DECIDED["background"]
+
+    def test_a_window_nothing_decided_carries_no_level_and_names_itself(self):
+        """Never a substitute: the mix says which windows have no gain."""
+        automation, undetermined = _automation_for(
+            [_speech_block(position=1, music_behavior="background")],
+            decided={})
+        assert automation[0]["target_level_db"] is None
+        assert [w["spine_block_position"] for w in undetermined] == [1]
 
     def test_the_two_halves_agree_block_for_block(self):
         """`_spine_blocks` and `music_automation` are two readings of one
@@ -168,16 +231,14 @@ class TestAudioMixTranslatesTheWord:
             _block("outro", position=3, music_behavior="fade_out"),
             _block("end_card", position=4),
         ]
-        automation = define_audio_mix({"structure": structure}, {})[
-            "audio_mix_spec"]["music_automation"]
+        automation, _ = _automation_for(structure)
         entries = [_spine_block_entry(b) for b in structure]
         assert [w["music_behavior"] for w in automation] == \
             [e["music_behavior"] for e in entries]
 
     def test_a_withdrawn_word_arriving_from_upstream_fails_loudly(self):
         with pytest.raises(MusicBehaviorError):
-            define_audio_mix(
-                {"structure": [_block("speech", music_behavior="full")]}, {})
+            _automation_for([_block("speech", music_behavior="full")])
 
 
 # ─── The gate at the top of the path ──────────────────────────────────
@@ -206,11 +267,24 @@ class TestTheSpineGate:
 
 def test_no_step_keeps_a_private_behaviour_to_db_table():
     """`audio_mix` used to own the mapping. Two tables is how the two
-    halves of the plan drift apart."""
+    halves of the plan drift apart - and since 2026-09-16 a table of
+    levels is not a thing any module may hold at all."""
     import inspect
 
-    from library.steps.step_5_02_audio_mix import step as audio_mix_step
+    from library.steps.step_5_02_audio_mix import mix as audio_mix_module
 
-    source = inspect.getsource(audio_mix_step)
+    source = inspect.getsource(audio_mix_module)
     assert "BEHAVIOR_TO_DB" not in source
-    assert "music_level_db" in source
+    assert "level_for_block" in source
+    # The two numbers step 5.02 held in `TRACK_LEVELS` beside the ones it
+    # read from `music_behavior`. A second copy of a level is how the two
+    # came to be able to disagree.
+    #
+    # Read only lines that can EXECUTE: the comment recording the
+    # withdrawal names both keys on purpose, and prose recording a removal
+    # is not a level the renderer reads - the same line
+    # tests/test_no_creative_floors.py draws when it sweeps for fallbacks.
+    code = "\n".join(line for line in source.splitlines()
+                     if not line.strip().startswith("#"))
+    assert "prominent_level_db" not in code
+    assert "background_level_db" not in code

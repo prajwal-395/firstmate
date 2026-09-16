@@ -457,18 +457,26 @@ def bed_level_after_gain(bed: dict, level_db):
 #
 # **It states a level and never a target.**  What separation a sound
 # should have over the bed is the same undeclared decision
-# `music_behavior.SEPARATION_TARGETS_DB` is empty for, and an
-# engine-supplied one would be a strength nobody chose arriving one
-# level up (AGENTS.md 10.5).
+# `music_behavior.SEPARATION_TARGETS_DB` is empty for; since 2026-09-16
+# it is DECIDED at step 5.02 over the bed's and the speech's own
+# measurements, which is one step after this table is built
+# (`library/tools/decided_value.py`).
 
 def bed_under_block(block: dict, bed: dict) -> tuple:
     """`(behaviour, one sentence about the bed)` for one spine block.
 
     Raises on a behaviour outside the vocabulary, the same way every
     other reader of that word does.
+
+    It states the bed's OWN level and what the spine planned it to do,
+    and it does NOT state a gain.  Step 4.04 runs before step 5.02, and
+    since 2026-09-16 the gain is not a constant this could quote - it is
+    decided at the mix, over measurements, and quoting a number here
+    would be this table answering a question the mix has not been asked
+    yet (`library/tools/decided_value.py`).
     """
     from library.tools.music_behavior import (
-        is_silent, music_level_db, resolve_music_behavior,
+        is_silent, resolve_music_behavior,
     )
     from library.tools.spine_contract import is_speech_block
 
@@ -477,12 +485,16 @@ def bed_under_block(block: dict, bed: dict) -> tuple:
         block_carries_speech=is_speech_block(block or {}))
     if is_silent(behaviour):
         return behaviour, "no music at all - a planned hole in the bed"
-    gain = music_level_db(behaviour)
-    after = bed_level_after_gain(bed or {}, gain)
-    if after is None:
+    integrated = (bed or {}).get("integrated_lufs")
+    if not (bed or {}).get("measured") or not isinstance(
+            integrated, (int, float)):
         note = (bed or {}).get("measurement_note") or "no measurement recorded"
-        return behaviour, f"{gain} dB gain, bed level unmeasured ({note})"
-    return behaviour, f"{gain} dB gain, bed at {after} LUFS"
+        return behaviour, (f"the bed plays here; its own level is unmeasured "
+                           f"({note}), and how far it is pushed down is "
+                           f"decided at the mix")
+    return behaviour, (f"the bed plays here at {integrated} LUFS of its own; "
+                       f"how far it is pushed down under this block is "
+                       f"decided at the mix, not yet")
 
 
 def should_measure(candidate: dict) -> bool:

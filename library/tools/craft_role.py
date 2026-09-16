@@ -75,7 +75,7 @@ drift.
 **A step in `WITHOUT_A_DECLARED_ROLE` is a gap that is VISIBLE, not one
 that is closed.**  Writing a role for a discipline nobody has studied
 would be this module inventing an expertise, which is the same defect one
-level up.  Six of the fourteen are there today; each row says what the
+level up.  Six of the fifteen are there today; each row says what the
 step is addressed as now, so the next worker adding one knows what they
 are replacing.
 
@@ -94,7 +94,7 @@ One enumeration, `library/tools/craft_role.py`. [why - the measurement, and the 
 - **A role states NO preference about the answer.** Not how many of anything, not how strong, not which way a judgement comes out. **A floor in a role block is a floor**: `tests/test_no_creative_floors.py` reads the RENDERED role text of every declared role, because the file-based half cannot see text that lives in a Python module.
 - **It is PREPENDED to the handoff by `present_llm_step`**, which is the one thing it does differently from `undetermined` and its siblings - those ask for a FIELD and belong beside the schema, and a role is the frame the rest of the document is read in. **`replay_bench/reconstruct.py` mirrors it**, or `verify` reports every role-carrying step as an unaccounted difference.
 - **It goes in the prompt**, and a role may carry a `corrects` line naming a withdrawn instruction still in a handoff - but ONLY where that line is the captain's to edit. Since the freeze lifted 2026-09-09 there is one: 4.04's SFX toolkit table, which still offers `foley`, `ambient` and `reverse_cymbal` (AGENTS.md 10.5).
-- **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Eight are declared; six are not, each with what it is addressed as today.
+- **`ROLES` and `WITHOUT_A_DECLARED_ROLE` must TOGETHER account for every step that reaches a model**, and an unaccounted one raises at import. The model-reaching half is borrowed from `undetermined.DECLARING_STEPS`. **A row in the second table is a gap made VISIBLE, not closed** - writing a role for a discipline nobody has studied is this module inventing an expertise. Nine are declared; six are not, each with what it is addressed as today.
 - `tests/test_craft_role.py`.
 """
 
@@ -299,6 +299,63 @@ ROLES: Dict[str, CraftRole] = {
             "them.",
             "Anything about the master timeline. The cut is the captain's "
             "and this step only reads it.",
+        ),
+    ),
+    # Added 2026-09-16, when step 5.02 stopped turning a behaviour word
+    # into a dB the engine had picked and started asking how far above
+    # the bed the voice should sit on THIS material
+    # (library/tools/decided_value.py).
+    "audio_mix": CraftRole(
+        step_id="audio_mix",
+        discipline="mix engineer",
+        addressed_as=(
+            "You are the mix engineer on this cut. The music bed's own "
+            "loudness and the speech's loudness under every window have "
+            "both been measured for you and are in the table below. How "
+            "far the voice sits above the music is your call."
+        ),
+        reads_with=(
+            "A clip GAIN and a SEPARATION are not the same number. A gain "
+            "is how far a file is pushed down from the level it was "
+            "mastered at; a separation is the gap a listener actually "
+            "hears between the voice and the bed. The same gain on two "
+            "different tracks gives two different separations, which is "
+            "why a single number for every project cannot work. You are "
+            "asked for the separation; the engine computes the gain that "
+            "delivers it.",
+            "A bed does not have to be quiet to be under. What makes "
+            "speech intelligible against music is the gap, and how big a "
+            "gap a piece needs depends on what the music is doing - a "
+            "sparse pad sits closer to a voice than a busy mix with energy "
+            "in the same band the voice lives in. The bed's speech-band "
+            "ratio and its loudness range are measured and in front of "
+            "you.",
+            "The window that decides whether a bed is too loud is the "
+            "quietest speech under it, not the average. A mix that works "
+            "on eight windows and buries the ninth is a mix nobody "
+            "finished.",
+            "Music that leads and music that plays under a voice are "
+            "different jobs, and they are asked for separately. A block "
+            "with no speech has nothing to duck for.",
+        ),
+        decides=(
+            "How far above the bed the voice sits, in dB, for music that "
+            "plays under speech and for music that leads.",
+            "Whether the level this material has been mixed at until now "
+            "is right for THIS bed and THIS voice, or whether it needs to "
+            "be somewhere a general rule would not have put it.",
+        ),
+        defers=(
+            "WHICH track plays and WHERE it sits in the edit. That was "
+            "decided upstream and is not reopened here.",
+            "What the bed DOES under each block - lead, play under, fade, "
+            "or stop. The spine planned that in its own vocabulary and you "
+            "are being asked how loud those words are, not which word each "
+            "block gets.",
+            "The arithmetic. You name a separation; the engine solves the "
+            "clip gain from your answer and the two measurements, resolves "
+            "fades to the level they move to, and records the whole "
+            "derivation. Do not name a gain.",
         ),
     ),
     "color_grade": CraftRole(

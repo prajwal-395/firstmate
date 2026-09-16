@@ -448,6 +448,24 @@ _MANIFESTS, _ROUTED = _build()
 # routes the repository already documents, and neither is inferable from
 # `dag.json`, so each is listed with the reason it cannot be.
 OFF_DAG_MEASUREMENTS = {
+    "audio_mix": {
+        "bed_measurements": (
+            "5.02's own pre-bridge reading of the chosen bed - its "
+            "integrated loudness, loudness range, and how much of its "
+            "energy sits in the band a voice lives in. It is the step's "
+            "own output, so no edge carries it in, and it is where a "
+            "direction can be contradicted: a brief calling the piece "
+            "intimate against a bed that measures loud and busy in the "
+            "speech band."
+        ),
+        "mix_windows": (
+            "5.02's own per-window table - what the spine planned the bed "
+            "to do under each block and the measured loudness of the "
+            "speech under it (one ffmpeg loudnorm pass per block). Same "
+            "route and same reason as bed_measurements: the step "
+            "measures it itself."
+        ),
+    },
     "select_reels": {
         "reel_candidates": (
             "3.04's own pre-bridge collapses the cut into turns and "
