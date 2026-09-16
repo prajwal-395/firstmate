@@ -2913,7 +2913,6 @@ if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_MISSING" -eq 0 ]; then
   # fresh secondmate spawn uses; every other kind takes the recorded worktree.
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
   WT_TARGET=$T
-  SES=${T%%:*}
 else
 # SPAWN_CWD: the directory a newly created endpoint's shell starts in.
 #
