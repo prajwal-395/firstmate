@@ -128,7 +128,12 @@ def test_apply_preserves_possessives_and_punctuation():
 def test_transcribe_forwards_bias_arguments():
     """What this stack honours is tested at the wiring, not read off
     docs: `transcribe_audio` must hand `initial_prompt`/`hotwords` to
-    faster-whisper's decoder. A stubbed model records what it got."""
+    faster-whisper's decoder. A stubbed model records what it got.
+
+    The FALLBACK arm is the one asked, explicitly, because it is the
+    only arm that has a decoder to bias: the hybrid's transcriber takes
+    no prompt at all, which is why the after-the-fact respelling in
+    `apply_to_document` carries the whole weight there."""
     import types
     seen = {}
 
@@ -167,7 +172,7 @@ def test_transcribe_forwards_bias_arguments():
         reload(tt)
         tt.transcribe_audio(
             Path("/tmp/nowhere.wav"), initial_prompt="Lucie Content",
-            hotwords="Lucie Content")
+            hotwords="Lucie Content", prefer_hybrid=False)
     finally:
         sys.modules.pop("faster_whisper", None)
         sys.modules.pop("whisperx", None)
@@ -343,3 +348,74 @@ def test_reel_semantic_request_carries_the_correction(tmp_path):
         reason="captain marker at frame 1516")
     context = sem.bridge_context(spine, str(tmp_path), 23.976)
     assert "Lucie" in context["transcript_corrections"]
+
+
+# ── The brand name on a HYBRID transcript ────────────────────────────
+#
+# The on-device transcriber writes `lucy` 14 of 14 times and has NO
+# prompt to bias, where WhisperX's `initial_prompt` recovers 12 of 14.
+# So the after-the-fact repair is the only lever the hybrid arm has, and
+# it is VERIFIED here rather than assumed - which is the whole reason
+# these tests exist beside the seam that made it load-bearing.
+
+def _hybrid_doc_with_lucy():
+    """The same rows a hybrid pass writes: no `avg_logprob` anywhere, a
+    per-word `alignment_score` on every word, and the `transcription`
+    block naming the arm."""
+    from library.tools import hybrid_transcription
+    from library.tools.transcript_confidence import ALIGNMENT_SCORE
+
+    doc = _doc_with_lucy()
+    for row in doc["segments"]:
+        row.pop("avg_logprob", None)
+        for word in row["words"]:
+            word[ALIGNMENT_SCORE] = 0.72
+    doc["transcription"] = {
+        "arms": {"Craig": hybrid_transcription.ARM_HYBRID},
+        "by_speaker": {},
+        "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
+    }
+    return doc
+
+
+def test_the_repair_reaches_a_hybrid_transcript_too(tmp_path):
+    from library.tools import transcript_corrections as tc
+    tc.record_spelling(str(tmp_path), heard="lucy", correct="Lucie",
+                       reason="captain marker at frame 1516")
+    doc = _hybrid_doc_with_lucy()
+    report = tc.apply_to_document(doc, str(tmp_path))
+    assert report["replacements"] >= 2
+    assert "Lucie" in doc["segments"][0]["text"]
+    assert not any(w["word"].strip().lower() == "lucy"
+                   for w in doc["segments"][0]["words"])
+
+
+def test_the_repair_leaves_the_hybrid_timings_and_scores_alone(tmp_path):
+    """Measured: aligning the wrong spelling and the right one moved 11
+    of 12 occurrences by zero milliseconds. So the respelling inherits
+    correct timings, and it must not write over them."""
+    from library.tools import transcript_corrections as tc
+    from library.tools.transcript_confidence import ALIGNMENT_SCORE
+
+    tc.record_spelling(str(tmp_path), heard="lucy", correct="Lucie",
+                       reason="captain marker at frame 1516")
+    doc = _hybrid_doc_with_lucy()
+    before = [(w["start"], w["end"], w[ALIGNMENT_SCORE])
+              for w in doc["segments"][0]["words"]]
+    tc.apply_to_document(doc, str(tmp_path))
+    after = [(w["start"], w["end"], w[ALIGNMENT_SCORE])
+             for w in doc["segments"][0]["words"]]
+    assert after == before
+
+
+def test_the_repair_does_not_invent_the_confidence_the_hybrid_lacks(tmp_path):
+    """The correction pass touches text. It must not quietly fill in the
+    number the transcriber never produced."""
+    from library.tools import transcript_corrections as tc
+
+    tc.record_spelling(str(tmp_path), heard="lucy", correct="Lucie",
+                       reason="captain marker at frame 1516")
+    doc = _hybrid_doc_with_lucy()
+    tc.apply_to_document(doc, str(tmp_path))
+    assert all("avg_logprob" not in row or row["avg_logprob"] is None
+               for row in doc["segments"])

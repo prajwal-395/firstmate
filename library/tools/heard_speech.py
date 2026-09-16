@@ -23,17 +23,22 @@ same `HeardSpeech` and changing nothing else. `tests/test_heard_speech.py`
 pins that containment by asserting no other module in the repository
 names the binary.
 
-What it is NOT for
-------------------
-**This never touches ingest.** The pipeline's own transcript - the one
-every timing decision is made from - is WhisperX through
-`library/tools/timeline_transcript.py`, and it stays there. Measured on
-this project's own footage: 67.7% of this transcriber's word starts move
-more than a frame against WhisperX's forced alignment, it stretches a
-sentence-final word across silence (13.44s, measured), and it exposes no
-per-word confidence at all. None of that matters to a pass that asks
-"does this render say roughly what the plan says, roughly where", and
-all of it matters to a step that cuts on a word boundary.
+Where its RAW timings may be used, and where they may not
+---------------------------------------------------------
+`transcribe` returns what the transcriber itself says, stretched words
+and all. Measured on this project's own footage: 67.7% of those word
+starts move more than a frame against WhisperX's forced alignment, it
+stretches a sentence-final word across silence (13.44s, measured), and
+it exposes no per-word confidence. None of that matters to a pass that
+asks "does this render say roughly what the plan says, roughly where"
+(`library/tools/reel_hearing.py`), and all of it matters to a step that
+cuts on a word boundary.
+
+So a timing decision never reads these words directly. It reads the
+HYBRID - this transcriber's TEXT through the pipeline's own wav2vec2
+forced aligner - which is `library/tools/hybrid_transcription.py`, and
+which takes the same measurement to 25.6ms and 5.0%. This module's job
+there is the same as here: it is the only place the vendor is named.
 
 What it returns
 ---------------
@@ -68,6 +73,17 @@ BINARY = "da"
 
 SUBCOMMAND = "voz"
 
+EAR_SUBCOMMAND = "ear"
+"""Its language identifier. `da ear <file> --json --quiet` is the call.
+
+A SECOND subcommand, and the reason it is here rather than assumed
+away: the transcriber covers 25 languages, its CLI does not enumerate
+which 25, and handed one it does not cover it writes confident nonsense
+rather than an error. Nothing in its transcript JSON names a language,
+so the only way to ask the question is to ask this. Measured 0.22s per
+file, and it reads an mp4 directly.
+"""
+
 FLAGS = ("--json", "--quiet")
 
 VERSION_FLAG = "--version"
@@ -78,9 +94,17 @@ WORD_TEXT_KEY = "text"
 WORD_START_KEY = "start"
 WORD_END_KEY = "end"
 TEXT_KEY = "text"
+SENTENCES_KEY = "sentences"
+SENTENCE_TEXT_KEY = "text"
+SENTENCE_START_KEY = "start"
+SENTENCE_END_KEY = "end"
 DURATION_KEY = "durationSec"
 LOAD_KEY = "loadSec"
 PROCESS_KEY = "processingSec"
+
+#: `da ear --json`'s own keys.
+LANGUAGE_KEY = "language"
+LANGUAGE_CONFIDENCE_KEY = "confidence"
 
 TIMEOUT_SECONDS = 600
 """Generous by two orders of magnitude.
@@ -113,6 +137,34 @@ class HeardWord:
     end: float
 
 
+@dataclass(frozen=True)
+class HeardSentence:
+    """One sentence the transcriber grouped its words into.
+
+    Carried because the HYBRID needs it and the hearing pass does not:
+    the aligner is handed one window per sentence, and the sentence is
+    the only grouping the transcriber publishes. Its `start`/`end` are
+    the transcriber's own and share every defect its word timings have -
+    `hybrid_transcription` rebuilds the window from the WORDS and uses
+    this only to say which words belong together.
+    """
+
+    text: str
+    start: float
+    end: float
+
+
+@dataclass(frozen=True)
+class HeardLanguage:
+    """Which language the identifier says a file is spoken in."""
+
+    language: str
+    confidence: Optional[float] = None
+
+    def as_dict(self) -> Dict[str, Any]:
+        return {"language": self.language, "confidence": self.confidence}
+
+
 @dataclass
 class HeardSpeech:
     """Everything one transcription of one file says."""
@@ -122,6 +174,7 @@ class HeardSpeech:
     engine: Dict[str, Any] = field(default_factory=dict)
     anomalies: List[Dict[str, Any]] = field(default_factory=list)
     media_path: str = ""
+    sentences: List[HeardSentence] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
         return {
@@ -228,8 +281,23 @@ def read_payload(payload: Dict[str, Any], media_path: str = "") -> HeardSpeech:
             continue
         words.append(HeardWord(word=text, start=start, end=end))
     words.sort(key=lambda w: (w.start, w.end))
+    sentences: List[HeardSentence] = []
+    for row in payload.get(SENTENCES_KEY) or []:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get(SENTENCE_TEXT_KEY) or "")
+        if not text.strip():
+            continue
+        try:
+            start = float(row.get(SENTENCE_START_KEY))
+            end = float(row.get(SENTENCE_END_KEY))
+        except (TypeError, ValueError):
+            continue
+        sentences.append(HeardSentence(text=text, start=start, end=end))
+    sentences.sort(key=lambda s: (s.start, s.end))
     return HeardSpeech(
         words=words,
+        sentences=sentences,
         text=str(payload.get(TEXT_KEY) or ""),
         engine={
             "transcriber": BINARY,
@@ -287,3 +355,65 @@ def transcribe(media_path: str,
             f"{BINARY} {SUBCOMMAND} wrote {type(payload).__name__}, not "
             f"an object")
     return read_payload(payload, media_path)
+
+
+def identify_language(media_path: str,
+                      timeout: float = TIMEOUT_SECONDS) -> HeardLanguage:
+    """Which language `media_path` is spoken in. The ONE call to `da ear`.
+
+    Raises `TranscriberUnavailable` for exactly the reasons `transcribe`
+    does, and for the same reason: an unanswered language question and
+    "this is English" must never arrive as the same object, because the
+    caller uses the answer to decide whether it may transcribe at all.
+    """
+    binary = executable()
+    if not binary:
+        raise TranscriberUnavailable(available()[1])
+    if not media_path or not os.path.isfile(media_path):
+        raise TranscriberUnavailable(
+            f"there is no file at {media_path!r} to identify.")
+    try:
+        out = subprocess.run([binary, EAR_SUBCOMMAND, media_path, *FLAGS],
+                             capture_output=True, encoding="utf-8",
+                             check=False, timeout=timeout)
+    except subprocess.TimeoutExpired as expired:
+        raise TranscriberUnavailable(
+            f"{BINARY} {EAR_SUBCOMMAND} did not finish within {timeout}s "
+            f"on {os.path.basename(media_path)}") from expired
+    except OSError as failed:
+        raise TranscriberUnavailable(
+            f"{BINARY} {EAR_SUBCOMMAND} could not be run: {failed}") from failed
+    if out.returncode != 0:
+        raise TranscriberUnavailable(
+            f"{BINARY} {EAR_SUBCOMMAND} exited {out.returncode}: "
+            f"{(out.stderr or out.stdout or '').strip()[:400]}")
+    try:
+        payload = json.loads(out.stdout or "")
+    except ValueError as unreadable:
+        raise TranscriberUnavailable(
+            f"{BINARY} {EAR_SUBCOMMAND} wrote something that is not JSON: "
+            f"{unreadable}") from unreadable
+    return read_language_payload(payload)
+
+
+def read_language_payload(payload: Any) -> HeardLanguage:
+    """Map the identifier's JSON onto `HeardLanguage`.
+
+    Split out for the same reason `read_payload` is: a recorded payload
+    replays in a test with no subprocess and no install, and the
+    vendor's key names are still spelled exactly once.
+    """
+    if not isinstance(payload, dict):
+        raise TranscriberUnavailable(
+            f"{BINARY} {EAR_SUBCOMMAND} wrote {type(payload).__name__}, "
+            f"not an object")
+    language = str(payload.get(LANGUAGE_KEY) or "").strip()
+    if not language:
+        raise TranscriberUnavailable(
+            f"{BINARY} {EAR_SUBCOMMAND} named no language. An unanswered "
+            f"language question is not an answer of 'English'.")
+    try:
+        confidence = float(payload.get(LANGUAGE_CONFIDENCE_KEY))
+    except (TypeError, ValueError):
+        confidence = None
+    return HeardLanguage(language=language, confidence=confidence)

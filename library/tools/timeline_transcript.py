@@ -63,6 +63,15 @@ boundaries, one bound segment per clip.  `segments_for_speaker` holds
 the measurement and the reason; `clip_of_word` is the test, and it is
 `attribute_to_clip`'s own containment rule with no tolerance added.
 
+WHICH transcriber hears it is a SEAM
+------------------------------------
+`transcribe_audio` is that seam and nothing above it knows there is a
+choice.  The hybrid - the on-device transcriber's text through the same
+`whisperx.align` call this module has always made - is primary, and full
+WhisperX is the fallback, entered on a MEASURED refusal.  The whole
+account, including what the hybrid cannot give back, is
+`library/tools/hybrid_transcription.py`.
+
 What is NOT decided here
 ------------------------
 Nothing about which moments are interesting.  This module measures what
@@ -354,9 +363,38 @@ def to_source_time(clip, timeline_time: float) -> float:
 
 def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
                      beam_size: int = 5, initial_prompt: str | None = None,
-                     hotwords: str | None = None) -> dict:
-    """One speaker's rebuilt timeline audio, transcribed and aligned.
+                     hotwords: str | None = None,
+                     prefer_hybrid: bool = True,
+                     label: str = "") -> tuple:
+    """THE SEAM: which transcriber hears one speaker's rebuilt audio.
 
+    Returns `(aligned, record)` - whisperx's own aligned document, and
+    the account of WHICH arm produced it. Everything above this function
+    is unaware there is a choice.
+
+    Two arms, and the choice is made by measurement
+    -----------------------------------------------
+    * The HYBRID (`library/tools/hybrid_transcription.py`) is primary:
+      the on-device transcriber's text through the same `whisperx.align`
+      call this function has always made. 20-41x faster end to end, word
+      starts a median 9.1ms from what the fallback writes.
+    * Full WhisperX is the FALLBACK, and it is the code below, unchanged.
+      It runs when the hybrid raises `FallbackRequired` - an uncovered
+      language, a window that aligned to no words, a word still over the
+      clamp - and when the transcriber is not installed at all.
+
+    The captain's ruling, 2026-09-16: *"augment all systems to take this
+    superior variant and have the whisperX as a backup / fallback"*. The
+    one thing that wording does not capture, and which the module
+    docstring beside the hybrid states in full: every accuracy figure is
+    a DISTANCE FROM this fallback's own output, so the honest claim is
+    far faster and close enough, never more accurate.
+
+    `prefer_hybrid=False` runs the fallback directly and records that it
+    was asked for, which is what a comparison run wants.
+
+    How the fallback half works, and the version skew it survives
+    -------------------------------------------------------------
     TRANSCRIPTION goes through `faster_whisper` directly, and ALIGNMENT
     through `whisperx.align`.  Step 1.04 calls `whisperx.load_model`,
     which does both at once, and that call is BROKEN in this
@@ -381,9 +419,52 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
     `load_model` would have provided.
 
     **Step 1.04 makes the identical `load_model` call and will fail the
-    same way.**  It is not changed here: this task's scope excludes
-    indexing the raw footage, and rewiring a step this cannot exercise
-    would be worse than reporting it.
+    same way.**  It is not changed here, and neither is its transcriber:
+    this change is the REELS path only, and ingest follows once a real
+    run has proved this one.
+    """
+    from library.tools import hybrid_transcription
+
+    if prefer_hybrid:
+        try:
+            hybrid = hybrid_transcription.transcribe_and_align(
+                str(audio_path), _aligner(), label=label or audio_path.name)
+        except hybrid_transcription.FallbackRequired as fell_back:
+            print(f"  hybrid declined ({fell_back.reason}): "
+                  f"{fell_back.detail}", file=sys.stderr)
+            print(f"  falling back to full WhisperX on "
+                  f"{audio_path.name}", file=sys.stderr)
+            record = hybrid_transcription.fallback_record(
+                fell_back, attempted=audio_path.name)
+        else:
+            print(f"  heard by the hybrid: "
+                  f"{hybrid.record['alignment_window']['windows']} aligned "
+                  f"window(s), language "
+                  f"{hybrid.record['language']['language']}",
+                  file=sys.stderr)
+            return hybrid.aligned, hybrid.record
+    else:
+        record = {"arm": hybrid_transcription.ARM_WHISPERX,
+                  "fell_back_because": {
+                      "trigger": "asked_for",
+                      "detail": "this run asked for the fallback "
+                                "transcriber directly."}}
+
+    return _whisperx_transcribe_and_align(
+        audio_path, model_size=model_size, beam_size=beam_size,
+        initial_prompt=initial_prompt, hotwords=hotwords), record
+
+
+def _whisperx_transcribe_and_align(
+        audio_path: Path, model_size: str = "large-v3", beam_size: int = 5,
+        initial_prompt: str | None = None,
+        hotwords: str | None = None) -> dict:
+    """The FALLBACK arm: faster-whisper's own text, then `whisperx.align`.
+
+    Unchanged from the path that shipped before the hybrid landed, and
+    that is deliberate: a fallback nobody exercises is not a fallback,
+    and one that was rewritten at the same time as the thing it backs up
+    is not a control either.
     """
     try:
         import torchaudio
@@ -439,12 +520,42 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
     if not segments:
         return {"segments": [], "language": info.language}
 
+    return align_segments(segments, info.language, str(audio_path))
+
+
+def aligner_covers(language: str) -> bool:
+    """Whether the forced aligner has a model for `language`.
+
+    Asked of whisperx's own two tables rather than a list kept here: a
+    second copy of a vendor's coverage goes stale silently, and this one
+    decides whether a whole file is transcribed by the hybrid or not.
+    """
+    import whisperx.alignment as alignment
+
+    code = (language or "").strip().lower()
+    return bool(code) and (
+        code in alignment.DEFAULT_ALIGN_MODELS_TORCH
+        or code in alignment.DEFAULT_ALIGN_MODELS_HF)
+
+
+def align_segments(segments: List[dict], language: str,
+                   audio_path: str) -> dict:
+    """Force-align `segments` against `audio_path`. BOTH arms come here.
+
+    The one place `whisperx.load_align_model` and `whisperx.align` are
+    called in this module, so the hybrid and the fallback are timed by
+    the same code and a comparison between them is a comparison of their
+    TEXT.  MPS where available, falling back to cpu - measured, MPS buys
+    18%, so the cpu path is a slowdown and not a failure.
+    """
     import torch
+    import whisperx
+
     device = "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"  aligning word timings on {device}...", file=sys.stderr)
-    audio = whisperx.load_audio(str(audio_path))
+    audio = whisperx.load_audio(audio_path)
     align_model, metadata = whisperx.load_align_model(
-        language_code=info.language, device=device)
+        language_code=language, device=device)
     try:
         return whisperx.align(segments, align_model, metadata, audio, device,
                               return_char_alignments=False)
@@ -452,9 +563,19 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
         print(f"  alignment on {device} failed ({exc}); retrying on cpu",
               file=sys.stderr)
         align_model, metadata = whisperx.load_align_model(
-            language_code=info.language, device="cpu")
+            language_code=language, device="cpu")
         return whisperx.align(segments, align_model, metadata, audio, "cpu",
                               return_char_alignments=False)
+
+
+def _aligner():
+    """This module's aligner, handed to the hybrid as two callables."""
+    from library.tools.hybrid_transcription import Aligner
+
+    return Aligner(
+        covers=aligner_covers,
+        align=lambda segments, language, audio_path: align_segments(
+            segments, language, audio_path))
 
 
 def interpolate_untimed_words(words: List[dict]) -> List[dict]:
@@ -465,14 +586,42 @@ def interpolate_untimed_words(words: List[dict]) -> List[dict]:
     `generate_podcast_subtitles.py` did silently - loses real speech from
     the caption.  `place_subtitles.py` interpolated instead, and that is
     the behaviour worth keeping.
+
+    The ALIGNER's own per-word score is carried through
+    ---------------------------------------------------
+    `whisperx.align` emits a `score` on every word it placed, and this
+    function used to rebuild each word as `{word, start, end, timed}`
+    and drop it - the second half of the discard
+    `library/tools/transcript_confidence.py` records, where only the
+    segment-level half was ever repaired.  It is kept now under
+    `alignment_score`, renamed rather than passed through, because it is
+    the ALIGNER's number and not the transcriber's: it says the
+    characters fit this audio, never that they are the right characters.
+    A word this function INVENTED a timing for carries no score, because
+    nothing aligned it.
+
+    It matters more under the hybrid than it did before: that arm has no
+    `avg_logprob` at all, so this is the only per-row number it can
+    publish - and it is not a substitute, which is the whole of
+    `transcript_confidence.CONFIDENCE_ABSENT_HYBRID`.
     """
+    from library.tools.transcript_confidence import ALIGNMENT_SCORE
+
+    def _score(word: dict):
+        value = word.get("score")
+        try:
+            return None if value is None else float(value)
+        except (TypeError, ValueError):
+            return None
+
     out: List[dict] = []
     for index, word in enumerate(words):
         if "start" in word and "end" in word:
             out.append({"word": word.get("word", ""),
                         "start": float(word["start"]),
                         "end": float(word["end"]),
-                        "timed": True})
+                        "timed": True,
+                        ALIGNMENT_SCORE: _score(word)})
             continue
         previous = next((words[j]["end"] for j in range(index - 1, -1, -1)
                          if "end" in words[j]), None)
@@ -484,7 +633,7 @@ def interpolate_untimed_words(words: List[dict]) -> List[dict]:
         end = min(start + max((following - previous) * 0.4, 0.15),
                   max(following - 0.02, start + 0.02))
         out.append({"word": word.get("word", ""), "start": start,
-                    "end": end, "timed": False})
+                    "end": end, "timed": False, ALIGNMENT_SCORE: None})
     return out
 
 
@@ -659,7 +808,13 @@ def rebind_document(document: dict, snapshot,
                             list(segment.words), clips,
                             avg_logprob=segment.avg_logprob))
 
-    rebound = transcript_document(snapshot, merge_speakers(per_speaker))
+    # WHICH transcriber heard these words is a property of the run that
+    # wrote them and a rebind re-hears nothing, so the account travels
+    # with the words. Dropping it would tell a later reader that a
+    # hybrid transcript predates the confidence being kept, which is the
+    # exact misreading `CONFIDENCE_ABSENT_HYBRID` exists to prevent.
+    rebound = transcript_document(snapshot, merge_speakers(per_speaker),
+                                  transcription=document.get("transcription"))
     # A rebound transcript SAYS it is one.  The words came from the run
     # named here; the binding came from this machine's clip list, and a
     # reader comparing two transcripts of one timeline needs to know
@@ -688,13 +843,24 @@ def merge_speakers(per_speaker: Dict[Optional[str], List[SpokenSegment]]
     return everything
 
 
-def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
-    """The whole transcript, as written to disk."""
+def transcript_document(snapshot, merged: List[SpokenSegment],
+                        transcription: Optional[dict] = None) -> dict:
+    """The whole transcript, as written to disk.
+
+    `transcription` is the seam's own account of itself - which arm
+    heard each speaker, and what fell back and why. It is written onto
+    the document rather than left in a log line because the one thing a
+    reader of this file must be able to establish is what made it.
+    """
     unbound = sum(1 for s in merged if s.resolve_item_id is None)
     read_from_words = sum(1 for s in merged if s.read_from_words)
     rebound = sum(1 for s in merged
                   if s.read_from_words and s.resolve_item_id is not None)
     with_confidence = sum(1 for s in merged if s.avg_logprob is not None)
+    from library.tools.transcript_confidence import ALIGNMENT_SCORE
+    scored_words = sum(1 for s in merged for w in s.words
+                       if isinstance(w, dict)
+                       and w.get(ALIGNMENT_SCORE) is not None)
     # The speakers who ACTUALLY SPEAK, from the segments themselves -
     # not `snapshot.speakers()`, which is the TRACK ROSTER and lists
     # `Akshita CH1` and `Craig CH1` beside the two real people. Four keys
@@ -724,7 +890,7 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
             picture_holes.append([round(cursor, 3), round(s, 3)])
         cursor = max(cursor, e)
     
-    return {
+    body = {
         "derived_from": {
             "project": snapshot.project_name,
             "timeline": snapshot.timeline_name,
@@ -733,8 +899,10 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
             "picture_holes": picture_holes,
         },
         "measurement": (
-            "Speech transcribed by WhisperX from audio REBUILT out of the "
-            "source spans the timeline plays. Resolve was not opened and "
+            "Speech transcribed from audio REBUILT out of the source "
+            "spans the timeline plays, and every word boundary placed by "
+            "wav2vec2 forced alignment. Which transcriber wrote the "
+            "WORDS is in `transcription`. Resolve was not opened and "
             "nothing was rendered. Times are timeline time."),
         "speakers": speaking,
         "segment_count": len(merged),
@@ -749,9 +917,19 @@ def transcript_document(snapshot, merged: List[SpokenSegment]) -> dict:
         # words. Said on the document rather than left to be counted,
         # because zero and "nobody looked" read the same from outside -
         # and zero is what every transcript written before #587 holds.
+        # A THIRD reading of zero arrived with the hybrid, which emits
+        # no `avg_logprob` at all: `transcription.asr_confidence` is
+        # what tells the three apart, and it is on this document.
         "segments_with_asr_confidence": with_confidence,
+        # The ALIGNER's own per-word score, which is a different number
+        # and is never read as that one - see
+        # `transcript_confidence.ALIGNMENT_SCORE_LEGEND`.
+        "words_with_alignment_score": scored_words,
         "segments": [s.as_dict() for s in merged],
     }
+    if transcription is not None:
+        body["transcription"] = transcription
+    return body
 
 
 # ── Where it lands ───────────────────────────────────────────────────
@@ -776,12 +954,47 @@ def transcript_path(project_folder) -> Path:
         Area.SCRATCH, SCRATCH_SUBDIR, TRANSCRIPT_FILENAME))
 
 
+def transcription_record(heard_by: Dict[str, dict]) -> dict:
+    """One account of the whole transcript's provenance, per speaker.
+
+    `arms` names which transcriber answered for each speaker, because a
+    transcript where one speaker went to the hybrid and another fell
+    back is a real outcome and reads as neither one alone.
+
+    `asr_confidence` is the LOUD half. A transcript any part of which
+    came from the hybrid carries no segment-level `avg_logprob` for
+    those rows, and a reader who sees the field missing must not read
+    that as "nobody doubted this line" - that mistake is what kept Reel
+    26's caption defect invisible. The sentence is
+    `transcript_confidence.CONFIDENCE_ABSENT_HYBRID`, and
+    `confidence_notice` is what puts it in front of a model.
+    """
+    from library.tools import hybrid_transcription
+
+    arms = {speaker: record.get("arm")
+            for speaker, record in heard_by.items()}
+    any_hybrid = any(arm == hybrid_transcription.ARM_HYBRID
+                     for arm in arms.values())
+    return {
+        "arms": arms,
+        "by_speaker": heard_by,
+        "asr_confidence": (hybrid_transcription.ASR_CONFIDENCE_ABSENT
+                           if any_hybrid else "present"),
+    }
+
+
 # ── CLI ──────────────────────────────────────────────────────────────
 
 def build_and_transcribe(project_folder: str, snapshot,
                          model_size: str = "large-v3",
-                         only_speakers: Optional[Iterable[str]] = None) -> dict:
-    """The whole job: rebuild each speaker's audio, transcribe, bind back."""
+                         only_speakers: Optional[Iterable[str]] = None,
+                         prefer_hybrid: bool = True) -> dict:
+    """The whole job: rebuild each speaker's audio, transcribe, bind back.
+
+    Which transcriber hears each speaker is `transcribe_audio`'s to
+    decide (the seam); this function only carries the account of it onto
+    the document.
+    """
     from library.tools.project_layout import Area, ProjectLayout
 
     layout = ProjectLayout(project_folder)
@@ -795,6 +1008,7 @@ def build_and_transcribe(project_folder: str, snapshot,
 
     wanted = set(only_speakers) if only_speakers else None
     per_speaker: Dict[Optional[str], List[SpokenSegment]] = {}
+    heard_by: Dict[str, dict] = {}
 
     # Corrections recorded against this project bias the decoder AND
     # are enforced after it (`library/tools/transcript_corrections.py`:
@@ -816,14 +1030,18 @@ def build_and_transcribe(project_folder: str, snapshot,
                 print(f"    {_label}: {done}/{total} spans", file=sys.stderr)
 
         build_speaker_audio(clips, audio_path, cache_dir, progress=_progress)
-        aligned = transcribe_audio(audio_path, model_size=model_size,
-                                   initial_prompt=initial_prompt or None,
-                                   hotwords=hotwords or None)
+        aligned, record = transcribe_audio(
+            audio_path, model_size=model_size,
+            initial_prompt=initial_prompt or None,
+            hotwords=hotwords or None, prefer_hybrid=prefer_hybrid,
+            label=str(speaker or "unnamed"))
+        heard_by[str(speaker) if speaker else "unattributed"] = record
         segments = segments_for_speaker(aligned, speaker, clips)
         print(f"[{speaker}] {len(segments)} spoken segments", file=sys.stderr)
         per_speaker[speaker] = segments
 
-    document = transcript_document(snapshot, merge_speakers(per_speaker))
+    document = transcript_document(snapshot, merge_speakers(per_speaker),
+                                   transcription=transcription_record(heard_by))
     # The guarantee half: respell at the root, before anything
     # downstream reads it. Downstream consumers need no changes - they
     # read corrected words because corrected words are what is here.
@@ -850,6 +1068,13 @@ def main(argv=None) -> int:
                         help="only this speaker; repeatable")
     parser.add_argument("--out", default="",
                         help="where to write; default is the project's scratch")
+    parser.add_argument(
+        "--fallback-transcriber", action="store_true",
+        help="do not offer the audio to the hybrid transcriber; run the "
+             "full WhisperX path directly. The hybrid is primary and "
+             "falls back on its own when it must - this is for a "
+             "deliberate comparison, and the transcript says it was "
+             "asked for")
     parser.add_argument(
         "--rebind", action="store_true",
         help="do not transcribe: re-derive the CLIP BINDING of the "
@@ -879,9 +1104,10 @@ def main(argv=None) -> int:
               f"{before.get('segments_straddling_a_cut')} -> "
               f"{document['segments_straddling_a_cut']}", file=sys.stderr)
     else:
-        document = build_and_transcribe(args.project_folder, snapshot,
-                                        model_size=args.model,
-                                        only_speakers=args.speaker or None)
+        document = build_and_transcribe(
+            args.project_folder, snapshot, model_size=args.model,
+            only_speakers=args.speaker or None,
+            prefer_hybrid=not args.fallback_transcriber)
 
     out = (Path(args.out) if args.out
            else transcript_path(args.project_folder))
@@ -896,6 +1122,13 @@ def main(argv=None) -> int:
     if document["segments_straddling_a_cut"]:
         print(f"  {document['segments_straddling_a_cut']} segments carry no "
               f"source binding even at word level", file=sys.stderr)
+    heard = (document.get("transcription") or {}).get("arms") or {}
+    if heard:
+        print(f"  heard by: "
+              + ", ".join(f"{who}={arm}" for who, arm in sorted(heard.items())),
+              file=sys.stderr)
+        from library.tools.transcript_confidence import confidence_notice
+        print(f"  {confidence_notice(document)}", file=sys.stderr)
     return 0
 
 

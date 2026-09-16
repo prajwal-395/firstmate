@@ -2,6 +2,48 @@
  "durationSec": 45.8653125,
  "loadSec": 1.598891019821167,
  "processingSec": 0.2669219970703125,
+ "sentences": [
+  {
+   "end": 4.78,
+   "start": 0.08,
+   "text": "What kind of content works best when it comes to being discovered on AI platforms?"
+  },
+  {
+   "end": 8.92,
+   "start": 5.12,
+   "text": "Yeah, so the best content is content that answers specific questions."
+  },
+  {
+   "end": 19.25,
+   "start": 9.040000000000001,
+   "text": "So if imagine you had a customer and your customer comes up to you and maybe has a very specific question, you kind of think about that and you make content based on that."
+  },
+  {
+   "end": 31.78,
+   "start": 19.41,
+   "text": "So instead of being something super generic on a blog post and something that's good for Google but not for AI, make sure that you're coming up with very interesting niche qu niche questions about your company and what you can say about it."
+  },
+  {
+   "end": 33.1399375,
+   "start": 31.78,
+   "text": "And AI really likes that."
+  },
+  {
+   "end": 37.369937500000006,
+   "start": 33.14,
+   "text": "It's exactly why we've been building this platform we're calling the Lucy Visibility System."
+  },
+  {
+   "end": 40.94,
+   "start": 37.7,
+   "text": "We'd love for you to go check it out, see how AI sees you."
+  },
+  {
+   "end": 41.870000000000005,
+   "start": 40.980000000000004,
+   "text": "The links in the bio"
+  }
+ ],
  "text": "What kind of content works best when it comes to being discovered on AI platforms? Yeah, so the best content is content that answers specific questions. So if imagine you had a customer and your customer comes up to you and maybe has a very specific question, you kind of think about that and you make content based on that. So instead of being something super generic on a blog post and something that's good for Google but not for AI, make sure that you're coming up with very interesting niche qu niche questions about your company and what you can say about it. And AI really likes that. It's exactly why we've been building this platform we're calling the Lucy Visibility System. We'd love for you to go check it out, see how AI sees you. The links in the bio",
  "words": [
   {

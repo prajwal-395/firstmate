@@ -29,7 +29,7 @@ the deterministic half of the hearing pass:
 |---|---|
 | `reel26.timeline.json` | The serialized timeline `build_reels` wrote, trimmed to the keys `reel_hearing` reads |
 | `reel26.transcript.json` | The timeline transcript's segments for the spans this reel plays, within five seconds either side |
-| `reel26.heard.json` | The on-device transcriber's recorded output for the delivered mp4, so the test needs no transcriber and no render |
+| `reel26.heard.json` | The on-device transcriber's recorded output for the delivered mp4 - words AND the sentences the hybrid windows by - so the test needs no transcriber and no render |
 | `episode.transcript.json` | The SAME transcript, trimmed instead to the whole-episode question `library/tools/transcript_fit.py` asks |
 
 Source file paths are rewritten to `/footage/<name>` - only their
@@ -40,6 +40,14 @@ not belong in the repository.
 `heard_speech.read_payload`. Regenerating it costs one `da voz` call on
 the delivered mp4 and 3.5 seconds; the numbers the test pins were
 measured from it on 2026-09-16.
+
+It carries the transcriber's `sentences` as well as its `words`, because
+`library/tools/hybrid_transcription.py` groups words into alignment
+windows by sentence and a fixture without them cannot exercise that.
+They were added on 2026-09-16 from a re-run that reproduced `words`,
+`text` and `durationSec` byte for byte. `input`, `files` and `captions`
+are dropped as they always were - the first names a path on the
+captain's disk.
 
 ## `episode.transcript.json`, and what it is a slice of
 

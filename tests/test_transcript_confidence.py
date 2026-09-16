@@ -476,3 +476,117 @@ def test_the_confidence_column_costs_about_seven_characters_a_row():
     assert 0 < per_row < 12, (
         f"the confidence column costs {per_row:.1f} characters a row, "
         f"{grew} over {rows} rows")
+
+
+# ── The THIRD reading of a missing number, and it is new ─────────────
+#
+# "No `avg_logprob`" now means one of three different things, and only
+# one of them is fixed by re-running: written before the number was
+# kept, a row the aligner produced without one, and - since the hybrid
+# seam - a transcriber that emits none at all. A reader handed the first
+# sentence for the third case is told a re-run would produce the number.
+# It would not.
+
+def hybrid_document() -> dict:
+    """The same stretch, heard by the hybrid: no `avg_logprob` anywhere,
+    a per-word `alignment_score` on every word, and a `transcription`
+    block saying which arm answered."""
+    from library.tools import hybrid_transcription
+    from library.tools.transcript_confidence import ALIGNMENT_SCORE
+
+    doc = document(with_confidence=False)
+    for index, row in enumerate(doc["segments"]):
+        for word in row["words"]:
+            word[ALIGNMENT_SCORE] = 0.9 - 0.1 * index
+    doc["transcription"] = {
+        "arms": {"Akshita": hybrid_transcription.ARM_HYBRID,
+                 "Craig": hybrid_transcription.ARM_HYBRID},
+        "by_speaker": {},
+        "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
+    }
+    return doc
+
+
+def test_a_hybrid_transcript_is_told_apart_from_an_old_one():
+    assert tc.transcribed_by_hybrid(hybrid_document())
+    assert not tc.transcribed_by_hybrid(document(with_confidence=False))
+    assert not tc.transcribed_by_hybrid({})
+
+
+def test_each_of_the_three_cases_gets_its_own_sentence():
+    assert tc.confidence_notice(document(True)) == tc.CONFIDENCE_LEGEND
+    assert (tc.confidence_notice(document(False))
+            == tc.CONFIDENCE_ABSENT)
+    assert (tc.confidence_notice(hybrid_document())
+            == tc.CONFIDENCE_ABSENT_HYBRID)
+    assert tc.CONFIDENCE_ABSENT_HYBRID != tc.CONFIDENCE_ABSENT
+
+
+def test_the_hybrid_sentence_refuses_the_reading_that_hid_reel_26():
+    """A missing confidence must not read as an unchallenged line. That
+    is the whole of it, and the words are checked because the words are
+    what a model gets."""
+    said = tc.CONFIDENCE_ABSENT_HYBRID.lower()
+    assert "not an old transcript" in said
+    assert "absent by construction" in said
+    assert "do not read its absence as" in said
+    assert "alignment_score" in said
+
+
+def test_the_view_a_model_reads_carries_the_hybrid_sentence():
+    view = build_view("spoken_lines",
+                      {"timeline_transcript": hybrid_document()})["spoken_lines"]
+    assert view["transcription_confidence"] == tc.CONFIDENCE_ABSENT_HYBRID
+    assert "avg_logprob" not in view["lines"][0]
+
+
+def test_the_aligners_score_reaches_the_view_under_its_own_name():
+    """It is measured, so it has a reader. It is NOT a confidence, so it
+    does not travel under that heading."""
+    view = build_view("spoken_lines",
+                      {"timeline_transcript": hybrid_document()})["spoken_lines"]
+    assert view["lines"][0]["alignment_score"] == 0.9
+    assert tc.ALIGNMENT_SCORE_LEGEND in view["alignment_score_legend"]
+
+
+def test_the_score_is_never_published_beside_the_confidence():
+    """Two numbers answering different questions under one heading is
+    how one gets read as the other."""
+    doc = document(with_confidence=True)
+    for row in doc["segments"]:
+        for word in row["words"]:
+            word[tc.ALIGNMENT_SCORE] = 0.42
+    view = build_view("spoken_lines",
+                      {"timeline_transcript": doc})["spoken_lines"]
+    assert "avg_logprob" in view["lines"][0]
+    assert "alignment_score" not in view["lines"][0]
+    assert "alignment_score_legend" not in view
+
+
+def test_the_score_legend_says_plainly_it_is_not_a_confidence():
+    legend = tc.ALIGNMENT_SCORE_LEGEND.lower()
+    assert "not a transcription confidence" in legend
+    assert "higher" in legend          # the measured brand-name inversion
+    assert "no threshold" in legend
+
+
+def test_a_row_whose_words_were_never_aligned_scores_nothing():
+    """A word whose timing was interpolated was not judged by the
+    aligner, and counting it as a zero would say it was judged badly."""
+    assert tc.line_alignment_score(
+        {"words": [{"word": "one", tc.ALIGNMENT_SCORE: None}]}) is None
+    assert tc.line_alignment_score({"words": []}) is None
+    assert tc.line_alignment_score({}) is None
+
+
+def test_the_aligners_score_stops_being_thrown_away():
+    """`interpolate_untimed_words` rebuilt each word without it - the
+    half of the discard this module recorded that was never repaired."""
+    from library.tools.timeline_transcript import interpolate_untimed_words
+
+    kept = interpolate_untimed_words(
+        [{"word": "What", "start": 0.0, "end": 0.3, "score": 0.81},
+         {"word": "changed"},
+         {"word": "here", "start": 1.0, "end": 1.4, "score": 0.62}])
+    assert [w[tc.ALIGNMENT_SCORE] for w in kept] == [0.81, None, 0.62]
+    assert kept[1]["timed"] is False

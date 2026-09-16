@@ -384,7 +384,16 @@ def _spoken_lines(data: dict) -> dict:
     view says when the transcript records nothing.**  `avg_logprob` is
     the ASR's own per-line number, verbatim, and the column appears only
     when the transcript carries it; a transcript that does not gets one
-    line saying so instead of a fabricated stand-in.  Beside it,
+    line saying so instead of a fabricated stand-in.  **A transcript
+    heard by the HYBRID carries none by construction** - that
+    transcriber emits no such number - and it says THAT rather than the
+    sentence about an old transcript, because a re-run would not produce
+    one.  What it publishes instead is `alignment_score`, the forced
+    ALIGNER's own mean fit for the row's words, under its own name and
+    with its own legend saying plainly it is not a confidence: measured,
+    a misspelled brand name scores HIGHER than the right spelling.  It
+    is the only per-row number that arm has, so it is published rather
+    than measured and dropped, and nothing fires on it.  Beside it,
     `script_mismatch` names any line whose letters fall outside the
     script the rest of the transcript is written in - exact, no
     threshold, no model call, and on the field test 1 line of 940, which
@@ -394,10 +403,11 @@ def _spoken_lines(data: dict) -> dict:
     """
     from library.tools.reel_proposal import bound_segments, straddling_segments
     from library.tools.transcript_confidence import (
-        CONFIDENCE_ABSENT,
-        CONFIDENCE_LEGEND,
+        ALIGNMENT_SCORE_LEGEND,
         any_line_carries_confidence,
+        confidence_notice,
         line_confidence,
+        line_alignment_score,
         mismatch_report,
     )
 
@@ -412,6 +422,13 @@ def _spoken_lines(data: dict) -> dict:
     # TOON table sparse, which costs an empty cell on every row that
     # does not have one and tells a reader nothing about why.
     carries_confidence = any_line_carries_confidence(rows)
+    # The aligner's score is published only where the transcriber's own
+    # confidence is missing. Both at once would put two numbers that
+    # answer different questions side by side under one heading, which
+    # is how one gets read as the other.
+    carries_alignment_score = (
+        not carries_confidence
+        and any(line_alignment_score(row) is not None for row in rows))
 
     lines = []
     for segment in rows:
@@ -428,6 +445,9 @@ def _spoken_lines(data: dict) -> dict:
             confidence = line_confidence(segment)
             row["avg_logprob"] = (None if confidence is None
                                   else round(confidence, 3))
+        elif carries_alignment_score:
+            fit = line_alignment_score(segment)
+            row["alignment_score"] = None if fit is None else round(fit, 3)
         lines.append(row)
     if not lines:
         return {}
@@ -446,8 +466,15 @@ def _spoken_lines(data: dict) -> dict:
     # No threshold fires on either.  The number is published and the
     # model judges it, which is the captain's standing ruling
     # (AGENTS.md 10.5).
-    view["transcription_confidence"] = (
-        CONFIDENCE_LEGEND if carries_confidence else CONFIDENCE_ABSENT)
+    # Which sentence, and there are THREE of them: the rows carry the
+    # number, or the hybrid transcriber wrote them and emits none at
+    # all, or this transcript predates the number being kept. The
+    # middle one is new and is not the first one's "re-run and it will
+    # be there" - a hybrid re-run produces the same absence, and a
+    # reader told otherwise is being misled about what can be checked.
+    view["transcription_confidence"] = confidence_notice(document, rows)
+    if carries_alignment_score:
+        view["alignment_score_legend"] = ALIGNMENT_SCORE_LEGEND
     mismatches = mismatch_report(document)
     if mismatches:
         view["script_mismatch"] = mismatches

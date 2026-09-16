@@ -122,11 +122,59 @@ CONFIDENCE_LEGEND = (
     "and judge it yourself."
 )
 
+ALIGNMENT_SCORE_LEGEND_REF = (
+    "What these words DO carry, per word, is `alignment_score` - the "
+    "forced aligner's fit for that word's characters against the audio. "
+    "It is a different measurement and it is not a substitute: it says "
+    "the characters fit, never that they are the right characters."
+)
+
 CONFIDENCE_ABSENT = (
     "No line carries `avg_logprob`: this transcript was written before "
     "the transcriber's own per-line confidence was kept, so the number "
     "does not exist for these words and none has been derived. A line "
     "you doubt cannot be checked against it."
+)
+
+CONFIDENCE_ABSENT_HYBRID = (
+    "No line carries `avg_logprob`, and this is NOT an old transcript. "
+    "These words were written by the on-device transcriber the hybrid "
+    "pass uses, which emits no per-line confidence of any kind - the "
+    "field is absent by construction, not by oversight, and nothing has "
+    "been derived to stand in for it. Do not read its absence as "
+    "agreement: no reading of these lines has been doubted, because "
+    "nothing here can doubt one. " + ALIGNMENT_SCORE_LEGEND_REF
+)
+"""The sentence a HYBRID transcript gets, and it is a different one.
+
+Three readings of "no `avg_logprob`" now exist - written before it was
+kept, the aligner produced a row without one, and the transcriber emits
+none at all - and they are not the same fact. A reader given the first
+sentence for the third case is being told this is old data that a re-run
+would fix, which is false: re-running produces the same absence.
+"""
+
+ALIGNMENT_SCORE = "alignment_score"
+"""The key the ALIGNER's own per-word score travels under.
+
+Renamed off `whisperx.align`'s `score` on purpose. It is the aligner's
+number, not the transcriber's, and the two answer different questions -
+see `ALIGNMENT_SCORE_LEGEND`. A word with no score carries `None`, which
+is the ordinary case for a word whose timing was interpolated rather
+than aligned.
+"""
+
+ALIGNMENT_SCORE_LEGEND = (
+    "`alignment_score` is the forced ALIGNER's own fit for one word: how "
+    "well that word's characters match the audio under them, 0 to 1. It "
+    "is NOT a transcription confidence and must not be read as one. It "
+    "says nothing about whether the word is the RIGHT word - measured on "
+    "this project's footage, a misspelled brand name scored HIGHER than "
+    "the correct spelling in 11 of 12 occurrences, because the wrong "
+    "spelling was closer to what was said. A low score does lift the odds "
+    "a word is wrong - 5x over the base rate, measured - at about 16% "
+    "precision, which is a signal and not a verdict. No threshold is "
+    "applied to it anywhere."
 )
 
 
@@ -150,6 +198,76 @@ def line_confidence(segment: dict) -> Optional[float]:
 def any_line_carries_confidence(segments: Iterable[dict]) -> bool:
     """Whether this transcript records the transcriber's confidence at all."""
     return any(line_confidence(s) is not None for s in segments)
+
+
+def line_alignment_score(segment: dict) -> Optional[float]:
+    """The ALIGNER's mean fit across one row's words, or None.
+
+    The mean of the words that HAVE a score, ignoring the ones that do
+    not: a word whose timing was interpolated was never aligned, and
+    counting it as a zero would say the aligner judged it badly when the
+    aligner did not judge it at all.
+
+    This is a summary of a per-word measurement, and it is the only
+    reading of it that reaches a reader - `library/tools/context_views.py`
+    publishes this, never the word list it came from (AGENTS.md 10.1).
+    """
+    if not isinstance(segment, dict):
+        return None
+    scores = []
+    for word in segment.get("words") or []:
+        if not isinstance(word, dict):
+            continue
+        value = word.get(ALIGNMENT_SCORE)
+        if value is None:
+            continue
+        try:
+            scores.append(float(value))
+        except (TypeError, ValueError):
+            continue
+    if not scores:
+        return None
+    return sum(scores) / len(scores)
+
+
+def transcribed_by_hybrid(document: dict) -> bool:
+    """Whether any part of this transcript came from the hybrid arm.
+
+    Read off the document's own `transcription` block, which
+    `timeline_transcript.transcription_record` writes. A transcript with
+    no such block predates the seam and is a WhisperX transcript, which
+    is why the answer is False rather than unknown.
+    """
+    from library.tools.hybrid_transcription import ARM_HYBRID
+
+    if not isinstance(document, dict):
+        return False
+    arms = ((document.get("transcription") or {}).get("arms") or {})
+    return any(arm == ARM_HYBRID for arm in arms.values())
+
+
+def confidence_notice(document: dict, rows: Optional[Iterable[dict]] = None
+                      ) -> str:
+    """The ONE sentence a view prints about this transcript's confidence.
+
+    Three outcomes, and they are three different facts - which is the
+    whole reason this is a function rather than a pair of constants:
+
+      * the rows carry `avg_logprob`      -> `CONFIDENCE_LEGEND`
+      * the hybrid transcriber wrote them -> `CONFIDENCE_ABSENT_HYBRID`
+      * neither                           -> `CONFIDENCE_ABSENT`
+
+    `rows` is the population the caller actually publishes, which is not
+    always every segment of the document; it defaults to all of them.
+    """
+    segments = (list(rows) if rows is not None
+                else [s for s in (document.get("segments") or [])
+                      if isinstance(s, dict)])
+    if any_line_carries_confidence(segments):
+        return CONFIDENCE_LEGEND
+    if transcribed_by_hybrid(document):
+        return CONFIDENCE_ABSENT_HYBRID
+    return CONFIDENCE_ABSENT
 
 
 # ── The script the rest of the transcript is in ──────────────────────

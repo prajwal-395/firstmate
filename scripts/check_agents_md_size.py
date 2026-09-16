@@ -74,7 +74,15 @@ import sys
 # is now a headline plus that pointer.  The three consecutive "Set <var>" bullets
 # became one, with every variable name kept.  The 115 characters left over went off
 # the ceiling rather than back into the spare.
-CEILING = 52946
+# LOWERED 2026-09-16 with `## 5`, from 52,946: `## 5`'s existing timeline-speech row
+# gained the transcriber SEAM and `library/tools/hybrid_transcription.py`, and paid
+# for it three times inside its own budget.  The frame-mapping row restated the rule
+# `composed_edit.py` opens with (re-derive or REFUSE) beside the pointer to it; the
+# Tracks row said "track index and name" one word after naming `timeline_layout`;
+# and the media-pool row listed the three things the one module it points at
+# enumerates.  All three are now headline plus pointer.  The 10 characters left over
+# went off the ceiling rather than back into the spare.
+CEILING = 52936
 
 # RATCHET, per section: lowered 2026-09-03 as each section's detail moved to the
 # modules that own it - `## 10` 81,459 -> 17,591, `## 3` 28,708 -> 5,590,

@@ -188,7 +188,7 @@ Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
 
 **A Resolve project is addressed by its EXACT listed name, never a prefix.**: `library/tools/timeline_ingest.py`.
 
-**Timeline speech is REBUILT from source, not rendered**: `library/tools/timeline_transcript.py`.
+**Timeline speech is REBUILT from source, not rendered; WHICH transcriber hears it is a seam that FALLS BACK**: `library/tools/timeline_transcript.py`, `library/tools/hybrid_transcription.py`.
 
 ### Process isolation
 
@@ -228,7 +228,7 @@ Detail: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### Frame mapping
 
-One enumeration, `library/tools/fusion/played_window.py`; a comp is KEYED to it, so a composed edit RE-DERIVES a trimmed clip's comp or REFUSES: `library/tools/composed_edit.py`. [why](docs/RULE_EVIDENCE.md#the-comp-that-had-to-be-re-derived)
+One enumeration, `library/tools/fusion/played_window.py`; a comp is KEYED to it: `library/tools/composed_edit.py`. [why](docs/RULE_EVIDENCE.md#the-comp-that-had-to-be-re-derived)
 
 ### Default transition values
 
@@ -236,11 +236,11 @@ One enumeration, `library/tools/fusion/played_window.py`; a comp is KEYED to it,
 
 ### Tracks
 
-Rows are the SOP's: `docs/TIMELINE_SOP.md`; `library/tools/timeline_layout.py` owns track index and name, `library/tools/execution/fusion_tracks.py` the comp rows.
+Rows are the SOP's: `docs/TIMELINE_SOP.md`; `library/tools/timeline_layout.py` owns index and name, `library/tools/execution/fusion_tracks.py` the comp rows.
 
 ### Media pool and audio
 
-Rows, pool audio and render audio: one enumeration, `library/steps/step_6_01_render/resolve_build_timeline.py`.
+One enumeration: `library/steps/step_6_01_render/resolve_build_timeline.py`.
 
 ### The mix goes through OTIO, and it goes in at placement time
 

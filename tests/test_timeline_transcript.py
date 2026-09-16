@@ -467,4 +467,148 @@ def test_a_rebound_transcript_says_it_was_rebound():
     was produced, and a reader cannot tell from the rows."""
     after = tt.rebind_document(_straddling_document(), _Snap())
     assert "RE-DERIVED" in after["measurement"]
-    assert "WhisperX" in after["measurement"]
+    # The transcribe half is still named, and it is the half that did
+    # not run here: the words and their timings came from the earlier
+    # pass, the binding came from this machine's clip list.
+    assert "forced alignment" in after["measurement"]
+    assert "the one the transcribe pass produced" in after["measurement"]
+
+
+# ── The seam: which transcriber hears one speaker ────────────────────
+#
+# `transcribe_audio` is the whole of the choice, and nothing above it
+# knows there is one. These run it with both arms stubbed: no
+# transcriber, no alignment model, no audio.
+
+def _stub_seam(monkeypatch, hybrid=None, fallback=None):
+    """Replace both arms and report what each was asked."""
+    from library.tools import hybrid_transcription
+
+    asked = {"hybrid": 0, "fallback": 0}
+
+    def _hybrid(audio_path, aligner, label=""):
+        asked["hybrid"] += 1
+        if isinstance(hybrid, Exception):
+            raise hybrid
+        return hybrid
+
+    def _fallback(audio_path, **kwargs):
+        asked["fallback"] += 1
+        return fallback if fallback is not None else {"segments": []}
+
+    monkeypatch.setattr(hybrid_transcription, "transcribe_and_align", _hybrid)
+    monkeypatch.setattr(tt, "_whisperx_transcribe_and_align", _fallback)
+    return asked
+
+
+def _hybrid_result():
+    from library.tools import hybrid_transcription
+
+    return hybrid_transcription.HybridTranscription(
+        aligned={"segments": [{"start": 0.0, "end": 1.0, "text": "hi",
+                               "words": []}]},
+        record={"arm": hybrid_transcription.ARM_HYBRID,
+                "language": {"language": "en", "confidence": 0.98},
+                "alignment_window": {"windows": 3},
+                "asr_confidence":
+                    hybrid_transcription.ASR_CONFIDENCE_ABSENT})
+
+
+def test_the_hybrid_is_primary_and_the_fallback_is_not_run(monkeypatch):
+    asked = _stub_seam(monkeypatch, hybrid=_hybrid_result())
+    aligned, record = tt.transcribe_audio(Path("craig.wav"))
+    assert asked == {"hybrid": 1, "fallback": 0}
+    assert aligned["segments"][0]["text"] == "hi"
+    assert record["arm"] == "hybrid"
+
+
+def test_a_refusal_runs_the_full_whisperx_path(monkeypatch):
+    from library.tools import hybrid_transcription
+
+    asked = _stub_seam(
+        monkeypatch,
+        hybrid=hybrid_transcription.FallbackRequired(
+            hybrid_transcription.WORD_OVER_THE_CLAMP,
+            "'starting' spans 62.63s"),
+        fallback={"segments": [{"text": "from whisperx"}]})
+    aligned, record = tt.transcribe_audio(Path("craig.wav"))
+    assert asked == {"hybrid": 1, "fallback": 1}
+    assert aligned["segments"][0]["text"] == "from whisperx"
+    assert record["arm"] == "whisperx"
+    assert record["fell_back_because"]["trigger"] == \
+        hybrid_transcription.WORD_OVER_THE_CLAMP
+    assert "62.63s" in record["fell_back_because"]["detail"]
+    assert record["attempted_on"] == "craig.wav"
+
+
+def test_the_fallback_can_be_asked_for_and_the_record_says_so(monkeypatch):
+    """A comparison run wants the fallback's own answer, and a
+    transcript that got it must not read as one the hybrid refused."""
+    asked = _stub_seam(monkeypatch, hybrid=_hybrid_result())
+    _aligned, record = tt.transcribe_audio(Path("craig.wav"),
+                                           prefer_hybrid=False)
+    assert asked == {"hybrid": 0, "fallback": 1}
+    assert record["fell_back_because"]["trigger"] == "asked_for"
+
+
+def test_both_arms_are_timed_by_the_same_aligner():
+    """A comparison between the two is a comparison of their TEXT, so
+    `whisperx.align` is called from one place in this module."""
+    source = Path(tt.__file__).read_text(encoding="utf-8")
+    assert source.count("whisperx.align(") == 2       # the two device arms
+    assert source.count("def align_segments(") == 1
+    body = source.split("def align_segments(")[1].split("\ndef ")[0]
+    assert body.count("whisperx.align(") == 2
+
+
+def test_the_document_says_which_arm_heard_each_speaker():
+    from library.tools import hybrid_transcription
+
+    record = tt.transcription_record({
+        "Akshita": {"arm": hybrid_transcription.ARM_HYBRID},
+        "Craig": {"arm": hybrid_transcription.ARM_WHISPERX,
+                  "fell_back_because": {"trigger": "heard_nothing",
+                                        "detail": "no words"}},
+    })
+    assert record["arms"] == {"Akshita": "hybrid", "Craig": "whisperx"}
+    assert record["by_speaker"]["Craig"]["fell_back_because"]["trigger"] \
+        == "heard_nothing"
+
+
+def test_a_transcript_any_part_of_which_is_hybrid_says_the_confidence_is_gone():
+    """Zero rows with `avg_logprob` already meant two things. It now
+    means three, and this is what tells them apart."""
+    from library.tools import hybrid_transcription
+
+    mixed = tt.transcription_record({
+        "Akshita": {"arm": hybrid_transcription.ARM_HYBRID},
+        "Craig": {"arm": hybrid_transcription.ARM_WHISPERX},
+    })
+    assert mixed["asr_confidence"] == \
+        hybrid_transcription.ASR_CONFIDENCE_ABSENT
+    whisperx_only = tt.transcription_record(
+        {"Craig": {"arm": hybrid_transcription.ARM_WHISPERX}})
+    assert whisperx_only["asr_confidence"] == "present"
+
+
+def test_a_rebind_does_not_lose_which_transcriber_heard_the_words():
+    """A rebind re-hears nothing, so the account travels with the words.
+    Dropping it would make a hybrid transcript read as one written
+    before the confidence was ever kept."""
+    from library.tools import hybrid_transcription
+
+    before = _straddling_document()
+    before["transcription"] = {
+        "arms": {"Craig": hybrid_transcription.ARM_HYBRID},
+        "by_speaker": {},
+        "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
+    }
+    after = tt.rebind_document(before, _Snap())
+    assert after["transcription"]["arms"] == {"Craig": "hybrid"}
+
+
+def test_a_transcript_written_before_the_seam_carries_no_arm_block():
+    """The key is written only when there is something to say, so an
+    older transcript is not retro-labelled with an arm nobody recorded."""
+    document = tt.transcript_document(_Snap(), [])
+    assert "transcription" not in document

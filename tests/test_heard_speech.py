@@ -55,7 +55,12 @@ def test_only_one_module_names_the_vendor_json_keys():
 
 
 def test_only_one_module_invokes_the_binary():
-    """`da voz` appears in exactly one place, and it is behind a function."""
+    """Its subcommands appear in one place, each behind a function.
+
+    BOTH of them: `voz` writes the words and `ear` names the language,
+    and the hybrid pass needs the second because nothing in the first's
+    JSON says what language it just heard.
+    """
     invocations = []
     for path in sorted(REPO_ROOT.rglob("*.py")):
         if "__pycache__" in path.parts or ".venv" in path.parts:
@@ -64,20 +69,58 @@ def test_only_one_module_invokes_the_binary():
         if relative in CONTAINMENT:
             continue
         body = path.read_text(encoding="utf-8")
-        if f'"{heard_speech.SUBCOMMAND}"' in body or \
-                f"'{heard_speech.SUBCOMMAND}'" in body:
-            invocations.append(relative)
+        for subcommand in (heard_speech.SUBCOMMAND,
+                           heard_speech.EAR_SUBCOMMAND):
+            if f'"{subcommand}"' in body or f"'{subcommand}'" in body:
+                invocations.append((relative, subcommand))
     assert invocations == [], (
-        f"{invocations} name the transcriber's subcommand. It is invoked "
-        f"in one function, `heard_speech.transcribe`.")
+        f"{invocations} name a transcriber subcommand. Each is invoked "
+        f"in one function of `heard_speech`.")
 
 
 def test_the_whole_vendor_surface_is_declared_in_one_block():
     """Every name the vendor owns is a module constant, not a literal."""
-    for name in ("BINARY", "SUBCOMMAND", "FLAGS", "WORDS_KEY",
-                 "WORD_TEXT_KEY", "WORD_START_KEY", "WORD_END_KEY",
-                 "TEXT_KEY", "DURATION_KEY"):
+    for name in ("BINARY", "SUBCOMMAND", "EAR_SUBCOMMAND", "FLAGS",
+                 "WORDS_KEY", "WORD_TEXT_KEY", "WORD_START_KEY",
+                 "WORD_END_KEY", "TEXT_KEY", "SENTENCES_KEY",
+                 "SENTENCE_TEXT_KEY", "SENTENCE_START_KEY",
+                 "SENTENCE_END_KEY", "LANGUAGE_KEY",
+                 "LANGUAGE_CONFIDENCE_KEY", "DURATION_KEY"):
         assert getattr(heard_speech, name), name
+
+
+# ── 1b. The second half the hybrid needs ─────────────────────────────
+
+def test_a_recorded_payload_maps_the_sentences_the_hybrid_windows_by():
+    """The transcriber publishes sentences and words as two flat lists
+    with no key joining them, and the hybrid needs the grouping."""
+    spoken = heard_speech.read_payload(_payload(), "reel26.mp4")
+    assert spoken.sentences
+    assert spoken.sentences == sorted(spoken.sentences,
+                                      key=lambda s: (s.start, s.end))
+    assert all(s.text.strip() for s in spoken.sentences)
+
+
+def test_a_language_payload_maps_onto_its_own_answer():
+    heard = heard_speech.read_language_payload(
+        {"language": "en", "confidence": 0.9866393194271199})
+    assert heard.language == "en"
+    assert heard.confidence == pytest.approx(0.9866393194271199)
+    assert heard.as_dict()["language"] == "en"
+
+
+def test_a_language_payload_that_names_nothing_refuses():
+    """An unanswered language question and 'this is English' must never
+    arrive as the same object: the caller decides whether the hybrid may
+    transcribe at all from this answer."""
+    with pytest.raises(heard_speech.TranscriberUnavailable):
+        heard_speech.read_language_payload({"confidence": 0.99})
+
+
+def test_a_language_payload_with_no_confidence_still_answers():
+    heard = heard_speech.read_language_payload({"language": "de"})
+    assert heard.language == "de"
+    assert heard.confidence is None
 
 
 # ── 2. What it returns ───────────────────────────────────────────────
