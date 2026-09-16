@@ -135,7 +135,6 @@
     "timed_spine",
     "-timed_spine.structure.*.word_timestamps",
     "-timed_spine.structure.*.content.word_timestamps",
-    "-timed_spine.music_selection",
     "semantic_analysis_documents.*.clip_id",
     "semantic_analysis_documents.*.analysis.scene",
     "semantic_analysis_documents.*.analysis.motion",

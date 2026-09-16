@@ -126,109 +126,86 @@ def test_the_transcript_reaches_speech_sequence_exactly_once():
     )
 
 
-# ── The music selector's own answer, carried inside a spine ──────────
-
-# `mesh_spine`'s output embeds the whole of `music_selection`, so every
-# step routed `timed_spine` or `audio_spine` is handed the music
-# selector's answer a second time.  Measured on 001's round3 snapshot:
-# 6,534 B per step, in four prompts, and in `plan_transitions` beside a
-# top-level copy that was byte-identical after dedent.
+# ── The music audit trail, out of the spines ─────────────────────────
 #
-# The nested copy goes from the steps whose handoff never mentions
-# music at all - `select_broll` and `plan_vfx` name it nowhere, and
-# `plan_transitions` names `music_selections` in its Reads table and
-# routes the top-level object for it.
+# `mesh_spine`'s output used to embed the whole of `music_selection`,
+# so every step routed `timed_spine` or `audio_spine` was handed the
+# music selector's answer a second time (measured on 001's round3
+# snapshot: 6,534 B per step, in four prompts, and in
+# `plan_transitions` beside a top-level copy that was byte-identical
+# after dedent). The nested copy went from the steps whose handoff
+# never mentions music at all, via `-timed_spine.music_selection`
+# (3.02, 4.03, 4.02) and two `-audio_spine.music_selection.*` paths
+# (3.03), while `plan_sfx` stayed the last prompt carrier - the
+# ratchet `data_map.UNREAD_BUDGET["OUT@mesh_spine"]` could only move
+# down, so dropping the copy everywhere orphaned fields the pipeline
+# still produced.
 #
-# It STAYS in `plan_sfx`, and the reason is the data map.  Nothing in
-# any tree reads `music_selection.candidates_evaluated`, and the only
-# code reader of `direction_justification.why_not_forbidden` is
-# `music_selection_contract.validate_selection`, which `field_flow`
-# cannot follow across the call.  So the prompt IS the last route the
-# map can see, and dropping it in all four steps moved
-# `data_map.UNREAD_BUDGET["OUT@mesh_spine"]` from 16 to 22 - the ratchet
-# firing correctly on data the pipeline still produces and now nobody
-# reads.  `plan_sfx` is the right carrier of the four: its handoff is
-# the only one that reasons about music ("match the music rhythm and
-# energy", "SFX don't compete with prominent music moments").
-#
-# Stop producing it and this gate changes shape - but `data_map`'s
-# counts come from `data_map_observed.json`, the SHAPE of documents a
-# real run wrote, so a schema change is invisible to the ratchet until
-# a project is re-observed.  That is the work this note is holding.
+# Captain's ruling, 2026-09-16: stop producing it. `mesh_spine` writes
+# no `music_selection` key into either spine, and the record lives in
+# its own file - `library/tools/music_audit_trail.py`, written by step
+# 2.04 into its own directory. The whole nested-copy apparatus below
+# (drop paths, last-carrier pin) is therefore gone: a `-` path for a
+# key nothing produces is a stale declaration, and a last carrier of
+# nothing is a gate that cannot fail. What stays is the operational
+# route - every step that conducts, analyses, snaps to or places the
+# bed is routed the top-level `music_selection` and reads that.
 SPINE_KEYS = ("timed_spine", "audio_spine")
 
-SPINE_MUSIC_CARRIER = "step_4_04_plan_sfx"
+# Every step that needs the music to do its job, by its top-level
+# input - the route the nested copy never was. If one of these stops
+# declaring it, the bed it conducts, snaps to or places loses its
+# source, and this is the test that says so.
+SPINE_MUSIC_OPERATIONAL_READERS = (
+    "step_2_05_mesh_spine",
+    "step_2_06_music_analysis",
+    "step_4_02_plan_transitions",
+    "step_4_04_plan_sfx",
+    "step_5_02_audio_mix",
+    "step_5_04_compile_manifest",
+)
 
-SPINE_MUSIC_DROPPED_BY = {
-    "step_3_02_select_broll":
-        "its handoff names music nowhere, and its Reads table lists "
-        "`timed_spine` as \"structure with visual_notes and timeline "
-        "positions\"",
-    "step_4_03_plan_vfx":
-        "its handoff names music nowhere",
-    "step_4_02_plan_transitions":
-        "it routes the top-level `music_selection` its handoff names, so "
-        "the nested one is the same object twice",
-}
 
+def test_no_spine_music_drop_paths_remain():
+    """The nested copy is gone, so its drops are gone with it.
 
-@pytest.mark.parametrize("path", ALL_MANIFESTS, ids=ids(ALL_MANIFESTS))
-def test_the_spine_music_copy_goes_where_nothing_reads_it(path):
-    declared = context_fields(path)
-    if "timed_spine" not in declared:
-        return
-    why = SPINE_MUSIC_DROPPED_BY.get(path.parent.name)
-    if why is None:
-        return
-    assert "-timed_spine.music_selection" in declared, (
-        f"{path.parent.name} routes `timed_spine`, which embeds the "
-        f"whole of `music_selection`, and does not drop it: {why}."
+    A `-timed_spine.music_selection` / `-audio_spine.music_selection`
+    path today matches nothing (`context_projector` treats an
+    unmatched `-` path as a no-op), which is exactly how a stale
+    declaration reads as coverage. No manifest may declare one.
+    """
+    stale = []
+    for path in ALL_MANIFESTS:
+        for entry in context_fields(path):
+            if ".music_selection" in entry and (
+                entry.startswith("-timed_spine.")
+                or entry.startswith("-audio_spine.")
+            ):
+                stale.append(f"{path.parent.name}: {entry}")
+    assert not stale, (
+        "stale nested-music drop paths - `mesh_spine` no longer embeds "
+        "`music_selection` in either spine, so these match nothing:\n  - "
+        + "\n  - ".join(stale)
     )
 
 
-def test_one_step_still_carries_the_spine_music_copy():
-    """The ratchet's other direction: it may not go to zero carriers.
+def test_the_spine_steps_still_route_the_top_level_selection():
+    """The conducting route survives the carrier move.
 
-    `data_map` counts a field with no prompt and no reader its analyzer
-    can follow as carried-and-unused, and `UNREAD_BUDGET` only moves
-    down.  Dropping the nested copy in `plan_sfx` too orphans six fields
-    at `OUT@mesh_spine` that `mesh_spine` still writes, and
-    `tests/test_data_map.py::test_the_gate_is_clean_on_this_tree` fails.
-    The honest fix is to stop `mesh_spine` embedding the audit trail and
-    re-observe a run - not to widen the budget.
+    Removing the nested copy must not take the top-level
+    `music_selection` with it: these steps read the track, the
+    section, the splices or the measurements off it, and none of
+    them ever read the nested copy. Asserted on the manifest's
+    declared inputs - the route itself, prompt or deterministic.
     """
-    declared = context_fields(STEPS / SPINE_MUSIC_CARRIER / "manifest.json")
-    assert "timed_spine" in declared, (
-        f"{SPINE_MUSIC_CARRIER} no longer routes `timed_spine`; the "
-        f"spine's `music_selection` now reaches no prompt at all.")
-    assert "-timed_spine.music_selection" not in declared, (
-        f"{SPINE_MUSIC_CARRIER} is the last prompt carrier of "
-        f"`timed_spine.music_selection`, and `mesh_spine` still writes "
-        f"it. Dropping it here does not stop it being produced - it "
-        f"only stops anything reading it. Stop `mesh_spine` embedding "
-        f"the audit trail and re-observe, or leave this alone.")
-
-
-@pytest.mark.parametrize("path", ALL_MANIFESTS, ids=ids(ALL_MANIFESTS))
-def test_no_step_gets_the_music_selection_twice(path):
-    """Top level AND nested in a spine is the same object, twice.
-
-    `plan_transitions` declared `music_selection` because its handoff
-    names it, and `timed_spine` because it plans against the blocks;
-    the two sections were byte-identical after dedent, 6,444 B and
-    6,534 B in one prompt.
-    """
-    declared = context_fields(path)
-    if "music_selection" not in declared:
-        return
-    for spine in SPINE_KEYS:
-        if spine not in declared:
-            continue
-        assert f"-{spine}.music_selection" in declared, (
-            f"{path.parent.name} routes `music_selection` at the top "
-            f"level and `{spine}`, which embeds the same object. Drop "
-            f"`{spine}.music_selection` and keep the one the handoff "
-            f"names."
+    for step in SPINE_MUSIC_OPERATIONAL_READERS:
+        manifest = json.loads(
+            (STEPS / step / "manifest.json").read_text(encoding="utf-8"))
+        names = [i.get("name") for i in
+                 manifest.get("interface", {}).get("inputs", [])]
+        assert "music_selection" in names, (
+            f"{step} no longer declares the top-level `music_selection` "
+            f"input - the carrier move took an operational reader with it."
         )
 
 

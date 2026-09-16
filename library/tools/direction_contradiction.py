@@ -119,8 +119,11 @@ not, and those are what `VISION_PROSE_PATHS` marks:
   `body_sequence` ordering (a judgement by construction; the spine
   contract already marks its time fields as lookup hints, AGENTS.md 6).
 * CORRECTLY EXCLUDED - `music_selection.direction_justification`:
-  2.05 and 3.03 explicitly DROP `why_not_forbidden` with `-` paths.
-  The drop IS the marking.  Pinned by test.
+  2.05 explicitly DROPs `why_not_forbidden` with a `-` path. The drop
+  IS the marking. Pinned by test. (3.03's old
+  `-audio_spine.music_selection.*` drops went with the nested copy
+  itself when the audit trail moved to its own file - captain's
+  ruling, 2026-09-16; `library/tools/music_audit_trail.py`.)
 * GENUINELY JUST PROSE - `topics_toon` / `transcripts_toon`
   (2.02's own prompt tables, consumed only by its own prompt),
   the derived-column definitions each planning handoff now carries in

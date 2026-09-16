@@ -1723,7 +1723,15 @@ UNREAD_BUDGET: Dict[str, int] = {
     "OUT@creative_cohesion": 16,
     "OUT@creative_direction": 0,
     "OUT@judge_reels": 35,
-    "OUT@mesh_spine": 16,
+    # 16 -> 10 on 2026-09-16: the music audit trail moved out of the
+    # spines into its own file (`library/tools/music_audit_trail.py`,
+    # captain's ruling), and the `-audio_spine.music_selection.*` drop
+    # paths went with the nested copy. The six audit fields
+    # (`candidates_evaluated` + four subfields,
+    # `direction_justification.why_not_forbidden`) leave the unread
+    # set; what remains is word timings no prompt carries. Re-observe
+    # on a real run to refresh the snapshot shape itself.
+    "OUT@mesh_spine": 10,
     "OUT@music_analysis": 1,
     "OUT@music_selection": 0,
     "OUT@ocr_extraction": 17,

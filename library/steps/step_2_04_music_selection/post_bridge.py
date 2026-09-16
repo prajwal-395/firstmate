@@ -341,6 +341,25 @@ def main():
             ),
         })
 
+    # The audit trail, in its own file. The whole resolved selection -
+    # how each track was found and why this one was chosen - is KEPT
+    # here, in this step's own directory, rather than copied into the
+    # spines `mesh_spine` builds (captain's ruling, 2026-09-16). Same
+    # content as the `music_selection` below, complete and untruncated;
+    # a different carrier, not a different record. See
+    # library/tools/music_audit_trail.py.
+    try:
+        from library.tools.music_audit_trail import (
+            write_audit_trail as _write_audit_trail,
+        )
+        _audit_path = _write_audit_trail(project_folder, resolved)
+        print(f"  Music audit trail: {_audit_path}", file=sys.stderr)
+    except Exception as exc:  # noqa: BLE001 - the record matters more
+        # than the run stopping over it: the choice itself still goes
+        # out below, and a missing sidecar is visible on its face.
+        print(f"WARNING: music audit trail could not be written ({exc}); "
+              f"continuing with the selection.", file=sys.stderr)
+
     json.dump({"music_selection": resolved}, sys.stdout, indent=2)
 
 

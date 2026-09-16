@@ -292,7 +292,17 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
         "total_duration_frames": frame_cursor,
         "frame_rate": fps,
         "structure": enriched_blocks,
-        "music_selection": music,
+        # No `music_selection` here. The selector's answer - how each
+        # track was found and why it was chosen - used to be copied
+        # into both spines, ~24 kB per run into pipeline_data.json
+        # and into every prompt routed a spine, while no code ever
+        # read the nested copy. Captain's ruling, 2026-09-16: the
+        # record is KEPT, in its own file
+        # (library/tools/music_audit_trail.py, written by step 2.04
+        # into its own directory), and the spines carry only the
+        # conducted bed below. Every operational consumer reads the
+        # top-level `music_selection`, which still reaches this step
+        # and every step that needs it.
         # What the captain's deltas did on this build, or [] - a run
         # that cannot say which edits are in force cannot be reviewed.
         "captain_edits_applied": captain_applied,

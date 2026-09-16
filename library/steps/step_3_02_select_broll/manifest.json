@@ -148,7 +148,6 @@
     "timed_spine",
     "-timed_spine.structure.*.word_timestamps",
     "-timed_spine.structure.*.content.word_timestamps",
-    "-timed_spine.music_selection",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename",
     "clip_catalog.*.duration_seconds",

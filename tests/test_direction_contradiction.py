@@ -532,19 +532,21 @@ def test_the_inventory_s_existing_markings_still_hold():
         "the attribution is gone: a downstream decision would rest on "
         "prose whose author the prompt no longer names")
 
-    for step_dir, key in (
-        ("step_2_05_mesh_spine",
-         "-music_selection.direction_justification.why_not_forbidden"),
-        ("step_3_03_review_rough_cut",
-         ("-audio_spine.music_selection.direction_justification."
-          "why_not_forbidden")),
-    ):
-        manifest = json.loads(
-            (Path(__file__).resolve().parents[1] / "library" / "steps" /
-             step_dir / "manifest.json").read_text(encoding="utf-8"))
-        assert key in (manifest.get("context_fields") or ()), (
-            f"{step_dir} no longer drops the music justification - the "
-            "inventory's CORRECTLY EXCLUDED row is stale")
+    # The inventory's CORRECTLY EXCLUDED row: 2.05 drops the
+    # justification's forbidden-register reasoning out of the
+    # top-level `music_selection` it routes. (3.03's old
+    # `-audio_spine.music_selection.*` drops went with the nested
+    # copy itself when the audit trail moved to its own file -
+    # captain's ruling, 2026-09-16 - so only the 2.05 marking is
+    # asserted here.)
+    manifest = json.loads(
+        (Path(__file__).resolve().parents[1] / "library" / "steps" /
+         "step_2_05_mesh_spine" / "manifest.json").read_text(
+            encoding="utf-8"))
+    assert ("-music_selection.direction_justification.why_not_forbidden"
+            in (manifest.get("context_fields") or ())), (
+        "step_2_05_mesh_spine no longer drops the music justification "
+        "- the inventory's CORRECTLY EXCLUDED row is stale")
 
     assert len(DIRECTION_KEYS) == 8, (
         f"step 2.01 is asked for {DIRECTION_KEYS} - if the schema grew, "
