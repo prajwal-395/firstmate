@@ -7,7 +7,7 @@
 # would see the stale idle pane. fm-send therefore pauses FM_SEND_SETTLE seconds
 # (default 1, 0 disables) after a successful typed submit, so the receiving turn
 # has time to visibly start. These tests use an explicit backend target to stay on
-# that plane and pin the behavior hermetically (stubbed tmux + sleep, no real
+# that plane and pin the behavior hermetically (stubbed herdr + sleep, no real
 # agent):
 #   1. A successful typed text send pauses for the FM_SEND_SETTLE value (default 1).
 #   2. FM_SEND_SETTLE=0 produces no pause at all (sleep is never invoked for it).
@@ -24,29 +24,44 @@ SEND="$ROOT/bin/fm-send.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-send-settle)
 
-# A fake tmux that lets fm-send's submit path reach a clean "empty" verdict, plus a
+# A fake herdr that lets fm-send's submit path reach a clean "empty" verdict, plus a
 # fake sleep that records every requested duration (one per line) instead of
-# sleeping. send-keys always succeeds; display-message yields a numeric cursor_y;
-# capture-pane returns an empty bordered composer so fm_tmux_composer_state reads
-# "empty" (submit landed) on the first Enter. The sleep log path comes from
-# FM_SLEEP_LOG.
+# sleeping. Sends succeed; pane reads return an empty bordered composer so the
+# shared classifier reads "empty" (submit landed) on the first Enter. The sleep
+# log path comes from FM_SLEEP_LOG.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
 case "${1:-}" in
-  send-keys) exit 0 ;;
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-settle-fake-herdr.sock"}]}\n'
+    exit 0 ;;
+  server) exit 0 ;;
+  pane)
+    case "${2:-}" in
+      send-text|send-keys) exit 0 ;;
+      read) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
+      get) printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"/"}}}\n' "$3" ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close|run) exit 0 ;;
+    esac
+    exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/herdr"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${1:-}" >> "$FM_SLEEP_LOG"
@@ -134,7 +149,7 @@ test_claude_escape_records_interrupt_idle() {
   env PATH="$fb:$PATH" FM_HOME="$home" FM_SLEEP_LOG="$log" \
     "$SEND" task --key Escape 2>/dev/null; rc=$?
   expect_code 0 "$rc" "Claude Escape send should succeed"
-  out=$(fm_busy_classify tmux sess:win claude task "$home/state")
+  out=$(fm_busy_classify herdr sess:win claude task "$home/state")
   [ "$out" = "idle fm-interrupt" ] \
     || fail "Claude Escape must classify idle/fm-interrupt, got '$out'"
   pass "fm-send: a successful Claude Escape records the interrupt lifecycle edge"
