@@ -106,6 +106,14 @@ fm_test_fake_herdr_spawn() {
   cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+# Per-case backend state lives beside the fakebin so sequential spawns mint
+# fresh ids and closes are observable as structured absence.
+STATEDIR="${FM_FAKE_HERDR_STATE_DIR:-$(dirname "$0")/../herdr-state}"
+mkdir -p "$STATEDIR" 2>/dev/null || true
+[ -f "$STATEDIR/next" ] || printf '1\n' > "$STATEDIR/next"
+herdr_next() { local n; n=$(cat "$STATEDIR/next"); printf '%s' "$n"; printf '%s\n' $((n + 1)) > "$STATEDIR/next"; }
+is_closed() { grep -Fxq "$1" "$STATEDIR/closed" 2>/dev/null; }
+closed_add() { is_closed "$1" || printf '%s\n' "$1" >> "$STATEDIR/closed"; }
 case "$*" in
   *'status --json'*)
     printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
@@ -119,21 +127,39 @@ case "${1:-}" in
   workspace)
     case "${2:-}" in
       list) printf '{"result":{"workspaces":[]}}\n' ;;
-      create) printf '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"seedtab1"},"root_pane":{"pane_id":"seedpane1"}}}\n' ;;
+      create)
+        n=$(herdr_next)
+        printf '{"result":{"workspace":{"workspace_id":"w%s"},"tab":{"tab_id":"seedtab%s"},"root_pane":{"pane_id":"seedpane%s"}}}\n' "$n" "$n" "$n"
+        ;;
     esac
     exit 0 ;;
   tab)
     case "${2:-}" in
       list) printf '{"result":{"tabs":[]}}\n' ;;
-      create) printf '{"result":{"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}\n' ;;
-      close) exit 0 ;;
+      create)
+        n=$(herdr_next)
+        printf '%s\t%s\n' "t$n" "p$n" >> "$STATEDIR/tabs"
+        printf '{"result":{"tab":{"tab_id":"t%s"},"root_pane":{"pane_id":"p%s"}}}\n' "$n" "$n"
+        ;;
+      close)
+        pane=$(awk -v t="${3:-}" '$1 == t {print $2}' "$STATEDIR/tabs" 2>/dev/null | head -1)
+        [ -n "$pane" ] && closed_add "$pane"
+        exit 0 ;;
     esac
     exit 0 ;;
   pane)
     case "${2:-}" in
-      get) printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}" ;;
+      get)
+        if is_closed "$3"; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        else
+          printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}"
+        fi ;;
       process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
-      close|run) exit 0 ;;
+      close)
+        closed_add "$3"
+        exit 0 ;;
+      run) exit 0 ;;
       send-text)
         if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
           printf '%s\n' "$4" >> "$FM_FAKE_LAUNCH_LOG"
@@ -144,7 +170,11 @@ case "${1:-}" in
     esac
     exit 0 ;;
   agent)
-    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    if is_closed "$3"; then
+      printf '{"error":{"code":"agent_not_found"}}\n'
+    else
+      printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    fi
     exit 0 ;;
   terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac

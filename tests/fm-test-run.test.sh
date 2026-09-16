@@ -1004,7 +1004,7 @@ test_live_guards_expect_a_capability_skip_class() {
   # FM_LIVE=0 makes every live guard refuse without touching a harness, so this
   # exercises the real family through the real runner in bounded time.
   FM_LIVE=0 "$RUNNER" --json "$tmp/timing.json" \
-    tests/fm-composer-matrix-live-e2e.test.sh >"$out" 2>"$tmp/err.txt" \
+    tests/fm-herdr-submit-confirm-live-e2e.test.sh >"$out" 2>"$tmp/err.txt" \
     || fail "a disabled live guard must not fail the runner: $(cat "$tmp/err.txt")"
   grep -q 'expected_gate_skip=live-capability' "$out" \
     || fail "the live-harness family must expect a capability skip: $(grep FM_TEST_BEGIN "$out")"
