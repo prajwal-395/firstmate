@@ -667,6 +667,7 @@ tests/fm-agy-quota-lib.test.sh 2000
 tests/fm-agy-spend-gate.test.sh 12000
 tests/fm-agy-spend-gate-live-e2e.test.sh 100
 tests/fm-agy-survey-suppress.test.sh 100
+tests/fm-agent-process-liveness.test.sh 213
 tests/fm-afk-contract.test.sh 3000
 tests/fm-afk-pi-herdr-return-e2e.test.sh 100
 tests/fm-afk-return.test.sh 1837
