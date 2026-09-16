@@ -78,16 +78,13 @@ fm_backend_is_known() {  # <name>
 # HERDR_ENV=1 (plus HERDR_SOCKET_PATH/HERDR_PANE_ID) into every process it
 # manages a pane for; HERDR_ENV=1 alone selects herdr. No other backend is
 # detectable in this fork.
-# Callers needing the winning signal read FM_BACKEND_DETECT_SIGNAL (set to
-# HERDR_ENV) and FM_BACKEND_DETECTED after a direct (non-command-substitution)
-# call.
+# Callers needing the detection result read FM_BACKEND_DETECTED after a
+# direct (non-command-substitution) call.
 
 fm_backend_detect() {
   FM_BACKEND_DETECTED=""
-  FM_BACKEND_DETECT_SIGNAL=""
   if [ "${HERDR_ENV:-}" = "1" ]; then
     FM_BACKEND_DETECTED=herdr
-    FM_BACKEND_DETECT_SIGNAL=HERDR_ENV
     printf 'herdr'
     return 0
   fi
@@ -571,8 +568,8 @@ fm_backend_composer_state() {  # <backend> <target> [expected-label] -> empty|pe
 # Mirrors fm-crew-state.sh's pane_readable check; exists here as one shared
 # primitive so callers that only need a fast alive/dead read (recovery
 # digests, the session-start fleet digest) do not re-derive it inline.
-fm_backend_target_exists() {  # <backend> <target> [expected-label]
-  local backend=$1 target=$2 expected_label=${3:-} session pane
+fm_backend_target_exists() {  # <backend> <target>
+  local backend=$1 target=$2 session pane
   case "$backend" in
     herdr)
       fm_backend_source herdr || return 1

@@ -157,7 +157,7 @@ test_tmux_classifies_cursor_pane_without_inferring_dead() {
   local tree bin
   tree="$TMP_ROOT/tree5"; bin=$(make_cursor_tree "$tree")
   # shellcheck source=bin/fm-agent-process-lib.sh
-  ( FM_BACKEND_LIB_DIR="$ROOT/bin"; . "$ROOT/bin/fm-agent-process-lib.sh"
+  ( . "$ROOT/bin/fm-agent-process-lib.sh"
     [ "$(fm_agent_process_classify_name node "$bin/cursor-agent")" = agent ] \
       || fail "a cursor pane reported as node must classify agent"
     [ "$(fm_agent_process_classify_name '' "$bin/cursor-agent")" = agent ] \
