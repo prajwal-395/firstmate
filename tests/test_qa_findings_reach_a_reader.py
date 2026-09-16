@@ -33,6 +33,7 @@ from library.tools.subtitle_qa import verify_subtitle_timing
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RENDER_QA = PROJECT_ROOT / "library" / "tools" / "render_qa.py"
 SUBTITLE_QA = PROJECT_ROOT / "library" / "tools" / "subtitle_qa.py"
+REEL_HEARING = PROJECT_ROOT / "library" / "tools" / "reel_hearing.py"
 RUN_PIPELINE = (PROJECT_ROOT / "library" / "processes" / "edit_video"
                 / "run_pipeline.py")
 REVIEW_MANIFEST = (PROJECT_ROOT / "library" / "steps"
@@ -91,30 +92,57 @@ def _project(tmp_path: Path, rows) -> Path:
 
 # ── 1. Every metric has a reader ─────────────────────────────────────
 
+#: What each producer's finding constructor is called.  A producer that
+#: builds its rows through a different class is harvested by naming that
+#: class here, never by a second harvesting rule.
+FINDING_CONSTRUCTORS = {
+    RENDER_QA: "RenderQAResult",
+    SUBTITLE_QA: "RenderQAResult",
+    REEL_HEARING: "Finding",
+}
+
+
 def _emitted_metrics(source_path: Path) -> set:
     """The metric names a producer can really construct.
 
     Read off the source rather than off a run, because reaching every
     branch of `render_qa` means rendering video, and the question here is
     which names EXIST - which the constructor calls answer exactly.
+
+    `reel_hearing` names its metrics as module constants and passes them
+    by name, so the constant assignments count too: a `metric=` keyword
+    whose value is a Name is resolved against the module's own top-level
+    string constants rather than skipped, which would have silently
+    harvested nothing at all from it.
     """
-    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    source = source_path.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    constants = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    constants[target.id] = node.value.value
+    wanted = FINDING_CONSTRUCTORS[source_path]
     names = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
         func = node.func
-        if getattr(func, "id", getattr(func, "attr", None)) != \
-                "RenderQAResult":
+        if getattr(func, "id", getattr(func, "attr", None)) != wanted:
             continue
         for kw in node.keywords:
-            if kw.arg == "metric" and isinstance(kw.value, ast.Constant):
+            if kw.arg != "metric":
+                continue
+            if isinstance(kw.value, ast.Constant):
                 names.add(kw.value.value)
+            elif isinstance(kw.value, ast.Name) and kw.value.id in constants:
+                names.add(constants[kw.value.id])
     return names
 
 
 def test_every_metric_the_producers_emit_has_a_reader():
-    emitted = _emitted_metrics(RENDER_QA) | _emitted_metrics(SUBTITLE_QA)
+    emitted = _every_emitted_metric()
     assert emitted, "no metric names were found - the harvest is broken"
     missing = sorted(emitted - set(qa.FINDING_READERS))
     assert not missing, (
@@ -125,9 +153,13 @@ def test_every_metric_the_producers_emit_has_a_reader():
         f"was written to remove.")
 
 
+def _every_emitted_metric() -> set:
+    return set().union(*(_emitted_metrics(p) for p in FINDING_CONSTRUCTORS))
+
+
 def test_no_reader_is_declared_for_a_metric_nothing_emits():
     """The other direction, so the table cannot go stale."""
-    emitted = _emitted_metrics(RENDER_QA) | _emitted_metrics(SUBTITLE_QA)
+    emitted = _every_emitted_metric()
     stale = sorted(set(qa.FINDING_READERS) - emitted)
     assert not stale, (
         f"FINDING_READERS claims {stale}, which no producer emits.")
@@ -143,8 +175,23 @@ def test_the_subtitle_producer_really_emits_the_metrics_harvested():
     assert "subtitle_read_speed" in live and "subtitle_gaps" in live
 
 
+def test_the_hearing_producer_really_emits_the_metrics_harvested():
+    """The harvest is source-read; check it against the module's own list."""
+    from library.tools import reel_hearing
+
+    assert _emitted_metrics(REEL_HEARING) == set(reel_hearing.METRICS)
+    assert set(reel_hearing.METRICS) <= set(qa.FINDING_READERS)
+
+
 def test_every_owner_is_a_real_dag_node():
-    nodes = {n["id"] for n in json.loads(DAG.read_text(encoding="utf-8"))["nodes"]}
+    # BOTH processes: `library/steps/` belongs to the repository, not to
+    # one process, and node ids are unique across them
+    # (AGENTS.md section 3).  A reel-level finding is owned by a `reels`
+    # node, which is a real owner and not a missing one.
+    from library.tools import processes
+
+    nodes = {n["id"] for n in processes.merged_dag()["nodes"]}
+    assert {n["id"] for n in json.loads(DAG.read_text(encoding="utf-8"))["nodes"]} <= nodes
     for reader in qa.FINDING_READERS.values():
         assert reader.owner in nodes, (
             f"{reader.metric} is owned by '{reader.owner}', which is not a "

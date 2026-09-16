@@ -1,0 +1,718 @@
+{
+ "durationSec": 45.8653125,
+ "loadSec": 1.598891019821167,
+ "processingSec": 0.2669219970703125,
+ "text": "What kind of content works best when it comes to being discovered on AI platforms? Yeah, so the best content is content that answers specific questions. So if imagine you had a customer and your customer comes up to you and maybe has a very specific question, you kind of think about that and you make content based on that. So instead of being something super generic on a blog post and something that's good for Google but not for AI, make sure that you're coming up with very interesting niche qu niche questions about your company and what you can say about it. And AI really likes that. It's exactly why we've been building this platform we're calling the Lucy Visibility System. We'd love for you to go check it out, see how AI sees you. The links in the bio",
+ "words": [
+  {
+   "end": 0.24,
+   "start": 0.08,
+   "text": "What"
+  },
+  {
+   "end": 0.4,
+   "start": 0.24,
+   "text": "kind"
+  },
+  {
+   "end": 0.48,
+   "start": 0.4,
+   "text": "of"
+  },
+  {
+   "end": 0.88,
+   "start": 0.48,
+   "text": "content"
+  },
+  {
+   "end": 1.28,
+   "start": 0.88,
+   "text": "works"
+  },
+  {
+   "end": 1.5,
+   "start": 1.28,
+   "text": "best"
+  },
+  {
+   "end": 1.72,
+   "start": 1.52,
+   "text": "when"
+  },
+  {
+   "end": 1.92,
+   "start": 1.76,
+   "text": "it"
+  },
+  {
+   "end": 2.32,
+   "start": 1.92,
+   "text": "comes"
+  },
+  {
+   "end": 2.48,
+   "start": 2.32,
+   "text": "to"
+  },
+  {
+   "end": 2.88,
+   "start": 2.48,
+   "text": "being"
+  },
+  {
+   "end": 3.5,
+   "start": 2.88,
+   "text": "discovered"
+  },
+  {
+   "end": 3.76,
+   "start": 3.6,
+   "text": "on"
+  },
+  {
+   "end": 4.13,
+   "start": 3.7600000000000002,
+   "text": "AI"
+  },
+  {
+   "end": 4.78,
+   "start": 4.24,
+   "text": "platforms?"
+  },
+  {
+   "end": 5.35,
+   "start": 5.12,
+   "text": "Yeah,"
+  },
+  {
+   "end": 5.6,
+   "start": 5.36,
+   "text": "so"
+  },
+  {
+   "end": 5.76,
+   "start": 5.6000000000000005,
+   "text": "the"
+  },
+  {
+   "end": 6,
+   "start": 5.76,
+   "text": "best"
+  },
+  {
+   "end": 6.38,
+   "start": 6,
+   "text": "content"
+  },
+  {
+   "end": 6.63,
+   "start": 6.4,
+   "text": "is"
+  },
+  {
+   "end": 7.04,
+   "start": 6.640000000000001,
+   "text": "content"
+  },
+  {
+   "end": 7.2,
+   "start": 7.04,
+   "text": "that"
+  },
+  {
+   "end": 7.76,
+   "start": 7.2,
+   "text": "answers"
+  },
+  {
+   "end": 8.32,
+   "start": 7.76,
+   "text": "specific"
+  },
+  {
+   "end": 8.92,
+   "start": 8.32,
+   "text": "questions."
+  },
+  {
+   "end": 9.28,
+   "start": 9.040000000000001,
+   "text": "So"
+  },
+  {
+   "end": 9.64,
+   "start": 9.36,
+   "text": "if"
+  },
+  {
+   "end": 10.08,
+   "start": 9.76,
+   "text": "imagine"
+  },
+  {
+   "end": 10.48,
+   "start": 10.24,
+   "text": "you"
+  },
+  {
+   "end": 10.64,
+   "start": 10.48,
+   "text": "had"
+  },
+  {
+   "end": 10.72,
+   "start": 10.64,
+   "text": "a"
+  },
+  {
+   "end": 11.12,
+   "start": 10.72,
+   "text": "customer"
+  },
+  {
+   "end": 11.44,
+   "start": 11.200000000000001,
+   "text": "and"
+  },
+  {
+   "end": 11.6,
+   "start": 11.44,
+   "text": "your"
+  },
+  {
+   "end": 12.04,
+   "start": 11.6,
+   "text": "customer"
+  },
+  {
+   "end": 12.32,
+   "start": 12.08,
+   "text": "comes"
+  },
+  {
+   "end": 12.56,
+   "start": 12.32,
+   "text": "up"
+  },
+  {
+   "end": 12.8,
+   "start": 12.56,
+   "text": "to"
+  },
+  {
+   "end": 12.92,
+   "start": 12.8,
+   "text": "you"
+  },
+  {
+   "end": 13.52,
+   "start": 13.200000000000001,
+   "text": "and"
+  },
+  {
+   "end": 13.92,
+   "start": 13.52,
+   "text": "maybe"
+  },
+  {
+   "end": 14.08,
+   "start": 13.92,
+   "text": "has"
+  },
+  {
+   "end": 14.16,
+   "start": 14.08,
+   "text": "a"
+  },
+  {
+   "end": 14.4,
+   "start": 14.16,
+   "text": "very"
+  },
+  {
+   "end": 14.62,
+   "start": 14.4,
+   "text": "specific"
+  },
+  {
+   "end": 15.6299375,
+   "start": 15.25,
+   "text": "question,"
+  },
+  {
+   "end": 16,
+   "start": 15.81,
+   "text": "you"
+  },
+  {
+   "end": 16.21,
+   "start": 16.05,
+   "text": "kind"
+  },
+  {
+   "end": 16.37,
+   "start": 16.21,
+   "text": "of"
+  },
+  {
+   "end": 16.69,
+   "start": 16.37,
+   "text": "think"
+  },
+  {
+   "end": 16.93,
+   "start": 16.69,
+   "text": "about"
+  },
+  {
+   "end": 17.0999375,
+   "start": 16.93,
+   "text": "that"
+  },
+  {
+   "end": 17.41,
+   "start": 17.17,
+   "text": "and"
+  },
+  {
+   "end": 17.65,
+   "start": 17.41,
+   "text": "you"
+  },
+  {
+   "end": 17.89,
+   "start": 17.65,
+   "text": "make"
+  },
+  {
+   "end": 18.37,
+   "start": 17.89,
+   "text": "content"
+  },
+  {
+   "end": 18.630000000000003,
+   "start": 18.37,
+   "text": "based"
+  },
+  {
+   "end": 19.01,
+   "start": 18.77,
+   "text": "on"
+  },
+  {
+   "end": 19.25,
+   "start": 19.01,
+   "text": "that."
+  },
+  {
+   "end": 19.73,
+   "start": 19.41,
+   "text": "So"
+  },
+  {
+   "end": 20.05,
+   "start": 19.73,
+   "text": "instead"
+  },
+  {
+   "end": 20.12,
+   "start": 20.05,
+   "text": "of"
+  },
+  {
+   "end": 20.69,
+   "start": 20.29,
+   "text": "being"
+  },
+  {
+   "end": 21.01,
+   "start": 20.69,
+   "text": "something"
+  },
+  {
+   "end": 21.46,
+   "start": 21.17,
+   "text": "super"
+  },
+  {
+   "end": 22.05,
+   "start": 21.490000000000002,
+   "text": "generic"
+  },
+  {
+   "end": 22.37,
+   "start": 22.21,
+   "text": "on"
+  },
+  {
+   "end": 22.509999999999998,
+   "start": 22.37,
+   "text": "a"
+  },
+  {
+   "end": 22.93,
+   "start": 22.53,
+   "text": "blog"
+  },
+  {
+   "end": 23.16,
+   "start": 22.93,
+   "text": "post"
+  },
+  {
+   "end": 23.490000000000002,
+   "start": 23.25,
+   "text": "and"
+  },
+  {
+   "end": 23.73,
+   "start": 23.490000000000002,
+   "text": "something"
+  },
+  {
+   "end": 23.93,
+   "start": 23.73,
+   "text": "that's"
+  },
+  {
+   "end": 24.089937499999998,
+   "start": 23.97,
+   "text": "good"
+  },
+  {
+   "end": 24.21,
+   "start": 24.130000000000003,
+   "text": "for"
+  },
+  {
+   "end": 24.53,
+   "start": 24.21,
+   "text": "Google"
+  },
+  {
+   "end": 24.689999999999998,
+   "start": 24.53,
+   "text": "but"
+  },
+  {
+   "end": 24.810000000000002,
+   "start": 24.69,
+   "text": "not"
+  },
+  {
+   "end": 25.009999999999998,
+   "start": 24.85,
+   "text": "for"
+  },
+  {
+   "end": 25.279937500000003,
+   "start": 25.009999999999998,
+   "text": "AI,"
+  },
+  {
+   "end": 25.810000000000002,
+   "start": 25.65,
+   "text": "make"
+  },
+  {
+   "end": 25.97,
+   "start": 25.810000000000002,
+   "text": "sure"
+  },
+  {
+   "end": 26.05,
+   "start": 25.97,
+   "text": "that"
+  },
+  {
+   "end": 26.29,
+   "start": 26.05,
+   "text": "you're"
+  },
+  {
+   "end": 26.450000000000003,
+   "start": 26.29,
+   "text": "coming"
+  },
+  {
+   "end": 26.61,
+   "start": 26.450000000000003,
+   "text": "up"
+  },
+  {
+   "end": 26.770000000000003,
+   "start": 26.61,
+   "text": "with"
+  },
+  {
+   "end": 26.93,
+   "start": 26.770000000000003,
+   "text": "very"
+  },
+  {
+   "end": 27.41,
+   "start": 27.009999999999998,
+   "text": "interesting"
+  },
+  {
+   "end": 27.73,
+   "start": 27.41,
+   "text": "niche"
+  },
+  {
+   "end": 27.810000000000002,
+   "start": 27.73,
+   "text": "qu"
+  },
+  {
+   "end": 28.37,
+   "start": 28.05,
+   "text": "niche"
+  },
+  {
+   "end": 28.61,
+   "start": 28.37,
+   "text": "questions"
+  },
+  {
+   "end": 29.380000000000003,
+   "start": 29.14,
+   "text": "about"
+  },
+  {
+   "end": 29.62,
+   "start": 29.380000000000003,
+   "text": "your"
+  },
+  {
+   "end": 30.180000000000003,
+   "start": 29.62,
+   "text": "company"
+  },
+  {
+   "end": 30.470000000000002,
+   "start": 30.180000000000003,
+   "text": "and"
+  },
+  {
+   "end": 30.8199375,
+   "start": 30.5,
+   "text": "what"
+  },
+  {
+   "end": 30.979937500000002,
+   "start": 30.82,
+   "text": "you"
+  },
+  {
+   "end": 31.220000000000002,
+   "start": 30.98,
+   "text": "can"
+  },
+  {
+   "end": 31.380000000000003,
+   "start": 31.220000000000002,
+   "text": "say"
+  },
+  {
+   "end": 31.540000000000003,
+   "start": 31.380000000000003,
+   "text": "about"
+  },
+  {
+   "end": 31.78,
+   "start": 31.540000000000003,
+   "text": "it."
+  },
+  {
+   "end": 31.8099375,
+   "start": 31.78,
+   "text": "And"
+  },
+  {
+   "end": 32.42,
+   "start": 32.02,
+   "text": "AI"
+  },
+  {
+   "end": 32.58,
+   "start": 32.42,
+   "text": "really"
+  },
+  {
+   "end": 32.7999375,
+   "start": 32.58,
+   "text": "likes"
+  },
+  {
+   "end": 33.1399375,
+   "start": 32.82,
+   "text": "that."
+  },
+  {
+   "end": 33.300000000000004,
+   "start": 33.14,
+   "text": "It's"
+  },
+  {
+   "end": 33.78,
+   "start": 33.38,
+   "text": "exactly"
+  },
+  {
+   "end": 33.8899375,
+   "start": 33.78,
+   "text": "why"
+  },
+  {
+   "end": 34.18,
+   "start": 33.940000000000005,
+   "text": "we've"
+  },
+  {
+   "end": 34.34,
+   "start": 34.18,
+   "text": "been"
+  },
+  {
+   "end": 34.660000000000004,
+   "start": 34.34,
+   "text": "building"
+  },
+  {
+   "end": 34.82,
+   "start": 34.660000000000004,
+   "text": "this"
+  },
+  {
+   "end": 35.1399375,
+   "start": 34.82,
+   "text": "platform"
+  },
+  {
+   "end": 35.54,
+   "start": 35.300000000000004,
+   "text": "we're"
+  },
+  {
+   "end": 35.7799375,
+   "start": 35.54,
+   "text": "calling"
+  },
+  {
+   "end": 35.940000000000005,
+   "start": 35.78,
+   "text": "the"
+  },
+  {
+   "end": 36.260000000000005,
+   "start": 35.940000000000005,
+   "text": "Lucy"
+  },
+  {
+   "end": 37.120000000000005,
+   "start": 36.42,
+   "text": "Visibility"
+  },
+  {
+   "end": 37.369937500000006,
+   "start": 37.14,
+   "text": "System."
+  },
+  {
+   "end": 37.94,
+   "start": 37.7,
+   "text": "We'd"
+  },
+  {
+   "end": 38.119937500000006,
+   "start": 37.94,
+   "text": "love"
+  },
+  {
+   "end": 38.34,
+   "start": 38.18,
+   "text": "for"
+  },
+  {
+   "end": 38.42,
+   "start": 38.34,
+   "text": "you"
+  },
+  {
+   "end": 38.58,
+   "start": 38.42,
+   "text": "to"
+  },
+  {
+   "end": 38.7799375,
+   "start": 38.58,
+   "text": "go"
+  },
+  {
+   "end": 39.14,
+   "start": 38.900000000000006,
+   "text": "check"
+  },
+  {
+   "end": 39.38,
+   "start": 39.14,
+   "text": "it"
+  },
+  {
+   "end": 39.56,
+   "start": 39.38,
+   "text": "out,"
+  },
+  {
+   "end": 39.78,
+   "start": 39.620000000000005,
+   "text": "see"
+  },
+  {
+   "end": 40.02,
+   "start": 39.78,
+   "text": "how"
+  },
+  {
+   "end": 40.42,
+   "start": 40.02,
+   "text": "AI"
+  },
+  {
+   "end": 40.74,
+   "start": 40.42,
+   "text": "sees"
+  },
+  {
+   "end": 40.94,
+   "start": 40.74,
+   "text": "you."
+  },
+  {
+   "end": 41.14,
+   "start": 40.980000000000004,
+   "text": "The"
+  },
+  {
+   "end": 41.300000000000004,
+   "start": 41.14,
+   "text": "links"
+  },
+  {
+   "end": 41.54,
+   "start": 41.46,
+   "text": "in"
+  },
+  {
+   "end": 41.78,
+   "start": 41.540000000000006,
+   "text": "the"
+  },
+  {
+   "end": 41.870000000000005,
+   "start": 41.78,
+   "text": "bio"
+  }
+ ]
+}

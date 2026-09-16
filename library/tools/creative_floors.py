@@ -27,6 +27,18 @@ and points here.
 
 **There are NO creative floors, and there must not be again.**
 [why](docs/RULE_EVIDENCE.md#no-creative-floors)
+
+Two things are NOT taste, and are why the rule is workable
+----------------------------------------------------------
+Moved out of AGENTS.md 10.5 on 2026-09-16, verbatim, because a rule
+about what does NOT count as taste belongs beside the vocabulary that
+decides what does.
+
+A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`,
+`series_look.NEUTRAL_CDL` - is the absence of decoration, not a choice
+of it. And a rule acting on a value the creative direction really
+DECLARED is not a fallback: `creative_cohesion` may judge a transition
+against a declared "high", but may not invent the word first.
 """
 
 from __future__ import annotations

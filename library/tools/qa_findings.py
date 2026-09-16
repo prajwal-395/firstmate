@@ -34,9 +34,10 @@ pins the run summary's status against the findings it prints.
 carries one row per metric either producer can emit, naming the step that
 could act on it and what a reader does with it.  A metric with no row
 comes back in `QAFindings.unrouted`, is printed first and loudest, and
-fails a test that harvests the metric names out of `render_qa.py` and
-`subtitle_qa.py`.  The failure mode this module removes cannot be
-reintroduced by adding a check and forgetting the reader.
+fails a test that harvests the metric names out of `render_qa.py`,
+`subtitle_qa.py` and `reel_hearing.py`.  The failure mode this module
+removes cannot be reintroduced by adding a check and forgetting the
+reader.
 
 Owners are DAG node ids (`plan_subtitles`, not `step_4_01_plan_subtitles`)
 - the vocabulary `pipeline_data.json` and both ledgers key everything by.
@@ -58,7 +59,7 @@ One enumeration, `library/tools/qa_findings.py`. [why](docs/RULE_EVIDENCE.md#the
 - **Two readers, one module.** The run summary prints them at the end of every run, and step 3.03 `review_rough_cut` is handed them as `render_qa_findings`. Both go through `read_qa_report`, so neither can develop a private opinion about which findings matter.
 - **Reading is not gating.** The summary block runs AFTER `status` is decided and assigns nothing; promoting a report-only check is still one boolean in `render_qa`. The test pins that ordering off the runner's own source.
 - **`passed` is the verdict; `severity` is how loud it is.** A check that did not pass is FAILING at its declared severity. One that passed while carrying a non-`info` severity is ADVISORY **if and only if** its metric is in `REPORT_ONLY_METRICS`, the two whose gate boolean is False. Advisory is read off that enumeration and never off severity alone, and a check's severity moves with its verdict.
-- **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of both producers and checks BOTH directions.
+- **A metric with no row in `FINDING_READERS` is named first and loudest** - in the summary and in what 3.03 receives - and fails the test, which harvests the metric names out of every producer and checks BOTH directions.
 - **No DAG edge carries the findings to 3.03 and none can**: `validate` is the final node and 3.03 is in phase 3, so an edge would be a back edge. They travel by name in `gather_step_inputs`, only to a step whose manifest DECLARES them, and they describe the LAST render - `load_findings` asks state first and the file second and RECORDS which answered. **Step 3.03's own `handoff.md` defines every field and states plainly that a finding is not grounds to reject a rough cut** - the prose carries it since the freeze lifted 2026-09-09, so nothing ships a legend beside the table.
 - `tests/test_qa_findings_reach_a_reader.py`.
 """
@@ -69,6 +70,8 @@ import json
 import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Sequence
+
+from library.tools import reel_hearing
 
 
 # ── Verdicts ─────────────────────────────────────────────────────────
@@ -209,6 +212,36 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "subtitle_read_speed", "plan_subtitles",
         "Characters per second. The grouper fits cards to the caption "
         "box at the resolved type size, so this moves with that size."),
+    # ── reel_hearing.py ──
+    #
+    # The first producer that measures the render against the PLAN
+    # rather than against itself.  Nothing gates on these
+    # (`reel_hearing.GATES` is False and no build reads the record);
+    # they are read here so they are classified, severitied and owned
+    # by the same table as every other finding rather than by a second
+    # opinion.
+    FindingReader(
+        reel_hearing.SCRIPT_METRIC, "build_reels",
+        "Words the render says that the plan does not, or does not say "
+        "that the plan does. The reel's own clip ranges decide which "
+        "words it carries, so a divergence is either the cut landing "
+        "somewhere else or the transcript the cut was made from being "
+        "wrong about what is there."),
+    FindingReader(
+        reel_hearing.DRIFT_METRIC, "build_reels",
+        "Where the render says a word against where the plan puts it. "
+        "Isolated words are two transcribers disagreeing; a RUN of "
+        "consecutive words drifting the same way is a passage sitting "
+        "somewhere the plan does not think it is, and every word-timed "
+        "decision over it - captions, karaoke, take boundaries - is "
+        "placed from that wrong position."),
+    FindingReader(
+        reel_hearing.COVERAGE_METRIC, "plan_subtitles",
+        "Speech in the delivered file with no caption card on screen "
+        "while it is spoken. `subtitle_gaps` asks the same question of "
+        "the PLAN; this asks it of what was heard, so a card the plan "
+        "never generated - a transcript row with text and no word "
+        "timings generates none - is visible here and nowhere else."),
 )
 
 

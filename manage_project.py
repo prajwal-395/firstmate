@@ -63,7 +63,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "deliver-reel",
-    "watch-reel", "touch-reel", "status",
+    "watch-reel", "hear-reel", "touch-reel", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
@@ -1638,6 +1638,64 @@ def cmd_watch_reel(args):
           f"--record <answers.json>".replace("  ", " "))
 
 
+def cmd_hear_reel(args):
+    """Hear a delivered reel against its own plan, and report what diverged.
+
+    The audio twin of `watch-reel`. `render_qa` measures the render
+    against itself, `manifest_validator` checks the plan against itself,
+    and nothing compared what the render is HEARD to say against what
+    the plan says it says - which is the exact shape of a caption card
+    sitting a second behind its own audio in a delivered file.
+
+    It REPORTS. It fails no build and refuses no render: no gate reads
+    the record it writes, and promoting any of these checks to a gate is
+    the captain's call (`library/tools/reel_hearing.GATES`).
+
+    It RENDERS NOTHING and it re-transcribes nothing upstream. It reads
+    the file `deliver-reel` already wrote, the timeline `build_reels`
+    already serialized, and the transcript the pipeline already made.
+
+    See library/tools/reel_hearing.py, and
+    library/skills/hear_the_reel/ for the on-demand half.
+    """
+    from library.skills.hear_the_reel import skill as hear
+    from library.tools import reel_hearing, render_watch
+
+    project_folder = _reel_project_folder(args.project)
+
+    if args.all:
+        rows = render_watch.delivered_reels(project_folder)
+        if not rows:
+            print("REFUSED: this project has no delivered reel to hear. "
+                  "A reel becomes a file when you run deliver-reel.",
+                  file=sys.stderr)
+            sys.exit(1)
+        targets = [{"video": row["video_path"], "reel": None}
+                   for row in rows]
+    else:
+        targets = [{"video": args.video, "reel": args.reel}]
+
+    heard_any = False
+    for target in targets:
+        observation = hear.run(
+            project_folder, args.step_id, reel=target["reel"],
+            video_path=target["video"], timeline_path=args.timeline,
+            announce=args.announce)
+        if not observation["available"]:
+            print(f"REFUSED: {observation['reason']}", file=sys.stderr)
+            continue
+        heard_any = True
+        print("\n".join(observation["summary"]))
+        print(f"  record:   {observation['record']}")
+        if observation.get("announced"):
+            for fired in observation["announced"]:
+                print(f"  announced {fired['hook']}: {fired['outcome']} "
+                      f"- {fired['detail']}")
+        print()
+    if not heard_any:
+        sys.exit(1)
+
+
 def cmd_touch_reel(args):
     """Apply a structured change to a built reel's existing timeline.
 
@@ -1976,6 +2034,40 @@ def main():
              "asked. Files it onto the watch record beside the video. "
              "The answer is REPORTED, never gated")
     watch_reel_parser.set_defaults(func=cmd_watch_reel)
+
+    hear_reel_parser = sub.add_parser(
+        "hear-reel",
+        help="Hear a delivered reel against its plan and report what "
+             "diverged. Renders nothing, gates nothing")
+    hear_reel_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    hear_reel_parser.add_argument(
+        "reel", nargs="?", default=None,
+        help="The reel number or timeline name to hear. It must already "
+             "have been rendered with deliver-reel: this verb reads that "
+             "file and never starts a render")
+    hear_reel_parser.add_argument(
+        "--all", action="store_true",
+        help="Hear every delivered reel in the project - the batch pass, "
+             "over the same core as one reel")
+    hear_reel_parser.add_argument(
+        "--video", default="",
+        help="Hear this file instead of looking a reel up by number")
+    hear_reel_parser.add_argument(
+        "--timeline", default="",
+        help="The serialized plan, when the render carries no "
+             ".deliver.json naming its timeline")
+    hear_reel_parser.add_argument(
+        "--step-id", default="verify_reels",
+        help="Which step this hearing is recorded against, for the "
+             "skill receipt (default: verify_reels)")
+    hear_reel_parser.add_argument(
+        "--announce", action="store_true",
+        help="Raise each finding on the project's hook layer, which is "
+             "how one reaches the review channel. Nothing fires unless "
+             "the project declares a hook for it")
+    hear_reel_parser.set_defaults(func=cmd_hear_reel)
 
     touch_reel_parser = sub.add_parser(
         "touch-reel",

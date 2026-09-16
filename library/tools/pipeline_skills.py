@@ -263,6 +263,29 @@ SKILLS: Dict[str, Skill] = {
                  "it measured, and do not approve the timeline."),
         pipeline_args=None,
     ),
+    "hear_the_reel": Skill(
+        name="hear_the_reel",
+        kind=REPORT,
+        module="library.skills.hear_the_reel",
+        when=("You are judging, revising or building on a DELIVERED "
+              "reel and the question is whether what it says lines up "
+              "with what was planned - a caption, a karaoke highlight, "
+              "a take boundary or a cut that looks wrong, or before you "
+              "tell the captain a reel is fine. Never to judge a plan "
+              "on paper: it hears a FILE, and with no rendered file it "
+              "refuses rather than passes."),
+        cost=("Seconds. 3.5s measured for a 45.9s reel - no Resolve, no "
+              "GPU, no render, no model call. It needs the on-device "
+              "transcriber installed; absent, it says so rather than "
+              "reporting a reel nobody listened to as clean."),
+        returns=("An OBSERVATION, never a verdict: one row per check - "
+                 "script divergence, timing drift, caption coverage - "
+                 "with the evidence under each, or `available: false` "
+                 "with the reason. Nothing here gates. Read "
+                 "`transcriber_anomalies` and "
+                 "`wordless_transcript_rows` before blaming the edit."),
+        pipeline_args=None,
+    ),
 }
 
 SKILLS_KEY = "skills"

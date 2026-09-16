@@ -282,6 +282,19 @@ _SUBTITLE_ID_RE = re.compile(
     r"^(sub_[^_]+_[^_]+_(?:\d+-\d+|nospan))_([0-9a-f]+)$")
 
 
+def is_segment_id(segment_id: Optional[object]) -> bool:
+    """Whether this name is one `segment_identifier` wrote.
+
+    The predicate half of `_SUBTITLE_ID_RE`, so a caller asking "is this
+    clip a rendered caption card" reads the answer off the naming
+    contract instead of matching `sub_` itself. `reel_hearing` asks it
+    of every clip on a serialized timeline: a caption card placed on the
+    wrong row is still a caption card, so the name is the identity and
+    the track is not.
+    """
+    return bool(_SUBTITLE_ID_RE.match(str(segment_id or "")))
+
+
 def stable_prefix(segment_id: Optional[object]) -> str:
     """The part of a rendered subtitle id that survives a re-render.
 

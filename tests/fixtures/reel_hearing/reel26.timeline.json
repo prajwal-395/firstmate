@@ -1,0 +1,338 @@
+{
+ "metadata": {
+  "end_frame": 1099,
+  "fps": 23.976,
+  "name": "Reel 26 - write-for-the-question-your-customer-ask",
+  "resolution": [
+   1080,
+   1920
+  ],
+  "start_frame": 0
+ },
+ "schema_version": "1.0",
+ "tracks": [
+  {
+   "clips": [
+    {
+     "duration": 671,
+     "file_path": "/footage/LC4932.MXF",
+     "name": "LC4932.MXF",
+     "record_in": 120,
+     "record_out": 791,
+     "source_in": 102392,
+     "source_out": 103063,
+     "unique_id": "5d501dc7-9062-4c2b-ba9b-573fec8ef50e"
+    }
+   ],
+   "index": 1,
+   "name": "Akshita",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 120,
+     "file_path": "/footage/LCATL0014.MXF",
+     "name": "LCATL0014.MXF",
+     "record_in": 0,
+     "record_out": 120,
+     "source_in": 3889,
+     "source_out": 4009,
+     "unique_id": "127bb042-e1c7-4ab9-9250-8749231aa07a"
+    },
+    {
+     "duration": 218,
+     "file_path": "/footage/LCATL0013.MXF",
+     "name": "LCATL0013.MXF",
+     "record_in": 791,
+     "record_out": 1009,
+     "source_in": 11540,
+     "source_out": 11758,
+     "unique_id": "acccc5c9-4f3c-4a46-9e3b-ca2415287525"
+    },
+    {
+     "duration": 19,
+     "file_path": "/footage/reel_freeze_8da72bf764.mov",
+     "name": "reel_freeze_8da72bf764.mov",
+     "record_in": 1009,
+     "record_out": 1028,
+     "source_in": 0,
+     "source_out": 18,
+     "unique_id": "a16d4873-f8ea-4132-8b57-c230b1706b10"
+    }
+   ],
+   "index": 2,
+   "name": "Craig",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 1028,
+     "file_path": "/footage/tv_frame_1f8e8d06ff.mov",
+     "name": "tv_frame_1f8e8d06ff.mov",
+     "record_in": 0,
+     "record_out": 1028,
+     "source_in": 0,
+     "source_out": 1028,
+     "unique_id": "0574643f-33ee-47c0-88ff-5d4cd4fbb6c7"
+    }
+   ],
+   "index": 3,
+   "name": "Frame",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 114,
+     "file_path": "/footage/sub_craig_f24c6416-7523-42bb-b9fe_162243-166986_e135147f.mov",
+     "name": "sub_craig_f24c6416-7523-42bb-b9fe_162243-166986_e135147f.mov",
+     "record_in": 0,
+     "record_out": 114,
+     "source_in": 0,
+     "source_out": 114,
+     "unique_id": "3c39bc98-600f-431f-942c-87cfd24f5079"
+    },
+    {
+     "duration": 84,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4270782-4274261_d48715b5.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4270782-4274261_d48715b5.mov",
+     "record_in": 124,
+     "record_out": 208,
+     "source_in": 12,
+     "source_out": 96,
+     "unique_id": "9e81f961-819c-4f87-9b28-9664546f02d3"
+    },
+    {
+     "duration": 101,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4274703-4278899_eb7ecb94.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4274703-4278899_eb7ecb94.mov",
+     "record_in": 218,
+     "record_out": 319,
+     "source_in": 12,
+     "source_out": 113,
+     "unique_id": "90bec21e-ec24-4131-b5da-ec07fab54425"
+    },
+    {
+     "duration": 34,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4279702-4281120_7892fa2b.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4279702-4281120_7892fa2b.mov",
+     "record_in": 338,
+     "record_out": 372,
+     "source_in": 12,
+     "source_out": 46,
+     "unique_id": "c48d0b29-8bbe-4dea-8003-bc4f24c1c54c"
+    },
+    {
+     "duration": 81,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4281502-4284862_73f18a82.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4281502-4284862_73f18a82.mov",
+     "record_in": 381,
+     "record_out": 462,
+     "source_in": 12,
+     "source_out": 93,
+     "unique_id": "3c58c467-066a-497a-a5b1-0f604a7a4fee"
+    },
+    {
+     "duration": 106,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4285122-4289542_b84c3a2a.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4285122-4289542_b84c3a2a.mov",
+     "record_in": 468,
+     "record_out": 574,
+     "source_in": 12,
+     "source_out": 118,
+     "unique_id": "2ee318f4-efdb-4fb0-aaa0-175c31b68139"
+    },
+    {
+     "duration": 26,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4289562-4290678_a84166b0.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4289562-4290678_a84166b0.mov",
+     "record_in": 575,
+     "record_out": 601,
+     "source_in": 12,
+     "source_out": 38,
+     "unique_id": "74bedacc-2559-4810-b922-2c75a67cb258"
+    },
+    {
+     "duration": 80,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4292262-4295562_948b012a.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4292262-4295562_948b012a.mov",
+     "record_in": 639,
+     "record_out": 719,
+     "source_in": 12,
+     "source_out": 92,
+     "unique_id": "2651b5e6-ab1e-4cca-b90c-d270cf74dda3"
+    },
+    {
+     "duration": 43,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4295642-4297401_57856fc8.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4295642-4297401_57856fc8.mov",
+     "record_in": 720,
+     "record_out": 763,
+     "source_in": 12,
+     "source_out": 55,
+     "unique_id": "af5da8be-88f6-4bc8-90c8-3540131d8585"
+    },
+    {
+     "duration": 20,
+     "file_path": "/footage/sub_akshita_9aeb99e4-0279-4996-a126_4297744-4298601_465f148e.mov",
+     "name": "sub_akshita_9aeb99e4-0279-4996-a126_4297744-4298601_465f148e.mov",
+     "record_in": 771,
+     "record_out": 791,
+     "source_in": 12,
+     "source_out": 32,
+     "unique_id": "d37c6c32-86f9-4950-8767-704da0966a8b"
+    },
+    {
+     "duration": 53,
+     "file_path": "/footage/sub_craig_e6090373-2cf5-4e9d-bfb9_481311-483483_c0bda81c.mov",
+     "name": "sub_craig_e6090373-2cf5-4e9d-bfb9_481311-483483_c0bda81c.mov",
+     "record_in": 791,
+     "record_out": 844,
+     "source_in": 12,
+     "source_out": 65,
+     "unique_id": "29307fac-acbb-4361-a7cd-ce32642928a4"
+    },
+    {
+     "duration": 135,
+     "file_path": "/footage/sub_craig_e6090373-2cf5-4e9d-bfb9_483563-489183_8278c86b.mov",
+     "name": "sub_craig_e6090373-2cf5-4e9d-bfb9_483563-489183_8278c86b.mov",
+     "record_in": 845,
+     "record_out": 980,
+     "source_in": 12,
+     "source_out": 147,
+     "unique_id": "11331e83-80d8-4dd3-a150-cd34b292824d"
+    },
+    {
+     "duration": 20,
+     "file_path": "/footage/sub_craig_e6090373-2cf5-4e9d-bfb9_489323-490184_dbf1ea5b.mov",
+     "name": "sub_craig_e6090373-2cf5-4e9d-bfb9_489323-490184_dbf1ea5b.mov",
+     "record_in": 984,
+     "record_out": 1004,
+     "source_in": 12,
+     "source_out": 32,
+     "unique_id": "e4592598-04e0-4767-96db-20cad07f1ca9"
+    }
+   ],
+   "index": 4,
+   "name": "Subtitles",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 144,
+     "file_path": "/footage/mg_geo-podcast_589d4594.mov",
+     "name": "mg_geo-podcast_589d4594.mov",
+     "record_in": 234,
+     "record_out": 378,
+     "source_in": 0,
+     "source_out": 143,
+     "unique_id": "ebb59578-0280-45df-b3c7-c0ea23832521"
+    }
+   ],
+   "index": 5,
+   "name": "Semantic",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 96,
+     "file_path": "/footage/mg_geo-podcast_5a103b10.mov",
+     "name": "mg_geo-podcast_5a103b10.mov",
+     "record_in": 343,
+     "record_out": 439,
+     "source_in": 0,
+     "source_out": 95,
+     "unique_id": "462b6bfb-62d1-407d-8897-79e72a1b6889"
+    }
+   ],
+   "index": 6,
+   "name": "Semantic 2",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 84,
+     "file_path": "/footage/mg_geo-podcast_dd97954f.mov",
+     "name": "mg_geo-podcast_dd97954f.mov",
+     "record_in": 0,
+     "record_out": 84,
+     "source_in": 0,
+     "source_out": 83,
+     "unique_id": "01f71956-2d43-42d3-acb9-3c8a9bdd4ca1"
+    },
+    {
+     "duration": 84,
+     "file_path": "/footage/mg_geo-podcast_a1b596b2.mov",
+     "name": "mg_geo-podcast_a1b596b2.mov",
+     "record_in": 124,
+     "record_out": 208,
+     "source_in": 0,
+     "source_out": 83,
+     "unique_id": "261e02a9-e3f6-41a8-a79e-1973705790ea"
+    },
+    {
+     "duration": 71,
+     "file_path": "/footage/logo_reveal.mov",
+     "name": "logo_reveal.mov",
+     "record_in": 1028,
+     "record_out": 1099,
+     "source_in": 0,
+     "source_out": 88,
+     "unique_id": "75da4dbb-a6c1-4f2e-abe8-bae9dea78d0d"
+    }
+   ],
+   "index": 7,
+   "name": "Motion Graphics",
+   "type": "video"
+  },
+  {
+   "clips": [
+    {
+     "duration": 671,
+     "file_path": "/footage/LC4932.MXF",
+     "name": "LC4932.MXF",
+     "record_in": 120,
+     "record_out": 791,
+     "source_in": 102392,
+     "source_out": 103063,
+     "unique_id": "60b251e2-e813-4512-b8b1-5a5558fdc854"
+    }
+   ],
+   "index": 1,
+   "name": "Akshita CH1",
+   "type": "audio"
+  },
+  {
+   "clips": [
+    {
+     "duration": 120,
+     "file_path": "/footage/LCATL0014.MXF",
+     "name": "LCATL0014.MXF",
+     "record_in": 0,
+     "record_out": 120,
+     "source_in": 3889,
+     "source_out": 4009,
+     "unique_id": "47f137bf-edf2-45e4-8eb6-7b93550a7ab1"
+    },
+    {
+     "duration": 218,
+     "file_path": "/footage/LCATL0013.MXF",
+     "name": "LCATL0013.MXF",
+     "record_in": 791,
+     "record_out": 1009,
+     "source_in": 11540,
+     "source_out": 11758,
+     "unique_id": "8203f47f-1f6d-42b3-afbf-059c7b49b823"
+    }
+   ],
+   "index": 2,
+   "name": "Craig CH1",
+   "type": "audio"
+  }
+ ]
+}

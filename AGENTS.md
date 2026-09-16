@@ -441,7 +441,7 @@ Join semantic documents to the catalog with `library/tools/semantic_index.py`.
 
 **No raw value list reaches a prompt.** `library/tools/beat_grid.py`. [why](docs/RULE_EVIDENCE.md#the-beat-grid-in-the-prompt)
 
-**A step that chooses a picture is SHOWN one, and so is one that judges a RENDER.** `library/tools/window_frames.py`, `library/tools/render_watch.py` (REPORTS, never gates). [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one)
+**A step that chooses a picture is SHOWN one, and so is one that judges a RENDER.** **What a render SAYS is HEARD against the plan.** `library/tools/window_frames.py`, `library/tools/render_watch.py`, `library/tools/reel_hearing.py` - the last two REPORT, never gate. [why](docs/RULE_EVIDENCE.md#no-step-that-chose-a-picture-had-seen-one) [why](docs/RULE_EVIDENCE.md#caption-shipped-late)
 
 **A TOON table cell is quoted with a BACKTICK, and a multi-line value under a KEY is a `|` block.** `library/tools/toon_serializer.py`. [why](docs/RULE_EVIDENCE.md#the-apostrophe-was-doubled-in-every-prompt)
 
@@ -573,7 +573,7 @@ A CREATIVE fallback substitutes taste (a mood, a theme, a transition, an effect,
 A stated preference, then the declared direction, then the model reasoning over MEASURED signal, then a fallback naming WHOSE preference it is.
 Detail: `library/tools/decided_value.py`. [why](docs/CREATIVE_VALUE_DECISION.md)
 
-- Two things are NOT taste, and are why the rule is workable. A value meaning "nothing is drawn" - `transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL` - is the absence of decoration, not a choice of it. And a rule acting on a value the creative direction really DECLARED is not a fallback: `creative_cohesion` may judge a transition against a declared "high", but may not invent the word first.
+- Two things are NOT taste: "nothing is drawn" (`transition_vocabulary.CUT_TYPES`, `series_look.NEUTRAL_CDL`), and a rule acting on a value the direction really DECLARED (`creative_cohesion`). Detail: `library/tools/creative_floors.py`.
 - A plan entry that names no effect, no sound or no level is DROPPED with the reason. Never completed from a constant, in a bridge or in `compile_manifest`.
 - **How strong an effect is is the PLAN's number, not a scale the engine offers.** Step 4.03's `INTENSITY_MAP` is REMOVED (captain, 2026-09-02) and `plan_vfx.TOOLKIT_PARAMETERS` replaces it, carrying NO value, default or bound. An entry whose `params` name none of them is dropped as `no_readable_parameters`. Detail: `library/steps/step_4_03_plan_vfx/post_bridge.py`.
 - An alias may RENAME a capability and may not CHOOSE one (`library/steps/step_4_03_plan_vfx/post_bridge.py`).

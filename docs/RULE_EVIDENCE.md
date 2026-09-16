@@ -7709,3 +7709,99 @@ So a stale transform override now says which kind it is: `scope="reel"`
 `scope="transcript"` (spoken nowhere - LOST), and the reel build says
 the lost ones again, separately, naming the property and the number.
 `captain_edits.lost_overrides`, `tests/test_transform_override.py`.
+
+## caption-shipped-late
+
+**Reel 26 of `geo-podcast` is on disk, delivered, with a caption card a
+full second behind its own audio - and nothing in this pipeline could
+have told anyone.** Found 2026-09-16 on the first reel the hearing pass
+was pointed at.
+
+`render_qa` measures the render for black frames, loudness, freezes and
+letterbox. `manifest_validator` checks the plan against itself.
+`reel_conformance_verifier` grades format, item count, picture holes and
+caption timing. `render_watch` shows a model the PICTURE. **None of them
+compares what the render is HEARD to say against what the plan says it
+says**, and that comparison is the only thing that catches this class.
+
+**The cause is one row of the timeline transcript**:
+
+```json
+{"speaker": "Akshita",
+ "text": "make sure that you're coming up with something that answers
+          specific questions.",
+ "source_start": 4291.222, "source_end": 4292.142,
+ "words": [], "read_from_words": false, "avg_logprob": null}
+```
+
+Twelve words in **920 milliseconds**, with no word timings and no
+confidence. The speaker stuttered; WhisperX hallucinated a completion and
+split one utterance into two segments. Because `avg_logprob` is null,
+`transcript_confidence` has nothing to read and the row is invisible.
+
+**Three consequences, all of them in the delivered file.**
+
+1. **Six words ship with no caption at all.** The row has `words: []`, so
+   no subtitle segment was generated for its span. Measured against the
+   render: `make sure that you're coming up`, reel 25.65-26.61 s, zero
+   caption coverage.
+2. **The card that does appear is a second late, and the karaoke
+   highlight with it.** Nine consecutive words at **-1.01 s** - four
+   times the two transcribers' own measured disagreement. At reel
+   27.60 s the audio says *"niche"* and the highlight is on *"with"*,
+   spoken at 26.61 s.
+3. **A phantom duplicate take.** `select_reels` recorded a repeat at
+   similarity 1.0 between the hallucinated tail and the real sentence
+   after it. That duplicate does not exist in the audio, and the take
+   cutter was handed it.
+
+**A second, independent instance in the same reel**, found by the same
+pass and confirmed against the pixels: at reel 13.10 s the card reads
+*"comes up to you and maybe"* with `maybe` highlighted while the audio is
+still on *"and"*; at 13.70 s, while she is actually saying *"maybe"*,
+there is no caption on screen at all. Two words uncaptioned, three words
+drifting +462 ms.
+
+**Why it was never built before, and what changed.** Nothing about the
+comparison is hard - transcribe, align, diff, measure. It is the cost
+that moved. Measured 2026-09-16 on this machine: an on-device transcriber
+runs at **344x realtime** against this project's recorded **1.40x** for
+WhisperX. One reel is **3.5 seconds** instead of 33-47 minutes for an
+episode. The deterministic half found all three consequences with no
+model call at all; the model's job is the judgement about which of them
+matter.
+
+**Two things the pass had to get right to be worth running.**
+
+- **Normalise through `transcript_corrections` before diffing.** The
+  planned side already has this project's filed spelling corrections
+  applied - `lucy` to `Lucie`, 28 times on the run of record - and the
+  heard side does not. Diffing them raw reports a false `Lucie` ->
+  `Lucy` on EVERY reel this project builds. With the correction applied
+  to the heard side, Reel 26's substitution count is **zero**.
+- **A drift threshold that is a measurement, not a taste.** Over 6,983
+  words of this project's audio the two transcribers disagree about a
+  word's start by **94.1 ms mean absolute**, standard deviation
+  **134.0 ms**, and the bias (-35 ms) is small against that spread, so no
+  constant offset removes it. `DRIFT_NOISE_FLOOR_SECONDS` is 0.25 s - a
+  little over one standard deviation above the mean disagreement - and a
+  finding needs a RUN of consecutive words past it in the same
+  direction, because an isolated late word is one transcriber hearing an
+  onset differently.
+
+**It REPORTS.** `reel_hearing.GATES` is False, no build reads its record
+and `passed: false` fails nothing. A new gate that blocks builds is the
+hard-to-reverse direction and this pipeline's gates have refused correct
+output before (AGENTS.md 10.4); the order is to prove this on real
+episodes and then ask the captain to promote it.
+
+`library/tools/reel_hearing.py`, `library/tools/heard_speech.py`,
+`library/skills/hear_the_reel/`, `manage_project.py hear-reel`,
+`tests/test_reel_hearing.py`, `tests/fixtures/reel_hearing/`.
+
+**Two fixes this evidence names and does NOT make.** The word-boundary
+clamp (`step_1_04_temporal_index/step.py:276-317` clamps words over 2.0 s;
+`timeline_transcript.py` does not) and a guard on a transcript row with
+`text` and `words: []` reaching a caption planner. Both are separate
+tasks; the hearing pass reports the wordless row beside its findings so a
+reader can see the cause without going to look for it.
