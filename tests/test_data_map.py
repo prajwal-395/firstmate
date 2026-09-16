@@ -300,8 +300,18 @@ def test_an_unread_verdict_is_corroborated_by_a_second_instrument(rows):
     # at the read site - a subscript, a `.get`, an `in`, a key inside a
     # list handed to a call.  It cannot see a key that arrives as a
     # variable, and `field_flow` can, so the two disagree in exactly one
-    # direction and on exactly these six fields.  Recorded rather than
+    # direction and on exactly these five fields.  Recorded rather than
     # counted, so a NEW one is a finding and a stale entry fails too.
+    # A sixth entry lived here -
+    # `OUT@music_selection#music_selection.measurements.true_peak_dbtp`,
+    # read by `music_measurement.bed_reading` through a loop variable.
+    # PR 1153 refactored `MEASUREMENT_LEGEND` (a dict, whose keys the
+    # literal scan does not count) into `MEASURED_KEYS = frozenset({...})`,
+    # and a string inside a set handed to a call IS a read position to
+    # that scan - so the name now resolves as a literal at
+    # music_measurement.py:211. The loop-variable read itself is
+    # byte-identical before and after that commit; only the record went
+    # stale, so the entry was deleted rather than the code changed.
     seen_only_by_the_dataflow = {
         "DOC@pipeline_data#run_restarts":
             "`run_restart.append_to_state` reads it through a module "
@@ -317,9 +327,6 @@ def test_an_unread_verdict_is_corroborated_by_a_second_instrument(rows):
             "the same call - and `target_energy` has ONE reading "
             "(AGENTS.md 10.1), so losing this read would lose the field "
             "that rule is about.",
-        "OUT@music_selection#music_selection.measurements.true_peak_dbtp":
-            "`music_measurement.bed_reading` indexes by a loop variable "
-            "over the measurement names.",
     }
     dict_read = [row for row in rows
                  if any(access.shape != field_flow.ATTR
