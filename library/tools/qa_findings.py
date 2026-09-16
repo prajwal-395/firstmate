@@ -242,6 +242,16 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "the PLAN; this asks it of what was heard, so a card the plan "
         "never generated - a transcript row with text and no word "
         "timings generates none - is visible here and nowhere else."),
+    FindingReader(
+        reel_hearing.FIT_METRIC, "temporal_index",
+        "A transcript row carrying text with no word timing under it - "
+        "the CAUSE of the three above rather than a fourth symptom, "
+        "which is why its owner is the step that wrote the transcript "
+        "and not the one that placed the cards. Forced alignment "
+        "already discovers these and nothing read them; a row that lost "
+        "its words generates no caption card, no karaoke highlight and "
+        "no take boundary, silently. `library/tools/transcript_fit.py` "
+        "measures the whole document without a render."),
 )
 
 

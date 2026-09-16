@@ -165,15 +165,24 @@ def run(project_folder: str,
         reel: Optional[Any] = None,
         video_path: str = "",
         timeline_path: str = "",
-        announce: bool = False) -> Dict[str, Any]:
+        announce: bool = False,
+        dials: Optional[Dict[str, Any]] = None,
+        decline: Optional[List[str]] = None) -> Dict[str, Any]:
     """Hear one reel. Returns an OBSERVATION; gates nothing.
 
     `available: false` with the reason when the render, the plan or the
     transcriber is missing - an unheard reel is never a clean one, and
     saying "nothing diverged" because nobody listened is the
     gate-that-cannot-fail (AGENTS.md 10.4).
+
+    `dials` and `decline` are this ONE run's answers, over whatever the
+    project declares; `library/tools/hearing_settings.py` owns which of
+    them is a real dial and which is a measured property that records
+    having been moved. A malformed one refuses the run by name rather
+    than being quietly ignored.
     """
     from library.tools import (
+        hearing_settings,
         heard_speech,
         pipeline_skills,
         qa_findings,
@@ -192,6 +201,11 @@ def run(project_folder: str,
         observation["receipt"] = pipeline_skills.write_receipt(
             project_folder, step_id, SKILL_NAME, observation)
         return observation
+
+    try:
+        settings = hearing_settings.resolve(project_folder, dials, decline)
+    except hearing_settings.MalformedHearingDeclaration as bad:
+        return refuse(str(bad))
 
     try:
         where = locate(project_folder, reel, video_path, timeline_path)
@@ -218,7 +232,7 @@ def run(project_folder: str,
     try:
         hearing = reel_hearing.hear(
             _load(where["timeline_path"]), _load(transcript_file), spoken,
-            project_folder=project_folder,
+            project_folder=project_folder, settings=settings,
             timeline_path=where["timeline_path"],
             video_path=where["video_path"])
     except (reel_hearing.NothingWasHeard, ValueError) as refused:
@@ -242,7 +256,9 @@ def run(project_folder: str,
         "drift": hearing.drift,
         "drift_runs": hearing.runs,
         "caption_coverage": hearing.coverage,
-        "wordless_transcript_rows": hearing.wordless_transcript_rows,
+        "unfitted_transcript_rows": hearing.unfitted_transcript_rows,
+        "transcript_fit": hearing.transcript_fit,
+        "settings": hearing.settings.as_dict(),
         "transcriber_anomalies": hearing.anomalies,
         "skipped": hearing.skipped,
         "summary": reel_hearing.summary_lines(hearing),
@@ -255,6 +271,41 @@ def run(project_folder: str,
     observation["receipt"] = pipeline_skills.write_receipt(
         project_folder, step_id, SKILL_NAME, observation)
     return observation
+
+
+def add_dial_arguments(parser) -> None:
+    """This run's own answers, registered FROM the dial enumeration.
+
+    Registered rather than listed, so a dial added to
+    `hearing_settings.DIALS` reaches the command line without anyone
+    remembering to add it - the shape `run_scope` establishes for the
+    pipeline's own flags (AGENTS.md section 3).
+    """
+    from library.tools import hearing_settings, reel_hearing
+
+    group = parser.add_argument_group(
+        "dials", "This run's answers, over the project's own declaration. "
+                 "A MEASURED dial moved here is RECORDED as moved and the "
+                 "record says the hearing is not comparable to one that "
+                 "used the measurement.")
+    for dial in hearing_settings.DIALS:
+        group.add_argument(
+            f"--{dial.name.replace('_', '-')}", dest=dial.name,
+            type=type(dial.default), default=None,
+            help=f"[{dial.kind}] {dial.what} Default {dial.default}.")
+    group.add_argument(
+        "--decline-check", action="append", default=[],
+        choices=list(reel_hearing.METRICS),
+        help="Do not make this check. Repeatable. It is recorded as "
+             "SKIPPED with the reason, never left out.")
+
+
+def dials_from(args) -> Dict[str, Any]:
+    """The dial values one parsed command line asks for."""
+    from library.tools import hearing_settings
+
+    return {dial.name: getattr(args, dial.name, None)
+            for dial in hearing_settings.DIALS}
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -276,11 +327,13 @@ def main(argv: Optional[List[str]] = None) -> int:
                              "layer, which is how one reaches the review "
                              "channel. Nothing fires unless the project "
                              "declares a hook.")
+    add_dial_arguments(parser)
     args = parser.parse_args(argv)
 
     observation = run(args.project_folder, args.step_id, reel=args.reel,
                       video_path=args.video, timeline_path=args.timeline,
-                      announce=args.announce)
+                      announce=args.announce, dials=dials_from(args),
+                      decline=args.decline_check)
     print(json.dumps(observation, indent=2, default=str))
     # Exit zero whatever it found: a report is not a failure. The caller
     # reads the findings.

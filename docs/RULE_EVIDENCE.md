@@ -7803,5 +7803,35 @@ episodes and then ask the captain to promote it.
 clamp (`step_1_04_temporal_index/step.py:276-317` clamps words over 2.0 s;
 `timeline_transcript.py` does not) and a guard on a transcript row with
 `text` and `words: []` reaching a caption planner. Both are separate
-tasks; the hearing pass reports the wordless row beside its findings so a
-reader can see the cause without going to look for it.
+tasks. The hearing pass READS that cause rather than fixing it, and as of
+2026-09-16 reads it as a FINDING (`transcript_row_fit`) owned by
+`temporal_index` rather than as a note beside the findings - because a
+note nobody has to act on is not a reading. `library/tools/transcript_fit.py`
+measures the whole document, and it needs no render: 15 of the shipped
+episode's 940 rows carry text with no word timing under it, 13 having lost
+every word and 2 part of one.
+
+### The four checks that were measured and NOT built
+
+Refining the hearing pass on 2026-09-16, four further checks it could make
+from signals it already holds were each measured against the one delivered
+reel and the shipped transcript. **All four came back clean, and clean is
+the reason none of them is in the code** - the bar PR 1177 set is a check
+that fires on a real defect in a real reel, and three weak checks read as
+coverage the way a gate that cannot fail does (AGENTS.md 10.4).
+
+| Proposed check | Measured | Verdict |
+|---|---|---|
+| Speech heard where the plan places no speech clip | 0 of 142 heard words fall outside a planned span on Reel 26 | nothing to fire on |
+| A caption card on screen with no speech under it | 0 of 13 cards; every card carries 4-20 heard words | nothing to fire on |
+| A card placed away from the source span its own FILENAME declares | 13 of 13 within one frame (max 43 ms, mean 15 ms) | the `subtitle_segment_id` binding is honoured |
+| Adjacent transcript rows repeating each other's words | 9 pairs on 940 rows; **7 are a person self-correcting out loud** ("It needs something unique. It needs something niche.") and the 2 that are hallucinations are already caught by `transcript_row_fit` | would cry wolf |
+
+The third is the one worth naming as a follow-up rather than dropping:
+`library/tools/subtitle_segment_id.py`'s own docstring says a
+wrong-but-plausible caption pairing "is invisible", and the check that
+would close it costs no render, no audio and no model - it is arithmetic
+over a filename and a clip placement. It has nothing to fire on because
+the only delivered reel on this project is correct in that respect, which
+is a statement about the evidence available and not about the check.
+

@@ -1,0 +1,2387 @@
+{
+ "derived_from": {
+  "project": "geo-podcast (trimmed)",
+  "fps": 23.976023976023978
+ },
+ "speakers": [
+  "Craig",
+  "Akshita"
+ ],
+ "segment_count": 41,
+ "segments": [
+  {
+   "speaker": "Craig",
+   "text": "seo 2.0 and then they keep moving on or a ceo is telling their cmo or their head of marketing hey",
+   "timeline_start": 5.281,
+   "timeline_end": 11.12,
+   "source_file": "/footage/LCATL0011.MXF",
+   "source_start": 100.58454166666667,
+   "source_end": 106.42354166666667,
+   "words": [
+    {
+     "word": "seo",
+     "start": 5.281,
+     "end": 6.364,
+     "timed": true
+    },
+    {
+     "word": "2.0",
+     "start": 6.414,
+     "end": 6.433999999999999,
+     "timed": false
+    },
+    {
+     "word": "and",
+     "start": 6.404,
+     "end": 6.465,
+     "timed": true
+    },
+    {
+     "word": "then",
+     "start": 6.485,
+     "end": 6.585,
+     "timed": true
+    },
+    {
+     "word": "they",
+     "start": 6.625,
+     "end": 6.746,
+     "timed": true
+    },
+    {
+     "word": "keep",
+     "start": 6.786,
+     "end": 6.986,
+     "timed": true
+    },
+    {
+     "word": "moving",
+     "start": 7.027,
+     "end": 7.307,
+     "timed": true
+    },
+    {
+     "word": "on",
+     "start": 7.508,
+     "end": 7.629,
+     "timed": true
+    },
+    {
+     "word": "or",
+     "start": 7.689,
+     "end": 7.769,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 8.21,
+     "end": 8.23,
+     "timed": true
+    },
+    {
+     "word": "ceo",
+     "start": 8.291,
+     "end": 8.672,
+     "timed": true
+    },
+    {
+     "word": "is",
+     "start": 8.712,
+     "end": 8.792,
+     "timed": true
+    },
+    {
+     "word": "telling",
+     "start": 8.832,
+     "end": 9.113,
+     "timed": true
+    },
+    {
+     "word": "their",
+     "start": 9.154,
+     "end": 9.414,
+     "timed": true
+    },
+    {
+     "word": "cmo",
+     "start": 9.515,
+     "end": 10.077,
+     "timed": true
+    },
+    {
+     "word": "or",
+     "start": 10.137,
+     "end": 10.237,
+     "timed": true
+    },
+    {
+     "word": "their",
+     "start": 10.257,
+     "end": 10.378,
+     "timed": true
+    },
+    {
+     "word": "head",
+     "start": 10.398,
+     "end": 10.518,
+     "timed": true
+    },
+    {
+     "word": "of",
+     "start": 10.558,
+     "end": 10.638,
+     "timed": true
+    },
+    {
+     "word": "marketing",
+     "start": 10.699,
+     "end": 11.04,
+     "timed": true
+    },
+    {
+     "word": "hey",
+     "start": 11.06,
+     "end": 11.12,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "jim and i perplexity i keep hearing marketing directors say yes it's just seo 2.0 and then",
+   "timeline_start": 59.36,
+   "timeline_end": 64.717,
+   "source_file": "/footage/LCATL0012.MXF",
+   "source_start": 45.971625,
+   "source_end": 51.328625,
+   "words": [
+    {
+     "word": "jim",
+     "start": 59.36,
+     "end": 59.5,
+     "timed": true
+    },
+    {
+     "word": "and",
+     "start": 59.521,
+     "end": 59.581,
+     "timed": true
+    },
+    {
+     "word": "i",
+     "start": 59.601,
+     "end": 59.701,
+     "timed": true
+    },
+    {
+     "word": "perplexity",
+     "start": 59.741,
+     "end": 60.343,
+     "timed": true
+    },
+    {
+     "word": "i",
+     "start": 60.423,
+     "end": 60.464,
+     "timed": true
+    },
+    {
+     "word": "keep",
+     "start": 60.504,
+     "end": 60.704,
+     "timed": true
+    },
+    {
+     "word": "hearing",
+     "start": 60.744,
+     "end": 61.126,
+     "timed": true
+    },
+    {
+     "word": "marketing",
+     "start": 61.667,
+     "end": 62.029,
+     "timed": true
+    },
+    {
+     "word": "directors",
+     "start": 62.049,
+     "end": 62.39,
+     "timed": true
+    },
+    {
+     "word": "say",
+     "start": 62.43,
+     "end": 62.61,
+     "timed": true
+    },
+    {
+     "word": "yes",
+     "start": 62.651,
+     "end": 62.952,
+     "timed": true
+    },
+    {
+     "word": "it's",
+     "start": 62.992,
+     "end": 63.072,
+     "timed": true
+    },
+    {
+     "word": "just",
+     "start": 63.112,
+     "end": 63.333,
+     "timed": true
+    },
+    {
+     "word": "seo",
+     "start": 63.674,
+     "end": 64.115,
+     "timed": true
+    },
+    {
+     "word": "2.0",
+     "start": 64.16499999999999,
+     "end": 64.18499999999999,
+     "timed": false
+    },
+    {
+     "word": "and",
+     "start": 64.155,
+     "end": 64.456,
+     "timed": true
+    },
+    {
+     "word": "then",
+     "start": 64.497,
+     "end": 64.717,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "saying this is what you're saying and i'm going to give you a little bit of an example of that",
+   "timeline_start": 223.72,
+   "timeline_end": 224.36,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 136.84154166666667,
+   "source_end": 137.48154166666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "searching. They've started asking. So instead of someone searching on Google, they've started asking.",
+   "timeline_start": 231.28,
+   "timeline_end": 232.84,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 160.66779166666666,
+   "source_end": 162.22779166666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "instead typing best CRMs... What's the best CRM if I run a 10 person law firm?",
+   "timeline_start": 237.7,
+   "timeline_end": 244.158,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 167.08779166666665,
+   "source_end": 173.54579166666664,
+   "words": [
+    {
+     "word": "instead",
+     "start": 237.7,
+     "end": 237.981,
+     "timed": true
+    },
+    {
+     "word": "typing",
+     "start": 238.021,
+     "end": 238.462,
+     "timed": true
+    },
+    {
+     "word": "best",
+     "start": 238.743,
+     "end": 239.084,
+     "timed": true
+    },
+    {
+     "word": "CRMs...",
+     "start": 239.204,
+     "end": 241.851,
+     "timed": true
+    },
+    {
+     "word": "What's",
+     "start": 241.891,
+     "end": 242.052,
+     "timed": true
+    },
+    {
+     "word": "the",
+     "start": 242.072,
+     "end": 242.132,
+     "timed": true
+    },
+    {
+     "word": "best",
+     "start": 242.172,
+     "end": 242.433,
+     "timed": true
+    },
+    {
+     "word": "CRM",
+     "start": 242.473,
+     "end": 242.654,
+     "timed": true
+    },
+    {
+     "word": "if",
+     "start": 242.694,
+     "end": 242.774,
+     "timed": true
+    },
+    {
+     "word": "I",
+     "start": 242.814,
+     "end": 242.874,
+     "timed": true
+    },
+    {
+     "word": "run",
+     "start": 242.914,
+     "end": 243.095,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 243.135,
+     "end": 243.155,
+     "timed": true
+    },
+    {
+     "word": "10",
+     "start": 243.205,
+     "end": 243.35500000000002,
+     "timed": false
+    },
+    {
+     "word": "person",
+     "start": 243.396,
+     "end": 243.696,
+     "timed": true
+    },
+    {
+     "word": "law",
+     "start": 243.716,
+     "end": 243.877,
+     "timed": true
+    },
+    {
+     "word": "firm?",
+     "start": 243.917,
+     "end": 244.158,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "Google search, it gave out a list from 2023, and from chat GPT, It gave three recommendations with specific",
+   "timeline_start": 276.03,
+   "timeline_end": 280.59,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 275.6963333333333,
+   "source_end": 280.2563333333333,
+   "words": [
+    {
+     "word": "Google",
+     "start": 276.03,
+     "end": 276.392,
+     "timed": true
+    },
+    {
+     "word": "search,",
+     "start": 276.432,
+     "end": 276.733,
+     "timed": true
+    },
+    {
+     "word": "it",
+     "start": 276.834,
+     "end": 277.115,
+     "timed": true
+    },
+    {
+     "word": "gave",
+     "start": 277.135,
+     "end": 277.316,
+     "timed": true
+    },
+    {
+     "word": "out",
+     "start": 277.336,
+     "end": 277.456,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 277.476,
+     "end": 277.496,
+     "timed": true
+    },
+    {
+     "word": "list",
+     "start": 277.537,
+     "end": 277.858,
+     "timed": true
+    },
+    {
+     "word": "from",
+     "start": 278.179,
+     "end": 278.34,
+     "timed": true
+    },
+    {
+     "word": "2023,",
+     "start": 278.39,
+     "end": 278.40999999999997,
+     "timed": false
+    },
+    {
+     "word": "and",
+     "start": 278.38,
+     "end": 278.441,
+     "timed": true
+    },
+    {
+     "word": "from",
+     "start": 278.461,
+     "end": 278.742,
+     "timed": true
+    },
+    {
+     "word": "chat",
+     "start": 278.762,
+     "end": 278.963,
+     "timed": true
+    },
+    {
+     "word": "GPT,",
+     "start": 279.063,
+     "end": 279.164,
+     "timed": true
+    },
+    {
+     "word": "It",
+     "start": 279.284,
+     "end": 279.345,
+     "timed": true
+    },
+    {
+     "word": "gave",
+     "start": 279.365,
+     "end": 279.566,
+     "timed": true
+    },
+    {
+     "word": "three",
+     "start": 279.586,
+     "end": 279.686,
+     "timed": true
+    },
+    {
+     "word": "recommendations",
+     "start": 279.726,
+     "end": 280.148,
+     "timed": true
+    },
+    {
+     "word": "with",
+     "start": 280.168,
+     "end": 280.289,
+     "timed": true
+    },
+    {
+     "word": "specific",
+     "start": 280.329,
+     "end": 280.59,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "같이 라고 달 라는 가 on Google search, and chat GPT is a decision engine.",
+   "timeline_start": 284.13,
+   "timeline_end": 288.063,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 283.79633333333334,
+   "source_end": 287.72933333333333,
+   "words": [
+    {
+     "word": "on",
+     "start": 284.792,
+     "end": 284.933,
+     "timed": true
+    },
+    {
+     "word": "Google",
+     "start": 285.033,
+     "end": 285.374,
+     "timed": true
+    },
+    {
+     "word": "search,",
+     "start": 285.695,
+     "end": 285.996,
+     "timed": true
+    },
+    {
+     "word": "and",
+     "start": 286.217,
+     "end": 286.378,
+     "timed": true
+    },
+    {
+     "word": "chat",
+     "start": 286.658,
+     "end": 286.839,
+     "timed": true
+    },
+    {
+     "word": "GPT",
+     "start": 286.879,
+     "end": 287.2,
+     "timed": true
+    },
+    {
+     "word": "is",
+     "start": 287.28,
+     "end": 287.341,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 287.361,
+     "end": 287.381,
+     "timed": true
+    },
+    {
+     "word": "decision",
+     "start": 287.401,
+     "end": 287.702,
+     "timed": true
+    },
+    {
+     "word": "engine.",
+     "start": 287.762,
+     "end": 288.063,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "and whoever AI understands best, gets the answer.",
+   "timeline_start": 309.32,
+   "timeline_end": 309.92,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 462.93179166666664,
+   "source_end": 463.53179166666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "Yeah, so search didn't change. The question changed. And whoever AI understands best, gets the answer.",
+   "timeline_start": 309.92,
+   "timeline_end": 310.12,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 463.53179166666666,
+   "source_end": 463.73179166666665,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "Yeah, so search didn't change. The question changed. And whoever AI understands best, gets the answer.",
+   "timeline_start": 310.12,
+   "timeline_end": 310.38,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 463.73179166666665,
+   "source_end": 463.99179166666664,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "the founder of a business you're a 10 man shop you're a 50 person shop maybe you're a 100 person",
+   "timeline_start": 350.78,
+   "timeline_end": 355.66,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 634.1464166666666,
+   "source_end": 639.0264166666666,
+   "words": [
+    {
+     "word": "the",
+     "start": 350.78,
+     "end": 350.861,
+     "timed": true
+    },
+    {
+     "word": "founder",
+     "start": 350.901,
+     "end": 351.242,
+     "timed": true
+    },
+    {
+     "word": "of",
+     "start": 351.262,
+     "end": 351.323,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 351.343,
+     "end": 351.383,
+     "timed": true
+    },
+    {
+     "word": "business",
+     "start": 351.423,
+     "end": 351.845,
+     "timed": true
+    },
+    {
+     "word": "you're",
+     "start": 351.865,
+     "end": 352.126,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 352.146,
+     "end": 352.166,
+     "timed": true
+    },
+    {
+     "word": "10",
+     "start": 352.216,
+     "end": 352.4892,
+     "timed": false
+    },
+    {
+     "word": "man",
+     "start": 352.849,
+     "end": 353.09,
+     "timed": true
+    },
+    {
+     "word": "shop",
+     "start": 353.13,
+     "end": 353.391,
+     "timed": true
+    },
+    {
+     "word": "you're",
+     "start": 353.411,
+     "end": 353.552,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 353.572,
+     "end": 353.592,
+     "timed": true
+    },
+    {
+     "word": "50",
+     "start": 353.642,
+     "end": 353.792,
+     "timed": false
+    },
+    {
+     "word": "person",
+     "start": 353.873,
+     "end": 354.395,
+     "timed": true
+    },
+    {
+     "word": "shop",
+     "start": 354.495,
+     "end": 354.776,
+     "timed": true
+    },
+    {
+     "word": "maybe",
+     "start": 354.817,
+     "end": 355.038,
+     "timed": true
+    },
+    {
+     "word": "you're",
+     "start": 355.058,
+     "end": 355.218,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 355.359,
+     "end": 355.399,
+     "timed": true
+    },
+    {
+     "word": "100",
+     "start": 355.449,
+     "end": 355.469,
+     "timed": false
+    },
+    {
+     "word": "person",
+     "start": 355.439,
+     "end": 355.66,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "a lot of times when i was talking about",
+   "timeline_start": 414.05,
+   "timeline_end": 414.89,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 782.8350833333334,
+   "source_end": 783.6750833333333,
+   "words": [
+    {
+     "word": "a",
+     "start": 414.05,
+     "end": 414.07,
+     "timed": true
+    },
+    {
+     "word": "lot",
+     "start": 414.09,
+     "end": 414.15,
+     "timed": true
+    },
+    {
+     "word": "of",
+     "start": 414.17,
+     "end": 414.21,
+     "timed": true
+    },
+    {
+     "word": "times",
+     "start": 414.23,
+     "end": 414.33,
+     "timed": true
+    },
+    {
+     "word": "when",
+     "start": 414.35,
+     "end": 414.43,
+     "timed": true
+    },
+    {
+     "word": "i",
+     "start": 414.45,
+     "end": 414.47,
+     "timed": true
+    },
+    {
+     "word": "was",
+     "start": 414.49,
+     "end": 414.59,
+     "timed": true
+    },
+    {
+     "word": "talking",
+     "start": 414.61,
+     "end": 414.77,
+     "timed": true
+    },
+    {
+     "word": "about",
+     "start": 414.79,
+     "end": 414.89,
+     "timed": true
+    }
+   ],
+   "read_from_words": true,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "earlier it doesn't even matter if you're a 15 man shop or you have 200 employees a size in this",
+   "timeline_start": 415.03,
+   "timeline_end": 421.31,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 783.8150833333334,
+   "source_end": 790.0950833333334,
+   "words": [
+    {
+     "word": "earlier",
+     "start": 415.03,
+     "end": 415.331,
+     "timed": true
+    },
+    {
+     "word": "it",
+     "start": 415.351,
+     "end": 415.392,
+     "timed": true
+    },
+    {
+     "word": "doesn't",
+     "start": 415.432,
+     "end": 415.713,
+     "timed": true
+    },
+    {
+     "word": "even",
+     "start": 415.913,
+     "end": 416.094,
+     "timed": true
+    },
+    {
+     "word": "matter",
+     "start": 416.154,
+     "end": 416.575,
+     "timed": true
+    },
+    {
+     "word": "if",
+     "start": 416.696,
+     "end": 416.736,
+     "timed": true
+    },
+    {
+     "word": "you're",
+     "start": 416.776,
+     "end": 417.037,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 417.077,
+     "end": 417.117,
+     "timed": true
+    },
+    {
+     "word": "15",
+     "start": 417.16700000000003,
+     "end": 417.4238,
+     "timed": false
+    },
+    {
+     "word": "man",
+     "start": 417.759,
+     "end": 418.08,
+     "timed": true
+    },
+    {
+     "word": "shop",
+     "start": 418.14,
+     "end": 418.501,
+     "timed": true
+    },
+    {
+     "word": "or",
+     "start": 418.742,
+     "end": 418.842,
+     "timed": true
+    },
+    {
+     "word": "you",
+     "start": 418.862,
+     "end": 418.923,
+     "timed": true
+    },
+    {
+     "word": "have",
+     "start": 419.183,
+     "end": 419.324,
+     "timed": true
+    },
+    {
+     "word": "200",
+     "start": 419.374,
+     "end": 419.6068,
+     "timed": false
+    },
+    {
+     "word": "employees",
+     "start": 419.906,
+     "end": 420.327,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 420.367,
+     "end": 420.407,
+     "timed": true
+    },
+    {
+     "word": "size",
+     "start": 420.467,
+     "end": 420.828,
+     "timed": true
+    },
+    {
+     "word": "in",
+     "start": 421.129,
+     "end": 421.21,
+     "timed": true
+    },
+    {
+     "word": "this",
+     "start": 421.23,
+     "end": 421.31,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "I've seen 10 person agencies get recommended in AI",
+   "timeline_start": 426.978,
+   "timeline_end": 429.54,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 836.1367499999999,
+   "source_end": 838.69875,
+   "words": [
+    {
+     "word": "I've",
+     "start": 426.978,
+     "end": 427.159,
+     "timed": true
+    },
+    {
+     "word": "seen",
+     "start": 427.199,
+     "end": 427.439,
+     "timed": true
+    },
+    {
+     "word": "10",
+     "start": 427.48900000000003,
+     "end": 427.639,
+     "timed": false
+    },
+    {
+     "word": "person",
+     "start": 427.699,
+     "end": 427.999,
+     "timed": true
+    },
+    {
+     "word": "agencies",
+     "start": 428.079,
+     "end": 428.659,
+     "timed": true
+    },
+    {
+     "word": "get",
+     "start": 428.699,
+     "end": 428.799,
+     "timed": true
+    },
+    {
+     "word": "recommended",
+     "start": 428.839,
+     "end": 429.3,
+     "timed": true
+    },
+    {
+     "word": "in",
+     "start": 429.34,
+     "end": 429.4,
+     "timed": true
+    },
+    {
+     "word": "AI",
+     "start": 429.5,
+     "end": 429.54,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "over companies 50 times their size.",
+   "timeline_start": 429.981,
+   "timeline_end": 432.289,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 839.1397499999999,
+   "source_end": 841.4477499999999,
+   "words": [
+    {
+     "word": "over",
+     "start": 429.981,
+     "end": 430.182,
+     "timed": true
+    },
+    {
+     "word": "companies",
+     "start": 430.242,
+     "end": 430.824,
+     "timed": true
+    },
+    {
+     "word": "50",
+     "start": 430.874,
+     "end": 431.1388,
+     "timed": false
+    },
+    {
+     "word": "times",
+     "start": 431.486,
+     "end": 431.707,
+     "timed": true
+    },
+    {
+     "word": "their",
+     "start": 431.767,
+     "end": 431.908,
+     "timed": true
+    },
+    {
+     "word": "size.",
+     "start": 431.928,
+     "end": 432.289,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "Not at all.",
+   "timeline_start": 432.691,
+   "timeline_end": 433.032,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 856.9481666666666,
+   "source_end": 857.2891666666667,
+   "words": [
+    {
+     "word": "Not",
+     "start": 432.691,
+     "end": 432.831,
+     "timed": true
+    },
+    {
+     "word": "at",
+     "start": 432.872,
+     "end": 432.912,
+     "timed": true
+    },
+    {
+     "word": "all.",
+     "start": 432.952,
+     "end": 433.032,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "I've seen a 10 person agency get recommended over",
+   "timeline_start": 433.052,
+   "timeline_end": 435.16,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 857.3091666666667,
+   "source_end": 859.4171666666666,
+   "words": [
+    {
+     "word": "I've",
+     "start": 433.052,
+     "end": 433.153,
+     "timed": true
+    },
+    {
+     "word": "seen",
+     "start": 433.173,
+     "end": 433.293,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 433.313,
+     "end": 433.333,
+     "timed": true
+    },
+    {
+     "word": "10",
+     "start": 433.38300000000004,
+     "end": 433.514,
+     "timed": false
+    },
+    {
+     "word": "person",
+     "start": 433.534,
+     "end": 433.815,
+     "timed": true
+    },
+    {
+     "word": "agency",
+     "start": 433.875,
+     "end": 434.216,
+     "timed": true
+    },
+    {
+     "word": "get",
+     "start": 434.277,
+     "end": 434.397,
+     "timed": true
+    },
+    {
+     "word": "recommended",
+     "start": 434.437,
+     "end": 434.939,
+     "timed": true
+    },
+    {
+     "word": "over",
+     "start": 435.019,
+     "end": 435.16,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "a company 50 times their size.",
+   "timeline_start": 435.542,
+   "timeline_end": 437.169,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 859.7991666666667,
+   "source_end": 861.4261666666666,
+   "words": [
+    {
+     "word": "a",
+     "start": 435.542,
+     "end": 435.562,
+     "timed": true
+    },
+    {
+     "word": "company",
+     "start": 435.622,
+     "end": 436.004,
+     "timed": true
+    },
+    {
+     "word": "50",
+     "start": 436.05400000000003,
+     "end": 436.204,
+     "timed": false
+    },
+    {
+     "word": "times",
+     "start": 436.365,
+     "end": 436.606,
+     "timed": true
+    },
+    {
+     "word": "their",
+     "start": 436.646,
+     "end": 436.787,
+     "timed": true
+    },
+    {
+     "word": "size.",
+     "start": 436.827,
+     "end": 437.169,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "same information, same information. And so if you're not being properly recommended on your",
+   "timeline_start": 443.96,
+   "timeline_end": 444.38,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 868.2171666666666,
+   "source_end": 868.6371666666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "company, then AI is going to recommend you over a company that has a lot of sources,",
+   "timeline_start": 444.38,
+   "timeline_end": 444.88,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 868.6371666666666,
+   "source_end": 869.1371666666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "It is not",
+   "timeline_start": 516.889,
+   "timeline_end": 517.21,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1081.9952083333333,
+   "source_end": 1082.3162083333334,
+   "words": [
+    {
+     "word": "It",
+     "start": 516.889,
+     "end": 516.949,
+     "timed": true
+    },
+    {
+     "word": "is",
+     "start": 516.989,
+     "end": 517.069,
+     "timed": true
+    },
+    {
+     "word": "not",
+     "start": 517.11,
+     "end": 517.21,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "number one on Google because you have may have optimized your services.",
+   "timeline_start": 535.73,
+   "timeline_end": 537.165,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1100.8362083333334,
+   "source_end": 1102.2712083333333,
+   "words": [
+    {
+     "word": "number",
+     "start": 535.73,
+     "end": 535.851,
+     "timed": true
+    },
+    {
+     "word": "one",
+     "start": 535.872,
+     "end": 535.952,
+     "timed": true
+    },
+    {
+     "word": "on",
+     "start": 535.973,
+     "end": 536.013,
+     "timed": true
+    },
+    {
+     "word": "Google",
+     "start": 536.033,
+     "end": 536.155,
+     "timed": true
+    },
+    {
+     "word": "because",
+     "start": 536.175,
+     "end": 536.316,
+     "timed": true
+    },
+    {
+     "word": "you",
+     "start": 536.336,
+     "end": 536.397,
+     "timed": true
+    },
+    {
+     "word": "have",
+     "start": 536.417,
+     "end": 536.498,
+     "timed": true
+    },
+    {
+     "word": "may",
+     "start": 536.518,
+     "end": 536.579,
+     "timed": true
+    },
+    {
+     "word": "have",
+     "start": 536.599,
+     "end": 536.68,
+     "timed": true
+    },
+    {
+     "word": "optimized",
+     "start": 536.7,
+     "end": 536.882,
+     "timed": true
+    },
+    {
+     "word": "your",
+     "start": 536.902,
+     "end": 536.983,
+     "timed": true
+    },
+    {
+     "word": "services.",
+     "start": 537.004,
+     "end": 537.165,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "But if you don't have",
+   "timeline_start": 537.185,
+   "timeline_end": 537.61,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1102.2912083333333,
+   "source_end": 1102.7162083333333,
+   "words": [
+    {
+     "word": "But",
+     "start": 537.185,
+     "end": 537.246,
+     "timed": true
+    },
+    {
+     "word": "if",
+     "start": 537.266,
+     "end": 537.307,
+     "timed": true
+    },
+    {
+     "word": "you",
+     "start": 537.327,
+     "end": 537.388,
+     "timed": true
+    },
+    {
+     "word": "don't",
+     "start": 537.408,
+     "end": 537.509,
+     "timed": true
+    },
+    {
+     "word": "have",
+     "start": 537.529,
+     "end": 537.61,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "redesigning your website, like 50 to a hundred grand, you're definitely going to want to hear",
+   "timeline_start": 640.58,
+   "timeline_end": 644.54,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1434.8735000000001,
+   "source_end": 1438.8335,
+   "words": [
+    {
+     "word": "redesigning",
+     "start": 640.58,
+     "end": 641.103,
+     "timed": true
+    },
+    {
+     "word": "your",
+     "start": 641.123,
+     "end": 641.264,
+     "timed": true
+    },
+    {
+     "word": "website,",
+     "start": 641.304,
+     "end": 641.907,
+     "timed": true
+    },
+    {
+     "word": "like",
+     "start": 641.927,
+     "end": 642.068,
+     "timed": true
+    },
+    {
+     "word": "50",
+     "start": 642.1179999999999,
+     "end": 642.2679999999999,
+     "timed": false
+    },
+    {
+     "word": "to",
+     "start": 642.429,
+     "end": 642.53,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 642.57,
+     "end": 642.61,
+     "timed": true
+    },
+    {
+     "word": "hundred",
+     "start": 642.671,
+     "end": 642.932,
+     "timed": true
+    },
+    {
+     "word": "grand,",
+     "start": 642.972,
+     "end": 643.294,
+     "timed": true
+    },
+    {
+     "word": "you're",
+     "start": 643.515,
+     "end": 643.696,
+     "timed": true
+    },
+    {
+     "word": "definitely",
+     "start": 643.716,
+     "end": 643.997,
+     "timed": true
+    },
+    {
+     "word": "going",
+     "start": 644.017,
+     "end": 644.118,
+     "timed": true
+    },
+    {
+     "word": "to",
+     "start": 644.138,
+     "end": 644.178,
+     "timed": true
+    },
+    {
+     "word": "want",
+     "start": 644.198,
+     "end": 644.299,
+     "timed": true
+    },
+    {
+     "word": "to",
+     "start": 644.319,
+     "end": 644.399,
+     "timed": true
+    },
+    {
+     "word": "hear",
+     "start": 644.419,
+     "end": 644.54,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "this because AI is not only reading your website, that's only 20% of what it does.",
+   "timeline_start": 644.64,
+   "timeline_end": 648.857,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1438.9335,
+   "source_end": 1443.1505,
+   "words": [
+    {
+     "word": "this",
+     "start": 644.64,
+     "end": 644.841,
+     "timed": true
+    },
+    {
+     "word": "because",
+     "start": 644.921,
+     "end": 645.303,
+     "timed": true
+    },
+    {
+     "word": "AI",
+     "start": 645.323,
+     "end": 645.363,
+     "timed": true
+    },
+    {
+     "word": "is",
+     "start": 645.745,
+     "end": 645.825,
+     "timed": true
+    },
+    {
+     "word": "not",
+     "start": 646.086,
+     "end": 646.307,
+     "timed": true
+    },
+    {
+     "word": "only",
+     "start": 646.387,
+     "end": 646.568,
+     "timed": true
+    },
+    {
+     "word": "reading",
+     "start": 646.628,
+     "end": 646.849,
+     "timed": true
+    },
+    {
+     "word": "your",
+     "start": 646.869,
+     "end": 646.99,
+     "timed": true
+    },
+    {
+     "word": "website,",
+     "start": 647.03,
+     "end": 647.451,
+     "timed": true
+    },
+    {
+     "word": "that's",
+     "start": 647.492,
+     "end": 647.692,
+     "timed": true
+    },
+    {
+     "word": "only",
+     "start": 648.214,
+     "end": 648.395,
+     "timed": true
+    },
+    {
+     "word": "20%",
+     "start": 648.4449999999999,
+     "end": 648.4649999999999,
+     "timed": false
+    },
+    {
+     "word": "of",
+     "start": 648.435,
+     "end": 648.495,
+     "timed": true
+    },
+    {
+     "word": "what",
+     "start": 648.516,
+     "end": 648.676,
+     "timed": true
+    },
+    {
+     "word": "it",
+     "start": 648.696,
+     "end": 648.736,
+     "timed": true
+    },
+    {
+     "word": "does.",
+     "start": 648.756,
+     "end": 648.857,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "press release from 2021 had said complete different.",
+   "timeline_start": 746.86,
+   "timeline_end": 750.212,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1615.352625,
+   "source_end": 1618.7046249999999,
+   "words": [
+    {
+     "word": "press",
+     "start": 746.86,
+     "end": 747.101,
+     "timed": true
+    },
+    {
+     "word": "release",
+     "start": 747.141,
+     "end": 747.442,
+     "timed": true
+    },
+    {
+     "word": "from",
+     "start": 747.482,
+     "end": 747.623,
+     "timed": true
+    },
+    {
+     "word": "2021",
+     "start": 747.673,
+     "end": 748.1466,
+     "timed": false
+    },
+    {
+     "word": "had",
+     "start": 748.807,
+     "end": 749.048,
+     "timed": true
+    },
+    {
+     "word": "said",
+     "start": 749.289,
+     "end": 749.469,
+     "timed": true
+    },
+    {
+     "word": "complete",
+     "start": 749.489,
+     "end": 749.811,
+     "timed": true
+    },
+    {
+     "word": "different.",
+     "start": 749.831,
+     "end": 750.212,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "up the way you want to show up.",
+   "timeline_start": 765.582,
+   "timeline_end": 766.498,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 1634.074625,
+   "source_end": 1634.990625,
+   "words": [
+    {
+     "word": "up",
+     "start": 765.582,
+     "end": 765.664,
+     "timed": true
+    },
+    {
+     "word": "the",
+     "start": 765.684,
+     "end": 765.765,
+     "timed": true
+    },
+    {
+     "word": "way",
+     "start": 765.806,
+     "end": 765.867,
+     "timed": true
+    },
+    {
+     "word": "you",
+     "start": 765.908,
+     "end": 765.989,
+     "timed": true
+    },
+    {
+     "word": "want",
+     "start": 766.01,
+     "end": 766.132,
+     "timed": true
+    },
+    {
+     "word": "to",
+     "start": 766.152,
+     "end": 766.193,
+     "timed": true
+    },
+    {
+     "word": "show",
+     "start": 766.234,
+     "end": 766.376,
+     "timed": true
+    },
+    {
+     "word": "up.",
+     "start": 766.457,
+     "end": 766.498,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "only about 20 i'm sure everybody after i asked that question was doing it but it really is",
+   "timeline_start": 839.051,
+   "timeline_end": 843.868,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 1773.4845,
+   "source_end": 1778.3015,
+   "words": [
+    {
+     "word": "only",
+     "start": 839.051,
+     "end": 839.191,
+     "timed": true
+    },
+    {
+     "word": "about",
+     "start": 839.231,
+     "end": 839.412,
+     "timed": true
+    },
+    {
+     "word": "20",
+     "start": 839.462,
+     "end": 839.7428,
+     "timed": false
+    },
+    {
+     "word": "i'm",
+     "start": 840.114,
+     "end": 840.215,
+     "timed": true
+    },
+    {
+     "word": "sure",
+     "start": 840.255,
+     "end": 840.375,
+     "timed": true
+    },
+    {
+     "word": "everybody",
+     "start": 840.415,
+     "end": 840.757,
+     "timed": true
+    },
+    {
+     "word": "after",
+     "start": 840.817,
+     "end": 840.977,
+     "timed": true
+    },
+    {
+     "word": "i",
+     "start": 840.997,
+     "end": 841.017,
+     "timed": true
+    },
+    {
+     "word": "asked",
+     "start": 841.058,
+     "end": 841.178,
+     "timed": true
+    },
+    {
+     "word": "that",
+     "start": 841.218,
+     "end": 841.339,
+     "timed": true
+    },
+    {
+     "word": "question",
+     "start": 841.379,
+     "end": 841.76,
+     "timed": true
+    },
+    {
+     "word": "was",
+     "start": 841.8,
+     "end": 841.941,
+     "timed": true
+    },
+    {
+     "word": "doing",
+     "start": 842.001,
+     "end": 842.302,
+     "timed": true
+    },
+    {
+     "word": "it",
+     "start": 842.362,
+     "end": 842.422,
+     "timed": true
+    },
+    {
+     "word": "but",
+     "start": 842.483,
+     "end": 842.623,
+     "timed": true
+    },
+    {
+     "word": "it",
+     "start": 843.245,
+     "end": 843.306,
+     "timed": true
+    },
+    {
+     "word": "really",
+     "start": 843.486,
+     "end": 843.807,
+     "timed": true
+    },
+    {
+     "word": "is",
+     "start": 843.827,
+     "end": 843.868,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "that doesn't have all that information, and maybe you see like 3.5 stars and some bad reviews and",
+   "timeline_start": 1369.481,
+   "timeline_end": 1374.82,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 3062.714208333333,
+   "source_end": 3068.053208333333,
+   "words": [
+    {
+     "word": "that",
+     "start": 1369.481,
+     "end": 1369.682,
+     "timed": true
+    },
+    {
+     "word": "doesn't",
+     "start": 1369.842,
+     "end": 1370.083,
+     "timed": true
+    },
+    {
+     "word": "have",
+     "start": 1370.123,
+     "end": 1370.244,
+     "timed": true
+    },
+    {
+     "word": "all",
+     "start": 1370.284,
+     "end": 1370.384,
+     "timed": true
+    },
+    {
+     "word": "that",
+     "start": 1370.404,
+     "end": 1370.484,
+     "timed": true
+    },
+    {
+     "word": "information,",
+     "start": 1370.504,
+     "end": 1371.147,
+     "timed": true
+    },
+    {
+     "word": "and",
+     "start": 1371.167,
+     "end": 1371.227,
+     "timed": true
+    },
+    {
+     "word": "maybe",
+     "start": 1371.649,
+     "end": 1371.829,
+     "timed": true
+    },
+    {
+     "word": "you",
+     "start": 1371.849,
+     "end": 1371.95,
+     "timed": true
+    },
+    {
+     "word": "see",
+     "start": 1371.99,
+     "end": 1372.17,
+     "timed": true
+    },
+    {
+     "word": "like",
+     "start": 1372.211,
+     "end": 1372.411,
+     "timed": true
+    },
+    {
+     "word": "3.5",
+     "start": 1372.461,
+     "end": 1372.7582,
+     "timed": false
+    },
+    {
+     "word": "stars",
+     "start": 1373.154,
+     "end": 1373.636,
+     "timed": true
+    },
+    {
+     "word": "and",
+     "start": 1373.716,
+     "end": 1373.796,
+     "timed": true
+    },
+    {
+     "word": "some",
+     "start": 1373.836,
+     "end": 1373.977,
+     "timed": true
+    },
+    {
+     "word": "bad",
+     "start": 1373.997,
+     "end": 1374.198,
+     "timed": true
+    },
+    {
+     "word": "reviews",
+     "start": 1374.238,
+     "end": 1374.72,
+     "timed": true
+    },
+    {
+     "word": "and",
+     "start": 1374.76,
+     "end": 1374.82,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "modules is to help you understand how AI sees you before you take any steps. So if you're",
+   "timeline_start": 1474.54,
+   "timeline_end": 1474.6,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 3225.7477916666667,
+   "source_end": 3225.807791666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "running on a lot of modules, that's an answer. But the main focus of those modules is to test",
+   "timeline_start": 1474.6,
+   "timeline_end": 1475.72,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 3225.807791666666,
+   "source_end": 3226.9277916666665,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "ones that we can use to test your website. So the first thing that I would say is that you",
+   "timeline_start": 1504.04,
+   "timeline_end": 1504.58,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 3255.2477916666667,
+   "source_end": 3255.7877916666666,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "but it's only 20% of what AI actually sees.",
+   "timeline_start": 1761.822,
+   "timeline_end": 1764.9,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 3578.1364999999996,
+   "source_end": 3581.2145,
+   "words": [
+    {
+     "word": "but",
+     "start": 1761.822,
+     "end": 1761.962,
+     "timed": true
+    },
+    {
+     "word": "it's",
+     "start": 1762.063,
+     "end": 1762.204,
+     "timed": true
+    },
+    {
+     "word": "only",
+     "start": 1762.325,
+     "end": 1762.526,
+     "timed": true
+    },
+    {
+     "word": "20%",
+     "start": 1762.576,
+     "end": 1762.914,
+     "timed": false
+    },
+    {
+     "word": "of",
+     "start": 1763.371,
+     "end": 1763.411,
+     "timed": true
+    },
+    {
+     "word": "what",
+     "start": 1763.471,
+     "end": 1763.612,
+     "timed": true
+    },
+    {
+     "word": "AI",
+     "start": 1763.713,
+     "end": 1763.954,
+     "timed": true
+    },
+    {
+     "word": "actually",
+     "start": 1764.175,
+     "end": 1764.578,
+     "timed": true
+    },
+    {
+     "word": "sees.",
+     "start": 1764.638,
+     "end": 1764.9,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "And your website is just a part of your whole profile, and that's only 20%.",
+   "timeline_start": 1800.62,
+   "timeline_end": 1804.218,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 3618.3108749999997,
+   "source_end": 3621.908875,
+   "words": [
+    {
+     "word": "And",
+     "start": 1800.62,
+     "end": 1800.681,
+     "timed": true
+    },
+    {
+     "word": "your",
+     "start": 1800.701,
+     "end": 1800.801,
+     "timed": true
+    },
+    {
+     "word": "website",
+     "start": 1800.821,
+     "end": 1801.062,
+     "timed": true
+    },
+    {
+     "word": "is",
+     "start": 1801.083,
+     "end": 1801.163,
+     "timed": true
+    },
+    {
+     "word": "just",
+     "start": 1801.183,
+     "end": 1801.364,
+     "timed": true
+    },
+    {
+     "word": "a",
+     "start": 1801.404,
+     "end": 1801.444,
+     "timed": true
+    },
+    {
+     "word": "part",
+     "start": 1801.565,
+     "end": 1801.886,
+     "timed": true
+    },
+    {
+     "word": "of",
+     "start": 1802.107,
+     "end": 1802.188,
+     "timed": true
+    },
+    {
+     "word": "your",
+     "start": 1802.248,
+     "end": 1802.429,
+     "timed": true
+    },
+    {
+     "word": "whole",
+     "start": 1802.489,
+     "end": 1802.69,
+     "timed": true
+    },
+    {
+     "word": "profile,",
+     "start": 1802.751,
+     "end": 1803.293,
+     "timed": true
+    },
+    {
+     "word": "and",
+     "start": 1803.755,
+     "end": 1803.896,
+     "timed": true
+    },
+    {
+     "word": "that's",
+     "start": 1803.936,
+     "end": 1804.077,
+     "timed": true
+    },
+    {
+     "word": "only",
+     "start": 1804.097,
+     "end": 1804.218,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "with the big dogs out there. They're probably thinking, there's no way I can compete with",
+   "timeline_start": 1892.84,
+   "timeline_end": 1893.08,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 3775.9712499999996,
+   "source_end": 3776.21125,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "the big dogs out there. They're probably thinking, there's no way I can compete with the LA Fitnesses of the world.",
+   "timeline_start": 1893.8,
+   "timeline_end": 1895.4,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 3776.9312499999996,
+   "source_end": 3778.53125,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Craig",
+   "text": "I don't think I",
+   "timeline_start": 1937.749,
+   "timeline_end": 1938.13,
+   "source_file": "/footage/LCATL0013.MXF",
+   "source_start": 3865.8418333333334,
+   "source_end": 3866.2228333333333,
+   "words": [
+    {
+     "word": "I",
+     "start": 1937.749,
+     "end": 1937.789,
+     "timed": true
+    },
+    {
+     "word": "don't",
+     "start": 1937.809,
+     "end": 1937.969,
+     "timed": true
+    },
+    {
+     "word": "think",
+     "start": 1937.989,
+     "end": 1938.09,
+     "timed": true
+    },
+    {
+     "word": "I",
+     "start": 1938.11,
+     "end": 1938.13,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "make sure that you're coming up with something that answers specific questions.",
+   "timeline_start": 2163.68,
+   "timeline_end": 2164.6,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 4291.222083333332,
+   "source_end": 4292.142083333332,
+   "words": [],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "Cause it's not,",
+   "timeline_start": 2384.271,
+   "timeline_end": 2384.61,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 4559.4439999999995,
+   "source_end": 4559.782999999999,
+   "words": [
+    {
+     "word": "Cause",
+     "start": 2384.271,
+     "end": 2384.377,
+     "timed": true
+    },
+    {
+     "word": "it's",
+     "start": 2384.398,
+     "end": 2384.483,
+     "timed": true
+    },
+    {
+     "word": "not,",
+     "start": 2384.504,
+     "end": 2384.61,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "And you're going to lose,",
+   "timeline_start": 2446.964,
+   "timeline_end": 2447.578,
+   "source_file": "/footage/LC4932.MXF",
+   "source_start": 4622.178708333333,
+   "source_end": 4622.792708333333,
+   "words": [
+    {
+     "word": "And",
+     "start": 2446.964,
+     "end": 2447.087,
+     "timed": true
+    },
+    {
+     "word": "you're",
+     "start": 2447.107,
+     "end": 2447.23,
+     "timed": true
+    },
+    {
+     "word": "going",
+     "start": 2447.25,
+     "end": 2447.353,
+     "timed": true
+    },
+    {
+     "word": "to",
+     "start": 2447.373,
+     "end": 2447.414,
+     "timed": true
+    },
+    {
+     "word": "lose,",
+     "start": 2447.435,
+     "end": 2447.578,
+     "timed": true
+    }
+   ],
+   "read_from_words": false,
+   "avg_logprob": null
+  },
+  {
+   "speaker": "Akshita",
+   "text": "So blogs are still important,",
+   "timeline_start": 2470.92,
+   "timeline_end": 2471.48,
+   "source_file": null,
+   "source_start": null,
+   "source_end": null,
+   "words": [
+    {
+     "word": "So",
+     "start": 2470.92,
+     "end": 2470.96,
+     "timed": true
+    },
+    {
+     "word": "blogs",
+     "start": 2470.98,
+     "end": 2471.08,
+     "timed": true
+    },
+    {
+     "word": "are",
+     "start": 2471.1,
+     "end": 2471.16,
+     "timed": true
+    },
+    {
+     "word": "still",
+     "start": 2471.18,
+     "end": 2471.28,
+     "timed": true
+    },
+    {
+     "word": "important,",
+     "start": 2471.3,
+     "end": 2471.48,
+     "timed": true
+    }
+   ],
+   "read_from_words": true,
+   "avg_logprob": null
+  }
+ ]
+}

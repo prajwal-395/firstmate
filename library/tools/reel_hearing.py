@@ -94,11 +94,18 @@ RECORD_SUFFIX = ".hearing.json"
 """Where the record lands: beside the render, next to `.deliver.json`."""
 
 
-# ── The measured bounds ──────────────────────────────────────────────
+# ── The measured bounds, and which of them are DIALS ─────────────────
 #
 # MECHANICAL values, not creative floors (AGENTS.md 10.5): each is a
 # property of the measuring instruments, and each was measured on this
 # project's own footage before it was written down.
+#
+# These three are the DEFAULTS, and `library/tools/hearing_settings.py`
+# is where a project or a run may move one and where the split between
+# a measured property and a real dial is drawn.  It also states why
+# `decided_value`'s ladder does not reach any of them.  Every number
+# below is still spelled exactly once - `hearing_settings.DIALS` reads
+# these as its own defaults, so there is no second copy to drift.
 
 DRIFT_NOISE_FLOOR_SECONDS = 0.25
 """Below this, a drift is the two transcribers disagreeing.
@@ -229,9 +236,16 @@ def speech_spans(timeline: Dict[str, Any],
 
 
 #: How far before a span's own start a word may begin and still be
-#: counted as inside it. One 24fps frame: a word the cut starts a
-#: hair inside is a word the reel plays, and dropping it would report
-#: the reel as saying a word less than it does.
+#: counted as inside it: a word the cut starts a hair inside is a word
+#: the reel plays, and dropping it would report the reel as saying a
+#: word less than it does.
+#:
+#: Half a frame at 24fps, and deliberately sub-frame. The comment here
+#: used to call 20ms "one 24fps frame", which it is not - a frame at
+#: 23.976 is 41.7ms. The VALUE is unchanged and only the description of
+#: it is corrected: widening the window to a full frame would admit
+#: words the neighbouring clip plays, and a tolerance is not a dial
+#: (`library/tools/hearing_settings.py`).
 SPAN_LEAD_TOLERANCE_SECONDS = 0.02
 
 
@@ -280,40 +294,27 @@ def planned_words(timeline: Dict[str, Any],
     return words, spans
 
 
-def wordless_rows(timeline: Dict[str, Any],
-                  transcript: Dict[str, Any],
-                  spans: Optional[Sequence[Span]] = None
-                  ) -> List[Dict[str, Any]]:
-    """Transcript rows this reel plays that carry text and NO timings.
+def unfitted_rows_played(timeline: Dict[str, Any],
+                         transcript: Dict[str, Any],
+                         spans: Optional[Sequence[Span]] = None
+                         ) -> List[Dict[str, Any]]:
+    """Transcript rows this reel plays whose text did not fit its audio.
 
-    Not a finding and not this lane's to fix - the upstream guard is a
-    separate task. It is recorded beside the findings because it is the
-    one upstream cause that makes every finding below inevitable, and a
-    reader looking at a nine-word drift run should be able to see it
-    without going and finding the transcript themselves.
+    The measurement is `library/tools/transcript_fit.py`'s and is not
+    repeated here: a row is unfitted when fewer of its words carry
+    timings than its text has words, which is a count against a count
+    with no threshold in it.
+
+    This used to be `wordless_rows` and reported only the rows that lost
+    EVERY word, as a note beside the findings. It is a FINDING now, and
+    it catches the rows that lost only PART of themselves too - both
+    halves of the class the hybrid-alignment report measured and named
+    as already-detected-and-unread.
     """
+    from library.tools import transcript_fit
+
     spans = speech_spans(timeline, transcript) if spans is None else spans
-    found: List[Dict[str, Any]] = []
-    for span in spans:
-        for segment in transcript.get("segments") or []:
-            if segment.get("source_file") != span.file_path:
-                continue
-            if segment.get("words"):
-                continue
-            if not str(segment.get("text") or "").strip():
-                continue
-            start = segment["source_start"]
-            if not (span.source_in <= start <= span.source_out):
-                continue
-            found.append({
-                "source_file": span.file_path,
-                "source_start": start,
-                "source_end": segment["source_end"],
-                "reel_start": start - span.source_in + span.reel_in,
-                "text": segment["text"],
-                "word_count_in_text": len(str(segment["text"]).split()),
-            })
-    return found
+    return transcript_fit.rows_played(timeline, transcript, spans)
 
 
 # ── The caption side ─────────────────────────────────────────────────
@@ -474,10 +475,19 @@ class Finding:
 SCRIPT_METRIC = "heard_script_divergence"
 DRIFT_METRIC = "heard_timing_drift"
 COVERAGE_METRIC = "heard_caption_coverage"
+FIT_METRIC = "transcript_row_fit"
 
-METRICS = (SCRIPT_METRIC, DRIFT_METRIC, COVERAGE_METRIC)
+METRICS = (SCRIPT_METRIC, DRIFT_METRIC, COVERAGE_METRIC, FIT_METRIC)
 """Every metric this producer can emit. Complete, and each has a row in
-`qa_findings.FINDING_READERS`."""
+`qa_findings.FINDING_READERS`.
+
+`FIT_METRIC` is the odd one and says so: the other three measure the
+RENDER against the plan, and this one measures the plan's own transcript
+against the audio it claims to be in. It is emitted here because a
+reader looking at an uncaptioned passage needs its cause in the same
+record, and it is the only finding this producer makes that a reel could
+have had BEFORE it was rendered
+(`library/tools/transcript_fit.py`)."""
 
 
 class NothingWasHeard(RuntimeError):
@@ -506,8 +516,17 @@ class Hearing:
     engine: Dict[str, Any] = field(default_factory=dict)
     anomalies: List[Dict[str, Any]] = field(default_factory=list)
     corrections_applied: List[Dict[str, Any]] = field(default_factory=list)
-    wordless_transcript_rows: List[Dict[str, Any]] = field(
+    unfitted_transcript_rows: List[Dict[str, Any]] = field(
         default_factory=list)
+    transcript_fit: Dict[str, Any] = field(default_factory=dict)
+    """What the WHOLE transcript looks like, not just this reel's rows.
+
+    The population is a property of the transcript: rows exist whether
+    or not any reel plays one. Carried on every hearing so a reader
+    learns the episode-wide count from the reel they already ran,
+    without hearing thirty more."""
+    settings: Any = None
+    """The `hearing_settings.HearingSettings` this hearing ran with."""
     skipped: List[Dict[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> Dict[str, Any]:
@@ -541,7 +560,10 @@ class Hearing:
             "drift_runs": self.runs,
             "caption_coverage": self.coverage,
             "transcriber_anomalies": self.anomalies,
-            "wordless_transcript_rows": self.wordless_transcript_rows,
+            "unfitted_transcript_rows": self.unfitted_transcript_rows,
+            "transcript_fit": self.transcript_fit,
+            "settings": (self.settings.as_dict() if self.settings is not None
+                         else {}),
             "skipped": self.skipped,
             "findings": [f.as_row() for f in self.findings],
         }
@@ -567,6 +589,8 @@ def _script_finding(hearing: Hearing) -> Finding:
 
 def _drift_finding(hearing: Hearing) -> Finding:
     runs = hearing.runs
+    floor = hearing.settings.drift_noise_floor_seconds
+    minimum = hearing.settings.drift_run_min_words
     if not hearing.drift.get("matched_words"):
         return Finding(
             metric=DRIFT_METRIC, passed=True, value=0, threshold=0,
@@ -579,16 +603,16 @@ def _drift_finding(hearing: Hearing) -> Finding:
               f", worst {hearing.drift['max_absolute_seconds'] * 1000:.0f}ms")
     if runs:
         worst = max(runs, key=lambda r: abs(r["median_drift_seconds"]))
-        detail += (f"; {len(runs)} run(s) of {DRIFT_RUN_MIN_WORDS}+ "
+        detail += (f"; {len(runs)} run(s) of {minimum}+ "
                    f"consecutive words past the "
-                   f"{DRIFT_NOISE_FLOOR_SECONDS * 1000:.0f}ms transcriber "
+                   f"{floor * 1000:.0f}ms transcriber "
                    f"noise floor - worst is {worst['words']} words "
                    f"{worst['direction']} by "
                    f"{worst['median_drift_seconds'] * 1000:+.0f}ms at "
                    f"{worst['planned_start']:.2f}s: {worst['text']!r}")
     else:
-        detail += (f"; no run of {DRIFT_RUN_MIN_WORDS}+ consecutive words "
-                   f"past the {DRIFT_NOISE_FLOOR_SECONDS * 1000:.0f}ms "
+        detail += (f"; no run of {minimum}+ consecutive words "
+                   f"past the {floor * 1000:.0f}ms "
                    f"noise floor")
     return Finding(
         metric=DRIFT_METRIC, passed=not runs, value=len(runs), threshold=0,
@@ -604,7 +628,8 @@ def _coverage_finding(hearing: Hearing) -> Optional[Finding]:
     detail = (f"{len(zero)} of {len(hearing.heard)} heard words have NO "
               f"caption on screen while they are spoken, "
               f"{len(partial)} are under "
-              f"{CAPTION_HALF_COVERED:.0%} covered, across "
+              f"{hearing.settings.caption_coverage_floor:.0%} covered, "
+              f"across "
               f"{coverage['caption_cards']} cards")
     if zero:
         detail += (f" - {zero[0]['reel_start']:.2f}-{zero[-1]['reel_end']:.2f}s"
@@ -622,24 +647,85 @@ def _coverage_finding(hearing: Hearing) -> Optional[Finding]:
         detail=detail)
 
 
+def _fit_finding(hearing: Hearing) -> Finding:
+    """The rows this reel plays whose text did not fit its audio.
+
+    A finding rather than a note, which is the change: the row that cost
+    Reel 26 its captions was already being found and was reported as
+    context nobody had to act on. `qa_findings` owns who acts on it and
+    `temporal_index` is the owner, because the transcript is where it
+    was made.
+
+    The severity is `error` when any row lost EVERY word, because a row
+    with no timings generates no caption card at all and the viewer sees
+    nothing; `warning` when only parts of rows were lost, because the
+    surviving words still place a card and what is missing is a word
+    inside it.
+    """
+    rows = hearing.unfitted_transcript_rows
+    whole = [r for r in rows
+             if r["kind"] == "whole_row_lost"]
+    episode = hearing.transcript_fit
+    if not rows:
+        detail = ("every transcript row this reel plays carries a word "
+                  "timing for every word of its text")
+        if episode:
+            detail += (f"; {episode['unfitted_rows']} row(s) of the "
+                       f"episode's {episode['rows']} do not, and this reel "
+                       f"plays none of them")
+        return Finding(metric=FIT_METRIC, passed=True, value=0, threshold=0,
+                       severity="info", detail=detail)
+    untimed = sum(r["untimed_words"] for r in rows)
+    detail = (f"{len(rows)} transcript row(s) this reel plays carry text "
+              f"with no word timing under it - {untimed} word(s), "
+              f"{len(whole)} row(s) lost entirely. Nothing word-timed can "
+              f"be placed over them, so they generate no caption card")
+    worst = max(rows, key=lambda r: r["untimed_words"])
+    detail += (f" - worst at {worst['reel_start']:.2f}s: "
+               f"{worst['untimed_words']} of {worst['text_words']} words "
+               f"in {worst['span_seconds']:.2f}s "
+               f"({worst['implied_words_per_second']} words per second): "
+               f"{worst['text'][:70]!r}")
+    if episode:
+        reference = episode["fastest_fitted_words_per_second"]
+        detail += (f". Episode-wide: {episode['unfitted_rows']} of "
+                   f"{episode['rows']} rows, against a fastest FITTED row "
+                   f"of {reference} words per second")
+    return Finding(
+        metric=FIT_METRIC, passed=False, value=len(rows), threshold=0,
+        severity="error" if whole else "warning", detail=detail)
+
+
 def hear(timeline: Dict[str, Any],
          transcript: Dict[str, Any],
          spoken,
          project_folder: str = "",
          timeline_path: str = "",
-         video_path: str = "") -> Hearing:
+         video_path: str = "",
+         settings=None) -> Hearing:
     """Compare one render's speech against one plan's. No model, no I/O.
 
     `spoken` is a `heard_speech.HeardSpeech` - ALREADY transcribed, so
     this function is pure and a recorded transcription replays through it
     exactly. That is what lets the known-answer case be a test rather
-    than a run. `project_folder` is read for one thing only: the filed
+    than a run. `project_folder` is read for two things: the filed
     spelling corrections that the planned side already has applied and
-    the heard side does not.
+    the heard side does not, and - when `settings` is not passed - the
+    project's own `pipeline.reel_hearing` declaration.
+
+    `settings` is a `hearing_settings.HearingSettings`. Resolved here
+    when absent so every caller gets the project's declaration without
+    having to remember to ask for it, and so a hearing can never run
+    with values nothing recorded.
     """
-    from library.tools import transcript_corrections
+    from library.tools import hearing_settings, transcript_corrections, \
+        transcript_fit
+
+    if settings is None:
+        settings = hearing_settings.resolve(project_folder or None)
 
     hearing = Hearing(
+        settings=settings,
         timeline_name=str((timeline.get("metadata") or {}).get("name") or ""),
         timeline_path=timeline_path,
         video_path=video_path,
@@ -709,16 +795,32 @@ def hear(timeline: Dict[str, Any],
             "mean_seconds": round(statistics.fmean(drifts), 4),
             "mean_absolute_seconds": round(statistics.fmean(absolute), 4),
             "max_absolute_seconds": round(max(absolute), 4),
-            "noise_floor_seconds": DRIFT_NOISE_FLOOR_SECONDS,
-            "past_the_floor": sum(1 for a in absolute
-                                  if a > DRIFT_NOISE_FLOOR_SECONDS),
+            "noise_floor_seconds": settings.drift_noise_floor_seconds,
+            "past_the_floor": sum(
+                1 for a in absolute
+                if a > settings.drift_noise_floor_seconds),
+            "run_min_words": settings.drift_run_min_words,
         }
-        hearing.runs = drift_runs(pairs, hearing.planned, hearing.heard)
+        hearing.runs = drift_runs(
+            pairs, hearing.planned, hearing.heard,
+            floor=settings.drift_noise_floor_seconds,
+            minimum=settings.drift_run_min_words)
     else:
         hearing.drift = {"matched_words": 0}
 
-    windows = caption_windows(timeline)
-    if windows:
+    windows = caption_windows(timeline) if settings.runs(
+        COVERAGE_METRIC) else []
+    if not settings.runs(COVERAGE_METRIC):
+        hearing.coverage = {"measured": False, "caption_cards": 0,
+                            "uncaptioned_words": [],
+                            "half_captioned_words": []}
+        hearing.skipped.append({
+            "check": COVERAGE_METRIC,
+            "reason": "this hearing was asked not to make this check "
+                      "(hearing_settings.checks_declined). It is skipped "
+                      "openly rather than left out: a report missing a row "
+                      "reads as a clean one."})
+    elif windows:
         zero, partial = [], []
         for word in hearing.heard:
             share = covered_fraction(word.start, word.end, windows)
@@ -727,7 +829,7 @@ def hear(timeline: Dict[str, Any],
                    "covered": round(share, 3)}
             if share <= 0.0:
                 zero.append(row)
-            elif share < CAPTION_HALF_COVERED:
+            elif share < settings.caption_coverage_floor:
                 partial.append(row)
         hearing.coverage = {
             "measured": True, "caption_cards": len(windows),
@@ -744,13 +846,33 @@ def hear(timeline: Dict[str, Any],
                       "that declares no captions is not a reel with late "
                       "ones."})
 
-    hearing.wordless_transcript_rows = wordless_rows(timeline, transcript,
-                                                     hearing.spans)
+    hearing.unfitted_transcript_rows = unfitted_rows_played(
+        timeline, transcript, hearing.spans)
+    hearing.transcript_fit = transcript_fit.scan(transcript)
+    # The whole-document rows are already in each finding's detail and
+    # in the reel's own list; carrying them a third time would be the
+    # summary and the structure it was rendered from (AGENTS.md 10.1).
+    hearing.transcript_fit.pop("rows_detail", None)
 
-    hearing.findings = [_script_finding(hearing), _drift_finding(hearing)]
-    coverage_finding = _coverage_finding(hearing)
-    if coverage_finding is not None:
-        hearing.findings.append(coverage_finding)
+    builders = ((SCRIPT_METRIC, _script_finding),
+                (DRIFT_METRIC, _drift_finding),
+                (COVERAGE_METRIC, _coverage_finding),
+                (FIT_METRIC, _fit_finding))
+    hearing.findings = []
+    for metric, build in builders:
+        if not settings.runs(metric):
+            if metric != COVERAGE_METRIC:  # already recorded above
+                hearing.skipped.append({
+                    "check": metric,
+                    "reason": "this hearing was asked not to make this "
+                              "check (hearing_settings.checks_declined). "
+                              "It is skipped openly rather than left out: "
+                              "a report missing a row reads as a clean "
+                              "one."})
+            continue
+        finding = build(hearing)
+        if finding is not None:
+            hearing.findings.append(finding)
     return hearing
 
 
@@ -855,6 +977,10 @@ def summary_lines(hearing: Hearing) -> List[str]:
             "  spelling: the heard side was corrected through "
             + ", ".join(f"{c['heard']}->{c['correct']}"
                         for c in hearing.corrections_applied))
+    if hearing.settings is not None:
+        from library.tools import hearing_settings
+
+        lines.extend(hearing_settings.warning_lines(hearing.settings))
     for finding in read.reportable:
         icon = "✗" if finding.verdict == qa_findings.FAILING else "!"
         owner = f" [{finding.owner}]" if finding.owner else ""
@@ -865,16 +991,29 @@ def summary_lines(hearing: Hearing) -> List[str]:
                      "plan says it")
     for row in hearing.skipped:
         lines.append(f"  - skipped {row['check']}: {row['reason']}")
-    if hearing.wordless_transcript_rows:
+    if hearing.unfitted_transcript_rows:
         lines.append(
-            f"  note: {len(hearing.wordless_transcript_rows)} transcript "
-            f"row(s) this reel plays carry text and NO word timings - "
-            f"the upstream cause of a caption that cannot be placed:")
-        for row in hearing.wordless_transcript_rows:
-            lines.append(f"        {row['reel_start']:.2f}s "
-                         f"({row['word_count_in_text']} words in "
-                         f"{row['source_end'] - row['source_start']:.2f}s): "
-                         f"{row['text'][:80]!r}")
+            f"  rows:   {len(hearing.unfitted_transcript_rows)} transcript "
+            f"row(s) this reel plays carry text with NO word timing under "
+            f"it - nothing word-timed can be placed over them:")
+    for row in hearing.unfitted_transcript_rows:
+        lines.append(f"        {row['reel_start']:.2f}s "
+                     f"({row['untimed_words']} of {row['text_words']} "
+                     f"words untimed in {row['span_seconds']:.2f}s = "
+                     f"{row['implied_words_per_second']} w/s): "
+                     f"{row['text'][:80]!r}")
+    if hearing.transcript_fit:
+        episode = hearing.transcript_fit
+        lines.append(
+            f"  note: the whole transcript carries "
+            f"{episode['unfitted_rows']} unfitted row(s) of "
+            f"{episode['rows']} - "
+            f"`python3 -m library.tools.transcript_fit <project>` lists "
+            f"them without hearing another reel")
+        if episode["interpolated_words"]:
+            lines.append(
+                f"        and {episode['interpolated_words']} word(s) the "
+                f"aligner PLACED without aligning - numerals, not a defect")
     if hearing.anomalies:
         lines.append(
             f"  note: {len(hearing.anomalies)} transcriber anomal(ies) - "

@@ -100,15 +100,56 @@ def test_the_words_the_speaker_really_said_are_heard_and_unplanned(hearing):
     assert "niche" in {row["heard"].lower().strip(",.") for row in extra}, extra
 
 
-def test_the_upstream_cause_is_named_beside_the_findings(hearing):
-    """The one transcript row that produced all three."""
-    rows = hearing.wordless_transcript_rows
+def test_the_upstream_cause_is_a_FINDING_not_a_note(hearing):
+    """The one transcript row that produced all three.
+
+    It was reported as context beside the findings when this pass
+    landed. It is a finding now - the hybrid-alignment report's point
+    was that forced alignment already discovers these and nothing reads
+    them, and a note nobody has to act on is not a reading.
+    """
+    rows = hearing.unfitted_transcript_rows
     assert len(rows) == 1, rows
     row = rows[0]
-    assert row["word_count_in_text"] == 12
-    assert row["source_end"] - row["source_start"] == pytest.approx(0.92,
-                                                                   abs=0.01)
+    assert row["text_words"] == 12
+    assert row["untimed_words"] == 12
+    assert row["kind"] == "whole_row_lost"
+    assert row["span_seconds"] == pytest.approx(0.92, abs=0.01)
     assert "make sure that you're coming up" in row["text"]
+
+    finding = next(f for f in hearing.findings
+                   if f.metric == reel_hearing.FIT_METRIC)
+    assert finding.passed is False
+    assert finding.severity == "error"
+
+
+def test_the_cause_is_owned_by_the_step_that_wrote_the_transcript(hearing):
+    """Not by the one that placed the cards.
+
+    Every other finding this pass makes is owned by `build_reels` or
+    `plan_subtitles`, which are downstream of the defect and cannot fix
+    it. Routing this one there would send a reader to the wrong place.
+    """
+    read = reel_hearing.read_findings(hearing)
+    fit = next(f for f in read.reportable
+               if f.metric == reel_hearing.FIT_METRIC)
+    assert fit.owner == "temporal_index"
+
+
+def test_the_whole_episode_is_counted_from_the_one_reel(hearing):
+    """The population is the transcript's, not this reel's.
+
+    Fifteen rows exist on the captain's episode whether or not any reel
+    plays one; the fixture transcript is trimmed to this reel's spans,
+    so it carries the one. What is pinned is that the count is REPORTED
+    rather than left to be discovered one delivered reel at a time.
+    """
+    episode = hearing.transcript_fit
+    assert episode["rows"] > 0
+    assert episode["unfitted_rows"] >= len(hearing.unfitted_transcript_rows)
+    assert "rows_detail" not in episode
+    assert any("whole transcript carries" in line
+               for line in reel_hearing.summary_lines(hearing))
 
 
 # ── 2. The normalisation that stops it crying wolf ───────────────────
@@ -203,8 +244,11 @@ def test_the_findings_go_through_the_one_reader(hearing):
     read = reel_hearing.read_findings(hearing)
     assert read.unrouted == [], [f.metric for f in read.unrouted]
     assert {f.owner for f in read.findings} == {"build_reels",
-                                                "plan_subtitles"}
-    assert read.counts()[qa_findings.FAILING] == 3
+                                                "plan_subtitles",
+                                                "temporal_index"}
+    # Four checks, four failures: the three consequences in the
+    # delivered file and the transcript row that caused them.
+    assert read.counts()[qa_findings.FAILING] == 4
 
 
 def test_the_summary_says_it_does_not_gate(hearing):
@@ -368,10 +412,11 @@ def test_announcing_reaches_the_review_channel_through_the_declared_hook(
     _declare_a_steer(project, "the render does not say what the plan says")
     monkeypatch.delenv(hooks.ENV_DEPTH, raising=False)
 
+    failing = [f for f in hearing.findings if not f.passed]
     fired = reel_hearing.announce(str(project), hearing)
-    assert [f.outcome for f in fired] == [hooks.FIRED] * 3, fired
+    assert [f.outcome for f in fired] == [hooks.FIRED] * len(failing), fired
     notes = review_channel.list_notes(str(project))
-    assert len(notes) == 3
+    assert len(notes) == len(failing) == 4
     assert {note["origin"] for note in notes} == {review_channel.ORIGIN_HOOK}
     assert all(note["anchor"]["selector"] for note in notes)
 

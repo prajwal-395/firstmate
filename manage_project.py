@@ -1680,7 +1680,8 @@ def cmd_hear_reel(args):
         observation = hear.run(
             project_folder, args.step_id, reel=target["reel"],
             video_path=target["video"], timeline_path=args.timeline,
-            announce=args.announce)
+            announce=args.announce, dials=hear.dials_from(args),
+            decline=args.decline_check)
         if not observation["available"]:
             print(f"REFUSED: {observation['reason']}", file=sys.stderr)
             continue
@@ -2067,6 +2068,11 @@ def main():
         help="Raise each finding on the project's hook layer, which is "
              "how one reaches the review channel. Nothing fires unless "
              "the project declares a hook for it")
+    # The dials are registered FROM `hearing_settings.DIALS` rather than
+    # listed here, so both CLIs offer exactly what the enumeration
+    # carries and a new dial cannot reach one surface and not the other.
+    from library.skills.hear_the_reel import skill as _hear_skill
+    _hear_skill.add_dial_arguments(hear_reel_parser)
     hear_reel_parser.set_defaults(func=cmd_hear_reel)
 
     touch_reel_parser = sub.add_parser(

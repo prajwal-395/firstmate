@@ -279,11 +279,11 @@ SKILLS: Dict[str, Skill] = {
               "transcriber installed; absent, it says so rather than "
               "reporting a reel nobody listened to as clean."),
         returns=("An OBSERVATION, never a verdict: one row per check - "
-                 "script divergence, timing drift, caption coverage - "
-                 "with the evidence under each, or `available: false` "
-                 "with the reason. Nothing here gates. Read "
-                 "`transcriber_anomalies` and "
-                 "`wordless_transcript_rows` before blaming the edit."),
+                 "script divergence, timing drift, caption coverage and "
+                 "transcript row fit - with the evidence under each, or "
+                 "`available: false` with the reason. Nothing here "
+                 "gates. Read `transcriber_anomalies` and "
+                 "`unfitted_transcript_rows` before blaming the edit."),
         pipeline_args=None,
     ),
 }

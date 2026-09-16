@@ -6,7 +6,7 @@ What a rendered reel actually SAYS, against what the plan says it says.
 
 The render's audio is transcribed on the machine, the plan's own words
 are resolved out of the timeline transcript through the reel's placed
-clips, and the two are aligned and diffed. It reports three things:
+clips, and the two are aligned and diffed. It reports four things:
 
 - **script divergence** - words the render says that the plan does not,
   and words the plan carries that the render does not say;
@@ -14,7 +14,17 @@ clips, and the two are aligned and diffed. It reports three things:
   plan puts it, and any RUN of consecutive words drifting the same way
   past the transcribers' own measured disagreement;
 - **caption coverage** - speech in the delivered file with no caption
-  card on screen while it is spoken.
+  card on screen while it is spoken;
+- **transcript row fit** - rows of the plan's own transcript carrying
+  text with NO word timing under it. Nothing word-timed can be placed
+  over such a row, so it generates no caption card at all - it is the
+  CAUSE of the three above rather than a fourth symptom, which is why
+  it is owned by `temporal_index` and not by the step that placed the
+  cards.
+
+The fourth needs no render at all, which is why it is also on its own:
+`python3 -m library.tools.transcript_fit <project>` measures the whole
+transcript before a reel has ever been delivered.
 
 Nothing else in this pipeline compares HEARD against PLANNED.
 `verify_render` measures the file against itself, `verify_timeline`
@@ -52,8 +62,8 @@ reel nobody listened to.
 
 An **observation**, never a verdict. `findings` carries one row per
 check with its own `passed`, `severity` and the step that owns the
-decision behind it; `divergences`, `drift_runs` and `caption_coverage`
-carry the evidence under each.
+decision behind it; `divergences`, `drift_runs`, `caption_coverage` and
+`unfitted_transcript_rows` carry the evidence under each.
 
 **This one REPORTS. It gates nothing** - `library/tools/reel_hearing.py`
 sets `GATES = False`, no build reads its record, and a `passed: false`
@@ -61,15 +71,19 @@ row here fails nothing. Say what it found and what you think about it;
 the decision to act is yours and the decision to promote any of it to a
 gate is the captain's.
 
-Two things to read before blaming the edit:
+Three things to read before blaming the edit:
 
 - `transcriber_anomalies` - the transcriber's own structural failures (a
   word held across a silence, a degenerate interval). A divergence next
   to one of these is more likely the transcriber's than the edit's.
-- `wordless_transcript_rows` - transcript rows this reel plays that
-  carry text and NO word timings. One of these is the upstream cause of
-  an uncaptioned passage and of everything after it drifting; it is a
+- `unfitted_transcript_rows` - transcript rows this reel plays whose
+  text did not all reach a word timing, and `transcript_fit` for the
+  same count over the WHOLE episode. One of these is the upstream cause
+  of an uncaptioned passage and of everything after it drifting; it is a
   separately filed fix and not something to change here.
+- `settings` - which values this hearing ran with and what answered
+  each. `moved_pinned` is the one to look at: a hearing that moved a
+  MEASURED value is not comparable to one that did not.
 
 Divergences that are NOT defects, and are reported anyway: contractions
 (`gonna` against `going to`), spelled-out numbers, compound splits and
@@ -96,6 +110,16 @@ no `.deliver.json` beside it. `--announce` raises each finding on the
 project's own hook layer, which is how one reaches the captain's review
 channel as an anchored note - nothing fires unless the project declares
 a hook for it.
+
+Both CLIs carry the same dials, registered from
+`library/tools/hearing_settings.DIALS` so neither surface can offer what
+the other does not: `--caption-coverage-floor`, `--drift-run-min-words`
+and `--decline-check <metric>` are a run's choice, and
+`--drift-noise-floor-seconds` is a MEASURED property - moving it is
+allowed and is RECORDED in the hearing's `moved_pinned`, because a
+record that moved the measurement is not comparable to one that did
+not. A project's standing answers go in `pipeline.reel_hearing` in its
+`project.yaml`.
 
 The run writes a receipt to
 `<project>/pipeline_output/skill_runs/<step-id>/hear_the_reel.json` and
