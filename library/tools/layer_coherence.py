@@ -37,8 +37,11 @@ Timeline-derived measurements (`timeline_captures/`, the repo's
 they describe the live Resolve project a parallel lane owns, and
 this module neither touches that project nor grades it.
 
-Read-only. This module never writes to the project - a check that
-edits what it inspects cannot be run on the captain's data.
+Read-only. The check itself never writes to the project - a check
+that edits what it inspects cannot be run on the captain's data.
+A reels build files the full report via `write_coherence_report`
+(outside every scanned root) and keeps only `summarize_coherence`
+counts in run state, so filed findings can never be scanned again.
 
 `python3 -m library.tools.layer_coherence <project_folder>`
 prints every divergence and exits 2 while any owned-layer
@@ -103,51 +106,77 @@ def _load_json(path: str):
 _HISTORY_RE = re.compile(r"_20\d{6}T\d+Z\.json$")
 
 
-#: Where this module's own findings come to rest. A reels build
-#: records this report into the pipeline's state file under
-#: `step_outputs.build_reels.reel_build.coherence`
-#: (`library/tools/reel_build.py`), and `check_wording` scans
-#: `pipeline_data.json` because regenerated step outputs are a display
-#: like any other. Each half is right alone; together they are a
-#: measurement that measures itself, so the report is lifted out of
-#: the document before the scan reads it.
-OWN_REPORT_ROUTE = ("step_outputs", "build_reels", "reel_build",
-                    "coherence")
+#: The display roots `check_wording` walks. `pipeline_data.json` at
+#: the project root is scanned as one more file beside these, because
+#: regenerated step outputs are a display like any other.
+SCAN_SUBDIRS = ("pipeline_output", Area.SUBTITLE_PLANS.value,
+                Area.SUBTITLE_OVERLAYS.value, "transcripts", "external",
+                "compositions")
+
+#: Where a reels build files this module's full report. A reels build
+#: runs this check and must keep what it said - but the report's rows
+#: QUOTE the heard form (`found` and `context`), so any copy stored
+#: where `check_wording` scans becomes the scan's own input on the
+#: next build: every run re-finds the previous run's rows and stores
+#: them again, and the state file doubles per build (measured on the
+#: captain's `geo-podcast` 2026-09-16 - 7,062,699 bytes to
+#: 12,196,676,126 over ten builds, 31,982 of 32,011 rows
+#: self-inflicted; docs/RULE_EVIDENCE.md,
+#: `the-scan-that-measured-itself`). The structural cut, chosen over
+#: dropping the state file from the scan: the scan keeps reading
+#: `pipeline_data.json` because real divergences live in other step
+#: outputs there (116 of the 145 real rows measured), while the
+#: findings live here - a latest-only file at the project root, which
+#: the scan never walks. `pipeline_data.json` carries only the summary
+#: (counts, no quoted text), which cannot self-match. There is no
+#: pruning of stored rows: there is nothing to prune, by construction.
+COHERENCE_REPORT_FILENAME = "layer_coherence_report.json"
 
 
-def _without_own_report(document):
-    """`document` with this module's own stored findings removed.
+def coherence_report_path(project_folder: str) -> str:
+    """The sidecar file holding this module's latest full report.
 
-    The same rule as the `transcript.json` correction stamp in
-    `check_wording`: a record of the pass HAVING RUN is machinery, not
-    divergence. Measured on the captain's `geo-podcast` 2026-09-16 -
-    28,245,754 of 28,245,899 wording rows were this scan reading its
-    own previous output, 145 were real, and `pipeline_data.json`
-    doubled on every build, 7,062,699 bytes to 12,196,676,126 over ten.
-    docs/RULE_EVIDENCE.md, `the-scan-that-measured-itself`.
-
-    The removal is BY ROUTE, not by filename: 116 of those 145 real
-    rows were found inside `pipeline_data.json` too, in other step
-    outputs, and dropping the file wholesale would have lost them.
-
-    Only the spine down to the report is copied, never the document:
-    the file this matters on is measured in gigabytes.
+    At the project root, outside every root `check_wording` scans -
+    so a filed report can never become the scan's own input again.
     """
-    if not isinstance(document, dict):
-        return document
-    pruned = dict(document)
-    cursor = pruned
-    for key in OWN_REPORT_ROUTE[:-1]:
-        branch = cursor.get(key)
-        if not isinstance(branch, dict):
-            return document
-        branch = dict(branch)
-        cursor[key] = branch
-        cursor = branch
-    if OWN_REPORT_ROUTE[-1] not in cursor:
-        return document
-    cursor.pop(OWN_REPORT_ROUTE[-1])
-    return pruned
+    return os.path.join(str(project_folder), COHERENCE_REPORT_FILENAME)
+
+
+def write_coherence_report(project_folder: str, report: dict) -> str:
+    """File the full report outside the scan. Returns the path."""
+    from library.tools.stable_json import write_stable
+
+    path = coherence_report_path(project_folder)
+    write_stable(path, report if isinstance(report, dict) else {})
+    return path
+
+
+def read_coherence_report(project_folder: str):
+    """The filed full report, or None when no build has filed one."""
+    return _load_json(coherence_report_path(project_folder))
+
+
+def summarize_coherence(report: dict) -> dict:
+    """What the build record keeps: counts, never quoted text.
+
+    The summary is what reaches `pipeline_data.json` (which the scan
+    reads), so it carries no `found`, no `context` and no `should_be` -
+    only per-class counts. A summary cannot self-match no matter how
+    many builds file one.
+    """
+    if not isinstance(report, dict) or "unavailable" in report:
+        return {"status": "unavailable", "owned_total": 0,
+                "wording": 0, "pins": 0, "assets": 0,
+                "informational": 0}
+    wording = report.get("wording") or []
+    pins = report.get("pins") or []
+    assets = report.get("assets") or []
+    informational = report.get("informational") or []
+    return {"status": "ok",
+            "owned_total": len(wording) + len(pins) + len(assets),
+            "wording": len(wording), "pins": len(pins),
+            "assets": len(assets),
+            "informational": len(informational)}
 
 
 def _iter_json_files(root: str):
@@ -195,9 +224,7 @@ def check_wording(project_folder: str, corrections: list) -> list:
     # spelled here: they are INPUT the layout reconciles, and a second
     # spelling is a second writer the day either is renamed
     # (tests/test_project_layout.py).
-    for sub in ("pipeline_output", Area.SUBTITLE_PLANS.value,
-                Area.SUBTITLE_OVERLAYS.value, "transcripts", "external",
-                "compositions"):
+    for sub in SCAN_SUBDIRS:
         candidate = os.path.join(str(project_folder), sub)
         if os.path.isdir(candidate):
             roots.append(candidate)
@@ -225,10 +252,12 @@ def check_wording(project_folder: str, corrections: list) -> list:
             if os.path.basename(path) == "transcript.json":
                 document = {k: v for k, v in document.items()
                             if k != "transcript_corrections_applied"}
-            # And this module's own findings, wherever a build stored
-            # them, are the same kind of thing: the proof this scan
-            # ran, never something it may find again.
-            document = _without_own_report(document)
+            # This module's own findings need no pruning here: a build
+            # files the full report at the project root
+            # (`coherence_report_path`, outside every scanned root) and
+            # keeps only counts in `pipeline_data.json`
+            # (`summarize_coherence`), so stored findings can never be
+            # scanned again. The loop is cut at the cause, not filtered.
             found: list = []
             _scan_text(document, heard_re, found, path, "")
             for row in found:

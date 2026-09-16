@@ -7575,9 +7575,17 @@ filename-based drop would have destroyed every one. And the check that the repai
 not a count - it was running the FIXED scanner over the repaired project and getting exactly those
 145 rows back, identical by identity.
 
-`tests/test_layer_coherence.py::test_the_scan_does_not_find_its_own_stored_findings` demonstrates
+`tests/test_layer_coherence.py::test_the_scan_does_not_find_its_own_filed_findings` demonstrates
 the feedback rather than asserting a shape: two runs that change nothing must find the same rows
 and leave the file the same size. On the pre-fix code, run two finds 3 rows where run one found 1.
+
+Follow-up: the route-based lift-out above was a filter that hid the loop rather than cutting it -
+the scan still read the state file and the build still stored rows where it reads. The structural
+cut keeps the scan reading `pipeline_data.json` (those 116 real rows live in other step outputs
+there) and moves the findings out instead: the build files the full report at the project root
+(`layer_coherence_report.json`, outside every scanned root) and keeps only counts in run state.
+`_without_own_report` / `OWN_REPORT_ROUTE` are deleted, and the loop tests now file through the
+real build storage path. Repairing the already-bloated state file is separate work, not this one.
 
 ## the-gate-that-could-not-start-for-three-days
 

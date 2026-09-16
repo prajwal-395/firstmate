@@ -8877,6 +8877,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 "pipeline_output/scratch/timeline_transcript/"
                 "transcript.json"))
 
+    # File the layer-vs-source findings OUTSIDE the scan, and keep
+    # only counts in the record below. The full rows quote the heard
+    # form, so storing them in `pipeline_data.json` (which the check
+    # scans) made every build re-find the previous build's rows and
+    # doubled the state file per build
+    # (`library/tools/layer_coherence.py`). The sidecar lives at the
+    # project root, outside every scanned root; the summary carries
+    # no quoted text and cannot self-match. Filing never fails the
+    # build - the witness is advisory, and a missing sidecar just
+    # means the counts below are all there is.
+    try:
+        from library.tools import layer_coherence as _coherence
+        _coherence_path = _coherence.write_coherence_report(
+            project_folder, coherence_report)
+        coherence_summary = _coherence.summarize_coherence(
+            coherence_report)
+        # The filename only, never the absolute path: the summary
+        # lives in `pipeline_data.json` (which the scan reads), and a
+        # project folder named for the heard form must not become a
+        # match. The file sits beside the state file that names it.
+        coherence_summary["report_path"] = _coherence.\
+            COHERENCE_REPORT_FILENAME
+    except Exception as coherence_file_failed:  # noqa: BLE001
+        import sys as _sys
+        print(f"  layer-coherence filing unavailable "
+              f"({coherence_file_failed}) - counts only",
+              file=_sys.stderr)
+        coherence_summary = {"status": "unfiled", "owned_total": 0,
+                             "wording": 0, "pins": 0, "assets": 0,
+                             "informational": 0}
+
     return {
         "timelines_built": built_reel_names,
         # Reels this call deliberately did NOT build: a recorded strike
@@ -8957,9 +8988,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # (`library/tools/reel_divergence.py`). Reported, never a gate.
         "divergence": divergence_report,
         # What the layer-vs-source check said before anything was
-        # placed (`library/tools/layer_coherence.py`). Reported,
-        # never a gate, for the same reason as the divergence above.
-        "coherence": coherence_report,
+        # placed (`library/tools/layer_coherence.py`): counts only,
+        # never the full rows. The full rows quote the heard form, so
+        # they live in the sidecar outside the scan
+        # (`layer_coherence.coherence_report_path`) and only this
+        # summary reaches `pipeline_data.json` - storing rows where
+        # the check scans doubled the state file every build.
+        # Reported, never a gate, for the same reason as the
+        # divergence above.
+        "coherence_summary": coherence_summary,
         # Per reel: whether it needed a Resolve pass, and WHY - for
         # every reel this call considered, including the ones it
         # placed (`library/tools/reel_rebuild_need.py`). A reader that
