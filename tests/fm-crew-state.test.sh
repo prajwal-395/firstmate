@@ -137,14 +137,18 @@ set -u
 # responses that fm_backend_tmux_agent_state owns as death.
 [ "${FM_FAKE_TMUX_UNREADABLE:-0}" = 1 ] && { printf 'no current client\n' >&2; exit 1; }
 case "${1:-}" in
-  # The tmux endpoint surface. `display-message` is FORMAT-AWARE because the
-  # agent-liveness classifier (bin/backends/tmux.sh) asks it three different
-  # questions: the pane id (does the target resolve), the pane tty (whose
-  # foreground process group it reads with ps), and the pane's current command
-  # (the name it attributes). FM_FAKE_PANE_TTY defaults to a tty that owns no
-  # process, so the classifier falls through to the command name and these
-  # cases stay hermetic - the real foreground-process reading is proven against
-  # REAL processes in tests/fm-tmux-agent-liveness.test.sh, which is where that
+  # The tmux endpoint surface below is retired with the backend, but the fake
+  # stays so historical cases keep running: herdr is the default backend, so
+  # captures and busy tails now arrive through the herdr fake's read branch
+  # (FM_FAKE_HERDR_BUSY / FM_FAKE_HERDR_BUSY_TEXT mirror the old tmux knobs).
+  # `display-message` is FORMAT-AWARE because the agent-liveness classifier
+  # (bin/fm-agent-process-lib.sh) asks it three different questions: the pane
+  # id (does the target resolve), the pane tty (whose foreground process group
+  # it reads with ps), and the pane's current command (the name it
+  # attributes). FM_FAKE_PANE_TTY defaults to a tty that owns no process, so
+  # the classifier falls through to the command name and these cases stay
+  # hermetic - the real foreground-process reading is proven against REAL
+  # processes in tests/fm-agent-process-liveness.test.sh, which is where that
   # kernel-level signal belongs. FM_FAKE_TMUX_WINDOWS defaults to EMPTY, which
   # the classifier reads as `missing`, so every case that does not opt in keeps
   # exactly the behavior it had before the classifier was consulted here at all.
@@ -198,7 +202,9 @@ case "${1:-}" in
       read)
         [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ] && exit 1
         [ "${FM_FAKE_HERDR_READ_FAIL:-0}" = 1 ] && exit 1
-        if [ "${FM_FAKE_HERDR_BUSY:-0}" = 1 ]; then printf 'work in progress\nesc to interrupt\n'
+        if [ "${FM_FAKE_HERDR_DIALOG:-0}" = 1 ]; then
+          printf '╭─────────────────╮\n│ dialog text     │\n│ 1. yes 2. no    │\n╰─────────────────╯\n'
+        elif [ "${FM_FAKE_HERDR_BUSY:-0}" = 1 ]; then printf 'work in progress\n%s\n' "${FM_FAKE_HERDR_BUSY_TEXT:-esc to interrupt}"
         else printf 'all quiet\n> \n'; fi
         exit 0 ;;
       get)
@@ -214,7 +220,10 @@ case "${1:-}" in
         # pid is the test script itself (a real, long-lived process with no
         # harness descendant, so the adapter's real process-table walk finds
         # it), and anything else answers nothing (unreadable).
+        # FM_FAKE_HERDR_NO_PROCESS=1 fails the read outright (an unavailable
+        # process view, distinct from a shell-only one).
         pane=""; args=("$@"); for ((i=0; i<${#args[@]}; i++)); do [ "${args[$i]}" = --pane ] && pane=${args[$((i+1))]:-}; done
+        [ "${FM_FAKE_HERDR_NO_PROCESS:-0}" = 1 ] && exit 1
         case "${FM_FAKE_HERDR_PROCESS:-agent}" in
           agent) printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":424242,"foreground_processes":[{"pid":424242,"name":"claude","argv0":"claude"}]}}}\n' "$pane" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}" ;;
           shell) printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}\n' "$pane" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}" ;;
@@ -242,7 +251,7 @@ SH
 make_no_timeout_toolbin() {  # <dir> -> echoes toolbin path
   local dir=$1 tb="$1/notimeoutbin" tool real
   mkdir -p "$tb"
-  for tool in bash git grep sed head cut tail dirname perl; do
+  for tool in bash git grep sed head cut tail dirname perl seq jq rm; do
     real=$(command -v "$tool" || true)
     [ -n "$real" ] || fail "missing tool for no-timeout path: $tool"
     ln -s "$real" "$tb/$tool"
@@ -285,6 +294,9 @@ reset_fakes() {
   FM_FAKE_PANE_TTY=""
   FM_FAKE_PANE_COMMAND=""
   FM_FAKE_HERDR_BUSY=0
+  FM_FAKE_HERDR_BUSY_TEXT=
+  FM_FAKE_HERDR_DIALOG=0
+  FM_FAKE_HERDR_NO_PROCESS=0
   FM_FAKE_HERDR_MISSING=0
   FM_FAKE_HERDR_READ_FAIL=0
   FM_FAKE_HERDR_HUSK=0
@@ -295,7 +307,7 @@ reset_fakes() {
   FM_FAKE_DAEMON_DOWN=0
   export FM_FAKE_AXI_STATUS FM_FAKE_AXI_STATUS_RUN FM_FAKE_RUNS_LIST FM_FAKE_BUSY FM_FAKE_BUSY_TEXT FM_FAKE_TMUX_MISSING FM_FAKE_TMUX_UNREADABLE
   export FM_FAKE_TMUX_WINDOWS FM_FAKE_TMUX_DIALOG FM_FAKE_PANE_TTY FM_FAKE_PANE_COMMAND
-  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
+  export FM_FAKE_HERDR_BUSY FM_FAKE_HERDR_BUSY_TEXT FM_FAKE_HERDR_DIALOG FM_FAKE_HERDR_NO_PROCESS FM_FAKE_HERDR_MISSING FM_FAKE_HERDR_READ_FAIL FM_FAKE_HERDR_HUSK FM_FAKE_HERDR_AGENT_STATUS FM_FAKE_HERDR_PROCESS FM_FAKE_HERDR_SHELL_PID FM_FAKE_CI_LOGS
   export FM_FAKE_DAEMON_DOWN
 }
 
@@ -1494,6 +1506,8 @@ test_no_run_grok_uses_isolated_fallback() {
   FM_FAKE_BUSY=1
   FM_FAKE_BUSY_TEXT='Ctrl+c:cancel'
   export FM_FAKE_BUSY_TEXT
+  FM_FAKE_HERDR_BUSY=1
+  FM_FAKE_HERDR_BUSY_TEXT='Ctrl+c:cancel'
   local out; out=$(run_crew_state "$d" feat-h3)
   assert_contains "$out" "state: working" "grok busy tail -> working"
   assert_contains "$out" "grok-regex" "the grok verdict names its isolated fallback source"
@@ -1510,7 +1524,6 @@ test_no_run_herdr_unknown_uses_backend_capture() {
     "backend=herdr" "harness=claude"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_BUSY=1
   FM_FAKE_HERDR_AGENT_STATUS=working
   local out; out=$(run_crew_state "$d" feat-herdr)
@@ -1548,7 +1561,6 @@ SH
     "backend=herdr" "harness=claude"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   local out; out=$(run_crew_state "$d" feat-herdr-cli)
   assert_contains "$out" "state: unknown" "a failed herdr CLI must stay unknown"
   assert_contains "$out" "source: none" "a failed herdr CLI has no state source"
@@ -1570,7 +1582,6 @@ test_no_run_herdr_alive_with_failed_read_stays_live() {
     "backend=herdr" "harness=claude"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   # The 200-line scrollback read fails while the cheap pane get / agent get
   # pair answers: the pane is present and its agent is working.
   FM_FAKE_HERDR_READ_FAIL=1
@@ -1594,7 +1605,6 @@ test_no_run_herdr_stale_registration_over_shell_reads_agent_gone() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-herdr-stale.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
     "backend=herdr" "harness=pi"
-  FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_READ_FAIL=1
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_PROCESS=shell
@@ -1616,7 +1626,6 @@ test_no_run_herdr_stale_working_record_is_never_busy() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-herdr-stale-working.meta" "window=default:w1:p2" "worktree=$d/wt" "kind=ship" \
     "backend=herdr" "harness=pi"
-  FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_AGENT_STATUS=working
   FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" feat-herdr-stale-working)
@@ -1642,7 +1651,6 @@ test_no_run_herdr_husk_dead_still_reads_gone() {
     "backend=herdr" "harness=claude"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   # The pane exists and answers pane get, but no agent is registered in it,
   # and the scrollback read fails besides.
   FM_FAKE_HERDR_READ_FAIL=1
@@ -1676,7 +1684,6 @@ test_no_run_herdr_idle_agent_status_outranked_by_record() {
   # busy state is the only remaining signal.
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_BUSY=0
   local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-idle)
@@ -1701,7 +1708,6 @@ test_no_run_herdr_idle_agent_status_and_idle_record_stays_idle() {
   printf 'working: implementing\n' > "$d/state/feat-herdr-stopped.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
   FM_FAKE_HERDR_AGENT_STATUS=idle
   FM_FAKE_HERDR_BUSY=0
   local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-herdr-stopped)
@@ -1829,7 +1835,7 @@ test_dead_window_ignores_stale_status_log() {
   printf 'done: old completion event\n' > "$d/state/feat-dead.status"
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_MISSING=1
+  FM_FAKE_HERDR_MISSING=1
   local out; out=$(run_crew_state "$d" feat-dead)
   assert_contains "$out" "state: unknown" "dead window -> unknown"
   assert_contains "$out" "source: none" "dead window -> none source"
@@ -1840,32 +1846,6 @@ test_dead_window_ignores_stale_status_log() {
 
 # Regression (2026-09 G7 stale-claim incident, tmux half): the default backend
 # reached the same false-death path as herdr. A tmux that cannot answer at all
-# - a trimmed PATH, or any non-definitive error - made every live crew report
-# "backend target gone", the text the stale sweep matches as positive death.
-# Absence must be proved by tmux's own answer: a window inventory that omits
-# the recorded window, or one of its definitive no-session/no-server/no-socket
-# responses. Anything else is a tmux that failed to answer: unknown, never
-# death. (A socket-connection error is deliberately NOT in this test's scope -
-# fm_backend_tmux_agent_state classifies it as `missing` so fm-bootstrap and
-# fm-session-start can respawn after a genuine server death.)
-test_no_run_tmux_unreadable_reads_unreachable_not_gone() {
-  reset_fakes
-  local d; d=$(new_case tmux-unreadable)
-  make_repo_on_branch "$d/wt" fm/feat-tmux-unread
-  make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-tmux-unread.meta" "window=fm:fm-feat-tmux-unread" \
-    "worktree=$d/wt" "kind=ship"
-  printf 'done: old completion event\n' > "$d/state/feat-tmux-unread.status"
-  FM_FAKE_AXI_STATUS=""
-  FM_FAKE_RUNS_LIST=""
-  FM_FAKE_TMUX_UNREADABLE=1
-  local out; out=$(run_crew_state "$d" feat-tmux-unread)
-  assert_contains "$out" "state: unknown" "an unreadable tmux must stay unknown"
-  assert_contains "$out" "source: none" "an unreadable tmux has no state source"
-  assert_contains "$out" "backend unreachable" "an unreadable tmux reads as unreachable, not gone"
-  assert_not_contains "$out" "backend target gone" "an unreadable tmux is not positive death evidence"
-  pass "a tmux that fails to answer reads unknown/unreachable, never gone"
-}
 
 # A closed/unreadable pane must NOT mask an authoritative run-step: judge by the
 # run-step, not the shell. The common case is a finished crew whose agent has
@@ -1879,7 +1859,7 @@ test_dead_window_still_reports_terminal_run_step() {
   fm_write_meta "$d/state/feat-dead-done.meta" "window=fm:fm-feat-dead-done" "worktree=$d/wt" "kind=ship"
   printf 'done: PR https://github.com/o/r/pull/3 checks green\n' > "$d/state/feat-dead-done.status"
   FM_FAKE_AXI_STATUS="$(run_passed fm/feat-dead-done)"
-  FM_FAKE_TMUX_MISSING=1   # the crew's window has closed
+  FM_FAKE_HERDR_MISSING=1   # the crew's pane has closed
   local out; out=$(run_crew_state "$d" feat-dead-done)
   assert_contains "$out" "state: done" "closed pane still reports terminal run-step done"
   assert_contains "$out" "source: run-step" "closed pane does not mask the run-step"
@@ -1896,7 +1876,6 @@ test_dead_window_still_reports_active_run_step() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-dead-act.meta" "window=fm:fm-feat-dead-act" "worktree=$d/wt" "kind=ship"
   FM_FAKE_AXI_STATUS="$(run_running fm/feat-dead-act)"
-  FM_FAKE_TMUX_MISSING=1
   local out; out=$(run_crew_state "$d" feat-dead-act)
   assert_contains "$out" "state: working" "closed pane still reports active run-step"
   assert_contains "$out" "source: run-step" "closed pane does not mask the active run-step"
@@ -1922,6 +1901,8 @@ SH
   fm_write_meta "$d/state/feat-timeout.meta" "window=fm:fm-feat-timeout" "worktree=$d/wt" "kind=ship" \
     "harness=claude"
   FM_FAKE_BUSY=1
+  FM_FAKE_HERDR_BUSY=1
+  FM_FAKE_HERDR_AGENT_STATUS=working
   local gen; gen=$("$ROOT/bin/fm-busy-event.sh" arm "$d/state" feat-timeout)
   "$ROOT/bin/fm-busy-event.sh" apply "$d/state" feat-timeout busy --gen "$gen" \
     --source claude-hook --event user-prompt-submit
@@ -2153,8 +2134,7 @@ test_exited_agent_without_terminal_line_is_not_working() {
   fm_write_meta "$d/state/feat-exited.meta" "window=fm:fm-feat-exited" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
   printf 'working: reproducing the flake\n' > "$d/state/feat-exited.status"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-exited
-  FM_FAKE_PANE_COMMAND=zsh          # the agent left; its login shell is what remains
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell   # the agent left; its login shell is what remains
   arm_idle_record "$d/state" feat-exited   # what the agent's own shutdown hook wrote
   local out; out=$(run_crew_state "$d" feat-exited)
   assert_contains "$out" "state: exited" "an exited agent reports exited, not its last pre-exit line"
@@ -2173,8 +2153,7 @@ test_exited_agent_with_no_status_events_still_reports_exited() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-silent.meta" "window=fm:fm-feat-silent" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-silent
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-silent
   local out; out=$(run_crew_state "$d" feat-silent)
   assert_contains "$out" "state: exited" "a silent worker that exited still reports exited"
@@ -2193,8 +2172,7 @@ test_exited_agent_that_reported_done_keeps_its_own_verdict() {
   fm_write_meta "$d/state/feat-reported.meta" "window=fm:fm-feat-reported" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
   printf 'done: PR https://example.invalid/pr/7 checks complete\n' > "$d/state/feat-reported.status"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-reported
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-reported
   local out; out=$(run_crew_state "$d" feat-reported)
   assert_contains "$out" "state: done" "a worker that reported before exiting keeps its done verdict"
@@ -2215,8 +2193,7 @@ test_live_agent_between_turns_is_never_reported_exited() {
   fm_write_meta "$d/state/feat-alive.meta" "window=fm:fm-feat-alive" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
   printf 'working: waiting on the build\n' > "$d/state/feat-alive.status"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-alive
-  FM_FAKE_PANE_COMMAND=claude       # the agent process is right there
+  FM_FAKE_HERDR_AGENT_STATUS=working   # the agent process is right there
   arm_idle_record "$d/state" feat-alive
   local out; out=$(run_crew_state "$d" feat-alive)
   assert_not_contains "$out" "state: exited" "an agent that is present must never be reported as gone"
@@ -2235,8 +2212,7 @@ test_unattributable_endpoint_is_never_reported_exited() {
   fm_write_meta "$d/state/feat-amb.meta" "window=fm:fm-feat-amb" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
   printf 'working: still going\n' > "$d/state/feat-amb.status"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-amb
-  FM_FAKE_PANE_COMMAND=some-unrelated-process
+  FM_FAKE_HERDR_AGENT_STATUS=working FM_FAKE_HERDR_NO_PROCESS=1   # the process view is unavailable
   arm_idle_record "$d/state" feat-amb
   local out; out=$(run_crew_state "$d" feat-amb)
   assert_not_contains "$out" "state: exited" "an unattributable endpoint is not proof the agent left"
@@ -2254,8 +2230,7 @@ test_exited_secondmate_does_not_ride_its_stale_log() {
   fm_write_meta "$d/state/mate-gone.meta" "window=fm:fm-mate-gone" "worktree=$d/wt" \
     "kind=secondmate" "harness=claude" "spawned_at=$(settled_spawn_ts)"
   printf 'working: picked up the routed task\n' > "$d/state/mate-gone.status"
-  FM_FAKE_TMUX_WINDOWS=fm-mate-gone
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" mate-gone)
   assert_contains "$out" "state: exited" "a secondmate whose agent left reports exited"
   assert_not_contains "$out" "state: working" "a departed secondmate must not ride its own stale log"
@@ -2274,8 +2249,7 @@ test_exited_agent_is_not_absorbed_as_working() {
   fm_write_meta "$d/state/feat-absorb.meta" "window=fm:fm-feat-absorb" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
   printf 'working: implementing\n' > "$d/state/feat-absorb.status"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-absorb
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-absorb
   PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_is_provably_working feat-absorb \
     && fail "a wake about a departed worker was absorbed as still working"
@@ -2307,8 +2281,7 @@ test_fresh_spawn_with_empty_endpoint_is_not_exited() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-fresh.meta" "window=fm:fm-feat-fresh" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(date +%s)"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-fresh
-  FM_FAKE_PANE_COMMAND=zsh          # the harness has not replaced the shell yet
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell          # the harness has not replaced the shell yet
   local out; out=$(run_crew_state "$d" feat-fresh)
   assert_not_contains "$out" "state: exited" \
     "a worker that has not finished starting must never be reported as gone"
@@ -2327,8 +2300,7 @@ test_fresh_spawn_is_not_absorbed_as_working() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-fresh-absorb.meta" "window=fm:fm-feat-fresh-absorb" \
     "worktree=$d/wt" "kind=ship" "harness=claude" "spawned_at=$(date +%s)"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-fresh-absorb
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" \
     crew_is_provably_working feat-fresh-absorb \
     && fail "a worker still inside its registration window was claimed as provably working"
@@ -2345,8 +2317,7 @@ test_settled_record_with_empty_endpoint_still_reports_exited() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-settled.meta" "window=fm:fm-feat-settled" "worktree=$d/wt" \
     "kind=ship" "harness=claude" "spawned_at=$(settled_spawn_ts)"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-settled
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" feat-settled)
   assert_contains "$out" "state: exited" \
     "a settled record over an empty endpoint must still report the agent gone"
@@ -2364,8 +2335,7 @@ test_record_without_spawn_timestamp_uses_its_publication_time() {
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/feat-legacy.meta" "window=fm:fm-feat-legacy" "worktree=$d/wt" \
     "kind=ship" "harness=claude"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-legacy
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   local out; out=$(run_crew_state "$d" feat-legacy)
   assert_not_contains "$out" "state: exited" \
     "a record with no timestamp, published just now, must not license a relaunch"
@@ -2390,8 +2360,7 @@ test_registration_window_does_not_mask_a_reported_result() {
     "kind=ship" "harness=claude" "spawned_at=$(date +%s)"
   printf 'failed: the brief named a project that is not cloned here\n' \
     > "$d/state/feat-fastdone.status"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-fastdone
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-fastdone
   local out; out=$(run_crew_state "$d" feat-fastdone)
   assert_contains "$out" "state: failed" \
@@ -2440,8 +2409,7 @@ test_declared_stop_reports_stopped_not_exited() {
     "kind=ship" "harness=claude" "spawn_gen=s1000.1.1" "spawned_at=$(settled_spawn_ts)"
   printf 'working: implementing the fix\n' > "$d/state/feat-stop.status"
   declare_stop "$d/state" feat-stop s1000.1.1 "zero model quota until about 19:00; relaunch when it resets"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-stop
-  FM_FAKE_PANE_COMMAND=zsh          # the agent is gone, exactly as exit intended
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell          # the agent is gone, exactly as exit intended
   arm_idle_record "$d/state" feat-stop
   local out; out=$(run_crew_state "$d" feat-stop)
   assert_contains "$out" "state: stopped" "a deliberately stopped worker must read as stopped"
@@ -2463,8 +2431,7 @@ test_self_died_worker_still_reports_exited() {
     "kind=ship" "harness=claude" "spawn_gen=s2000.1.1" "spawned_at=$(settled_spawn_ts)"
   printf 'working: implementing the fix\n' > "$d/state/feat-died.status"
   [ ! -e "$d/state/feat-died.stopped" ] || fail "fixture must not declare a stop"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-died
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-died
   local out; out=$(run_crew_state "$d" feat-died)
   assert_contains "$out" "state: exited" "a worker that died on its own must still surface immediately"
@@ -2485,8 +2452,7 @@ test_declared_stop_cannot_silence_a_later_incarnation() {
   printf 'working: implementing the fix\n' > "$d/state/feat-relaunch.status"
   # The declaration names the PREVIOUS incarnation; the record now runs another.
   declare_stop "$d/state" feat-relaunch s3000.1.1 "stopped for the quota window"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-relaunch
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-relaunch
   local out; out=$(run_crew_state "$d" feat-relaunch)
   assert_contains "$out" "state: exited" "a spent declaration must not suppress the replacement's own verdict"
@@ -2505,8 +2471,7 @@ test_declared_stop_never_overrides_a_live_agent() {
     "kind=ship" "harness=claude" "spawn_gen=s4000.1.1" "spawned_at=$(settled_spawn_ts)"
   printf 'working: still going\n' > "$d/state/feat-live.status"
   declare_stop "$d/state" feat-live s4000.1.1 "stopped for the quota window"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-live
-  FM_FAKE_PANE_COMMAND=claude       # the agent process is right there
+  FM_FAKE_HERDR_AGENT_STATUS=working   # the agent process is right there
   arm_idle_record "$d/state" feat-live
   local out; out=$(run_crew_state "$d" feat-live)
   assert_not_contains "$out" "state: stopped" "an agent that is present must never be reported as stopped"
@@ -2525,8 +2490,7 @@ test_declared_stop_absorb_predicate_end_to_end() {
     "kind=ship" "harness=claude" "spawn_gen=s5000.1.1" "spawned_at=$(settled_spawn_ts)"
   printf 'working: implementing the fix\n' > "$d/state/feat-pred.status"
   declare_stop "$d/state" feat-pred s5000.1.1 "stopped for the quota window"
-  FM_FAKE_TMUX_WINDOWS=fm-feat-pred
-  FM_FAKE_PANE_COMMAND=zsh
+  FM_FAKE_HERDR_HUSK=1 FM_FAKE_HERDR_PROCESS=shell
   arm_idle_record "$d/state" feat-pred
   PATH="$d/fakebin:$PATH" FM_STATE_OVERRIDE="$d/state" crew_is_declared_stopped feat-pred \
     || fail "the declared-stop absorb predicate did not recognize an intentional stop"
@@ -2765,7 +2729,7 @@ test_no_run_dialog_pane() {
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
   # The dialog overrides any busy record, but let's test without one first.
-  local out; out=$(FM_FAKE_TMUX_DIALOG=1 run_crew_state "$d" feat-d)
+  local out; out=$(FM_FAKE_HERDR_DIALOG=1 run_crew_state "$d" feat-d)
   assert_contains "$out" "state: blocked" "dialog returns blocked"
   assert_contains "$out" "source: pane" "dialog returns pane source"
   assert_contains "$out" "modal dialog" "dialog detail"
@@ -3289,7 +3253,6 @@ test_no_run_idle_pane_paused
 test_no_run_idle_pane_custom_paused_verb
 test_no_run_idle_secondmate_resolved_event_not_state
 test_dead_window_ignores_stale_status_log
-test_no_run_tmux_unreadable_reads_unreachable_not_gone
 test_dead_window_still_reports_terminal_run_step
 test_dead_window_still_reports_active_run_step
 test_no_timeout_uses_perl_bound

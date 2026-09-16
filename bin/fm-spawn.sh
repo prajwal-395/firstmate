@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
+# Spawn a direct report: a crewmate in a treehouse worktree, or a
 # secondmate in its isolated firstmate home.
 # Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
 #        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
@@ -38,8 +38,7 @@
 #   positional, and batch pairs are all refused alongside it; only harness,
 #   model, and effort may change, which is what makes a harness switch one
 #   ordinary relaunch. It refuses unless the recorded endpoint is positively
-#   agent-free on a backend with a recovery-grade agent-state classifier (tmux
-#   or herdr), and clears the previous harness's per-task wiring before arming
+#   agent-free on the herdr backend's recovery-grade agent-state classifier,
 #   the new incarnation. A recorded endpoint the backend proves ABSENT is the
 #   one case that creates a replacement endpoint; it is created directly in the
 #   recorded worktree, never in the project, and never by acquiring a second
@@ -58,19 +57,13 @@
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
 #   config/backend, then runtime auto-detection from the runtime firstmate's
-#   environment: $TMUX, HERDR_ENV=1, or cmux runtime signals (via
-#   bin/fm-backend.sh's fm_backend_detect, with cmux fallback details in
-#   docs/cmux-backend.md),
-#   then tmux.
-#   Spawn-capable backends are the reference tmux adapter and experimental
-#   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
-#   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
-#   session provider only, exactly like herdr/zellij, so it does. An
-#   auto-detected herdr or cmux spawn prints a loud stderr notice;
-#   auto-detected tmux stays silent; zellij and orca are never auto-detected.
+#   environment (HERDR_ENV=1 via bin/fm-backend.sh's fm_backend_detect),
+#   then herdr.
+#   herdr is the only spawn-capable backend in this fork; the tmux, zellij,
+#   orca, and cmux adapters were removed and survive only in git history.
 #   codex-app is not a known backend yet; docs/codex-app-backend.md owns that
-#   blocked backend contract. Default tmux spawns do not write backend= to meta;
-#   absent backend= means tmux. cmux does not support --secondmate spawns yet.
+#   blocked backend contract. Default herdr spawns do not write backend= to meta;
+#   absent backend= means herdr.
 #   A backend spawn refusal (missing dependency, version gate, unauthenticated
 #   socket, or unsupported secondmate mode) is terminal for that selected backend;
 #   callers must surface it instead of silently retrying another backend.
@@ -242,9 +235,7 @@
 #   Unset names stay unset and empty values stay empty.
 #   The fixed operational floor is HOME PATH USER LOGNAME SHELL TERM COLORTERM
 #   LANG LC_ALL LC_CTYPE TMPDIR TMP TEMP GOTMPDIR, plus backend identity/routing:
-#   TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID
-#   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET_PATH
-#   ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION, plus the task
+#   HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID, plus the task
 #   marker FM_TASK_ID that ship and scout panes receive above.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment. Raw commands must
@@ -951,9 +942,6 @@ spawn_remote_secondmate() {
 }
 
 BACKEND=
-ORCA_ABORT_CLEANUP=0
-ORCA_WORKTREE_ID=
-ORCA_TERMINAL=
 HERDR_PROJECTION_ABORT_CLEANUP=0
 HERDR_PROJECTION_ABORT_SESSION=
 HERDR_PROJECTION_ABORT_TASK_PANE=
@@ -992,23 +980,6 @@ spawn_fresh_commit_rollback() {
   fi
   echo "error: $FM_BACKLOG_TRANSITION_ERROR" >&2
   return 1
-}
-
-parse_orca_worktree_result() {
-  local raw=$1 rest
-  ORCA_WORKTREE_ID=${raw%%$'\t'*}
-  if [ "$raw" = "$ORCA_WORKTREE_ID" ]; then
-    WT=
-    ORCA_TERMINAL=
-    return 1
-  fi
-  rest=${raw#*$'\t'}
-  WT=${rest%%$'\t'*}
-  if [ "$rest" != "$WT" ]; then
-    ORCA_TERMINAL=${rest#*$'\t'}
-  else
-    ORCA_TERMINAL=
-  fi
 }
 
 spawn_abort_cleanup() {
@@ -1054,45 +1025,6 @@ spawn_abort_cleanup() {
   if [ "$HERDR_PRESENTATION_ORDER_LOCK_HELD" = 1 ]; then
     HERDR_PRESENTATION_ORDER_LOCK_HELD=0
     fm_lock_release "$HERDR_PRESENTATION_ORDER_LOCK" || true
-  fi
-  if [ "$ORCA_ABORT_CLEANUP" = 1 ]; then
-    ORCA_ABORT_CLEANUP=0
-    if [ -n "${ORCA_TERMINAL:-}" ]; then
-      fm_backend_kill orca "$ORCA_TERMINAL" 2>/dev/null || true
-    fi
-    if [ -n "${ORCA_WORKTREE_ID:-}" ]; then
-      if ! fm_backend_remove_worktree orca "$ORCA_WORKTREE_ID" 2>/dev/null; then
-        if [ "$SPAWN_FRESH_COMMIT_PENDING" = 1 ]; then
-          if ! spawn_fresh_commit_rollback; then
-            status=1
-          fi
-          SPAWN_FRESH_COMMIT_PENDING=0
-        fi
-        mkdir -p "$STATE" 2>/dev/null || true
-        if [ -d "$STATE" ]; then
-          SPAWN_META_TMP="$STATE/.$ID.meta.orca-recovery.${BASHPID:-$$}"
-          {
-            echo "window=$W"
-            echo "endpoint_task_id=$ID"
-            echo "cleanup_recovery=orca"
-            echo "worktree=${WT:-}"
-            echo "project=$PROJ_ABS"
-            echo "harness=$HARNESS"
-            echo "kind=$KIND"
-            [ -z "${MODE:-}" ] || echo "mode=$MODE"
-            [ -z "${YOLO:-}" ] || echo "yolo=$YOLO"
-            echo "tasktmp=${TASK_TMP:-}"
-            echo "model=${MODEL:-default}"
-            echo "effort=${EFFORT:-default}"
-            echo "backend=orca"
-            echo "orca_worktree_id=$ORCA_WORKTREE_ID"
-            [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
-          } > "$SPAWN_META_TMP" 2>/dev/null \
-            && fm_backlog_atomic_transition publish "$SPAWN_META_TMP" "$STATE/$ID.meta" "task record" "$STATE" \
-            || true
-        fi
-      fi
-    fi
   fi
   if [ "$SPAWN_TASK_LOCK_HELD" = 1 ]; then
     SPAWN_TASK_LOCK_HELD=0
@@ -1351,10 +1283,10 @@ if [ "$KIND" = secondmate ]; then
 fi
 # Backend selection (data/fm-backend-design-d7): explicit --backend, else
 # FM_BACKEND env, else config/backend, else runtime auto-detection, else
-# default tmux (fm_backend_name). fm_backend_validate_spawn refuses unknown or
-# non-spawn-capable backends. The resolved value is
-# recorded in meta only when it is NOT tmux (fm-teardown.sh and fm-watch.sh's
-# window_backend/fm_backend_of_meta already treat an absent backend= as tmux),
+# default herdr (fm_backend_name). fm_backend_validate_spawn refuses anything
+# but herdr. The resolved value is
+# recorded in meta only when it is NOT herdr (fm-teardown.sh and fm-watch.sh's
+# window_backend/fm_backend_of_meta already treat an absent backend= as herdr),
 # so the default path's meta stays byte-identical.
 if [ "$RELAUNCH" -eq 0 ]; then
   if [ "$BACKEND_SET" -eq 1 ]; then
@@ -1364,17 +1296,6 @@ if [ "$RELAUNCH" -eq 0 ]; then
   fi
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
-  if [ "$BACKEND" = orca ] && [ "$KIND" = secondmate ]; then
-    echo "error: backend=orca does not support --secondmate spawns yet" >&2
-    exit 1
-  fi
-  if [ "$BACKEND" = cmux ] && [ "$KIND" = secondmate ]; then
-    echo "error: backend=cmux does not support --secondmate spawns yet" >&2
-    exit 1
-  fi
-  if [ "$BACKEND" = orca ]; then
-    fm_backend_orca_runtime_check || exit 1
-  fi
 fi
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
 if ! fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
@@ -1420,7 +1341,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fm_backend_validate_spawn "$BACKEND" || exit 1
   fm_backend_source "$BACKEND" || exit 1
   # A relaunch must PROVE the previous agent is gone before it launches another
-  # one into the same endpoint, and only tmux and herdr have a recovery-grade
+  # one into the same endpoint, and only herdr has a recovery-grade
   # classifier that can (bin/fm-control-lib.sh owns that capability table).
   fm_control_backend_state_verified "$BACKEND" || {
     echo "error: backend '$BACKEND' has no recovery-grade agent-state classifier, so a relaunch cannot prove the previous agent exited; refusing rather than risking two agents in one endpoint" >&2
@@ -1599,7 +1520,7 @@ launch_template() {
     # prefix scoped to this firstmate-launched agent; it never touches the captain's
     # global config. The CLI's --prompt-suggestions flag is print/SDK-mode only and
     # does NOT suppress the interactive ghost text (verified empirically), so the env
-    # var is the correct control. The dim-aware composer reader in fm-tmux-lib.sh is
+    # var is the correct control. The dim-aware backend composer reader is
     # the defense-in-depth backstop for any pane this flag cannot reach.
     # Two independent controls disable claude's `/bug`/`/feedback` model-drafted
     # feedback flow (the SendFeedback tool), deliberately layered so a fleet-launched
@@ -2104,24 +2025,8 @@ resolve_rovo_binary() {
 # approval...") waiting for a human who is not there, which would look to
 # supervision like a wedged worker rather than a missing credential.
 muse_worker_meta_api_key_present() {
-  local session worker_env
-  if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
-    case $'\n'"$LAUNCH_ENV_NAMES"$'\n' in
-      *$'\nMETA_API_KEY\n'*) ;;
-      *) return 1 ;;
-    esac
-  fi
-  [ "$BACKEND" = tmux ] || return 1
-  if [ -n "${TMUX:-}" ]; then
-    session=$(tmux display-message -p '#S' 2>/dev/null) || return 1
-  else
-    tmux has-session -t firstmate 2>/dev/null || return 1
-    session=firstmate
-  fi
-  worker_env=$(tmux show-environment -t "$session" META_API_KEY 2>/dev/null) || return 1
-  case "$worker_env" in
-    META_API_KEY=?*) return 0 ;;
-  esac
+  # The tmux server-environment read lived here; it went away with the tmux
+  # backend, so this preflight stays on the stored-credential path only.
   return 1
 }
 
@@ -2491,7 +2396,7 @@ else
   WT=""
   BRIEF="$DATA/$ID/brief.md"
 fi
-if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
   SPAWN_TREEHOUSE_PROJECT_LOCK=$(fm_treehouse_project_lock_path "$PROJ_ABS") || {
     echo "error: could not resolve the shared Treehouse project lock for $PROJ_ABS" >&2
     exit 1
@@ -2583,8 +2488,8 @@ BRIEF_REAL="$BRIEF_DIR_REAL/$(basename "$BRIEF")"
 
 # PROJ_ABS can still carry a symlinked path component (e.g. macOS's /tmp ->
 # /private/tmp) when it came from the ship/scout branch's logical `pwd` above.
-# Every backend's own current-path read (tmux's pane_current_path, herdr's
-# foreground_cwd, zellij/cmux's active pwd probe against the live shell) can
+# Every backend's own current-path read (herdr's foreground_cwd against the
+# live shell) can
 # report the OS-level, physically-resolved cwd, so comparing it against a
 # still-symlinked PROJ_ABS can misfire both ways: false-negative (the poll
 # below never notices the pane left the project) or false-positive (the
@@ -2602,12 +2507,11 @@ real_path_or_raw() {  # <path>
   fi
 }
 
-# Session-provider container-ensure + task creation. tmux stays exactly as P1
-# left it (same session-name / new-window sequence, see bin/backends/tmux.sh);
-# a herdr spawn goes through the version-gated, workspace-per-HOME,
-# tab-per-task sequence in bin/backends/herdr.sh instead (D4/D5 as refined by
+# Session-provider container-ensure + task creation. A herdr spawn goes
+# through the version-gated, workspace-per-HOME,
+# tab-per-task sequence in bin/backends/herdr.sh (D4/D5 as refined by
 # docs/herdr-backend.md's "workspace-per-home" pass, AGENTS.md task
-# herdr-sm-spaces-k4). Both branches converge on the same $T ("target") string
+# herdr-sm-spaces-k4). Every branch converges on the same $T ("target") string
 # that every downstream operation (send/capture/kill) already treats as opaque
 # per-backend routing (fm_backend_resolve_selector).
 
@@ -2828,7 +2732,7 @@ freshen_spawn_worktree_base() {  # <worktree>
 # Independent post-condition: assert the worktree HEAD is based on the project's
 # tracked upstream. This uses local refs only (no fetch), so it is fast and cannot
 # block on the network. It catches the case where freshen_spawn_worktree_base
-# resolved to the wrong remote, or where a non-pool worktree (Orca, relaunch) was
+# resolved to the wrong remote, or where a non-pool worktree (relaunch) was
 # created from a stale or wrong base.
 #
 # The assertion is: the tracked upstream commit must be an ancestor of HEAD.
@@ -2994,7 +2898,6 @@ if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_MISSING" -eq 0 ]; then
   # fresh secondmate spawn uses; every other kind takes the recorded worktree.
   [ "$KIND" = secondmate ] || WT=$RELAUNCH_WT
   WT_TARGET=$T
-  SES=${T%%:*}
 else
 # SPAWN_CWD: the directory a newly created endpoint's shell starts in.
 #
@@ -3024,18 +2927,6 @@ if [ "$RELAUNCH" -eq 1 ] && [ "$RELAUNCH_ENDPOINT_MISSING" -eq 1 ]; then
   SPAWN_CWD=$WT
 fi
 case "$BACKEND" in
-  tmux)
-    SES=$(fm_backend_tmux_container_ensure)
-    T="$SES:$W"
-    # #134 robustness (tmux): fm_backend_tmux_create_task captures a stable window
-    # id and pins the window name (automatic-rename/allow-rename off) so a captain's
-    # non-default tmux config cannot rename the window away from fm-<id> once
-    # treehouse cd's into the worktree. WT_TARGET carries that stable id for the
-    # rename-critical worktree-detection steps below; the persisted window= handle
-    # stays $T (the name form), which is safe now that rename is disabled.
-    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$SPAWN_CWD") || exit 1
-    WT_TARGET="$WID"
-    ;;
   herdr)
     # fm_backend_herdr_workspace_label resolves the target workspace from
     # FM_HOME. For every KIND except secondmate, this process's own FM_HOME is
@@ -3190,7 +3081,6 @@ case "$BACKEND" in
       # re-derived from labels - see docs/herdr-backend.md "Default-tab prune").
       CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
       HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
-      HERDR_SES=${CONTAINER%%:*}
       HERDR_WORKSPACE_ID=${CONTAINER#*:}
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$SPAWN_CWD" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
       read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
@@ -3203,55 +3093,6 @@ EOF
     fi
     T="$HERDR_SES:$HERDR_PANE_ID"
     ;;
-  zellij)
-    ZELLIJ_SES=$(fm_backend_zellij_container_ensure) || exit 1
-    ZELLIJ_TASK_IDS=$(fm_backend_zellij_create_task "$ZELLIJ_SES" "$W" "$SPAWN_CWD") || exit 1
-    read -r ZELLIJ_TAB_ID ZELLIJ_PANE_ID <<EOF
-$ZELLIJ_TASK_IDS
-EOF
-    if [ -z "$ZELLIJ_TAB_ID" ] || [ -z "$ZELLIJ_PANE_ID" ]; then
-      echo "error: zellij did not return a tab/pane id for $W" >&2
-      exit 1
-    fi
-    T="$ZELLIJ_SES:$ZELLIJ_PANE_ID"
-    ;;
-  cmux)
-    fm_backend_cmux_container_ensure || exit 1
-    CMUX_TASK_IDS=$(fm_backend_cmux_create_task "$W" "$SPAWN_CWD") || exit 1
-    read -r CMUX_WORKSPACE_ID CMUX_SURFACE_ID <<EOF
-$CMUX_TASK_IDS
-EOF
-    if [ -z "$CMUX_WORKSPACE_ID" ] || [ -z "$CMUX_SURFACE_ID" ]; then
-      echo "error: cmux did not return a workspace/surface id for $W" >&2
-      exit 1
-    fi
-    T="$CMUX_WORKSPACE_ID:$CMUX_SURFACE_ID"
-    ;;
-  orca)
-    set +e
-    ORCA_WT_RAW=$(fm_backend_orca_worktree_create "$PROJ_ABS" "$W")
-    ORCA_WT_STATUS=$?
-    set -e
-    if [ "$ORCA_WT_STATUS" -ne 0 ]; then
-      if [ "$ORCA_WT_STATUS" -eq 2 ] && [ -n "$ORCA_WT_RAW" ]; then
-        if parse_orca_worktree_result "$ORCA_WT_RAW" && [ -n "$ORCA_WORKTREE_ID" ]; then
-          ORCA_ABORT_CLEANUP=1
-        fi
-      fi
-      exit 1
-    fi
-    parse_orca_worktree_result "$ORCA_WT_RAW" || true
-    ORCA_ABORT_CLEANUP=1
-    if [ -z "$ORCA_WORKTREE_ID" ] || [ -z "$WT" ]; then
-      echo "error: orca did not return a worktree id/path for $W" >&2
-      exit 1
-    fi
-    validate_spawn_worktree "orca worktree create" "$W"
-    if [ -z "$ORCA_TERMINAL" ]; then
-      ORCA_TERMINAL=$(fm_backend_orca_terminal_create "$ORCA_WORKTREE_ID" "$W") || exit 1
-    fi
-    T="$ORCA_TERMINAL"
-    ;;
 esac
 fi
 if [ "$KIND" = secondmate ]; then
@@ -3259,45 +3100,27 @@ if [ "$KIND" = secondmate ]; then
     propagate_inheritable_config "$CONFIG" "$PROJ_ABS/config" \
     || echo "warning: secondmate $ID trace-context inheritance failed for $PROJ_ABS" >&2
 fi
-# #134 robustness: only tmux needs a worktree-detection target distinct from $T -
-# its rename-safe stable window id, set as WT_TARGET=$WID in the tmux branch above.
-# Every other backend addresses its pane/surface by the id already in $T, so default
-# WT_TARGET to $T for them (and for any future backend) - the shared treehouse-get +
-# worktree-detection steps below must never reference an unbound WT_TARGET under set -u.
+# WT_TARGET defaults to $T: the shared treehouse-get + worktree-detection
+# steps below must never reference an unbound WT_TARGET under set -u.
 : "${WT_TARGET:=$T}"
 spawn_send_text_line() {  # <target> <text>
   case "$BACKEND" in
-    tmux) fm_backend_tmux_send_text_line "$1" "$2" ;;
     herdr) fm_backend_herdr_send_text_line "$1" "$2" ;;
-    zellij) fm_backend_zellij_send_text_line "$1" "$2" "$W" ;;
-    orca) fm_backend_orca_send_text_line "$1" "$2" ;;
-    cmux) fm_backend_cmux_send_text_line "$1" "$2" "$W" ;;
   esac
 }
 spawn_current_path() {  # <target>
   case "$BACKEND" in
-    tmux) fm_backend_tmux_current_path "$1" ;;
     herdr) fm_backend_herdr_current_path "$1" ;;
-    zellij) fm_backend_zellij_current_path "$1" "$W" ;;
-    cmux) fm_backend_cmux_current_path "$1" "$W" ;;
   esac
 }
 spawn_send_literal() {  # <target> <text>
   case "$BACKEND" in
-    tmux) fm_backend_tmux_send_literal "$1" "$2" ;;
     herdr) fm_backend_herdr_send_literal "$1" "$2" ;;
-    zellij) fm_backend_zellij_send_literal "$1" "$2" "$W" ;;
-    orca) fm_backend_orca_send_literal "$1" "$2" ;;
-    cmux) fm_backend_cmux_send_literal "$1" "$2" "$W" ;;
   esac
 }
 spawn_send_key() {  # <target> <key>
   case "$BACKEND" in
-    tmux) fm_backend_tmux_send_key "$1" "$2" ;;
     herdr) fm_backend_herdr_send_key "$1" "$2" ;;
-    zellij) fm_backend_zellij_send_key "$1" "$2" "$W" ;;
-    orca) fm_backend_orca_send_key "$1" "$2" ;;
-    cmux) fm_backend_cmux_send_key "$1" "$2" "$W" ;;
   esac
 }
 
@@ -3429,20 +3252,12 @@ rovo_spawn_fail() {  # <detail>
 }
 
 # The launch-then-confirm gates run after the task record is published, when
-# ORCA_ABORT_CLEANUP is already cleared and neither the abort trap nor a
+# neither the abort trap nor a
 # teardown owns this endpoint yet, so a gate failure must close the launched
 # process here or it keeps running as an orphaned autonomous agent outside
-# task control. Mirrors fm-teardown.sh's own generic kill call. On orca only
-# the exact terminal is closed: that stops the CLI while its worktree stays
-# for the record's own teardown, which owns worktree deletion.
+# task control. Mirrors fm-teardown.sh's own generic kill call.
 rovo_endpoint_cleanup() {
-  if [ "$BACKEND" = orca ]; then
-    fm_backend_kill orca "$T" 2>/dev/null || true
-    return 0
-  fi
-  local tab_id=
-  [ "$BACKEND" = zellij ] && tab_id=$ZELLIJ_TAB_ID
-  fm_backend_kill "$BACKEND" "$T" "$tab_id" "fm-$ID" 2>/dev/null || true
+  fm_backend_kill "$BACKEND" "$T" 2>/dev/null || true
 }
 
 # agy carries its brief on the launch command, so it needs no delivery gate,
@@ -3534,23 +3349,21 @@ if [ "$RELAUNCH" -eq 1 ]; then
     fi
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
-elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+elif [ "$KIND" != secondmate ]; then
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
-  # Target the stable window id, not the name: if the name is ever lost (e.g. an
-  # automatic-rename slips through), display-message -t <bad-name> falls back to the
-  # active client's window, which would misread firstmate's OWN pane path as the
-  # worktree and tangle a hook into the primary checkout. The window id never lies.
+  # Target the endpoint id, not a bare name: a name-based read can fall back to
+  # the wrong pane, which would misread firstmate's OWN pane path as the
+  # worktree and tangle a hook into the primary checkout. The endpoint id never lies.
   # The project comparison is physical: spawn_worktree_isolated screens each
   # read against PROJ_ABS_REAL, not PROJ_ABS, because a symlinked project prefix
   # would otherwise make the pane's OS-level cwd read differ from PROJ_ABS on
   # the very first poll, before the pane has actually moved.
   #
   # A single read that already looks isolated is not proof the pane settled
-  # there: on some tmux/WSL setups a brand-new window's pane_current_path
-  # transiently reports an unrelated stale path (seen live as another real git
-  # checkout entirely) before the shell catches up with treehouse get's cd. That
+  # there: a brand-new pane's cwd read can transiently report an unrelated
+  # stale path before the shell catches up with treehouse get's cd. That
   # stale path passes spawn_worktree_isolated too (it resolves to a real,
   # distinct worktree top-level), so accepting it on one read alone silently
   # records the wrong worktree= in state/<id>.meta. Require two consecutive
@@ -3686,19 +3499,15 @@ case "$HARNESS" in
       # A fresh endpoint and (for a fresh treehouse lease) a worktree slot
       # already exist here while no task record does, so the refusal hands both
       # back rather than orphaning them: a refused spawn that kept them would
-      # strand a live window and a leased slot no teardown can find, and a few
+      # strand a live pane and a leased slot no teardown can find, and a few
       # failures in a row would silently consume the pool. A secondmate home is
-      # not a lease to return, and orca's own abort path already owns its
-      # terminal plus the recovery record through the EXIT trap, so both are
-      # left out of the handoff below.
-      if [ "$BACKEND" != orca ] && [ -n "${T:-}" ]; then
-        trust_refusal_tab=
-        [ "$BACKEND" = zellij ] && trust_refusal_tab=${ZELLIJ_TAB_ID:-}
-        if fm_backend_kill "$BACKEND" "$T" "$trust_refusal_tab" "fm-$ID" 2>/dev/null; then
+      # not a lease to return, so it is left out of the handoff below.
+      if [ -n "${T:-}" ]; then
+        if fm_backend_kill "$BACKEND" "$T" 2>/dev/null; then
           echo "closed endpoint $T" >&2
         fi
       fi
-      if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ] \
+      if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] \
         && [ -n "${WT:-}" ] && [ -n "${PROJ_ABS:-}" ] \
         && fm_treehouse_pool_slot "$PROJ_ABS" "$WT" 2>/dev/null; then
         # Drop this spawn's own claim before the return: the EXIT trap below
@@ -4409,7 +4218,6 @@ else
 fi
 
 META_WINDOW=$T
-[ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_PUBLISHED_AT=$(date +%s)
 SPAWN_META_PATH="$STATE/$ID.meta"
@@ -4428,7 +4236,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen spawned_at traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -4450,28 +4258,14 @@ preserve_relaunch_meta() {
   echo "spawn_gen=$SPAWN_GEN"
   echo "spawned_at=$SPAWN_PUBLISHED_AT"
   # Default-off writes no traceparent= line.
-  # backend= is written only for a non-default (non-tmux) backend, so the
-  # default path's meta stays byte-identical (absent backend= means tmux;
-  # data/fm-backend-design-d7's P1 compatibility contract).
-  [ "$BACKEND" = tmux ] || echo "backend=$BACKEND"
+  # backend= is always written (herdr, the only backend in this fork), so the
+  # record carries its own endpoint identity.
+  echo "backend=$BACKEND"
   if [ "$BACKEND" = herdr ]; then
     echo "herdr_session=$HERDR_SES"
     echo "herdr_workspace_id=$HERDR_WORKSPACE_ID"
     echo "herdr_tab_id=$HERDR_TAB_ID"
     echo "herdr_pane_id=$HERDR_PANE_ID"
-  fi
-  if [ "$BACKEND" = zellij ]; then
-    echo "zellij_session=$ZELLIJ_SES"
-    echo "zellij_tab_id=$ZELLIJ_TAB_ID"
-    echo "zellij_pane_id=$ZELLIJ_PANE_ID"
-  fi
-  if [ "$BACKEND" = orca ]; then
-    echo "orca_worktree_id=$ORCA_WORKTREE_ID"
-    echo "terminal=$ORCA_TERMINAL"
-  fi
-  if [ "$BACKEND" = cmux ]; then
-    echo "cmux_workspace_id=$CMUX_WORKSPACE_ID"
-    echo "cmux_surface_id=$CMUX_SURFACE_ID"
   fi
   if [ "$KIND" = secondmate ]; then
     echo "home=$PROJ_ABS"
@@ -4576,7 +4370,6 @@ if [ "$SPAWN_TASK_SET_LOCK_HELD" = 1 ]; then
   fm_lock_release "$SPAWN_TASK_SET_LOCK"
 fi
 "$SCRIPT_DIR/fm-home-summary-refresh.sh" --best-effort || true
-[ "$BACKEND" = orca ] && ORCA_ABORT_CLEANUP=0
 
 sq_brief=$(shell_quote "$BRIEF")
 sq_turnend=$(shell_quote "$TURNEND")
@@ -4620,7 +4413,7 @@ case "$HARNESS" in
     LAUNCH="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI $LAUNCH"
     ;;
 esac
-# Crewmate panes are created by a long-lived tmux/herdr daemon that does not
+# Crewmate panes are created by a long-lived herdr daemon that does not
 # inherit firstmate's current environment, so a bare `claude` in the pane falls
 # back to the default ~/.claude store even when firstmate itself runs under a
 # different CLAUDE_CONFIG_DIR (for example a work-vs-personal subscription split).
@@ -4718,9 +4511,8 @@ fi
 if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   LAUNCH_ENV_PREFIX='/usr/bin/env -i'
   for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
-    TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
-    HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
-    CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
+    TMPDIR TMP TEMP GOTMPDIR HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
+    HERDR_PANE_ID \
     FM_TASK_ID \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in

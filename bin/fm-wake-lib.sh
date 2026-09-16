@@ -197,7 +197,7 @@ fm_watcher_healthy() {
 #               is healthy during that hand-off only with extension ownership and a
 #               fresh beacon. Any held but unhealthy lock remains down.
 #   persistent  every other harness (codex foreground checkpoint, opencode/grok
-#               background arm, tmux, unknown): the watcher runs as a tracked live
+#               background arm, unknown): the watcher runs as a tracked live
 #               process, so a live identity-matched pid is the real liveness signal.
 # FM_SUPERVISION_MODEL overrides detection (tests, and callers that already know
 # the harness). Otherwise bin/fm-harness.sh is the single detection owner, so this

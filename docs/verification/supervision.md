@@ -46,7 +46,7 @@ pi -p -e .pi/extensions/fm-primary-turnend-guard.ts \
 Observed result: `PI_SMOKE_DONE`, with one session-start execution.
 That cold positional-prompt check established eventual custom-message delivery, but it did not submit immediately after `/new` while native digest generation was still running, so its earlier race-free inference is superseded by the provider-prerequisite evidence below.
 The installed pi-signed 0.82.0 wrapper repeated the shared Pi primary extension and session-start path on 2026-07-27.
-[`runtime-backends.md`](runtime-backends.md#tmux) owns the shared-ancestry evidence and authoritative selection-marker boundary.
+[`runtime-backends.md`](runtime-backends.md#agent-process-liveness) owns the shared-ancestry evidence and authoritative selection-marker boundary.
 
 ### omp (Oh My Pi) native delivery, 2026-09-05
 

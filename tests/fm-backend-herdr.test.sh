@@ -427,9 +427,8 @@ test_recovery_grade_read_widens_only_at_its_own_boundary() {
 # reproduced on Herdr 0.9.0 - docs/verification/runtime-backends.md "Stale agent
 # registration"). Trusting that registration alone classified the pane `live`,
 # so every relaunch and recovery was refused forever. The classifier must now
-# prove an agent at process level before reporting one, exactly as the tmux
-# adapter does, and a registration with no live agent process is agent-free
-# with an explicit reason.
+# prove an agent at process level before reporting one, and a registration
+# with no live agent process is agent-free with an explicit reason.
 #
 # The fixture pairs a canned `pane process-info` body with REAL processes:
 # the shell pid it names is a real process this test owns, so the descendant
@@ -4575,41 +4574,33 @@ test_dispatch_routes_herdr_backend() {
   pass "fm_backend_validate: herdr is a known backend (P2)"
 }
 
-test_dispatch_busy_state_unknown_for_tmux() {
+test_dispatch_busy_state_unknown_for_removed_backends() {
   # shellcheck source=bin/fm-backend.sh
   . "$ROOT/bin/fm-backend.sh"
-  [ "$(fm_backend_busy_state tmux 'sess:win')" = unknown ] \
-    || fail "fm_backend_busy_state should report unknown for tmux (no native agent-state primitive; watcher falls back to regex)"
-  pass "fm_backend_busy_state: tmux (no native primitive) always reports unknown, preserving the P1 regex-only path"
+  [ "$(fm_backend_busy_state tmux 'sess:win' 2>/dev/null)" = unknown ] \
+    || fail "fm_backend_busy_state should report unknown for the removed tmux backend"
+  pass "fm_backend_busy_state: removed backends report unknown"
 }
 
 test_dispatch_composer_state_routes_by_backend() {
   # fm_backend_composer_state (the generic per-backend composer/pending-input
   # classifier the away-mode daemon dispatches through - bin/fm-supervise-daemon.sh's
-  # pane_input_pending) must route to each backend's OWN named classifier with
-  # the target passed through unchanged - every backend has one now, all thin
-  # wrappers over the shared fm_composer_classify_screen - and report unknown
-  # for an unrecognized backend name.
-  # Sourced-guards are pre-set so fm_backend_source no-ops and these stubs are
-  # never clobbered by the real per-backend files trying (and failing) a live call.
+  # pane_input_pending) must route herdr to its OWN named classifier with
+  # the target passed through unchanged - a thin wrapper over the shared
+  # fm_composer_classify_screen - and report unknown for a removed or
+  # unrecognized backend name.
+  # The sourced-guard is pre-set so fm_backend_source no-ops and the stub is
+  # never clobbered by the real adapter file trying (and failing) a live call.
   (
     # shellcheck source=bin/fm-backend.sh
     . "$ROOT/bin/fm-backend.sh"
-    _FM_BACKEND_TMUX_SOURCED=1
     _FM_BACKEND_HERDR_SOURCED=1
-    _FM_BACKEND_ORCA_SOURCED=1
-    _FM_BACKEND_ZELLIJ_SOURCED=1
-    fm_tmux_composer_state() { [ "$1" = "sess:win" ] || fail "tmux composer_state got wrong target: $1"; printf 'pending'; }
     fm_backend_herdr_composer_state() { [ "$1" = "default:w1:p2" ] || fail "herdr composer_state got wrong target: $1"; printf 'empty'; }
-    fm_backend_orca_composer_state() { [ "$1" = "term-1" ] || fail "orca composer_state got wrong target: $1"; printf 'empty'; }
-    fm_backend_zellij_composer_state() { [ "$1" = "sess:7" ] || fail "zellij composer_state got wrong target: $1"; printf 'empty'; }
-    [ "$(fm_backend_composer_state tmux sess:win)" = pending ] || fail "composer_state did not dispatch to the tmux classifier"
     [ "$(fm_backend_composer_state herdr default:w1:p2)" = empty ] || fail "composer_state did not dispatch to the herdr classifier"
-    [ "$(fm_backend_composer_state orca term-1)" = empty ] || fail "composer_state did not dispatch to the orca classifier"
-    [ "$(fm_backend_composer_state zellij sess:7)" = empty ] || fail "composer_state did not dispatch to the zellij classifier"
+    [ "$(fm_backend_composer_state tmux sess:win)" = unknown ] || fail "composer_state should report unknown for the removed tmux backend"
     [ "$(fm_backend_composer_state bogus x)" = unknown ] || fail "composer_state should report unknown for an unrecognized backend"
   ) || fail "composer_state dispatch subshell failed"
-  pass "fm_backend_composer_state dispatches every backend to its named thin classifier, unknown for unrecognized backends"
+  pass "fm_backend_composer_state dispatches herdr to its named thin classifier, unknown for removed or unrecognized backends"
 }
 
 test_scripts_route_explicit_target_through_meta_backend() {
@@ -5357,7 +5348,7 @@ test_send_text_submit_send_failed
 test_send_text_submit_unknown_on_capture_failure
 test_send_text_submit_unknown_on_composer_capture_failure
 test_dispatch_routes_herdr_backend
-test_dispatch_busy_state_unknown_for_tmux
+test_dispatch_busy_state_unknown_for_removed_backends
 test_dispatch_composer_state_routes_by_backend
 test_scripts_route_explicit_target_through_meta_backend
 test_normalize_event_leaves_from_empty

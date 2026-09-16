@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # tests/fm-backend-autodetect-smoke.test.sh - real herdr smoke test for runtime
 # backend AUTO-DETECTION (bin/fm-backend.sh's fm_backend_detect, wired into
-# fm_backend_name between config/backend and the tmux default).
+# fm_backend_name between config/backend and the herdr default).
 #
 # Unlike tests/fm-backend-herdr.test.sh (fake herdr CLI) and
 # tests/fm-backend-herdr-smoke.test.sh (real herdr, adapter primitives called
@@ -12,13 +12,8 @@
 # session, with a scratch FM_HOME and scratch local-only project. Concurrent
 # copies therefore never share the default session or a workspace namespace.
 #
-# The complementary "tmux nested inside herdr resolves to tmux, silently" case
-# is covered as a fast, deterministic fake-tmux fm-spawn.sh test in
-# tests/fm-backend.test.sh (test_spawn_autodetect_nesting_resolves_tmux_silently).
-# Reproducing a genuinely nested real-tmux-inside-real-herdr pane here would
-# need a live attached tmux client, which a background test script cannot
-# manufacture; the selection LOGIC for that case is already exercised for real
-# by fm_backend_detect's own unit coverage plus that fake-tmux fm-spawn test.
+# Detection resolves silently: herdr is the only backend and the default path,
+# so there is no opt-out to announce.
 #
 # Safety (2026-07-02 incident): every test-owned Herdr operation goes through
 # bin/fm-herdr-lab.sh, which appends the named session flag and verifies the
@@ -53,11 +48,6 @@ herdr_forget_inherited_pane
 
 # TMP_ROOT is physically resolved (mktemp -d "$(pwd -P)"-relative) to keep this
 # real-herdr smoke fixture free of unrelated OS symlink noise.
-# The old fm-spawn bug that originally motivated this fixture shape was fixed in
-# fm-spawn-symlink-guard-s8: fm-spawn.sh now normalizes PROJ_ABS and observed
-# backend cwd reads before the worktree-discovery comparison.
-# The dedicated regression is
-# tests/fm-backend.test.sh:test_spawn_symlinked_project_prefix_avoids_false_refusal.
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-backend-autodetect-smoke.XXXXXX")
 HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
 HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-autodetect-smoke-concurrency-h3) || {
@@ -83,10 +73,11 @@ on_exit() {
 trap on_exit EXIT
 "$HERDR_LAB_HELPER" provision "$HERDR_LAB_SESSION" || fail "could not provision isolated Herdr lab session"
 
-# --- scratch world: FM_HOME with NO backend config, one throwaway project ---
+# --- scratch world: scratch FM_HOME with NO backend config, one throwaway project ---
 
 STATE="$TMP_ROOT/state"; DATA="$TMP_ROOT/data"; CONFIG="$TMP_ROOT/config"
-mkdir -p "$STATE" "$DATA/$ID" "$CONFIG"
+SCRATCH_HOME="$TMP_ROOT/home"
+mkdir -p "$STATE" "$DATA/$ID" "$CONFIG" "$SCRATCH_HOME/state"
 # Backend auto-detection is what is under test here, so opt out of the default-on
 # presentation projection and keep the assertions on the flat per-home workspace.
 printf 'off\n' > "$CONFIG/herdr-presentation-spaces"
@@ -112,7 +103,7 @@ git -C "$PROJ" remote add origin "file://$PROJ.origin.git"
 
 OUT_FILE="$TMP_ROOT/spawn.out"; ERR_FILE="$TMP_ROOT/spawn.err"
 env -u TMUX -u FM_BACKEND PATH="$PATH" HERDR_ENV=1 \
-  FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$SCRATCH_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
   FM_CONFIG_OVERRIDE="$CONFIG" FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" \
   FM_SPAWN_NO_GUARD=1 \
   "$ROOT/bin/fm-spawn.sh" "$ID" "$PROJ" "sh -c 'echo autodetect-smoke-ok'" --mode no-mistakes --yolo off \
@@ -120,11 +111,10 @@ env -u TMUX -u FM_BACKEND PATH="$PATH" HERDR_ENV=1 \
 status=$?
 [ "$status" -eq 0 ] || fail "fm-spawn.sh did not succeed auto-detecting herdr"$'\n'"--- stdout ---"$'\n'"$(cat "$OUT_FILE")"$'\n'"--- stderr ---"$'\n'"$(cat "$ERR_FILE")"
 
-assert_contains_local "$(cat "$ERR_FILE")" "NOTICE" \
-  "fm-spawn.sh did not print the auto-detect notice to stderr when selecting herdr"
-assert_contains_local "$(cat "$ERR_FILE")" "EXPERIMENTAL herdr backend" \
-  "fm-spawn.sh's auto-detect notice did not flag herdr as experimental"
-pass "real herdr: fm-spawn.sh auto-detects herdr from HERDR_ENV=1 (no explicit config) and prints the loud notice"
+case "$(cat "$ERR_FILE")" in
+  *NOTICE*) fail "fm-spawn.sh must resolve auto-detected herdr silently, no NOTICE expected"$'\n'"$(cat "$ERR_FILE")" ;;
+esac
+pass "real herdr: fm-spawn.sh auto-detects herdr from HERDR_ENV=1 (no explicit config), silently"
 
 META="$STATE/$ID.meta"
 [ -f "$META" ] || fail "fm-spawn.sh did not write a meta file for $ID"
@@ -163,7 +153,7 @@ pass "real herdr: the auto-detected spawn's launch command actually ran in the h
 # --- teardown completes the trivial spawn/teardown cycle --------------------
 
 TEARDOWN_OUT="$TMP_ROOT/teardown.out"
-FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$SCRATCH_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
   FM_CONFIG_OVERRIDE="$CONFIG" \
   "$ROOT/bin/fm-teardown.sh" "$ID" >"$TEARDOWN_OUT" 2>&1
 status=$?

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Gemini process identity.
-# Sourced by bin/backends/tmux.sh. This file is sourced by scripts and has no
+# Sourced by bin/backends/herdr.sh. This file is sourced by scripts and has no
 # side effects on source.
 #
 # Why one owner: the Gemini CLI ships as a node bundle, so a live gemini pane
