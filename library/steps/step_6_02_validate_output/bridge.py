@@ -350,13 +350,24 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
         except Exception as e:
             print(f"Error running subtitle_qa: {e}", file=sys.stderr)
             traceback.print_exc()
-            
+            # Same fail-closed shape as the render_qa path above: a
+            # subtitle pass that did not run must not read as a clean
+            # one. The verdict says UNVALIDATED instead of reporting
+            # pass with zero subtitle measurements.
+            qa_results.append(RenderQAResult(
+                "subtitle_qa", False, str(e), None, "error",
+                f"Subtitle QA did not run ({type(e).__name__}: {e}) - no "
+                f"subtitle check measured this render"))
     # Process QA Results into existing checks format for compatibility
     tech_check = {"pass": True, "issues": []}
     framing_check = {"pass": True, "issues": []}
     duration_check = {"pass": True, "issues": []}
     black_frame_check = {"pass": True, "issues": []}
     audio_check = {"pass": True, "issues": []}
+    # Reporting-only (see the aggregate below): every subtitle metric
+    # lands here so a failing caption reads in the verdict instead of
+    # passing silently beside it.
+    subtitle_check = {"pass": True, "issues": []}
     
     qa_report = []
     
@@ -413,10 +424,24 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             if not r.passed:
                 audio_check["pass"] = False
                 audio_check["issues"].append(r.detail)
-        elif r.metric == "render_qa":
+        elif r.metric in ("subtitle_overflow", "subtitle_overlap",
+                          "subtitle_too_short", "subtitle_too_long",
+                          "subtitle_gaps", "subtitle_read_speed"):
+            # The six subtitle metrics `verify_subtitle_timing` returns.
+            # REPORTED, not gated: whether one should FAIL a build, and
+            # at what threshold, is the captain's call, so a failing
+            # caption is visible in checks/all_issues/qa_report without
+            # moving status or distribution_ready. Promoting one is a
+            # boolean here, not a change in subtitle_qa.
+            if not r.passed:
+                subtitle_check["pass"] = False
+                subtitle_check["issues"].append(r.detail)
+        elif r.metric in ("render_qa", "subtitle_qa"):
             # The toolkit itself failed - fail the technical check so the
             # verdict and distribution_ready reflect an unvalidated render
-            # rather than a measured one.
+            # rather than a measured one. Both producers fail closed the
+            # same way; a subtitle pass that never ran is UNVALIDATED,
+            # not clean.
             if not r.passed:
                 tech_check["pass"] = False
                 tech_check["issues"].append(r.detail)
@@ -426,9 +451,17 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     checks["duration"] = duration_check
     checks["black_frames"] = black_frame_check
     checks["audio_levels"] = audio_check
+    checks["subtitles"] = subtitle_check
 
     # ── Aggregate result ──
-    all_passed = all(c.get("pass", False) for c in checks.values())
+    # `subtitles` is deliberately outside the gate: its issues reach the
+    # verdict through checks/all_issues/qa_report, but status and
+    # distribution_ready move only on the checks above. The set below is
+    # exactly the keys the old `all(checks.values())` read, so nothing
+    # that gated before stops gating.
+    gating = ("file_exists", "technical", "framing", "duration",
+              "black_frames", "audio_levels")
+    all_passed = all(checks.get(k, {}).get("pass", False) for k in gating)
     critical_passed = all(
         checks.get(k, {}).get("pass", False)
         for k in ["file_exists", "technical", "framing", "black_frames"]
