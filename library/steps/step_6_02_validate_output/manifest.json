@@ -79,7 +79,19 @@
   },
   "context_fields": [
     "-assembly_manifest.subtitles.*.words",
-    "-deterministic_validation.qa_report"
+    "-deterministic_validation.qa_report",
+    "-assembly_manifest.color_grade",
+    "-assembly_manifest.audio_mix",
+    "-assembly_manifest.vfx",
+    "-assembly_manifest.generator_overlays",
+    "-assembly_manifest.fusion_effects",
+    "-assembly_manifest.transitions_downgraded",
+    "-assembly_manifest.neural_engine_directives",
+    "-assembly_manifest.cohesion_adjustments",
+    "-assembly_manifest.audio",
+    "-assembly_manifest.subtitle_overlay",
+    "-assembly_manifest.motion_graphics_overlay",
+    "-assembly_manifest.timed_text_overlay"
   ],
   "skills": [
     "verify_render"
