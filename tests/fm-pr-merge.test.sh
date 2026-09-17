@@ -3012,7 +3012,7 @@ test_allow_red_refused_on_gitlab() {
 # 2026-09-16 showed exactly this confusion: a malformed URL was reported with
 # the same wording as a forge refusal, which fed a wrong diagnosis.
 test_caller_errors_are_distinguishable_from_refusals() {
-  local case_dir rc caller_stderr refusal_stderr head
+  local case_dir rc head
 
   # --- missing arguments (no task-id, no url) ---
   case_dir=$(make_case caller-error-no-args)
@@ -3081,7 +3081,6 @@ test_caller_errors_are_distinguishable_from_refusals() {
   rc=$?
   set -e
   expect_code 1 "$rc" "caller-vs-refusal: a red-check refusal must exit 1"
-  refusal_stderr=$(cat "$case_dir/stderr")
   assert_grep 'refusing to merge' "$case_dir/stderr" \
     "caller-vs-refusal: a forge refusal must say 'refusing to merge'"
   assert_no_grep 'error (caller):' "$case_dir/stderr" \
