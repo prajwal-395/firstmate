@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
+# family=standalone expected_gate_skip=none
 set -eu
 . tests/lib.sh
+
+TMP_ROOT=$(fm_test_tmproot fm-parent-channel-gate-tests)
+
+make_case() {  # <name>
+  local dir=$TMP_ROOT/$1
+  mkdir -p "$dir"
+  printf '%s\n' "$dir"
+}
 
 test_escalation_gate_suppresses_routine_child_lifecycle() {
   local case_dir
@@ -54,3 +63,4 @@ test_escalation_gate_allows_escalated_child_resolution() {
 
 test_escalation_gate_suppresses_routine_child_lifecycle
 test_escalation_gate_allows_escalated_child_resolution
+echo "all tests passed"
