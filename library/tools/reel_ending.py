@@ -627,6 +627,14 @@ class FreezeTail:
     """The element that draws over it."""
     track_index: int
     """The master row of the shot being held, so the placer finds its angle."""
+    held_master: tuple = (0.0, 0.0)
+    """The master-transcript range the held frame was taken from - the
+    tail placement's own span. A held frame speaks no words, so the
+    placement keeps an empty `master` (no word-anchored pass may claim
+    it as a shot); this names the words it HOLDS, so a hand-declared
+    speaker value reaches the freeze built from that clip directly
+    instead of only through the timeline-adjacency copy at build
+    time."""
     speaker: str = ""
     label: str = "reel_freeze_tail"
     rendered_path: str = ""
@@ -669,6 +677,10 @@ def plan_freeze(picture_placements, ending, fps: float,
     # `endFrame` in this builder takes.
     held_seconds = float(tail["source_out"]) - (1.0 / fps)
     clip = tail["clip"]
+    try:
+        held_master = tuple(tail.get("master") or (0.0, 0.0))
+    except (AttributeError, TypeError, ValueError):
+        held_master = (0.0, 0.0)
     return FreezeTail(
         held_from=getattr(clip, "source_file", ""),
         held_source_seconds=held_seconds,
@@ -676,6 +688,7 @@ def plan_freeze(picture_placements, ending, fps: float,
         duration_frames=frames,
         element=(ending or {}).get("tail_element", "none"),
         track_index=int(getattr(clip, "track_index", 1)),
+        held_master=held_master,
         speaker=str(getattr(clip, "speaker", "") or ""))
 
 
@@ -761,11 +774,16 @@ def freeze_placement(freeze: "FreezeTail", fps: float) -> dict:
         "track_index": freeze.track_index,
         "speaker": freeze.speaker,
         # A held frame speaks no words. An empty master span is what
-        # stops every word-anchored pass (transform overrides, mix
-        # pins, caption timing) from claiming it as a shot - the freeze
-        # inherits its treatment from the shot it holds instead, which
-        # is what a freeze IS.
+        # stops every word-anchored pass (mix pins, caption timing)
+        # from claiming it as a shot - the freeze inherits its
+        # treatment from the shot it holds instead, which is what a
+        # freeze IS. Transform overrides are the exception: `held_master`
+        # names the words the held frame shows, so a hand-declared
+        # speaker value names the freeze directly
+        # (`captain_edits.match_transform_overrides`) as well as
+        # reaching it through the build-time copy.
         "master": (0.0, 0.0),
+        "held_master": tuple(freeze.held_master or (0.0, 0.0)),
         "freeze": True,
     }
 

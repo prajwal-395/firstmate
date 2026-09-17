@@ -844,6 +844,17 @@ def match_transform_overrides(spans: list, transcript: dict,
     in it as an ordered run, the same containment `apply_drop_fragments`
     uses for blocks.
 
+    A freeze hold (`span["freeze"]`, from `reel_ending.freeze_placement`)
+    speaks nothing, so its `master` is empty and never matches - but it
+    carries `span["held_master"]`, the tail span the held frame was
+    taken from, and the anchor is tested against THAT. A hand-declared
+    speaker value therefore names the freeze built from that clip
+    directly: without this the hold takes the value only through the
+    build-time timeline copy (`reel_build._inherit_freeze_treatment`),
+    which is why a moved shot and its own held frame could disagree
+    (Reels 30 and 31, 2026-09-17 - the live speaker at Pan -26 with
+    the freeze still at the engine aim).
+
     An override may carry `reel`: the reel's timeline name, matched by
     prefix (the `reel_ending` convention - `reel_name == reel or
     reel_name.startswith(reel)`). A scoped override holds only on that
@@ -909,6 +920,14 @@ def match_transform_overrides(spans: list, transcript: dict,
         for index, span in enumerate(spans or []):
             master = (span.get("master") if isinstance(span, dict)
                       else None)
+            if isinstance(span, dict) and span.get("freeze"):
+                held = span.get("held_master") or None
+                try:
+                    if (held is not None
+                            and float(held[1]) > float(held[0])):
+                        master = held
+                except (TypeError, ValueError, IndexError):
+                    pass
             if not master:
                 continue
             try:

@@ -656,3 +656,58 @@ def test_cli_record_transform_on_reel_stamps_the_scope(tmp_path,
 def test_describe_names_the_scope(capsys):
     assert "Reel 01" in captain_edits.describe_edits([_scoped()])[0]
     assert "Reel" not in captain_edits.describe_edits([_override()])[0]
+
+
+# ── 7. The hold takes the hand value of the shot it holds ────────────
+
+def _freeze(held_master):
+    clip = type("Clip", (), {})()
+    clip.track_index = 1
+    clip.track_type = "video"
+    clip.source_file = "reel_freeze_test.mov"
+    clip.speaker = "Akshita"
+    return {"clip": clip, "source_in": 0.0, "source_out": 0.8,
+            "record": 4.0, "snapped_record": 96, "track_index": 1,
+            "speaker": "Akshita", "master": (0.0, 0.0),
+            "held_master": held_master, "freeze": True}
+
+
+def test_a_hand_declared_speaker_value_reaches_the_freeze_built_from_that_clip():
+    """Reels 30 and 31, 2026-09-17: the live speaker moved to Pan -26
+    while the freeze held the engine aim (-12.00, -2.24) - the held
+    frame jumped against the live picture in front of it. A freeze
+    speaks nothing, so its own master span is empty and no word anchor
+    could name it; the value arrived only through the build-time copy
+    from whatever played before it. The freeze placement now carries
+    the tail span it was held from (`held_master`), and the match reads
+    the anchor against that - the declaration names the hold directly,
+    on top of the copy that already runs."""
+    shot = _span((10.0, 14.0))
+    hold = _freeze((10.0, 14.0))
+    matched, stale = captain_edits.match_transform_overrides(
+        [shot, hold], _tx(), [_override()])
+    assert stale == []
+    by_span = {record["span_index"]: record for record in matched}
+    assert set(by_span) == {0, 1}
+    assert by_span[1]["property"] == "Pan"
+    assert by_span[1]["value"] == pytest.approx(-35.0)
+
+
+def test_a_freeze_holding_another_clips_frame_takes_nothing():
+    hold = _freeze((20.0, 24.0))
+    matched, _ = captain_edits.match_transform_overrides(
+        [_span((10.0, 14.0)), hold], _tx(), [_override()])
+    assert [record["span_index"] for record in matched] == [0]
+
+
+def test_plan_freeze_carries_the_tail_span_the_hold_names():
+    from library.tools import reel_ending
+    tail = _span((10.0, 14.0))
+    freeze = reel_ending.plan_freeze(
+        [tail], {"tail_hold": "freeze", "tail_element": "tv_power_tail"},
+        24.0)
+    assert freeze.held_master == (10.0, 14.0)
+    place = reel_ending.freeze_placement(freeze, 24.0)
+    assert place["master"] == (0.0, 0.0)
+    assert place["held_master"] == (10.0, 14.0)
+    assert place["freeze"] is True
