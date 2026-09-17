@@ -1,5 +1,26 @@
 """logo_relight.py - the end-logo animation, lit rather than thickened.
 
+WHAT IS STILL IN FORCE HERE, AND WHAT IS NOT
+--------------------------------------------
+The captain approved this relight on 2026-09-17 from a side-by-side
+("Promote the relit one", core light "A little, as built"), watched it
+inside a reel LATER THE SAME DAY, and asked for a different ending. The
+newer ruling supersedes that approval and is not a contradiction of it -
+a side-by-side shows you a light, a reel shows you an ending.
+
+- **The PHYSICS below stand.** The ink/halo split, the navy base not
+  emitting, the four fitted falloff octaves, additive compositing, the
+  two temperatures, ``CORE_LIGHT`` at 0.05, the 16-bit pipe and the
+  dither are all still what light does here, and
+  :mod:`library.tools.logo_bulb` imports every one of them.
+- **The ENVELOPE below is SUPERSEDED**, along with transparency as the
+  ground and the delivered tail that stops at 0.164 alpha.
+  :func:`intensity_envelope` surges on growth and then HOLDS, and a hold
+  is exactly what the captain rejected. Do not restore it on the
+  strength of the survey: the asset that ships is the one
+  ``logo_bulb`` renders - dark ground, arrival, ONE flash at completion,
+  fade to nothing.
+
 The captain, 2026-09-17, on the logo animation that closes every reel:
 
     *"and also the end logo animation, can you redo it so that it
@@ -392,6 +413,15 @@ def intensity_envelope(emissions: Sequence[float],
                        levels: Sequence[float],
                        profile: LightProfile) -> List[float]:
     """Peak-and-settle, derived from the animation's own emission.
+
+    SUPERSEDED, 2026-09-17, by
+    :func:`library.tools.logo_bulb.intensity_envelope`. What this
+    function does after the surge releases is HOLD at
+    :data:`GLOW_GAIN` for as long as the mark is up, and the captain -
+    having seen it in a reel rather than in a side-by-side - asked for
+    one quick soft flash at the moment the mark completes and then
+    nothing. The physics around it are untouched; this shape is not the
+    one that ships.
 
     ``emissions`` is the total emitted energy per frame and drives the
     surge: growth surges, the surge releases, nothing is keyframed, and
