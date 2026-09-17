@@ -383,6 +383,30 @@ def _prefix_hits(targets: dict, segment_id: str) -> list:
                   if key != CAPTION_KIND and stable_prefix(key) == want)
 
 
+def matching_target(intent: Optional[dict], kind: Optional[str],
+                      segment_id: Optional[str],
+                      placement_label: Optional[str] = None):
+    """The declared pin this overlay matches, or `(None, None)`.
+
+    The same lookup `resolve` applies - `_match_key`, all four tiers
+    in order (exact id, placement label, provenance prefix, kind) -
+    without computing a transform and without saying anything: no
+    `disagreement` print. The collision refusals fire here exactly as
+    on the placing path (an exact pin and a label pin both naming one
+    segment; two pins sharing a provenance prefix), because a quiet
+    reader that answers where the placer refuses would be the two
+    disagreeing about what a pin binds. A placement-time intent check
+    (`library/tools/overlay_draw_intent.py`) reads this to learn what
+    the overlay is FOR; the placer itself still resolves beside it, so
+    the two cannot disagree about which pin won.
+    """
+    targets = intent or {}
+    key = _match_key(targets, kind, segment_id, placement_label)
+    if key is None:
+        return None, None
+    return key, targets[key]
+
+
 def _match_key(targets: dict, kind: Optional[str],
                segment_id: Optional[str],
                placement_label: Optional[str]) -> Optional[str]:

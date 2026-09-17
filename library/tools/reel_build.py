@@ -4869,18 +4869,6 @@ def import_pool_item(pool, filepath: str, project_folder: str = "",
     return _carry(items[0] if items else None)
 
 
-def _overlay_canvas(segment: dict):
-    """The canvas one overlay segment is placed at, or None.
-
-    A declared pin names a PLACE, and the transform that reaches it is
-    computed against this (`overlay_intent.transform_for`). None is a
-    full-canvas segment, which needs no transform and takes no pin.
-    """
-    tight = (segment or {}).get("tight_box") or {}
-    width, height = tight.get("width"), tight.get("height")
-    return (int(width), int(height)) if width and height else None
-
-
 def _overlay_segment_id(segment: dict) -> str:
     """The intent key for one overlay segment.
 
@@ -5059,7 +5047,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            seen_ids: list = None,
                            do_not_draw: list = None,
                            intent_applied: list = None,
-                           seen_labels: list = None) -> list:
+                           seen_labels: list = None,
+                           sweep_out: list = None) -> list:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -5113,10 +5102,21 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     Returns the segment ids a `do_not_draw` suppression held back, so
     the caller can keep them on the build record - `[]` where nothing
     was declared or nothing matched.
+
+    `sweep_out`, where given, collects one post-build sweep record per
+    tight segment placed (`overlay_verify.sweep_reel_overlays` reads
+    them back off the timeline after the build): label, kind, segment
+    id, track, record frame, canvas, the computed placement, and where
+    the segment's file lives for the pixel half. Full-canvas segments
+    carry no transform to judge and leave no record.
     """
     import sys
 
     from library.tools import do_not_draw as _dnd
+    from library.tools.overlay_draw_intent import (
+        draw_intent_for_segment,
+        segment_canvas,
+    )
     from library.tools.overlay_placement import apply_placement_transform
     from library.tools.reel_placed_assets import assert_placeable
 
@@ -5207,6 +5207,15 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             seen_ids.append(placed_segment_id)
         if seen_labels is not None and placed_label:
             seen_labels.append(placed_label)
+        canvas = ((tight.get("width"), tight.get("height"))
+                  if tight.get("width") and tight.get("height")
+                  else None)
+        # `draw_intent` arms the pixel half: the held values are judged
+        # against what the overlay is FOR - a declared pin where the
+        # captain put one - so a stale-carriage value that reads back
+        # cleanly is REPORTED rather than shipped. Unpinned graphics of
+        # these kinds have no per-graphic declaration at placement time
+        # and ride without it, exactly as before.
         note = apply_placement_transform(
             timeline, track_index, record_frame,
             tight.get("placement"),
@@ -5216,17 +5225,35 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             intent=overlay_intent,
             # A pin names a PLACE; the canvas going down is what turns
             # it into a transform (`overlay_intent.transform_for`).
-            canvas=((tight.get("width"), tight.get("height"))
-                    if tight.get("width") and tight.get("height")
-                    else None),
+            canvas=canvas,
             frame=frame,
             # Which placing this file serves: a label pin survives the
             # re-render that kills the digest id, and a winning pin is
-            # recorded so the build can say which pins applied.
+            # recorded so the build can say which pins applied. The
+            # intent check below reads the SAME label, so the two
+            # cannot disagree about which pin won.
             placement_label=placed_label,
-            intent_matched=intent_applied)
+            intent_matched=intent_applied,
+            draw_intent=draw_intent_for_segment(
+                segment, kind=kind, segment_id=placed_segment_id,
+                placement_label=placed_label,
+                intent=overlay_intent, frame_wh=frame,
+                project_folder=project_folder, reel_name=name))
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
+        if sweep_out is not None and canvas is not None:
+            sweep_out.append({
+                "label": f"{kind} at {segment['timeline_start']:.2f}s",
+                "kind": kind,
+                "segment_id": placed_segment_id,
+                "placement_label": placed_label,
+                "track_index": track_index,
+                "record_frame": record_frame,
+                "canvas_wh": segment_canvas(segment),
+                "placement": tight.get("placement"),
+                "overlay_path": segment.get("overlay_path") or "",
+                "frames_dir": "",
+            })
     return held_back
 
 
@@ -5915,6 +5942,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     seen_intent_ids: list = []
     seen_intent_labels: list = []
     applied_intent_keys: list = []
+    # One post-build sweep record per tight overlay placed below (the
+    # TV frame, captions, explainer, semantic visuals, lower thirds):
+    # `overlay_verify.sweep_reel_overlays` reads them back off the
+    # timeline after the build and judges stored against intent.
+    # REPORTED, never raised - collected here, run once, after the last
+    # placement and before any row deletion moves the indices.
+    _sweep_records: list = []
     screen_window = None
     if look is not None:
         from library.tools import reel_look as _look
@@ -5980,7 +6014,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             seen_ids=seen_intent_ids,
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels))
+            seen_labels=seen_intent_labels,
+            sweep_out=_sweep_records))
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -6022,6 +6057,10 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # pipeline's renderer. This used to carry its own `npx remotion
     # render` loop - a third implementation of the same call - and it is
     # gone; `reel_subtitle_segments` above drives the step instead.
+    from library.tools.overlay_draw_intent import (
+        draw_intent_for_segment as _draw_intent_for_segment,
+        segment_canvas as _segment_canvas,
+    )
     from library.tools.overlay_placement import (
         place_overlay_segment,
         sequence_frame_paths,
@@ -6082,6 +6121,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
         # sequence shares the mov's frame numbering, so the handle
         # trim is the same arithmetic.
         seen_intent_ids.append(segment.get("segment_id"))
+        # `draw_intent` arms the pixel half: a declared pin first (the
+        # captain's place wins over the row), else the DECLARED caption
+        # row for this reel - so a sidecar placement served under a
+        # superseded row is REPORTED rather than shipped. Unverifiable
+        # captions (legacy canvas, no render props) ride without it,
+        # exactly as before.
+        _caption_canvas = _segment_canvas(segment)
         placed, note = place_overlay_segment(
             pool, timeline, items[0],
             track_index=track_plan.caption_row().index,
@@ -6093,15 +6139,43 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             kind="caption",
             segment_id=segment.get("segment_id"),
             intent=overlay_intent,
-            canvas=_overlay_canvas(segment),
+            canvas=_caption_canvas,
             frame=(width, height),
-            intent_matched=applied_intent_keys)
+            intent_matched=applied_intent_keys,
+            draw_intent=_draw_intent_for_segment(
+                segment, kind="caption",
+                segment_id=segment.get("segment_id"),
+                placement_label=None,
+                intent=overlay_intent, frame_wh=(width, height),
+                project_folder=project_folder, reel_name=name))
         if not placed:
             print(f"Failed to place {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
         elif note:
             print(f"  caption {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
+        if placed and _caption_canvas is not None:
+            # One post-build sweep record per tight caption: the values
+            # half (`overlay_verify.sweep_reel_overlays`) reads it back
+            # off the timeline after the build and judges it against
+            # intent. Full-canvas captions need no transform and leave
+            # no record.
+            _sweep_records.append({
+                "label": segment.get("segment_id", "caption"),
+                "kind": "caption",
+                "segment_id": segment.get("segment_id"),
+                # Captions carry no placing label (the label tier is
+                # for reel graphics); the key stays so every sweep
+                # record has one schema.
+                "placement_label": None,
+                "track_index": track_plan.caption_row().index,
+                "record_frame": record_start,
+                "canvas_wh": _segment_canvas(segment),
+                "placement": (segment.get("tight_box") or {}
+                              ).get("placement"),
+                "overlay_path": segment.get("overlay_path") or "",
+                "frames_dir": frame_dir,
+            })
 
     # Transition elements last, on the plan's transitions row. Placed
     # from FRAMES the planner already computed against this reel's own
@@ -6173,7 +6247,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             seen_ids=seen_intent_ids,
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels))
+            seen_labels=seen_intent_labels,
+            sweep_out=_sweep_records))
 
 
 
@@ -6191,7 +6266,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             seen_ids=seen_intent_ids,
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels))
+            seen_labels=seen_intent_labels,
+            sweep_out=_sweep_records))
 
     # The speaker lower thirds. ADDITIVE, exactly as the two above are:
     # laid over picture that keeps playing, moving no frame of it, so a
@@ -6210,7 +6286,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             seen_ids=seen_intent_ids,
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
-            seen_labels=seen_intent_labels))
+            seen_labels=seen_intent_labels,
+            sweep_out=_sweep_records))
 
     if overlay_intent:
         # Pins that matched nothing on this reel, said aloud and kept
@@ -6249,6 +6326,32 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     else:
         build_record["suppressed_overlays"] = []
         build_record["unmatched_do_not_draw"] = []
+
+    # ── Overlay sweep: stored transforms against intent, after the build ──
+    # `overlay_verify` held both halves of "does it land where intended"
+    # with no production caller: the values half (stored Pan/Tilt against
+    # the intent-resolved expectation - declared wins over computed) and
+    # the pixels half (stored-render ink against intent-render ink, where
+    # a decodable still reaches). A stored -7680 where the intent needs
+    # past it fails here with both numbers named, where the read-back
+    # gate reported "held exactly". REPORTED, never raised: the reel IS
+    # built, and a sweep that fails a correct build is worse than the
+    # defect it catches. Runs here - after the last placement, before
+    # the occupancy pass deletes empty rows and moves the indices.
+    if _sweep_records:
+        from library.tools.overlay_verify import (
+            sweep_reel_overlays as _sweep_reel_overlays,
+        )
+        print(f"── Overlay sweep ({len(_sweep_records)} tight overlay(s)) ──",
+              file=sys.stderr)
+        build_record["overlay_sweep"] = _sweep_reel_overlays(
+            timeline, _sweep_records, intent=overlay_intent,
+            full_wh=(width, height))
+    else:
+        build_record["overlay_sweep"] = {
+            "passed": True, "checked": 0,
+            "detail": "no tight overlays placed on this reel",
+        }
 
     # ── Link pass: picture to speech, captions into the group ──
     # Span-based, in ONE call per speech item (see `link_reel_groups`

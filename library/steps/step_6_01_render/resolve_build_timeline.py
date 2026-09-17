@@ -84,6 +84,9 @@ from library.tools.overlay_placement import (  # noqa: E402
     place_overlay_segment,
     sequence_frame_paths,
 )
+from library.tools.overlay_draw_intent import (  # noqa: E402
+    draw_intent_for_segment,
+)
 from library.tools.execution.deliver_audio_mix import (  # noqa: E402
     PREMIX_SUFFIX, deliver_mix,
 )
@@ -1449,13 +1452,23 @@ def build_timeline(
             # computed - read off the entry step 4.05 recorded - and
             # the placer SETS it then READS BACK what Resolve holds.
             # See library/tools/overlay_placement.py.
+            # `draw_intent` arms the pixel half: the held values are
+            # judged against the DECLARED caption row, so a sidecar
+            # placement served under a superseded row is REPORTED
+            # rather than shipped. The master honours no pins (that
+            # would move placements, not just judge them), so this is
+            # the row path only - `intent` stays None.
             assert_current_timeline(project, timeline)
             placed, note = place_overlay_segment(
                 media_pool, timeline, pool_item,
                 track_index=_caption_row, record_frame=tl_in_frame,
                 source_in_frame=src_in_f, source_out_frame=src_out_f,
                 placement=(seg.get("tight_box") or {}).get("placement"),
-                label=f"V{_caption_row}[{si}] {seg_basename}")
+                label=f"V{_caption_row}[{si}] {seg_basename}",
+                draw_intent=draw_intent_for_segment(
+                    seg, kind="caption",
+                    frame_wh=(width, height),
+                    project_folder=project_folder))
             if placed:
                 v3_count += 1
                 print(f"  ✓ [{si}] {seg_basename} on V{_caption_row} ({seg_frames}f @ TL {tl_in_frame})",

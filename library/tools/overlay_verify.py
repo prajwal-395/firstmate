@@ -73,11 +73,16 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
 
     `clips` carry `label`, `kind`, `segment_id`, `stored`
     (`{scaling, pan, tilt}` as read off the timeline) and, where the
-    clip is a tight one, `canvas_wh`. `computed` maps
-    `(kind, segment_id)` to the pipeline's own placement (None for
-    full-canvas). Each clip resolves its expectation through
-    `overlay_intent.resolve` - declared wins - and the stored value
-    must match it within `tolerance`.
+    clip is a tight one, `canvas_wh` - plus `placement_label` where the
+    segment was placed under one (reel graphics; captions carry none).
+    `computed` maps `(kind, segment_id)` to the pipeline's own
+    placement (None for full-canvas). Each clip resolves its
+    expectation through `overlay_intent.resolve` - declared wins, over
+    all four tiers including the label - and the stored value must
+    match it within `tolerance`. A clip whose label pin the build
+    honoured resolves that pin here too: without the label this sweep
+    would judge a label-pinned store against the computation and cry
+    foul on the captain's own correction.
 
     A clip with no expectation at all (no pin, no computed value) is
     SKIPPED, never passed: full-canvas clips carry no transform to
@@ -103,7 +108,8 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
             expected, provenance = resolve_intent(
                 kind, segment_id, computed.get((kind, segment_id)), intent,
                 canvas=tuple(canvas_wh) if canvas_wh else None,
-                frame=tuple(full_wh))
+                frame=tuple(full_wh),
+                placement_label=clip.get("placement_label"))
         except OverlayIntentError as exc:
             skipped.append({"label": label, "reason": str(exc)})
             continue
@@ -247,7 +253,8 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
             expected, provenance = resolve_intent(
                 kind, segment_id, computed.get((kind, segment_id)), intent,
                 canvas=tuple(canvas_wh) if canvas_wh else None,
-                frame=tuple(full_wh))
+                frame=tuple(full_wh),
+                placement_label=clip.get("placement_label"))
         except OverlayIntentError as exc:
             skipped.append({"label": label, "reason": str(exc)})
             continue
@@ -296,13 +303,159 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
     }
 
 
-#: An overlay clip the checks read: label for reports, kind and
-#: segment id for intent lookup, the stored transform off the
-#: timeline, and - for the pixel half - one decoded asset frame
-#: with its canvas size.
+#: An overlay clip the checks read: label for reports, kind,
+#: segment id and placing label for intent lookup, the stored
+#: transform off the timeline, and - for the pixel half - one decoded
+#: asset frame with its canvas size.
 ClipInput = Dict[str, object]
 
 #: `(kind, segment_id)` -> the pipeline's computed placement (None for
 #: full-canvas). The caller owns this mapping - caption ledgers and
 #: motion-graphics boxes live in different records.
 ComputedMap = Dict[Tuple[Optional[str], Optional[str]], Optional[dict]]
+
+
+def _stored_transform(timeline, track_index: int,
+                      record_frame: int) -> Optional[Dict[str, float]]:
+    """What Resolve holds for one placed overlay clip, or None.
+
+    Read off a FRESH handle for the item at `(track, record frame)` -
+    never the handle the placer wrote through. None is unreadable (no
+    item, no properties), which the sweep SKIPS loudly rather than
+    passing - a clip nothing could read is not a clip that verified.
+    No `hasattr`: always True on Resolve's proxies (AGENTS.md 5).
+    """
+    try:
+        items = timeline.GetItemListInTrack("video", track_index) or []
+    except Exception:  # noqa: BLE001 - unreadable, skipped below
+        return None
+    for item in items:
+        try:
+            if item.GetStart() != record_frame:
+                continue
+        except Exception:  # noqa: BLE001 - a stale handle, keep looking
+            continue
+        try:
+            values = {prop: float(item.GetProperty(prop))
+                      for prop in ("Scaling", "Pan", "Tilt")}
+        except (TypeError, ValueError):
+            return None
+        except Exception:  # noqa: BLE001 - unreadable, skipped below
+            return None
+        return {"scaling": values["Scaling"], "pan": values["Pan"],
+                "tilt": values["Tilt"]}
+    return None
+
+
+def _asset_still(segment_files: dict) -> Optional[str]:
+    """One decodable still for the pixel half, or None.
+
+    A frames-container segment decodes its first PNG directly; a
+    single-PNG still reads as itself. Anything else (a ProRes mov -
+    every motion graphic, most captions) is None here: decoding one
+    frame per clip per build is a cost nobody has measured yet, and
+    the placement-time check (`overlay_draw_intent`) already judges
+    held geometry against intent without rendering anything. Those
+    clips run the values half, and the pixel half lists them as
+    skipped - loudly, in the report - never as passed.
+    """
+    import os
+
+    frame_dir = (segment_files or {}).get("frames_dir") or ""
+    if frame_dir:
+        try:
+            names = sorted(name for name in os.listdir(frame_dir)
+                           if name.endswith(".png"))
+        except OSError:
+            return None
+        if names:
+            return os.path.join(frame_dir, names[0])
+        return None
+    overlay_path = (segment_files or {}).get("overlay_path") or ""
+    if overlay_path.endswith(".png"):
+        return overlay_path
+    return None
+
+
+def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
+                        intent: Optional[dict] = None,
+                        full_wh: Tuple[int, int]) -> dict:
+    """Stored transforms against intent, after a reel build. REPORT ONLY.
+
+    `placed` is one entry per tight overlay the build laid down -
+    `label`, `kind`, `segment_id`, `placement_label` (where the segment
+    was placed under one), `track_index`, `record_frame`, `canvas_wh`,
+    the computed `placement` (None for full-canvas, which never appears
+    here), plus `overlay_path`/`frames_dir` where the pixel half can
+    decode a still. Full-canvas clips carry no transform to judge and
+    are the caller's to exclude, not this sweep's to skip.
+
+    Runs `verify_values` over what Resolve holds NOW (fresh handles -
+    a stale-carriage value the read-back passed is refused here
+    against the intent it disobeys) plus `verify_pixels` over clips
+    with a decodable still, PRINTS every finding to stderr, and
+    returns both reports. Never raises: a sweep that fails a correct
+    build is worse than the defect it catches (AGENTS.md 10.4), so an
+    unreadable timeline reports `{"unavailable": reason}` and the build
+    proceeds.
+    """
+    import sys
+
+    try:
+        return _sweep_reel_overlays(timeline, placed, intent=intent,
+                                    full_wh=full_wh)
+    except Exception as failed:  # noqa: BLE001 - report, never refuse
+        reason = f"overlay sweep unavailable ({failed}); the reel stands."
+        print(f"  {reason}", file=sys.stderr)
+        return {"passed": True, "unavailable": str(failed),
+                "values": None, "pixels": None}
+
+
+def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
+                         intent: Optional[dict] = None,
+                         full_wh: Tuple[int, int]) -> dict:
+    import sys
+
+    computed: ComputedMap = {}
+    value_clips: List[dict] = []
+    pixel_clips: List[dict] = []
+    for entry in placed or []:
+        kind = entry.get("kind")
+        segment_id = entry.get("segment_id")
+        computed[(kind, segment_id)] = entry.get("placement")
+        stored = _stored_transform(timeline, entry.get("track_index"),
+                                   entry.get("record_frame"))
+        clip = {"label": entry.get("label", "?"), "kind": kind,
+                "segment_id": segment_id,
+                "placement_label": entry.get("placement_label"),
+                "stored": stored,
+                "canvas_wh": entry.get("canvas_wh")}
+        value_clips.append(clip)
+        if stored is not None:
+            # Every readable clip runs the pixel half; clips without a
+            # decodable still are SKIPPED loudly inside `verify_pixels`
+            # ("no asset frame ... to composite"), never passed
+            # silently and never dropped here.
+            pixel_clip = dict(clip)
+            pixel_clip["asset_frame"] = _asset_still(entry)
+            pixel_clips.append(pixel_clip)
+    values = verify_values(value_clips, intent, computed,
+                           full_wh=tuple(full_wh))
+    pixels = verify_pixels(pixel_clips, intent, computed,
+                           full_wh=tuple(full_wh))
+    passed = bool(values["passed"] and pixels["passed"])
+    for finding in values["findings"]:
+        print(f"  overlay values: {finding['label']}: "
+              f"{finding['verdict']}", file=sys.stderr)
+    for finding in pixels["findings"]:
+        print(f"  overlay pixels: {finding['label']}: "
+              f"{finding['verdict']}", file=sys.stderr)
+    skipped = len(values["skipped"]) + len(pixels["skipped"])
+    print(f"  overlay sweep: {values['checked']} value-checked, "
+          f"{pixels['checked']} pixel-checked, "
+          f"{len(values['findings']) + len(pixels['findings'])} "
+          f"finding(s), {skipped} skipped "
+          f"(no expectation, unreadable store, or no decodable still - "
+          f"listed in the build record, never passed silently).",
+          file=sys.stderr)
+    return {"passed": passed, "values": values, "pixels": pixels}
