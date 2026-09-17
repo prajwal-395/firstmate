@@ -49,6 +49,35 @@ page at the same frame exported byte-identical PNGs (md5
 e70be9dda51a2a0e1986c619c1f8b5fb both).  So the button never changes the
 captain's page, which would be a visible disturbance for nothing.
 
+THE PAGE MATTERS FOR THE PLAYHEAD.  `SetCurrentTimecode` returns False
+and moves nothing unless Resolve is on the Edit page (measured
+2026-09-17: False on the Fusion page with `GetCurrentTimecode` reading
+None straight after, True on Edit).  A script that positions the
+playhead must `OpenPage("edit")` first and read the playhead back -
+`read_playhead` asserting the absolute frame is that read-back.
+
+THE DISPLAY MUST BE AWAKE.  With the display asleep `screencapture`
+returns a pure-black frame, and viewer stills come back missing
+upper-track overlays while lower tracks read correctly (measured
+2026-09-17: captions pixel-perfect, motion graphics absent, on the same
+frames that verify exactly with the display held awake).  Hold it with
+`caffeinate -d` for the whole measurement run, and re-grab rather than
+trust a still taken while it may have slept.
+
+A STILL'S FIRST GRAB IS NOT EVIDENCE.  The first `GrabStill` after a
+timeline switch can return before the upper tracks have composited
+(measured 2026-09-17: first grab blank, second grab full, same frame,
+ten seconds apart).  Position, grab, discard, grab again, and judge the
+keeper by counting the expected ink - never by the grab succeeding.
+
+MASK EVERY INK, NOT ONE BRAND COLOUR.  A motion-graphics title carries
+time-varying emphasis colours: base pink `(255,184,212)`, emphasis
+yellow `(255,200,87)`, list-build grey `(170,187,204)` - all three
+measured off the same file at different media frames.  A pink-only mask
+reports a drawing title absent.  Sample the artefact file at the played
+media frame first, then mask the still for every colour the file holds.
+
+
 `GalleryStillAlbum.ExportStills` WRITES A `.drx` BESIDE EVERY PNG, unasked
 - `<prefix>_1.1.1.png` and `<prefix>_1.1.1.drx`, a PowerGrade sidecar.
 A capture sidecar is not a staged grade - it carries no recorded
