@@ -85,16 +85,19 @@ this reel really rendered.  ``measured_caption_height`` is that
 reading and it is a MEASUREMENT off the rendered cards, never a
 prediction from the font size.
 
-The graphic then renders FULL CANVAS.  That is deliberate:
-``mg_tight_box`` predicts a motion-graphics union from the
+The graphic renders FULL CANVAS as its probe, and is then BOUND
+tightly from its own pixels (`reel_build._bind_lower_third_tight`).
+`mg_tight_box` predicts a motion-graphics union from the
 composition's literals rather than measuring it, and on this project
 it is wrong on every case measured so far - a tight box carries a
-Pan/Tilt computed from that prediction.  A full-canvas overlay needs no
-transform at all, so there is nothing to predict, and the ink lands
-where the composition drew it.  :func:`render_findings` then MEASURES
-the drawn ink back off the rendered file and refuses a segment whose
-ink left the box, so the placement is checked against pixels rather
-than asserted.
+Pan/Tilt computed from that prediction, so these graphics never take
+the predicted path. Instead the full-canvas render is measured
+across every frame and the tight file is cropped out of it: no
+re-layout, so the copy cannot re-wrap, and the placement is computed
+from the measured union rather than asserted. :func:`render_findings`
+then MEASURES the drawn ink back off the rendered file and refuses a
+segment whose ink left the box, so the placement is checked against
+pixels rather than asserted.
 
 ``tests/test_speaker_identity.py``.
 """
@@ -236,7 +239,10 @@ class SpeakerPlan:
                  "timeline_end": s.get("timeline_end"),
                  "total_frames": s.get("total_frames"),
                  "measured_box": s.get("measured_box"),
-                 "elements": list(s.get("elements") or [])}
+                 "elements": list(s.get("elements") or []),
+                 "geometry": s.get("geometry"),
+                 "tight_box": s.get("tight_box"),
+                 "tight_fallback": s.get("tight_fallback") or ""}
                 for s in self.segments
             ],
         }

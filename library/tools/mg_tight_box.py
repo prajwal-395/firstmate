@@ -89,6 +89,7 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from library.tools.tight_box import (
+    InkUnion,
     TightBox,
     TightBoxClipsInk,
     TightBoxMismatch,
@@ -1060,3 +1061,302 @@ def tighten_motion_graphics_props_with_reason(
     """
     return _tighten_impl(props, project_folder,
                          timeline_size=timeline_size)
+
+
+# ─── The measured path: bound from the render, never predicted ──────
+#
+# `_tighten_impl` above PREDICTS the union from the composition's
+# literals and the plan's copy. Measured across this project's motion
+# graphics that prediction misses the drawn ink on every case tried,
+# and a tight box carries a Pan/Tilt computed from it - which is why
+# the speaker lower thirds rendered full canvas instead. Captions went
+# through the same passage: the PIL predictor under-measured against
+# Chromium and clipped ink, so the caption path binds from a decoded
+# probe instead (`tight_box.ink_union_of_frames`).
+#
+# This is the same mechanism for motion graphics: render full canvas,
+# MEASURE the drawn union across every frame, and crop the probe to a
+# canvas cut around that union. The tight output IS the probe's own
+# region - no re-layout, no re-render - so the copy cannot re-wrap
+# into a different drawing the way a native small-canvas render can
+# (a stat_callout and a quote_card both did, measured 2026-09-16).
+# `verify_measured_crop` proves the identity per file rather than
+# asserting it: a crop that is not its probe's region raises, and the
+# caller keeps the full canvas.
+
+
+def measure_mg_union(overlay_path: str) -> Optional[InkUnion]:
+    """The drawn union of a rendered motion-graphics file, every frame.
+
+    Decodes the whole file through one ffmpeg pipe into a temporary
+    directory (`tight_box.extract_frames`) and unions the per-frame
+    alpha bboxes (`tight_box.ink_union_of_frames`). None where no
+    frame drew anything - there is nothing to bound, so the caller
+    keeps the full-canvas path. An UNDECODABLE file raises
+    `TightBoxMismatch` rather than reading as blank: absent evidence
+    is not empty evidence.
+    """
+    import tempfile
+
+    from library.tools.tight_box import (
+        extract_frames,
+        ink_union_of_frames,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="mg-union-") as work:
+        return ink_union_of_frames(extract_frames(overlay_path, work))
+
+
+def tighten_measured_mg_with_reason(
+        props: dict,
+        union: InkUnion,
+        timeline_size: tuple[int, int] | None = None,
+        ) -> tuple[Optional[TightBox], Optional[TightRefusal]]:
+    """The tight canvas for a MEASURED ink union, or why it stays full.
+
+    `union` is `measure_mg_union`'s reading of the full-canvas render,
+    in delivery-frame pixels - what the composition actually drew, not
+    what any model of it says it should have. The canvas is that union
+    expanded by `MG_PAD` on every side (the slide travel, the shadow
+    blur and the renderer shaping difference the pad already covers on
+    the predicted path), grown to the rail floor away from the
+    anchored edge exactly as `_tighten_impl` grows, and placed so its
+    centre lands on the union centre (`placement_for_box`).
+
+    Returns `(box, None)` where the union binds and `(None, refusal)`
+    where it stays full canvas. Raises `TightBoxClipsInk` /
+    `TightBoxMismatch` where the measured canvas leaves the delivery
+    frame or Resolve cannot hold the placement - carrying the refusal
+    as `.refusal` - so the caller falls back to full canvas the same
+    way it does on the predicted path.
+    """
+    elements = props.get("elements") or []
+    if not elements:
+        return None, TightRefusal(
+            reason="no_elements",
+            element=None,
+            detail="the segment plans no elements, so there is no union "
+                   "to bind")
+
+    full_w = int(props.get("width", 0))
+    full_h = int(props.get("height", 0))
+    if full_w <= 0 or full_h <= 0:
+        raise ValueError(
+            "motion-graphics props carry no delivery frame to bind "
+            f"against (width={props.get('width')!r}, "
+            f"height={props.get('height')!r}).")
+
+    copy = [e for e in elements if e.get("element") not in SELF_POSITIONING]
+    zones = {_vertical_zone(e.get("anchor", "")) for e in copy}
+    if "middle" in zones and len(zones) > 1:
+        middle_kinds = sorted({
+            str(e.get("element", ""))
+            for e in copy
+            if _vertical_zone(e.get("anchor", "")) == "middle"})
+        return None, TightRefusal(
+            reason="middle_zone_mixed",
+            element=",".join(middle_kinds) or None,
+            detail="a middle-anchored stack beside another vertical zone: "
+                   "`top: 50%` centres on the canvas, so a grown canvas "
+                   "moves the stack")
+
+    union_w = float(union.x1 - union.x0)
+    union_h = float(union.y1 - union.y0)
+    if union_w <= 0 or union_h <= 0:
+        return None, TightRefusal(
+            reason="nothing_drawn",
+            element=None,
+            detail="the measured union has no area")
+    union_kinds = sorted({str(e.get("element", "")) for e in copy
+                          if e.get("element")}) or None
+
+    canvas_w = _ceil_even(union_w + 2 * MG_PAD)
+    measured_h = _ceil_even(union_h + 2 * MG_PAD)
+
+    try:
+        refuse_canvas_larger_than_frame(
+            canvas_w, measured_h, full_w, full_h,
+            f"measured motion-graphics union ({union.x0},"
+            f"{union.y0})-({union.x1},{union.y1})")
+    except TightBoxClipsInk as exc:
+        exc.refusal = TightRefusal(
+            reason="canvas_larger_than_frame",
+            element=",".join(union_kinds) if union_kinds else None,
+            detail=f"measured canvas {canvas_w}x{measured_h} on a "
+                   f"{full_w}x{full_h} frame from union "
+                   f"({union.x0},{union.y0})-({union.x1},{union.y1})")
+        raise
+
+    if canvas_w * measured_h >= FULL_FRAME_COVERAGE * full_w * full_h:
+        coverage = canvas_w * measured_h / (full_w * full_h)
+        return None, TightRefusal(
+            reason="covers_frame",
+            element=",".join(union_kinds) if union_kinds else None,
+            detail=f"the padded measured union is {coverage:.0%} of the "
+                   f"frame - marginal pixel savings are not worth the "
+                   f"placement risk")
+
+    # The floor that keeps the placement inside Resolve's rail
+    # (`tight_box.MIN_CANVAS_HEIGHT`) - the same floor and the same
+    # growth the predicted path grows under, so one graphic bound
+    # either way rides one canvas height. A single zone grows away
+    # from its edge (top grows below, bottom above, middle splits);
+    # anything mixed keeps its measured size and the clamp gate below
+    # still refuses what Resolve cannot hold.
+    all_zones = {_vertical_zone(e.get("anchor", "")) for e in copy}
+    grown_below = 0
+    top_extra = 0
+    canvas_h = measured_h
+    if len(all_zones) == 1:
+        (zone,) = tuple(all_zones)
+        canvas_h, top_extra = grow_to_minimum(measured_h, zone, full_h)
+        grown_below = canvas_h - measured_h - top_extra
+
+    ox = union.x0 - MG_PAD
+    oy = union.y0 - (MG_PAD + top_extra)
+    if (ox < 0 or oy < 0
+            or ox + canvas_w > full_w or oy + canvas_h > full_h):
+        mismatch = TightBoxMismatch(
+            f"measured union ({union.x0},{union.y0})-({union.x1},"
+            f"{union.y1}) sits within {MG_PAD}px of the frame edge: a "
+            f"{canvas_w}x{canvas_h} canvas at ({ox},{oy}) leaves a "
+            f"{full_w}x{full_h} frame, so there is no tight carrying "
+            f"of it.")
+        mismatch.refusal = TightRefusal(
+            reason="pads_leave_frame",
+            element=",".join(union_kinds) if union_kinds else None,
+            detail=f"union ({union.x0},{union.y0})-({union.x1},"
+                   f"{union.y1}) with {MG_PAD}px pads at ({ox},{oy}) on "
+                   f"a {full_w}x{full_h} frame")
+        raise mismatch
+
+    placement = placement_for_box(
+        canvas_w, canvas_h,
+        ox + canvas_w / 2.0, oy + canvas_h / 2.0,
+        full_w, full_h)
+
+    held_against = timeline_size or (full_w, full_h)
+    reason = placement_holds(placement, *held_against)
+    if reason:
+        mismatch = TightBoxMismatch(
+            f"measured motion-graphics box needs Pan "
+            f"{placement['pan']:.1f} / Tilt {placement['tilt']:.1f}: "
+            f"{reason} - this graphic cannot ride a small box, and "
+            f"stays full-canvas.")
+        mismatch.refusal = TightRefusal(
+            reason="placement_unholdable",
+            element=",".join(union_kinds) if union_kinds else None,
+            detail=f"Pan {placement['pan']:.1f} / Tilt "
+                   f"{placement['tilt']:.1f} on a "
+                   f"{held_against[0]}x{held_against[1]} timeline: "
+                   f"{reason}")
+        raise mismatch
+
+    tight_props = dict(props)
+    tight_props["width"] = canvas_w
+    tight_props["height"] = canvas_h
+    tight_props["safeArea"] = {
+        "top": MG_PAD + top_extra, "right": MG_PAD,
+        "bottom": MG_PAD + grown_below, "left": MG_PAD,
+    }
+
+    return TightBox(
+        width=canvas_w,
+        height=canvas_h,
+        props=tight_props,
+        placement=placement,
+        union_w=union_w,
+        union_h=union_h,
+        full_width=full_w,
+        full_height=full_h,
+    ), None
+
+
+def tighten_measured_mg(
+        props: dict,
+        union: InkUnion,
+        timeline_size: tuple[int, int] | None = None,
+        ) -> Optional[TightBox]:
+    """The tight canvas for a MEASURED ink union, or None.
+
+    The box half of `tighten_measured_mg_with_reason` - every refusal
+    reason the other half returns is documented there. Raises exactly
+    as it always has on the predicted path.
+    """
+    box, _refusal = tighten_measured_mg_with_reason(
+        props, union, timeline_size=timeline_size)
+    return box
+
+
+def verify_measured_crop(full_union: InkUnion, tight_path: str,
+                         box: TightBox) -> dict:
+    """The tight file IS the full file's ink region, or it raises.
+
+    The crop path never re-renders, so the copy cannot re-wrap - but
+    that is proved per file here rather than asserted: the tight file
+    must decode to the box's own dimensions, and its drawn union must
+    equal the full union shifted by the crop origin
+    (`tight_box.canvas_offset`, the inverse of the placement the box
+    ships). Any difference raises `TightBoxMismatch` - a tight output
+    that is not its probe's region stays off the timeline, and the
+    caller keeps the full canvas.
+
+    Returns the comparison the run reports: the before and after
+    dimensions and the offset, in delivery-frame pixels.
+    """
+    import os
+    import subprocess
+    import tempfile
+
+    from library.tools.tight_box import (
+        canvas_offset,
+        extract_frames,
+        ink_union_of_frames,
+    )
+
+    ox, oy = canvas_offset(box)
+    with tempfile.TemporaryDirectory(prefix="mg-verify-") as work:
+        tight_union = ink_union_of_frames(
+            extract_frames(tight_path, work))
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height",
+             "-of", "csv=p=0", tight_path],
+            capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise TightBoxMismatch(
+            f"cannot probe the tight crop {tight_path}: {exc}") from exc
+    dims = (result.stdout or "").strip()
+    if dims != f"{box.width},{box.height}":
+        raise TightBoxMismatch(
+            f"tight crop {tight_path} probes as {dims or 'unreadable'}, "
+            f"not the {box.width}x{box.height} box: the artefact Resolve "
+            f"transforms must BE the tight canvas.")
+    if tight_union is None:
+        raise TightBoxMismatch(
+            f"tight crop {tight_path} draws nothing: the crop lost the "
+            f"ink it was cut around.")
+    want = (full_union.x0 - ox, full_union.y0 - oy,
+            full_union.x1 - ox, full_union.y1 - oy)
+    got = (tight_union.x0, tight_union.y0,
+           tight_union.x1, tight_union.y1)
+    if got != want:
+        raise TightBoxMismatch(
+            f"tight crop {tight_path} draws {got} where its probe drew "
+            f"{want} (full union shifted by the ({ox},{oy}) crop "
+            f"origin): the tight output is not its probe's region.")
+    try:
+        tight_bytes = os.path.getsize(tight_path)
+    except OSError:
+        tight_bytes = 0
+    return {
+        "before": [box.full_width, box.full_height],
+        "after": [box.width, box.height],
+        "offset": [ox, oy],
+        "union": [full_union.x0, full_union.y0,
+                  full_union.x1, full_union.y1],
+        "placement": dict(box.placement),
+        "tight_bytes": tight_bytes,
+    }

@@ -3844,12 +3844,16 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
     is drawn, because a reel with no lower thirds must be able to say
     WHICH kind of nothing it has (`speaker_identity.BASES`).
 
-    **Rendered FULL CANVAS, deliberately.** `mg_tight_box` PREDICTS a
-    motion-graphics union from the composition's literals and the
-    placement rides on that prediction; a full-canvas overlay carries no
-    transform at all, so the ink lands where the composition drew it and
-    the measurement below is a measurement of delivery-frame pixels
-    rather than of a small canvas plus a guess.
+    **Rendered FULL CANVAS as the probe, then bound tightly from
+    its own pixels.** `mg_tight_box` PREDICTS a motion-graphics union
+    from the composition's literals and the placement rides on that
+    prediction, so these graphics never take the predicted path.
+    Instead the full-canvas render is measured across every frame
+    (`measure_mg_union`), the canvas is cut around that union, and the
+    tight file is a crop of the probe - never a re-render, so the copy
+    cannot re-wrap. `verify_measured_crop` proves the tight file IS
+    its probe's region; a segment that does not bind stays full
+    canvas and says why (`tight_fallback`).
     """
     import sys
 
@@ -3988,6 +3992,8 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
             print(f"  {name}: lower-third ink measured at "
                   f"{rendered['measured_box']} on a {width}x{height} frame",
                   file=sys.stderr)
+        _bind_lower_third_tight(
+            name, planned, rendered, width, height)
         segments.append(rendered)
     # What was RENDERED, not what was intended: a reader grading the
     # timeline against this must not look for an item nothing placed.
@@ -3995,6 +4001,161 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
     if not segments:
         plan.basis = si.NO_DECLARED_SPEAKER_SPOKE
     return segments, plan
+
+
+def _bind_lower_third_tight(name: str, planned: dict, rendered: dict,
+                              width: int, height: int) -> None:
+    """Bind one rendered lower third tightly, from its own pixels.
+
+    The render above is FULL CANVAS on purpose: it is the probe, not
+    the artefact. `mg_tight_box.measure_mg_union` reads the drawn
+    union across every frame, `tighten_measured_mg_with_reason` cuts
+    the canvas around it, and the tight file is a crop of the probe
+    (`tight_box.crop_probe_to_tight`) - never a re-render, so the copy
+    cannot re-wrap into a different drawing.
+    `mg_tight_box.verify_measured_crop` then proves the tight file IS
+    its probe's region, and reports the before-and-after dimensions
+    with the offset - the comparison the run carries, per segment.
+
+    A segment that does not bind stays full canvas, SAID on the run:
+    `rendered["tight_fallback"]` names the reason, exactly as step
+    4.06 records its own fallbacks. Nothing here predicts a box from
+    the text and the style: the predicted path
+    (`mg_tight_box.tighten_motion_graphics_props`) misses the drawn
+    ink on every case measured, and is not extended to these graphics.
+
+    Mutates `rendered` in place: on a bind the overlay path becomes
+    the tight crop, `tight_box` carries its size and Resolve placement,
+    and the tight props plus the tightness sidecar sit beside it so
+    the build-time guard reads the artefact as tight.
+    """
+    import json
+    import sys
+
+    from library.tools import mg_tight_box as mgt
+    from library.tools.mg_tight_box import (
+        sidecar_path_for,
+        tightness_record,
+    )
+    from library.tools.tight_box import (
+        TightBoxClipsInk,
+        TightBoxMismatch,
+        crop_probe_to_tight,
+    )
+
+    full_path = rendered.get("overlay_path") or ""
+    full_props = (planned or {}).get("props") or {}
+    if not full_path or not full_props:
+        rendered["tight_fallback"] = (
+            "no full-canvas probe to bind from - stays full canvas")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback']})", file=sys.stderr)
+        return
+    try:
+        union = mgt.measure_mg_union(full_path)
+    except TightBoxMismatch as exc:
+        rendered["tight_fallback"] = (
+            f"the full-canvas probe could not be measured - stays full "
+            f"canvas: {exc}")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+    if union is None:
+        rendered["tight_fallback"] = (
+            "the probe drew nothing on any frame - stays full canvas")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback']})", file=sys.stderr)
+        return
+    try:
+        box, refusal = mgt.tighten_measured_mg_with_reason(
+            full_props, union, timeline_size=(width, height))
+    except (TightBoxClipsInk, TightBoxMismatch) as exc:
+        refusal = getattr(exc, "refusal", None)
+        rendered["tight_fallback"] = (
+            (refusal.message() if refusal is not None else str(exc))
+            or str(exc))
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+    if box is None:
+        rendered["tight_fallback"] = (
+            refusal.message() if refusal is not None
+            else "no tight box and no reason")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+
+    stem = full_path[:-len(".mov")] if full_path.endswith(".mov") \
+        else full_path
+    tight_path = f"{stem}_tight.mov"
+    tight_props_path = f"{stem}_tight_props.json"
+    try:
+        crop_probe_to_tight(full_path, tight_path, box)
+    except TightBoxMismatch as exc:
+        try:
+            os.remove(tight_path)
+        except OSError:
+            pass
+        rendered["tight_fallback"] = (
+            f"the probe could not be cropped to "
+            f"{box.width}x{box.height} - stays full canvas: {exc}")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+    try:
+        report = mgt.verify_measured_crop(union, tight_path, box)
+    except TightBoxMismatch as exc:
+        try:
+            os.remove(tight_path)
+        except OSError:
+            pass
+        rendered["tight_fallback"] = (
+            f"the tight crop is not its probe's region - stays full "
+            f"canvas: {exc}")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+
+    try:
+        with open(tight_props_path, "w", encoding="utf-8") as handle:
+            json.dump(box.props, handle, indent=2)
+        with open(sidecar_path_for(tight_props_path), "w",
+                  encoding="utf-8") as handle:
+            json.dump(tightness_record(box, None, width, height),
+                      handle, indent=2)
+    except OSError as exc:
+        try:
+            os.remove(tight_path)
+        except OSError:
+            pass
+        rendered["tight_fallback"] = (
+            f"the tight record could not be written - stays full "
+            f"canvas: {exc}")
+        print(f"  {name}: lower third stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+
+    try:
+        report["full_bytes"] = os.path.getsize(full_path)
+    except OSError:
+        report["full_bytes"] = 0
+    rendered["overlay_path"] = tight_path
+    rendered["segment_id"] = os.path.splitext(
+        os.path.basename(tight_path))[0]
+    rendered["geometry"] = "tight"
+    rendered["tight_fallback"] = ""
+    rendered["tight_box"] = {
+        "width": box.width,
+        "height": box.height,
+        "placement": dict(box.placement),
+    }
+    rendered["tight_report"] = report
+    print(f"  {name}: lower third bound tight "
+          f"{report['before'][0]}x{report['before'][1]} -> "
+          f"{report['after'][0]}x{report['after'][1]} at offset "
+          f"{report['offset']} "
+          f"({report['full_bytes']:,} -> {report['tight_bytes']:,} "
+          f"bytes)", file=sys.stderr)
 
 
 def _lower_third_rows(segments) -> list:
@@ -6272,10 +6433,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # The speaker lower thirds. ADDITIVE, exactly as the two above are:
     # laid over picture that keeps playing, moving no frame of it, so a
     # reel carrying one is cut identically to a reel carrying none.
-    # They render FULL CANVAS (`reel_lower_third_segments`), so they
-    # need no transform and `overlay_intent` has nothing to say about
-    # them - it is passed anyway because the placer reads it per
-    # segment and a full-canvas segment declares no canvas.
+    # Each segment rides its own `tight_box.placement` where the
+    # measured bind succeeded (`reel_lower_third_segments`), and needs
+    # no transform where it stayed full canvas - `overlay_intent` is
+    # passed anyway because the placer reads it per segment and a
+    # full-canvas segment declares no canvas.
     if lower_third_segments:
         suppressed_ids.extend(place_overlay_segments(
             pool, project, timeline, name, fps, lower_third_segments,
