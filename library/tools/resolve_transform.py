@@ -48,6 +48,51 @@ Why the two wrong models both survived review: each was calibrated
 against a CAPTURED Pan/Tilt rather than one it had set itself. A
 constant of this kind is only measurable by SETTING a known value and
 RENDERING. Never calibrate one against a capture again.
+
+The draw gain, measured twice
+-----------------------------
+The law above carries an explicit `draw_gain`: the ratio between what
+the renderer draws per unit and what the 2026-09-11 calibration
+measured. It defaults to 1.0, which reproduces every 09-11 case
+exactly, and every caller that does not pass it keeps that behaviour.
+
+`FALLBACK_DRAW_GAIN` (2.0) is the 2026-09-17 rendered-pixel
+calibration on the captain's machine, same Resolve build
+(Studio 21.1.0.14), and it disagrees with the 09-11 one. Both
+calibrations set known values and rendered; the newer one is the
+default because it describes every timeline class in the project
+today - 1080x1920 custom reels, 1080x1920 custom scratch, 3840x2160
+custom scratch and 3840x2160 project-default scratch, both axes,
+captions, motion graphics, picture and native plates:
+
+- caption 904x480, Tilt -888 -> canvas centre y 1404, and hand-set
+  Tilt -917 -> y 1418.5 (two independent points, slope exactly 0.5;
+  row-profile correlation 1.0000 at the predicted shift, 0.63 at the
+  row the old law computes, -0.03 at the normal-reference reading);
+- motion graphics 920x480 at Tilt 1296 and 296x480 at Pan 583.78
+  drawing the pinned centres [540, 312] and [860, 960] (the captain's
+  own pins, both axes, slope 2x the law on each);
+- picture 3840x2160 at fit on a scratch 1080x1920 timeline: Tilt 100
+  moves 63 px and Tilt 200 moves 127 px (linear), Pan 100 moves
+  200 px - 2x the law's 31.6 / 63.3 / 100 on those cells;
+- caption 904x480 on a scratch 3840x2160 timeline and a native
+  3840x2160 plate on a project-default 3840x2160 timeline: both draw
+  at 2x the law.
+
+Drawn sizes are 1:1 throughout (caption ink 121 rows in the file,
+120 in the render), so the error is in the conversion term, not the
+draw. The 09-11 tables below stand as the gain-1.0 record - tests
+pin them by passing `draw_gain=1.0` explicitly - and the newer
+calibration is what the functions compute by default.
+
+A stored value that reads back correctly proves nothing about the
+gain - only rendered pixels discriminate, which is why the standing
+verification is a still, not a read-back: the Reel 01 gate
+(`caption_row` 0.8451 must render its caption centre at y 1418.5
+with stored Tilt -917, the captain's own hand value) fails the
+moment this gain stops describing the renderer, in either
+direction. If it ever reads 1.0 again, change this constant back
+with a fresh rendered-pixel calibration, never by arithmetic.
 """
 
 from __future__ import annotations
@@ -94,6 +139,20 @@ MEASURED_PICTURE_CASES = (
 )
 
 
+#: The FALLBACK draw gain: the value a run uses when it cannot
+#: calibrate the renderer itself (see `library/tools/draw_gain_probe.py`).
+#: Measured 2.0 on rendered pixels 2026-09-17 (calibration table and
+#: procedure in the module docstring). It is renderer STATE, not
+#: geometry: the same build drew gain 1.0 on 2026-09-11, so a build
+#: that can reach the renderer measures per run and passes what it
+#: measured explicitly, and a run that silently fell back would be the
+#: defect this exists to stop - the probe logs which source the run
+#: used and reports a measured-against-fallback disagreement as a
+#: finding. Never derive it by arithmetic from an observed
+#: misplacement - re-measure it by setting known values and rendering.
+FALLBACK_DRAW_GAIN = 2.0
+
+
 class ResolveTransformError(ValueError):
     """A transform reading needs positive dimensions."""
 
@@ -118,20 +177,30 @@ def fit_base_scale(clip_w, clip_h, frame_w, frame_h) -> float:
 
 
 def shift_px(value: float, clip_dim: float, frame_dim: float,
-             base_scale: float = NATIVE_BASE_SCALE) -> float:
+             base_scale: float = NATIVE_BASE_SCALE,
+             draw_gain: float = FALLBACK_DRAW_GAIN) -> float:
     """How far one Pan/Tilt unit count moves the clip, in frame pixels.
 
     Unsigned: the caller applies the axis sense (positive Pan right,
     positive Tilt up) through `drawn_origin` / `drawn_centre`, so the
     sign lives in exactly one place.
+
+    `draw_gain` is the renderer's measured draw per unit over the
+    2026-09-11 calibrated law (`FALLBACK_DRAW_GAIN`, and the module
+    docstring for how it was measured and when it must be
+    re-measured). A build that calibrated the renderer passes what it
+    measured (`library/tools/draw_gain_probe.py`); callers pinning the
+    09-11 calibration pass 1.0 explicitly; everyone else takes the
+    fallback default.
     """
     _positive(clip_dim, frame_dim)
     return float(value) * (float(clip_dim) / float(frame_dim)) * float(
-        base_scale)
+        base_scale) * float(draw_gain)
 
 
 def units_for_shift(shift: float, clip_dim: float, frame_dim: float,
-                    base_scale: float = NATIVE_BASE_SCALE) -> float:
+                    base_scale: float = NATIVE_BASE_SCALE,
+                    draw_gain: float = FALLBACK_DRAW_GAIN) -> float:
     """The Pan/Tilt unit count that draws `shift` frame pixels.
 
     The strict inverse of :func:`shift_px`, and the reason both live
@@ -139,29 +208,31 @@ def units_for_shift(shift: float, clip_dim: float, frame_dim: float,
     """
     _positive(clip_dim, frame_dim, base_scale)
     return float(shift) / ((float(clip_dim) / float(frame_dim))
-                           * float(base_scale))
+                           * float(base_scale) * float(draw_gain))
 
 
 def drawn_centre(clip_w: float, clip_h: float,
                  frame_w: float, frame_h: float,
                  pan: float = 0.0, tilt: float = 0.0,
-                 base_scale: float = NATIVE_BASE_SCALE) -> tuple:
+                 base_scale: float = NATIVE_BASE_SCALE,
+                 draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
     """Where a stored Pan/Tilt puts the clip's CENTRE, in frame pixels.
 
     Positive Pan moves right, positive Tilt moves up.
     """
     _positive(clip_w, clip_h, frame_w, frame_h)
     return (float(frame_w) / 2.0
-            + shift_px(pan, clip_w, frame_w, base_scale),
+            + shift_px(pan, clip_w, frame_w, base_scale, draw_gain),
             float(frame_h) / 2.0
-            - shift_px(tilt, clip_h, frame_h, base_scale))
+            - shift_px(tilt, clip_h, frame_h, base_scale, draw_gain))
 
 
 def drawn_origin(clip_w: float, clip_h: float,
                  frame_w: float, frame_h: float,
                  pan: float = 0.0, tilt: float = 0.0,
                  base_scale: float = NATIVE_BASE_SCALE,
-                 drawn_w: float = None, drawn_h: float = None) -> tuple:
+                 drawn_w: float = None, drawn_h: float = None,
+                 draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
     """Where a stored Pan/Tilt puts the clip's TOP-LEFT, in frame pixels.
 
     `drawn_w`/`drawn_h` are the size the clip is DRAWN at where that
@@ -171,7 +242,7 @@ def drawn_origin(clip_w: float, clip_h: float,
     size, which is the overlay case.
     """
     centre_x, centre_y = drawn_centre(clip_w, clip_h, frame_w, frame_h,
-                                      pan, tilt, base_scale)
+                                      pan, tilt, base_scale, draw_gain)
     width = float(clip_w if drawn_w is None else drawn_w)
     height = float(clip_h if drawn_h is None else drawn_h)
     return (centre_x - width / 2.0, centre_y - height / 2.0)
@@ -180,13 +251,14 @@ def drawn_origin(clip_w: float, clip_h: float,
 def pan_tilt_for_centre(clip_w: float, clip_h: float,
                         frame_w: float, frame_h: float,
                         centre_x: float, centre_y: float,
-                        base_scale: float = NATIVE_BASE_SCALE) -> tuple:
+                        base_scale: float = NATIVE_BASE_SCALE,
+                        draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
     """The `(pan, tilt)` that put the clip's centre where asked.
 
     The inverse of :func:`drawn_centre`. Round-trips exactly.
     """
     _positive(clip_w, clip_h, frame_w, frame_h)
     return (units_for_shift(float(centre_x) - float(frame_w) / 2.0,
-                            clip_w, frame_w, base_scale),
+                            clip_w, frame_w, base_scale, draw_gain),
             units_for_shift(float(frame_h) / 2.0 - float(centre_y),
-                            clip_h, frame_h, base_scale))
+                            clip_h, frame_h, base_scale, draw_gain))

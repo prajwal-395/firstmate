@@ -849,7 +849,8 @@ class PunchInLeavesBlack(ReelLookRefused):
 
 def punch_in_properties(look: dict, subject, source_width: int,
                         source_height: int, frame_width: int,
-                        frame_height: int, window=None):
+                        frame_height: int, window=None,
+                        draw_gain: float = None):
     """The transform one SHOT plays under the frame, or None to refuse.
 
     Returns None when `subject` is None or the shot holds more than one
@@ -928,14 +929,18 @@ def punch_in_properties(look: dict, subject, source_width: int,
                 min(window[0] + shown_width / 2.0, aim_x))
     aim_y = max(window[3] - shown_height / 2.0,
                 min(window[1] + shown_height / 2.0, aim_y))
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
     pan, tilt = pan_tilt_for_centre(
         source_width, source_height, frame_width, frame_height,
-        aim_x, aim_y, fit)
+        aim_x, aim_y, fit, draw_gain)
 
     properties = {"ZoomX": zoom, "ZoomY": zoom,
                   "Pan": round(pan, 3), "Tilt": round(tilt, 3)}
     assert_covers_window(properties, source_width, source_height,
-                         frame_width, frame_height, window)
+                         frame_width, frame_height, window,
+                         draw_gain=draw_gain)
     return properties
 
 
@@ -951,7 +956,8 @@ def window_zoom_for(look, source_size, frame_width: int,
 
 def assert_covers_window(properties, source_width: int, source_height: int,
                          frame_width: int, frame_height: int,
-                         window, tolerance: float = 1.0) -> None:
+                         window, tolerance: float = 1.0,
+                         draw_gain: float = None) -> None:
     """Raise unless the picture reaches every edge of the screen window.
 
     The check the captain should not have had to make: black inside a
@@ -962,8 +968,12 @@ def assert_covers_window(properties, source_width: int, source_height: int,
     """
     from library.tools.reel_framing import delivered_picture
 
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
     picture = delivered_picture(source_width, source_height,
-                                frame_width, frame_height, properties)
+                                frame_width, frame_height, properties,
+                                draw_gain=draw_gain)
     bands = uncovered_window_edges(picture, window, tolerance)
     if bands:
         raise PunchInLeavesBlack(

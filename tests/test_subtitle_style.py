@@ -606,9 +606,16 @@ def test_forty_tilt_units_are_ten_pixels_at_the_floor():
     read off the live timelines - which is the check that matters:
     the design rows this engine computes and the values on the
     captain's approved reels are the same numbers.
+
+    Pinned as history at explicit gain 1.0 (see HISTORY_GAIN in
+    test_tight_box.py): the renderer drew that gain when those reels
+    were read. Under today's gain the same rows store half these
+    Tilts (see tests/test_draw_gain_measured.py).
     """
     from library.tools.tight_box import placement_for_box
-    assert placement_for_box(840, 480, 540.0, 1395.0, 1080, 1920) == {
+    assert placement_for_box(840, 480, 540.0, 1395.0, 1080, 1920,
+                             draw_gain=1.0) == {
         "scaling": 1, "pan": 0.0, "tilt": -1740.0}
-    assert placement_for_box(840, 480, 540.0, 1385.0, 1080, 1920) == {
+    assert placement_for_box(840, 480, 540.0, 1385.0, 1080, 1920,
+                             draw_gain=1.0) == {
         "scaling": 1, "pan": 0.0, "tilt": -1700.0}

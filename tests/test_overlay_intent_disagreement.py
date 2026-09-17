@@ -35,9 +35,15 @@ def _pin(tilt):
             "scaling": 1}
 
 
+#: The 2026-09-11 draw gain, as in test_overlay_intent.py: these
+#: tests pin disagreement reporting, not the conversion.
+HISTORY_GAIN = 1.0
+
+
 def _resolve(kind, segment_id, computed, intent):
     return overlay_intent.resolve(kind, segment_id, computed, intent,
-                                  canvas=CANVAS, frame=FRAME)
+                                  canvas=CANVAS, frame=FRAME,
+                                  draw_gain=HISTORY_GAIN)
 
 
 def test_a_pin_still_wins():

@@ -102,9 +102,12 @@ def test_pin_path_refuses_the_off_frame_tilt():
     -576..-96. The helper must refuse it - a test that passes this
     input has armed nothing.
     """
+    # History gain: this still measured rows -576..-96 on 2026-09-11
+    # (see HISTORY_GAIN in test_tight_box.py).
     ox, oy = canvas_screen_origin(
         *OFF_FRAME_CANVAS,
-        {"scaling": 1, "pan": 0.0, "tilt": OFF_FRAME_TILT}, *FRAME)
+        {"scaling": 1, "pan": 0.0, "tilt": OFF_FRAME_TILT}, *FRAME,
+        draw_gain=1.0)
     assert (oy, oy + OFF_FRAME_CANVAS[1]) == pytest.approx((-576.0, -96.0),
                                                           abs=1.0)
     segment = {"tight_box": {"width": OFF_FRAME_CANVAS[0],

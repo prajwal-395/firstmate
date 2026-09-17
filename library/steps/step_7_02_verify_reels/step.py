@@ -120,12 +120,21 @@ def verify_reels(data: dict) -> dict:
     # those timelines are already final and promote to nothing, so
     # grading them is the whole job and there is no second half.
     staged = dict(build.get("staged_timelines") or {})
+    # The gain the BUILD calibrated and placed with, off its own
+    # record - the verifier grades stored transforms, so on a run
+    # whose renderer drew another gain the fallback default would
+    # misjudge every placement. Absent on records written before the
+    # probe existed, which grade under the fallback as before.
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    run_gain = ((build.get("draw_gain_calibration") or {}).get("gain")
+                or FALLBACK_DRAW_GAIN)
     try:
         verify_built_reels(
             project_folder=project_folder,
             resolve_project_name=resolve_project_name,
             master_timeline_name=master_timeline_name,
             plan_path=plan_path,
+            draw_gain=run_gain,
             # ONE spelling of where the transcript lives, owned by the
             # module that writes it (tests/test_operations.py pins that
             # it is not composed by hand outside reel_build.py).

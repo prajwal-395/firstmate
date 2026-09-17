@@ -64,13 +64,16 @@ def test_identity_store_on_tight_clip_fails_values():
 
 
 def test_declared_intent_is_the_expectation():
-    # The pin names the PLACE Tilt -1700 reaches on this canvas.
+    # The pin names the PLACE Tilt -1700 reaches on this canvas
+    # under the 2026-09-11 gain (pinned as history - see HISTORY_GAIN
+    # in test_tight_box.py).
     intent = {"caption": {"canvas_centre": [540.0, 1385.0], "scaling": 1}}
     computed = {("caption", "sub_x"): {"scaling": 1, "pan": 0.0,
                                        "tilt": -1744.0}}
     report = verify_values(
         [_clip("cap", {"scaling": 1, "pan": 0.0, "tilt": -1700.0})],
-        intent, computed=computed, full_wh=(1080, 1920))
+        intent, computed=computed, full_wh=(1080, 1920),
+        draw_gain=1.0)
     assert report["passed"]
     assert report["findings"] == []
 

@@ -105,6 +105,8 @@ import json
 import os
 from typing import Dict, Optional, Tuple
 
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+
 #: The file basename, under the project's external-inputs area.
 INTENT_FILENAME = "overlay_intent.json"
 
@@ -329,7 +331,8 @@ def disagreement(placement: Optional[dict],
 
 
 def transform_for(target: dict, canvas: Optional[tuple],
-                  frame: Optional[tuple], key: str = "") -> dict:
+                  frame: Optional[tuple], key: str = "",
+                  draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """The `{scaling, pan, tilt}` that puts this canvas on the pin.
 
     The pin names a place; the transform that reaches it depends on the
@@ -355,7 +358,8 @@ def transform_for(target: dict, canvas: Optional[tuple],
     centre_x, centre_y = target[CENTRE_KEY]
     placement = placement_for_box(float(canvas[0]), float(canvas[1]),
                                   float(centre_x), float(centre_y),
-                                  int(frame[0]), int(frame[1]))
+                                  int(frame[0]), int(frame[1]),
+                                  draw_gain)
     placement["scaling"] = target["scaling"]
     if ZOOM_KEY in target:
         # The pin's place computes against the native canvas; the zoom
@@ -465,7 +469,9 @@ def resolve(kind: Optional[str], segment_id: Optional[str],
             canvas: Optional[tuple] = None,
             frame: Optional[tuple] = None,
             placement_label: Optional[str] = None,
-            matched: Optional[list] = None) -> Tuple[Optional[dict], str]:
+            matched: Optional[list] = None,
+            draw_gain: float = FALLBACK_DRAW_GAIN
+            ) -> Tuple[Optional[dict], str]:
     """The placement to apply, and which one it is.
 
     Segment id exact, then placement label, then provenance prefix,
@@ -505,7 +511,8 @@ def resolve(kind: Optional[str], segment_id: Optional[str],
     targets = intent or {}
     key = _match_key(targets, kind, segment_id, placement_label)
     if key is not None:
-        placement = transform_for(targets[key], canvas, frame, key)
+        placement = transform_for(targets[key], canvas, frame, key,
+                                  draw_gain)
         note = disagreement(placement, computed, key)
         if note:
             import sys

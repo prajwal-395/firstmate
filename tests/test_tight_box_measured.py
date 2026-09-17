@@ -44,6 +44,12 @@ FFMPEG_REASON = "needs ffmpeg; runs in CI, which installs it (AGENTS.md 9)"
 FULL_W = 1080
 FULL_H = 1920
 
+#: The 2026-09-11 draw gain, pinned wherever a test below reproduces a
+#: measurement from that calibration (see HISTORY_GAIN in
+#: test_tight_box.py and the 09-17 calibration in
+#: tests/test_draw_gain_measured.py).
+HISTORY_GAIN = 1.0
+
 
 def _frame(path, size, rects):
     """One RGBA frame: transparent canvas with opaque white rects."""
@@ -101,7 +107,8 @@ def test_canvas_expands_union_by_pads_then_floor(tmp_path):
     paths = _frames(tmp_path, "one", (FULL_W, FULL_H),
                     [[(101, 1501, 901, 1561)]])
     union = ink_union_of_frames(paths)
-    box = tighten_measured(_props(), union)
+    box = tighten_measured(_props(), union,
+        draw_gain=HISTORY_GAIN)
     assert box.width == 800 + 2 * PAD_X
     assert box.width % 2 == 0 and box.height % 2 == 0
     # 60px of ink plus pads measures 112 - and its own placement
@@ -196,7 +203,8 @@ def test_correspondence_resolves_translation(tmp_path):
     probe_paths = _frames(tmp_path, "p", (FULL_W, FULL_H),
                           [[(382, 1501, 682, 1595)]])
     probe_union = ink_union_of_frames(probe_paths)
-    box = tighten_measured(_props(), probe_union)
+    box = tighten_measured(_props(), probe_union,
+        draw_gain=HISTORY_GAIN)
     assert box.width == 840  # widened: the wrap basis binds
     assert box.height == 164  # derived: 94px of ink places at -6896
     # the composition bottom-anchors the card in the taller canvas
@@ -205,9 +213,11 @@ def test_correspondence_resolves_translation(tmp_path):
     tight_union = ink_union_of_frames(tight_paths)
     placement = resolve_placement_from_correspondence(
         probe_union, tight_union,
-        box.width, box.height, FULL_W, FULL_H)
+        box.width, box.height, FULL_W, FULL_H,
+            draw_gain=HISTORY_GAIN)
     assert placement["scaling"] == 1
-    final = finalize_box_placement(box, probe_union, tight_union)
+    final = finalize_box_placement(box, probe_union, tight_union,
+        draw_gain=HISTORY_GAIN)
     ox, oy = canvas_offset(final)
     assert (ox, oy) == (112, 1467)
 
@@ -291,7 +301,8 @@ def test_derived_floor_brings_the_craig_case_inside_the_rail(tmp_path):
     probe_paths = _frames(tmp_path, "p", (FULL_W, FULL_H),
                            [[(382, 1501, 682, 1595)]])
     probe_union = ink_union_of_frames(probe_paths)
-    box = tighten_measured(_props(), probe_union)
+    box = tighten_measured(_props(), probe_union,
+        draw_gain=HISTORY_GAIN)
     assert box.height == 164
     tight_paths = _frames(tmp_path, "t", (box.width, box.height),
                            [[(270, 34, 570, 128)]])
@@ -299,7 +310,8 @@ def test_derived_floor_brings_the_craig_case_inside_the_rail(tmp_path):
     placement = resolve_placement_from_correspondence(
         probe_union, tight_union,
         box.width, box.height, FULL_W, FULL_H,
-        timeline_size=(1080, 1920))
+        timeline_size=(1080, 1920),
+            draw_gain=HISTORY_GAIN)
     assert abs(placement["tilt"]) <= 6912.0
     assert placement_holds(placement, 1080, 1920) == ""
 
@@ -319,7 +331,8 @@ def test_correspondence_within_range_passes(tmp_path):
         timeline_size=(1080, 1920))
     assert abs(placement["tilt"]) <= 6912.0
     final = finalize_box_placement(box, probe_union, tight_union,
-                                   (1080, 1920))
+                                   (1080, 1920),
+                                   draw_gain=HISTORY_GAIN)
     assert canvas_offset(final) == (112, 1184)
 
 
@@ -346,7 +359,8 @@ def test_finalize_then_verify_passes_translated_crop(tmp_path):
                            [[(100, 1510, 300, 1570)],
                             [(120, 1490, 320, 1570)]])
     probe_union = ink_union_of_frames(probe_paths)
-    box = tighten_measured(_props(), probe_union)
+    box = tighten_measured(_props(), probe_union,
+        draw_gain=HISTORY_GAIN)
     assert box.width == 840
     assert box.height == 158  # derived: 80px of ink places at -6890
     # the re-anchored tight canvas: the same ink drawn bottom-anchored
@@ -355,7 +369,8 @@ def test_finalize_then_verify_passes_translated_crop(tmp_path):
                            [[(16, 62, 216, 122)],
                             [(36, 42, 236, 122)]])
     tight_union = ink_union_of_frames(tight_paths)
-    final = finalize_box_placement(box, probe_union, tight_union)
+    final = finalize_box_placement(box, probe_union, tight_union,
+        draw_gain=HISTORY_GAIN)
     ox, oy = canvas_offset(final)
     assert (ox, oy) == (84, 1448)
     report = verify_frames(probe_paths, tight_paths, final)
@@ -367,7 +382,8 @@ def test_tight_props_keep_wrap_basis_and_pass_timing_through(tmp_path):
     paths = _frames(tmp_path, "one", (FULL_W, FULL_H),
                     [[(100, 1500, 300, 1560)]])
     props = _props()
-    box = tighten_measured(props, ink_union_of_frames(paths))
+    box = tighten_measured(props, ink_union_of_frames(paths),
+                               draw_gain=HISTORY_GAIN)
     assert box.props["width"] == box.width
     assert box.props["height"] == box.height
     assert box.props["style"]["captionMaxWidth"] == 840
@@ -549,6 +565,7 @@ def test_reused_placement_restores_when_it_holds():
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -100.0},
         "carriage": OVERLAY_CARRIAGE,
+        "draw_gain": 2.0,
         "safe_area": {"top": 120, "right": 120,
                       "bottom": 320, "left": 90},
         "union": {"x0": 100, "y0": 1200, "x1": 400, "y1": 1294},
@@ -571,6 +588,7 @@ def test_reused_placement_is_refused_when_clamped():
         "height": 146,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -7929.0},
         "carriage": OVERLAY_CARRIAGE,
+        "draw_gain": 2.0,
         "safe_area": {"top": 120, "right": 120,
                       "bottom": 320, "left": 90},
         "union": {"x0": 382, "y0": 1501, "x1": 682, "y1": 1595},
@@ -620,6 +638,31 @@ def test_reused_placement_malformed_sidecar_is_refused():
         restore_reused_placement({"width": 348}, _props(), (1080, 1920))
 
 
+def test_reused_placement_from_a_superseded_gain_is_refused():
+    """A sidecar whose carriage and row both pass but whose placement
+    was computed under gain 1.0: serving it verbatim under today's
+    renderer lands the canvas a full row off however cleanly it reads
+    back. REFUSED, and the caller re-renders measured over the same
+    file. This is the door every pre-2026-09-17 sidecar on disk -
+    including the -1836 caption boxes the gate build rendered under
+    the declared row - leaves through."""
+    from library.tools.overlay_mode import OVERLAY_CARRIAGE
+
+    sidecar = {
+        "width": 904,
+        "height": 480,
+        "placement": {"scaling": 1, "pan": 0.0, "tilt": -1836.0},
+        "carriage": OVERLAY_CARRIAGE,
+        "safe_area": {"top": 120, "right": 120,
+                      "bottom": 297, "left": 90},
+        "union": {"x0": 88, "y0": 1179, "x1": 992, "y1": 1659},
+    }
+    props = _props()
+    props["style"]["safeArea"] = dict(sidecar["safe_area"])
+    with pytest.raises(TightBoxMismatch, match="draw gain"):
+        restore_reused_placement(sidecar, props, (1080, 1920))
+
+
 def _tight_ink_for(position, union_h, canvas_h):
     """Where the grown render draws `union_h` px of ink on a
     `canvas_h`-tall canvas, by anchor: bottom-anchored and
@@ -654,7 +697,8 @@ def test_every_small_box_holds_inside_the_headroom(tmp_path, position,
     still fires (the `placement_holds` predicate is untouched)."""
     probe_paths = _frames(tmp_path, "p", (FULL_W, FULL_H), [[rect]])
     probe_union = ink_union_of_frames(probe_paths)
-    box = tighten_measured(_props(position), probe_union)
+    box = tighten_measured(_props(position), probe_union,
+                               draw_gain=HISTORY_GAIN)
     assert box.height == expected_h
     union_h = rect[3] - rect[1]
     tight_paths = _frames(tmp_path, "t", (box.width, box.height),
@@ -662,7 +706,8 @@ def test_every_small_box_holds_inside_the_headroom(tmp_path, position,
                                             box.height)]])
     tight_union = ink_union_of_frames(tight_paths)
     final = finalize_box_placement(box, probe_union, tight_union,
-                                   (1080, 1920))
+                                   (1080, 1920),
+                                   draw_gain=HISTORY_GAIN)
     ox, oy = canvas_offset(final)
     assert 0 <= ox and ox + box.width <= FULL_W
     assert 0 <= oy and oy + box.height <= FULL_H

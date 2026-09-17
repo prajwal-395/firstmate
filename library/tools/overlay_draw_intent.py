@@ -55,6 +55,8 @@ import json
 import os
 from typing import Optional
 
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+
 
 def segment_canvas(segment: Optional[dict]) -> Optional[tuple]:
     """The canvas one overlay segment is placed at, or None.
@@ -154,7 +156,8 @@ def pin_draw_intent(canvas_wh: tuple, kind: Optional[str],
 def caption_draw_intent(segment: Optional[dict], *,
                         frame_wh: Optional[tuple],
                         project_folder: Optional[str] = None,
-                        reel_name: Optional[str] = None) -> Optional[dict]:
+                        reel_name: Optional[str] = None,
+                        draw_gain: float = FALLBACK_DRAW_GAIN) -> Optional[dict]:
     """The intent rect for a caption segment, or None.
 
     The structural constant canvas re-derived from CURRENT
@@ -172,7 +175,8 @@ def caption_draw_intent(segment: Optional[dict], *,
     try:
         return _caption_draw_intent(segment, frame_wh=frame_wh,
                                     project_folder=project_folder,
-                                    reel_name=reel_name)
+                                    reel_name=reel_name,
+                                    draw_gain=draw_gain)
     except Exception:  # noqa: BLE001 - unverified, never a build failure
         return None
 
@@ -180,7 +184,9 @@ def caption_draw_intent(segment: Optional[dict], *,
 def _caption_draw_intent(segment: Optional[dict], *,
                          frame_wh: Optional[tuple],
                          project_folder: Optional[str] = None,
-                         reel_name: Optional[str] = None) -> Optional[dict]:
+                         reel_name: Optional[str] = None,
+                         draw_gain: float = FALLBACK_DRAW_GAIN
+                         ) -> Optional[dict]:
     from library.tools.safe_area import resolve_safe_area
     from library.tools.subtitle_style import (
         CAPTION_LIFT_PX,
@@ -227,7 +233,7 @@ def _caption_draw_intent(segment: Optional[dict], *,
         # is structural, never measured per segment.
         "subtitles": [{"text": ""}],
     }
-    intended = constant_caption_box(decl_props)
+    intended = constant_caption_box(decl_props, draw_gain=draw_gain)
     if ((intended.width, intended.height) !=
             (int(canvas_wh[0]), int(canvas_wh[1]))):
         # Not the structural canvas: a predictor-era (or foreign)
@@ -236,7 +242,7 @@ def _caption_draw_intent(segment: Optional[dict], *,
         return None
     ox, oy = canvas_screen_origin(
         intended.width, intended.height, intended.placement,
-        frame_w, frame_h)
+        frame_w, frame_h, draw_gain)
     cw, ch = float(intended.width), float(intended.height)
     return {
         "canvas": (cw, ch),
@@ -253,7 +259,8 @@ def draw_intent_for_segment(segment: Optional[dict], *,
                             intent: Optional[dict] = None,
                             frame_wh: Optional[tuple],
                             project_folder: Optional[str] = None,
-                            reel_name: Optional[str] = None) -> Optional[dict]:
+                            reel_name: Optional[str] = None,
+                            draw_gain: float = FALLBACK_DRAW_GAIN) -> Optional[dict]:
     """What one overlay is FOR, as `draw_intent`, or None.
 
     A pin first: where the captain put something, his place wins over
@@ -278,5 +285,5 @@ def draw_intent_for_segment(segment: Optional[dict], *,
     if kind == "caption":
         return caption_draw_intent(
             segment, frame_wh=frame_wh, project_folder=project_folder,
-            reel_name=reel_name)
+            reel_name=reel_name, draw_gain=draw_gain)
     return None

@@ -55,6 +55,12 @@ from library.tools.tight_box import (
 )
 
 FRAME = (1080, 1920)
+
+#: The 2026-09-11 draw gain: every measurement this file reproduces
+#: comes from that calibration's stills (see HISTORY_GAIN in
+#: test_tight_box.py). Today's gain is proven separately
+#: (`tests/test_draw_gain_measured.py`) and by the rebuild gate.
+HISTORY_GAIN = 1.0
 #: Reel 13 @854, measured: 840x480 canvas, ink rows 279..432, cols 47..775.
 TIGHT_CANVAS = (840.0, 480.0)
 TIGHT_INK = (47.0, 279.0, 775.0, 432.0)
@@ -78,11 +84,11 @@ def _p(tilt, pan=0.0):
 
 def test_the_rule_predicts_the_exported_still():
     """The one relation, checked against pixels off a real timeline."""
-    ox, oy = canvas_screen_origin(*TIGHT_CANVAS, _p(TIGHT_TILT), *FRAME)
+    ox, oy = canvas_screen_origin(*TIGHT_CANVAS, _p(TIGHT_TILT), *FRAME, draw_gain=HISTORY_GAIN)
     assert oy == pytest.approx(1155.0, abs=0.5), (
         "the canvas top measured on the exported still is row 1155")
     assert ox == pytest.approx(120.0, abs=0.5)
-    box = ink_screen_box(*TIGHT_CANVAS, _p(TIGHT_TILT), TIGHT_INK, *FRAME)
+    box = ink_screen_box(*TIGHT_CANVAS, _p(TIGHT_TILT), TIGHT_INK, *FRAME, draw_gain=HISTORY_GAIN)
     assert (box[1], box[3]) == pytest.approx(MEASURED_TIGHT_INK_ROWS, abs=1.0)
 
 
@@ -95,7 +101,7 @@ def test_a_pan_measured_to_sub_pixel_on_a_real_artefact():
     canvas-independent model of Pan, which is why it is pinned
     separately from the Tilt cases above.
     """
-    ox, _oy = canvas_screen_origin(296.0, 480.0, _p(0.0, 1167.568), *FRAME)
+    ox, _oy = canvas_screen_origin(296.0, 480.0, _p(0.0, 1167.568), *FRAME, draw_gain=HISTORY_GAIN)
     assert ox == pytest.approx(712.0, abs=0.5), (
         "a 296-wide canvas centred at 540 + 320 has its left edge at 712")
 
@@ -106,8 +112,8 @@ def test_full_frame_needs_zero_and_tight_needs_minus_1740():
     Not a tautology: the two are computed from DIFFERENT canvases and
     land within the tolerance of each other.
     """
-    tight = ink_screen_box(*TIGHT_CANVAS, _p(TIGHT_TILT), TIGHT_INK, *FRAME)
-    full = ink_screen_box(*FRAME, None, FULL_INK, *FRAME)
+    tight = ink_screen_box(*TIGHT_CANVAS, _p(TIGHT_TILT), TIGHT_INK, *FRAME, draw_gain=HISTORY_GAIN)
+    full = ink_screen_box(*FRAME, None, FULL_INK, *FRAME, draw_gain=HISTORY_GAIN)
     assert full == pytest.approx(FULL_INK), (
         "a full-frame artefact with no transform draws 1:1")
     assert abs(tight[3] - full[3]) < INTENT_TOLERANCE_PX, (
@@ -122,9 +128,9 @@ def test_placement_for_box_and_canvas_screen_origin_round_trip():
     for canvas_w, canvas_h in ((840.0, 480.0), (1080.0, 1920.0),
                                (772.0, 540.0), (484.0, 480.0)):
         for cx, cy in ((540.0, 1395.0), (436.0, 512.0), (540.0, 960.0)):
-            placement = placement_for_box(canvas_w, canvas_h, cx, cy, *FRAME)
+            placement = placement_for_box(canvas_w, canvas_h, cx, cy, *FRAME, draw_gain=HISTORY_GAIN)
             ox, oy = canvas_screen_origin(canvas_w, canvas_h, placement,
-                                          *FRAME)
+                                          *FRAME, draw_gain=HISTORY_GAIN)
             assert ox + canvas_w / 2.0 == pytest.approx(cx, abs=1e-6)
             assert oy + canvas_h / 2.0 == pytest.approx(cy, abs=1e-6)
 
@@ -133,17 +139,17 @@ def test_intent_accepts_both_carriages_and_refuses_the_off_frame_one():
     """One intent, two carriages accepted, the off-frame value refused."""
     intent = FULL_INK  # the caption row, in frame pixels
     assert verify_ink_against_intent(*TIGHT_CANVAS, _p(TIGHT_TILT),
-                                     TIGHT_INK, intent, *FRAME) == ""
+                                     TIGHT_INK, intent, *FRAME, draw_gain=HISTORY_GAIN) == ""
     assert verify_ink_against_intent(*FRAME, None, FULL_INK, intent,
-                                     *FRAME) == ""
+                                     *FRAME, draw_gain=HISTORY_GAIN) == ""
     ox, oy = canvas_screen_origin(*OFF_FRAME_CANVAS, _p(OFF_FRAME_TILT),
-                                  *FRAME)
+                                  *FRAME, draw_gain=HISTORY_GAIN)
     assert (oy, oy + OFF_FRAME_CANVAS[1]) == pytest.approx(
         MEASURED_OFF_FRAME_CANVAS_ROWS, abs=1.0), (
         "the still of that frame contains no part of this artefact")
     reason = verify_ink_against_intent(*OFF_FRAME_CANVAS,
                                        _p(OFF_FRAME_TILT), OFF_FRAME_INK,
-                                       intent, *FRAME)
+                                       intent, *FRAME, draw_gain=HISTORY_GAIN)
     assert reason, "Tilt 5184 on a 480 canvas must not pass this intent"
     assert "ENTIRELY OUTSIDE THE FRAME" in reason
     assert "5184" not in reason, (
@@ -159,12 +165,12 @@ def test_a_readback_cannot_see_what_intent_sees():
     draw_intent = {"canvas": TIGHT_CANVAS, "frame": FRAME,
                    "ink_in_canvas": TIGHT_INK, "intent_box": FULL_INK}
     good = _intent_reason(draw_intent, _p(TIGHT_TILT),
-                          {"Pan": 0.0, "Tilt": TIGHT_TILT})
+                          {"Pan": 0.0, "Tilt": TIGHT_TILT}, draw_gain=HISTORY_GAIN)
     assert good == ""
     off_frame_intent = dict(draw_intent, canvas=OFF_FRAME_CANVAS,
                             ink_in_canvas=OFF_FRAME_INK)
     off_frame = _intent_reason(off_frame_intent, _p(OFF_FRAME_TILT),
-                               {"Pan": 0.0, "Tilt": OFF_FRAME_TILT})
+                               {"Pan": 0.0, "Tilt": OFF_FRAME_TILT}, draw_gain=HISTORY_GAIN)
     assert "off by" in off_frame and "ENTIRELY OUTSIDE THE FRAME" in off_frame
 
 
@@ -186,6 +192,6 @@ def test_the_rule_is_not_scoped_to_one_frame_size():
     constant nobody could derive; a relation has no such boundary.
     """
     unprobed = (1920, 1080)
-    _ox, oy = canvas_screen_origin(840.0, 480.0, _p(-870.0), *unprobed)
+    _ox, oy = canvas_screen_origin(840.0, 480.0, _p(-870.0), *unprobed, draw_gain=HISTORY_GAIN)
     assert oy == pytest.approx(1080 / 2.0 - 240.0 + 870.0 * (480 / 1080.0),
                                abs=1e-6)

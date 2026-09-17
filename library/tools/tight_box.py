@@ -144,7 +144,12 @@ from library.steps.step_4_01_plan_subtitles.step import (
 )
 from library.tools.qa.subtitle_qa import ALPHA_INK_THRESHOLD
 from library.tools.render_fonts import measurable_font_path
-from library.tools.resolve_transform import drawn_origin, pan_tilt_for_centre
+from library.tools.resolve_transform import (
+    FALLBACK_DRAW_GAIN,
+    NATIVE_BASE_SCALE,
+    drawn_origin,
+    pan_tilt_for_centre,
+)
 
 # Beyond the flex-box edge: shadow blur (~20px) plus margin. The
 # component's own horizontal padding (exactly the outline) is INSIDE
@@ -287,7 +292,9 @@ def _split_growth(extra: int, anchor: str) -> int:
 def grow_to_hold_rail(canvas_w: float, measured_h: int, anchor: str,
                       centre_x: float, centre_y: float,
                       full_w: int, full_h: int,
-                      ceiling: int) -> tuple[int, int]:
+                      ceiling: int,
+                      draw_gain: float = FALLBACK_DRAW_GAIN
+                      ) -> tuple[int, int]:
     """Grow a measured canvas only as far as its placement needs.
 
     Returns `(new_h, top_extra)` in the same contract as
@@ -339,7 +346,8 @@ def grow_to_hold_rail(canvas_w: float, measured_h: int, anchor: str,
         return grow_to_minimum(measured_h, anchor, ceiling)
     pan_limit, tilt_limit = limits
     pan = pan_tilt_for_centre(
-        canvas_w, measured_h, full_w, full_h, centre_x, centre_y)[0]
+        canvas_w, measured_h, full_w, full_h, centre_x, centre_y,
+        NATIVE_BASE_SCALE, draw_gain)[0]
     if abs(pan) > pan_limit:
         return grow_to_minimum(measured_h, anchor, ceiling)
     origin_y = centre_y - measured_h / 2.0
@@ -349,7 +357,8 @@ def grow_to_hold_rail(canvas_w: float, measured_h: int, anchor: str,
         top_extra = _split_growth(grown_h - measured_h, anchor)
         cy = origin_y - top_extra + grown_h / 2.0
         _, tilt = pan_tilt_for_centre(canvas_w, grown_h, full_w,
-                                      full_h, centre_x, cy)
+                                      full_h, centre_x, cy,
+                                      NATIVE_BASE_SCALE, draw_gain)
         if abs(tilt) <= target:
             return grown_h, top_extra
         grown_h += 2
@@ -397,6 +406,15 @@ class TightBox:
     union_h: float
     full_width: int
     full_height: int
+    #: The draw gain the placement was computed under
+    #: (`resolve_transform.FALLBACK_DRAW_GAIN`, and that module for how
+    #: it was measured and when it must be re-measured). `canvas_offset`
+    #: inverts the placement through this gain, so a box read back off
+    #: a sidecar stamped under another gain would paste its file in the
+    #: wrong place - `restore_reused_placement` refuses such a sidecar
+    #: rather than serving it. Tests pinning the 2026-09-11
+    #: calibration pass 1.0 explicitly.
+    gain: float = FALLBACK_DRAW_GAIN
 
 
 def _normalise(word: str) -> str:
@@ -451,17 +469,21 @@ def _fitter_for_style(style: dict, max_width: float,
 
 def placement_for_box(canvas_w: float, canvas_h: float,
                       canvas_cx: float, canvas_cy: float,
-                      full_w: int, full_h: int) -> dict:
+                      full_w: int, full_h: int,
+                      draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """The SetProperty values putting a native-pixel clip's centre where
     the full-frame coordinates say.
 
     The inverse of the one measured relation
     (`resolve_transform.pan_tilt_for_centre`), with the clip at
     Scaling=1 so the placed pixels are canvas pixels and the base
-    scale is native.
+    scale is native. `draw_gain` is the renderer's measured draw gain
+    (see `resolve_transform`); callers pinning the 2026-09-11
+    calibration pass 1.0 explicitly.
     """
     pan, tilt = pan_tilt_for_centre(canvas_w, canvas_h, full_w, full_h,
-                                    canvas_cx, canvas_cy)
+                                    canvas_cx, canvas_cy,
+                                    NATIVE_BASE_SCALE, draw_gain)
     return {"scaling": 1, "pan": pan, "tilt": tilt}
 
 
@@ -488,16 +510,19 @@ INTENT_TOLERANCE_PX = 24.0
 
 def canvas_screen_origin(canvas_w: float, canvas_h: float,
                          placement: dict | None,
-                         full_w: int, full_h: int) -> tuple:
+                         full_w: int, full_h: int,
+                         draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
     """Where a STORED Pan/Tilt actually puts a canvas, in frame pixels.
 
     The strict inverse of `placement_for_box`, and the reason it
     exists: a stored Pan/Tilt means nothing on its own.  Pan/Tilt move
     a clip by a fraction of its OWN canvas, not of the frame - the
-    shift is `value * (canvas_dim / frame_dim)` at native scale - so
-    an overlay already rendered full-frame is in position at 0 while
-    the same caption on a 480-tall tight canvas needs Tilt -1740 to
-    reach the same screen row.  Both are honest; the Inspector number is only
+    shift is `value * (canvas_dim / frame_dim)` at native scale, times
+    the renderer's measured draw gain (`resolve_transform`) - so an
+    overlay already rendered full-frame is in position at 0 while
+    the same caption on a 480-tall tight canvas needs Tilt -870 to
+    reach the row Tilt -1740 reached under the 2026-09-11 gain.
+    Both are honest; the Inspector number is only
     readable with the clip's own resolution beside it.
 
     `placement` None is a full-canvas clip: no transform, so the
@@ -508,13 +533,15 @@ def canvas_screen_origin(canvas_w: float, canvas_h: float,
     """
     return drawn_origin(canvas_w, canvas_h, full_w, full_h,
                         float((placement or {}).get("pan") or 0.0),
-                        float((placement or {}).get("tilt") or 0.0))
+                        float((placement or {}).get("tilt") or 0.0),
+                        NATIVE_BASE_SCALE, None, None, draw_gain)
 
 
 def ink_screen_box(canvas_w: float, canvas_h: float,
                    placement: dict | None,
                    ink_in_canvas: tuple,
-                   full_w: int, full_h: int) -> tuple:
+                   full_w: int, full_h: int,
+                   draw_gain: float = FALLBACK_DRAW_GAIN) -> tuple:
     """Where an artefact's own ink lands on screen, in frame pixels.
 
     `ink_in_canvas` is `(x0, y0, x1, y1)` in the artefact's OWN pixels
@@ -528,7 +555,7 @@ def ink_screen_box(canvas_w: float, canvas_h: float,
     instead is meaningless, which is the mistake this replaces.
     """
     ox, oy = canvas_screen_origin(canvas_w, canvas_h, placement,
-                                  full_w, full_h)
+                                  full_w, full_h, draw_gain)
     x0, y0, x1, y1 = (float(v) for v in ink_in_canvas)
     return (ox + x0, oy + y0, ox + x1, oy + y1)
 
@@ -539,6 +566,7 @@ def verify_ink_against_intent(canvas_w: float, canvas_h: float,
                               intent_box: tuple,
                               full_w: int, full_h: int,
                               tolerance_px: float = INTENT_TOLERANCE_PX,
+                              draw_gain: float = FALLBACK_DRAW_GAIN,
                               ) -> str:
     """Whether a stored placement DRAWS where intent says, as a reason.
 
@@ -550,15 +578,18 @@ def verify_ink_against_intent(canvas_w: float, canvas_h: float,
     true of a number computed under a superseded relation just as it
     is of a correct one - the seventeen motion graphics stored at
     Tilt 5184 read back 5184 and were reported placed, and every one
-    of them draws entirely off the top of the frame (rows -576..-96,
-    measured 2026-09-11).  This judges the
+    of them drew entirely off the top of the frame (rows -576..-96
+    under the 2026-09-11 gain, measured then; further off under
+    today's).  This judges the
     PICTURE the stored value produces against what the overlay was
     for, so a stale carriage is refused and a mixed one is not: a
     full-frame overlay at 0 and a tight overlay at -870 both verify
-    against the same intent, because they draw in the same place.
+    against the same intent, because they draw in the same place
+    (under the 2026-09-11 gain the tight number was -1740 for the
+    same row - see `resolve_transform`).
     """
     got = ink_screen_box(canvas_w, canvas_h, placement, ink_in_canvas,
-                         full_w, full_h)
+                         full_w, full_h, draw_gain)
     want = tuple(float(v) for v in intent_box)
     dx = ((got[0] + got[2]) - (want[0] + want[2])) / 2.0
     dy = ((got[1] + got[3]) - (want[1] + want[3])) / 2.0
@@ -575,7 +606,9 @@ def verify_ink_against_intent(canvas_w: float, canvas_h: float,
 
 
 def tighten_subtitle_props(props: dict,
-                           project_folder: str = "") -> TightBox | None:
+                           project_folder: str = "",
+                           draw_gain: float = FALLBACK_DRAW_GAIN
+                           ) -> TightBox | None:
     """The tight canvas for one segment's full-canvas props, or None.
 
     Returns None when the segment draws nothing (no subtitles), so the
@@ -661,7 +694,7 @@ def tighten_subtitle_props(props: dict,
     canvas_h, top_extra = grow_to_hold_rail(
         canvas_w, measured_h, anchor, full_w / 2.0,
         content_top - PAD_TOP + measured_h / 2.0,
-        full_w, full_h, full_h)
+        full_w, full_h, full_h, draw_gain)
     grown_below = canvas_h - measured_h - top_extra
     pad_top = PAD_TOP + top_extra
     pad_bottom = PAD_BOTTOM + grown_below
@@ -671,7 +704,8 @@ def tighten_subtitle_props(props: dict,
     canvas_cy = canvas_top + canvas_h / 2.0
 
     placement = placement_for_box(
-        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h)
+        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h,
+        draw_gain)
 
     tight_style = dict(style)
     tight_style["safeArea"] = {
@@ -695,6 +729,7 @@ def tighten_subtitle_props(props: dict,
         union_h=union_h,
         full_width=full_w,
         full_height=full_h,
+        gain=draw_gain,
     )
 
 
@@ -702,7 +737,9 @@ def tighten_subtitle_props(props: dict,
 # arithmetic. The caption path renders these natively - no probe, no
 # crop, no correspondence read-off (see the module docstring).
 
-def constant_caption_box(props: dict) -> TightBox | None:
+def constant_caption_box(props: dict,
+                         draw_gain: float = FALLBACK_DRAW_GAIN
+                         ) -> TightBox | None:
     """The constant tight canvas for one segment's full-canvas props.
 
     Returns None when the segment draws nothing (no subtitles), so the
@@ -767,7 +804,8 @@ def constant_caption_box(props: dict) -> TightBox | None:
     canvas_cy = canvas_top + canvas_h / 2.0
 
     placement = placement_for_box(
-        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h)
+        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h,
+        draw_gain)
     reason = placement_holds(placement, full_w, full_h)
     if reason:
         raise TightBoxMismatch(
@@ -801,6 +839,7 @@ def constant_caption_box(props: dict) -> TightBox | None:
         union_h=float(canvas_h - PAD_TOP - PAD_BOTTOM),
         full_width=full_w,
         full_height=full_h,
+        gain=draw_gain,
     )
 
 
@@ -1078,7 +1117,9 @@ def placement_holds(placement: dict | None,
 
 
 def restore_reused_placement(sidecar: dict, props: dict,
-                             timeline_size: tuple[int, int] | None) -> TightBox:
+                             timeline_size: tuple[int, int] | None,
+                             draw_gain: float = FALLBACK_DRAW_GAIN
+                             ) -> TightBox:
     """A reuse-cache sidecar as a TightBox, re-gated, or refused.
 
     The reuse hit restores the placement the fresh render measured -
@@ -1112,11 +1153,21 @@ def restore_reused_placement(sidecar: dict, props: dict,
     draws the caption on the wrong row. A stamp that is missing or
     moved is REFUSED the same way as a superseded carriage: the
     caller re-renders measured over the same file.
+
+    The sidecar must also name the draw gain its placement was
+    computed under (`resolve_transform.FALLBACK_DRAW_GAIN`), and that
+    gain must be today's. A placement computed under another gain
+    draws on another row however cleanly it reads back - every
+    pre-2026-09-17 sidecar carries twice the Tilt its artefact needs
+    under today's renderer - so it is REFUSED last, after the
+    carriage, row and rail gates above: the caller re-renders
+    measured over the same file.
     """
     from library.tools.overlay_mode import OVERLAY_CARRIAGE
 
     try:
         union = sidecar["union"]
+        stamped_gain = float(sidecar.get("draw_gain", 1.0))
         box = TightBox(
             width=int(sidecar["width"]),
             height=int(sidecar["height"]),
@@ -1126,6 +1177,7 @@ def restore_reused_placement(sidecar: dict, props: dict,
             union_h=float(union["y1"] - union["y0"]),
             full_width=int(props.get("width", 0)),
             full_height=int(props.get("height", 0)),
+            gain=stamped_gain,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise TightBoxMismatch(
@@ -1155,6 +1207,14 @@ def restore_reused_placement(sidecar: dict, props: dict,
                 f"reused placement no longer holds: {reason} - "
                 f"re-rendering measured rather than shipping a "
                 f"clamped one.")
+    if stamped_gain != draw_gain:
+        raise TightBoxMismatch(
+            f"box sidecar was placed under draw gain {stamped_gain}, "
+            f"not today's {draw_gain}: the renderer draws each unit "
+            f"by a different amount than when that placement was "
+            f"computed, so serving it would land the canvas off its "
+            f"row however cleanly it reads back - re-rendering "
+            f"measured over the same file rather than shipping it.")
     return box
 
 class TightBoxClipsInk(ValueError):
@@ -1271,7 +1331,8 @@ def extract_frames(mov_path: str, dest_dir: str) -> list[str]:
 
 
 def tighten_measured(props: dict, union: InkUnion,
-                     container: str = "frames") -> TightBox:
+                     container: str = "frames",
+                     draw_gain: float = FALLBACK_DRAW_GAIN) -> TightBox:
     """The tight canvas SIZE for a MEASURED ink union, with provisional
     placement.
 
@@ -1338,7 +1399,7 @@ def tighten_measured(props: dict, union: InkUnion,
         canvas_w, measured_h, anchor,
         union.x0 - PAD_X + canvas_w / 2.0,
         union.y0 - PAD_TOP + measured_h / 2.0,
-        full_w, full_h, full_h)
+        full_w, full_h, full_h, draw_gain)
     grown_below = canvas_h - measured_h - top_extra
     pad_top = PAD_TOP + top_extra
     pad_bottom = PAD_BOTTOM + grown_below
@@ -1352,7 +1413,7 @@ def tighten_measured(props: dict, union: InkUnion,
         canvas_w, canvas_h,
         union.x0 - PAD_X + canvas_w / 2.0,
         union.y0 - pad_top + canvas_h / 2.0,
-        full_w, full_h)
+        full_w, full_h, draw_gain)
 
     tight_style = dict(style)
     tight_style["safeArea"] = {
@@ -1373,6 +1434,7 @@ def tighten_measured(props: dict, union: InkUnion,
         union_h=union_h,
         full_width=full_w,
         full_height=full_h,
+        gain=draw_gain,
     )
 
 
@@ -1380,7 +1442,8 @@ def resolve_placement_from_correspondence(
         probe_union: InkUnion, tight_union: InkUnion,
         canvas_w: int, canvas_h: int,
         full_w: int, full_h: int,
-        timeline_size: tuple[int, int] | None = None) -> dict:
+        timeline_size: tuple[int, int] | None = None,
+        draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """Where the tight canvas sits, read off the two renders.
 
     The tight layout is the probe layout translated (measured constant
@@ -1404,7 +1467,7 @@ def resolve_placement_from_correspondence(
     placement = placement_for_box(
         canvas_w, canvas_h,
         ox + canvas_w / 2.0, oy + canvas_h / 2.0,
-        full_w, full_h)
+        full_w, full_h, draw_gain)
     if timeline_size is not None:
         reason = placement_holds(placement, *timeline_size)
         if reason:
@@ -1418,7 +1481,8 @@ def resolve_placement_from_correspondence(
 
 def finalize_box_placement(box: TightBox, probe_union: InkUnion,
                            tight_union: InkUnion,
-                           timeline_size: tuple[int, int] | None = None
+                           timeline_size: tuple[int, int] | None = None,
+                           draw_gain: float = FALLBACK_DRAW_GAIN
                            ) -> TightBox:
     """The same box with correspondence placement. `verify_frames`
     proves the translation it records."""
@@ -1429,17 +1493,25 @@ def finalize_box_placement(box: TightBox, probe_union: InkUnion,
         placement=resolve_placement_from_correspondence(
             probe_union, tight_union,
             box.width, box.height, box.full_width, box.full_height,
-            timeline_size),
+            timeline_size, draw_gain),
+        gain=draw_gain,
     )
 
 
 def canvas_offset(box: TightBox) -> tuple[int, int]:
     """Where the tight canvas sits in full-frame pixels: the inverse of
     `placement_for_box`, so the file reader and the Resolve placer agree
-    on one origin. Integer-exact: the placement floats round-trip."""
+    on one origin. Integer-exact: the placement floats round-trip.
+
+    Inverted through the box's own gain: a placement computed under
+    another gain pastes its file in the wrong place however cleanly it
+    reads back, which is why the box carries the gain it was computed
+    under and the restore path refuses a sidecar stamped with another.
+    """
     ox, oy = drawn_origin(box.width, box.height,
                           box.full_width, box.full_height,
-                          box.placement["pan"], box.placement["tilt"])
+                          box.placement["pan"], box.placement["tilt"],
+                          NATIVE_BASE_SCALE, None, None, box.gain)
     return (int(round(ox)), int(round(oy)))
 
 

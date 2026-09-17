@@ -94,6 +94,26 @@ def _timeline(name):
     return timeline
 
 
+def _only_probe_deleted(pool):
+    """The build-time draw-gain probe creates and deletes its own
+    scratch timeline (`draw_gain_probe.PROBE_TIMELINE_NAME`) on every
+    build - that pair is the probe cleaning up after itself, not the
+    build deleting the captain's timelines. What these tests guard is
+    that nothing ELSE is ever deleted."""
+    from library.tools.draw_gain_probe import PROBE_TIMELINE_NAME
+
+    calls = pool.DeleteTimelines.call_args_list
+    assert calls, "expected the probe's own create-and-delete pair"
+    for call in calls:
+        timelines = call.args[0] if call.args else call.kwargs.get(
+            "timelines", [])
+        assert timelines, "a delete call naming nothing"
+        for timeline in timelines:
+            assert timeline.GetName() == PROBE_TIMELINE_NAME, (
+                f"the build deleted {timeline.GetName()!r} - only the "
+                f"probe's own scratch timeline may be deleted")
+
+
 class FakeProject:
     """A Resolve project whose media pool really creates and deletes.
 
@@ -224,7 +244,7 @@ def test_building_one_reel_into_a_new_name_deletes_nothing_at_all(project):
 
     assert sorted(resolve_project.names()) == sorted(
         [MASTER] + APPROVED + ["Reel 03 - moment-3 (pipeline rebuild)"])
-    assert not resolve_project.GetMediaPool().DeleteTimelines.called
+    _only_probe_deleted(resolve_project.GetMediaPool())
     assert record["timelines_built"] == [
         "Reel 03 - moment-3 (pipeline rebuild)"]
     assert placed.call_args[1]["timeline_name"] == (
@@ -248,7 +268,7 @@ def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
     record, placed, _ = _run(resolve_project, project)
 
     assert "Reel 99 - orphan" in resolve_project.names()
-    assert resolve_project.GetMediaPool().DeleteTimelines.call_args is None
+    _only_probe_deleted(resolve_project.GetMediaPool())
     archived = sorted(name for name in resolve_project.names()
                       if reel_retirement.is_archived_timeline(name))
     assert archived == sorted(
@@ -302,7 +322,7 @@ def test_the_guard_is_wired_where_the_deletion_happens(project):
             _run(resolve_project, project, only=[3])
 
     assert resolve_project.names() == [MASTER] + APPROVED
-    assert not resolve_project.GetMediaPool().DeleteTimelines.called
+    _only_probe_deleted(resolve_project.GetMediaPool())
 
 
 def test_the_selection_matches_a_name_exactly_never_by_prefix():
@@ -324,6 +344,8 @@ def test_only_refuses_a_reel_the_plan_has_not_approved(project):
         _run(resolve_project, project, only=[77])
 
     assert resolve_project.names() == [MASTER] + APPROVED
+    # A refused build probes nothing: the probe runs after the plan
+    # validation, so a build that never starts never touches Resolve.
     assert not resolve_project.GetMediaPool().DeleteTimelines.called
 
 

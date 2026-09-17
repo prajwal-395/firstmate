@@ -88,6 +88,7 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Sequence
 
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 from library.tools.tight_box import (
     InkUnion,
     TightBox,
@@ -526,6 +527,7 @@ TIGHTNESS_SIDECAR_SUFFIX = "_tightness.json"
 def _tighten_impl(props: dict,
                   project_folder: str = "",
                   timeline_size: tuple[int, int] | None = None,
+                  draw_gain: float = FALLBACK_DRAW_GAIN,
                   ) -> tuple[Optional[TightBox], Optional[TightRefusal]]:
     """The tight canvas for one segment's full-canvas MG props, or None.
 
@@ -777,7 +779,8 @@ def _tighten_impl(props: dict,
     canvas_cx = union[0] - MG_PAD + canvas_w / 2.0
     canvas_cy = union[1] - (MG_PAD + top_extra) + canvas_h / 2.0
     placement = placement_for_box(
-        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h)
+        canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h,
+        draw_gain)
 
     # The clamp gate the caption path already has
     # (`resolve_placement_from_correspondence`): a transform Resolve
@@ -819,6 +822,7 @@ def _tighten_impl(props: dict,
         union_h=union_h,
         full_width=full_w,
         full_height=full_h,
+        gain=draw_gain,
     ), None
 
 
@@ -859,6 +863,10 @@ def tightness_record(box: Optional[TightBox],
             "width": box.width,
             "height": box.height,
             "placement": box.placement,
+            # WHAT DRAW GAIN this placement was computed under (see
+            # `resolve_transform`): a reader from another gain must
+            # recompute, never serve this placement.
+            "draw_gain": box.gain,
         }
     reason = refusal.reason if refusal is not None else ""
     element = refusal.element if refusal is not None else None
@@ -1034,6 +1042,7 @@ def tighten_motion_graphics_props(
         props: dict,
         project_folder: str = "",
         timeline_size: tuple[int, int] | None = None,
+        draw_gain: float = FALLBACK_DRAW_GAIN,
         ) -> Optional[TightBox]:
     """The tight canvas for one segment's full-canvas MG props, or None.
 
@@ -1041,7 +1050,8 @@ def tighten_motion_graphics_props(
     half returns is documented there. Raises exactly as it always has.
     """
     box, _refusal = _tighten_impl(
-        props, project_folder, timeline_size=timeline_size)
+        props, project_folder, timeline_size=timeline_size,
+        draw_gain=draw_gain)
     return box
 
 
@@ -1049,6 +1059,7 @@ def tighten_motion_graphics_props_with_reason(
         props: dict,
         project_folder: str = "",
         timeline_size: tuple[int, int] | None = None,
+        draw_gain: float = FALLBACK_DRAW_GAIN,
         ) -> tuple[Optional[TightBox], Optional[TightRefusal]]:
     """The tight canvas AND why not, where the caller records the why.
 
@@ -1060,7 +1071,8 @@ def tighten_motion_graphics_props_with_reason(
     carrying their refusal as `.refusal`.
     """
     return _tighten_impl(props, project_folder,
-                         timeline_size=timeline_size)
+                         timeline_size=timeline_size,
+                         draw_gain=draw_gain)
 
 
 # ─── The measured path: bound from the render, never predicted ──────
@@ -1111,6 +1123,7 @@ def tighten_measured_mg_with_reason(
         props: dict,
         union: InkUnion,
         timeline_size: tuple[int, int] | None = None,
+        draw_gain: float = FALLBACK_DRAW_GAIN,
         ) -> tuple[Optional[TightBox], Optional[TightRefusal]]:
     """The tight canvas for a MEASURED ink union, or why it stays full.
 
@@ -1233,7 +1246,7 @@ def tighten_measured_mg_with_reason(
     placement = placement_for_box(
         canvas_w, canvas_h,
         ox + canvas_w / 2.0, oy + canvas_h / 2.0,
-        full_w, full_h)
+        full_w, full_h, draw_gain)
 
     held_against = timeline_size or (full_w, full_h)
     reason = placement_holds(placement, *held_against)
@@ -1269,6 +1282,7 @@ def tighten_measured_mg_with_reason(
         union_h=union_h,
         full_width=full_w,
         full_height=full_h,
+        gain=draw_gain,
     ), None
 
 
@@ -1276,6 +1290,7 @@ def tighten_measured_mg(
         props: dict,
         union: InkUnion,
         timeline_size: tuple[int, int] | None = None,
+        draw_gain: float = FALLBACK_DRAW_GAIN,
         ) -> Optional[TightBox]:
     """The tight canvas for a MEASURED ink union, or None.
 
@@ -1284,7 +1299,7 @@ def tighten_measured_mg(
     as it always has on the predicted path.
     """
     box, _refusal = tighten_measured_mg_with_reason(
-        props, union, timeline_size=timeline_size)
+        props, union, timeline_size=timeline_size, draw_gain=draw_gain)
     return box
 
 

@@ -123,10 +123,13 @@ def test_the_tilts_differ_per_height_as_the_law_says(tmp_path):
     folder = _project(tmp_path, DECLARED_ROW)
     box, (cx, cy) = _declared_centre(folder)
 
+    # History gain: the formula below is the 2026-09-11 law (see
+    # HISTORY_GAIN in test_tight_box.py); the per-height difference
+    # it proves holds at any gain.
     tilts = {}
     for height in (box.height,) + OTHER_HEIGHTS:
         placement = placement_for_box(box.width, height, cx, cy,
-                                      FRAME_W, FRAME_H)
+                                      FRAME_W, FRAME_H, draw_gain=1.0)
         tilts[height] = placement["tilt"]
         assert placement["tilt"] == pytest.approx(
             (FRAME_H / 2.0 - cy) * (FRAME_H / float(height)))

@@ -682,11 +682,18 @@ def test_the_build_adds_no_overlay_track_when_nothing_is_declared():
     plan mints rows only for what the reel places. Row-level proof is
     behavioral in `tests/test_reel_build_sop_conformance.py`; here the
     contract is that the builder still promises it in words."""
+    import inspect
+
     import library.tools.reel_build as rb
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     source = rb.build_reel_timeline.__doc__
     assert "adds no track" in source
-    # And the behaviour, not just the promise:
-    assert rb.build_reel_timeline.__defaults__[-1] is None
+    # And the behaviour, not just the promise: the trailing optionals
+    # keep their defaults by name, so a later kwarg cannot silently
+    # shift what this pins.
+    params = inspect.signature(rb.build_reel_timeline).parameters
+    assert params["do_not_draw"].default is None
+    assert params["draw_gain"].default == FALLBACK_DRAW_GAIN
 
 
 def test_the_build_records_the_plan_it_placed(tmp_path):

@@ -90,6 +90,7 @@ from library.tools.render_cache import (
     drawing_digest as _drawing_digest_of,
     renderer_fingerprint as _renderer_fingerprint,
 )
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 from library.tools.step_stdout import claim_stdout, emit
 from library.tools.subtitle_segment_id import (
     assert_no_content_collision,
@@ -625,7 +626,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                        renderer=None,
                        overlay_geometry: str = None,
                        overlay_container: str = None,
-                       project_folder: str = "") -> dict:
+                       project_folder: str = "",
+                       draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """Render ONE subtitle segment.  ALWAYS returns an entry.
 
     The per-segment unit, split out from the orchestrator's loop because
@@ -946,7 +948,8 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     tight = restore_reused_placement(
                         sidecar, props,
                         tuple(resolve_delivery_format(
-                            project_folder or None)))
+                            project_folder or None)),
+                        draw_gain=draw_gain)
                 except (OSError, ValueError, KeyError, TypeError,
                         TightBoxMismatch) as exc:
                     print(f"    note: {segment_name} reuses its key but "
@@ -985,7 +988,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             constant_caption_box,
         )
         try:
-            tight = constant_caption_box(props)
+            tight = constant_caption_box(props, draw_gain=draw_gain)
         except (TightBoxClipsInk, TightBoxMismatch) as exc:
             print(f"  {progress} constant box refused: "
                   f"{str(exc)[:200]} - full canvas", file=sys.stderr)
@@ -1156,6 +1159,15 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
                     # placements under a draw gain that does not
                     # exist.
                     "carriage": OVERLAY_CARRIAGE,
+                    # WHAT DRAW GAIN this placement was computed under
+                    # (`resolve_transform.FALLBACK_DRAW_GAIN`). The
+                    # restore path refuses a sidecar stamped with
+                    # another gain rather than serving a placement the
+                    # renderer draws somewhere else: every pre-2026-09-17
+                    # sidecar carries twice the Tilt its artefact needs
+                    # under today's renderer, because those placements
+                    # were computed under gain 1.0.
+                    "draw_gain": tight.gain,
                     # WHERE the row sat when this placement was
                     # derived: the frame-relative insets the constant
                     # canvas laid out from. The tight filename no

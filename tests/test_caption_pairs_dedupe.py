@@ -220,6 +220,10 @@ def test_sidecar_on_the_same_row_still_restores():
         "height": 480,
         "placement": {"scaling": 1, "pan": 0.0, "tilt": -850.0},
         "carriage": OVERLAY_CARRIAGE,
+        # Stamped under today's gain: the guard refuses only what
+        # moved, and the gain is part of what must not have moved
+        # (see test_reused_placement_from_a_superseded_gain_is_refused).
+        "draw_gain": 2.0,
         "safe_area": {"top": 120, "right": 120,
                       "bottom": ROW_NEW, "left": 90},
         "union": {"x0": 126, "y0": 1416, "x1": 937, "y1": 1596},

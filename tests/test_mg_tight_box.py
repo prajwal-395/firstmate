@@ -571,11 +571,16 @@ def test_top_anchored_graphic_places_at_the_measured_value():
     top - which is what the captain sees on seventeen graphics today.
     The pipeline must compute 2592 itself: no hand correction, no
     halving at the call site.
+
+    Pinned as history at explicit gain 1.0: the renderer drew that
+    gain on 2026-09-11. Under today's measured gain the same graphic
+    stores 1296 for the identical rows (see
+    `tests/test_draw_gain_measured.py`).
     """
     from library.tools.tight_box import canvas_offset
     box = tighten_motion_graphics_props(
         _props([_el("title_lockup", anchor="top_centre")]),
-        timeline_size=(FULL_W, FULL_H))
+        timeline_size=(FULL_W, FULL_H), draw_gain=1.0)
     assert box is not None
     assert box.height == 480
     assert box.placement == {"scaling": 1, "pan": 0.0, "tilt": 2592.0}

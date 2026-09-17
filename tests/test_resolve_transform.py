@@ -13,7 +13,7 @@ ever been checked against a picture it had produced:
 Correcting either constant on its own would have left the structural
 fault standing, so both paths now call
 `library/tools/resolve_transform.py` and this module is the gate on
-that. Three things are pinned here:
+that. Four things are pinned here:
 
 1. the law reproduces every case that was MEASURED on rendered pixels,
    rather than restating the formula;
@@ -21,6 +21,11 @@ that. Three things are pinned here:
    coincide, to the pixel;
 3. no call site re-implements the arithmetic - each is driven and
    compared against the law called directly.
+4. the 2026-09-11 calibration is pinned at explicit `draw_gain=1.0`
+   (history - the renderer drew that gain then), and the 2026-09-17
+   calibration is pinned at the default gain (today's truth -
+   `tests/test_draw_gain_measured.py` derives it from rendered
+   pixels rather than restating it).
 """
 
 import pytest
@@ -65,9 +70,13 @@ def test_the_gain_solved_from_every_measured_overlay_case_is_one():
 
 
 def test_the_law_reproduces_every_measured_overlay_case():
+    # The 2026-09-11 calibration, pinned as history at explicit
+    # gain 1.0: the renderer drew that gain then. Today's gain is
+    # pinned separately (test_draw_gain_measured).
     for clip_w, clip_h, frame_w, frame_h, pan, tilt, x0, y0 in \
             MEASURED_OVERLAY_CASES:
-        got = drawn_origin(clip_w, clip_h, frame_w, frame_h, pan, tilt)
+        got = drawn_origin(clip_w, clip_h, frame_w, frame_h, pan, tilt,
+                           NATIVE_BASE_SCALE, None, None, 1.0)
         assert got == pytest.approx((x0, y0), abs=1.0), (
             f"{clip_w}x{clip_h} at pan {pan} tilt {tilt}")
 
@@ -77,22 +86,29 @@ def test_the_law_reproduces_every_measured_picture_case():
 
     Cases at zoom 1.0 and 2.307 give the same pixels per unit; a model
     that multiplied by zoom would miss the 2.307 rows by 130%.
+
+    Pinned as history at explicit gain 1.0, like the overlay cases.
     """
     for src_w, src_h, frame_w, frame_h, _zoom, pan, tilt, cx, cy in \
             MEASURED_PICTURE_CASES:
         base = fit_base_scale(src_w, src_h, frame_w, frame_h)
-        got = drawn_centre(src_w, src_h, frame_w, frame_h, pan, tilt, base)
+        got = drawn_centre(src_w, src_h, frame_w, frame_h, pan, tilt,
+                           base, 1.0)
         assert got == pytest.approx((cx, cy), abs=0.5), (
             f"pan {pan} tilt {tilt} at zoom {_zoom}")
 
 
 def test_the_two_measured_units_on_the_reels_geometry():
-    """The numbers the picture half was wrong by, stated outright."""
+    """The numbers the picture half was wrong by, stated outright.
+
+    Pinned as history at explicit gain 1.0.
+    """
     base = fit_base_scale(3840, 2160, 1080, 1920)
     assert base == pytest.approx(0.28125, abs=1e-9)
-    assert shift_px(1.0, 3840, 1080, base) == pytest.approx(1.0, abs=1e-9)
-    assert shift_px(1.0, 2160, 1920, base) == pytest.approx(0.31640625,
-                                                            abs=1e-9)
+    assert shift_px(1.0, 3840, 1080, base, 1.0) == pytest.approx(
+        1.0, abs=1e-9)
+    assert shift_px(1.0, 2160, 1920, base, 1.0) == pytest.approx(
+        0.31640625, abs=1e-9)
 
 
 def test_the_inverse_is_the_same_law():
@@ -183,17 +199,22 @@ def test_both_paths_are_the_law_and_not_a_second_copy_of_it():
 
 
 def test_the_box_file_reader_and_the_placer_share_one_origin():
-    """`canvas_offset` is `drawn_origin` rounded, and nothing else."""
+    """`canvas_offset` is `drawn_origin` rounded, and nothing else.
+
+    Pinned as history at explicit gain 1.0: measured on an exported
+    still of Reel 26 when the renderer drew that gain.
+    """
     from library.tools.tight_box import TightBox
 
     box = TightBox(width=920, height=480, props={},
                    placement={"scaling": 1, "pan": 0.0, "tilt": 2592.0},
                    union_w=920.0, union_h=480.0,
-                   full_width=1080, full_height=1920)
+                   full_width=1080, full_height=1920, gain=1.0)
     assert canvas_offset(box) == (80, 72), (
         "measured on an exported still of Reel 26: a 920x480 graphic "
         "stored at Tilt 2592 is found at frame rows 72..552")
-    ox, oy = drawn_origin(920, 480, 1080, 1920, 0.0, 2592.0)
+    ox, oy = drawn_origin(920, 480, 1080, 1920, 0.0, 2592.0,
+                          NATIVE_BASE_SCALE, None, None, 1.0)
     assert canvas_offset(box) == (round(ox), round(oy))
 
 
@@ -202,31 +223,50 @@ def test_the_box_file_reader_and_the_placer_share_one_origin():
 def test_the_retired_models_are_gone_and_would_have_failed_here():
     """Named so a reader can see the size of what was corrected.
 
-    Not a test of dead code - both numbers are computed here from the
-    law, so they track it. It exists because "half" and "3.16x short"
-    are the two errors the captain actually sees, and a reader should
-    be able to check them without re-deriving anything.
+    Not a test of dead code - the numbers below are computed from the
+    law, so they track it.
+
+    Read carefully, because one number inverts here. The retired
+    overlay model was an UNMEASURED `draw_gain = 2.0` constant in
+    `tight_box`: it halved every placement while the renderer drew
+    gain 1.0, so its -432 for the caption row drew the card 108px
+    high. The 2026-09-17 rendered-pixel calibration measured the
+    renderer drawing gain 2.0 (see `resolve_transform` and
+    `tests/test_draw_gain_measured.py`), so -432 is now the MEASURED
+    answer for the same row - and the gate that tells the two apart
+    is rendered pixels, not this file. What this test still guards:
+    no `draw_gain` constant may live in `tight_box` (the gain lives
+    once in `resolve_transform`, measured and dated), and the retired
+    picture error stays wrong under either gain.
     """
     import library.tools.tight_box as tight_box
 
     assert not hasattr(tight_box, "DRAW_GAIN_1080x1920")
     assert not hasattr(tight_box, "draw_gain")
 
-    # The overlay error: the caption row 1380 needs Tilt -864, and the
-    # retired gain computed -432, which draws the card 108px high.
+    # The overlay number, then and now: the caption row whose centre
+    # is y 1176 on a 840x480 canvas. The retired model computed -432
+    # while the renderer drew gain 1.0 and landed 108px high; the
+    # measured gain draws -432 exactly on the row.
     correct = placement_for_box(840, 480, 540.0, 1176.0, 1080, 1920)
-    assert correct["tilt"] == pytest.approx(-864.0, abs=0.01)
+    assert correct["tilt"] == pytest.approx(-432.0, abs=0.01)
+    assert drawn_centre(840, 480, 1080, 1920, 0.0, correct["tilt"]) == \
+        pytest.approx((540.0, 1176.0), abs=0.5)
+    # ... while under the 09-11 gain the same -432 lands 108px high,
+    # which is what the retired model shipped.
     halved = canvas_screen_origin(840, 480,
                                   {"scaling": 1, "pan": 0.0,
-                                   "tilt": correct["tilt"] / 2.0},
-                                  1080, 1920)
+                                   "tilt": correct["tilt"]},
+                                  1080, 1920, 1.0)
     assert halved[1] == pytest.approx(936.0 - 108.0, abs=0.5)
 
     # The picture error: reading Tilt as frame pixels under-applies a
     # vertical aim by 1 / 0.31640625 = 3.1605x, and reverses it.
+    # Pinned at explicit gain 1.0 - the retired model predates the
+    # gain question and is wrong under either.
     base = fit_base_scale(3840, 2160, 1080, 1920)
-    assert 1.0 / shift_px(1.0, 2160, 1920, base) == pytest.approx(3.1605,
-                                                                  abs=0.001)
+    assert 1.0 / shift_px(1.0, 2160, 1920, base, 1.0) == pytest.approx(
+        3.1605, abs=0.001)
     assert drawn_centre(3840, 2160, 1080, 1920, 0.0, 100.0, base)[1] < 960.0, (
         "positive Tilt moves the picture UP; the retired model moved "
         "it down")

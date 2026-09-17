@@ -128,6 +128,7 @@ import os
 
 from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_lock import assert_current_timeline, under_lease
 from library.tools.timeline_ingest import resolve_project_exactly
@@ -3369,7 +3370,8 @@ class _SegmentsWithEntries(list):
 def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str,
                            fps: float, width: int, height: int,
                            timeline_name: str = "",
-                           lead_seconds: float = 0.0) -> list:
+                           lead_seconds: float = 0.0,
+                           draw_gain: float = FALLBACK_DRAW_GAIN) -> list:
     """Caption one reel THROUGH THE PIPELINE'S OWN STEPS.
 
     The captain's ruling of 2026-09-04: `reel_subtitles.py` should never
@@ -3506,7 +3508,8 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
                               reuse=True,
                               overlay_geometry=overlay_geometry,
                               overlay_container=overlay_container,
-                              project_folder=project_folder)
+                              project_folder=project_folder,
+                              draw_gain=draw_gain)
         if rendered is None:
             continue
         # A FAILED render is a record of what went wrong, not a segment:
@@ -3655,7 +3658,8 @@ def card_render_dir(project_folder: str) -> str:
 def reel_explainer_segments(moment, transcript: dict, ranges,
                             project_folder: str, fps: float, width: int,
                             height: int, judgement=None,
-                            brand_effect=None, timeline_name: str = ""):
+                            brand_effect=None, timeline_name: str = "",
+                            draw_gain: float = FALLBACK_DRAW_GAIN):
     """One reel's animated explainer, THROUGH THE PIPELINE'S OWN STEPS.
 
     Exactly the shape :func:`reel_subtitle_segments` has, for the same
@@ -3707,7 +3711,8 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
              for line in played_speech(moment, transcript, with_words=True)]
     reel_seconds = sum(max(0.0, end - start) for start, end in (ranges or []))
 
-    bands = _explainer_bands(project_folder, width, height)
+    bands = _explainer_bands(project_folder, width, height,
+                             draw_gain=draw_gain)
     plan = ex.author_explainer(
         reel_name=name, reel_number=int(moment.number),
         reel_seconds=reel_seconds, judgement=judgement,
@@ -3776,6 +3781,7 @@ def reel_explainer_segments(moment, transcript: dict, ranges,
             segment_name=ex.segment_name(name, index),
             progress=f"[{index + 1}/{len(segments_plan)}]",
             project_folder=project_folder,
+            draw_gain=draw_gain,
             # `reuse=True`: the cache-and-pair, the same opt-in the
             # reel caption path carries. The file is content-keyed
             # (`mg_<project>_<digest>`, step 4.06), so a rebuild - or
@@ -3826,7 +3832,8 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
                               timeline_name: str = "",
                               subtitle_segments=None,
                               lead_seconds: float = 0.0,
-                              extra_cuts: Sequence[tuple] = ()):
+                              extra_cuts: Sequence[tuple] = (),
+                              draw_gain: float = FALLBACK_DRAW_GAIN):
     """One reel's SPEAKER lower thirds, THROUGH THE PIPELINE'S OWN STEPS.
 
     The same shape :func:`reel_explainer_segments` has, with the same
@@ -3948,6 +3955,7 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
             segment_name=f"lt_{_reel_slug(name)}_{index:02d}",
             progress=f"[{index + 1}/{len(segments_plan)}]",
             project_folder=project_folder,
+            draw_gain=draw_gain,
             # FULL CANVAS, explicitly - see this function's docstring.
             # Explicit values win over the project's declaration in
             # `render_one_segment`, which is what makes this sayable at
@@ -3993,7 +4001,8 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
                   f"{rendered['measured_box']} on a {width}x{height} frame",
                   file=sys.stderr)
         _bind_lower_third_tight(
-            name, planned, rendered, width, height)
+            name, planned, rendered, width, height,
+            draw_gain=draw_gain)
         segments.append(rendered)
     # What was RENDERED, not what was intended: a reader grading the
     # timeline against this must not look for an item nothing placed.
@@ -4004,7 +4013,9 @@ def reel_lower_third_segments(moment, transcript: dict, ranges,
 
 
 def _bind_lower_third_tight(name: str, planned: dict, rendered: dict,
-                              width: int, height: int) -> None:
+                              width: int, height: int,
+                              draw_gain: float = FALLBACK_DRAW_GAIN
+                              ) -> None:
     """Bind one rendered lower third tightly, from its own pixels.
 
     The render above is FULL CANVAS on purpose: it is the probe, not
@@ -4068,7 +4079,8 @@ def _bind_lower_third_tight(name: str, planned: dict, rendered: dict,
         return
     try:
         box, refusal = mgt.tighten_measured_mg_with_reason(
-            full_props, union, timeline_size=(width, height))
+            full_props, union, timeline_size=(width, height),
+            draw_gain=draw_gain)
     except (TightBoxClipsInk, TightBoxMismatch) as exc:
         refusal = getattr(exc, "refusal", None)
         rendered["tight_fallback"] = (
@@ -4193,7 +4205,8 @@ def _reel_slug(timeline_name: str) -> str:
         "_").lower()[:48] or "reel"
 
 
-def _explainer_bands(project_folder: str, width: int, height: int):
+def _explainer_bands(project_folder: str, width: int, height: int,
+                     draw_gain: float = FALLBACK_DRAW_GAIN):
     """The picture-area enumeration for a reel of this project.
 
     Built from the two measurements that already exist - the rectangle a
@@ -4211,7 +4224,7 @@ def _explainer_bands(project_folder: str, width: int, height: int):
     if source is None:
         return None
     picture = delivered_picture(source[0], source[1], width, height,
-                                dict(IDENTITY))
+                                dict(IDENTITY), draw_gain=draw_gain)
     insets = resolve_safe_area(project_folder=project_folder,
                                width=width, height=height)
     return ex.picture_bands(picture.rect, width, height, insets)
@@ -4297,7 +4310,8 @@ def _held_property(item, prop: str):
 
 def assert_punch_took(name: str, item, source_file: str, properties: dict,
                       source_size, frame_width: int, frame_height: int,
-                      screen_window) -> None:
+                      screen_window,
+                      draw_gain: float = FALLBACK_DRAW_GAIN) -> None:
     """Raise unless the transform Resolve HOLDS covers the screen window.
 
     PR 862's discipline, applied to the punch-in: `SetProperty` returns
@@ -4327,7 +4341,7 @@ def assert_punch_took(name: str, item, source_file: str, properties: dict,
                  for key in properties}
     delivered = delivered_picture(
         source_size[0], source_size[1],
-        frame_width, frame_height, effective)
+        frame_width, frame_height, effective, draw_gain=draw_gain)
     bands = _look.uncovered_window_edges(delivered, screen_window)
     if bands:
         held_desc = ", ".join(
@@ -4382,7 +4396,8 @@ def _recorded_first_measure(project_folder: str):
 def aim_picture_row(name: str, look: dict, screen_window,
                     frame_width: int, frame_height: int,
                     row_items, row_places,
-                    measure=None, size_of=None, project_folder=None) -> int:
+                    measure=None, size_of=None, project_folder=None,
+                    draw_gain: float = FALLBACK_DRAW_GAIN) -> int:
     """Aim one picture row's punch-in, shot by shot, and prove it took.
 
     `row_items` are the row's timeline items in play order, `row_places`
@@ -4463,7 +4478,8 @@ def aim_picture_row(name: str, look: dict, screen_window,
             basis = None
         properties = _look.punch_in_properties(
             look, subject, source_size[0], source_size[1],
-            frame_width, frame_height, window=screen_window)
+            frame_width, frame_height, window=screen_window,
+            draw_gain=draw_gain)
         if properties is None:
             print(f"  {name}: NO PUNCH-IN on "
                   f"{os.path.basename(source_file)} "
@@ -4486,7 +4502,7 @@ def aim_picture_row(name: str, look: dict, screen_window,
                     f"different size to the ones beside it.")
         assert_punch_took(name, item, source_file, properties,
                           source_size, frame_width, frame_height,
-                          screen_window)
+                          screen_window, draw_gain=draw_gain)
         aimed += 1
         print(f"  {name}: punch-in {properties['ZoomX']:.4f} "
               f"(declared {look['punch_in']}, screen window needs "
@@ -4636,7 +4652,8 @@ def _inherit_freeze_treatment(name: str, timeline, track_plan,
 def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                               placements_list: list, timeline, transcript: dict,
                               project_folder: str, width: int, height: int,
-                              look=None, screen_window=None) -> int:
+                              look=None, screen_window=None,
+                              draw_gain: float = FALLBACK_DRAW_GAIN) -> int:
     """Hold the captain's recorded transform overrides on the picture.
 
     The punch-in aims every shot at its measured subject; a hand move
@@ -4751,7 +4768,7 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                             assert_punch_took(
                                 name, item, source_file, effective,
                                 _source_frame_size(item), width, height,
-                                screen_window)
+                                screen_window, draw_gain=draw_gain)
                         except Exception as exc:
                             raise ReelBuildError(
                                 f"{name}: the captain's {prop}={value:g} "
@@ -5209,7 +5226,8 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            do_not_draw: list = None,
                            intent_applied: list = None,
                            seen_labels: list = None,
-                           sweep_out: list = None) -> list:
+                           sweep_out: list = None,
+                           draw_gain: float = FALLBACK_DRAW_GAIN) -> list:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -5395,11 +5413,13 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             # cannot disagree about which pin won.
             placement_label=placed_label,
             intent_matched=intent_applied,
+            draw_gain=draw_gain,
             draw_intent=draw_intent_for_segment(
                 segment, kind=kind, segment_id=placed_segment_id,
                 placement_label=placed_label,
                 intent=overlay_intent, frame_wh=frame,
-                project_folder=project_folder, reel_name=name))
+                project_folder=project_folder, reel_name=name,
+                draw_gain=draw_gain))
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
         if sweep_out is not None and canvas is not None:
@@ -5534,7 +5554,8 @@ def _place_transition_element(pool, project, timeline, name: str,
             f"refuses")
 
 
-def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None):
+def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, width, height, project_folder, transcript, timeline_name: str = "", cards=None, overlay_placements=None, explainer_segments=None, semantic_segments=None, look=None, motion=None, master_timeline=None, program_channels=None, extra_cuts: Sequence[tuple] = (), j_cut: dict = None, cutaway: dict = None, grade_cdl=None, power_grade=None, overlay_intent: dict = None, ranges=None, ending=None, lower_third_segments=None, card_row_role=None, do_not_draw: list = None,
+                      draw_gain: float = FALLBACK_DRAW_GAIN):
     """Place one reel.  `timeline_name` is what Resolve will CALL it.
 
     Defaults to `moment.timeline_name`, which is the plan's own name and
@@ -6139,7 +6160,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             row_places.sort(key=lambda p: p["snapped_record"])
             aimed += aim_picture_row(
                 name, look, screen_window, width, height,
-                row_items, row_places, project_folder=project_folder)
+                row_items, row_places, project_folder=project_folder,
+                draw_gain=draw_gain)
 
         runs = _look.frame_runs(placements_list, fps)
         # The frame goes on as a RENDERED overlay, through the same
@@ -6176,7 +6198,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
             seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records))
+            sweep_out=_sweep_records,
+            draw_gain=draw_gain))
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -6303,12 +6326,14 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             canvas=_caption_canvas,
             frame=(width, height),
             intent_matched=applied_intent_keys,
+            draw_gain=draw_gain,
             draw_intent=_draw_intent_for_segment(
                 segment, kind="caption",
                 segment_id=segment.get("segment_id"),
                 placement_label=None,
                 intent=overlay_intent, frame_wh=(width, height),
-                project_folder=project_folder, reel_name=name))
+                project_folder=project_folder, reel_name=name,
+                draw_gain=draw_gain))
         if not placed:
             print(f"Failed to place {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
@@ -6409,7 +6434,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
             seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records))
+            sweep_out=_sweep_records,
+            draw_gain=draw_gain))
 
 
 
@@ -6428,7 +6454,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
             seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records))
+            sweep_out=_sweep_records,
+            draw_gain=draw_gain))
 
     # The speaker lower thirds. ADDITIVE, exactly as the two above are:
     # laid over picture that keeps playing, moving no frame of it, so a
@@ -6449,7 +6476,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             do_not_draw=suppressions,
             intent_applied=applied_intent_keys,
             seen_labels=seen_intent_labels,
-            sweep_out=_sweep_records))
+            sweep_out=_sweep_records,
+            draw_gain=draw_gain))
 
     if overlay_intent:
         # Pins that matched nothing on this reel, said aloud and kept
@@ -6508,7 +6536,7 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
               file=sys.stderr)
         build_record["overlay_sweep"] = _sweep_reel_overlays(
             timeline, _sweep_records, intent=overlay_intent,
-            full_wh=(width, height))
+            full_wh=(width, height), draw_gain=draw_gain)
     else:
         build_record["overlay_sweep"] = {
             "passed": True, "checked": 0,
@@ -7935,6 +7963,35 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 f"quietly skipped them would report success having placed "
                 f"nothing.")
 
+    # ── DRAW-GAIN PROBE (start of build) ──
+    # The Pan/Tilt draw gain is renderer STATE, not geometry: it read
+    # 1.0 on 2026-09-11 and 2.0 on 2026-09-17 with no restart and no
+    # deploy in between. So this build calibrates the renderer it is
+    # about to place onto - one probe element, one still, once per
+    # build, never per element - and every placement below is computed
+    # with what the probe measured. A probe that cannot run falls back
+    # to the documented fallback LOUDLY (never silently), and a
+    # measured gain that disagrees with the fallback lands on the
+    # record as a finding: that disagreement is the first
+    # machine-readable handle on the renderer state moving again.
+    # Reports, never refuses: like the drift baseline, an instrument.
+    from library.tools import draw_gain_probe as _gain_probe
+    from library.tools.resolve_transform import (
+        FALLBACK_DRAW_GAIN as _FALLBACK_GAIN)
+    try:
+        gain_record = _gain_probe.calibrate(
+            resolve, project, (reel_width, reel_height))
+    except Exception as exc:  # noqa: BLE001 - probe never raises, belt
+        # and braces: a probe-shaped surprise must not fail a build.
+        gain_record = {
+            "gain": _FALLBACK_GAIN, "source": "fallback",
+            "disagrees_with_fallback": False,
+            "warnings": [f"probe raised {exc!r} outside itself"],
+            "probe": {},
+        }
+    _gain_probe.log_record(gain_record)
+    run_gain = float(gain_record.get("gain") or _FALLBACK_GAIN)
+
     # STAGE, not replace: the final names this call is FOR, and the
     # staging containers it actually places. Nothing existing is
     # deleted or renamed here - promotion does that, and only on a
@@ -8570,7 +8627,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             subtitle_segments = None if skip_captions else reel_subtitle_segments(
                 moment, transcript, ranges, project_folder,
                 fps=24000 / 1001, width=reel_width, height=reel_height,
-                timeline_name=name, lead_seconds=lead)
+                timeline_name=name, lead_seconds=lead,
+                draw_gain=run_gain)
 
             # The captain's caption-only timing
             # (`library/tools/caption_timing.py`), applied to the
@@ -8592,7 +8650,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 moment, transcript, ranges, project_folder,
                 fps=24000 / 1001, width=reel_width, height=reel_height,
                 judgement=judgement, brand_effect=brand_effect,
-                timeline_name=name)
+                timeline_name=name, draw_gain=run_gain)
             explainer_plans.append(explainer_plan)
 
             # WHO IS SPEAKING, named on their first appearance in THIS
@@ -8610,7 +8668,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     fps=24000 / 1001, width=reel_width, height=reel_height,
                     brand_effect=brand_effect, timeline_name=name,
                     subtitle_segments=subtitle_segments,
-                    lead_seconds=lead, extra_cuts=moment_cuts))
+                    lead_seconds=lead, extra_cuts=moment_cuts,
+                    draw_gain=run_gain))
             lower_third_plans.append(lower_third_plan)
 
             # The semantic visuals: what the MODEL says this reel's
@@ -8871,6 +8930,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # rebuild keeps their corrections.
                 overlay_intent=overlay_intent,
                 power_grade=reel_power_grade,
+                draw_gain=run_gain,
                 # The ranges the captions, overlays and explainers above
                 # were planned from - already trimmed of the captain's
                 # span_retime pins. Recomputing from the moment would
@@ -9346,6 +9406,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # full rebuild that placed one timeline.
         "reels_requested": None if wanted is None else sorted(wanted),
         "name_suffix": name_suffix,
+        # What the renderer drew per Pan/Tilt unit when this build
+        # placed: the build-time probe's record (`draw_gain_probe`),
+        # source "measured" or "fallback", with the probe detail.
+        # `disagrees_with_fallback` is the loud disagreement the
+        # calibration exists to surface: the renderer state moved
+        # again, and every placement below was computed with the
+        # measured value, not the fallback.
+        "draw_gain_calibration": gain_record,
         # The replace guard's declaration, normalised to per-final row
         # keys (issue #925). `{}` when the caller declared nothing -
         # which is the common case, and is not the same as allowing.
@@ -10009,6 +10077,26 @@ def build_reel_variants(project_slug: str, reel_number: int,
     reel_look_decl = _reel_look.resolve_look(project_folder,
                                              reel_width, reel_height)
 
+    # ── DRAW-GAIN PROBE (start of variant build) ──
+    # Same instrument as `rebuild_reels_in_project` above: one
+    # calibration per build, placements computed with what it
+    # measured, fallback loud. See that block for why the gain is
+    # measured rather than declared.
+    from library.tools import draw_gain_probe as _variant_gain_probe
+    try:
+        _variant_gain_record = _variant_gain_probe.calibrate(
+            resolve, project, (reel_width, reel_height))
+    except Exception as exc:  # noqa: BLE001 - probe never raises
+        _variant_gain_record = {
+            "gain": FALLBACK_DRAW_GAIN, "source": "fallback",
+            "disagrees_with_fallback": False,
+            "warnings": [f"probe raised {exc!r} outside itself"],
+            "probe": {},
+        }
+    _variant_gain_probe.log_record(_variant_gain_record)
+    run_gain = float(_variant_gain_record.get("gain")
+                     or FALLBACK_DRAW_GAIN)
+
     # The three per-reel DECLARATIONS the rebuild reads, read here on
     # the same terms (AGENTS.md 3, `tests/
     # test_reel_variants_carry_recorded_obedience.py`). Until the
@@ -10140,7 +10228,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
             subtitle_segments = reel_subtitle_segments(
                 moment, transcript, ranges, project_folder,
                 fps=fps, width=reel_width, height=reel_height,
-                timeline_name=final, lead_seconds=lead)
+                timeline_name=final, lead_seconds=lead,
+                draw_gain=run_gain)
             # The captain's caption-only timing, applied to the
             # RENDERED segments and before anything places them -
             # the same seam the rebuild applies it at.
@@ -10154,7 +10243,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 moment, transcript, ranges, project_folder,
                 fps=fps, width=reel_width, height=reel_height,
                 judgement=judgement, brand_effect=brand_effect,
-                timeline_name=final)
+                timeline_name=final, draw_gain=run_gain)
             # The speaker lower thirds, on the variant's own timeline
             # and from the variant's own ranges - a variant that cuts a
             # speaker's first line out introduces whoever now speaks
@@ -10165,7 +10254,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
                     fps=fps, width=reel_width, height=reel_height,
                     brand_effect=brand_effect, timeline_name=final,
                     subtitle_segments=subtitle_segments,
-                    lead_seconds=lead, extra_cuts=moment_cuts))
+                    lead_seconds=lead, extra_cuts=moment_cuts,
+                    draw_gain=run_gain))
             from library.tools import reel_semantic_visual as sem_vis
             sem_vis.write_request(moment, transcript, ranges,
                                   project_folder, fps=fps)
@@ -10225,6 +10315,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
                 # variant keeps their corrections exactly as a rebuild
                 # does.
                 overlay_intent=variant_overlay_intent,
+                draw_gain=run_gain,
                 # WHERE THIS REEL ENDS, and what draws over its tail.
                 ending=_ending_decl,
                 # The trimmed ranges every variant plan above was drawn
@@ -10422,7 +10513,7 @@ def sweep_all_reels_informational(project_folder: str,
     return {"exit_code": exit_code, "report": sweep_path}
 
 
-def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str, only_reels=None) -> None:
+def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str, only_reels=None, draw_gain: float = None) -> None:
     """Run the reel conformance verifier as a quality gate after building reels.
 
     `only_reels` is the EXACT reel timeline names to grade - the build's
@@ -10466,6 +10557,7 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
             json_path=json_path,
             project_folder=project_folder,
             only_reels=None if only_reels is None else list(only_reels),
+            draw_gain=draw_gain,
         )
     except Exception as e:
         raise RuntimeError(f"Reel conformance verifier failed to run: {e}")

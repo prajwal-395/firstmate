@@ -77,7 +77,7 @@ def _captured_props(monkeypatch, tmp_path):
     class FakeRender:
         def run(self, props, out_dir, name, progress="", reuse=False,
                 overlay_geometry=None, overlay_container=None,
-                project_folder=""):
+                project_folder="", draw_gain=None):
             captured.append(props)
             return {"overlay_path": "/s/seg.mov"}
 

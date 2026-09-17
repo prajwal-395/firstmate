@@ -102,10 +102,14 @@ class TestDeliveredPicture:
         assert declared.framing_intent == pytest.approx(intent, abs=1e-6)
 
     def test_pan_moves_the_picture_and_not_its_size(self):
+        # History gain: this pins the 2026-09-11 read (see HISTORY_GAIN
+        # in test_tight_box.py); under today's gain Pan 120 moves 240.
         centred = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
-                                    {"ZoomX": 2.0, "ZoomY": 2.0})
+                                    {"ZoomX": 2.0, "ZoomY": 2.0},
+                                    draw_gain=1.0)
         panned = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
-                                   {"ZoomX": 2.0, "ZoomY": 2.0, "Pan": 120.0})
+                                   {"ZoomX": 2.0, "ZoomY": 2.0, "Pan": 120.0},
+                                   draw_gain=1.0)
         assert panned.left - centred.left == 120
         assert (panned.right - panned.left) == (centred.right - centred.left)
 
@@ -165,17 +169,22 @@ class TestDisagreement:
         the picture path's own version of the defect - it asked for
         two pixels and moved two thirds of one.
         """
+        # History gain throughout: the 2026-09-11 read (one unit drew
+        # 0.3164 px then; 0.6328 under today's).
         one_pixel_of_tilt = 1.0 / ((2160 / 1920) * (1080 / 3840))
         assert one_pixel_of_tilt == pytest.approx(3.1605, abs=0.001)
-        base = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, _HARVEST)
+        base = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H, _HARVEST,
+                                 draw_gain=1.0)
         # NEGATIVE, because positive Tilt moves the picture UP - measured,
         # and the other half of what this path had wrong: it added Tilt to
         # the centre, so every vertical aim went the wrong way as well as
         # 3.16x short.
         near = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
-                                 dict(_HARVEST, Tilt=-one_pixel_of_tilt))
+                                 dict(_HARVEST, Tilt=-one_pixel_of_tilt),
+                                 draw_gain=1.0)
         far = delivered_picture(SRC_W, SRC_H, FRAME_W, FRAME_H,
-                                dict(_HARVEST, Tilt=-2 * one_pixel_of_tilt))
+                                dict(_HARVEST, Tilt=-2 * one_pixel_of_tilt),
+                                draw_gain=1.0)
         assert near.top == base.top + PIXEL
         assert far.top == base.top + 2 * PIXEL
         assert disagreement(near, base) is None

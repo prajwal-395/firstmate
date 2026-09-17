@@ -63,6 +63,14 @@ FULL_W = 1080
 FULL_H = 1920
 SAFE = {"top": 120, "right": 120, "bottom": 320, "left": 90}
 
+#: The 2026-09-11 draw gain, pinned wherever a test below reproduces a
+#: measurement from that calibration. The renderer draws
+#: `resolve_transform.FALLBACK_DRAW_GAIN` today; these tests say what
+#: it drew then, so a reader can tell history from the current truth
+#: (which `tests/test_draw_gain_measured.py` derives from rendered
+#: pixels rather than restating).
+HISTORY_GAIN = 1.0
+
 
 def _style(**over):
     base = {
@@ -183,7 +191,8 @@ def test_tilt_puts_canvas_bottom_where_full_canvas_put_content():
     """The tight canvas bottom edge lands pad-below the full content
     bottom, and Tilt is the measured Resolve unit for that shift."""
     props = _props()
-    box = tighten_subtitle_props(props)
+    box = tighten_subtitle_props(
+        props, draw_gain=HISTORY_GAIN)
     # The canvas origin is the content edge minus the RENDERED top
     # inset (pads plus any minimum-height growth above the anchor),
     # read off the props the render draws from rather than assumed.
@@ -202,7 +211,8 @@ def test_tilt_puts_canvas_bottom_where_full_canvas_put_content():
 
 def test_top_positioned_captions_anchor_from_the_top():
     props = _props(style=_style(position="top"))
-    box = tighten_subtitle_props(props)
+    box = tighten_subtitle_props(
+        props, draw_gain=HISTORY_GAIN)
     content_top = SAFE["top"]
     canvas_top = (content_top
                   - box.props["style"]["safeArea"]["top"])
@@ -226,7 +236,8 @@ def test_placement_for_box_uses_measured_resolve_units():
     """
     p = placement_for_box(canvas_w=400, canvas_h=200,
                           canvas_cx=540 + 74, canvas_cy=960 - 31,
-                          full_w=1080, full_h=1920)
+                          full_w=1080, full_h=1920,
+                              draw_gain=HISTORY_GAIN)
     assert p["scaling"] == 1
     assert p["pan"] == pytest.approx(200, abs=3)
     assert p["tilt"] == pytest.approx(300, abs=3)
@@ -239,7 +250,8 @@ def test_placement_for_box_is_one_relation_at_every_frame_size():
     p = placement_for_box(canvas_w=400, canvas_h=200,
                           canvas_cx=1920 + 200 * 400 / 3840,
                           canvas_cy=1080 - 300 * 200 / 2160,
-                          full_w=3840, full_h=2160)
+                          full_w=3840, full_h=2160,
+                              draw_gain=HISTORY_GAIN)
     assert p["scaling"] == 1
     assert p["pan"] == pytest.approx(200, abs=3)
     assert p["tilt"] == pytest.approx(300, abs=3)
@@ -331,11 +343,13 @@ def test_placement_formula_reproduces_the_captains_live_numbers():
     `MEASURED_RAILS`."""
     p = placement_for_box(canvas_w=900, canvas_h=152,
                           canvas_cx=540, canvas_cy=960 + 600,
-                          full_w=1080, full_h=1920)
+                          full_w=1080, full_h=1920,
+                              draw_gain=HISTORY_GAIN)
     assert p["tilt"] == pytest.approx(-7578.9, abs=0.5)
     grown = placement_for_box(canvas_w=900, canvas_h=480,
                               canvas_cx=540, canvas_cy=960 + 600,
-                              full_w=1080, full_h=1920)
+                              full_w=1080, full_h=1920,
+                                  draw_gain=HISTORY_GAIN)
     assert abs(grown["tilt"]) <= 3400
 
 
@@ -358,7 +372,8 @@ def test_derived_floor_grows_only_as_far_as_the_tilt_needs():
     480 constant."""
     grown, top_extra = grow_to_hold_rail(
         848, 112, "bottom", 540.0, 1540 - PAD_TOP + 112 / 2.0,
-        1080, 1920, 1920)
+        1080, 1920, 1920,
+            draw_gain=HISTORY_GAIN)
     assert (grown, top_extra) == (166, 54)
     assert grown % 2 == 0
     # And one step down really does miss: minimality is measured,
@@ -368,7 +383,8 @@ def test_derived_floor_grows_only_as_far_as_the_tilt_needs():
     below_extra = (grown - 2) - 112
     _, tilt_below = pan_tilt_for_centre(
         848, grown - 2, 1080, 1920,
-        540.0, origin_y - below_extra + (grown - 2) / 2.0)
+        540.0, origin_y - below_extra + (grown - 2) / 2.0,
+            draw_gain=HISTORY_GAIN)
     assert abs(tilt_below) > 6912.0
 
 
@@ -379,17 +395,20 @@ def test_derived_floor_keeps_the_anchor_split():
     # Bottom: the whole growth above.
     grown, top_extra = grow_to_hold_rail(
         848, 112, "bottom", 540.0, 1540 - PAD_TOP + 112 / 2.0,
-        1080, 1920, 1920)
+        1080, 1920, 1920,
+            draw_gain=HISTORY_GAIN)
     assert top_extra == grown - 112
     # Top: nothing above (mirror geometry: content top row 140).
     grown, top_extra = grow_to_hold_rail(
         848, 112, "top", 540.0, 140 - PAD_TOP + 112 / 2.0,
-        1080, 1920, 1920)
+        1080, 1920, 1920,
+            draw_gain=HISTORY_GAIN)
     assert (grown, top_extra) == (204, 0)
     # Middle: the split. Centred ink needs no Tilt at all, so the
     # measured height ships untouched.
     grown, top_extra = grow_to_hold_rail(
-        840, 292, "middle", 540.0, 960.0, 1080, 1920, 1920)
+        840, 292, "middle", 540.0, 960.0, 1080, 1920, 1920,
+            draw_gain=HISTORY_GAIN)
     assert (grown, top_extra) == (292, 0)
 
 
@@ -398,13 +417,15 @@ def test_derived_floor_falls_back_to_the_constant():
     Pan no height growth can fix, lands exactly where
     `grow_to_minimum` would have put it - the current behaviour."""
     assert grow_to_hold_rail(
-        848, 112, "bottom", 540.0, 1580.0, 1080, 1080, 1080) == \
+        848, 112, "bottom", 540.0, 1580.0, 1080, 1080, 1080,
+        draw_gain=HISTORY_GAIN) == \
         grow_to_minimum(112, "bottom", 1080) == (480, 368)
     # Pan 4644 the 4320 rail cannot hold: height growth moves Tilt
     # only, so the constant is the only honest answer here and the
     # downstream gate still refuses it to full canvas, as today.
     assert grow_to_hold_rail(
-        200, 112, "bottom", 1400.0, 1580.0, 1080, 1920, 1920) == \
+        200, 112, "bottom", 1400.0, 1580.0, 1080, 1920, 1920,
+        draw_gain=HISTORY_GAIN) == \
         grow_to_minimum(112, "bottom", 1920) == (480, 368)
 
 
@@ -471,18 +492,21 @@ def test_constant_placement_is_arithmetic_from_the_anchor():
     Vertically the canvas edge sits one pad past the anchored card
     edge - bottom cards hang the canvas bottom 36px below the row,
     top cards hang its top 16px above it, centred cards sit centred."""
-    bottom = constant_caption_box(_props())
+    bottom = constant_caption_box(_props(),
+        draw_gain=HISTORY_GAIN)
     assert bottom.placement["scaling"] == 1
     assert bottom.placement["pan"] == 0
     assert bottom.placement["tilt"] == pytest.approx(-1744.0)
     assert bottom.props["style"]["safeArea"]["bottom"] == PAD_BOTTOM
 
-    top = constant_caption_box(_props(style=_style(position="top")))
+    top = constant_caption_box(_props(style=_style(position="top")),
+        draw_gain=HISTORY_GAIN)
     assert top.placement["pan"] == 0
     assert top.props["style"]["safeArea"]["top"] == PAD_TOP
 
     center = constant_caption_box(
-        _props(style=_style(position="center")))
+        _props(style=_style(position="center")),
+            draw_gain=HISTORY_GAIN)
     assert center.placement["pan"] == 0
     assert center.placement["tilt"] == pytest.approx(0.0)
 

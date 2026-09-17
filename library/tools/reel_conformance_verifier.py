@@ -2863,7 +2863,11 @@ def check_delivered_framing(reel_name: str,
                             declared_crop_factor: float = 1.0,
                             cards: Sequence["PlannedCard"] = (),
                             look=None,
+                            draw_gain: float = None,
                             ) -> List[Finding]:
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
     """F12: Verify the picture on the frame is the picture declared.
 
     F10 above proves the FRAME is 1080x1920.  This proves what is IN it.
@@ -2961,7 +2965,8 @@ def check_delivered_framing(reel_name: str,
         try:
             delivered = delivered_picture(
                 meta["width"], meta["height"], width, height,
-                item.transform, meta.get("rotation", 0))
+                item.transform, meta.get("rotation", 0),
+                draw_gain=draw_gain)
             # A card's declaration IS the frame. `framing_intent` is a
             # statement about how FOOTAGE is fitted, and a card was not
             # fitted - it was drawn at 1080x1920. Grading it against the
@@ -4269,7 +4274,11 @@ def verify_reel(plan: ReelPlan,
                 span_plan: Optional[dict] = None,
                 lower_third_plan: Optional[dict] = None,
                 expected_frame: Optional[Tuple[int, int]] = None,
+                draw_gain: float = None,
                 ) -> ReelResult:
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
     """Run all checks on one reel and return the result.
 
     `master_video_items` is what `check_plan_picture_continuity` measures
@@ -4381,7 +4390,8 @@ def verify_reel(plan: ReelPlan,
             source_sizes=source_sizes,
             declared_intent=declared_intent,
             declared_crop_factor=declared_crop_factor,
-            cards=plan.cards, look=look))
+            cards=plan.cards, look=look,
+            draw_gain=draw_gain))
 
     # F11: Subtitle styling - reads the OUTPUT cards, not the config
     findings.extend(check_subtitle_styling(
@@ -5599,8 +5609,14 @@ def run_verification(
     project_folder: str = "",
     out=None,
     only_reels: Optional[Sequence[str]] = None,
+    draw_gain: float = None,
 ) -> int:
     """Connect to Resolve, read everything, verify, report.
+
+    `draw_gain` is the gain the BUILD calibrated and placed with -
+    the verifier grades stored transforms, so it must read them
+    under the same gain. None resolves to the fallback (records
+    written before the probe existed grade as before).
 
     `only_reels` names the EXACT reel timeline names to grade, and is
     how a partial build avoids re-grading the whole project: building
@@ -5627,6 +5643,9 @@ def run_verification(
     No Set*, Add*, Append*, Delete*, OpenPage, LoadProject,
     SetCurrentTimeline or SetCurrentProject.
     """
+    from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
     import re as re_mod
 
     from library.tools.timeline_ingest import (
@@ -6107,7 +6126,8 @@ def run_verification(
                     span_plan_records, name),
                 lower_third_plan=lower_third_plan_for_reel(
                     lower_third_plans, name),
-                expected_frame=expected_frame)
+                expected_frame=expected_frame,
+                draw_gain=draw_gain)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "

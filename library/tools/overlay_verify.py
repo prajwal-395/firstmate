@@ -37,6 +37,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from library.tools.overlay_placement import READBACK_TOLERANCE
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 
 #: Ink counts where the canvas is at least this opaque. The caption QA
 #: threshold (`qa.subtitle_qa.ALPHA_INK_THRESHOLD`) without importing
@@ -63,7 +64,8 @@ def _numbers(stored: Optional[dict]) -> Optional[Dict[str, float]]:
 def verify_values(clips: Sequence[dict], intent: Optional[dict],
                   computed: Optional[dict] = None,
                   tolerance: float = READBACK_TOLERANCE,
-                  *, full_wh: Tuple[int, int]) -> dict:
+                  *, full_wh: Tuple[int, int],
+                  draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """Stored transforms against intent, without rendering anything.
 
     `full_wh` is the DECLARED delivery frame and has no default: a
@@ -109,7 +111,8 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
                 kind, segment_id, computed.get((kind, segment_id)), intent,
                 canvas=tuple(canvas_wh) if canvas_wh else None,
                 frame=tuple(full_wh),
-                placement_label=clip.get("placement_label"))
+                placement_label=clip.get("placement_label"),
+                draw_gain=draw_gain)
         except OverlayIntentError as exc:
             skipped.append({"label": label, "reason": str(exc)})
             continue
@@ -158,7 +161,9 @@ def verify_values(clips: Sequence[dict], intent: Optional[dict],
 
 
 def canvas_origin(placement: dict, canvas_wh: Tuple[int, int],
-                  full_wh: Tuple[int, int]) -> Tuple[int, int]:
+                  full_wh: Tuple[int, int],
+                  draw_gain: float = FALLBACK_DRAW_GAIN
+                  ) -> Tuple[int, int]:
     """Where a canvas sits in delivery-frame pixels, from a placement.
 
     The inverse of `tight_box.placement_for_box`, shared with
@@ -173,7 +178,8 @@ def canvas_origin(placement: dict, canvas_wh: Tuple[int, int],
     box = TightBox(width=canvas_w, height=canvas_h, props={},
                    placement=dict(placement),
                    union_w=float(canvas_w), union_h=float(canvas_h),
-                   full_width=full_w, full_height=full_h)
+                   full_width=full_w, full_height=full_h,
+                   gain=draw_gain)
     return canvas_offset(box)
 
 
@@ -192,7 +198,8 @@ def ink_bbox_of_frame(frame_path: str) -> Optional[Tuple[int, int, int, int]]:
 
 def composite_ink_centroid(frame_path: str, placement: dict,
                            canvas_wh: Tuple[int, int],
-                           full_wh: Tuple[int, int]
+                           full_wh: Tuple[int, int],
+                           draw_gain: float = FALLBACK_DRAW_GAIN
                            ) -> Optional[Tuple[float, float]]:
     """Where the asset's ink centroid lands on the delivery frame.
 
@@ -212,7 +219,8 @@ def composite_ink_centroid(frame_path: str, placement: dict,
     if ink is None:
         return None
     try:
-        ox, oy = canvas_origin(placement, canvas_wh, full_wh)
+        ox, oy = canvas_origin(placement, canvas_wh, full_wh,
+                               draw_gain=draw_gain)
     except (KeyError, TypeError, ValueError):
         return None
     return (ox + (ink[0] + ink[2]) / 2.0,
@@ -222,7 +230,8 @@ def composite_ink_centroid(frame_path: str, placement: dict,
 def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
                   computed: Optional[dict] = None,
                   *, full_wh: Tuple[int, int],
-                  tolerance_px: float = PIXEL_CENTROID_TOLERANCE) -> dict:
+                  tolerance_px: float = PIXEL_CENTROID_TOLERANCE,
+                  draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """Stored-render ink against intent-render ink, one frame per clip.
 
     `full_wh` is the DECLARED delivery frame and has no default - see
@@ -254,7 +263,8 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
                 kind, segment_id, computed.get((kind, segment_id)), intent,
                 canvas=tuple(canvas_wh) if canvas_wh else None,
                 frame=tuple(full_wh),
-                placement_label=clip.get("placement_label"))
+                placement_label=clip.get("placement_label"),
+                draw_gain=draw_gain)
         except OverlayIntentError as exc:
             skipped.append({"label": label, "reason": str(exc)})
             continue
@@ -267,9 +277,11 @@ def verify_pixels(clips: Sequence[dict], intent: Optional[dict],
             })
             continue
         at_stored = composite_ink_centroid(
-            frame_path, stored, tuple(canvas_wh), tuple(full_wh))
+            frame_path, stored, tuple(canvas_wh), tuple(full_wh),
+            draw_gain=draw_gain)
         at_expected = composite_ink_centroid(
-            frame_path, expected, tuple(canvas_wh), tuple(full_wh))
+            frame_path, expected, tuple(canvas_wh), tuple(full_wh),
+            draw_gain=draw_gain)
         if at_stored is None or at_expected is None:
             skipped.append({
                 "label": label,
@@ -379,7 +391,8 @@ def _asset_still(segment_files: dict) -> Optional[str]:
 
 def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
                         intent: Optional[dict] = None,
-                        full_wh: Tuple[int, int]) -> dict:
+                        full_wh: Tuple[int, int],
+                        draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     """Stored transforms against intent, after a reel build. REPORT ONLY.
 
     `placed` is one entry per tight overlay the build laid down -
@@ -403,7 +416,8 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
 
     try:
         return _sweep_reel_overlays(timeline, placed, intent=intent,
-                                    full_wh=full_wh)
+                                    full_wh=full_wh,
+                                    draw_gain=draw_gain)
     except Exception as failed:  # noqa: BLE001 - report, never refuse
         reason = f"overlay sweep unavailable ({failed}); the reel stands."
         print(f"  {reason}", file=sys.stderr)
@@ -413,7 +427,8 @@ def sweep_reel_overlays(timeline, placed: Sequence[dict], *,
 
 def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
                          intent: Optional[dict] = None,
-                         full_wh: Tuple[int, int]) -> dict:
+                         full_wh: Tuple[int, int],
+                         draw_gain: float = FALLBACK_DRAW_GAIN) -> dict:
     import sys
 
     computed: ComputedMap = {}
@@ -440,9 +455,11 @@ def _sweep_reel_overlays(timeline, placed: Sequence[dict], *,
             pixel_clip["asset_frame"] = _asset_still(entry)
             pixel_clips.append(pixel_clip)
     values = verify_values(value_clips, intent, computed,
-                           full_wh=tuple(full_wh))
+                           full_wh=tuple(full_wh),
+                           draw_gain=draw_gain)
     pixels = verify_pixels(pixel_clips, intent, computed,
-                           full_wh=tuple(full_wh))
+                           full_wh=tuple(full_wh),
+                           draw_gain=draw_gain)
     passed = bool(values["passed"] and pixels["passed"])
     for finding in values["findings"]:
         print(f"  overlay values: {finding['label']}: "

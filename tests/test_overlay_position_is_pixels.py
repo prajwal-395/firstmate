@@ -301,9 +301,12 @@ def test_the_floor_clears_the_cliff():
     from library.tools.tight_box import MIN_CANVAS_HEIGHT
     assert MIN_CANVAS_HEIGHT == 480
     for canvas_h in (140, 152, 246, 270, MIN_CANVAS_HEIGHT):
+        # History gain: this test pins the rail cliff the 2026-09-11
+        # calibration measured (see HISTORY_GAIN in test_tight_box.py).
         placement = placement_for_box(
             840, canvas_h, FULL_W / 2.0,
-            CANVAS_BOTTOM - canvas_h / 2.0, FULL_W, FULL_H)
+            CANVAS_BOTTOM - canvas_h / 2.0, FULL_W, FULL_H,
+            draw_gain=1.0)
         assert placement["scaling"] == 1
         if canvas_h <= 150:
             assert placement_holds(placement, FULL_W, FULL_H) != "", (
@@ -313,7 +316,7 @@ def test_the_floor_clears_the_cliff():
     assert abs(placement_for_box(
         840, MIN_CANVAS_HEIGHT, FULL_W / 2.0,
         CANVAS_BOTTOM - MIN_CANVAS_HEIGHT / 2.0,
-        FULL_W, FULL_H)["tilt"]) <= 3400
+        FULL_W, FULL_H, draw_gain=1.0)["tilt"]) <= 3400
 
 
 def test_subtitles_default_to_tight(tmp_path):

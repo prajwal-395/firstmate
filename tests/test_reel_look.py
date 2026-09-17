@@ -510,7 +510,9 @@ def test_a_real_aim_moves_hundreds_of_pixels():
 
     The aim was doubted because three shots of one reel all measured
     near centre and so all moved ~40px. That is the footage, not the
-    arithmetic: a subject at 0.30 moves the picture 498px.
+    arithmetic: a subject at 0.30 moves the picture 498px - stored as
+    Pan ~249 under today's measured draw gain (it stored ~498 under
+    the 2026-09-11 gain; see `tests/test_draw_gain_measured.py`).
     """
     window = _window(90)
     left = reel_look.punch_in_properties(
@@ -519,8 +521,8 @@ def test_a_real_aim_moves_hundreds_of_pixels():
     right = reel_look.punch_in_properties(
         {"punch_in": 2.3}, _Subject(0.70, 0.32), 3840, 2160, 1080, 1920,
         window=window)
-    assert left["Pan"] > 400
-    assert right["Pan"] < -400
+    assert left["Pan"] > 200
+    assert right["Pan"] < -200
 
 
 def test_a_punch_in_leaving_black_in_the_screen_is_refused():

@@ -45,6 +45,7 @@ from generate_motion_props import PLAN_KEY, generate_motion_props
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN  # noqa: E402
 from library.tools.overlay_carriage import (  # noqa: E402
     OVERLAY_FORMAT_NAME,
     OVERLAY_VIDEO_CODEC,
@@ -211,7 +212,9 @@ def render_one_segment(planned: dict, out_dir: str,
                        progress: str = "",
                        overlay_geometry: str = None,
                        project_folder: str = "",
-                       reuse: bool = False) -> Optional[dict]:
+                       reuse: bool = False,
+                       draw_gain: float = FALLBACK_DRAW_GAIN
+                       ) -> Optional[dict]:
     """Render ONE motion-graphics segment, and return what was placed.
 
     Lifted out of :func:`render_motion_graphics`'s loop unchanged - same
@@ -283,7 +286,8 @@ def render_one_segment(planned: dict, out_dir: str,
             tight, tight_refusal = \
                 tighten_motion_graphics_props_with_reason(
                     props, project_folder or "",
-                    timeline_size=timeline_size)
+                    timeline_size=timeline_size,
+                    draw_gain=draw_gain)
         except (TightBoxClipsInk, TightBoxMismatch) as exc:
             # The clamp gate and the frame bound: this graphic cannot
             # ride a small box on this timeline (or its predicted box

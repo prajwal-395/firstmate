@@ -62,11 +62,19 @@ REEL_09_INTENT = {
 COMPUTED_CAPTION = {"scaling": 1, "pan": 0.0, "tilt": -1744.0}
 
 
+#: The 2026-09-11 draw gain: these tests pin routing against pins
+#: recorded under that calibration (see HISTORY_GAIN in
+#: test_tight_box.py). Today's gain is proven separately
+#: (`tests/test_draw_gain_measured.py`) and by the rebuild gate.
+HISTORY_GAIN = 1.0
+
+
 def _resolve(kind, segment_id, computed, intent, canvas=CANVAS,
              placement_label=None):
     return resolve(kind, segment_id, computed, intent,
                    canvas=canvas, frame=FRAME,
-                   placement_label=placement_label)
+                   placement_label=placement_label,
+                   draw_gain=HISTORY_GAIN)
 
 
 def test_kind_default_pins_every_caption_alike():
@@ -255,7 +263,14 @@ class _Timeline:
 def test_declared_intent_wins_over_computed_on_the_timeline():
     """Reel 09 captions: computed -1744.0, declared -1700.0 - the
     placed item carries the declared position, end to end through
-    the production placer."""
+    the production placer.
+
+    The declared number follows the measured draw gain: the pin
+    centre [540, 1385] resolves to -850 under today's renderer
+    (it resolved to -1700 under the 2026-09-11 gain). What this
+    test pins is that the declared place wins, whichever gain
+    computes it.
+    """
     item = _Item(10)
     ok, note = place_overlay_segment(
         _Pool(result=["placed"]), _Timeline([item]), object(),
@@ -266,7 +281,7 @@ def test_declared_intent_wins_over_computed_on_the_timeline():
         intent=parse_intent(REEL_09_INTENT),
         canvas=CANVAS, frame=FRAME)
     assert ok and note == ""
-    assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -1700.0}
+    assert item.set_calls == {"Scaling": 1, "Pan": 0.0, "Tilt": -850.0}
 
 
 def test_no_intent_keeps_computed_on_the_timeline():

@@ -55,6 +55,8 @@ from __future__ import annotations
 import os
 from typing import Optional
 
+from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
+
 #: A held Pan/Tilt within this of the requested value counts as
 #: placed. Resolve stores floats; float rounding at these magnitudes
 #: is ~1e-3, while a clamp misses by hundreds - so this tolerates
@@ -166,7 +168,8 @@ def sequence_frame_paths(frame_dir: str) -> list[str]:
 
 def _intent_reason(draw_intent: Optional[dict],
                    placement: Optional[dict],
-                   held_values: dict) -> str:
+                   held_values: dict,
+                   draw_gain: float = FALLBACK_DRAW_GAIN) -> str:
     """Whether the HELD Pan/Tilt draw where `draw_intent` says.
 
     The stored value is judged by the PICTURE it produces, never
@@ -195,7 +198,8 @@ def _intent_reason(draw_intent: Optional[dict],
         if prop in held_values:
             held[key] = held_values[prop]
     return verify_ink_against_intent(canvas_w, canvas_h, held, ink, want,
-                                     full_w, full_h)
+                                     full_w, full_h,
+                                     draw_gain=draw_gain)
 
 
 def apply_placement_transform(timeline, track_index: int,
@@ -209,7 +213,9 @@ def apply_placement_transform(timeline, track_index: int,
                               canvas: Optional[tuple] = None,
                               frame: Optional[tuple] = None,
                               placement_label: Optional[str] = None,
-                              intent_matched: Optional[list] = None) -> str:
+                              intent_matched: Optional[list] = None,
+                              draw_gain: float = FALLBACK_DRAW_GAIN
+                              ) -> str:
     """Move an already-placed overlay clip onto its tight box.
 
     `placement` is None for a full-canvas clip (nothing to do), else
@@ -254,7 +260,8 @@ def apply_placement_transform(timeline, track_index: int,
                                            intent, canvas=canvas,
                                            frame=frame,
                                            placement_label=placement_label,
-                                           matched=intent_matched)
+                                           matched=intent_matched,
+                                           draw_gain=draw_gain)
     if provenance == "declared":
         name = f"{name} (declared position)"
     if not placement:
@@ -360,7 +367,8 @@ def apply_placement_transform(timeline, track_index: int,
                 refused.append(
                     f"{prop}={value} (Resolve holds {held:g} - "
                     f"clamped, the overlay is not where the box says)")
-        reason = _intent_reason(draw_intent, placement, held_values)
+        reason = _intent_reason(draw_intent, placement, held_values,
+                                 draw_gain=draw_gain)
         if reason:
             refused.append(reason)
     if refused:
@@ -384,6 +392,7 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           frame: Optional[tuple] = None,
                           placement_label: Optional[str] = None,
                           intent_matched: Optional[list] = None,
+                          draw_gain: float = FALLBACK_DRAW_GAIN
                           ) -> tuple[bool, str]:
     """Place one overlay clip and, where asked, transform it.
 
@@ -414,4 +423,5 @@ def place_overlay_segment(media_pool, timeline, pool_item,
         timeline, track_index, record_frame, placement, label,
         kind=kind, segment_id=segment_id, intent=intent,
         draw_intent=draw_intent, canvas=canvas, frame=frame,
-        placement_label=placement_label, intent_matched=intent_matched)
+        placement_label=placement_label, intent_matched=intent_matched,
+        draw_gain=draw_gain)

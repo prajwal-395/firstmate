@@ -93,7 +93,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from library.tools.resolve_transform import drawn_centre, fit_base_scale
+from library.tools.resolve_transform import (
+    FALLBACK_DRAW_GAIN,
+    drawn_centre,
+    fit_base_scale,
+)
 
 from library.tools.framing_intent import (
     FILL,
@@ -239,7 +243,9 @@ def _zoom_to_intent(zoom: float, ceiling: float) -> Tuple[float, float]:
 def delivered_picture(source_width, source_height,
                       frame_width: int, frame_height: int,
                       transform: Optional[dict] = None,
-                      rotation: int = 0) -> DeliveredPicture:
+                      rotation: int = 0,
+                      draw_gain: float = FALLBACK_DRAW_GAIN
+                      ) -> DeliveredPicture:
     """What one placed clip actually shows, from its own Resolve transform.
 
     ``transform`` is ``TimelineItem.GetProperty()`` verbatim.  ``None`` or
@@ -267,16 +273,21 @@ def delivered_picture(source_width, source_height,
     shown_h = source_height * fit * zoom_y
 
     # Pan/Tilt are NOT frame pixels.  One unit moves the clip
-    # `source_dim / frame_dim * fit` pixels - the same law every
-    # overlay is placed by (`library/tools/resolve_transform.py`).  On
-    # this project's 3840x2160 into 1080x1920 that is exactly 1.0 px
-    # on Pan and 0.3164 px on Tilt, which is why reading Tilt as
-    # frame pixels was right on one axis by coincidence and wrong by
-    # 3.16x on the other.  The user zoom does NOT enter it: measured,
-    # Pan 100 moved the picture 100px at zoom 1.0 and at 2.307 alike.
+    # `source_dim / frame_dim * fit` pixels times the measured draw
+    # gain - the same law every overlay is placed by
+    # (`library/tools/resolve_transform.py`).  On this project's
+    # 3840x2160 into 1080x1920 that is 2.0 px on Pan and 0.6328 px on
+    # Tilt under today's gain (1.0 / 0.3164 under the 2026-09-11
+    # one), which is why reading Tilt as frame pixels was right on
+    # one axis by coincidence and wrong by 3.16x on the other.  The
+    # user zoom does NOT enter it: measured, Pan 100 moved the
+    # picture 100px at zoom 1.0 and at 2.307 alike (under that gain).
+    # `draw_gain` pins which calibration reads a stored transform:
+    # production timelines read today's, tests pinning the older one
+    # pass 1.0 explicitly.
     centre_x, centre_y = drawn_centre(
         source_width, source_height, frame_width, frame_height,
-        pan, tilt, fit)
+        pan, tilt, fit, draw_gain)
     left = int(round(centre_x - shown_w / 2.0))
     top = int(round(centre_y - shown_h / 2.0))
 

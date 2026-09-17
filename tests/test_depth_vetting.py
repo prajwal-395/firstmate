@@ -114,11 +114,17 @@ def test_row_03_overlay_position():
     # Deep: the declared pin wins with provenance. The pin names the
     # PLACE (row 1385 for its canvas centre); the transform that
     # reaches it is computed against the canvas going down, so the pin
-    # survives a correction to the transform law as well as a rebuild.
+    # survives a correction to the transform law as well as a rebuild -
+    # under today's measured gain it resolves to -850, and under the
+    # 2026-09-11 gain it resolves to the -1700 the captain set.
     intent = {"caption": {"canvas_centre": [540.0, 1385.0], "scaling": 1}}
     placement, provenance = overlay_intent.resolve(
         "caption", None, computed, intent, canvas=canvas, frame=frame)
-    assert placement["tilt"] == -1700.0 and provenance == "declared"
+    assert placement["tilt"] == -850.0 and provenance == "declared"
+    history, _ = overlay_intent.resolve(
+        "caption", None, computed, intent, canvas=canvas, frame=frame,
+        draw_gain=1.0)
+    assert history["tilt"] == -1700.0
     _row(3, "overlay_position", shallow,
          "PERSISTS via intent (declared over computed)")
 
