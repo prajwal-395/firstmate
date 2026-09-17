@@ -582,8 +582,12 @@ def _assert_subtitle_overlay_matches_plan(manifest: dict) -> None:
     missing captions while the manifest still listed all of them.
 
     Comparing them is what the subtitle list is FOR. Each spine block with
-    captions must have an overlay segment, and that segment must span the
-    captions in it.
+    captions must have overlay coverage, and that coverage must span the
+    captions in it. One block may be covered by SEVERAL segments - step
+    4.05 renders one segment per caption card, so a block with three
+    cards reaches the timeline as three clips - and what is checked is
+    the union: the earliest segment must start where the captions start
+    and the latest must end where they end.
     """
     subtitles = manifest.get("subtitles", [])
     overlay = manifest.get("subtitle_overlay", {}) or {}
@@ -604,28 +608,30 @@ def _assert_subtitle_overlay_matches_plan(manifest: dict) -> None:
         lo, hi = by_block.get(position, (start, end))
         by_block[position] = (min(lo, start), max(hi, end))
 
-    segment_by_block = {
-        seg.get("block_position"): seg for seg in segments
-        if seg.get("block_position") is not None
-    }
+    segments_by_block = {}
+    for seg in segments:
+        if seg.get("block_position") is None:
+            continue
+        segments_by_block.setdefault(seg["block_position"], []).append(seg)
 
     problems = []
     for position, (lo, hi) in sorted(by_block.items(), key=lambda kv: str(kv[0])):
-        seg = segment_by_block.get(position)
-        if seg is None:
+        segs = segments_by_block.get(position, [])
+        if not segs:
             problems.append(
                 f"block {position}: {lo:.3f}-{hi:.3f}s has captions but no "
                 f"rendered overlay segment"
             )
             continue
-        seg_start = seg.get("timeline_start", 0)
-        seg_end = seg.get("timeline_end", 0)
+        seg_start = min(seg.get("timeline_start", 0) for seg in segs)
+        seg_end = max(seg.get("timeline_end", 0) for seg in segs)
         tolerance = COVERAGE_TOLERANCE_FRAMES / max(
             manifest.get("project", {}).get("frame_rate", 30.0), 1.0)
         if seg_start > lo + tolerance or seg_end < hi - tolerance:
             problems.append(
                 f"block {position}: captions span {lo:.3f}-{hi:.3f}s but the "
-                f"overlay segment only covers {seg_start:.3f}-{seg_end:.3f}s"
+                f"overlay segment(s) only cover "
+                f"{seg_start:.3f}-{seg_end:.3f}s"
             )
 
     if problems:

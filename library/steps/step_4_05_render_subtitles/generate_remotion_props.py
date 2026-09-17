@@ -2,9 +2,17 @@
 """
 Generate Remotion input props from pipeline subtitle data.
 
-Converts subtitle plan entries into per-spine-block Remotion SubtitleOverlay
-prop files. Each block gets its own props file with subtitle timings re-based
-to start at frame 0 (relative to the block start).
+Converts subtitle plan entries into per-card Remotion SubtitleOverlay
+prop files. Each karaoke card gets its own props file with subtitle
+timings re-based to start at frame 0 (relative to the card's start).
+
+A timeline caption clip holds exactly one karaoke card: the segment
+boundaries ARE the card boundaries step 4.01's `split_into_groups`
+chose (max words, word-gap, measured pixel fit), so no second rule set
+decides where a clip cuts and none can drift from the first. A
+transcript row boundary survives as a segment edge only where the
+cards tile it - every block edge coincides with a card edge, never
+with a cut through a card.
 
 Usage (standalone):
     python generate_remotion_props.py \\
@@ -32,7 +40,7 @@ def generate_subtitle_props_per_block(
     height: int,
     audio_spine: dict = None,
 ) -> list[dict]:
-    """Generate SubtitleOverlay props grouped by spine block.
+    """Generate SubtitleOverlay props grouped by caption card.
 
     `width`/`height` are the DECLARED delivery frame and have no default:
     a default is what let these render vertical onto a landscape timeline
@@ -46,10 +54,18 @@ def generate_subtitle_props_per_block(
     segment a frame in Resolve's time-mapping (vep-caption-segment-
     off-by-one-frame). Remotion renders fractional fps faithfully.
 
-    Returns a list of prop dicts, one per spine block containing subtitles.
-    Each block's subtitles have their frame timings re-based to 0 (relative
-    to the block's start time) so the rendered clip can be placed at the
-    block's timeline position in Resolve.
+    Returns a list of prop dicts, one per caption card carrying
+    subtitles. Each card's timings are re-based to 0 (relative to the
+    card's start time) so the rendered clip can be placed at the card's
+    timeline position in Resolve.
+
+    The grouping key is `(spine_block_position, card_index)` - the card
+    step 4.01 planned, in the block it planned it in. A plan entry with
+    no `card_index` (written before step 4.01 emitted one) falls back
+    to per-block grouping, so a stored plan still renders exactly as
+    it did: one segment holding the block's cards. Entries are ordered
+    by timeline start within a segment, so a segment's bounds always
+    read off the cards it holds.
     """
     entries = subtitle_data.get('subtitle_entries', [])
     if not entries:
@@ -79,20 +95,27 @@ def generate_subtitle_props_per_block(
     # speaker styles, which then renders exactly as before.
     styles_by_speaker = subtitle_data.get('styles_by_speaker') or {}
 
-    # Group entries by spine_block_position
-    block_groups: dict[int, list] = {}
+    # Group entries by (spine block, card): one rendered segment per
+    # karaoke card. The card boundaries are step 4.01's craft partition,
+    # so the segmenter reads them rather than re-deciding them - there
+    # is no second threshold to drift.
+    segment_groups: dict[tuple, list] = {}
     for entry in entries:
         pos = entry.get('spine_block_position', 0)
-        block_groups.setdefault(pos, []).append(entry)
-        
+        segment_groups.setdefault(
+            (pos, entry.get('card_index')), []).append(entry)
+
     structure = []
     if audio_spine:
         structure = audio_spine.get("structure", audio_spine.get("blocks", []))
     block_lookup = {b.get("position", i): b for i, b in enumerate(structure)}
 
     props_list = []
-    for block_pos in sorted(block_groups.keys(), key=str):
-        block_entries = block_groups[block_pos]
+    for (block_pos, _card_index) in sorted(
+            segment_groups.keys(), key=lambda key: str(key)):
+        block_entries = sorted(segment_groups[(block_pos, _card_index)],
+                               key=lambda e: (e.get('timeline_start', 0),
+                                              e.get('timeline_end', 0)))
         
         block_info = block_lookup.get(block_pos)
         # The spine block names the speaker where the edit provides one;
@@ -104,7 +127,13 @@ def generate_subtitle_props_per_block(
         # 4.01 subtitle_entries are already in the timeline domain.
         # No offset should be applied here.
 
-        # Determine block timeline range from the entries
+        # Determine this segment's timeline range from its entries -
+        # for a card-indexed plan that is exactly one card's display
+        # interval, so no card can display past its segment: the
+        # segment IS the card's [timeline_start, timeline_end].
+        # (Step 4.01's `display_until=block_end` still times the
+        # block's last card in the plan; the segment edge is read off
+        # the card here rather than re-decided.)
         block_tl_start = min(e['timeline_start'] for e in block_entries)
         block_tl_end = max(e['timeline_end'] for e in block_entries)
         block_dur = block_tl_end - block_tl_start
@@ -193,9 +222,15 @@ def generate_subtitle_props_per_block(
             "durationInFrames": total_frames,
             "style": block_style,
             # Metadata for placement (not consumed by Remotion).
-            # timeline bounds are the block's TRUE content bounds; the
+            # timeline bounds are the segment's TRUE content bounds; the
             # source_in/out frames trim the render padding.
             "_block_position": block_pos,
+            # Which card of the block this segment holds - the grouping
+            # key's second half, carried so a listing says which card a
+            # props dict (or a render of it) belongs to. Placement, not
+            # pixels: excluded from the reuse digest next to the other
+            # `_`-prefixed keys (see NON_DRAWING_PROPS_KEYS in step.py).
+            "_card_index": _card_index,
             "_timeline_start": block_tl_start,
             "_timeline_end": block_tl_end,
             "_source_in_frame": head_frames,
@@ -239,7 +274,7 @@ def main():
     else:
         subtitle_data = json.loads(args.subtitle_data)
 
-    # Generate per-block props
+    # Generate per-card props
     props_list = generate_subtitle_props_per_block(
         subtitle_data,
         fps=args.fps,
@@ -249,9 +284,14 @@ def main():
 
     for props in props_list:
         block_pos = props["_block_position"]
-        props_path = os.path.join(
-            args.output_dir, f"sub_block_{block_pos}_props.json"
-        )
+        # One file per segment: several cards of one block would
+        # otherwise overwrite each other under the old per-block name.
+        # A plan that predates `card_index` keeps the old name, which
+        # is also still unique then (one segment per block).
+        card_index = props.get("_card_index")
+        stem = (f"sub_block_{block_pos}_props.json" if card_index is None
+                else f"sub_block_{block_pos}_card{card_index}_props.json")
+        props_path = os.path.join(args.output_dir, stem)
 
         # Remove metadata keys before writing
         clean_props = {k: v for k, v in props.items() if not k.startswith("_")}

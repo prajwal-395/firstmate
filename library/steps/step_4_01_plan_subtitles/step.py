@@ -782,6 +782,25 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         sub_counters[token] = sub_counters.get(token, 0) + 1
         return f"sub_{token}_{sub_counters[token]:03d}"
 
+    # ── A card's ordinal within its block, and what it names ──
+    #
+    # Step 4.05 renders one segment per CARD, not one per block
+    # (`generate_remotion_props.generate_subtitle_props_per_block`):
+    # a timeline caption clip holds the cards the craft put together,
+    # and the craft's finest unit is one card. The segmenter groups by
+    # `(spine_block_position, card_index)`, so the index is emitted
+    # here, beside the id, from a counter incremented at exactly the
+    # same two sites - an id ordinal and a card index that can drift
+    # apart are two names for one card, which is how a card ends up in
+    # the wrong segment.
+    card_counters = {}
+
+    def _next_card_index(block_position) -> int:
+        token = slug(block_position, "noblock")
+        index = card_counters.get(token, 0)
+        card_counters[token] = index + 1
+        return index
+
     # ── The caption look, and the width it has to fit inside ──
     # Resolved once, at the top, and used for BOTH the grouping below and
     # the props at the bottom. It used to be resolved only at the bottom,
@@ -883,6 +902,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 entry_text = apply_caption_case(g["text"], caption_case).strip()
                 subtitle_entries.append({
                     "id": _next_id(block["position"]),
+                    "card_index": _next_card_index(block["position"]),
                     "timeline_start": max(g["start"], block_start),
                     "timeline_end": min(g["end"], block_end),
                     "text": entry_text,
@@ -974,6 +994,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     entry_text = apply_caption_case(g["text"], caption_case).strip()
                     subtitle_entries.append({
                         "id": _next_id(block["position"]),
+                        "card_index": _next_card_index(block["position"]),
                         "timeline_start": max(g["start"], seg_tl_start),
                         "timeline_end": min(g["end"], seg_tl_end),
                         "text": entry_text,

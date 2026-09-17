@@ -101,6 +101,21 @@ def test_a_covered_plan_passes():
         _manifest([(3, 4.4, 6.0)], [(3, 3.9, 6.5)]))
 
 
+def test_a_block_covered_by_two_card_segments_passes():
+    """Step 4.05 renders one segment per card, so a block with two
+    cards reaches the manifest as two segments. Coverage is the union:
+    the earliest starts where the captions start and the latest ends
+    where they end. Fails while the check reads one segment per block
+    (the second segment overwrites the first in a per-block dict, and
+    the union no longer spans the captions)."""
+    from library.steps.step_5_04_compile_manifest.step import (
+        _assert_subtitle_overlay_matches_plan,
+    )
+    _assert_subtitle_overlay_matches_plan(
+        _manifest([(3, 4.4, 6.0), (3, 6.0, 9.0)],
+                  [(3, 4.4, 6.0), (3, 6.0, 9.0)]))
+
+
 def test_a_block_with_no_rendered_segment_fails():
     from library.steps.step_5_04_compile_manifest.step import (
         _assert_subtitle_overlay_matches_plan,
@@ -114,7 +129,7 @@ def test_a_segment_that_stops_short_of_its_captions_fails():
     from library.steps.step_5_04_compile_manifest.step import (
         _assert_subtitle_overlay_matches_plan,
     )
-    with pytest.raises(ValueError, match="only covers"):
+    with pytest.raises(ValueError, match=r"only cover"):
         _assert_subtitle_overlay_matches_plan(
             _manifest([(3, 4.4, 9.0)], [(3, 3.9, 6.5)]))
 

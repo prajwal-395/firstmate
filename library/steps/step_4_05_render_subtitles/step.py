@@ -2,19 +2,20 @@
 """
 Step 4.05: Render Subtitles (Remotion)
 
-Takes the subtitle plan from step 4.01 and renders it to per-spine-block
+Takes the subtitle plan from step 4.01 and renders it to per-card
 overlay artefacts with an alpha channel using Remotion
 (`library/tools/overlay_carriage.py` owns what one IS).
 
-Each spine block with subtitles gets its own rendered overlay clip. The
-Resolve builder (step 6.01) places each segment at its timeline position
-on V3.
+Each karaoke card with subtitles gets its own rendered overlay clip -
+one segment per card, grouped by `(spine_block_position, card_index)`
+in `generate_remotion_props`. The Resolve builder (step 6.01) places
+each segment at its timeline position on V3.
 
 Workflow:
-  1. Generate per-block Remotion input props from the subtitle plan
+  1. Generate per-card Remotion input props from the subtitle plan
      (via generate_remotion_props.py)
-  2. Write props to per-block JSON files
-  3. Run `npx remotion render` for each block
+  2. Write props to per-card JSON files
+  3. Run `npx remotion render` for each card
   4. Return the list of rendered overlay paths for the manifest
 
 Classification: Deterministic / Direct Action
@@ -166,7 +167,9 @@ possible; every segment now says which of these three it is."""
 # What each excluded key is, so a future props addition lands on the
 # right side: `timeline` never reaches the props (it travels as the
 # caller's label); `_block_position` is the ordinal within one spine;
-# `_timeline_start`/`_timeline_end` are absolute timeline bounds;
+# `_card_index` is the card's ordinal within its block (one segment per
+# card - see generate_remotion_props); `_timeline_start`/`_timeline_end`
+# are absolute timeline bounds;
 # `_speaker`/`_source_clip_id`/`_source_start`/`_source_end` are the
 # provenance the filename stem already carries. Duration stays IN: it
 # is the file's frame count, and two variants holding one caption for
@@ -177,6 +180,7 @@ possible; every segment now says which of these three it is."""
 # derivation drift - it re-renders where hashing less would skip.
 NON_DRAWING_PROPS_KEYS = frozenset((
     "_block_position",
+    "_card_index",
     "_timeline_start",
     "_timeline_end",
     "_speaker",
@@ -1236,7 +1240,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
                              renderer_kind: str = DEFAULT_CAPTION_RENDERER,
                              overlay_geometry: str = None,
                              overlay_container: str = None) -> dict:
-    """Render one overlay per captioned spine block: stitched ProRes
+    """Render one overlay per caption card: stitched ProRes
     overlay artefact by default, a PNG sequence where the project
     declares one (`library/tools/overlay_mode.py`).
 
@@ -1356,7 +1360,7 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
     props_list = generate_subtitle_props_per_block(subtitle_plan, fps=fps, width=width, height=height, audio_spine=audio_spine)
 
     if not props_list:
-        print("WARNING: No subtitle blocks to render", file=sys.stderr)
+        print("WARNING: No subtitle cards to render", file=sys.stderr)
         # A run that produced no assets records an empty set - a valid
         # ledger with no segments, which the pipeline root reads as an
         # `ok` root with no paths rather than as unreadable. Warn-only:
@@ -1377,10 +1381,10 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
 
     # ── Region scope narrows WHICH segments render, and nothing else ──
     #
-    # Filtered on the spine block, not on the segment's own time span: a
-    # segment IS a block, so a region that clips a block still re-renders
-    # the whole of it.  Rendering half a block's captions would leave a
-    # card split across two vintages of the plan.
+    # Filtered on the spine block, not on the segment's own time span:
+    # a region that clips a block still re-renders all of that block's
+    # cards. Rendering half a block's captions would leave a card split
+    # across two vintages of the plan.
     planned_total = len(props_list)
     if scope is not None and scope.is_region:
         from library.tools.spine_contract import blocks_overlapping

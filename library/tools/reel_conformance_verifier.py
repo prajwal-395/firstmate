@@ -315,6 +315,14 @@ class PlannedCaption:
     """The spine block this card was planned from, as a string."""
     block_end_seconds: Optional[float] = None
     """Where that block ends, in REEL seconds - what F7's exemption needs."""
+    card_index: Optional[int] = None
+    """The card's ordinal within its block, as step 4.01 planned it.
+
+    Step 4.05 renders one segment PER CARD, so this is the pairing key's
+    second half beside `block_position`: an expected segment is one
+    card, not one block. `None` on a card from a plan that predates the
+    field falls back to per-block grouping, exactly as the renderer
+    does for such a plan."""
 
 
 @dataclass(frozen=True)
@@ -1142,26 +1150,26 @@ def check_caption_duration(reel_name: str,
 
     **Cards are graded as the SEGMENTS the builder places, never one by
     one.** Step 4.01 groups a block's words into several cards
-    (`subtitle_entries`) and step 4.05 renders one overlay per block
-    (`generate_subtitle_props_per_block`), sequencing that block's cards
-    INSIDE the file - so `build_reel_timeline` places one V3 item per
-    block, spanning its first card's start to its last card's end. That
-    is the unit the pipeline promises: `compile_manifest` refuses a
-    build whose per-block segment does not span the block's captions.
-    Pairing each card against the block-spanning item compares a card's
-    duration to its container's, which fires F2 on every block's first
-    card (delta = the rest of the block) and F14 on every other card -
-    one finding per planned card - on a correct build. Measured 2026-09-07
-    on a freshly rebuilt reel 1: 34 planned cards, 34 such findings.
+    (`subtitle_entries`) and step 4.05 renders one overlay per card
+    (`generate_subtitle_props_per_block`) - so `build_reel_timeline`
+    places one V3 item per card, spanning that card's start to its end.
+    That is the unit the pipeline promises: `compile_manifest` refuses
+    a build whose per-block segments do not cover the block's captions.
+    Pairing each card against a block-spanning item would compare a
+    card's duration to its container's, which fires F2 on every block's
+    first card (delta = the rest of the block) and F14 on every other
+    card - one finding per planned card - on a correct build. Measured
+    2026-09-07 on a freshly rebuilt reel 1: 34 planned cards, 34 such
+    findings.
 
-    So the expected side is grouped by block first, and each expected
-    SEGMENT (min card start to max card end, in the same frames
-    arithmetic the builder places with) is paired to the placed item at
-    its start frame. Per-card timing inside the file is the renderer's,
-    not the timeline's: the item cannot express it, so the check grades
-    what the timeline decides - position and span - and grading the
-    container against the container is what keeps this a real gate.
-    A short, long, shifted or missing segment still fails.
+    So the expected side is grouped by (block, card) first - the same
+    key the renderer groups by - and each expected SEGMENT (min card
+    start to max card end, in the same frames arithmetic the builder
+    places with) is paired to the placed item at its start frame. Each
+    placed item carries exactly one card, so the check grades what the
+    timeline decides - position and span, card by card - and grading the
+    item against its own card is what keeps this a real gate. A short,
+    long, shifted or missing segment still fails.
 
     The segment span is rounded PER EDGE - `span_frames(start, end)` -
     never `round((end - start) * fps)`.  Two blocks that abut in
@@ -1178,15 +1186,21 @@ def check_caption_duration(reel_name: str,
     """
     findings: List[Finding] = []
 
-    # The unit the builder places: one segment per spine block, spanning
-    # the block's cards. Grouped here rather than read from the render,
-    # because the plan is what is being graded and the render is what
-    # the pairing below already reads off the timeline.
+    # The unit the builder places: one segment per caption card. Grouped
+    # here rather than read from the render, because the plan is what is
+    # being graded and the render is what the pairing below already reads
+    # off the timeline. The key is (block, card) - the same key step 4.05
+    # groups by; a card with no `card_index` (a plan that predates the
+    # field) falls back to per-block grouping, exactly as the renderer
+    # does for such a plan.
     segments: List[dict] = []
-    by_block: Dict[object, List[int]] = {}
+    by_segment: Dict[object, List[int]] = {}
     for i, cap in enumerate(planned_captions):
-        by_block.setdefault(cap.block_position, []).append(i)
-    for block, indices in by_block.items():
+        key = (cap.block_position, cap.card_index) \
+            if cap.card_index is not None else cap.block_position
+        by_segment.setdefault(key, []).append(i)
+    for key, indices in by_segment.items():
+        block = key[0] if isinstance(key, tuple) else key
         cards = [planned_captions[i] for i in indices]
         start = min(c.start_seconds for c in cards)
         end = max(c.end_seconds for c in cards)
@@ -1746,8 +1760,8 @@ def check_placed_caption_hangs(
 
     Each placed item is paired to its planned SEGMENT by start frame -
     the same ``PAIRING_TOLERANCE_FRAMES`` identity F2 already uses, and
-    the same per-block grouping (a block's cards sequenced inside one
-    placed overlay is the unit the builder places).  The DURATION is read
+    the same per-card grouping (one placed overlay per card is the unit
+    the builder places).  The DURATION is read
     off the placed item; the WORD BUDGET comes from the paired segment's
     cards, because a placed overlay carries no text - and the bound is
     :func:`_hang_limit_seconds`, the same expression as the plan side,
@@ -1760,10 +1774,14 @@ def check_placed_caption_hangs(
     """
     findings: List[Finding] = []
     segments: List[dict] = []
-    by_block: Dict[object, List[dict]] = {}
+    by_segment: Dict[object, List[dict]] = {}
     for card in caption_cards:
-        by_block.setdefault(card.get("block_position"), []).append(card)
-    for block, cards in by_block.items():
+        key = (card.get("block_position"), card.get("card_index")) \
+            if card.get("card_index") is not None \
+            else card.get("block_position")
+        by_segment.setdefault(key, []).append(card)
+    for key, cards in by_segment.items():
+        block = key[0] if isinstance(key, tuple) else key
         starts = [c.get("reel_start", c.get("start_seconds", 0))
                   for c in cards]
         ends = [c.get("reel_end", c.get("end_seconds", 0)) for c in cards]
@@ -4439,6 +4457,7 @@ def verify_reel(plan: ReelPlan,
         {"reel_start": c.start_seconds, "reel_end": c.end_seconds,
          "text": c.text, "speaker": c.speaker, "frames": c.frames,
          "block_position": c.block_position,
+         "card_index": c.card_index,
          "block_end": c.block_end_seconds}
         for c in plan.captions]
 
@@ -5259,6 +5278,7 @@ def _derive_planned_captions(
             frames=max(int(round((float(end) - float(start)) * fps)), 1),
             block_position=position,
             block_end_seconds=block_end.get(position),
+            card_index=entry.get("card_index"),
         ))
     return _retime_planned_captions(tuple(cards), spine, fps,
                                     project_folder, timeline)

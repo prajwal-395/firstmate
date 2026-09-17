@@ -567,7 +567,7 @@ def build_timeline(
 
     # ── Resolve overlay segments from manifest ──
     # Per-segment overlays (new): manifest contains subtitle_overlay.segments
-    # and motion_graphics_overlay.segments arrays with per-block paths.
+    # and motion_graphics_overlay.segments arrays with per-segment paths.
     # Legacy fallback: single subtitle_overlay_path / motion_graphics_path.
     sub_overlay_info = manifest.get('subtitle_overlay', {})
     mg_overlay_info = manifest.get('motion_graphics_overlay', {})
