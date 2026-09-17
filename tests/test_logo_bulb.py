@@ -39,22 +39,47 @@ RATE = 24000 / 1001
 
 # ── Fixtures whose answers are known before anything is measured ─────
 
+BASE_LANDS = 0.865
+BASE_LANDS_AT = 0.656
+"""When the navy base arrives, as a fraction of the draw-on, and how
+much of itself it arrives with.
+
+``logo_reveal_23976.mov`` draws its filament from frame 12 to frame 49
+and does not touch the screw base until frame 44 - 0.865 of the way
+through - where 0.656 of it lands at once and the rest creeps in by the
+completion frame. The base therefore arrives against a field the mark
+has already lit, which is why
+:data:`~library.tools.logo_bulb.SEPARATION_FLOOR` is reachable at all.
+A fixture that drew the base from the first frame would be measuring a
+timing the delivered file does not have."""
+
+
 def _mark(size: int, drawn: float, level: float) -> np.ndarray:
     """One frame: an orange bar and a navy bar, drawn ``drawn`` of the
     way across, at ``level`` alpha, inside a soft authored collar.
+
+    The navy bar lands late, as the delivered file's base does
+    (:data:`BASE_LANDS`).
     """
     from scipy import ndimage
 
     frame = np.zeros((size, size, 4), dtype=np.float64)
     bright = slice(int(size * 0.23), int(size * 0.31))
     dark = slice(int(size * 0.59), int(size * 0.66))
+    base_drawn = 0.0
+    if drawn >= BASE_LANDS:
+        base_drawn = BASE_LANDS_AT + (1.0 - BASE_LANDS_AT) * (
+            (drawn - BASE_LANDS) / (1.0 - BASE_LANDS))
     span = slice(int(size * 0.16), int(size * 0.16 + size * 0.68 * drawn))
+    under = slice(int(size * 0.16),
+                  int(size * 0.16 + size * 0.68 * base_drawn))
     ink = np.zeros((size, size), dtype=np.float64)
     if span.stop > span.start:
         ink[bright, span] = 1.0
-        ink[dark, span] = 1.0
         frame[bright, span, :3] = ORANGE
-        frame[dark, span, :3] = NAVY
+    if under.stop > under.start:
+        ink[dark, under] = 1.0
+        frame[dark, under, :3] = NAVY
     collar = ndimage.gaussian_filter(ink, sigma=8.0 * size / 1080.0)
     frame[..., 3] = np.clip(ink + 0.42 * collar * (1.0 - ink), 0.0, 1.0)
     frame[..., 3] *= level
@@ -225,14 +250,21 @@ def test_the_closing_frame_is_opaque_everywhere():
 
 
 def test_the_light_only_ever_brightens_the_ground():
-    """A glow that blends can darken what it falls on. This one adds."""
+    """A glow that blends can darken what it falls on. This one adds.
+
+    Measured against the ground that is STANDING on each frame, because
+    beat 5 takes the ground itself to black - the light must never
+    darken the field, but the ending is allowed to.
+    """
     profile = _profile()
     frames = _sequence(size=96)
     out = lb.bulb_sequence(frames, RATE, profile)
-    ground = np.asarray(LUCIE_GROUND)
-    for frame, source in zip(out, frames):
+    _, levels = lb.mark_measurements(frames, profile)
+    standing = lb.picture_fade(levels, profile)
+    for frame, source, left in zip(out, frames, standing):
         away = source[..., 3] <= 0.0
         if away.any():
+            ground = np.asarray(LUCIE_GROUND) * left
             assert (frame[..., :3][away] >= ground - 1e-9).all()
 
 
@@ -254,6 +286,161 @@ def test_the_ink_still_occludes_the_ground_it_sits_on():
 def test_the_ground_is_black_when_nothing_declares_one():
     assert ClosingProfile().ground == lb.BLACK
     assert lb.parse_ground("black") == (0.0, 0.0, 0.0)
+
+
+# ── Beat 5: the ground goes with them, and it ends on black ──────────
+
+def test_the_ground_stands_at_full_until_the_mark_starts_to_go():
+    """The flash is his and it happens on the navy. Nothing about the
+    field may move before the fade the captain timed starts."""
+    _, levels = lb.mark_measurements(_sequence(), _profile())
+    standing = lb.picture_fade(levels, _profile())
+    assert all(value == 1.0 for value in standing[:DRAW + HOLD])
+
+
+def test_the_ground_travels_to_black_on_the_captain_s_own_slope():
+    """One gesture, not two: the field rides the same curve the mark's
+    own fade does, and the two are the SAME numbers."""
+    _, levels = lb.mark_measurements(_sequence(), _profile())
+    profile = _profile()
+    standing = lb.picture_fade(levels, profile)
+    carried = [level * scale for level, scale
+               in zip(levels, lb.fade_scale(levels, profile))]
+    top = max(carried)
+    assert standing == pytest.approx([value / top for value in carried])
+    assert standing[-1] == 0.0
+    assert all(a >= b for a, b in itertools.pairwise(standing))
+
+
+def test_the_last_frame_is_black_and_holds_nothing():
+    """The direction the whole ruling is measured against: today the
+    navy stood to the last frame."""
+    frames = _sequence(size=96)
+    out = lb.bulb_sequence(frames, RATE, _profile())
+    assert float(np.abs(out[-1][..., :3]).max()) == 0.0
+    # and it really is the ending that did it, not an empty source
+    assert float(np.abs(out[DRAW + HOLD - 1][..., :3]).max()) > 0.0
+
+
+def test_a_ground_that_did_not_travel_would_leave_the_navy_standing():
+    """The gate can fail: hold the ground up and the last frame is the
+    declared navy rather than black."""
+    frames = _sequence(size=96)
+    profile = _profile()
+    held = lb.bulb_frame(frames[-1], profile.base_light, 0.0, profile)
+    assert np.allclose(held[..., :3], np.asarray(LUCIE_GROUND))
+
+
+# ── The base has to stay a base ──────────────────────────────────────
+
+def test_the_base_sinks_into_the_navy_with_no_lift():
+    """The direction. This is the measurement that sent the second
+    version back: a navy base on a navy field."""
+    frames = _sequence(size=192)
+    flat = _profile(field_lift=0.0)
+    closed = lb.bulb_sequence(frames, RATE, flat)
+    report = lb.separation_report(frames, closed, flat)
+    assert report["base_drawn"] is True
+    assert report["clears_floor"] is False
+
+
+def test_the_field_lift_is_what_lifts_the_base_off_the_field():
+    """The lift, and only the lift, is what moves that number.
+
+    :data:`~library.tools.logo_bulb.SEPARATION_FLOOR` is 8.5 read off
+    the real lockup, and these bars are not that lockup - the number
+    they reach is their own. What is pinned here is that the declared
+    lift more than doubles it and that it rises with the lift, because
+    those are the properties the real asset's clearance rests on.
+    """
+    frames = _sequence(size=192)
+    report = lb.separation_report(
+        frames, lb.bulb_sequence(frames, RATE, _profile()), _profile())
+    flat = _profile(field_lift=0.0)
+    without = lb.separation_report(
+        frames, lb.bulb_sequence(frames, RATE, flat), flat)
+    assert report["worst_separation"] > 2.0 * without["worst_separation"]
+    assert report["base_first_drawn_frame"] == without[
+        "base_first_drawn_frame"]
+
+    more = _profile(field_lift=2.0 * lb.FIELD_LIFT)
+    assert lb.separation_report(
+        frames, lb.bulb_sequence(frames, RATE, more), more
+    )["worst_separation"] > report["worst_separation"]
+
+
+def test_the_report_says_yes_as_well_as_no():
+    """A gate that can only say no reads as coverage without being it."""
+    frames = _sequence(size=192)
+    enough = _profile(field_lift=2.0 * lb.FIELD_LIFT)
+    report = lb.separation_report(
+        frames, lb.bulb_sequence(frames, RATE, enough), enough)
+    assert report["worst_separation"] >= lb.SEPARATION_FLOOR
+    assert report["clears_floor"] is True
+
+
+def test_the_lift_moves_the_ground_s_value_and_not_its_hue():
+    """A lift is not a different blue. The declared ground multiplies,
+    so the channel ratios - hue and saturation - come through exactly."""
+    profile = _profile()
+    mark = _mark(96, 1.0, 1.0)
+    _, ink = lb.separate_ink(mark, profile.light)
+    spread, normaliser = lb.field_geometry([mark], profile)
+    pool = lb.field_pool(ink, spread, normaliser)
+    lifted = lb.bulb_frame(mark, 0.0, 1.0, profile, 1.0, pool)
+
+    behind = (ink <= 0.0) & (pool >= 0.9 * pool.max())
+    assert behind.any()
+    painted = lifted[..., :3][behind]
+    declared = np.asarray(LUCIE_GROUND)
+    assert (painted >= declared - 1e-9).all()
+    ratio = painted / declared
+    assert np.allclose(ratio, ratio[:, :1], atol=1e-9)
+
+
+def test_a_black_ground_is_not_lifted_at_all():
+    """Nothing times anything is nothing - and that is the right answer,
+    because a navy base already reads on black."""
+    frames = _sequence(size=96)
+    black = ClosingProfile()
+    flat = ClosingProfile(field_lift=0.0)
+    for lifted, plain in zip(lb.bulb_sequence(frames, RATE, black),
+                             lb.bulb_sequence(frames, RATE, flat)):
+        assert np.array_equal(lifted, plain)
+
+
+def test_the_declared_ground_is_what_the_frame_reads_away_from_the_mark():
+    """The pool is BEHIND the lockup, and it dies. The field itself is
+    #253746 - on the real 1080x1920 asset every corner is more than
+    four spreads from the mark, which is what this canvas reproduces."""
+    profile = _profile()
+    pad = 300
+    mark = np.zeros((192 + 2 * pad, 192 + 2 * pad, 4), dtype=np.float64)
+    mark[pad:pad + 192, pad:pad + 192] = _mark(192, 1.0, 1.0)
+    _, ink = lb.separate_ink(mark, profile.light)
+    spread, normaliser = lb.field_geometry([mark], profile)
+    pool = lb.field_pool(ink, spread, normaliser)
+    out = lb.bulb_frame(mark, 0.0, 1.0, profile, 1.0, pool)
+    assert np.allclose(out[0, 0, :3], np.asarray(LUCIE_GROUND), atol=1e-4)
+    assert pool.max() == pytest.approx(1.0, abs=1e-9)
+
+
+def test_the_pool_arrives_with_the_mark_and_leaves_with_it():
+    profile = _profile()
+    whole = _mark(96, 1.0, 1.0)
+    spread, normaliser = lb.field_geometry([whole], profile)
+    _, ink = lb.separate_ink(whole, profile.light)
+    assert lb.field_pool(ink, spread, normaliser).max() == pytest.approx(
+        1.0, abs=1e-9)
+    assert lb.field_pool(np.zeros_like(ink), spread, normaliser).max() == 0.0
+    part = lb.field_pool(ink * 0.25, spread, normaliser).max()
+    assert 0.0 < part < 1.0
+
+
+def test_a_mark_that_covers_no_pixel_has_no_field_to_lift():
+    with pytest.raises(SourceNotClosed):
+        lb.field_geometry([np.zeros((16, 16, 4), dtype=np.float64)],
+                          _profile())
 
 
 # ── Where the ground comes from ──────────────────────────────────────
@@ -308,6 +495,9 @@ def test_every_declared_value_is_on_the_profile():
     assert profile.base_light == lb.BASE_LIGHT
     assert profile.flash_light == lb.FLASH_LIGHT
     assert profile.tail_ceiling == lb.TAIL_CEILING
+    assert profile.field_spread == lb.FIELD_SPREAD
+    assert profile.field_lift == lb.FIELD_LIFT
+    assert profile.separation_floor == lb.SEPARATION_FLOOR
     assert profile.with_ground(LUCIE_GROUND).ground == LUCIE_GROUND
     assert profile.with_ground(LUCIE_GROUND).base_light == lb.BASE_LIGHT
 

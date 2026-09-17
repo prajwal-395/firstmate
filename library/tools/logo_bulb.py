@@ -1,4 +1,4 @@
-"""logo_bulb.py - the closing animation: dark, arrival, one flash, gone.
+"""logo_bulb.py - the closing animation: navy, arrival, one flash, black.
 
 The captain, 2026-09-17, on a blue ``feedback`` marker placed on
 ``logo_reveal_23976.mov`` in Reel 13, after watching the rebuilt reels:
@@ -13,15 +13,51 @@ The captain, 2026-09-17, on a blue ``feedback`` marker placed on
     *"and when this animtation is fixed, it is something that applies to
     all of the reels we have already built and will be building"*
 
-That is four beats, in order, and this module is those four beats:
+Shown the result on the Lucie navy and on black and asked which ships,
+he chose neither and answered a third way:
+
+    *"niether really, just scrap the old versions, i like the glow of
+    the new version but i want it applied to the Lucie Navy and then
+    fade to black to end out the animation at the end"*
+
+That is FIVE beats, in order, and this module is those five beats:
 
 ===  ===================================================================
 1    a DARK GROUND - a deliberate dark field, not transparency over
-     whatever the reel happens to end on
+     whatever the reel happens to end on. On Lucie it is the navy, and
+     it is now a beat with a beginning and an END
 2    the mark ARRIVES - the delivered animation's own draw-on, untouched
 3    ONE flash AT COMPLETION - a bulb switching on, not a hold
 4    mark and light FADE OUT TO NOTHING
+5    the GROUND GOES WITH THEM - the field travels to black on the same
+     slope, so the animation ends on a frame that is black and holds
+     nothing
 ===  ===================================================================
+
+Beat 5 is the second ruling, and it is one gesture rather than two:
+:func:`picture_fade` is the curve, and the ground, the mark and the
+light all ride it. There is no separate ground timing to tune, and no
+second slope to get wrong.
+
+And the base has to stay a base
+-------------------------------
+He attached a picture with that ruling: the bulb on a warm amber field
+with its dark navy SCREW BASE clearly visible - not the brand lockup,
+which is an orange C with rays on transparency and no base at all. On
+the navy ground put to him the base was 2.4 dE off the field, which is
+the just-noticeable difference, so the only object left was the glowing
+filament and a bulb with no base stops reading as a bulb - against his
+own stated reason for wanting a flash, *"like a light bulb since that
+is what the logo is made to resemble"*.
+
+**The amber field and the pale mark in that picture are NOT read as a
+colour instruction.** He said Lucie Navy in words and words beat a
+picture. What is read from it is that the base must stay readable, and
+:data:`SEPARATION_FLOOR` is that requirement as a number:
+:data:`FIELD_LIFT` lifts the declared ground's own VALUE behind the
+lockup until the base clears it. The mark's colour and the declared
+navy are both untouched - a lift is not a different blue, and it is
+exactly zero on a black ground, where a navy base already reads.
 
 What this supersedes, and why that is not a contradiction
 ---------------------------------------------------------
@@ -105,7 +141,7 @@ mark on.
 The fade
 --------
 **This module CARRIES the delivered fade to zero. It does not author
-one.** The delivered animation's tail is a linear ramp that stops at
+one.** It carries the GROUND on the same curve (beat 5). The delivered animation's tail is a linear ramp that stops at
 0.164 of full alpha and then cuts; :func:`fade_scale` re-maps that ramp
 so the same slope reaches exactly zero, which is the captain's own
 pacing finished rather than a curve this module chose. A source whose
@@ -137,7 +173,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
@@ -145,6 +181,7 @@ import numpy as np
 
 from library.tools.logo_relight import (
     PIPE_FORMAT,
+    WORKING_SIGMA,
     LightProfile,
     _dither,
     emission,
@@ -219,6 +256,70 @@ that is REFUSED, because authoring an ending is the captain's decision
 and not this module's (AGENTS.md 10.5)."""
 
 
+FIELD_SPREAD = 0.5
+"""How wide the field lift is, as a fraction of the completed mark's
+larger side.
+
+The lift exists so that a dark object has something to sit against, and
+it must therefore carry no edge of its own inside the lockup. At half
+the mark's larger side - 216 px for ``logo_reveal_23976.mov``'s
+433 x 373 lockup - the pool's own falloff is slower than the mark is
+wide: across the whole screw base it runs 0.79 to 0.93 of its peak,
+which is a field and not an edge, and it is 0.00002 at every corner of
+the 1080x1920 frame, so the declared ground is exactly itself
+everywhere but behind the mark. A tighter spread reads as a second
+glow; a wider one stops being behind the mark at all."""
+
+FIELD_LIFT = 0.30
+"""How much the declared ground's own value is lifted, at the peak of
+the pool behind the mark.
+
+It MULTIPLIES the declared ground, so the hue and the saturation are
+untouched and only the value moves: #253746 reaches (48, 72, 91) dead
+behind the lockup and is exactly #253746 everywhere the pool has died.
+On a BLACK ground it is exactly zero - nothing times anything is
+nothing - which is right, because a navy base already reads on black
+and is the reason this number exists at all.
+
+Solved, not chosen. Swept against :data:`SEPARATION_FLOOR` on
+``logo_reveal_23976.mov``, the worst full-presence frame measures 3.14
+dE at no lift, then 4.94, 5.89, 6.85, 7.82 and **8.79** at 0.30 - the
+first tested value over the 8.5 floor, and the worst frame is 44 every
+time, where the base lands. Linearly the floor is crossed at about
+0.29; 0.30 is the hundredth above it, because a value solved to sit a
+twentieth of a dE over a threshold is a gate that flips on rounding.
+
+**Why the FIELD and not the base.** Letting the base catch more of the
+mark's own light is the physically obvious move - it does not emit, so
+the light it receives is the only light on it - and it goes BACKWARDS:
+measured on frame 44, the separation falls 3.14, 2.80, 2.48 as the base
+catches 0.05, 0.50 and 1.00 of the light. The base is read as a
+SILHOUETTE against a lit field, so lighting the base closes the very
+gap it is read by. Lifting the base's own value is the third route and
+it repaints the mark, which is the captain's.
+"""
+
+SEPARATION_FLOOR = 8.5
+"""How far the mark's non-emitting base must sit from the field around
+it, as CIE76 dE between the base's interior and the ground within 8 px
+of it (:func:`base_separation`).
+
+**Measured on the navy render the captain rejected**, frame by frame:
+the base is drawn from frame 44, and its separation from the field runs
+3.1 at arrival, 8.5 at the flash, and 4.0 by the end of the release -
+against the BARE navy it never leaves 2.4-2.9, which is the just-
+noticeable difference and is why the base sank into the field. The one
+moment it does read is the flash, and that moment is one he has already
+seen, so it is the bar: **the base should read throughout as well as it
+already reads at the peak of the flash.** A number off a perception
+table would have been a guess about his screen; this one is off his own
+asset.
+
+The floor is checked where the mark is FULLY PRESENT. Past that the
+mark is deliberately going out (beat 4), and a base that still read
+there would be the fade failing."""
+
+
 class SourceNotClosed(ValueError):
     """The source cannot carry the closing animation asked of it."""
 
@@ -241,17 +342,14 @@ class ClosingProfile:
     base_light: float = BASE_LIGHT
     flash_light: float = FLASH_LIGHT
     tail_ceiling: float = TAIL_CEILING
+    field_spread: float = FIELD_SPREAD
+    field_lift: float = FIELD_LIFT
+    separation_floor: float = SEPARATION_FLOOR
 
     def with_ground(self, ground: Tuple[float, float, float]
                     ) -> "ClosingProfile":
         """The same closing, on a different field."""
-        return ClosingProfile(
-            light=self.light, ground=ground,
-            complete_fraction=self.complete_fraction,
-            attack_seconds=self.attack_seconds,
-            release_seconds=self.release_seconds,
-            base_light=self.base_light, flash_light=self.flash_light,
-            tail_ceiling=self.tail_ceiling)
+        return replace(self, ground=ground)
 
 
 # ── Where the ground comes from ──────────────────────────────────────
@@ -368,20 +466,33 @@ def intensity_envelope(count: int, completion: int, rate: float,
             for value in flash_envelope(count, completion, rate, profile)]
 
 
-def fade_scale(levels: Sequence[float], profile: ClosingProfile
-               ) -> List[float]:
-    """What to multiply the mark's alpha by so its own fade reaches zero.
+def picture_fade(levels: Sequence[float], profile: ClosingProfile
+                 ) -> List[float]:
+    """How much of the picture is still standing, frame by frame.
 
-    The delivered animation fades linearly and stops at 0.164 of full.
-    This re-maps that ramp onto [0, 1] - ``(level - last) / (1 - last)``
-    - and returns the ratio between the re-mapped level and the level
-    the frame actually carries. Before the fade starts the ratio is
-    exactly 1, so nothing the captain timed moves; through the fade the
-    slope steepens just enough to arrive at nothing.
+    1.0 for as long as the mark is up, then the delivered fade re-mapped
+    onto [0, 1] - ``(level - last) / (1 - last)`` - so that the
+    captain's own slope arrives at exactly zero instead of stopping at
+    the 0.164 the delivered file cuts off on.
 
-    The light is not scaled here and does not need to be: it is driven
-    by the emission of an ink whose alpha this ratio has already scaled,
-    so mark and light go out together.
+    **This is the whole ending, not just the mark's half of it.** The
+    captain, 2026-09-17, having been shown the navy and the black
+    ground and asked which ships: *"i like the glow of the new version
+    but i want it applied to the Lucie Navy and then fade to black to
+    end out the animation at the end"*. Today the mark goes and the
+    navy field stays to the last frame; he wants the thing to END ON
+    BLACK. So the ground travels on this curve too
+    (:func:`bulb_sequence`), and the ending is ONE gesture rather than
+    two: the same slope, over the same frames, taking the mark, its
+    light and the field it sits on to nothing together.
+
+    Darkening the ground AFTER the mark had gone was the alternative
+    and it is worse on this source: the mark is not out until frame 70
+    of 72, so an ending that starts there has two frames to travel a
+    whole field and reads as a cut. Darkening it over a longer,
+    earlier span was the other, and it takes the navy away while the
+    flash is still happening - the flash is his and it happens on the
+    navy.
     """
     if not levels:
         return []
@@ -391,7 +502,7 @@ def fade_scale(levels: Sequence[float], profile: ClosingProfile
 
     last = levels[-1] / top
     if last <= 0.0:
-        return [1.0] * len(levels)
+        return [min(1.0, value / top) for value in levels]
     if last > profile.tail_ceiling:
         raise SourceNotClosed(
             f"the source's last frame is at {last:.3f} of its peak alpha, "
@@ -403,19 +514,119 @@ def fade_scale(levels: Sequence[float], profile: ClosingProfile
                 if value >= top * (1.0 - 1e-6))
     out: List[float] = []
     for index, value in enumerate(levels):
-        normalised = value / top
-        if index <= start or normalised <= 0.0:
+        if index <= start:
             out.append(1.0)
             continue
-        remapped = max(0.0, (normalised - last) / (1.0 - last))
-        out.append(remapped / normalised)
+        out.append(max(0.0, (value / top - last) / (1.0 - last)))
     return out
+
+
+def fade_scale(levels: Sequence[float], profile: ClosingProfile
+               ) -> List[float]:
+    """What to multiply the mark's alpha by so its own fade reaches zero.
+
+    The ratio between the level :func:`picture_fade` asks for and the
+    level the frame actually carries. Before the fade starts the ratio
+    is exactly 1, so nothing the captain timed moves; through the fade
+    the slope steepens just enough to arrive at nothing.
+
+    The light is not scaled here and does not need to be: it is driven
+    by the emission of an ink whose alpha this ratio has already scaled,
+    so mark and light go out together.
+    """
+    if not levels:
+        return []
+    top = max(levels)
+    standing = picture_fade(levels, profile)
+    out: List[float] = []
+    for value, want in zip(levels, standing):
+        normalised = value / top
+        # Only ever scales DOWN: before the fade the picture is asked
+        # for in full and the frame already carries it.
+        out.append(1.0 if want >= normalised or normalised <= 0.0
+                   else want / normalised)
+    return out
+
+
+# ── The field the mark sits on ───────────────────────────────────────
+
+def _wide_blur(values: np.ndarray, sigma: float) -> np.ndarray:
+    """A Gaussian too wide to compute at full resolution.
+
+    The same decimation
+    :func:`library.tools.logo_relight.glow_field` uses on its far
+    octaves, for the same reason: a sigma of 200 px over a 1080x1920
+    frame is a 1600-tap kernel and, by construction, a signal with no
+    detail finer than 200 px in it. Pre-blurred so the decimation has
+    nothing to alias, finished at the reduced resolution, exact because
+    Gaussians compose in quadrature.
+    """
+    from scipy import ndimage
+
+    if sigma <= 0.0:
+        raise SourceNotClosed(f"a spread must be positive, got {sigma}")
+    step = max(1, int(sigma / WORKING_SIGMA))
+    if step == 1:
+        return ndimage.gaussian_filter(values, sigma=sigma, mode="constant")
+    guard = 0.5 * step
+    small = ndimage.gaussian_filter(values, sigma=guard, mode="constant")
+    small = ndimage.zoom(small, 1.0 / step, order=1, mode="constant")
+    small = ndimage.gaussian_filter(
+        small, sigma=(sigma ** 2 - guard ** 2) ** 0.5 / step,
+        mode="constant")
+    return ndimage.zoom(small, (values.shape[0] / small.shape[0],
+                                values.shape[1] / small.shape[1]),
+                        order=1, mode="nearest")
+
+
+def field_geometry(frames: Sequence[np.ndarray], profile: ClosingProfile
+                   ) -> Tuple[float, float]:
+    """(spread in pixels, normaliser) for the lift, off the COMPLETED mark.
+
+    Both come from the artwork rather than from a number anyone picked:
+    the spread is :data:`FIELD_SPREAD` of the completed mark's larger
+    side, and the normaliser is the peak that spread reaches on the
+    completed mark, so the pool is 1.0 behind a mark that is all the way
+    in and proportionally less behind one still arriving.
+
+    Taken ONCE, on the completion frame. Re-measuring the extent per
+    frame would make the pool breathe against a mark that is only being
+    drawn on.
+    """
+    areas, _ = mark_measurements(frames, profile)
+    _, ink_alpha = separate_ink(frames[completion_index(areas, profile)],
+                                profile.light)
+    rows, columns = np.nonzero(ink_alpha > 0.0)
+    if rows.size == 0:
+        raise SourceNotClosed("the completed mark covers no pixel")
+    spread = profile.field_spread * max(rows.max() - rows.min() + 1,
+                                        columns.max() - columns.min() + 1)
+    peak = float(_wide_blur(ink_alpha, spread).max())
+    if peak <= 0.0:
+        raise SourceNotClosed("the field behind the completed mark is empty")
+    return float(spread), peak
+
+
+def field_pool(ink_alpha: np.ndarray, spread: float, normaliser: float
+               ) -> np.ndarray:
+    """0 to 1: how much of the field lift stands at each pixel.
+
+    The mark's own shape, spread until it is a field rather than a
+    second glow. It needs no centre and no radius of its own - it IS
+    the mark, blurred - so it arrives as the mark draws on, sits where
+    the mark sits, and leaves as the mark's alpha is faded out.
+    """
+    if normaliser <= 0.0:
+        raise SourceNotClosed(
+            f"a normaliser must be positive, got {normaliser}")
+    return np.clip(_wide_blur(ink_alpha, spread) / normaliser, 0.0, 1.0)
 
 
 # ── One frame ────────────────────────────────────────────────────────
 
 def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
-               profile: ClosingProfile) -> np.ndarray:
+               profile: ClosingProfile, standing: float = 1.0,
+               pool: np.ndarray | None = None) -> np.ndarray:
     """One source frame in, one OPAQUE closing frame out.
 
     The order is the whole point. The ink is composited OVER the ground
@@ -423,6 +634,13 @@ def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
     then ADDED on top of that, because light is not an object and only
     ever brightens - blending it would let a faint far field DARKEN the
     ground it falls on, which is the one thing a glow must never do.
+
+    ``standing`` is how much of the declared ground is left
+    (:func:`picture_fade`): 1.0 while the picture is up and 0.0 once it
+    has gone to black. ``pool`` is the field lift
+    (:func:`field_pool`), which MULTIPLIES the ground rather than
+    mixing anything into it, so the declared colour's hue and
+    saturation survive untouched and a black ground stays exactly black.
     """
     ink_rgb, ink_alpha = separate_ink(rgba, profile.light)
     ink_alpha = ink_alpha * present
@@ -435,7 +653,10 @@ def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
     far = np.asarray(profile.light.far_colour, dtype=np.float64)
     light_rgb = far + (near - far) * mix
 
-    ground = np.asarray(profile.ground, dtype=np.float64)
+    ground = np.asarray(profile.ground, dtype=np.float64) * standing
+    if pool is not None:
+        ground = np.clip(
+            ground * (1.0 + profile.field_lift * pool)[..., None], 0.0, 1.0)
     alpha = ink_alpha[..., None]
     over = ink_rgb * alpha + ground * (1.0 - alpha)
 
@@ -455,20 +676,34 @@ def bulb_sequence(frames: Sequence[np.ndarray], rate: float,
     completion = completion_index(areas, profile)
     intensities = intensity_envelope(len(frames), completion, rate, profile)
     presence = fade_scale(levels, profile)
-    return [bulb_frame(rgba, intensity, present, profile)
-            for rgba, intensity, present
-            in zip(frames, intensities, presence)]
+    standing = picture_fade(levels, profile)
+    spread, normaliser = field_geometry(frames, profile)
+
+    out: List[np.ndarray] = []
+    for rgba, intensity, present, left in zip(frames, intensities,
+                                              presence, standing):
+        _, ink_alpha = separate_ink(rgba, profile.light)
+        pool = field_pool(ink_alpha * present, spread, normaliser)
+        out.append(bulb_frame(rgba, intensity, present, profile, left, pool))
+    return out
 
 
 def describe(frames: Sequence[np.ndarray], rate: float,
              profile: ClosingProfile) -> dict:
-    """What the four beats landed on, for the render receipt."""
+    """What the five beats landed on, for the render receipt."""
     areas, levels = mark_measurements(frames, profile)
     completion = completion_index(areas, profile)
     presence = fade_scale(levels, profile)
+    standing = picture_fade(levels, profile)
     lit = [index for index, value in enumerate(presence)
            if value > 0.0 and levels[index] > 0.0]
+    black = [index for index, value in enumerate(standing) if value <= 0.0]
     return {
+        "ground_travel_starts_frame": next(
+            (index for index, value in enumerate(standing) if value < 1.0),
+            -1),
+        "first_black_frame": black[0] if black else -1,
+        "black_frames_at_the_end": len(black),
         "frames": len(frames),
         "rate": rate,
         "ground_rgb_255": [round(c * 255) for c in profile.ground],
@@ -513,6 +748,7 @@ def render_file(source: str, destination: str,
 
     report = describe(frames, rate, profile)
     closed = bulb_sequence(frames, rate, profile)
+    report["base_separation"] = separation_report(frames, closed, profile)
 
     encoder = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y",
@@ -670,6 +906,133 @@ def band_alpha(rgba: np.ndarray, profile: ClosingProfile,
     distance = ndimage.distance_transform_edt(~core)
     band = (~core) & (distance > 0) & (distance <= out_to)
     return float(lift[band].mean()) if band.any() else 0.0
+
+
+SOLID_FRACTION = 0.95
+"""Where a frame's ink stops being an edge and starts being a stroke, as
+a fraction of that frame's own ink peak.
+
+:func:`~library.tools.logo_relight.separate_ink` has already thrown the
+authored halo away, so what is left is the mark and its anti-aliased
+rim; this is the body inside that rim. Only
+:func:`base_region` and :func:`base_separation` need it - a mean taken
+across a soft edge is a mean of the edge."""
+
+BASE_DRAWN = 0.5
+"""How much of the base has to be on screen before its separation is a
+number worth having, as a fraction of the base the COMPLETED mark draws.
+
+Measured on ``logo_reveal_23976.mov``: the base region is untouched
+through the whole draw-on - every frame to 43 carries exactly 0.000 of
+it - and then lands nearly at once, 0.656 on frame 44, 0.821, 0.929,
+0.986 and 1.000 by the completion frame. There is no frame between 0
+and 0.656, so any threshold in that gap picks frame 44 and this number
+is not delicate. Without one, the arriving mark's first faint pixels
+measure as a base that is not there yet."""
+
+
+def base_region(frames: Sequence[np.ndarray], profile: ClosingProfile
+                ) -> np.ndarray:
+    """Where the mark's non-emitting base is, off the COMPLETED mark.
+
+    The base is a part of the ARTWORK, so it is identified once and not
+    re-guessed per frame: the solid ink of the completed mark whose
+    luminance falls below ``emit_lo`` - the same population
+    :func:`~library.tools.logo_relight.emission` excludes from emitting,
+    which is what makes it the thing that has no light of its own to
+    read by.
+    """
+    areas, _ = mark_measurements(frames, profile)
+    rgba = frames[completion_index(areas, profile)]
+    ink_rgb, ink_alpha = separate_ink(rgba, profile.light)
+    peak = float(ink_alpha.max())
+    if peak <= 0.0:
+        raise SourceNotClosed("the completed mark carries no ink")
+    luma = (0.2126 * ink_rgb[..., 0] + 0.7152 * ink_rgb[..., 1]
+            + 0.0722 * ink_rgb[..., 2])
+    return (ink_alpha >= SOLID_FRACTION * peak) & (luma < profile.light.emit_lo)
+
+
+def base_separation(rgba: np.ndarray, closed: np.ndarray,
+                    profile: ClosingProfile, region: np.ndarray) -> float:
+    """How far the mark's non-emitting base sits from the field it is on.
+
+    CIE76 dE between the base's INTERIOR and the ground immediately
+    around it, so the number is the local contrast an eye actually
+    reads at that silhouette rather than a comparison with a flat
+    colour the frame may not contain anywhere near the base.
+
+    ``rgba`` is the source frame, which says how much of ``region`` is
+    drawn yet; ``closed`` is the rendered frame the number is read off.
+    Returns 0.0 where the base is not drawn - on this source it lands 5
+    frames before the filament completes.
+    """
+    from scipy import ndimage
+
+    ink_rgb, ink_alpha = separate_ink(rgba, profile.light)
+    peak = float(ink_alpha.max())
+    if peak <= 0.0 or not region.any():
+        return 0.0
+    base = region & (ink_alpha >= SOLID_FRACTION * peak)
+    if base.sum() < BASE_DRAWN * region.sum():
+        return 0.0
+
+    # 2 px in, which clears the mark's own anti-aliased edge; and the
+    # field within 8 px of the base that no ink reaches.
+    inside = ndimage.binary_erosion(base, np.ones((5, 5)))
+    around = (ndimage.binary_dilation(base, np.ones((17, 17)))
+              & ~ndimage.binary_dilation(ink_alpha > 0.0, np.ones((5, 5))))
+    if not inside.any() or not around.any():
+        return 0.0
+    return float(np.sqrt(np.square(
+        _lab(closed[..., :3][inside].mean(axis=0))
+        - _lab(closed[..., :3][around].mean(axis=0))).sum()))
+
+
+def _lab(rgb: np.ndarray) -> np.ndarray:
+    """sRGB in [0, 1] to CIE L*a*b*, D65. Only :func:`base_separation`
+    needs it: dE is the one scale on which "can you see that edge" is a
+    number rather than an opinion."""
+    values = np.asarray(rgb, dtype=np.float64)
+    linear = np.where(values <= 0.04045, values / 12.92,
+                      ((values + 0.055) / 1.055) ** 2.4)
+    matrix = np.array([[0.4124, 0.3576, 0.1805],
+                       [0.2126, 0.7152, 0.0722],
+                       [0.0193, 0.1192, 0.9505]])
+    ratio = (linear @ matrix.T) / np.array([0.95047, 1.0, 1.08883])
+    f = np.where(ratio > 0.008856, np.cbrt(ratio), 7.787 * ratio + 16 / 116)
+    return np.array([116 * f[1] - 16, 500 * (f[0] - f[1]),
+                     200 * (f[1] - f[2])])
+
+
+def separation_report(frames: Sequence[np.ndarray],
+                      closed: Sequence[np.ndarray],
+                      profile: ClosingProfile) -> dict:
+    """:data:`SEPARATION_FLOOR`, checked rather than claimed.
+
+    Only where the mark is FULLY PRESENT: past that it is going out on
+    purpose (beat 4) and a base that still read there would be the fade
+    failing.
+    """
+    _, levels = mark_measurements(frames, profile)
+    standing = picture_fade(levels, profile)
+    region = base_region(frames, profile)
+    measured = {index: base_separation(frames[index], closed[index],
+                                       profile, region)
+                for index, value in enumerate(standing)
+                if value >= 1.0 - 1e-9}
+    drawn = {index: value for index, value in measured.items() if value > 0.0}
+    if not drawn:
+        return {"base_drawn": False, "floor": profile.separation_floor}
+    worst = min(drawn, key=drawn.get)
+    return {
+        "base_drawn": True,
+        "floor": profile.separation_floor,
+        "base_first_drawn_frame": min(drawn),
+        "worst_separation": round(drawn[worst], 2),
+        "worst_separation_frame": worst,
+        "clears_floor": drawn[worst] >= profile.separation_floor,
+    }
 
 
 def _main(argv: Sequence[str] | None = None) -> int:
