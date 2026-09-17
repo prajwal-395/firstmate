@@ -1375,3 +1375,190 @@ def verify_measured_crop(full_union: InkUnion, tight_path: str,
         "placement": dict(box.placement),
         "tight_bytes": tight_bytes,
     }
+
+
+# ─── The probe binder: one full-canvas render becomes a tight crop ───
+#
+# `_tighten_impl` above PREDICTS the union from the composition's
+# literals, and that prediction misses the drawn ink wherever PIL
+# shaping disagrees with Chromium's - measured wrong on every case
+# tried, and over-wide on a `title_lockup` whose display run it sized
+# past the frame (predicted 1262x480 on a 1080x1920 frame, refused as
+# `canvas_larger_than_frame`, while the drawn ink binds cleanly to
+# 756x480). So a segment the predicted path refuses is not left full
+# canvas on the prediction's word: the full-canvas render is kept as
+# the PROBE, `measure_mg_union` reads the drawn union across every
+# frame, `tighten_measured_mg_with_reason` cuts the canvas around it,
+# and the tight file is a lossless crop of the probe
+# (`tight_box.crop_probe_to_tight`) - never a re-render, so the copy
+# cannot re-wrap. `verify_measured_crop` proves the tight file IS its
+# probe's region, and a segment that does not bind stays full canvas
+# with a NAMED reason (`rendered["tight_fallback"]`), exactly as step
+# 4.06 records its own fallbacks.
+#
+# Shared by the speaker-lower-third reel path and step 4.06's own
+# renderer, so every element kind binds through one spelling rather
+# than each path carrying its own.
+
+#: Predicted-path refusal reasons the probe binder retries from
+#: pixels. A prediction these name is a GEOMETRY the measurement can
+#: prove wrong (an over-wide union, an unholdable placement, a frame
+#: the ink does not actually cover). A refusal about WHAT the element
+#: is - corner accents spanning by design, an asset file nothing
+#: measures, an unmeasurable element, a segment of nothing - is not a
+#: geometry the pixels can change, so it stands without a render.
+MEASURED_RETRY_REASONS = frozenset({
+    "canvas_larger_than_frame",
+    "placement_unholdable",
+    "covers_frame",
+})
+
+
+def bind_probe_tight(name: str, planned: dict, rendered: dict,
+                     width: int, height: int,
+                     draw_gain: float = FALLBACK_DRAW_GAIN,
+                     kind: str = "motion graphic") -> None:
+    """Bind one full-canvas probe tightly, from its own pixels.
+
+    The render that produced `rendered["overlay_path"]` is the probe,
+    not the artefact: `measure_mg_union` reads the drawn union across
+    every frame, `tighten_measured_mg_with_reason` cuts the canvas
+    around it, and the tight file is a crop of the probe - never a
+    re-render, so the copy cannot re-wrap into a different drawing.
+    `verify_measured_crop` then proves the tight file IS its probe's
+    region, and reports the before-and-after dimensions with the
+    offset - the comparison the run carries, per segment.
+
+    A segment that does not bind stays full canvas, SAID on the run:
+    `rendered["tight_fallback"]` names the reason. Nothing here
+    predicts a box from the text and the style.
+
+    Mutates `rendered` in place: on a bind the overlay path becomes
+    the tight crop, `tight_box` carries its size and Resolve placement,
+    and the tight props plus the tightness sidecar sit beside it so
+    the build-time guard reads the artefact as tight.
+    """
+    import json
+    import os
+    import sys
+
+    from library.tools.tight_box import (
+        TightBoxClipsInk,
+        TightBoxMismatch,
+        crop_probe_to_tight,
+    )
+
+    full_path = rendered.get("overlay_path") or ""
+    full_props = (planned or {}).get("props") or {}
+    if not full_path or not full_props:
+        rendered["tight_fallback"] = (
+            "no full-canvas probe to bind from - stays full canvas")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback']})", file=sys.stderr)
+        return
+    try:
+        union = measure_mg_union(full_path)
+    except TightBoxMismatch as exc:
+        rendered["tight_fallback"] = (
+            f"the full-canvas probe could not be measured - stays full "
+            f"canvas: {exc}")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+    if union is None:
+        rendered["tight_fallback"] = (
+            "the probe drew nothing on any frame - stays full canvas")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback']})", file=sys.stderr)
+        return
+    try:
+        box, refusal = tighten_measured_mg_with_reason(
+            full_props, union, timeline_size=(width, height),
+            draw_gain=draw_gain)
+    except (TightBoxClipsInk, TightBoxMismatch) as exc:
+        refusal = getattr(exc, "refusal", None)
+        rendered["tight_fallback"] = (
+            (refusal.message() if refusal is not None else str(exc))
+            or str(exc))
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+    if box is None:
+        rendered["tight_fallback"] = (
+            refusal.message() if refusal is not None
+            else "no tight box and no reason")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+
+    stem = full_path[:-len(".mov")] if full_path.endswith(".mov") \
+        else full_path
+    tight_path = f"{stem}_tight.mov"
+    tight_props_path = f"{stem}_tight_props.json"
+    try:
+        crop_probe_to_tight(full_path, tight_path, box)
+    except TightBoxMismatch as exc:
+        try:
+            os.remove(tight_path)
+        except OSError:
+            pass
+        rendered["tight_fallback"] = (
+            f"the probe could not be cropped to "
+            f"{box.width}x{box.height} - stays full canvas: {exc}")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+    try:
+        report = verify_measured_crop(union, tight_path, box)
+    except TightBoxMismatch as exc:
+        try:
+            os.remove(tight_path)
+        except OSError:
+            pass
+        rendered["tight_fallback"] = (
+            f"the tight crop is not its probe's region - stays full "
+            f"canvas: {exc}")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+
+    try:
+        with open(tight_props_path, "w", encoding="utf-8") as handle:
+            json.dump(box.props, handle, indent=2)
+        with open(sidecar_path_for(tight_props_path), "w",
+                  encoding="utf-8") as handle:
+            json.dump(tightness_record(box, None, width, height),
+                      handle, indent=2)
+    except OSError as exc:
+        try:
+            os.remove(tight_path)
+        except OSError:
+            pass
+        rendered["tight_fallback"] = (
+            f"the tight record could not be written - stays full "
+            f"canvas: {exc}")
+        print(f"  {name}: {kind} stays full canvas "
+              f"({rendered['tight_fallback'][:300]})", file=sys.stderr)
+        return
+
+    try:
+        report["full_bytes"] = os.path.getsize(full_path)
+    except OSError:
+        report["full_bytes"] = 0
+    rendered["overlay_path"] = tight_path
+    rendered["segment_id"] = os.path.splitext(
+        os.path.basename(tight_path))[0]
+    rendered["geometry"] = "tight"
+    rendered["tight_fallback"] = ""
+    rendered["tight_box"] = {
+        "width": box.width,
+        "height": box.height,
+        "placement": dict(box.placement),
+    }
+    rendered["tight_report"] = report
+    print(f"  {name}: {kind} bound tight "
+          f"{report['before'][0]}x{report['before'][1]} -> "
+          f"{report['after'][0]}x{report['after'][1]} at offset "
+          f"{report['offset']} "
+          f"({report['full_bytes']:,} -> {report['tight_bytes']:,} "
+          f"bytes)", file=sys.stderr)

@@ -279,3 +279,94 @@ def test_sidecar_path_sits_beside_tight_props():
         "/x/mg_abc_tight_tightness.json")
     props = json.dumps({"width": 608, "height": 480})
     assert json.loads(props)["width"] == 608
+
+
+def _title_lockup(anchor="top_centre"):
+    """Reel 01's surviving full-frame graphic, as the plan wrote it:
+    one display run, top-anchored - the element kind PR 1190 wired
+    nothing through."""
+    return {
+        "element": "title_lockup",
+        "anchor": anchor,
+        "row": 0,
+        "runs": [{"text": "A COMPLETELY DIFFERENT SYSTEM",
+                  "type_role": "display"}],
+        "color": "#aabbcc",
+        "entrance": "scale",
+        "exit": "fade",
+        "startFrame": 0,
+        "durationFrames": 84,
+        "footprint": None,
+        "data": {},
+    }
+
+
+# The stale title lockup's drawn union, measured off its own
+# full-canvas render: 660x131 of ink at offset (193, 120). The
+# PREDICTED path sized this same copy to a 1262x480 canvas and refused
+# it as `canvas_larger_than_frame` - the refusal the quarantined
+# sidecar still carries - while the pixels bind cleanly.
+TITLE_UNION = InkUnion(x0=193, y0=120, x1=853, y1=251,
+                       inked_frames=84)
+
+
+def test_title_lockup_binds_through_the_measured_path():
+    """660x131 of title ink becomes a 756x480 canvas at offset
+    (145, 72): 756 = 660 + 2*48, and 480 is the rail floor a single
+    top zone grows to, below the ink. A test that only exercises
+    lower_third does not cover this kind, which is how the gap got
+    here."""
+    box, refusal = mgt.tighten_measured_mg_with_reason(
+        _props([_title_lockup()]), TITLE_UNION)
+    assert refusal is None
+    assert (box.width, box.height) == (756, 480)
+    ox, oy = canvas_offset(box)
+    assert (ox, oy) == (145, 72)
+    assert box.props["width"] == 756
+    assert box.props["height"] == 480
+    assert box.props["safeArea"] == {
+        "top": 48, "right": 48, "bottom": 48 + 252, "left": 48}
+    from library.tools.tight_box import ink_screen_box  # noqa: E402
+    ink_in_canvas = (48.0, 48.0, 48.0 + 660.0, 48.0 + 131.0)
+    assert ink_screen_box(box.width, box.height, box.placement,
+                          ink_in_canvas, FULL_W, FULL_H) == pytest.approx(
+        (193.0, 120.0, 853.0, 251.0))
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_bind_probe_tight_crops_a_title_lockup_probe(tmp_path):
+    """The shared binder step 4.06 calls on a predicted refusal, end
+    to end on synthetic title pixels: the entry leaves pointing at a
+    verified 756x480 tight crop, not at the full-canvas probe."""
+    from PIL import Image
+
+    for index in range(3):
+        frame = Image.new("RGBA", (FULL_W, FULL_H), (0, 0, 0, 0))
+        pixels = frame.load()
+        for x in range(193, 853):
+            for y in range(120, 251):
+                pixels[x, y] = (255, 255, 255, 255)
+        frame.save(str(tmp_path / f"shot-{index:04d}.png"))
+    full_mov = str(tmp_path / "mg_geo-podcast_probe.mov")
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-framerate", "24",
+         "-i", str(tmp_path / "shot-%04d.png"),
+         "-c:v", "qtrle", "-pix_fmt", "argb", full_mov],
+        check=True)
+
+    planned = {"props": _props([_title_lockup()])}
+    rendered = {"overlay_path": full_mov, "segment_id": "mg_probe",
+                "geometry": "full", "tight_fallback": "canvas_larger",
+                "tight_box": None}
+    mgt.bind_probe_tight("Reel 01", planned, rendered, FULL_W, FULL_H)
+
+    assert rendered["geometry"] == "tight"
+    assert rendered["tight_fallback"] == ""
+    assert rendered["overlay_path"].endswith("_tight.mov")
+    assert rendered["tight_box"]["width"] == 756
+    assert rendered["tight_box"]["height"] == 480
+    assert rendered["tight_report"]["before"] == [FULL_W, FULL_H]
+    assert rendered["tight_report"]["after"] == [756, 480]
+    assert rendered["tight_report"]["offset"] == [145, 72]
+    assert os.path.isfile(
+        full_mov[:-len(".mov")] + "_tight_props.json")

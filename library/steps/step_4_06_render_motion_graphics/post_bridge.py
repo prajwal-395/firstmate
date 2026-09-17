@@ -450,6 +450,44 @@ def render_one_segment(planned: dict, out_dir: str,
         _write_tightness_sidecar(props_path)
         return _entry(overlay_path, "reused", key)
 
+    def _maybe_bind_measured(rendered):
+        """A predicted refusal, rebound from the render's own pixels.
+
+        The predicted tighten path sizes the canvas from the
+        composition's literals, and that prediction misses the drawn
+        ink wherever the renderer shapes it differently - over-wide
+        on a `title_lockup` it sized past the frame
+        (`canvas_larger_than_frame`), while the drawn ink binds
+        cleanly. So a segment the prediction refused is not left full
+        canvas on the prediction's word: the full-canvas file is kept
+        as the probe and `mg_tight_box.bind_probe_tight` measures the
+        drawn union across every frame and crops the probe around it -
+        the same measured route the speaker lower thirds bind through,
+        never a re-render, so the copy cannot re-wrap. A segment that
+        does not bind stays full canvas with its NAMED reason.
+
+        Only GEOMETRY refusals retry (`MEASURED_RETRY_REASONS`): a
+        refusal about what the element IS (corner accents spanning by
+        design, an asset file nothing measures) is not a geometry the
+        pixels can change, so it stands. A DECLARED full canvas
+        (`geometry_full_declared`, or any explicit full geometry)
+        never asks - the declaration wins over the pixels.
+        """
+        if rendered is None or geometry != "tight":
+            return rendered
+        if tight is not None or not tight_fallback:
+            return rendered
+        from library.tools.mg_tight_box import MEASURED_RETRY_REASONS
+        from library.tools import mg_tight_box as mgt
+        if (tight_refusal is not None
+                and tight_refusal.reason not in MEASURED_RETRY_REASONS):
+            return rendered
+        mgt.bind_probe_tight(
+            placement_label, {"props": props}, rendered,
+            int(props.get("width", 0)), int(props.get("height", 0)),
+            draw_gain=draw_gain)
+        return rendered
+
     content_name, overlay_path, props_path, key_path, key = \
         _name_and_key(render_props, _tight_record())
     # A tight graphic is drawn to its own small canvas and placed with
@@ -460,7 +498,7 @@ def render_one_segment(planned: dict, out_dir: str,
     hit = _reuse_hit(content_name, overlay_path, key_path, key,
                      props_path)
     if hit is not None:
-        return hit
+        return _maybe_bind_measured(hit)
     if reuse and not key:
         print(f"    note: renderer fingerprint unavailable, rendering "
               f"{placement_label} rather than reusing", file=sys.stderr)
@@ -523,7 +561,7 @@ def render_one_segment(planned: dict, out_dir: str,
                   f"{placement_label} ({exc}); it will re-render next time",
                   file=sys.stderr)
 
-    return _entry(overlay_path, "rendered", key)
+    return _maybe_bind_measured(_entry(overlay_path, "rendered", key))
 
 
 def render_motion_graphics(data: dict, reuse: bool = False) -> dict:

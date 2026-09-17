@@ -195,11 +195,12 @@ def test_tight_renders_the_union_and_places_it_by_transform(
         "not the delivery frame")
 
 
-def test_a_clamp_refusal_falls_back_to_full_canvas(
+def test_a_predicted_clamp_refusal_is_retried_from_pixels(
         tmp_path, monkeypatch):
-    """The gate can FIRE: a graphic the clamp gate refuses does not
-    reach a timeline as a small clip - it renders full canvas and the
-    record SAYS which one lost its tight carriage and why."""
+    """The prediction is not the verdict: a graphic the predicted
+    clamp gate refuses is rebound from its own rendered pixels, and a
+    probe whose ink binds reaches the timeline as a verified tight
+    crop rather than full canvas."""
     import library.tools.mg_tight_box as mg_tight_box
     from library.tools.tight_box import TightBoxMismatch
 
@@ -210,20 +211,48 @@ def test_a_clamp_refusal_falls_back_to_full_canvas(
                         _refuse)
     out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
                      str(tmp_path), overlay_geometry="tight")
+    assert out["geometry"] == "tight"
+    assert out["tight_fallback"] == ""
+    assert out["tight_box"] is not None
+    assert out["overlay_path"].endswith("_tight.mov")
+    assert out["tight_report"]["before"] == [1080, 1920]
+    stem = out["overlay_path"][:-len(".mov")]
+    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
+    assert sidecar["outcome"] == "tight"
+    # The probe keeps its own account beside it: full canvas, with
+    # the predicted refusal named - a reasoned full canvas, never a
+    # silent one.
+    probe_sidecar = json.load(
+        open(stem[:-len("_tight")] + "_tightness.json",
+             encoding="utf-8"))
+    assert probe_sidecar["outcome"] == "full"
+    assert probe_sidecar["reason"] == "placement_unholdable"
+    assert probe_sidecar["element"] == "title_lockup"
+
+
+def test_a_predicted_refusal_with_no_ink_stays_full_and_named(
+        tmp_path, monkeypatch):
+    """The retry is honest both ways: a predicted refusal whose probe
+    drew nothing stays full canvas, and the record names the reason
+    rather than going silent."""
+    import library.tools.mg_tight_box as mg_tight_box
+    from library.tools.tight_box import TightBoxMismatch
+
+    def _refuse(*args, **kwargs):
+        raise TightBoxMismatch("exceeds the rail")
+    monkeypatch.setattr(mg_tight_box,
+                        "tighten_motion_graphics_props_with_reason",
+                        _refuse)
+    monkeypatch.setattr(mg_tight_box, "measure_mg_union",
+                        lambda path: None)
+    out, _ = _render(monkeypatch, _planned([_el("title_lockup")]),
+                     str(tmp_path), overlay_geometry="tight")
     assert out["geometry"] == "full"
     assert out["tight_box"] is None
-    assert "exceeds the rail" in out["tight_fallback"]
+    assert "drew nothing" in out["tight_fallback"]
     assert re.fullmatch(r"mg_noproject_[0-9a-f]{8}\.mov",
                         os.path.basename(out["overlay_path"]))
     assert os.path.isfile(out["overlay_path"])
-    # The artefact says so too, with the machine-readable reason -
-    # even a foreign raise with no `.refusal` is mapped, never
-    # silent.
-    stem = out["overlay_path"][:-len(".mov")]
-    sidecar = json.load(open(stem + "_tightness.json", encoding="utf-8"))
-    assert sidecar["outcome"] == "full"
-    assert sidecar["reason"] == "placement_unholdable"
-    assert sidecar["element"] == "title_lockup"
 
 
 def _staged_lower_third():
