@@ -711,6 +711,18 @@ class PlannedCard:
     place one rather than leaving a reel that starts on speech - which is
     indistinguishable from a project that declared no card at all."""
 
+    conform_note: str = ""
+    """What the frame-rate conform cost, when the clip pays one.
+
+    Empty for a clip at the reel's own rate, which plays 1:1.  A clip
+    authored at another rate (the logo animation shipped at 30fps on a
+    24000/1001 reel) decimates - 90 source frames over 71 timeline
+    frames - and that arithmetic is SAID here and on stderr at plan
+    time, because a glow ramp with every 5th frame dropped reads as
+    judder nobody planned.  REPORTED, never a gate: the engine places
+    what the project declared, and conforming the asset file is the
+    project's act, not a refusal the plan may take on its behalf."""
+
     @property
     def reel_end_frame(self) -> int:
         return self.reel_start_frame + self.duration_frames
@@ -1642,6 +1654,24 @@ def _plan_clip(declaration: dict, index: int, reel_start_frame: int,
         raise FullFrameDeclarationError(
             f"{label} conforms to {duration_frames} frames at "
             f"{fps:.3f}fps; a full-frame element must occupy at least one")
+    # A cross-rate clip decimates, and the arithmetic is SAID - on the
+    # card and on stderr - rather than left for the viewer to find.
+    # 2026-09-17: the 30fps logo on a 24000/1001 reel drops 18 of 90
+    # frames, double-stepping the glow decay every 5th frame, which is
+    # what the captain heard as "fucked up".  The plan still places it:
+    # this REPORTS, it never gates, and conforming the asset file stays
+    # the project's act.
+    conform_note = ""
+    if abs(measured.fps - fps) > 1e-3:
+        dropped = measured.frame_count - duration_frames
+        conform_note = (
+            f"{label} {os.path.basename(path)!r} runs at "
+            f"{measured.fps:.3f}fps on a {fps:.3f}fps reel: "
+            f"{measured.frame_count} source frames play over "
+            f"{duration_frames} timeline frames ({dropped} dropped by "
+            f"decimation). A clip at the reel's own rate plays 1:1 - "
+            f"conform the asset file rather than retiming per reel.")
+        print(f"  {conform_note}", file=sys.stderr)
     return PlannedCard(
         index=index,
         element=declaration["element"],
@@ -1653,6 +1683,7 @@ def _plan_clip(declaration: dict, index: int, reel_start_frame: int,
         render_name=os.path.splitext(os.path.basename(path))[0],
         source_frames=measured.frame_count,
         rendered_path=path,
+        conform_note=conform_note,
     )
 
 

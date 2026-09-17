@@ -284,6 +284,55 @@ def test_a_clip_at_the_reels_own_rate_keeps_every_frame(tmp_path):
     assert cards[0].duration_frames == 48
 
 
+def test_a_cross_rate_clip_says_its_conform_and_still_plans(tmp_path):
+    """2026-09-17: the 30fps logo on a 24000/1001 reel drops 18 of 90
+    frames, double-stepping the glow decay - which the plan now SAYS
+    rather than leaving for the viewer to find.  REPORTED, never a
+    gate: the card still plans at the conformed length."""
+    path = _clip(tmp_path)
+    cards = ffe.plan_reel_cards(
+        ffe.declared_elements({"full_frame_elements": [_declaration(path)]}),
+        facts=None, body_frames=600, fps=FPS, project_folder=str(tmp_path), width=1080, height=1920)
+    card = cards[0]
+    assert card.duration_frames == 71
+    assert card.source_frames == 90
+    assert "30.000fps" in card.conform_note
+    assert "23.976fps" in card.conform_note
+    assert "90 source frames play over 71 timeline frames" in card.conform_note
+    assert "19 dropped" in card.conform_note
+
+
+def test_a_same_rate_clip_carries_no_conform_note(tmp_path):
+    """A clip at the reel's own rate plays 1:1, so there is nothing to
+    say - the note is the mismatch's, not a stamp on every card."""
+    path = _clip(tmp_path, name="native.mov", seconds=2.0, fps=24)
+    cards = ffe.plan_reel_cards(
+        ffe.declared_elements({"full_frame_elements": [_declaration(path)]}),
+        facts=None, body_frames=0, fps=24.0, project_folder=str(tmp_path), width=1080, height=1920)
+    assert cards[0].conform_note == ""
+
+
+def test_a_conformed_brand_clip_plans_one_to_one_with_no_note(tmp_path):
+    """The shape the 23.976 logo conform ships in: every source frame
+    reaches the timeline, and the plan says nothing about it."""
+    if not shutil.which("ffmpeg"):
+        pytest.skip("ffmpeg not on PATH")
+    out = tmp_path / "logo_23976.mov"
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+         "color=c=red:s=1080x1920:r=24000/1001:d=1.0",
+         "-c:v", "prores_ks", "-profile:v", "3", str(out)],
+        capture_output=True, text=True, encoding="utf-8", check=False)
+    if result.returncode != 0 or not out.exists():
+        pytest.skip("ffmpeg cannot encode a fixture here")
+    cards = ffe.plan_reel_cards(
+        ffe.declared_elements(
+            {"full_frame_elements": [_declaration(str(out))]}),
+        facts=None, body_frames=0, fps=FPS, project_folder=str(tmp_path), width=1080, height=1920)
+    assert cards[0].source_frames == cards[0].duration_frames
+    assert cards[0].conform_note == ""
+
+
 def test_a_project_clip_is_not_promoted_out_from_under_itself(tmp_path):
     """Promotion exists because scratch/ may be thrown away at any
     moment. A project's own brand animation has no such declaration
