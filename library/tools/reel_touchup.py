@@ -1003,9 +1003,9 @@ def _live_prop(item: Any, name: str, default: Any = None) -> Any:
 def _live_rows(timeline: Any) -> dict:
     """Live item handles per row, off the one reader.
 
-    `reel_read.live_items` is the only `GetItemListInTrack` in the
-    tree outside the reader modules (AGENTS.md 15); this is the
-    touchup's slice of it.  Re-read after every mutation: a handle
+    `reel_read.live_track_items` holds the tree's one `GetItemListInTrack`
+    call (AGENTS.md 15); `reel_read.live_items` is the touchup's slice
+    of it.  Re-read after every mutation: a handle
     held across a delete or a place is a zombie that still answers
     getters.
     """

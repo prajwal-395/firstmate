@@ -231,14 +231,34 @@ def clip_detail(item, track_type: str, track_index: int,
 # no attribute 'GetSetting'"), so the guard takes this slice instead.
 
 
+def live_track_items(timeline, track_type: str, index: int) -> list:
+    """The LIVE handles on one row, in timeline order. A slice of the one read.
+
+    The single-row half of `live_items` below: the `GetItemListInTrack`
+    call itself lives here, so a caller that needs one row - the overlay
+    sweep re-reading a placed clip's stored transform - takes this slice
+    rather than opening its own probe (AGENTS.md 15). Raises
+    `ReelReadError` when the row does not read.
+    """
+    try:
+        return list(timeline.GetItemListInTrack(track_type, index) or [])
+    except Exception as unreadable:
+        raise ReelReadError(
+            f"the items of {track_type}{index} on "
+            f"{_call(timeline, 'GetName', '?')!r} could not be read "
+            f"({unreadable}); refusing rather than reading half "
+            f"a reel.") from unreadable
+
+
 def live_items(timeline) -> list:
     """Every row with its LIVE Resolve item handles, in track order.
 
-    The one place `GetItemListInTrack` is called for a whole timeline.
-    `read_tracks` below is this list projected into plain data, and a
-    caller that must WRITE to an item - `composed_edit`, which deletes
-    and re-places them - takes this slice rather than opening its own
-    loop over the tracks (AGENTS.md 15: no new probe).
+    The one enumeration over the whole timeline: `read_tracks` below is
+    this list projected into plain data, and a caller that must WRITE to
+    an item - `composed_edit`, which deletes and re-places them - takes
+    this slice rather than opening its own loop over the tracks
+    (AGENTS.md 15: no new probe). The per-row read itself is
+    `live_track_items` above, which single-row callers take directly.
 
     Returns `[{"type", "index", "name", "items": [handle, ...]}, ...]`.
     The handles are Resolve's own objects and are invalidated by any
@@ -254,9 +274,10 @@ def live_items(timeline) -> list:
                     "type": track_type,
                     "index": index,
                     "name": timeline.GetTrackName(track_type, index) or "",
-                    "items": list(
-                        timeline.GetItemListInTrack(track_type, index) or []),
+                    "items": live_track_items(timeline, track_type, index),
                 })
+    except ReelReadError:
+        raise
     except Exception as unreadable:
         raise ReelReadError(
             f"the rows of {_call(timeline, 'GetName', '?')!r} could not "

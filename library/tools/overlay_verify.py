@@ -332,13 +332,19 @@ def _stored_transform(timeline, track_index: int,
     """What Resolve holds for one placed overlay clip, or None.
 
     Read off a FRESH handle for the item at `(track, record frame)` -
-    never the handle the placer wrote through. None is unreadable (no
-    item, no properties), which the sweep SKIPS loudly rather than
-    passing - a clip nothing could read is not a clip that verified.
+    never the handle the placer wrote through. The row itself comes
+    from `reel_read.live_track_items` - this sweep takes that slice
+    rather than opening its own `GetItemListInTrack` probe
+    (tests/test_reel_read.py: no direct Resolve reads outside the
+    reader modules). None is unreadable (no item, no properties),
+    which the sweep SKIPS loudly rather than passing - a clip nothing
+    could read is not a clip that verified.
     No `hasattr`: always True on Resolve's proxies (AGENTS.md 5).
     """
+    from library.tools import reel_read as _reel_read
+
     try:
-        items = timeline.GetItemListInTrack("video", track_index) or []
+        items = _reel_read.live_track_items(timeline, "video", track_index)
     except Exception:  # noqa: BLE001 - unreadable, skipped below
         return None
     for item in items:

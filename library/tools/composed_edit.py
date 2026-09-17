@@ -1475,8 +1475,9 @@ def apply_composed_edit(*, timeline, media_pool,
 def _rows_of(timeline) -> dict:
     """Live item handles per row, taken from the one reader.
 
-    `reel_read.live_items` is the only `GetItemListInTrack` in the tree
-    outside the reader modules (AGENTS.md 15); this is its slice.
+    `reel_read.live_track_items` holds the tree's one `GetItemListInTrack`
+    call (AGENTS.md 15); `reel_read.live_items` is this function's slice
+    of it.
     Re-read after every mutation: a handle held across a delete or a
     place is a zombie that still answers getters.
     """
