@@ -442,11 +442,12 @@ def test_the_prompt_s_copy_counts_match_the_roster():
 
     counts = Counter(row["copy"] for row in mgv.roster_rows())
     handoff = _handoff_4_06()
-    words = {11: "eleven", 3: "three", 4: "four", 18: "Eighteen"}
-    assert f"{words[18]} elements" in handoff, (
+    words = {3: "three", 4: "four", 11: "eleven", 12: "twelve",
+             19: "Nineteen"}
+    assert f"{words[19]} elements" in handoff, (
         f"the roster holds {len(mgv.ELEMENTS_BY_KEY)} elements and "
         f"the prompt says otherwise")
-    assert len(mgv.ELEMENTS_BY_KEY) == 18
+    assert len(mgv.ELEMENTS_BY_KEY) == 19
     for value, count in (("required", counts["required"]),
                          ("optional", counts["optional"]),
                          ("none", counts["none"])):

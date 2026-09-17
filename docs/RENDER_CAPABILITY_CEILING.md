@@ -21,6 +21,12 @@ disagreements** - `website_panel` plus the `flip` entrance and exit.
 `python3 -m library.tools.render_capability_index` is the inventory;
 what follows is the reading of it.
 
+After the review-panel lane (2026-09-17): **50 draws, 1 not yet, 1 refused,
+0 disagreements** - `review_panel` is the drawn counterpart of
+`website_panel`: where that one composites a capture somebody took, this one
+DRAWS a review listing from a payload somebody stated, so a page the picture
+never shows can be put on the frame with no file to stage.
+
 ## 1. The ceiling moved, and the join is what found it
 
 A drawing capability lives in two files that nothing joined. The Python half

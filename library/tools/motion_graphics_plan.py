@@ -102,6 +102,7 @@ from typing import (Any, Callable, Dict, FrozenSet, List, Optional,
 
 from library.tools import caption_band
 from library.tools import motion_graphics_vocabulary as vocabulary
+from library.tools import review_panel
 from library.tools import semantic_visual
 
 #: What the model's answer is called.  One spelling, here.
@@ -234,6 +235,27 @@ DROP_REASONS: Dict[str, str] = {
         "seconds - two timings. The engine does not pick one, because "
         "choosing would be choosing when the graphic plays."
     ),
+    "data_the_element_draws_from_is_absent": (
+        "The element's whole content is its `data` payload and the "
+        "payload cannot be drawn. The module that owns the payload says "
+        "which part is missing; nothing here fills one in, because "
+        "every part of it is something somebody supplied - a rating, a "
+        "review, a palette - and the engine supplies none of them "
+        "(AGENTS.md 10.5)."
+    ),
+}
+
+#: Elements whose `data` payload IS their content, and the callable that
+#: says why a payload cannot be drawn, or `""`.
+#:
+#: Not every element naming the `data` axis belongs here: `step_counter`
+#: draws a position inside a copy run and `comparison_bars` draws bars
+#: whose labels are the copy, so each still says something without its
+#: data. These are the ones where the data is the whole of what is on
+#: screen, and an entry arriving without it is an entry with nothing to
+#: draw rather than a smaller drawing.
+DATA_IS_THE_CONTENT: Dict[str, Callable[[Any], str]] = {
+    "review_panel": review_panel.unusable_reason,
 }
 
 
@@ -717,6 +739,16 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
                      if resolve_asset else
                      f"{named!r} was named and this caller supplied no way "
                      f"to look a project asset up")
+                continue
+
+        # An element whose content IS its data payload. Asked before the
+        # colour, because a card with no reviews on it is not a colour
+        # question.
+        unusable = DATA_IS_THE_CONTENT.get(key)
+        if unusable is not None:
+            why = unusable(entry.get("data"))
+            if why:
+                drop(entry, key, "data_the_element_draws_from_is_absent", why)
                 continue
 
         colour, colour_basis = resolve_colour(entry, palette_roles)

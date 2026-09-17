@@ -131,6 +131,66 @@ POINTER_GLOW = 16
 SELF_POSITIONING = ("progress_bar", "frame_accents")
 ASSET_ELEMENTS = ("channel_bug", "website_panel")
 
+# `review_panel`'s own drawing, from `REVIEW_PANEL` in the composition.
+# Read, not re-chosen, exactly as TYPE_SIZE above is - and the one arm
+# here that needs NO text measurement: every box of that card carries an
+# explicit height and its bodies are clamped to a reserved number of
+# line boxes, so the union is arithmetic rather than an estimate. A
+# change to either table has to change both, and
+# `tests/test_review_panel.py` fails when they disagree.
+REVIEW_PANEL = {
+    "width": 660,
+    "pad": 26,
+    "rule": 2,
+    "nameSize": 34,
+    "nameLine": 1.25,
+    "nameToScore": 12,
+    "scoreSize": 30,
+    "scoreLine": 1.2,
+    "headerStar": 26,
+    "scoreToRows": 20,
+    "rowPadY": 18,
+    "avatar": 46,
+    "authorSize": 26,
+    "authorLine": 1.2,
+    "authorToBody": 8,
+    "bodySize": 26,
+    "bodyLine": 1.35,
+    "bodyLines": 2,
+}
+
+
+def review_panel_size(element: dict, scale: float) -> tuple[float, float]:
+    """The card's drawn size, as the composition lays it out.
+
+    Mirrors `DrawnElement`'s `review_panel` arm box for box. No font is
+    measured and no wrap is predicted: the name and the label ellipsise
+    rather than wrapping, and a body is clamped to
+    `REVIEW_PANEL["bodyLines"]` reserved line boxes, so the height a
+    browser lays out IS this arithmetic.
+    """
+    panel = REVIEW_PANEL
+
+    def px(value: float) -> int:
+        return _js_round(value * scale)
+
+    rows = [row for row in ((element.get("data") or {}).get("rows") or [])
+            if isinstance(row, dict)]
+    name_h = px(panel["nameSize"] * panel["nameLine"])
+    score_h = max(px(panel["scoreSize"] * panel["scoreLine"]),
+                  px(panel["headerStar"]))
+    body_line = px(panel["bodySize"] * panel["bodyLine"])
+    row_inner = max(
+        px(panel["avatar"]),
+        px(panel["authorSize"] * panel["authorLine"])
+        + px(panel["authorToBody"])
+        + panel["bodyLines"] * body_line)
+    row_h = px(panel["rule"]) + 2 * px(panel["rowPadY"]) + row_inner
+    height = (2 * px(panel["pad"]) + name_h + px(panel["nameToScore"])
+              + score_h + px(panel["scoreToRows"])
+              + len(rows) * row_h)
+    return float(px(panel["width"])), float(height)
+
 # Column gaps and paddings per text arm: (gap_between_runs,
 # extra_width, extra_height) at scale 1.
 COLUMN_CHROME = {
@@ -320,6 +380,14 @@ def _element_size(element: dict, scale: float, project_folder: str,
             == "staged_rule"):
         return _staged_lower_third_size(element, scale, project_folder,
                                         _cache)
+    if kind == "review_panel":
+        # No rows is no card: the composition returns null and
+        # `resolve_plan` never lets such an entry through in the first
+        # place, so it contributes no rect rather than an empty one.
+        if not [row for row in ((element.get("data") or {}).get("rows") or [])
+                if isinstance(row, dict)]:
+            return (0.0, 0.0)
+        return review_panel_size(element, scale)
     if kind == "progress_bar":
         return usable_width + 2 * BAR_GLOW, BAR_HEIGHT * scale + 2 * BAR_GLOW
     if kind == "frame_accents":

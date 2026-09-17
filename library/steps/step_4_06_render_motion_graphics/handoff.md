@@ -30,7 +30,7 @@ name, and the video ships without the thing you planned.
 
 ### The shape of the roster, stated plainly
 
-Eighteen elements. **Copy is `required` on eleven of them and `optional` on
+Nineteen elements. **Copy is `required` on twelve of them and `optional` on
 three.** Only **four draw no copy at all**, and three of those four are chrome
 that holds under the piece rather than content: `progress_bar`, `frame_accents`
 and `channel_bug`. The fourth, `beat_accent`, is a burst with no semantic
@@ -44,6 +44,11 @@ it is worth knowing it by name rather than discovering it by elimination:
 - `website_panel` - a real page capture in drawn browser chrome, composited
   with alpha. A picture, not a description of one. Its copy is optional and is
   the address bar.
+- `review_panel` - a MOCKUP of a review listing: the score, its stars, the
+  count and rows carrying who wrote each review and a line of it. Drawn, not
+  captured, so it needs no file - but every word, number and colour on it
+  comes from the entry's own `copy` and `data`, and an entry that states none
+  is dropped rather than drawn blank.
 - `pointer_annotation` - an arrow, a ring or an underline drawn AT a position
   in the frame. Its copy is optional; it can point and say nothing.
 - `step_counter` - a positional marker saying where in a declared sequence the

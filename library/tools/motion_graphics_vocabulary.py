@@ -23,7 +23,7 @@ render path is broken is not a reason to keep it at three.
 **So this table is written from what an editor needs, not from what the
 composition can draw today.**  Every entry carries
 :attr:`MotionElement.reachable` saying whether the current renderer can
-put it on a frame, and one of the eighteen cannot.  The reachability
+put it on a frame, and one of the nineteen cannot.  The reachability
 flag is a fact reported about each entry; it is not a filter on
 membership.  A roster written around today's renderer would bake a
 defect into the vocabulary permanently.
@@ -102,7 +102,7 @@ the same shape ``sfx_library.load_sfx_catalog`` and
 ``music_measurement.MEASUREMENT_LEGEND`` take, so a planning step's
 bridge can put the whole roster in front of the model as a table without
 this module knowing anything about prompts.  Nothing is shortlisted:
-eighteen entries fit, and whatever selects a shortlist becomes the chooser
+nineteen entries fit, and whatever selects a shortlist becomes the chooser
 (AGENTS.md section 10.5).
 """
 
@@ -383,7 +383,7 @@ class MotionElement:
     reachability_note: str = ""
 
 
-#: The roster. Eighteen entries across seven functions.
+#: The roster. Nineteen entries across seven functions.
 #:
 #: **What the size was aimed at.** Small enough that the whole table fits
 #: in a prompt and nothing has to be shortlisted - whatever selects a
@@ -1016,6 +1016,60 @@ ROSTER: tuple[MotionElement, ...] = (
         ),
     ),
     MotionElement(
+        key="review_panel",
+        function="quote",
+        what_it_is=(
+            "A mockup of a review listing, drawn in the visual language "
+            "of the place the reviews were written on: an overall score "
+            "beside its star rating and a count, then rows carrying who "
+            "wrote each review and a line of what they wrote."
+        ),
+        earns_its_place=(
+            "The speech points at reviews and the picture never shows "
+            "them. A listing the viewer already recognises proves the "
+            "thing being argued about exists as they know it, where "
+            "naming it only asks them to remember it."
+        ),
+        never=(
+            ("Fetched, scraped or screenshotted at render time. The "
+             "engine never reads the web: a fetch needs the network, "
+             "answers differently when it is repeated, and puts "
+             "somebody's live words on screen with nobody accountable "
+             "for them. What is drawn is what the declaration states."),
+            ("Attributed to a real named business whose reviews these "
+             "are not. A listing carrying a real name is read as a "
+             "record of that place, so inventing rows under one is "
+             "fabricating a record rather than illustrating a point."),
+            ("Carrying a score the rows do not support, or a count the "
+             "listing is not of. The drawing asserts that the score is "
+             "of that many reviews of that place."),
+            ("Carrying more rows than can be read inside its own hold. "
+             "The reading-speed constraint plan_subtitles applies to "
+             "captions is the same constraint here."),
+            ("Standing in for a page capture. A capture of a real page "
+             "is website_panel, which takes a project's own file; this "
+             "is drawn, and drawn is not the same claim."),
+        ),
+        needs=(
+            "the score, the count and the rows as data; the place and "
+            "the listing's label as copy; the palette the listing is "
+            "set in, as data; an anchor and a timing"
+        ),
+        axes=("timing", "anchor", "footprint", "entrance", "exit",
+              "emphasis", "type_role", "copy", "data"),
+        copy="required",
+        reachable=REACHABLE_NOW,
+        reachability_note=(
+            "MotionGraphics/index.tsx draws the card, the header and "
+            "each row, with the stars as its own drawn shapes rather "
+            "than a glyph a typeface may not carry. The payload and the "
+            "refusal that guards it are library/tools/review_panel.py, "
+            "and motion_graphics_plan.resolve_plan drops an entry whose "
+            "data cannot be drawn instead of rendering a blank card."
+        ),
+    ),
+
+    MotionElement(
         key="website_panel",
         function="quote",
         what_it_is=(
@@ -1286,7 +1340,7 @@ def roster_rows(include_unreachable: bool = True) -> list[dict]:
     """The roster as rows, for a bridge to serialise into a prompt table.
 
     `include_unreachable` exists for a caller that has to plan against
-    today's renderer. It defaults to the WHOLE roster: eighteen entries
+    today's renderer. It defaults to the WHOLE roster: nineteen entries
     fit, nothing needs shortlisting, and whatever selects a shortlist
     becomes the chooser (AGENTS.md section 10.5).
     """

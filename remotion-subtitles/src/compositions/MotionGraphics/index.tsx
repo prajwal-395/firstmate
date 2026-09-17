@@ -22,13 +22,14 @@ loadBundledFonts();
  * allowed to use multiple rows in order to have various motion
  * graphics"). See library/tools/motion_graphics_vocabulary.py.
  *
- * `element` is a roster key. The seventeen this composition draws are
+ * `element` is a roster key. The eighteen this composition draws are
  * `title_lockup`, `quote_card`, `progress_bar`, `frame_accents`,
  * `lower_third`, `channel_bug`, `context_stamp`, `stat_callout`,
  * `subject_emblem`,
  * `beat_accent`, `pointer_annotation`, `counter_roll`, `digit_counter`,
- * `list_build`, `comparison_bars`, `step_counter` and `website_panel` -
- * the seventeen the roster marks `reachable_now`. The eighteenth roster
+ * `list_build`, `comparison_bars`, `step_counter`, `review_panel` and
+ * `website_panel` -
+ * the eighteen the roster marks `reachable_now`. The nineteenth roster
  * entry, `tracked_label`, has no arm: it needs a per-frame position
  * nothing measures, so no plan reaches here asking for it. An entry
  * naming any other element never reaches these props:
@@ -602,6 +603,114 @@ export const runStyle = (
   letterSpacing: typeRole === "display" ? "3px" : "0px",
   textTransform: typeRole === "display" ? "uppercase" : "none",
 });
+
+/** What a review listing LOOKS like in this renderer, in pixels at scale 1.
+ *
+ * The same standing `RAMP_FRAMES` and the 12px bar have: these are what
+ * "a review listing" means here, not a look any project or template
+ * chose. Nothing in this table is a colour, a duration or a piece of
+ * copy - a review panel's palette, rows, score and count all arrive on
+ * the element, because they are what the listing SAYS and the engine
+ * says nothing (library/tools/review_panel.py).
+ *
+ * Exported because `library/tools/mg_tight_box.py` predicts this
+ * element's drawn union from exactly these numbers, and two spellings
+ * of the same card is two answers to one question.
+ */
+export const REVIEW_PANEL = {
+  width: 660,
+  pad: 26,
+  radius: 20,
+  rule: 2,
+  nameSize: 34,
+  nameLine: 1.25,
+  nameToScore: 12,
+  scoreSize: 30,
+  scoreLine: 1.2,
+  scoreGap: 10,
+  headerStar: 26,
+  labelSize: 24,
+  scoreToRows: 20,
+  rowPadY: 18,
+  avatar: 46,
+  avatarLetter: 22,
+  avatarGap: 16,
+  authorSize: 26,
+  authorLine: 1.2,
+  authorToBody: 8,
+  rowStar: 20,
+  whenSize: 22,
+  bodySize: 26,
+  bodyLine: 1.35,
+  /** The weights each part is set at. A listing is set in UI type, not
+   * in poster type: the roster's own display/supporting/micro ladder
+   * (900/700/600) would draw a review as a headline. */
+  nameWeight: 600,
+  scoreWeight: 700,
+  labelWeight: 500,
+  authorWeight: 600,
+  whenWeight: 500,
+  bodyWeight: 400,
+  /** Line boxes a review body is given, filled or not.
+   *
+   * RESERVED rather than measured: a body that wrapped to however many
+   * lines it happened to need would make the card's height depend on
+   * Chromium's shaping, which is the one thing the tight-box predictor
+   * cannot see. Clamped to the same number, so a long body is cut
+   * rather than growing the card past the box that was cut for it. */
+  bodyLines: 2,
+};
+
+/** A five-star rating, drawn - `value` filled, the remainder in `muted`.
+ *
+ * Partial to the fraction, the way a listing draws 4.9 as four whole
+ * stars and most of a fifth: the filled star is clipped to the
+ * fraction's width over a muted one of the same shape. Drawn as a path
+ * rather than set as a glyph, because a typeface a project declares may
+ * not carry one (library/tools/render_fonts.py).
+ */
+const STAR_PATH =
+  "M12 2.1l3.06 6.2 6.84 1-4.95 4.82 1.17 6.81L12 17.72 " +
+  "5.88 20.93l1.17-6.81L2.1 9.3l6.84-1z";
+
+const StarRow: React.FC<{
+  value: number;
+  size: number;
+  star: string;
+  muted: string;
+}> = ({ value, size, star, muted }) => (
+  <span style={{ display: "flex", flex: "0 0 auto" }}>
+    {[0, 1, 2, 3, 4].map((index) => {
+      const filled = Math.max(0, Math.min(1, value - index));
+      return (
+        <span
+          key={`star-${index}`}
+          style={{ position: "relative", width: `${size}px`, height: `${size}px` }}
+        >
+          <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+            <path d={STAR_PATH} fill={muted} />
+          </svg>
+          {filled > 0 && (
+            <span
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: `${size * filled}px`,
+                height: `${size}px`,
+                overflow: "hidden",
+              }}
+            >
+              <svg width={size} height={size} viewBox="0 0 24 24" style={{ display: "block" }}>
+                <path d={STAR_PATH} fill={star} />
+              </svg>
+            </span>
+          )}
+        </span>
+      );
+    })}
+  </span>
+);
 
 /** How many frames apart the parts of a staged construction start.
  *
@@ -1302,6 +1411,227 @@ const DrawnElement: React.FC<{
         <div style={{ color: "#fff", textShadow: "none" }}>
           <TextContent scl={scale * 0.8} />
         </div>
+      </div>
+    );
+  }
+
+  // `review_panel` - a mockup of a review listing, drawn.
+  //
+  // The captain, 2026-09-17, on a blue marker over the graphic that
+  // used to label this moment: "this graphic looks bad, can we use
+  // like a mockup of actual google reviews?" - a verdict on the
+  // drawing and, beside it, the form he wants instead. A listing the
+  // viewer already recognises does the work naming one cannot.
+  //
+  // Everything it SAYS is supplied. The place, the listing's label,
+  // the score, the count, the rows and the palette all arrive on the
+  // element (`library/tools/review_panel.py` is the contract and the
+  // refusal); nothing here invents a review, a rating or a colour, and
+  // an entry whose payload cannot be drawn never reaches this arm -
+  // `motion_graphics_plan.resolve_plan` drops it by name rather than
+  // letting a blank card render.
+  //
+  // Every box carries an EXPLICIT height, so the drawn height is this
+  // arithmetic rather than whatever the browser's line boxes round to.
+  // That is what lets `library/tools/mg_tight_box.py` predict the
+  // union exactly instead of estimating it - the copy cannot re-wrap
+  // into a taller card, because the body is clamped to a fixed number
+  // of line boxes that are reserved whether they fill or not.
+  //
+  // The stars are DRAWN, not set. A star glyph is not in every
+  // typeface this engine will accept (library/tools/render_fonts.py),
+  // and a character that does not draw is the failure that route
+  // exists to refuse.
+  if (element.element === "review_panel") {
+    const data = element.data ?? {};
+    const palette = data.palette ?? {};
+    const rows: any[] = Array.isArray(data.rows) ? data.rows : [];
+    if (!rows.length) return null;
+    const px = (n: number) => Math.round(n * scale);
+
+    const placeRun = element.runs.find((run) => run.type_role === "display");
+    const labelRuns = element.runs.filter(
+      (run) => run.type_role !== "display",
+    );
+
+    const nameHeight = px(REVIEW_PANEL.nameSize * REVIEW_PANEL.nameLine);
+    const scoreHeight = Math.max(
+      px(REVIEW_PANEL.scoreSize * REVIEW_PANEL.scoreLine),
+      px(REVIEW_PANEL.headerStar),
+    );
+    const bodyLineHeight = px(
+      REVIEW_PANEL.bodySize * REVIEW_PANEL.bodyLine,
+    );
+    const rowInner = Math.max(
+      px(REVIEW_PANEL.avatar),
+      px(REVIEW_PANEL.authorSize * REVIEW_PANEL.authorLine)
+        + px(REVIEW_PANEL.authorToBody)
+        + REVIEW_PANEL.bodyLines * bodyLineHeight,
+    );
+    const rowHeight = px(REVIEW_PANEL.rowPadY) * 2 + rowInner;
+
+    return (
+      <div
+        style={{
+          opacity,
+          ...entTransform,
+          ...extTransform,
+          width: `${px(REVIEW_PANEL.width)}px`,
+          backgroundColor: palette.surface,
+          borderRadius: `${px(REVIEW_PANEL.radius)}px`,
+          padding: `${px(REVIEW_PANEL.pad)}px`,
+          boxSizing: "border-box",
+          // The stack this element sits in right-aligns its text at a
+          // right anchor. A listing reads left to right wherever it is
+          // pinned, so the card states its own alignment.
+          textAlign: "left",
+          boxShadow: "0 10px 30px rgba(0,0,0,0.45)",
+        }}
+      >
+        <div
+          style={{
+            height: `${nameHeight}px`,
+            lineHeight: `${nameHeight}px`,
+            fontSize: `${px(REVIEW_PANEL.nameSize)}px`,
+            fontWeight: REVIEW_PANEL.nameWeight,
+            color: palette.ink,
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {placeRun ? placeRun.text : ""}
+        </div>
+        <div
+          style={{
+            height: `${scoreHeight}px`,
+            marginTop: `${px(REVIEW_PANEL.nameToScore)}px`,
+            display: "flex",
+            alignItems: "center",
+            gap: `${px(REVIEW_PANEL.scoreGap)}px`,
+          }}
+        >
+          <span
+            style={{
+              fontSize: `${px(REVIEW_PANEL.scoreSize)}px`,
+              fontWeight: REVIEW_PANEL.scoreWeight,
+              color: palette.ink,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            {data.rating}
+          </span>
+          <StarRow
+            value={Number(data.rating) || 0}
+            size={px(REVIEW_PANEL.headerStar)}
+            star={palette.star}
+            muted={palette.rule}
+          />
+          <span
+            style={{
+              fontSize: `${px(REVIEW_PANEL.labelSize)}px`,
+              fontWeight: REVIEW_PANEL.labelWeight,
+              color: palette.muted,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            {[data.count, ...labelRuns.map((run) => run.text)]
+              .filter((part) => part !== undefined && part !== "")
+              .join(" ")}
+          </span>
+        </div>
+        <div style={{ height: `${px(REVIEW_PANEL.scoreToRows)}px` }} />
+        {rows.map((row, i) => (
+          <div
+            key={`review-${i}`}
+            style={{
+              height: `${rowHeight}px`,
+              boxSizing: "border-box",
+              paddingTop: `${px(REVIEW_PANEL.rowPadY)}px`,
+              paddingBottom: `${px(REVIEW_PANEL.rowPadY)}px`,
+              borderTop: `${px(REVIEW_PANEL.rule)}px solid ${palette.rule}`,
+              display: "flex",
+              gap: `${px(REVIEW_PANEL.avatarGap)}px`,
+            }}
+          >
+            <div
+              style={{
+                flex: "0 0 auto",
+                width: `${px(REVIEW_PANEL.avatar)}px`,
+                height: `${px(REVIEW_PANEL.avatar)}px`,
+                borderRadius: "50%",
+                backgroundColor: palette.muted,
+                color: palette.surface,
+                fontSize: `${px(REVIEW_PANEL.avatarLetter)}px`,
+                fontWeight: REVIEW_PANEL.authorWeight,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {String(row.initial || row.author || "").trim().slice(0, 1)}
+            </div>
+            <div style={{ flex: "1 1 auto", minWidth: 0 }}>
+              <div
+                style={{
+                  height: `${px(REVIEW_PANEL.authorSize * REVIEW_PANEL.authorLine)}px`,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: `${px(REVIEW_PANEL.scoreGap)}px`,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: `${px(REVIEW_PANEL.authorSize)}px`,
+                    fontWeight: REVIEW_PANEL.authorWeight,
+                    color: palette.ink,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {row.author}
+                </span>
+                {typeof row.stars === "number" && (
+                  <StarRow
+                    value={row.stars}
+                    size={px(REVIEW_PANEL.rowStar)}
+                    star={palette.star}
+                    muted={palette.rule}
+                  />
+                )}
+                {row.when ? (
+                  <span
+                    style={{
+                      fontSize: `${px(REVIEW_PANEL.whenSize)}px`,
+                      fontWeight: REVIEW_PANEL.whenWeight,
+                      color: palette.muted,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {row.when}
+                  </span>
+                ) : null}
+              </div>
+              <div
+                style={{
+                  marginTop: `${px(REVIEW_PANEL.authorToBody)}px`,
+                  height: `${REVIEW_PANEL.bodyLines * bodyLineHeight}px`,
+                  fontSize: `${px(REVIEW_PANEL.bodySize)}px`,
+                  lineHeight: `${bodyLineHeight}px`,
+                  fontWeight: REVIEW_PANEL.bodyWeight,
+                  color: palette.ink,
+                  display: "-webkit-box",
+                  WebkitLineClamp: REVIEW_PANEL.bodyLines,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {row.body}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
