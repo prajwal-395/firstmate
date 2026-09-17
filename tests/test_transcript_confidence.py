@@ -590,3 +590,60 @@ def test_the_aligners_score_stops_being_thrown_away():
          {"word": "here", "start": 1.0, "end": 1.4, "score": 0.62}])
     assert [w[tc.ALIGNMENT_SCORE] for w in kept] == [0.81, None, 0.62]
     assert kept[1]["timed"] is False
+
+
+# ── The FOURTH reading: MFA emits no per-word score ────────────────
+#
+# Adopting MFA costs the per-word aligner score - the one per-row
+# number the hybrid arm otherwise publishes. `mfa align` writes no
+# score, and no second pass would produce one, so the absence is
+# recorded explicitly rather than left as a blank column to discover.
+
+def mfa_document() -> dict:
+    """The same stretch, timed by MFA: no `avg_logprob`, no per-word
+    score, and a `transcription` block naming the aligner per speaker."""
+    from library.tools import hybrid_transcription
+
+    doc = document(with_confidence=False)
+    doc["transcription"] = {
+        "arms": {"Akshita": hybrid_transcription.ARM_HYBRID,
+                 "Craig": hybrid_transcription.ARM_HYBRID},
+        "aligners": {"Akshita": hybrid_transcription.ALIGNER_MFA,
+                     "Craig": hybrid_transcription.ALIGNER_MFA},
+        "by_speaker": {},
+        "asr_confidence": hybrid_transcription.ASR_CONFIDENCE_ABSENT,
+    }
+    return doc
+
+
+def test_timed_by_mfa_reads_the_recorded_aligner():
+    assert tc.timed_by_mfa(mfa_document())
+    assert not tc.timed_by_mfa(hybrid_document())
+    assert not tc.timed_by_mfa(document(with_confidence=False))
+    assert not tc.timed_by_mfa({})
+
+
+def test_an_mfa_transcript_states_the_missing_score_rather_than_omitting_it():
+    """A column that simply is not there reads as broken alignment.
+    The legend key is present with the absence stated instead."""
+    view = build_view("spoken_lines",
+                      {"timeline_transcript": mfa_document()})["spoken_lines"]
+    assert view["alignment_score_legend"] == tc.ALIGNMENT_SCORE_ABSENT_MFA
+    assert "alignment_score" not in view["lines"][0]
+    assert (view["transcription_confidence"]
+            == tc.CONFIDENCE_ABSENT_HYBRID)
+
+
+def test_the_absence_sentence_refuses_the_broken_alignment_reading():
+    said = tc.ALIGNMENT_SCORE_ABSENT_MFA.lower()
+    assert "not broken alignment" in said
+    assert "absent by construction" in said
+    assert "transcription.aligners" in said
+
+
+def test_the_hybrid_sentence_qualifies_its_score_promise():
+    """It used to promise every hybrid word carries `alignment_score`.
+    MFA-timed rows carry none, so the promise now names its exception."""
+    said = tc.CONFIDENCE_ABSENT_HYBRID.lower()
+    assert "alignment_score" in said
+    assert "mfa" in said

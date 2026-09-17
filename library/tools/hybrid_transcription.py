@@ -96,11 +96,16 @@ three places** - the transcript document's own `transcription` block,
 because a null that reads as "confident" is exactly the hole that made
 Reel 26's caption defect invisible.
 
-What it restores instead is a per-WORD wav2vec2 `alignment_score`, which
-is a different thing and is labelled as one: it says the characters fit
-the audio, not that they are the right characters. Measured, a wrong
-proper noun scores HIGHER than the right one. It is reported and nothing
-routes on it.
+What the wav2vec2 aligner restores instead is a per-WORD
+`alignment_score`, which is a different thing and is labelled as one:
+it says the characters fit the audio, not that they are the right
+characters. Measured, a wrong proper noun scores HIGHER than the right
+one. It is reported and nothing routes on it. MFA, the preferred
+aligner (`library/tools/mfa_align.py`), emits no per-word score, so a
+run it timed publishes no per-row number at all - `transcript_confidence
+.ALIGNMENT_SCORE_ABSENT_MFA` is the sentence that says so, and adopting
+MFA costs that column. That is the real trade and it is stated here
+rather than left for whoever wonders why it emptied.
 """
 
 from __future__ import annotations
@@ -114,6 +119,19 @@ from library.tools import heard_speech
 
 ARM_HYBRID = "hybrid"
 ARM_WHISPERX = "whisperx"
+
+ALIGNER_MFA = "mfa"
+ALIGNER_WAV2VEC2 = "wav2vec2"
+"""Which forced aligner placed a run's word boundaries.
+
+Recorded on the hybrid's record under `aligner`, the same way `arm`
+says which transcriber wrote the words: every accuracy number in this
+programme is only interpretable if you know which instrument produced
+it, and there are now two. MFA is preferred where its environment is
+present; the wav2vec2 aligner from `whisperx.align` is the fallback
+that stays live behind it. Neither the wav2vec2 aligner nor the full
+WhisperX arm is removed.
+"""
 
 ASR_CONFIDENCE_ABSENT = "absent_by_construction"
 """What the hybrid arm records where `avg_logprob` would be.
@@ -416,6 +434,12 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
         aligned=aligned,
         record={
             "arm": ARM_HYBRID,
+            # The instrument that placed these boundaries. An aligner
+            # STAMPS its own document (`aligner` beside `segments`);
+            # this copies the stamp onto the record so a run can be
+            # read back. Anything unstamped predates the second
+            # aligner, when wav2vec2 placed every boundary there was.
+            "aligner": aligned.get("aligner", ALIGNER_WAV2VEC2),
             "transcriber": dict(spoken.engine),
             "language": spoken_language.as_dict(),
             "alignment_window": {
@@ -434,6 +458,9 @@ def fallback_record(failure: FallbackRequired,
     """The account a fallback leaves behind, so a run can be read back."""
     record: Dict[str, Any] = {
         "arm": ARM_WHISPERX,
+        # The fallback's own text is timed by the wav2vec2 aligner, so
+        # its instrument is known even though no hybrid record exists.
+        "aligner": ALIGNER_WAV2VEC2,
         "fell_back_because": {"trigger": failure.reason,
                               "detail": failure.detail},
     }

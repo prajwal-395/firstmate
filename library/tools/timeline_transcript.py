@@ -375,9 +375,12 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
     Two arms, and the choice is made by measurement
     -----------------------------------------------
     * The HYBRID (`library/tools/hybrid_transcription.py`) is primary:
-      the on-device transcriber's text through the same `whisperx.align`
-      call this function has always made. 20-41x faster end to end, word
-      starts a median 9.1ms from what the fallback writes.
+      the on-device transcriber's text through the forced aligner - MFA
+      (`library/tools/mfa_align.py`) where its environment is present,
+      the same `whisperx.align` call this function has always made
+      where it declines. 20-41x faster end to end, word starts a median
+      9.1ms from what the fallback writes. Which aligner timed each
+      speaker is in the record under `aligner`.
     * Full WhisperX is the FALLBACK, and it is the code below, unchanged.
       It runs when the hybrid raises `FallbackRequired` - an uncovered
       language, a window that aligned to no words, a word still over the
@@ -445,6 +448,7 @@ def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
             return hybrid.aligned, hybrid.record
     else:
         record = {"arm": hybrid_transcription.ARM_WHISPERX,
+                  "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
                   "fell_back_because": {
                       "trigger": "asked_for",
                       "detail": "this run asked for the fallback "
@@ -557,25 +561,55 @@ def align_segments(segments: List[dict], language: str,
     align_model, metadata = whisperx.load_align_model(
         language_code=language, device=device)
     try:
-        return whisperx.align(segments, align_model, metadata, audio, device,
-                              return_char_alignments=False)
+        aligned = whisperx.align(segments, align_model, metadata, audio,
+                                 device, return_char_alignments=False)
     except Exception as exc:                # pragma: no cover - device path
         print(f"  alignment on {device} failed ({exc}); retrying on cpu",
               file=sys.stderr)
         align_model, metadata = whisperx.load_align_model(
             language_code=language, device="cpu")
-        return whisperx.align(segments, align_model, metadata, audio, "cpu",
-                              return_char_alignments=False)
+        aligned = whisperx.align(segments, align_model, metadata, audio,
+                                 "cpu", return_char_alignments=False)
+    # The instrument, stamped beside the timings: this is what the
+    # hybrid's record copies onto `aligner`, so a run says whether MFA
+    # or wav2vec2 placed its boundaries. BOTH arms come here, so a
+    # full-WhisperX fallback is stamped honestly too.
+    from library.tools.hybrid_transcription import ALIGNER_WAV2VEC2
+
+    aligned["aligner"] = ALIGNER_WAV2VEC2
+    return aligned
 
 
 def _aligner():
-    """This module's aligner, handed to the hybrid as two callables."""
+    """This module's aligner, handed to the hybrid as two callables.
+
+    MFA is preferred where its environment is present and it covers
+    the language; the wav2vec2 `align_segments` below is the fallback
+    that stays live behind it, reached through the same
+    `FallbackRequired` mechanism the transcriber-level fallback uses.
+    A lane or machine without MFA still transcribes - the decline is
+    per run, and the document says which aligner timed it.
+    """
     from library.tools.hybrid_transcription import Aligner
 
-    return Aligner(
-        covers=aligner_covers,
-        align=lambda segments, language, audio_path: align_segments(
-            segments, language, audio_path))
+    def _covers(language: str) -> bool:
+        from library.tools import mfa_align
+
+        return mfa_align.covers(language) or aligner_covers(language)
+
+    def _align(segments, language, audio_path):
+        from library.tools import hybrid_transcription, mfa_align
+
+        try:
+            return mfa_align.align(segments, language, audio_path)
+        except hybrid_transcription.FallbackRequired as declined:
+            print(f"  MFA declined ({declined.reason}): "
+                  f"{declined.detail}", file=sys.stderr)
+            print(f"  aligning word timings with wav2vec2 instead",
+                  file=sys.stderr)
+            return align_segments(segments, language, audio_path)
+
+    return Aligner(covers=_covers, align=_align)
 
 
 def interpolate_untimed_words(words: List[dict]) -> List[dict]:
@@ -901,9 +935,11 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         "measurement": (
             "Speech transcribed from audio REBUILT out of the source "
             "spans the timeline plays, and every word boundary placed by "
-            "wav2vec2 forced alignment. Which transcriber wrote the "
-            "WORDS is in `transcription`. Resolve was not opened and "
-            "nothing was rendered. Times are timeline time."),
+            "forced alignment - MFA where its environment was present, "
+            "wav2vec2 where it declined. Which transcriber wrote the "
+            "WORDS is in `transcription.arms`, which aligner placed "
+            "them in `transcription.aligners`. Resolve was not opened "
+            "and nothing was rendered. Times are timeline time."),
         "speakers": speaking,
         "segment_count": len(merged),
         "segments_straddling_a_cut": unbound,
@@ -975,8 +1011,16 @@ def transcription_record(heard_by: Dict[str, dict]) -> dict:
             for speaker, record in heard_by.items()}
     any_hybrid = any(arm == hybrid_transcription.ARM_HYBRID
                      for arm in arms.values())
+    # Which forced aligner placed each speaker's boundaries - MFA where
+    # its environment was present, wav2vec2 where it declined. A
+    # speaker whose record predates the second aligner reads None,
+    # which is the honest answer: nobody recorded the instrument then,
+    # and it is not retro-labelled.
+    aligners = {speaker: record.get("aligner")
+                for speaker, record in heard_by.items()}
     return {
         "arms": arms,
+        "aligners": aligners,
         "by_speaker": heard_by,
         "asr_confidence": (hybrid_transcription.ASR_CONFIDENCE_ABSENT
                            if any_hybrid else "present"),

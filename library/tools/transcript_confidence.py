@@ -124,9 +124,13 @@ CONFIDENCE_LEGEND = (
 
 ALIGNMENT_SCORE_LEGEND_REF = (
     "What these words DO carry, per word, is `alignment_score` - the "
-    "forced aligner's fit for that word's characters against the audio. "
-    "It is a different measurement and it is not a substitute: it says "
-    "the characters fit, never that they are the right characters."
+    "forced aligner's fit for that word's characters against the audio, "
+    "where the aligner was wav2vec2. Rows timed by MFA carry none: that "
+    "aligner emits no per-word score, so their `alignment_score` is "
+    "absent by construction (see `transcription.aligners` and "
+    "ALIGNMENT_SCORE_ABSENT_MFA), not by oversight. It is a different "
+    "measurement and it is not a substitute: it says the characters "
+    "fit, never that they are the right characters."
 )
 
 CONFIDENCE_ABSENT = (
@@ -176,6 +180,42 @@ ALIGNMENT_SCORE_LEGEND = (
     "precision, which is a signal and not a verdict. No threshold is "
     "applied to it anywhere."
 )
+
+
+ALIGNMENT_SCORE_ABSENT_MFA = (
+    "No row carries `alignment_score`, and this is NOT broken alignment. "
+    "These words were timed by MFA, which emits no per-word score - so "
+    "their `alignment_score` is absent by construction, the way the "
+    "hybrid's `avg_logprob` is, and nothing has been derived to stand in "
+    "for it. Do not read the missing column as doubted words: nothing "
+    "here scored them at all. Which speakers were timed by which "
+    "aligner is in `transcription.aligners`."
+)
+"""The sentence a view gets when the aligner kept no score.
+
+Adopting MFA costs the per-word aligner score - that is the real trade,
+stated where the column would have been rather than left for whoever
+wonders why it emptied. A scored wav2vec2 transcript gets
+ALIGNMENT_SCORE_LEGEND; an MFA transcript gets this; a transcript with
+neither gets neither, and that silence is about old data, not this.
+"""
+
+
+def timed_by_mfa(document: dict) -> bool:
+    """Whether any part of this transcript was timed by MFA.
+
+    Read off the document's own `transcription` block, which
+    `timeline_transcript.transcription_record` writes as `aligners`
+    beside `arms`. A transcript with no such block predates the second
+    aligner, when wav2vec2 timed every boundary there was, which is why
+    the answer is False rather than unknown.
+    """
+    from library.tools.hybrid_transcription import ALIGNER_MFA
+
+    if not isinstance(document, dict):
+        return False
+    aligners = ((document.get("transcription") or {}).get("aligners") or {})
+    return any(aligner == ALIGNER_MFA for aligner in aligners.values())
 
 
 def line_confidence(segment: dict) -> Optional[float]:

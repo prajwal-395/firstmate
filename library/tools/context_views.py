@@ -393,7 +393,11 @@ def _spoken_lines(data: dict) -> dict:
     with its own legend saying plainly it is not a confidence: measured,
     a misspelled brand name scores HIGHER than the right spelling.  It
     is the only per-row number that arm has, so it is published rather
-    than measured and dropped, and nothing fires on it.  Beside it,
+    than measured and dropped, and nothing fires on it.  Adopting MFA
+    costs even that number - it emits no per-word score - so an
+    MFA-timed transcript carries no score column and the legend says
+    the absence is by construction rather than leaving it to be
+    discovered.  Beside it,
     `script_mismatch` names any line whose letters fall outside the
     script the rest of the transcript is written in - exact, no
     threshold, no model call, and on the field test 1 line of 940, which
@@ -403,12 +407,14 @@ def _spoken_lines(data: dict) -> dict:
     """
     from library.tools.reel_proposal import bound_segments, straddling_segments
     from library.tools.transcript_confidence import (
+        ALIGNMENT_SCORE_ABSENT_MFA,
         ALIGNMENT_SCORE_LEGEND,
         any_line_carries_confidence,
         confidence_notice,
         line_confidence,
         line_alignment_score,
         mismatch_report,
+        timed_by_mfa,
     )
 
     document = data.get("timeline_transcript")
@@ -475,6 +481,12 @@ def _spoken_lines(data: dict) -> dict:
     view["transcription_confidence"] = confidence_notice(document, rows)
     if carries_alignment_score:
         view["alignment_score_legend"] = ALIGNMENT_SCORE_LEGEND
+    elif timed_by_mfa(document):
+        # Adopting MFA costs the per-word aligner score, and a column
+        # that simply is not there reads as broken alignment. So the
+        # legend key is present with the absence stated, rather than
+        # missing - the same shape as the confidence absence above.
+        view["alignment_score_legend"] = ALIGNMENT_SCORE_ABSENT_MFA
     mismatches = mismatch_report(document)
     if mismatches:
         view["script_mismatch"] = mismatches

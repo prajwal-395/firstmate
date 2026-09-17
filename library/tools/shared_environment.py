@@ -449,6 +449,133 @@ def interpreter_report(repo_root: Optional[str | Path] = None) -> dict:
     }
 
 
+# ── the MFA half: the forced aligner ahead of wav2vec2 ──────────────
+#
+# A third shared dependency, discovered the same way as the two above:
+# one location per MACHINE under `vep_home()`, never one per checkout,
+# and absence REFUSES with the command that fixes it rather than a
+# stack trace. `library/tools/mfa_align.py` is the only runtime reader;
+# `scripts/install_mfa.sh` is the one way to fill it.
+#
+# Why these paths and not others. The measurement task
+# (`data/vep-try-mfa-instead-of-wav2vec2/report.md`) installed into
+# `~/.local/share/vep/micromamba` - which is `vep_home()/micromamba`,
+# the root this module already owns - and MFA keeps its side-state
+# (config, model cache, temp DB) in `~/Documents/MFA`, which is MFA's
+# own default rather than a choice of ours. Both are overridable
+# outright, because a lane whose layout this module did not anticipate
+# is a real machine and not a misconfiguration.
+
+MICROMAMBA_DIRNAME = "micromamba"
+"""The self-contained micromamba root under `vep_home()`.
+
+No `conda init`, no shell profile touched - every command uses the
+explicit binary path, per the measurement report.
+"""
+
+MFA_ENV_NAME = "mfa"
+"""The conda env inside the micromamba root that carries MFA."""
+
+MFA_BINARY_SUFFIX = os.path.join("envs", MFA_ENV_NAME, "bin", "mfa")
+
+MFA_ACOUSTIC_MODEL = "english_us_arpa"
+"""The acoustic model `mfa align` is run with. Spelled once, here."""
+
+MFA_ACOUSTIC_MODEL_VERSION = "v3.0.0"
+"""The acoustic model version the boundaries were measured on. PINNED.
+
+An unpinned `english_us_arpa` floats, and the model is what places
+the word boundaries - so the install script downloads exactly this,
+and a second version beside it is a different instrument until it is
+measured as one.
+"""
+
+MFA_DICTIONARY = "english_us_arpa"
+
+MFA_INSTALL_SCRIPT = "scripts/install_mfa.sh"
+"""The one way to fill the MFA environment. Named in every refusal."""
+
+
+class MfaEnvironmentMissing(RuntimeError):
+    """The MFA environment is not reachable from this machine.
+
+    Raised rather than left for the align subprocess to report as a
+    missing binary several layers down. The message carries the
+    command that fixes it. The aligner treats this as a DECLINE to
+    the wav2vec2 fallback, never a crash - see
+    `library/tools/mfa_align.py`.
+    """
+
+
+def micromamba_root() -> Path:
+    """The micromamba root. `PIPELINE_MICROMAMBA_ROOT` names it outright."""
+    explicit = os.environ.get("PIPELINE_MICROMAMBA_ROOT")
+    if explicit:
+        return Path(explicit).expanduser()
+    return vep_home() / MICROMAMBA_DIRNAME
+
+
+def mfa_binary(directory: Optional[str | Path] = None) -> Path:
+    """The `mfa` executable this machine aligns with.
+
+    `PIPELINE_MFA_BINARY` wins outright - the escape hatch for a
+    machine whose layout this module did not anticipate. Otherwise it
+    is `<micromamba_root>/envs/mfa/bin/mfa`, because that is where
+    `scripts/install_mfa.sh` puts it. `directory` is accepted and
+    ignored, so this reads like the Node half's queries.
+    """
+    _ = directory
+    explicit = os.environ.get("PIPELINE_MFA_BINARY")
+    if explicit:
+        return Path(explicit).expanduser()
+    return micromamba_root() / MFA_BINARY_SUFFIX
+
+
+def mfa_models_dir() -> Path:
+    """Where MFA keeps its config, model cache and temp DB.
+
+    `PIPELINE_MFA_MODELS` names it outright. Otherwise MFA's own
+    default, `~/Documents/MFA` - that default is MFA's choice rather
+    than a path of ours, which is why it is read here and not moved.
+    """
+    explicit = os.environ.get("PIPELINE_MFA_MODELS")
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path.home() / "Documents" / "MFA"
+
+
+def mfa_available() -> tuple:
+    """`(usable, detail)` - whether this machine can align with MFA."""
+    binary = mfa_binary()
+    if not (binary.is_file() and os.access(binary, os.X_OK)):
+        return False, mfa_missing_message()
+    models = mfa_models_dir()
+    if not models.is_dir():
+        return False, mfa_missing_message()
+    return True, f"MFA {MFA_ACOUSTIC_MODEL} v{MFA_ACOUSTIC_MODEL_VERSION} via {binary}"
+
+
+def mfa_missing_message() -> str:
+    """Why MFA is not reachable, and the command that fixes it."""
+    lines = [
+        f"The MFA forced aligner is not reachable "
+        f"(binary {mfa_binary()}, models {mfa_models_dir()}).",
+        f"Install once per machine:\n"
+        f"    {MFA_INSTALL_SCRIPT}\n"
+        f"A machine without it still transcribes: the wav2vec2 aligner "
+        f"takes over for that run (see `library/tools/mfa_align.py`).",
+    ]
+    return "\n".join(lines)
+
+
+def require_mfa() -> Path:
+    """Return the `mfa` executable, or REFUSE by name."""
+    usable, detail = mfa_available()
+    if not usable:
+        raise MfaEnvironmentMissing(detail)
+    return mfa_binary()
+
+
 def main(argv=None) -> int:
     """`python -m library.tools.shared_environment --resolve-interpreter
     [--repo-root <checkout>]`.
