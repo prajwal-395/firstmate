@@ -1100,6 +1100,8 @@ class ExplainerPlan:
             "band": self.band,
             "segments": [
                 {"overlay_path": s.get("overlay_path"),
+                 "segment_id": s.get("segment_id"),
+                 "placement_label": s.get("placement_label"),
                  "timeline_start": s.get("timeline_start"),
                  "timeline_end": s.get("timeline_end"),
                  "total_frames": s.get("total_frames"),

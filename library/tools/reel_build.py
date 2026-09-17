@@ -5057,7 +5057,9 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
                            overlay_intent: dict = None,
                            frame: tuple = None,
                            seen_ids: list = None,
-                           do_not_draw: list = None) -> list:
+                           do_not_draw: list = None,
+                           intent_applied: list = None,
+                           seen_labels: list = None) -> list:
     """Place rendered overlay segments onto one upper video track.
 
     One placer for the explainer track and the semantic-visual track:
@@ -5092,11 +5094,13 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
     Where the project declares intent (`overlay_intent` - loaded from
     `external/overlay_intent.json` by the caller), a pinned segment
     lands on the declared position instead of the computed one; the
-    pin is selected by the segment's id, falling back to `kind`.
-    `seen_ids`, where given, collects every placed segment's intent
-    id, so the caller can report declared pins that matched nothing
+    pin is selected by the segment's id, then its placing label, then
+    `kind`. `seen_ids`, where given, collects every placed segment's
+    intent id, and `seen_labels` every placing label it was placed
+    under, so the caller can report declared pins that matched nothing
     (`overlay_intent.report_unmatched`) instead of dropping them
-    silently.
+    silently. `intent_applied`, where given, collects every winning
+    pin key, so the caller can report which pins DID apply.
 
     `track_rows` is the plan's rows for this kind, in row order, and a
     segment rides the one its own LANE names. Segments on one lane never
@@ -5198,8 +5202,11 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
         # rebuild lands where they put things.
         tight = segment.get("tight_box") or {}
         placed_segment_id = _overlay_segment_id(segment)
+        placed_label = (segment or {}).get("placement_label") or None
         if seen_ids is not None:
             seen_ids.append(placed_segment_id)
+        if seen_labels is not None and placed_label:
+            seen_labels.append(placed_label)
         note = apply_placement_transform(
             timeline, track_index, record_frame,
             tight.get("placement"),
@@ -5212,7 +5219,12 @@ def place_overlay_segments(pool, project, timeline, name: str, fps: float,
             canvas=((tight.get("width"), tight.get("height"))
                     if tight.get("width") and tight.get("height")
                     else None),
-            frame=frame)
+            frame=frame,
+            # Which placing this file serves: a label pin survives the
+            # re-render that kills the digest id, and a winning pin is
+            # recorded so the build can say which pins applied.
+            placement_label=placed_label,
+            intent_matched=intent_applied)
         if note:
             print(f"  {name}: {note}", file=sys.stderr)
     return held_back
@@ -5896,9 +5908,13 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
     # unpunched rather than punched at a guess (captain, 2026-09-09:
     # a centred 2.30 put Craig out of shot entirely).
     # Every overlay id laid down on this reel, captions included
-    # below: the declared pins that matched none of them are
-    # REPORTED after the last placement, never silently dropped.
+    # below, with every placing label it played under: the declared
+    # pins that matched none of them are REPORTED after the last
+    # placement, never silently dropped - and the pins that DID apply
+    # ride the build record to the durable report.
     seen_intent_ids: list = []
+    seen_intent_labels: list = []
+    applied_intent_keys: list = []
     screen_window = None
     if look is not None:
         from library.tools import reel_look as _look
@@ -5962,7 +5978,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
             seen_ids=seen_intent_ids,
-            do_not_draw=suppressions))
+            do_not_draw=suppressions,
+            intent_applied=applied_intent_keys,
+            seen_labels=seen_intent_labels))
         print(f"  {name}: TV frame over {len(runs)} picture run(s) on "
               f"V{track_plan.row_for_role(FRAME).index} at cover zoom "
               f"{_look.frame_properties(look, width, height)['ZoomX']:.4f}, "
@@ -6076,7 +6094,8 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             segment_id=segment.get("segment_id"),
             intent=overlay_intent,
             canvas=_overlay_canvas(segment),
-            frame=(width, height))
+            frame=(width, height),
+            intent_matched=applied_intent_keys)
         if not placed:
             print(f"Failed to place {segment.get('segment_id')}: {note}",
                   file=sys.stderr)
@@ -6152,7 +6171,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
             seen_ids=seen_intent_ids,
-            do_not_draw=suppressions))
+            do_not_draw=suppressions,
+            intent_applied=applied_intent_keys,
+            seen_labels=seen_intent_labels))
 
 
 
@@ -6168,7 +6189,9 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
             seen_ids=seen_intent_ids,
-            do_not_draw=suppressions))
+            do_not_draw=suppressions,
+            intent_applied=applied_intent_keys,
+            seen_labels=seen_intent_labels))
 
     # The speaker lower thirds. ADDITIVE, exactly as the two above are:
     # laid over picture that keeps playing, moving no frame of it, so a
@@ -6185,19 +6208,28 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
             project_folder=project_folder,
             overlay_intent=overlay_intent, frame=(width, height),
             seen_ids=seen_intent_ids,
-            do_not_draw=suppressions))
+            do_not_draw=suppressions,
+            intent_applied=applied_intent_keys,
+            seen_labels=seen_intent_labels))
 
     if overlay_intent:
         # Pins that matched nothing on this reel, said aloud and kept
         # on the record: a pin for a segment another reel carries is
         # ordinary, but ordinary said plainly - the rebuild that
         # silently drops the captain's corrections is the defect this
-        # answers. REPORTED, never raised: the reel IS built.
+        # answers. REPORTED, never raised: the reel IS built. The pins
+        # that DID apply ride beside them, so the durable report can
+        # say "N of M applied" instead of only what was lost.
         from library.tools.overlay_intent import (
             report_unmatched as report_unmatched_intent)
         build_record["unmatched_overlay_intent"] = report_unmatched_intent(
             overlay_intent, seen_intent_ids,
-            source=f"overlay_intent.json ({name})")
+            source=f"overlay_intent.json ({name})",
+            seen_labels=seen_intent_labels)
+        build_record["applied_overlay_intent"] = sorted(
+            set(applied_intent_keys))
+    else:
+        build_record["applied_overlay_intent"] = []
 
     if suppressions:
         # Suppressions that matched nothing on this reel, said aloud
@@ -7931,6 +7963,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     overlay_records = {}
     track_plans = {}
     skipped_by_exclusion: list = []
+    # Which declared overlay pins each placed reel honoured, and which
+    # it placed nothing for: per-reel lists off each `build_record`,
+    # aggregated after the loop into the durable `overlay_intent_report`
+    # the mainline return carries. A pin is counted once however many
+    # segments it fanned out over.
+    intent_applied_by_reel: dict = {}
+    intent_unmatched_by_reel: dict = {}
     # Read ONCE, before the loop: a malformed declaration must stop the
     # whole build, not the twelfth reel of nineteen.
     card_declarations = declared_cards(project_folder)
@@ -8591,6 +8630,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # never a re-derivation, and promotion renames it with the
             # timeline it describes.
             track_plans[name] = build_result["track_plan"]
+            if overlay_intent:
+                # Per-reel intent application, keyed by STAGING name
+                # here and remapped to finals beside `caption_hashes`
+                # after promotion: the durable report below must speak
+                # the timeline names Resolve holds, not the staging the
+                # gate graded.
+                intent_applied_by_reel[name] = list(
+                    build_result.get("applied_overlay_intent") or [])
+                intent_unmatched_by_reel[name] = list(
+                    build_result.get("unmatched_overlay_intent") or [])
             if name in overlay_records and build_result.get(
                     "transition_placements") is not None:
                 # The placer re-stamps transition elements onto the
@@ -8853,6 +8902,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             final: track_plans[staged_to_final[final]]
             for final in final_names
             if staged_to_final[final] in track_plans}
+        intent_applied_by_reel = {
+            final: intent_applied_by_reel[staged_to_final[final]]
+            for final in final_names
+            if staged_to_final[final] in intent_applied_by_reel}
+        intent_unmatched_by_reel = {
+            final: intent_unmatched_by_reel[staged_to_final[final]]
+            for final in final_names
+            if staged_to_final[final] in intent_unmatched_by_reel}
         built_reel_names = list(final_names)
         staged_out = {}
         # ══════════════════════════════════════════════════════
@@ -8936,6 +8993,64 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except Exception as exc:  # noqa: BLE001
         print(f"  drift end-check unavailable ({exc!r}) - the build "
               f"record stands without an end bracket", flush=True)
+
+    # ── OVERLAY INTENT: which declared pins this build honoured ──
+    # Each reel computed its own `unmatched_overlay_intent`, and the
+    # mainline return carried NONE of it - a pin killed by a re-render
+    # was visible only on stderr of a run nobody re-reads, which is
+    # how this project's pins died unnoticed. The aggregate below
+    # lands on the returned record (which the `build_reels` node
+    # writes to its step output), beside the per-reel breakdown, with
+    # the count of pins that DID apply: "N of M applied" is the
+    # sentence that would have made the defect visible months ago.
+    # REPORTED, never a gate: a build must not start failing because
+    # a pin went stale. `unmatched` here means "matched on no reel
+    # THIS build placed" - pins for reels left alone report here
+    # until those reels rebuild, which is ordinary, not stale.
+    if overlay_intent:
+        from library.tools.overlay_intent import CAPTION_KIND as _CAPTION_K
+        _declared_pins = sorted(
+            key for key in overlay_intent if key != _CAPTION_K)
+        _applied_union = sorted({
+            key for keys in intent_applied_by_reel.values()
+            for key in keys if key in overlay_intent})
+        _unmatched_union = sorted(
+            key for key in _declared_pins if key not in _applied_union)
+        _per_reel_intent = {
+            final: {"applied": sorted(intent_applied_by_reel.get(final, [])),
+                    "unmatched": sorted(
+                        intent_unmatched_by_reel.get(final, []))}
+            for final in built_reel_names}
+        overlay_intent_report = {
+            "placed_reels": list(built_reel_names),
+            "left_alone": list(left_alone),
+            "declared": _declared_pins,
+            "applied": _applied_union,
+            "unmatched": _unmatched_union,
+            "per_reel": _per_reel_intent,
+            "kind_defaults": sorted(
+                key for key in overlay_intent if key == _CAPTION_K),
+        }
+        print(f"  overlay intent: {len(_applied_union)} of "
+              f"{len(_declared_pins)} pin(s) applied on "
+              f"{len(built_reel_names)} placed reel(s)"
+              + (f" - unmatched on placed reels: "
+                 f"{', '.join(_unmatched_union)}"
+                 if _unmatched_union else "")
+              + (f" ({len(left_alone)} reel(s) left alone: pins for "
+                 f"those reels report unmatched until they rebuild)"
+                 if left_alone else ""),
+              file=sys.stderr, flush=True)
+    else:
+        overlay_intent_report = {
+            "placed_reels": list(built_reel_names),
+            "left_alone": list(left_alone),
+            "declared": [],
+            "applied": [],
+            "unmatched": [],
+            "per_reel": {},
+            "kind_defaults": [],
+        }
 
     return {
         "timelines_built": built_reel_names,
@@ -9039,6 +9154,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # `skipped_by_exclusion`: that one is content the captain
         # struck, this one is work that was already done.
         "reels_left_alone": left_alone,
+        # Which declared overlay pins this build honoured, and which
+        # matched on no reel it placed - the aggregate above, carried
+        # so the step output (not just stderr) says whether a pin
+        # applied. Reported, never a gate.
+        "overlay_intent_report": overlay_intent_report,
     }
 
 

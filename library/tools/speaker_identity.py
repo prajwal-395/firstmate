@@ -230,6 +230,8 @@ class SpeakerPlan:
             # looks for an item the build did not place.
             "segments": [
                 {"overlay_path": s.get("overlay_path"),
+                 "segment_id": s.get("segment_id"),
+                 "placement_label": s.get("placement_label"),
                  "timeline_start": s.get("timeline_start"),
                  "timeline_end": s.get("timeline_end"),
                  "total_frames": s.get("total_frames"),
@@ -848,6 +850,24 @@ TRACK_NAME = "Motion Graphics"
 #: file itself is content-keyed (`render_cache`), so this is what a
 #: reader sees on the timeline rather than what is on disk.
 RENDER_PREFIX = "lt_"
+
+
+def segment_name(reel_name: str, index: int) -> str:
+    """The placement label one reel's lower-third render is placed under.
+
+    The canonical spelling of the `lt_<reel-slug>_<index>` name
+    `reel_build` passes as `segment_name=` to the renderer: which
+    placing the file serves, never the file's identity. Kept equal to
+    `reel_build._reel_slug`'s rendering by
+    `tests/test_overlay_intent.py` - two spellings of one name is how
+    a re-key maps a stale digest onto the wrong placing, so the
+    equality is pinned rather than trusted.
+    """
+    import re
+
+    slug = re.sub(r"[^A-Za-z0-9]+", "_",
+                  str(reel_name or "reel")).strip("_").lower()[:48]
+    return f"{RENDER_PREFIX}{slug or 'reel'}_{int(index):02d}"
 
 
 def write_plans(project_folder: str, plans: Sequence[SpeakerPlan]) -> str:

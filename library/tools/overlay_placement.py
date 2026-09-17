@@ -207,7 +207,9 @@ def apply_placement_transform(timeline, track_index: int,
                               intent: Optional[dict] = None,
                               draw_intent: Optional[dict] = None,
                               canvas: Optional[tuple] = None,
-                              frame: Optional[tuple] = None) -> str:
+                              frame: Optional[tuple] = None,
+                              placement_label: Optional[str] = None,
+                              intent_matched: Optional[list] = None) -> str:
     """Move an already-placed overlay clip onto its tight box.
 
     `placement` is None for a full-canvas clip (nothing to do), else
@@ -215,10 +217,10 @@ def apply_placement_transform(timeline, track_index: int,
     plus an optional `zoom` where a declared pin carries one
     (`overlay_intent`), held uniform on `ZoomX`/`ZoomY`.
     Where the project declares intent for this overlay
-    (`library/tools/overlay_intent.py` - `kind`/`segment_id` select
-    the pin), the declared POSITION wins over the computed one, so a
-    rebuild lands where the captain put things instead of
-    recomputing past their corrections. A pin names a place, so
+    (`library/tools/overlay_intent.py` - `kind`/`segment_id`/
+    `placement_label` select the pin), the declared POSITION wins over
+    the computed one, so a rebuild lands where the captain put things
+    instead of recomputing past their corrections. A pin names a place, so
     `canvas` and `frame` are what it is turned into a transform
     against; a matching pin without them RAISES rather than reading
     as honoured. Without intent the computed placement applies
@@ -250,7 +252,9 @@ def apply_placement_transform(timeline, track_index: int,
     name = label or "overlay"
     placement, provenance = resolve_intent(kind, segment_id, placement,
                                            intent, canvas=canvas,
-                                           frame=frame)
+                                           frame=frame,
+                                           placement_label=placement_label,
+                                           matched=intent_matched)
     if provenance == "declared":
         name = f"{name} (declared position)"
     if not placement:
@@ -378,13 +382,15 @@ def place_overlay_segment(media_pool, timeline, pool_item,
                           draw_intent: Optional[dict] = None,
                           canvas: Optional[tuple] = None,
                           frame: Optional[tuple] = None,
+                          placement_label: Optional[str] = None,
+                          intent_matched: Optional[list] = None,
                           ) -> tuple[bool, str]:
     """Place one overlay clip and, where asked, transform it.
 
     `placement` is None for a full-canvas clip, else the
     `{"scaling", "pan", "tilt"}` mapping `tight_box` computed. A
-    declared position (`kind`/`segment_id` against `intent` - see
-    `apply_placement_transform`) wins over it. Returns `(placed,
+    declared position (`kind`/`segment_id`/`placement_label` against
+    `intent` - see `apply_placement_transform`) wins over it. Returns `(placed,
     note)`: `placed` is False only when `AppendToTimeline` itself
     fails; a refused transform still places, with the refusal in
     `note` for the caller to warn on.
@@ -407,4 +413,5 @@ def place_overlay_segment(media_pool, timeline, pool_item,
     return True, apply_placement_transform(
         timeline, track_index, record_frame, placement, label,
         kind=kind, segment_id=segment_id, intent=intent,
-        draw_intent=draw_intent, canvas=canvas, frame=frame)
+        draw_intent=draw_intent, canvas=canvas, frame=frame,
+        placement_label=placement_label, intent_matched=intent_matched)

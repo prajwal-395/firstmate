@@ -438,7 +438,10 @@ def _record(reel_name: str, basis: str, entries: list, resolved=None,
             {"element": d.element, "reason": d.reason, "detail": d.detail}
             for d in (dropped or [])],
         "segments": [
-            {"timeline_start": s["timeline_start"],
+            {"overlay_path": s.get("overlay_path"),
+             "segment_id": s.get("segment_id"),
+             "placement_label": s.get("placement_label"),
+             "timeline_start": s["timeline_start"],
              "timeline_end": s["timeline_end"],
              "total_frames": s["total_frames"],
              "elements": list(s.get("elements") or [])}
