@@ -62,7 +62,8 @@ ML_DEPENDENT_COMMANDS = ("run",)
 # adding a subcommand without listing it here fails loudly rather than
 # leaving the advice quietly wrong.
 ALL_COMMANDS = (
-    "init-root", "list", "new", "propose-reels", "build-reels", "deliver-reel",
+    "init-root", "list", "new", "propose-reels", "build-reels", "drift",
+    "deliver-reel",
     "watch-reel", "hear-reel", "touch-reel", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
@@ -1505,6 +1506,41 @@ def cmd_build_reels(args):
     _commit_run_tail(project_folder)
 
 
+def cmd_drift(args):
+    """Compare every reel's build snapshot against its live self-read.
+
+    The caller `library/tools/transform_drift.py` never had: for each
+    reel, the newest `pipeline_output/review/<name>.timeline.json`
+    against the live timeline read with THAT timeline current,
+    printing the per-reel factor. The same check runs at the start and
+    the end of every reel build; this verb runs it on demand.
+
+    It REPORTS, never repairs: exit 0 where every compared reel holds
+    what its build wrote, 1 where any reel moved or any reading
+    failed (an unreadable reel is never a matching one), 2 where the
+    check itself could not run. Reading is the only Resolve act, but
+    the self-read moves the cursor to do it, and moving the cursor is
+    a write - so this takes the instance and puts the cursor back,
+    reading it back to prove it did.
+    """
+    from library.tools import drift_check
+    from library.tools import resolve_lock
+
+    project_folder = _reel_project_folder(args.project)
+    try:
+        with resolve_lock.resolve_lease("transform drift check",
+                                        exclusive=True):
+            report = drift_check.check_project(project_folder)
+    except resolve_lock.ResolveBusy as busy:
+        print(f"REFUSED: {busy}", file=sys.stderr)
+        sys.exit(2)
+    if report.get("error"):
+        print(f"drift: {report['error']}", file=sys.stderr)
+        sys.exit(2)
+    if report.get("drifted") or report.get("unreadable"):
+        sys.exit(1)
+
+
 def cmd_deliver_reel(args):
     """Render ONE chosen reel timeline to a video file. The explicit verb.
 
@@ -1991,6 +2027,14 @@ def main():
              "way. Use this to re-place onto drift-free state, or to "
              "measure what the pass costs.")
     build_reels_parser.set_defaults(func=cmd_build_reels)
+
+    drift_parser = sub.add_parser(
+        "drift", help="Compare each reel's build snapshot against its "
+                      "live timeline and report the per-reel factor")
+    drift_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    drift_parser.set_defaults(func=cmd_drift)
 
     deliver_reel_parser = sub.add_parser(
         "deliver-reel", help="Render ONE chosen reel timeline to a file")

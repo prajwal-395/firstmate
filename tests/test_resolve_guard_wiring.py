@@ -134,6 +134,9 @@ CONNECTS_BUT_IS_NOT_DISPATCHED = {
     "library/tools/capture_fusion_comps.py",  # operator tool
     "library/tools/qa/timeline_sync_qa.py",   # operator tool
     "library/tools/build_version_control.py",  # called under `promote`
+    "library/tools/drift_check.py",  # takes no lease: called under
+    # `build reels` at both ends, and the `drift` CLI holds the
+    # instance itself - the cursor move is the write either way
     "library/tools/captain_edits.py",         # CLI, records under the key
     "library/tools/timeline_conformance.py",  # routed as a READ
     "library/tools/marker_feedback.py",       # routed as a READ

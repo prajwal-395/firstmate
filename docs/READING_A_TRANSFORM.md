@@ -28,9 +28,14 @@ row, span, source window, name and transform):
 
 Four readings of one untouched reel, four digests.  The master's row is
 the entry-unit conversion `overlay_placement.entry_unit_mismatch`
-documents - 3840x2160 is 2x 1080x1920 in both dimensions.  **The other
-three rows are all 1080x1920 and still disagree**, so the conversion is
-not the whole of it.
+documents - and it is ANISOTROPIC, per axis the current timeline's
+dimension over the read timeline's: Pan x 3840/1080 = 3.5556, Tilt x
+2160/1920 = 1.125 (measured 2026-09-17, three-way cross-current read).
+**The other three rows are all 1080x1920 and still disagree**, so the
+conversion is not the whole of it.
+
+No current timeline in this project can produce a uniform 0.5 on both
+axes: that would require a 540x960 current timeline, and none exists.
 
 A **SELF-read** - the reel made current, then snapshotted - is stable.
 Measured over four rounds, each preceded by a deliberately different
@@ -110,9 +115,11 @@ Tilt differed by exactly **2.0** (Tilt -0.395 vs -0.79; Pan -0.25 vs
 spans, identical rows, 47 clips each.  Only Pan and Tilt moved, and
 only on picture.
 
-Two is the 3840x2160-to-1080x1920 ratio, and the table at the top of
-this document shows the master's row carrying exactly that kind of
-shift.  **This document does not claim to have root-caused that pair**:
+A uniform 2.0 on BOTH axes is not what a cross-resolution read gives:
+the 3840x2160-to-1080x1920 conversion is anisotropic (Pan x 3.5556,
+Tilt x 1.125, above), and the table at the top of this document shows
+the master's row carrying exactly that kind of shift.  **This document
+does not claim to have root-caused that pair**:
 the entry timeline was not recorded for either arm, and two other
 variables differed (batch size and container suffix).  What it does
 establish is that the reading is entry-dependent at all, which is a

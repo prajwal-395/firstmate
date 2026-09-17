@@ -7499,7 +7499,23 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     unit_refusal = entry_unit_mismatch(project, (reel_width, reel_height))
     if unit_refusal:
         raise ReelBuildError(unit_refusal)
-        
+
+    # ── TRANSFORM DRIFT BASELINE (start of build) ──
+    # Every reel's own build snapshot compared against a self-read of
+    # its live timeline, printing the per-reel factor
+    # (`library/tools/drift_check.py`). The same check runs again at
+    # the end of this call, so whatever halves Pan and Tilt the way
+    # 2026-09-16 did is bracketed to this build instead of to 21
+    # hours. Reports, never refuses: a detector that fails the build
+    # is a gate, and this one is an instrument.
+    try:
+        from library.tools import drift_check as _drift_start
+        _drift_start.check_project(project_folder, when="build start",
+                                   resolve=resolve, project=project)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  drift baseline unavailable ({exc!r}) - the build "
+              f"continues without a start bracket", flush=True)
+
     from library.tools.reel_proposal import proposal_path as _proposal_path
     proposal_path = str(_proposal_path(project_folder))
     moments = read_proposal(proposal_path)
@@ -8907,6 +8923,19 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         coherence_summary = {"status": "unfiled", "owned_total": 0,
                              "wording": 0, "pins": 0, "assets": 0,
                              "informational": 0}
+
+    # ── TRANSFORM DRIFT CHECK (end of build) ──
+    # The closing half of the baseline above: start and end together
+    # bracket whatever moves a built timeline's transforms to this
+    # build. Same discipline - reports, never refuses, never fails
+    # the build it instruments.
+    try:
+        from library.tools import drift_check as _drift_end
+        _drift_end.check_project(project_folder, when="build end",
+                                 resolve=resolve, project=project)
+    except Exception as exc:  # noqa: BLE001
+        print(f"  drift end-check unavailable ({exc!r}) - the build "
+              f"record stands without an end bracket", flush=True)
 
     return {
         "timelines_built": built_reel_names,
