@@ -3699,7 +3699,8 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
                                  project_folder: str, fps: float, name: str,
                                  moment_cuts, moment_insisted, *,
                                  card_declarations, look_decl,
-                                 reel_width: int, reel_height: int):
+                                 reel_width: int, reel_height: int,
+                                 collect_trims: dict | None = None):
     """One reel's keep ranges and planned cards, exactly as pass 1 derives.
 
     `moment_cuts`/`moment_insisted` are `moment_cuts_and_insistences`
@@ -3716,6 +3717,13 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
     refuses, so a caller that cannot derive this reel writes no ask for
     it - an ask for seconds the reel will not play is a question about
     another reel.
+
+    `collect_trims` (the build loop's) is filled with the trim records
+    this call applied or held (`{"applied": [...], "held": [...]}`,
+    empty lists where no `span_retime` edit exists) - the per-reel
+    build summary's honest source for which captain trims landed,
+    without a second computation. The ask path passes nothing and the
+    return shape never changes for it.
     """
     ranges = reel_ranges(moment, transcript,
                          extra_cuts=moment_cuts,
@@ -3754,6 +3762,14 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
                   f"{record['anchor_phrase']!r} - pin held",
                   flush=True)
         _edits.report_stale(_rt_stale)
+        if collect_trims is not None:
+            collect_trims["applied"] = list(_rt_applied)
+            collect_trims["held"] = list(_rt_held)
+    elif collect_trims is not None:
+        # No span_retime edit: the summary reads these below, and an
+        # absent key there would fail the filing it must never fail.
+        collect_trims["applied"] = []
+        collect_trims["held"] = []
 
     # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`), on the
     # same ranges seam and directly after the trims: an ending is a
@@ -7914,6 +7930,101 @@ def discard_staged_record(project_folder: str, resolve_project_name: str,
                          master_timeline_name)
 
 
+def _verify_payload(row: dict | None, *, passed: bool,
+                    refusal: str = "") -> dict:
+    """The summary's verify slice: gate verdict plus conformance counts.
+
+    `row` is one `conformance_rows` entry (None where the report could
+    not be read - the verdict stays, the counts go absent). The full
+    finding rows live in the report the slice names, never here.
+    """
+    from library.tools import reel_phase_log as _payload_log
+    row = row if isinstance(row, dict) else {}
+    return {
+        "passed": passed,
+        "errors": row.get("errors"),
+        "warnings": row.get("warnings"),
+        "finding_classes": row.get("finding_classes"),
+        "captions_expected": row.get("captions_expected"),
+        "captions_actual": row.get("captions_actual"),
+        "uncaptioned_seconds": row.get("uncaptioned_seconds"),
+        "plan_seconds": row.get("plan_seconds"),
+        "actual_frames": row.get("actual_frames"),
+        "report": _payload_log.CONFORMANCE_REPORT_REL,
+        "refusal": refusal,
+    }
+
+
+def _owed_layers(awaiting_report: dict | None, *names: str) -> list:
+    """Model-answer layers one reel still owes, best-effort [].
+
+    The owing record keys reels by whatever name was current when the
+    answer went missing (staging for reels this build touched, final
+    for ones it did not), so every spelling the summary knows is
+    tried in order.
+    """
+    wanted = {str(name) for name in names if name}
+    for row in ((awaiting_report or {}).get("reels") or ()):
+        if isinstance(row, dict) and str(row.get("reel")) in wanted:
+            return list(row.get("layers") or [])
+    return []
+
+
+def _file_reel_summary(project_folder: str, *, number: int, name: str,
+                       facts: dict, outcome: str,
+                       decision_reason: str = "",
+                       verify: dict | None = None,
+                       retired_to: str | None = None,
+                       markers: dict | None = None,
+                       version_control: dict | None = None,
+                       drift_end: dict | None = None,
+                       answers_owed: list | None = None,
+                       gain_record: dict | None = None) -> None:
+    """Assemble one reel's build summary from the facts stash and file it.
+
+    Never raises: the phase log's own contract says a filing failure is
+    said on stderr, and this wrapper adds the same for an assembly
+    failure, because an instrument must never fail the build it
+    instruments (AGENTS.md 10.4). `facts` is the loop's per-reel stash
+    (derivation facts always, placement facts where placed);
+    everything else arrives only on paths that computed it.
+    """
+    try:
+        from library.tools import reel_phase_log as _summary_log
+        decision = (facts.get("decision") or {})
+        payload = _summary_log.assemble_summary(
+            outcome=outcome,
+            staging=facts.get("staging"), final=facts.get("final"),
+            decision=(decision_reason or decision.get("reason")),
+            answers=facts.get("answers"),
+            semantic_record=facts.get("semantic_record"),
+            span_record=facts.get("span_record"),
+            motion_record=facts.get("motion_record"),
+            captain_trims=facts.get("trims"),
+            keep_exclusions=facts.get("keep_exclusions"),
+            draw_gain_record=gain_record,
+            captions=facts.get("captions"),
+            cards=facts.get("cards"),
+            suppressed_overlays=facts.get("suppressed_overlays"),
+            overlay_sweep=facts.get("overlay_sweep"),
+            transition_placements=facts.get("transition_placements"),
+            has_freeze_tail=facts.get("has_freeze_tail"),
+            verify=verify,
+            retired_to=retired_to,
+            markers=markers,
+            version_control=version_control,
+            drift_end=drift_end,
+            answers_owed=answers_owed)
+        try:
+            reel_number = int(number)
+        except Exception:
+            reel_number = 0
+        _summary_log.file_build_summary(
+            project_folder, reel_number, name, payload)
+    except Exception:
+        pass
+
+
 @under_lease("build reels")
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
@@ -8612,6 +8723,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     overlay_records = {}
     track_plans = {}
     skipped_by_exclusion: list = []
+    # Per-reel facts for the build summary (`reel_phase_log`), keyed
+    # by STAGING name and grown through the loop: derivation facts
+    # after the decision, placement facts after the build returns,
+    # verify/promote facts after the gate. Filed once the reel's story
+    # for this build is complete - never re-derived, never estimated.
+    summary_facts: dict = {}
     # Which declared overlay pins each placed reel honoured, and which
     # it placed nothing for: per-reel lists off each `build_record`,
     # aggregated after the loop into the durable `overlay_intent_report`
@@ -8718,6 +8835,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             final = built_name(moment, name_suffix)
             name = staged_to_final[final]
             current_staging = name
+            try:
+                _moment_number = int(moment.number)
+            except Exception:
+                _moment_number = 0
+            # The summary's slot, opened before anything can skip: a
+            # reel skipped below still files what decided it.
+            summary_facts[name] = {
+                "staging": name, "final": final,
+                "number": _moment_number,
+            }
             print(f"Building {name}", flush=True)
             # Where this reel's records START, so a reel the decision
             # below LEAVES ALONE can be rolled back out of them. The
@@ -8824,6 +8951,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # never emptied - the approved timeline already in Resolve
             # is left exactly as it is, like a reel this call did not
             # name.
+            # The trim records the shared derivation applied, for the
+            # per-reel summary: the derivation owns the computation
+            # (one spelling for the ask path and the build), and this
+            # collector carries the records back out without a second
+            # computation - re-running the trims here would re-trim
+            # already-trimmed ranges and file fiction.
+            _trim_records: dict = {}
             try:
                 ranges, cards, _ending_decl = (
                     derive_reel_ranges_and_cards(
@@ -8833,7 +8967,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         card_declarations=card_declarations,
                         look_decl=reel_look_decl,
                         reel_width=reel_width,
-                        reel_height=reel_height))
+                        reel_height=reel_height,
+                        collect_trims=_trim_records))
             except ExclusionWipesBody as wiped:
                 reason = str(wiped)
                 print(f"  SKIPPING {name}: {reason}", flush=True)
@@ -8847,8 +8982,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         f"skipped by exclusion: {reason}")
                 except Exception:
                     pass
+                _file_reel_summary(
+                    project_folder,
+                    number=summary_facts[name]["number"], name=name,
+                    facts=summary_facts[name],
+                    outcome="skipped_by_exclusion",
+                    decision_reason=f"skipped by exclusion: {reason}")
                 current_staging = None
                 continue
+
 
             # Full-frame elements FIRST, because a head card decides where
             # every other thing on this reel starts. Planned above and
@@ -9140,6 +9282,38 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 _carried_self_read(final),
                 _recorded_signatures.get(final))
             rebuild_decisions.append(_decision.as_dict())
+            # Derivation facts for the summary, stashed while every
+            # record is in hand: answers per channel with their drops,
+            # the captain's trims and keep-exclusions, the decision.
+            # Placement facts join below; verify/promote facts at
+            # filing. A reel the decision leaves alone files from
+            # this stash alone - nothing placed means nothing more
+            # to say.
+            summary_facts[name].update({
+                "decision": _decision.as_dict(),
+                "answers": {
+                    "semantic": (semantic_record.get("basis")
+                                 if isinstance(semantic_record, dict)
+                                 else None),
+                    "span": (span_record.get("basis")
+                             if isinstance(span_record, dict) else None),
+                    "motion": _motion_basis,
+                },
+                "semantic_record": semantic_record,
+                "span_record": span_record,
+                "motion_record": (
+                    motion_records[-1]
+                    if reel_look_decl is not None and motion_records
+                    else None),
+                "trims": {"applied": list(
+                                _trim_records.get("applied") or []),
+                            "held": list(
+                                _trim_records.get("held") or [])},
+                "keep_exclusions": [
+                    {"id": str(cut_id), "start": cut_start,
+                     "end": cut_end}
+                    for cut_start, cut_end, cut_id in moment_cuts],
+            })
             if reuse_unchanged and _decision.leave_alone:
                 # NOT placed, and nothing about it touched: the hold
                 # taken for its staging goes (no staging exists), its
@@ -9156,6 +9330,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         f"leaving alone: {_decision.reason}")
                 except Exception:
                     pass
+                _file_reel_summary(
+                    project_folder,
+                    number=summary_facts[name]["number"], name=name,
+                    facts=summary_facts[name],
+                    outcome="left_alone")
                 _holds.release_holds(project_folder, [name])
                 build_signatures.pop(name, None)
                 caption_hashes.pop(name, None)
@@ -9336,6 +9515,40 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     detail=f"placed {name} (picture, captions, comps)")
             except Exception:
                 pass
+            # Placement facts for the summary, while the build record
+            # is in hand: caption segments planned against caption
+            # items actually linked, cards placed, overlays held back
+            # or swept, the freeze tail, transition elements.
+            try:
+                _planned_entries = entries
+            except NameError:
+                _planned_entries = None
+            _caption_links = build_result.get("caption_links")
+            _link_warnings = build_result.get("link_warnings")
+            _sweep = build_result.get("overlay_sweep")
+            _transitions = build_result.get("transition_placements")
+            summary_facts[name].update({
+                "captions": {
+                    "planned": (len(_planned_entries)
+                                if isinstance(_planned_entries,
+                                              (list, tuple)) else None),
+                    "linked": (len(_caption_links)
+                               if isinstance(_caption_links,
+                                             (list, tuple)) else None),
+                    "link_warnings": (len(_link_warnings)
+                                      if isinstance(_link_warnings,
+                                                    (list, tuple))
+                                      else None),
+                },
+                "cards": list(cards or ()),
+                "suppressed_overlays": list(suppressed_here),
+                "overlay_sweep": _sweep if isinstance(_sweep, dict) else None,
+                "transition_placements": (
+                    len(_transitions)
+                    if isinstance(_transitions, (list, tuple)) else None),
+                "has_freeze_tail": (
+                    build_result.get("freeze_tail") is not None),
+            })
             for card in cards or ():
                 # SAID on the run that placed it, rather than recorded in the
                 # return value: the verifier re-derives the cards from the
@@ -9505,6 +9718,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 staging_name(built_name(_m, name_suffix))] = int(_m.number)
         except Exception:
             pass
+    # The promotion record for the end-of-build summaries (None where
+    # this build promoted nothing: unverified, refused, or left alone).
+    _promoted_record: dict | None = None
     if verify and not built_reel_names and left_alone:
         # Nothing was placed, and that IS the answer: every reel this
         # call named already carries what this build would have given
@@ -9552,6 +9768,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         f"verification refused: {gate_refused}")
             except Exception:
                 pass
+            # The refused reels' summaries: the gate wrote its report
+            # before refusing, so the finding classes land here even
+            # though nothing promoted. A refusal whose codes need a
+            # log grep is a refusal investigated twice.
+            try:
+                from library.tools import reel_phase_log as _refused_log
+                _refused_rows = _refused_log.conformance_rows(
+                    project_folder)
+            except Exception:
+                _refused_rows = {}
+            for _staged in built_reel_names:
+                _facts = summary_facts.get(_staged, {})
+                try:
+                    _refusal = str(gate_refused)
+                except Exception:
+                    _refusal = "(unrenderable refusal)"
+                if len(_refusal) > 2000:
+                    _refusal = _refusal[:2000] + "…(truncated)"
+                _file_reel_summary(
+                    project_folder,
+                    number=_facts.get(
+                        "number", _staged_numbers.get(_staged, 0)),
+                    name=_staged, facts=_facts,
+                    outcome="verify_refused",
+                    verify=_verify_payload(
+                        _refused_rows.get(_staged), passed=False,
+                        refusal=_refusal),
+                    answers_owed=_owed_layers(
+                        awaiting_report, _staged,
+                        _facts.get("final")),
+                    gain_record=gain_record)
             discard_staged_reels(project, project_folder, built_reel_names,
                                  master_timeline_name)
             raise
@@ -9571,6 +9818,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             supersede=declared_supersede,
             retain=declared_retain)
         organised = promoted["organised"]
+        # The end-of-build summaries file from this record (retirement,
+        # markers, version control below join it there).
+        _promoted_record = promoted
         # From here the record speaks final names: what is in Resolve
         # now is the promoted timelines, and the sidecar files were
         # renamed to match by the promotion.
@@ -9618,6 +9868,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # committed its baseline (measured 2026-09-11). Snapshot each
         # promoted timeline beside the declaration it was built from
         # and commit, on both promotion paths. Never fails the build.
+        _vc = None
         try:
             from library.tools import build_version_control as _bvc
             _vc = _bvc.record_reel_promotion(
@@ -9685,13 +9936,72 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # bracket whatever moves a built timeline's transforms to this
     # build. Same discipline - reports, never refuses, never fails
     # the build it instruments.
+    _drift_end_report = None
     try:
         from library.tools import drift_check as _drift_end
-        _drift_end.check_project(project_folder, when="build end",
-                                 resolve=resolve, project=project)
+        _drift_end_report = _drift_end.check_project(
+            project_folder, when="build end",
+            resolve=resolve, project=project)
     except Exception as exc:  # noqa: BLE001
         print(f"  drift end-check unavailable ({exc!r}) - the build "
               f"record stands without an end bracket", flush=True)
+
+    # ── PER-REEL BUILD SUMMARIES ──
+    # One structured line per reel this build placed, filed here -
+    # after the drift end-bracket - so the summary carries the whole
+    # story: derivation, placement, gate, promotion, version control
+    # and drift. Left-alone and skipped reels filed in the loop (their
+    # story was complete there); a refused gate filed in its except.
+    # Each filing is individually never-fail: a summary that cannot
+    # land is a gap in the log, never a failed build.
+    try:
+        from library.tools import reel_phase_log as _summary_log
+        _summary_rows = _summary_log.conformance_rows(project_folder)
+    except Exception:
+        _summary_rows = {}
+    _drift_reels = ((_drift_end_report or {}).get("reels")
+                    if isinstance(_drift_end_report, dict) else None)
+    if _promoted_record is not None:
+        _retired = (_promoted_record.get("retirement") or {})
+        _archived = (_retired.get("archived") or {})
+        _carried = (_promoted_record.get("markers") or {})
+        for _final in _promoted_record.get("promoted") or ():
+            _staging = staged_to_final.get(_final, "")
+            _facts = summary_facts.get(_staging, {})
+            _file_reel_summary(
+                project_folder,
+                number=_facts.get(
+                    "number",
+                    _staged_numbers.get(_staging, 0)),
+                name=_final, facts={**_facts, "final": _final},
+                outcome="promoted",
+                verify=_verify_payload(
+                    _summary_rows.get(_staging), passed=True),
+                retired_to=_archived.get(_final),
+                markers=(_carried.get(_final)
+                         if isinstance(_carried.get(_final), dict)
+                         else None),
+                version_control=_vc,
+                drift_end=(_drift_reels.get(_final)
+                           if isinstance(_drift_reels, dict) else None),
+                answers_owed=_owed_layers(
+                    awaiting_report, _final, _staging),
+                gain_record=gain_record)
+    elif not verify and built_reel_names:
+        # Placed but neither graded nor promoted: the staging
+        # containers are what Resolve holds. No conformance slice -
+        # the report on disk belongs to an earlier gate, and reading
+        # it here would misattribute another run's verdict.
+        for _staged in built_reel_names:
+            _facts = summary_facts.get(_staged, {})
+            _file_reel_summary(
+                project_folder,
+                number=_facts.get(
+                    "number", _staged_numbers.get(_staged, 0)),
+                name=_staged, facts=_facts,
+                outcome="placed_unverified",
+                answers_owed=_owed_layers(awaiting_report, _staged),
+                gain_record=gain_record)
 
     # ── OVERLAY INTENT: which declared pins this build honoured ──
     # Each reel computed its own `unmatched_overlay_intent`, and the
