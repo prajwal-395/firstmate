@@ -3241,7 +3241,9 @@ def check_semantic_visuals(reel_name: str,
 
     `planned` is the entry `reel_semantic_visual.read_records` returns
     for this reel - **read from what the build recorded, never
-    re-derived**.
+    re-derived**. A segment that entry names under `suppressed` is one
+    the build held back on the captain's `do_not_draw` deletion, and it
+    is exempt here: absent by declaration, not by defect.
 
     Given no recorded plan at all this returns NOTHING rather than
     guessing: a reel built before semantic visuals existed has no
@@ -3306,9 +3308,25 @@ def check_semantic_visuals(reel_name: str,
 
     # Paired by RECORD FRAME, never by list index - the mistake that
     # turned F2 into 701 meaningless findings.
+    #
+    # A segment the build HELD BACK on the captain's own deletion
+    # (`do_not_draw`) is absent by declaration, not by defect - and the
+    # exemption fires only on what the build RECORDED as suppressed, on
+    # the same record this grades, never on a rule merely existing. A
+    # rule that matched nothing is `unmatched_do_not_draw` on the build
+    # record, and a missing segment no suppression names still errors
+    # below. Said on the run that placed the reel; no finding here.
+    suppressed_ids = {
+        str(entry.get("segment_id"))
+        for entry in (planned.get("suppressed") or [])
+        if entry.get("segment_id") is not None
+    }
     by_frame = {item.start_frame: item for item in items}
     matched = set()
     for segment in expected:
+        segment_id = segment.get("segment_id")
+        if segment_id is not None and str(segment_id) in suppressed_ids:
+            continue
         want_start = int(round(float(segment["timeline_start"]) * fps))
         want_frames = int(segment["total_frames"])
         item = by_frame.get(want_start)

@@ -8809,6 +8809,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # being told again.
                 do_not_draw=suppression_rules,
             )
+            suppressed_here = list(
+                build_result.get("suppressed_overlays") or [])
+            if suppressed_here:
+                # What THIS build held back, recorded onto the plan the
+                # gate grades: `do_not_draw` suppresses the PLACEMENT,
+                # never the plan, so without this F22 reads a recorded
+                # segment with no placed item as a defect. The exemption
+                # fires only on these ids - a rule that matched nothing
+                # stays `unmatched_do_not_draw`, reported below.
+                semantic_record["suppressed"] = [
+                    {"segment_id": sid} for sid in suppressed_here]
+                print(f"  {name}: held back {len(suppressed_here)} "
+                      f"segment(s) on the captain's deletion: "
+                      f"{', '.join(suppressed_here)}", file=sys.stderr)
             # The plan each staging was placed from, keyed by staging
             # name - so the conformance proof grades what was built,
             # never a re-derivation, and promotion renames it with the
