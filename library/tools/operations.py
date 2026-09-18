@@ -968,6 +968,22 @@ _REGISTRY: tuple[Operation, ...] = (
         scopes=(PROJECT, REGION),
     ),
     Operation(
+        name="subtitles.rerender_swap",
+        summary="Re-render named caption segments and swap them onto every timeline holding the old file",
+        owning_node="render_subtitles",
+        owning_dir="step_4_05_render_subtitles", body="step.py",
+        attr="rerender_and_swap",
+        # Its arguments are caller-decided pairs of
+        # {old_mov, timeline_label, props}, handed in by the fix that
+        # computed the new text - the runner never drives it. See
+        # `Operation.caller_supplied`.
+        caller_supplied=True,
+        # PROJECT only. The swap scans every timeline for the old
+        # files, so a region address would promise a scope the swap
+        # does not keep.
+        scopes=(PROJECT,),
+    ),
+    Operation(
         name="motion_graphics.render",
         summary="Render the planned motion graphics, bookends and timed text",
         owning_node="render_motion_graphics",

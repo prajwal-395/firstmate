@@ -103,6 +103,10 @@ from library.tools.caption_asset_gc import (
     card_key,
     record_rendered_segments,
 )
+from library.tools.caption_swap import (
+    CaptionSwapError,
+    swap_files as _swap_caption_files,
+)
 from library.tools.reel_proposal import refuse_rejected_reel_timeline
 from library.tools import shared_environment as _node_env
 
@@ -590,6 +594,37 @@ def _default_unit_engine(remotion_dir: str, container: str):
         f"card rendered in this process ({remotion_dir}); pass an "
         "explicit renderer to use your own.")
     return holder
+
+
+def batch_caption_engine(remotion_dir: str):
+    """One bundle-once engine lifetime spanning many reels' cards.
+
+    The unit default above shares one engine per PROCESS, which batches
+    whatever one process happens to render. A fix that touches many
+    reels must not depend on that accident: each reel rendered in its
+    own process (or after a reset of the process-global) pays a fresh
+    bundle-and-browser startup, and a fix spanning 30 reels pays it
+    about 30 times. Measured 2026-09-18: 32 cards over 8 reel-shaped
+    batches rendered at 5.82s/card with a fresh engine per reel
+    against 4.92s/card through one engine - same cards, byte-identical
+    outputs.
+
+    This returns an OWN engine - not the process-global - holding the
+    same two-method seam (`render` / `close`), so `render_one_segment`
+    cannot tell it apart from the default. Construction starts
+    nothing; the bundle is paid on the first card that actually
+    renders, and `close()` on an engine that never started is a
+    no-op. The caller owns the lifetime: render every affected reel's
+    cards through it, then close it. The failure contract is the
+    unit's own: a startup failure falls back per-card LOUDLY and once,
+    a mid-run death RAISES rather than degrading silently.
+
+    A frame-sequence carrying (`frames`) cannot use it - the
+    bundle-once renderer stitches video and refuses sequences - so
+    `rerender_and_swap` refuses a frames project before anything
+    renders rather than handing it this engine.
+    """
+    return _SharedPersistentEngine(remotion_dir)
 
 
 def _superseded_generations(out_dir: str, overlay_path: str) -> list:
@@ -1720,6 +1755,244 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
         overlay_payload["subtitle_overlay"]["renderer_fallback"] = \
             renderer_fallback
     return overlay_payload
+
+
+def _resolve_live_project(project_folder: str):
+    """The open Resolve project, refused unless it is this project's own.
+
+    Reads the expected name from the project's own `project.yaml`
+    (`resolve.project_name`) and refuses when Resolve is not running,
+    when nothing is open, or when what is open is another project -
+    swapping one project's captions onto another's timelines is the
+    failure this refusal exists to stop. Mirrors the
+    connect-and-check in `library/tools/build_version_control.py`.
+    """
+    try:
+        import DaVinciResolveScript as dvr
+    except ImportError:
+        os.environ.setdefault(
+            "RESOLVE_SCRIPT_API",
+            "/Library/Application Support/Blackmagic Design/"
+            "DaVinci Resolve/Developer/Scripting/Modules")
+        sys.path.insert(0, os.environ["RESOLVE_SCRIPT_API"])
+        try:
+            import DaVinciResolveScript as dvr
+        except ImportError as exc:
+            raise CaptionSwapError(
+                "Resolve scripting is unavailable - render-only with "
+                "swap=False, or open Resolve first") from exc
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    app = scriptapp_preserving_locale(dvr, "Resolve")
+    if app is None:
+        raise CaptionSwapError(
+            "Resolve is not running - render-only with swap=False, "
+            "or open Resolve first")
+    try:
+        project = app.GetProjectManager().GetCurrentProject()
+        open_name = project.GetName() if project is not None else None
+    except Exception as exc:  # noqa: BLE001 - unreadable is unusable
+        raise CaptionSwapError(
+            f"the open Resolve project cannot be read: {exc}") from exc
+    import yaml
+    try:
+        with open(os.path.join(project_folder, "project.yaml"),
+                  encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+    except OSError as exc:
+        raise CaptionSwapError(
+            f"cannot read {project_folder}/project.yaml: {exc}") from exc
+    expected = ((config.get("resolve") or {}).get("project_name") or "")
+    if not expected:
+        raise CaptionSwapError(
+            f"{project_folder}/project.yaml names no resolve.project_name "
+            f"- refusing to guess which open project to swap onto")
+    if open_name != expected:
+        raise CaptionSwapError(
+            f"Resolve has {open_name!r} open, not {expected!r} - "
+            f"refusing to swap another project's timelines")
+    return project
+
+
+def rerender_and_swap(project_folder: str, pairs: list,
+                      swap: bool = True, draw_gain: float = None) -> dict:
+    """Re-render named caption segments and swap them onto every timeline.
+
+    The entry point a caption fix calls instead of writing its own
+    render-and-swap script (reached as `subtitles.rerender_swap`,
+    called as `operations.get(...).run(...)` the way `reel_build`
+    drives the segment seam). `pairs` names the set, one dict per
+    card: `old_mov` (the placed file to replace, basename or path),
+    `timeline_label` (the timeline the new file is bound to - the
+    rejected-reel refusal runs on it, and the ledger records the
+    placing under it), and `props` (the COMPLETE new render props -
+    bounds and timings preserved from the on-disk props file, new
+    text/words fitted by the caller; this function never invents
+    timings, because invented timings are the defect class AGENTS.md
+    10.5 exists to stop).
+
+    Render half: every pair through `render_one_segment` with
+    `reuse=True`, all through ONE batch engine - one bundle for every
+    affected card instead of one per reel. Unchanged cards reuse the
+    file they name and need no swap. Frame-sequence projects are
+    refused before anything renders (the engine stitches video and
+    the swap maps files, never directories). A card that fails to render is
+    REPORTED, and the swap does not run at all that call: a
+    half-swapped caption set is worse than an unswapped one, and a
+    re-run resumes (finished cards reuse-skip) - so the failure
+    returns rather than raising, carrying which pairs failed and the
+    map of what rendered.
+
+    Swap half: every old file still placed anywhere is ReplaceClip'ed
+    to its new file on every timeline at once (pool items are
+    project-wide), with per-placement read-back and a post-check that
+    no old file remains placed - see `library/tools/caption_swap.py`.
+    One exclusive lease covers inventory, swaps and post-check.
+    Nothing is deleted: old files stay on disk as superseded
+    generations for the asset GC.
+
+    With `swap=False` nothing touches Resolve: the cards render, the
+    map returns, and a later call (or the dashboard) swaps. With no
+    map - every card already current - Resolve is never contacted.
+
+    The render ledger is merged per card as each renders, exactly as a
+    rebuild merges it, so the reclaim sweep reads the same entries
+    either way; batching changes when the bundle is paid, never what
+    is drawn or recorded.
+    """
+    if not project_folder:
+        raise ValueError(
+            "rerender_and_swap needs a project_folder - rendered "
+            "overlays bank into the project's step directory, never "
+            "into the checkout")
+    checked = list(pairs or [])
+    for index, pair in enumerate(checked):
+        if not isinstance(pair, dict):
+            raise ValueError(
+                f"pair {index} is {type(pair).__name__}, not a dict - "
+                f"each pair names old_mov, timeline_label and props")
+        for key in ("old_mov", "timeline_label", "props"):
+            if key not in pair:
+                raise ValueError(
+                    f"pair {index} names no {key!r} - refusing to guess "
+                    f"which file to replace or what to draw")
+        if not isinstance(pair["old_mov"], str) or not pair["old_mov"]:
+            raise ValueError(
+                f"pair {index} carries no old_mov - the file to replace "
+                f"is required, never inferred")
+        if not isinstance(pair["timeline_label"], str):
+            raise ValueError(
+                f"pair {index} carries a non-string timeline_label")
+        if not isinstance(pair["props"], dict):
+            raise ValueError(
+                f"pair {index} carries non-dict props - the complete new "
+                f"render props are required, never rebuilt here")
+    if draw_gain is None:
+        draw_gain = FALLBACK_DRAW_GAIN
+
+    layout = ProjectLayout(project_folder)
+    out_dir = str(
+        layout.write_dir(Area.SUBTITLE_SEGMENTS, step="render_subtitles"))
+    remotion_dir = REMOTION_DIR
+
+    if resolve_overlay_container(project_folder or None) == "frames":
+        # The bundle-once engine stitches video and refuses sequences
+        # (`PersistentRenderer.render` raises on `sequence=True`), and
+        # the swap below maps old FILES to new files - a frame
+        # directory is neither. Refusing up front, before any render
+        # and before Resolve is contacted, rather than failing every
+        # card as "sequence carrying, unexpected here".
+        return {
+            "ok": False,
+            "rendered": 0,
+            "reused": 0,
+            "already_current": [],
+            "failed": [],
+            "map": {},
+            "swapped": [],
+            "error": ("this project renders frame sequences, and "
+                      "rerender_and_swap handles stitched video cards "
+                      "only - render the sequence per card and swap it "
+                      "by hand"),
+        }
+
+    engine = batch_caption_engine(remotion_dir)
+    rendered, reused, already = 0, 0, []
+    failures, mapping = [], {}
+    try:
+        for index, pair in enumerate(checked, 1):
+            entry = render_one_segment(
+                pair["props"], out_dir, pair["timeline_label"],
+                remotion_dir=remotion_dir,
+                progress=f"[{index}/{len(checked)}]",
+                reuse=True, renderer=engine,
+                project_folder=project_folder,
+                draw_gain=draw_gain)
+            if entry.get("provenance") == "failed":
+                failures.append({
+                    "old_mov": os.path.basename(pair["old_mov"]),
+                    "reason": entry.get("failure")
+                    or "no reason recorded"})
+                continue
+            if entry["provenance"] == "reused":
+                reused += 1
+            else:
+                rendered += 1
+            new_path = entry.get("overlay_path") or ""
+            if not new_path:
+                failures.append({
+                    "old_mov": os.path.basename(pair["old_mov"]),
+                    "reason": "sequence carrying, unexpected here"})
+                continue
+            old_base = os.path.basename(pair["old_mov"])
+            if os.path.basename(new_path) == old_base:
+                already.append(old_base)
+            else:
+                mapping[pair["old_mov"]] = new_path
+    finally:
+        engine.close()
+
+    tally = (f"rendered {rendered}, reused {reused}, "
+             f"already-current {len(already)}, failed {len(failures)} "
+             f"({len(checked)} paired)")
+    print(tally, file=sys.stderr)
+    report = {
+        "ok": not failures,
+        "rendered": rendered,
+        "reused": reused,
+        "already_current": sorted(already),
+        "failed": failures,
+        "map": dict(mapping),
+        "swapped": [],
+    }
+    if failures:
+        report["error"] = (
+            f"{len(failures)} of {len(checked)} cards failed to render - "
+            f"{failures[0]['old_mov']}: {failures[0]['reason'][:200]}; "
+            f"the swap did not run")
+        return report
+    if not swap:
+        report["note"] = ("render-only: the map is returned, nothing "
+                          "touches Resolve")
+        return report
+    if not mapping:
+        report["note"] = ("every card already current - Resolve was "
+                          "never contacted")
+        return report
+    try:
+        project = _resolve_live_project(project_folder)
+    except CaptionSwapError as exc:
+        report["ok"] = False
+        report["error"] = str(exc)
+        return report
+    try:
+        swap_report = _swap_caption_files(project, mapping)
+    except CaptionSwapError as exc:
+        report["ok"] = False
+        report["error"] = str(exc)
+        report["swapped"] = (exc.report or {}).get("swapped", [])
+        return report
+    report["swapped"] = swap_report["swapped"]
+    return report
 
 
 def _qa_frame_sequence(segment: dict) -> None:

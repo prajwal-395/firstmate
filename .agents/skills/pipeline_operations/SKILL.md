@@ -38,6 +38,7 @@ run at a declared scope. It owns no logic of its own.
 | `transcript.splice` | `temporal_index` | region | Put a re-measured region back into the per-clip speech index |
 | `subtitles.render` | `render_subtitles` | project, region | Render one overlay artefact per captioned spine block |
 | `subtitles.render_segment` | `render_subtitles` | project, region | Render ONE subtitle segment - the per-segment unit a region-scoped redo reaches |
+| `subtitles.rerender_swap` | `render_subtitles` | project | Re-render named caption segments and swap them onto every timeline holding the old file |
 | `motion_graphics.render` | `render_motion_graphics` | project | Render the planned motion graphics, bookends and timed text |
 | `motion_graphics.render_segment` | `render_motion_graphics` | project, region | Render ONE motion-graphics overlay segment |
 | `color_grade.resolve` | `color_grade` | project | Join the colourist's answer to the measured clips as one CDL each |
