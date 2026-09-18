@@ -39,15 +39,26 @@ its name:
    `05 - Reels/Proof`, never among the captain's reels.  The project's
    own declared master timeline is NEVER moved - AGENTS.md 5.
 2. A clip whose file lives **under the project's own directory** is
-   something this pipeline generated.  It files under the timeline that
+   something this pipeline generated. It files under the timeline that
    PLACES it, nested under the render bin its KIND belongs to
    (`06 - Subtitle renders` for subtitle segments, `07 - Motion
    graphics` for motion-graphics, timed-text and carrier renders - a
    path fact read off `project_layout.Area`, never a name parse), or
    under that bin's `Not placed on any timeline` when nothing does.
    A generated clip SEVERAL timelines place belongs to no single one,
-   so it files at the render bin's ROOT - still ours, never as outside
-   material (rule 3 below is for files the pipeline did not write).
+   so it files under its render bin's SHARED leaf - still ours, never
+   as outside material (rule 3 below is for files the pipeline did not
+   write). The leaf names the state the way the unplaced leaf does,
+   and it is what keeps the category root itself empty: per-reel
+   means that reel uses it, shared means several do, unplaced means
+   none do, and nothing sits at the root.
+   NEITHER half applies to a generated clip no render area owns - a
+   frame overlay, a freeze hold, which the reel builder writes beside
+   its own step: KIND is a path fact too (`resolve_bin_layout.
+   is_render_file`), and such a clip files under the captain's
+   `03 - Assets` whether one timeline places it, several do, or none
+   does, because a production asset is not a per-reel render and the
+   subtitle fallback is not its category.
 3. Anything else is material that came from outside, and files under
    `Source footage`.
 
@@ -171,6 +182,17 @@ state: UNRECORDED and "not placed" are different axes."""
 BIN_MOTION_GRAPHICS = bins.MOTION_GRAPHICS_BIN
 """Alias - see above. The second render top whose depth-2 children are
 per-timeline bins, and the second place a dead reel's leaf can stand."""
+
+BIN_ASSETS = bins.ASSETS_BIN
+"""Alias - see above. The captain's own artwork bin, and the home of a
+generated clip no render area owns (a frame overlay, a freeze hold):
+shared or not, such a clip is a production asset, not a per-reel
+render, so placement never earns it a per-reel folder under a render
+bin."""
+
+BIN_SHARED = bins.SHARED_BIN
+"""Alias - see above. The leaf a shared render files under, beside the
+unplaced leaf: both name a placement state, never a reel."""
 
 BIN_PROOF = bins.REELS_PROOF_BIN
 """Leaf name of the bin firstmate's proof timelines file under. An
@@ -460,21 +482,51 @@ def plan_organization(artefacts: Sequence[Artefact],
             if a.placed_by:
                 # Shared, but still generated: a rebuild that reuses one
                 # file on two timelines (a backup beside its final, two
-                # reels over one element) must not read as outside
-                # material. The render bin's root is "ours, shared" -
-                # and self-healing, because the next organise after the
-                # extra placer goes moves it under the one that stays.
-                dest = want((render_bin,))
+                # reels over the same closing words) must not read as
+                # outside material. A shared RENDER files under its
+                # render bin's shared leaf - still ours, never as
+                # outside material (rule 3 below is for files the
+                # pipeline did not write) - while a shared PRODUCTION
+                # asset (no render area owns its file) files under the
+                # captain's assets bin rather than defaulting to
+                # whichever category bin it was first imported into.
+                # Either way the next organise after the extra placer
+                # goes moves it under the one that stays: self-healing,
+                # because the next organise re-reads the timelines.
+                dest = want(bins.shared_bin_for_file(
+                    a.file_path, project_root))
+                if bins.is_render_file(a.file_path, project_root):
+                    why = (f"{len(a.placed_by)} timelines place it, so it "
+                           f"belongs to no single reel - it files under "
+                           f"the shared leaf instead of sitting at the "
+                           f"root beside the unfiled")
+                else:
+                    why = (f"{len(a.placed_by)} timelines place it, so it "
+                           f"belongs to no single reel - and it is a "
+                           f"production asset no render step wrote, so it "
+                           f"files under the shared assets bin instead of "
+                           f"the render bin it was imported into")
                 plan.verdicts.append(Verdict(
-                    a.item_id, a.name, a.kind, dest,
-                    f"{len(a.placed_by)} timelines place it, so it "
-                    f"belongs to no single one - it stays under its "
-                    f"render bin instead of filing as outside material"))
+                    a.item_id, a.name, a.kind, dest, why))
             else:
-                dest = want((render_bin, BIN_UNPLACED))
+                dest = want(bins.unplaced_bin_for_file(
+                    a.file_path, project_root))
                 plan.verdicts.append(Verdict(
                     a.item_id, a.name, a.kind, dest,
                     "no timeline places it"))
+            continue
+
+        if not bins.is_render_file(a.file_path, project_root):
+            # Placed, but not a render: a frame overlay, a freeze hold.
+            # Placement never earns a production asset a per-reel folder
+            # under a render bin - the category is a path fact, and the
+            # assets bin has no per-reel leaves to stand under.
+            dest = want((BIN_ASSETS,))
+            plan.verdicts.append(Verdict(
+                a.item_id, a.name, a.kind, dest,
+                f"{placer!r} is the only timeline that places it, but it "
+                f"is a production asset no render step wrote, so it "
+                f"files under the shared assets bin"))
             continue
 
         dest = want((render_bin, placer))
@@ -641,8 +693,7 @@ def unplaced_report(artefacts: Sequence[Artefact],
     placed_paths = {a.file_path for a in generated if a.placed_by}
     paths = sorted({a.file_path for a in unplaced if a.file_path})
     holding = sorted({
-        f"{bins.render_bin_for_file(a.file_path, project_root)}"
-        f"/{BIN_UNPLACED}"
+        "/".join(bins.unplaced_bin_for_file(a.file_path, project_root))
         for a in unplaced})
     return {
         "count": len(unplaced),
@@ -862,11 +913,12 @@ def is_spent_render_bin(path: Sequence[str]) -> bool:
     rebuild under a new reel name added one more - which is exactly the
     "empty bins from several iterations" the captain reported.
 
-    Depth two only, and never `Not placed on any timeline`: the tops
-    themselves are scaffolding `resolve_bin_layout.bins_to_create`
-    stands up on every build, and the unplaced leaf is a canonical
-    DESTINATION - retiring either would be a bin the next build
-    immediately re-creates, which is churn, not cleanup.
+    Depth two only, and never `Not placed on any timeline` or `Placed
+    on several timelines`: the tops themselves are scaffolding
+    `resolve_bin_layout.bins_to_create` stands up on every build, and
+    the unplaced and shared leaves are canonical DESTINATIONS - retiring
+    either would be a bin the next build immediately re-creates, which
+    is churn, not cleanup.
 
     Emptiness is NOT decided here: this is scheme membership, and
     `plan_retirements` proves the bin holds nothing off the artefacts.
@@ -874,7 +926,7 @@ def is_spent_render_bin(path: Sequence[str]) -> bool:
     path = tuple(path)
     return (len(path) == 2
             and path[0] in RENDER_TOP_BINS
-            and path[1] != BIN_UNPLACED)
+            and path[1] not in (BIN_UNPLACED, BIN_SHARED))
 
 
 def is_retired_scheme_bin(path: Sequence[str],
@@ -913,8 +965,8 @@ def is_retired_canonical_bin(path: Sequence[str],
     behind. Either way the bin that is left is EMPTY and names nothing
     live, and keeping it is what strands a stale sub-bin beside every
     rebuild for ever. So: depth exactly two under a render top (the
-    layout allows nothing deeper there), never the `Not placed`
-    standing destination, and never a leaf a live timeline still
+    layout allows nothing deeper there), never the `Not placed` or
+    `Placed on several` standing destinations, and never a leaf a live timeline still
     answers to - a live reel with nothing currently filed may gain
     some on the next build, and retiring its bin would be churn, not
     cleaning.
@@ -938,7 +990,7 @@ def is_retired_canonical_bin(path: Sequence[str],
     top, leaf = path
     if top not in (bins.SUBTITLES_BIN, bins.MOTION_GRAPHICS_BIN):
         return False
-    if leaf == BIN_UNPLACED:
+    if leaf in (BIN_UNPLACED, BIN_SHARED):
         return False
     if leaf in timeline_names:
         return False
@@ -984,9 +1036,9 @@ def plan_dead_render_bins(
 
     Dead means all of these, proven off the artefacts:
 
-    - depth exactly 2 under a render top, and not the unplaced leaf
-      (a canonical DESTINATION the next build re-creates; retiring it
-      is churn, not cleanup),
+    - depth exactly 2 under a render top, and not the unplaced or
+      shared leaf (canonical DESTINATIONS the next build re-creates;
+      retiring either is churn, not cleanup),
     - the leaf names NO live timeline, exactly - the same exact-match
       rule that files timelines, so a variant suffix is a different
       name and a different bin,
@@ -1024,7 +1076,7 @@ def plan_dead_render_bins(
     declined: list[dict] = []
     for path in sorted(known):
         if not (len(path) == 2 and path[0] in RENDER_TOP_BINS
-                and path[1] != BIN_UNPLACED):
+                and path[1] not in (BIN_UNPLACED, BIN_SHARED)):
             continue
         leaf = path[1]
         if leaf in timeline_names:
@@ -1242,8 +1294,8 @@ def render_bin_census(artefacts: Sequence[Artefact],
               (bins.SUBTITLES_BIN, bins.MOTION_GRAPHICS_BIN)):
             lines.append(f"  {name} ({count} item(s)) - "
                          f"keep: current-scheme bin - a render top, the "
-                         f"standing unplaced destination, or a live "
-                         f"reel's bin")
+                         f"standing unplaced or shared destination, or a "
+                         f"live reel's bin")
         else:
             lines.append(f"  {name} ({count} item(s)) - "
                          f"keep: not part of either scheme - the "

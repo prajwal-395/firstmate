@@ -286,7 +286,8 @@ def test_refused_build_files_its_caption_imports(project_dir):
 
     pool.DeleteTimelines = _delete
 
-    stray_path = str(project_dir / "pipeline_output" / "sub_reel-05-a.mov")
+    stray_path = str(project_dir / "pipeline_output" / "steps"
+                      / "4_05_render_subtitles" / "sub_reel-05-a.mov")
 
     def _place(**place_kwargs):
         name = place_kwargs.get("timeline_name")

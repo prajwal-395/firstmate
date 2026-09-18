@@ -157,12 +157,31 @@ def is_archived_timeline(name: str) -> bool:
 SUBTITLES_BIN = "06 - Subtitle renders"
 MOTION_GRAPHICS_BIN = "07 - Motion graphics"
 SOURCE_BIN = "Source footage"
+ASSETS_BIN = "03 - Assets"
+"""Project-owned artwork: stills, overlays, presets. The captain's own
+bin, kept under that name like the source bin. It is also where a
+generated clip files when its file is under no render area - a frame
+overlay, a freeze hold, anything the reel builder wrote outside the
+render steps - because such a clip is a production asset, not a
+per-reel render, and the subtitle bin's fallback is not its category
+(see `is_render_file`)."""
 UNPLACED_BIN = "Not placed on any timeline"
 """A clip no timeline plays files here, under whichever render bin its
 kind belongs to. This is a CLIP's placement fact and never a
 timeline's state: UNRECORDED (no plan names this reel) and "not
 placed" (no timeline plays this clip) are different axes, and the two
 bins below never mean each other."""
+
+SHARED_BIN = "Placed on several timelines"
+"""A render several timelines place files here, under whichever render
+bin its kind belongs to. The sibling of the unplaced leaf: both name a
+placement STATE rather than a reel, so a shared caption render - a
+structural consequence of reels ending on the same words, not a
+leftover - reads as deliberate instead of unfiled. A leaf at a
+category root holding shared items is also what lets the root itself
+stay empty, which is the property the whole layout is checked by:
+per-reel means that reel uses it, shared means several do, unplaced
+means none do, and nothing sits at the root."""
 
 REEL_STATE_BINS = {
     "current": "Current plan",
@@ -218,7 +237,7 @@ BINS: tuple[Bin, ...] = (
     Bin(("02 - Music",), Area.MUSIC,
         "Music the captain put here by hand. Tracks the pipeline fetches "
         "land under the step that fetched them, not here."),
-    Bin(("03 - Assets",), Area.ASSETS,
+    Bin((ASSETS_BIN,), Area.ASSETS,
         "Project-owned artwork: stills, overlays, presets referenced by "
         "name from project.yaml. Brand fonts and logos (Area.BRAND_ASSETS) "
         "and staged compositions (Area.COMPOSITIONS) gain sub-bins here "
@@ -352,6 +371,83 @@ def render_bin_for_file(file_path: str, project_root: str) -> str:
         if absolute == base or absolute.startswith(base + os.sep):
             return MOTION_GRAPHICS_BIN
     return SUBTITLES_BIN
+
+
+RENDER_AREAS = (
+    Area.SUBTITLE_SEGMENTS,
+    Area.MOTION_GRAPHICS_SEGMENTS,
+    Area.TIMED_TEXT_SEGMENTS,
+    Area.CARRIERS,
+)
+"""Every area whose files are per-reel renders. A generated clip whose
+file is under one of these is filed by which timeline places it; a
+generated clip under NONE of them is a production asset (a frame
+overlay, a freeze hold - the reel builder writes those beside its own
+step, under no render area) and files under `ASSETS_BIN` instead of
+taking the subtitle fallback above. Measured 2026-09-18 on the
+captain's project: a TV frame placed on all eight reels and two
+freezes placed on three each sat loose at the top of `06 - Subtitle
+renders`, which is neither their category nor any one reel's folder.
+`tests/test_shared_production_assets.py`."""
+
+
+def is_render_file(file_path: str, project_root: str) -> bool:
+    """Is this generated file a per-reel render, by where it was written?
+
+    A path fact off `RENDER_AREAS`, never a name parse: the fallback in
+    `render_bin_for_file` answers a bin for anything, including files
+    no render step wrote, and a shared asset filed by that answer
+    lands in a category bin it does not belong to.
+    """
+    absolute = os.path.abspath(file_path or "")
+    for area in RENDER_AREAS:
+        base = os.path.abspath(
+            os.path.join(project_root, AREAS[area].relpath))
+        if absolute == base or absolute.startswith(base + os.sep):
+            return True
+    return False
+
+
+def category_bin_for_file(file_path: str,
+                           project_root: str) -> tuple[str, ...]:
+    """The category bin a generated file belongs under, as a path.
+
+    Its render bin when it is a render, `03 - Assets` when it is a
+    production asset no render step wrote. One spelling for the filing
+    pass and the import paths, so what an import lands in is what the
+    next organise keeps it in.
+    """
+    if is_render_file(file_path, project_root):
+        return (render_bin_for_file(file_path, project_root),)
+    return (ASSETS_BIN,)
+
+
+def shared_bin_for_file(file_path: str,
+                         project_root: str) -> tuple[str, ...]:
+    """Where a generated clip several timelines place belongs, as a path.
+
+    The render bin's shared leaf for a render - one reel cannot own
+    it, but the category still can. The assets root for a production
+    asset, which has no per-render leaves to stand under.
+    """
+    if is_render_file(file_path, project_root):
+        return (render_bin_for_file(file_path, project_root), SHARED_BIN)
+    return (ASSETS_BIN,)
+
+
+def unplaced_bin_for_file(file_path: str,
+                           project_root: str) -> tuple[str, ...]:
+    """Where a generated clip no timeline plays belongs, as a path.
+
+    The render bin's `Not placed` leaf for a render; the assets root
+    for a production asset, which has no per-render leaves to stand
+    under. `03 - Assets` gains no `Not placed` leaf: the bins that
+    exist are the captain's structure, and no new bin is invented to
+    hold one class - the unplaced REPORT still counts it either way.
+    """
+    if is_render_file(file_path, project_root):
+        return (render_bin_for_file(file_path, project_root), UNPLACED_BIN)
+    return (ASSETS_BIN,)
 
 
 def bins_to_create(existing: set[tuple[str, ...]]) -> list[tuple[str, ...]]:

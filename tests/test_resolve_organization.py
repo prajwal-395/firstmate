@@ -16,6 +16,7 @@ import pytest
 from library.tools import resolve_bin_layout as bins
 from library.tools.resolve_organization import (
     BIN_REELS,
+    BIN_SHARED,
     BIN_SOURCE,
     BIN_SUBTITLES,
     BIN_UNPLACED,
@@ -60,13 +61,16 @@ def a_project():
         timeline("t-old", "Reel 01 - superseded"),
         timeline("t-oneoff", "Reel 03 - superseded (fragment fix)"),
         clip("c-cur", "sub_live_a.mov",
-             path=f"{PROJECT_ROOT}/pipeline_output/scratch/x/a.mov",
+             path=f"{PROJECT_ROOT}/pipeline_output/steps/"
+                  f"4_05_render_subtitles/a.mov",
              placed_by=["Reel 01 - live (harvest)"]),
         clip("c-old", "sub_old_a.mov",
-             path=f"{PROJECT_ROOT}/pipeline_output/scratch/x/b.mov",
+             path=f"{PROJECT_ROOT}/pipeline_output/steps/"
+                  f"4_05_render_subtitles/b.mov",
              placed_by=["Reel 01 - superseded"]),
         clip("c-orphan", "sub_orphan.mov",
-             path=f"{PROJECT_ROOT}/pipeline_output/scratch/x/c.mov"),
+             path=f"{PROJECT_ROOT}/pipeline_output/steps/"
+                  f"4_05_render_subtitles/c.mov"),
         clip("c-source", "podcast_cam_a.mov", path="/elsewhere/cam_a.mov",
              placed_by=[MASTER, "Reel 01 - live (harvest)"]),
         clip("c-vfx", "flare.mov", path="/assets/vfx/flare.mov"),
@@ -179,20 +183,25 @@ def test_footage_from_outside_the_project_is_source_footage():
     assert "outside the project" in by_name["flare.mov"].why
 
 
-def test_a_generated_clip_several_timelines_place_stays_under_its_render_bin():
+def test_a_generated_clip_several_timelines_place_files_under_the_shared_leaf():
     """Several placers means no single reel owns it - but it is still
-    generated, so it stays under its render bin's root instead of
-    filing as outside material. Measured 2026-09-10: a rebuild beside
-    its backup shares every reused overlay file, and the old verdict
-    filed all of them as Source footage."""
+    generated, so it files under the shared leaf instead of the root
+    beside the unfiled, and never as outside material. Measured
+    2026-09-10: a rebuild beside its backup shares every reused
+    overlay file, and the old verdict filed all of them as Source
+    footage. Measured 2026-09-18: reels ending on the same words
+    share those words' caption renders, structurally, not as
+    leftovers."""
     shared = clip("c-shared", "shared.mov",
-                  path=f"{PROJECT_ROOT}/pipeline_output/x.mov",
+                  path=f"{PROJECT_ROOT}/pipeline_output/steps/"
+                       f"4_05_render_subtitles/shared.mov",
                   placed_by=["Reel 01 - live (harvest)",
                              "Reel 01 - superseded"])
     plan = a_plan(a_project() + [shared])
     by_name = {v.name: v for v in plan.verdicts}
-    assert by_name["shared.mov"].destination == (BIN_SUBTITLES,)
-    assert "no single one" in by_name["shared.mov"].why
+    assert by_name["shared.mov"].destination == (
+        BIN_SUBTITLES, BIN_SHARED)
+    assert "no single reel" in by_name["shared.mov"].why
 
 
 def test_every_verdict_carries_its_evidence():
@@ -480,7 +489,7 @@ def test_the_unplaced_report_counts_only_what_this_pipeline_generated():
     report = unplaced_report(a_project(), PROJECT_ROOT)
     assert report["count"] == 1
     assert report["paths"] == (
-        f"{PROJECT_ROOT}/pipeline_output/scratch/x/c.mov",)
+        f"{PROJECT_ROOT}/pipeline_output/steps/4_05_render_subtitles/c.mov",)
     # `flare.mov` is unplaced too, and comes from outside the project.
     assert not any("flare" in path for path in report["paths"])
 
@@ -488,7 +497,8 @@ def test_the_unplaced_report_counts_only_what_this_pipeline_generated():
 def test_the_unplaced_report_names_a_file_a_placed_item_also_uses():
     """Removing that pool item is safe; deleting the FILE would take
     media off a live timeline. The two must not be one number."""
-    shared = f"{PROJECT_ROOT}/pipeline_output/scratch/x/shared.mov"
+    shared = (f"{PROJECT_ROOT}/pipeline_output/steps/"
+              f"4_05_render_subtitles/shared.mov")
     artefacts = a_project() + [
         clip("c-dup-placed", "sub_dup.mov", path=shared,
              placed_by=["Reel 01 - live (harvest)"]),

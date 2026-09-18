@@ -164,9 +164,11 @@ def project(tmp_path):
     live_tl = FakeClip("t-live", "Reel 01 - live", "timeline")
     old_tl = FakeClip("t-old", "Reel 09 - old", "timeline")
     cap = FakeClip("c-cap", "sub_a.mov",
-                   path=str(tmp_path / "pipeline_output" / "a.mov"))
+                   path=str(tmp_path / "pipeline_output" / "steps"
+                            / "4_05_render_subtitles" / "a.mov"))
     orphan = FakeClip("c-orphan", "sub_b.mov",
-                      path=str(tmp_path / "pipeline_output" / "b.mov"))
+                      path=str(tmp_path / "pipeline_output" / "steps"
+                               / "4_05_render_subtitles" / "b.mov"))
     source = FakeClip("c-src", "cam.mov", path="/elsewhere/cam.mov")
     root.clips = [master_tl, live_tl, old_tl, cap, orphan, source]
 
@@ -418,7 +420,9 @@ def test_the_unplaced_cost_is_measured_from_disk_not_assumed(project,
     """The orphan's file is real here, so the size is a `stat` and not a
     guess. AGENTS.md 10.3: a file on disk is not a measurement - but its
     SIZE is, and it is the figure a removal decision turns on."""
-    orphan = tmp_path / "pipeline_output" / "b.mov"
+    orphan = (tmp_path / "pipeline_output" / "steps"
+              / "4_05_render_subtitles" / "b.mov")
+    orphan.parent.mkdir(parents=True, exist_ok=True)
     orphan.parent.mkdir(parents=True, exist_ok=True)
     orphan.write_bytes(b"x" * 4096)
     proj, folder = project
@@ -457,7 +461,10 @@ def test_the_check_reports_the_unplaced_burden_and_does_not_fail_on_it(
 def test_the_unplaced_report_reads_as_sentences_and_can_say_none(project,
                                                                  tmp_path):
     proj, folder = project
-    (tmp_path / "pipeline_output" / "b.mov").write_bytes(b"y" * 2048)
+    orphan_b = (tmp_path / "pipeline_output" / "steps"
+                / "4_05_render_subtitles" / "b.mov")
+    orphan_b.parent.mkdir(parents=True, exist_ok=True)
+    orphan_b.write_bytes(b"y" * 2048)
     cost = ex.organise_project(proj, folder, MASTER,
                                apply=True)["unplaced"]
     text = ex.render_unplaced(cost)
@@ -472,7 +479,8 @@ def test_the_unplaced_report_separates_a_file_a_placed_item_also_uses(
     """`pool.ImportMedia` made a second pool item for a path already in
     the pool three times on the field test. Removing that ITEM is safe;
     deleting the FILE takes media off a live timeline."""
-    shared = tmp_path / "pipeline_output" / "a.mov"
+    shared = (tmp_path / "pipeline_output" / "steps"
+              / "4_05_render_subtitles" / "a.mov")
     shared.parent.mkdir(parents=True, exist_ok=True)
     shared.write_bytes(b"z" * 8192)
     proj, folder = project

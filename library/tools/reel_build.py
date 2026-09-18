@@ -4761,16 +4761,17 @@ def import_dest_bin(filepath: str, project_folder: str = "") -> tuple[str, ...]:
     """The bin path a file imports INTO, decided before Resolve is asked.
 
     The same fact the organiser files by, read through the same
-    function: a generated file's own directory names its render bin
-    (`resolve_bin_layout.render_bin_for_file`), so what an import
-    lands in is what the next organise keeps it in - the destination
-    is decided once, not once at import and again at filing. Anything
-    not generated here (source footage, which this module never
-    imports - it looks it up and skips when absent) belongs under the
-    captain's source bin. A path with no project to read it against
-    cannot be decided and answers the reels root, which is canonical
-    (`is_canonical`) rather than wherever the current folder happens
-    to be.
+    function: a generated file's own directory names its category bin
+    (`resolve_bin_layout.category_bin_for_file` - its render bin, or
+    the shared assets bin for a production asset no render step
+    wrote), so what an import lands in is what the next organise
+    keeps it in - the destination is decided once, not once at import
+    and again at filing. Anything not generated here (source footage,
+    which this module never imports - it looks it up and skips when
+    absent) belongs under the captain's source bin. A path with no
+    project to read it against cannot be decided and answers the
+    reels root, which is canonical (`is_canonical`) rather than
+    wherever the current folder happens to be.
     """
     from library.tools import resolve_bin_layout as bins
 
@@ -4778,7 +4779,7 @@ def import_dest_bin(filepath: str, project_folder: str = "") -> tuple[str, ...]:
         from library.tools.resolve_organization import is_generated
 
         if is_generated(filepath, project_folder):
-            return (bins.render_bin_for_file(filepath, project_folder),)
+            return bins.category_bin_for_file(filepath, project_folder)
         return (bins.SOURCE_BIN,)
     return (bins.REELS_BIN,)
 
@@ -5052,13 +5053,16 @@ def overlay_import_bin(project_folder: str, timeline_name: str,
     `project_layout.Area`, never a name parse) under the timeline that
     is about to place it - exactly the verdict `plan_organization`
     reaches for a sole-placed generated clip, computed BEFORE the
-    import so the two cannot disagree. Spelled once, used by every
-    overlay import below.
+    import so the two cannot disagree. A production asset no render
+    step wrote lands in the shared assets bin instead, which has no
+    per-reel leaves. Spelled once, used by every overlay import below.
     """
     from library.tools import resolve_bin_layout as bins
 
-    return (bins.render_bin_for_file(filepath, project_folder or ""),
-            timeline_name)
+    if bins.is_render_file(filepath, project_folder or ""):
+        return (bins.render_bin_for_file(filepath, project_folder or ""),
+                timeline_name)
+    return (bins.ASSETS_BIN,)
 
 
 def _overlay_spans(segments, fps: float):
@@ -7281,20 +7285,53 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"will place them again rather than assume",
               file=_sys.stderr)
 
+    # ── FILE THE MEDIA POOL ──────────────────────────────────
+    # The pass is idempotent and files by reference: each generated
+    # clip goes under the reel timeline that places it
+    # (`library/tools/resolve_organization.py`, executed by
+    # `library/tools/execution/organise_media_pool.py`), so running it
+    # twice moves nothing the second time - which is what makes it
+    # something a build can call without anyone remembering to.
+    #
+    # Never fatal, for the same reason as every other post-promotion
+    # step above: the reels are already promoted, and a filing pass
+    # that errors taking a good build down with it would be a bad
+    # trade. A refusal is said on stderr and carried on the record as
+    # `{"refused": ...}`, so a later reader can see the filing was
+    # attempted and declined - `resolve-organize` is the retry.
+    #
+    # Quiet when there is nothing to do: an idle build prints one line
+    # instead of the full trio. The unplaced and scratch reports keep
+    # their every-time semantics on the `resolve-organize` CLI; the
+    # build hook says them when it moved something.
     organised = None
     if organise:
         from library.tools.execution.organise_media_pool import (
             organise_project, render_unplaced)
         from library.tools.resolve_organization import (
             render_scratch_report)
-        organised = organise_project(
-            project, project_folder, master_timeline_name, apply=True)
-        print(f"Filed {len(organised['journal']['moves'])} media-pool "
-              f"item(s); undo with "
-              f"resolve-organize --revert "
-              f"{organised['journal']['journal_path']}", flush=True)
-        print(render_unplaced(organised["unplaced"]), flush=True)
-        print(render_scratch_report(organised["scratch"]), flush=True)
+        try:
+            organised = organise_project(
+                project, project_folder, master_timeline_name, apply=True)
+        except Exception as organise_failed:  # noqa: BLE001
+            import sys as _sys
+            print(f"  media-pool filing refused ({organise_failed}) - "
+                  f"the reels are promoted and unaffected; file them with "
+                  f"resolve-organize", file=_sys.stderr)
+            organised = {"refused": f"{organise_failed}"}
+        else:
+            _moves = ((organised.get("journal") or {}).get("moves")) or []
+            _retired = ((organised.get("retirement") or {}).get("retired")) or []
+            if not _moves and not _retired:
+                print("  Media pool already organised - nothing to file.",
+                      flush=True)
+            else:
+                print(f"Filed {len(_moves)} media-pool "
+                      f"item(s); undo with "
+                      f"resolve-organize --revert "
+                      f"{organised['journal']['journal_path']}", flush=True)
+                print(render_unplaced(organised["unplaced"]), flush=True)
+                print(render_scratch_report(organised["scratch"]), flush=True)
 
     # The sweep runs HERE, on every build, because this is the moment
     # the project is settled: the reels carry their final names, the
