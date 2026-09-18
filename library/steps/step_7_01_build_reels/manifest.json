@@ -49,6 +49,12 @@
         "description": "Reels whose durable captain sign-off this build may replace (`library/tools/reel_signoff.py`). Each entry is a reel name in any container spelling. The `--supersede` flag of `manage_project.py build-reels`, repeatable. Absent means nothing is declared and a promotion over a signed-off reel refuses by name, printing the declaration that would proceed deliberately. A declared supersession moves the sign-off to `superseded` after the rename lands; it is never deleted."
       },
       {
+        "name": "retain",
+        "type": "array",
+        "required": false,
+        "description": "Reels whose superseded generation the promotion may retire into the archive rather than delete (`library/tools/reel_retirement.py`). Each entry is a reel name in any container spelling. The `--retain` flag of `manage_project.py build-reels`, repeatable. Absent - the default - means one timeline per reel and an empty archive; a reel carrying a sign-off retires whatever this says."
+      },
+      {
         "name": "rebuild_all",
         "type": "boolean",
         "required": false,
@@ -69,6 +75,7 @@
           "name_suffix": "str",
           "allow_drops": "dict",
           "supersede": "list",
+          "retain": "list",
           "rebuild_need": "list",
           "reels_left_alone": "list"
         }

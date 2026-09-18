@@ -502,10 +502,11 @@ def test_promote_releases_the_hold(project_dir):
     assert result["promoted"] == [PROMOTE_FINAL]
     assert holds.read_holds(str(project_dir)) == {}
     # The staging took the final name; the timeline it replaced is
-    # RETIRED to the archive rather than deleted
+    # DELETED by default - one timeline per reel, nothing archived
     # (`library/tools/reel_retirement.py`).
     assert sorted(t.GetName() for t in project.timelines) == [
-        PROMOTE_FINAL, f"{PROMOTE_FINAL} (archived round 001)"]
+        PROMOTE_FINAL]
+    assert project.deleted == [f"{PROMOTE_FINAL} (pre-rebuild backup)"]
 
 
 def test_guard_still_refuses_a_held_lossy_staging_and_keeps_the_hold(project_dir):

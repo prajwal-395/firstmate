@@ -193,11 +193,10 @@ def test_a_partial_build_grades_only_the_timeline_it_placed(project):
         _staging("Reel 03 - moment-3")]
     assert gate.call_args_list[1][1]["only_reels"] is None
     # Promoted: the final name is back and no staging is left
-    # behind - and the timeline it replaced is RETIRED to the
-    # archive rather than deleted (`reel_retirement`).
+    # behind - and the timeline it replaced is DELETED by default, so
+    # no archived generation stands beside it (`reel_retirement`).
     assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED
-        + ["Reel 03 - moment-3 (archived round 001)"])
+        [MASTER] + APPROVED)
 
 
 def test_a_full_build_grades_everything_it_placed(project):

@@ -1463,6 +1463,7 @@ def cmd_build_reels(args):
                 timeline_name_suffix=args.name_suffix,
                 allow_drops=args.allow_drop or None,
                 supersede=args.supersede or None,
+                retain=args.retain or None,
                 rebuild_all=bool(getattr(args, "rebuild_all", False)))
             if result.refused:
                 print(f"REFUSED: {op.name}", file=sys.stderr)
@@ -2015,6 +2016,15 @@ def main():
              "by name and prints this flag. The sign-off is recorded "
              "as superseded, never deleted, and the timeline it "
              "covered is retired to the archive bin.")
+    build_reels_parser.add_argument(
+        "--retain", dest="retain", action="append", default=[],
+        metavar="REEL",
+        help="A reel whose superseded generation the promotion may "
+             "RETIRE into the archive rather than delete "
+             "(library/tools/reel_retirement.py). Repeatable. Absent - "
+             "the default - means one timeline per reel and an empty "
+             "archive; a reel carrying a sign-off retires whatever "
+             "this says.")
     build_reels_parser.add_argument(
         "--rebuild-all", dest="rebuild_all", action="store_true",
         help="Place every reel this run names, whatever the state "

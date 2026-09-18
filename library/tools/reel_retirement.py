@@ -1,14 +1,20 @@
-"""Promotion RETIRES the timeline it replaces; it no longer deletes it.
+"""A promotion DELETES the timeline it replaces, unless asked to keep it.
 
-The captain, 2026-09-12, answering
-`data/vep-can-it-hold-up-in-a-real-editing-workflow` §7: two versions of
-a reel may be alive at once, and *"promotion must retire rather than
-delete, so a round can be compared against the last"*.
+The captain, 2026-09-18, withdrawing his own 2026-09-12 ruling
+(`data/vep-can-it-hold-up-in-a-real-editing-workflow` §7 - *"promotion
+must retire rather than delete, so a round can be compared against the
+last"*): *"i just want the final timelines to exist in the project
+unless i explicitly ask for otherwise."* He said it after noticing
+"(archived round 001)" on reel titles - and the two instructions fight,
+because he has separately asked four times for no leftover timelines.
+No leftovers wins; comparison becomes an explicit per-request thing.
 
-Before this, `promote_staged_reels` phase 4 ran `DeleteTimelines` over
-the backups it had just made, so the moment a rebuild landed there was
-the new reel and nothing to compare it to. That is what made a round
-superseded rather than reviewable.
+So the DEFAULT path (`promote_staged_reels` with no `retain`
+declaration) deletes the backup it just made (`delete_backups`), and
+`05 - Reels/Archive` stays empty unless something explicitly asks for
+retention. Only the default changed: the retirement path -
+`retire_timelines`, the naming, the sibling-collision handling, the
+archive bin - stays reachable for that explicit ask.
 
 The tension this module is built around
 ---------------------------------------
@@ -51,9 +57,12 @@ grow with time, so it cannot become the complaint again.
 
 Two exceptions, both deliberate:
 
-- a generation carrying a SIGN-OFF is never collected (`reel_signoff`).
-  The captain approved that cut; collecting it would delete the only
-  copy of the thing they approved. Sign-offs are rare, explicit and
+- a generation carrying a SIGN-OFF is never collected (`reel_signoff`),
+  and a signed-off reel's backup is never deleted either: promotion
+  forces those onto the retire path even with no `retain` declaration.
+  The captain approved that cut; deleting the only copy of the thing
+  they approved is exactly what "unless i explicitly ask for otherwise"
+  does not cover. Sign-offs are rare, explicit and
   withdrawable, so this cannot grow quietly - and every retained
   sign-off is NAMED in the report on every build.
 - collection is `assert_deletion_scope`-guarded against the archived
@@ -62,11 +71,11 @@ Two exceptions, both deliberate:
   list refuses rather than widening.
 
 And the record outlives the timeline. `round_version` stores each
-round's ROWS on disk, so "what did round 3 look like" is answerable long
-after round 3's timeline is collected. Collecting an archived timeline
-loses the ability to re-open it in Resolve; it never loses the ability
-to say what it contained. That asymmetry is what makes a lifecycle that
-ends acceptable at all.
+round's ROWS on disk, so "what did round 3 look like" is answerable
+after round 3's timeline is deleted. Deleting a timeline loses the
+ability to re-open it in Resolve; it never loses the ability to say
+what it contained. That asymmetry is what makes a default that deletes
+acceptable at all - it is now the only thing left.
 
 `tests/test_reel_retirement.py`.
 """
@@ -167,7 +176,42 @@ def generations_of(names, final: str) -> list:
     return [name for _number, name in sorted(out, reverse=True)]
 
 
-def plan_collection(existing_names, finals, signed_off_reels=()) -> dict:
+def parse_retain(raw) -> set:
+    """Reel names whose superseded generation this promotion may RETIRE.
+
+    The explicit opt-in the 2026-09-18 default answers to: absent means
+    the backup is deleted, and a future "keep the old one so I can
+    compare" names the reel here. Accepts a reel name in any container
+    spelling (`reel_signoff.base_name`), so the exact string a report
+    prints pastes back. Anything that is not a non-empty string raises
+    rather than reading as an empty declaration - the same rule
+    `reel_signoff.parse_supersede` holds to, and for the same reason:
+    a silently empty declaration is retention that passed without
+    being asked.
+    """
+    from library.tools import reel_signoff as _signoff
+
+    if raw is None:
+        return set()
+    if isinstance(raw, str):
+        raw = [raw]
+    try:
+        specs = list(raw)
+    except TypeError:
+        raise ValueError(
+            f"retain must be a list of reel names, got {raw!r}.")
+    out = set()
+    for spec in specs:
+        if not isinstance(spec, str) or not spec.strip():
+            raise ValueError(
+                f"retain specs must be non-empty reel names, got "
+                f"{spec!r}.")
+        out.add(_signoff.base_name(spec.strip()))
+    return out
+
+
+def plan_collection(existing_names, finals, signed_off_reels=(),
+                     retained: int = RETAINED_GENERATIONS) -> dict:
     """Which archived generations go, and which are kept and why.
 
     Pure: it is handed the names that exist and answers off them, so the
@@ -178,13 +222,19 @@ def plan_collection(existing_names, finals, signed_off_reels=()) -> dict:
     Returns `{"collect": [names], "kept": [{"name", "why"}]}`. Only the
     reels in `finals` are considered at all: a promotion tidies what it
     touched and nothing else.
+
+    `retained` is how many archived generations of one reel survive.
+    The default is the retention bound above - the explicit-retain path.
+    The default-delete path passes 0, so every non-signed-off archived
+    generation of a promoted reel goes and the archive ends empty for
+    it. A sign-off survives either way.
     """
     signed = {str(reel) for reel in (signed_off_reels or ())}
     collect, kept = [], []
     for final in finals or ():
         generations = generations_of(existing_names, final)
         for position, name in enumerate(generations):
-            if position < RETAINED_GENERATIONS:
+            if position < retained:
                 kept.append({
                     "name": name,
                     "why": f"the most recent archived generation of "
@@ -272,15 +322,67 @@ def retire_timelines(project, pool, backups: dict,
     return {"archived": archived, "unfiled": unfiled}
 
 
+def delete_backups(project, pool, backup_objects: dict) -> dict:
+    """Delete the backup timelines outright - the DEFAULT promotion path.
+
+    `backup_objects` is `{backup timeline name: backup timeline object}`
+    for the generations the promotion just replaced - the containers
+    `promote_staged_reels` moved the approved timelines into before the
+    staging took their names. No rename, no filing: one timeline per
+    reel, and the archive stays empty.
+
+    The DELETE is the risky half, so this is bounded TIGHTER than the
+    collection it replaces. Every name must end in the promotion's own
+    backup suffix (`reel_build.BACKUP_SUFFIX`) - anything else refuses
+    before anything is read further. Then `assert_deletion_scope` is
+    asked of the list about to be deleted against exactly those names,
+    so a wrong selection refuses rather than widening (the captain's
+    2026-09-06 ruling). Names are read BEFORE the delete: a deleted
+    timeline object answers `GetName()` with None. A falsy delete
+    RAISES rather than reporting the names deleted - the refused note
+    is a handled, rendered outcome and the generation stays present,
+    so the next build plans it again.
+
+    Returns `{"deleted": [names]}`.
+    """
+    from library.tools.reel_build import (
+        BACKUP_SUFFIX, assert_deletion_scope, timelines_to_replace)
+
+    names = sorted(backup_objects or {})
+    foreign = [name for name in names
+               if not name.endswith(BACKUP_SUFFIX)]
+    if foreign:
+        raise RetirementRefused(
+            f"REFUSING to delete: {foreign} are not pre-rebuild backups. "
+            f"This path deletes the generation a promotion just replaced "
+            f"and nothing else - nothing was deleted.")
+    targets = timelines_to_replace(project, set(names))
+    assert_deletion_scope(targets, set(names))
+    record: dict = {"deleted": []}
+    if targets:
+        deleted = sorted(name for name in
+                         (t.GetName() for t in targets) if name)
+        if not pool.DeleteTimelines(targets):
+            raise RetirementRefused(
+                f"Resolve declined to delete {len(deleted)} backup(s) "
+                f"({', '.join(deleted)}). They are still in the project "
+                f"under their backup names - nothing was reported "
+                f"deleted.")
+        record["deleted"] = deleted
+    return record
+
+
 def collect_superseded(project, pool, existing_names, finals,
-                       signed_off_reels=()) -> dict:
+                       signed_off_reels=(),
+                       retained: int = RETAINED_GENERATIONS) -> dict:
     """Delete the archived generations the retention bound releases.
 
-    The ONLY deletion this module performs, and it is narrower than the
-    one it replaces: `promote_staged_reels` used to delete the version
-    it had just retired, and this deletes the one BEFORE that - so a
-    project always holds the previous cut, and a signed-off cut for
-    ever.
+    One of the TWO deletions this module performs. On the explicit-
+    retain path it deletes the generation BEFORE the one just retired -
+    so a project holds the previous cut, and a signed-off cut for
+    ever. On the default-delete path (`retained=0`) it deletes every
+    non-signed-off archived generation of the promoted reels, so the
+    archive ends empty for them.
 
     `assert_deletion_scope` is asked of the list about to be deleted,
     against the archived names the plan chose, so a wrong selection
@@ -289,7 +391,8 @@ def collect_superseded(project, pool, existing_names, finals,
     """
     from library.tools.reel_build import assert_deletion_scope, timelines_to_replace
 
-    plan = plan_collection(existing_names, finals, signed_off_reels)
+    plan = plan_collection(existing_names, finals, signed_off_reels,
+                           retained=retained)
     record = {"collected": [], "kept": plan["kept"],
               "planned": list(plan["collect"])}
     if not plan["collect"]:
@@ -334,6 +437,12 @@ def render(report: dict) -> str:
             f"{'/'.join(ARCHIVE_BIN)} - nothing was deleted here:")
         for final in sorted(archived):
             lines.append(f"    {final} -> {archived[final]}")
+    deleted = (report or {}).get("deleted") or []
+    if deleted:
+        lines.append(
+            f"  Deleted {len(deleted)} superseded backup(s) - one "
+            f"timeline per reel, nothing archived: "
+            f"{', '.join(deleted)}")
     for name in (report or {}).get("unfiled") or ():
         lines.append(
             f"  {name!r} was renamed but not moved into "

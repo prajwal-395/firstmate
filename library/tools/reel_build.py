@@ -6822,7 +6822,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          staged_to_final: dict,
                          organise: bool = True,
                          allow_drops=None,
-                         supersede=None) -> dict:
+                         supersede=None,
+                         retain=None) -> dict:
     """Move passing stagings onto their final timeline names.
 
     The ONLY place an approved timeline is deleted. Reachable only
@@ -6853,11 +6854,17 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        explainer plans) are renamed staging -> final, so the next
        verifier grades the promoted timelines against the baseline the
        gate just passed rather than refusing on absence;
-    4. only then is the backup RETIRED - renamed to `... (archived
-       round NNN)` and filed in `05 - Reels/Archive`, never deleted
+    4. only then is the backup DELETED - unless the caller named the
+       reel in `retain`, when it is retired instead: renamed to
+       `... (archived round NNN)` and filed in `05 - Reels/Archive`
        (`library/tools/reel_retirement.py`). A generation the
        retention bound releases is collected in the same call, guarded
-       by `assert_deletion_scope` against the archived names alone;
+       by `assert_deletion_scope` against the archived names alone -
+       and on the default path the reel's earlier archived generations
+       go too (retention 0), so the archive ends empty for it. A reel
+       carrying a durable sign-off always retires: the captain approved
+       that cut, and deleting its only copy is what "unless i
+       explicitly ask for otherwise" does not cover;
     5. the round is stamped (`library/tools/round_version.py`): the
        rows the guard read in phase 0 are stored against the round
        this batch of the captain's feedback opened, which is what
@@ -6885,6 +6892,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     `"ROW"` / `"FINAL::ROW"` specs applied to what this call promotes.
     There is no "allow everything" value - a blanket override is the
     same as no guard.
+
+    `retain` names the reels whose superseded generation this promotion
+    may RETIRE into the archive rather than delete, by base reel name
+    in any container spelling (`reel_retirement.parse_retain`). The
+    explicit opt-in for a future "keep the old one so I can compare":
+    absent - the default - means one timeline per reel and an empty
+    archive. A reel carrying a durable sign-off retires whatever this
+    says. There is no "retain everything" value.
 
     Every marker on a retiring timeline is READ before phase 1, and
     the ones whose picture still plays in the replacement are placed
@@ -6948,6 +6963,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     from library.tools import reel_signoff as _signoff
     try:
         declared_supersessions = _signoff.parse_supersede(supersede)
+    except ValueError as bad_declaration:
+        raise ReelBuildError(
+            f"REFUSING to promote: {bad_declaration}") from bad_declaration
+    from library.tools import reel_retirement as _retire_decl
+    try:
+        declared_retain = _retire_decl.parse_retain(retain)
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to promote: {bad_declaration}") from bad_declaration
@@ -7114,16 +7135,18 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"entries still name the staging timeline, so their files "
               f"stay LIVE and nothing is swept", file=_sys.stderr)
 
-    # ── RETIRE, never delete (the captain, 2026-09-12) ───────────
-    # This used to be `DeleteTimelines(backup_timelines)`, and it is
-    # why a round could not be compared against the one before it: the
-    # moment a rebuild landed, the version it replaced was gone. The
-    # backups are now renamed into `05 - Reels/Archive` with the round
-    # they were current for, and only a generation the retention bound
-    # releases - never the one just retired, and never one carrying a
-    # sign-off - is collected. Bounded by the number of REELS rather
-    # than the number of rounds, so the archive cannot grow with time
-    # and become the clutter the captain has asked about four times.
+    # ── DELETE by default, RETIRE only when asked (the captain, 2026-09-18)
+    # Before this every backup was renamed into `05 - Reels/Archive`
+    # with the round it was current for, which is how "(archived round
+    # 001)" came to sit on reel titles the captain reviews. Now the
+    # backup is DELETED unless the caller named the reel in `retain` -
+    # the explicit per-reel opt-in for "keep the old one so I can
+    # compare" - and the archive stays empty otherwise. A signed-off
+    # reel always retires: the captain approved that cut. Only a
+    # generation the retention bound releases - never one just retired,
+    # and never one carrying a sign-off - is collected. Bounded by the
+    # number of REELS rather than the number of rounds, and by exactly
+    # the reels this call promoted.
     #
     # Never fatal. The reels are promoted; a retirement that cannot
     # rename leaves the approved content under its backup name, which
@@ -7131,30 +7154,62 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     from library.tools import reel_retirement as _retire
     from library.tools import round_version as _rounds
     retirement = {"archived": {}, "unfiled": [], "collected": [],
-                  "kept": []}
+                  "kept": [], "deleted": []}
     rounds_by_final: dict = {}
     try:
         recorded = _rounds.discover(project_folder)
         current_round = recorded[-1]["round"] if recorded else 1
+        signed = set(_signoff.signed_off(project_folder))
+        # A sign-off is itself an explicit keep: the cut the captain
+        # approved retires even when nobody declared `retain`.
+        retain_finals = sorted(
+            final for final in ok_finals if final in originals
+            and (_signoff.base_name(final) in declared_retain
+                 or _signoff.base_name(final) in signed))
+        delete_finals = sorted(
+            final for final in ok_finals if final in originals
+            and final not in retain_finals)
         rounds_by_final.update({
             final: _retire.retiring_round(recorded, final, current_round)
-            for final in ok_finals if final in originals})
+            for final in retain_finals})
         backup_objects = {}
         for timeline in timelines_to_replace(
                 project, {backups[final] for final in ok_finals}):
             for final in ok_finals:
                 if timeline.GetName() == backups[final]:
                     backup_objects[final] = timeline
-        retirement.update(_retire.retire_timelines(
-            project, pool, backup_objects, rounds_by_final))
+        if retain_finals:
+            retirement.update(_retire.retire_timelines(
+                project, pool,
+                {final: backup_objects[final] for final in retain_finals
+                 if final in backup_objects},
+                rounds_by_final))
+        if delete_finals:
+            discarded = _retire.delete_backups(
+                project, pool,
+                {backups[final]: backup_objects[final]
+                 for final in delete_finals
+                 if final in backup_objects})
+            retirement["deleted"] = discarded["deleted"]
         live_names = set()
         for index in range(1, project.GetTimelineCount() + 1):
             timeline = project.GetTimelineByIndex(index)
             if timeline:
                 live_names.add(timeline.GetName())
-        retirement.update(_retire.collect_superseded(
-            project, pool, live_names, list(retirement["archived"]),
-            set(_signoff.signed_off(project_folder))))
+        if retirement["archived"]:
+            retirement.update(_retire.collect_superseded(
+                project, pool, live_names, list(retirement["archived"]),
+                signed))
+        if delete_finals:
+            # Nothing was retired for these reels, so the bound above
+            # has nothing to bound: their earlier archived generations
+            # go too (retention 0, signed-off ones excepted), and the
+            # archive ends empty for them.
+            legacy = _retire.collect_superseded(
+                project, pool, live_names, delete_finals, signed,
+                retained=0)
+            retirement["collected"].extend(legacy["collected"])
+            retirement["kept"].extend(legacy["kept"])
         print(_retire.render(retirement), flush=True)
     except Exception as retirement_failed:  # noqa: BLE001
         import sys as _sys
@@ -7522,6 +7577,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              intent_file: str = "",
                              allow_drops=None,
                              supersede=None,
+                             retain=None,
                              reuse_unchanged: bool = True) -> dict:
     """Build every approved reel, and RETURN the record of what was placed.
 
@@ -7545,8 +7601,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
        and are still there.
     3. PROMOTE: only a pass renames staging -> final, retiring each
        approved original to a backup name first and deleting the
-       backups last (`promote_staged_reels`). Filing the media pool
-       (`organise`) happens here, because filing is about reels that
+       backups by default - retiring them only for reels named in
+       `retain` or carrying a sign-off (`promote_staged_reels`).
+       Filing the media pool (`organise`) happens here, because filing is about reels that
        already exist under their real names.
 
     With `verify=False` the call stops after staging and returns the
@@ -9100,6 +9157,16 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
+    # The retain declaration travels the same way: the reels whose
+    # superseded generation the promotion may retire rather than
+    # delete (`reel_retirement.parse_retain`). Absent means the
+    # default - one timeline per reel, an empty archive.
+    from library.tools import reel_retirement as _decl_retire
+    try:
+        declared_retain = sorted(_decl_retire.parse_retain(retain))
+    except ValueError as bad_declaration:
+        raise ReelBuildError(
+            f"REFUSING to build: {bad_declaration}") from bad_declaration
     if verify and not built_reel_names and left_alone:
         # Nothing was placed, and that IS the answer: every reel this
         # call named already carries what this build would have given
@@ -9145,7 +9212,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             project_folder, resolve_name, master_timeline_name,
             dict(staged_to_final), organise=organise,
             allow_drops=declared_drops,
-            supersede=declared_supersede)
+            supersede=declared_supersede,
+            retain=declared_retain)
         organised = promoted["organised"]
         # From here the record speaks final names: what is in Resolve
         # now is the promoted timelines, and the sidecar files were
@@ -9367,6 +9435,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # is the common case and is NOT the same as allowing: an
         # undeclared sign-off refuses the promotion by name.
         "supersede": declared_supersede,
+        # The reels whose superseded generation the promotion may
+        # retire rather than delete (`reel_retirement`). `[]` is the
+        # default - one timeline per reel, an empty archive - and is
+        # NOT the same as retaining: only a named reel keeps its
+        # previous generation, plus any reel carrying a sign-off.
+        "retain": declared_retain,
         # Where the media pool was filed, and the journal that undoes it.
         # None when the caller declined - and when the call stopped at
         # staging (`verify=False`), where filing waits for whoever

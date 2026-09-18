@@ -189,9 +189,16 @@ def verify_reels(data: dict) -> dict:
         superseding = build.get("supersede")
         if superseding is None:
             superseding = (data or {}).get("supersede")
+        # The same rule for the retain declaration: the build's own
+        # record first, this node's input only as the fallback
+        # (`library/tools/reel_retirement.py`).
+        retaining = build.get("retain")
+        if retaining is None:
+            retaining = (data or {}).get("retain")
         promoted = promote_staged_reels(
             project_folder, resolve_project_name, master_timeline_name,
-            staged, allow_drops=recorded, supersede=superseding)
+            staged, allow_drops=recorded, supersede=superseding,
+            retain=retaining)
         organised = promoted["organised"]
         timelines_verified = list(promoted["promoted"])
         # The 6.01 hook never fired for reels, so no reel build ever

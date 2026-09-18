@@ -267,13 +267,10 @@ def test_declared_reduction_passes_and_names_what_it_declared(
     report = promoted["replace_reports"][FINAL]
     assert report["refused"] is False
     assert report["allowed"] == ["video:Semantic"]
-    # The replaced timeline is RETIRED, not deleted: promotion files it
-    # to `05 - Reels/Archive` under the round it was current for
-    # (`library/tools/reel_retirement.py`), so the round before this
-    # one is still comparable.
-    assert sorted(resolve.names()) == sorted(
-        [MASTER, FINAL, f"{FINAL} (archived round 001)"])
-    assert resolve.deleted == []
+    # The replaced timeline is DELETED by default: one timeline per
+    # reel, nothing archived (`library/tools/reel_retirement.py`).
+    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+    assert resolve.deleted == [f"{FINAL} (pre-rebuild backup)"]
 
 
 def test_unreadable_retiring_timeline_refuses(project_dir):
@@ -313,13 +310,10 @@ def test_growth_and_a_shortened_cut_pass_undeclared(project_dir):
 
     assert promoted["promoted"] == [FINAL]
     assert promoted["replace_reports"][FINAL]["refused"] is False
-    # The replaced timeline is RETIRED, not deleted: promotion files it
-    # to `05 - Reels/Archive` under the round it was current for
-    # (`library/tools/reel_retirement.py`), so the round before this
-    # one is still comparable.
-    assert sorted(resolve.names()) == sorted(
-        [MASTER, FINAL, f"{FINAL} (archived round 001)"])
-    assert resolve.deleted == []
+    # The replaced timeline is DELETED by default: one timeline per
+    # reel, nothing archived (`library/tools/reel_retirement.py`).
+    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+    assert resolve.deleted == [f"{FINAL} (pre-rebuild backup)"]
 
 
 def test_fresh_build_with_no_original_skips_the_diff(project_dir):
@@ -363,13 +357,10 @@ def test_a_join_passes_undeclared_and_says_so(project_dir):
     report = promoted["replace_reports"][FINAL]
     assert report["refused"] is False
     assert report["joined"] == ["video:Craig"]
-    # The replaced timeline is RETIRED, not deleted: promotion files it
-    # to `05 - Reels/Archive` under the round it was current for
-    # (`library/tools/reel_retirement.py`), so the round before this
-    # one is still comparable.
-    assert sorted(resolve.names()) == sorted(
-        [MASTER, FINAL, f"{FINAL} (archived round 001)"])
-    assert resolve.deleted == []
+    # The replaced timeline is DELETED by default: one timeline per
+    # reel, nothing archived (`library/tools/reel_retirement.py`).
+    assert sorted(resolve.names()) == sorted([MASTER, FINAL])
+    assert resolve.deleted == [f"{FINAL} (pre-rebuild backup)"]
 
 
 def test_a_loss_that_gains_frames_still_refuses(project_dir):

@@ -301,12 +301,10 @@ def test_a_passing_build_replaces_the_target_and_reports_final_names(project):
     assert placed.call_count == 1
     assert record["timelines_built"] == [TARGET]
     assert record["staged_timelines"] == {}
-    # The replaced timeline is RETIRED, not deleted: it is renamed into
-    # `05 - Reels/Archive` under the round it was current for
-    # (`library/tools/reel_retirement.py`), so the previous cut is
-    # still there to compare the round against.
+    # The replaced timeline is DELETED by default: one timeline per
+    # reel, nothing archived (`library/tools/reel_retirement.py`).
     assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED + [f"{TARGET} (archived round 001)"])
+        [MASTER] + APPROVED)
     # The sidecar baselines followed the promotion: filed under the
     # final name the gate passed, with no staging key left behind.
     provenance = json.loads(
@@ -365,15 +363,15 @@ def test_stage_then_promote_is_the_dag_path_end_to_end(project):
             record["staged_timelines"], organise=False)
 
     assert promoted["promoted"] == [TARGET]
-    # Retired, not deleted: the object is still in the project under
-    # its archived name (`library/tools/reel_retirement.py`).
-    assert original in resolve_project.timelines
-    assert original.GetName() == f"{TARGET} (archived round 001)"
-    # The replaced timeline is RETIRED, not deleted: it is renamed into
-    # `05 - Reels/Archive` under the round it was current for
-    # (`library/tools/reel_retirement.py`), so the previous cut is
-    # still there to compare the round against.
+    # Deleted by default: the backup object is gone from the project,
+    # and nothing was renamed into the archive
+    # (`library/tools/reel_retirement.py`).
+    assert original not in resolve_project.timelines
+    assert f"{TARGET} (pre-rebuild backup)" not in \
+        resolve_project.names()
+    # The replaced timeline is DELETED by default: one timeline per
+    # reel, nothing archived (`library/tools/reel_retirement.py`).
     assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED + [f"{TARGET} (archived round 001)"])
+        [MASTER] + APPROVED)
     assert not [name for name in resolve_project.names()
                 if name.endswith((STAGING_SUFFIX, BACKUP_SUFFIX))]

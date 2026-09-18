@@ -5588,9 +5588,10 @@ def grades_as_a_reel(name: str, only_reels=None,
     A `Reel ...` timeline, and NEITHER a retired generation NOR a live
     comparison VARIANT.
 
-    Promotion archives the timeline it replaced rather than deleting it
-    (`library/tools/reel_retirement.py`), so `Reel 09 - ... (archived
-    round 003)` is now in the project - and grading it against the
+    Promotion deletes the timeline it replaced by default and archives
+    it only for reels named in `retain` or carrying a sign-off
+    (`library/tools/reel_retirement.py`), so a `Reel 09 - ... (archived
+    round 003)` may still be in the project - and grading it against the
     CURRENT plan reports a mismatch that is a fact about it being
     retired, not a defect. Every round would otherwise double the
     sweep's findings, which is how a real finding stops being read.

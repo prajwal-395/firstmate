@@ -94,14 +94,17 @@ def _timeline(name):
     return timeline
 
 
-def _only_probe_deleted(pool):
+def _only_probe_and_backups_deleted(pool, backups=()):
     """The build-time draw-gain probe creates and deletes its own
     scratch timeline (`draw_gain_probe.PROBE_TIMELINE_NAME`) on every
-    build - that pair is the probe cleaning up after itself, not the
-    build deleting the captain's timelines. What these tests guard is
-    that nothing ELSE is ever deleted."""
+    build - that pair is the probe cleaning up after itself - and
+    promotion deletes exactly the backups it replaced
+    (`reel_retirement.delete_backups`). What these tests guard is that
+    nothing ELSE is ever deleted."""
     from library.tools.draw_gain_probe import PROBE_TIMELINE_NAME
 
+    allowed = {PROBE_TIMELINE_NAME} | set(backups or ())
+    deleted = []
     calls = pool.DeleteTimelines.call_args_list
     assert calls, "expected the probe's own create-and-delete pair"
     for call in calls:
@@ -109,9 +112,20 @@ def _only_probe_deleted(pool):
             "timelines", [])
         assert timelines, "a delete call naming nothing"
         for timeline in timelines:
-            assert timeline.GetName() == PROBE_TIMELINE_NAME, (
+            assert timeline.GetName() in allowed, (
                 f"the build deleted {timeline.GetName()!r} - only the "
-                f"probe's own scratch timeline may be deleted")
+                f"probe's scratch timeline and the replaced backups "
+                f"may be deleted")
+            deleted.append(timeline.GetName())
+    for name in backups or ():
+        assert name in deleted, (
+            f"the replaced backup {name!r} was not deleted")
+
+
+def _only_probe_deleted(pool):
+    """No reel was replaced, so no backup exists: only the probe's own
+    scratch timeline may have been deleted."""
+    _only_probe_and_backups_deleted(pool, [])
 
 
 class FakeProject:
@@ -224,11 +238,13 @@ def test_building_one_reel_leaves_the_other_eighteen_present(project):
     for name in untouched:
         assert name in survivors, f"{name} was deleted by a build of reel 3"
     assert len(untouched) == 18
-    # Plus the retired generation of the one reel this build replaced:
-    # promotion archives it rather than deleting it
+    # The one reel this build replaced leaves no second generation:
+    # its backup is deleted by default, nothing is archived
     # (`library/tools/reel_retirement.py`).
-    assert sorted(survivors) == sorted(
-        [MASTER] + APPROVED + ["Reel 03 - moment-3 (archived round 001)"])
+    assert sorted(survivors) == sorted([MASTER] + APPROVED)
+    _only_probe_and_backups_deleted(
+        resolve_project.GetMediaPool(),
+        ["Reel 03 - moment-3 (pre-rebuild backup)"])
     assert record["timelines_built"] == ["Reel 03 - moment-3"]
     assert record["staged_timelines"] == {}
     assert placed.call_count == 1
@@ -256,10 +272,9 @@ def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
 
     The old loop deleted it because the name began "Reel ". Deleting a
     timeline nothing is about to replace is destruction, not a rebuild.
-    Promotion RETIRES this run's originals - nineteen, each renamed
-    into the archive under the round it was current for - and deletes
-    nothing at all on a first retirement. The orphan is neither
-    retired nor deleted: it is not a reel this build placed.
+    Promotion DELETES this run's originals - nineteen backups, one per
+    reel, and nothing is archived - while the orphan is neither
+    replaced nor deleted: it is not a reel this build placed.
     """
     from library.tools import reel_retirement
 
@@ -268,13 +283,14 @@ def test_a_full_rebuild_replaces_its_own_output_and_spares_an_orphan(project):
     record, placed, _ = _run(resolve_project, project)
 
     assert "Reel 99 - orphan" in resolve_project.names()
-    _only_probe_deleted(resolve_project.GetMediaPool())
+    _only_probe_and_backups_deleted(
+        resolve_project.GetMediaPool(),
+        [f"{name} (pre-rebuild backup)" for name in APPROVED])
     archived = sorted(name for name in resolve_project.names()
                       if reel_retirement.is_archived_timeline(name))
-    assert archived == sorted(
-        reel_retirement.archived_name(name, 1) for name in APPROVED)
+    assert archived == []
     assert sorted(resolve_project.names()) == sorted(
-        [MASTER] + APPROVED + ["Reel 99 - orphan"] + archived)
+        [MASTER] + APPROVED + ["Reel 99 - orphan"])
     assert record["timelines_built"] == APPROVED
     assert placed.call_count == 19
 

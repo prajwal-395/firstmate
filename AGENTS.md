@@ -537,7 +537,7 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 
 **A replace is a diff: promotion refuses an undeclared row loss.** `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
 
-**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion RETIRES rather than deletes, and `round-diff` compares two rounds.** `library/tools/round_version.py`, `reel_signoff.py`, `reel_retirement.py`.
+**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion DELETES unless retained, and `round-diff` compares two rounds.** `library/tools/round_version.py`, `reel_signoff.py`, `reel_retirement.py`.
 
 **TWO versions of a reel may be alive at once, and CHOOSING one is an ACT: `manage_project.py variant new|build|list|diff|choose|merge`.** A variant differs in a SEAM or a per-project DECLARATION and in nothing else; the archive holds ONE unchosen variant per REEL. `library/tools/timeline_variants.py`, `variant_choice.py`.
 

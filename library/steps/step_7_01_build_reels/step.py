@@ -127,6 +127,12 @@ def build_reels(data: dict) -> dict:
         name_suffix=str((data or {}).get("timeline_name_suffix") or ""),
         allow_drops=(data or {}).get("allow_drops"),
         supersede=(data or {}).get("supersede"),
+        # `retain` - the reels whose superseded generation the
+        # promotion may retire rather than delete
+        # (`reel_retirement`) - FORWARDED, not interpreted, for the
+        # reason `only_reels` is. Absent is the default: one timeline
+        # per reel and an empty archive.
+        retain=(data or {}).get("retain"),
         # A reel nothing changed about is not placed again
         # (`library/tools/reel_rebuild_need.py`). FORWARDED, not
         # interpreted, for the reason `only_reels` is: `rebuild_all`
