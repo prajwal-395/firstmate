@@ -328,6 +328,83 @@ def test_handover_lives_in_the_captured_area(tmp_path):
     assert "pipeline_output" not in path.parts
 
 
+# ── Archived copies are the same reel, not a new note ─────────────
+
+
+REEL = "Reel 13 - the-accounting-firm-ai-called-healthcare"
+ARCHIVED = f"{REEL} (archived round 001)"
+ARCHIVED_SIBLING = f"{REEL} (archived round 001.2)"
+
+
+def _clip_with_note(note="fix the logo", name="feedback", color="Blue"):
+    return FakeItem("logo_reveal_23976.mov", 2021, 72,
+                    markers={20: _marker(name, note, color=color)},
+                    source_file="/footage/logo_reveal_23976.mov")
+
+
+def _live_plus_archived(note="fix the logo"):
+    return FakeResolve(FakeProject("Field", [
+        FakeTimeline(REEL, items=[_clip_with_note(note=note)]),
+        FakeTimeline(ARCHIVED, items=[_clip_with_note(note=note)]),
+    ]))
+
+
+def test_live_and_archived_copies_are_one_identity(live, tmp_path):
+    """The defect: a rebuild archives every reel it touches, so the
+    same marker sits on two timelines. Before the fix the archived
+    name survived `base_reel_name` and the poll printed the note
+    twice under two identities; now it prints one row."""
+    live["resolve"] = _live_plus_archived()
+    rows, _ = feedback_poll.run_poll(str(tmp_path), peek=True)
+    assert len(rows) == 1
+    assert rows[0]["timeline"] == REEL
+    assert rows[0]["reel"] == REEL
+    assert feedback_poll.marker_identity(REEL, _note()) == \
+        feedback_poll.marker_identity(ARCHIVED, _note())
+    assert feedback_poll.marker_identity(REEL, _note()) == \
+        feedback_poll.marker_identity(ARCHIVED_SIBLING, _note())
+
+
+def test_a_new_note_on_an_archived_copy_still_reports(live, tmp_path):
+    """Suppressing by timeline name alone would silence the captain
+    where he compares versions. The content hash differs, so a
+    genuinely new note on the archived copy is a new identity."""
+    live["resolve"] = _live_plus_archived(note="fix the logo")
+    assert len(feedback_poll.run_poll(str(tmp_path))[0]) == 1
+    live["resolve"] = FakeResolve(FakeProject("Field", [
+        FakeTimeline(REEL, items=[_clip_with_note(note="fix the logo")]),
+        FakeTimeline(ARCHIVED, items=[
+            _clip_with_note(note="the old cut holds longer here")]),
+    ]))
+    rows, _ = feedback_poll.run_poll(str(tmp_path))
+    assert [r["note"] for r in rows] == ["the old cut holds longer here"]
+    assert rows[0]["timeline"] == ARCHIVED
+    assert rows[0]["reel"] == REEL
+
+
+def test_two_different_reels_never_collide():
+    """Engine suffixes fold; everything else - including hand-made
+    parenthesised copies - stays its own reel."""
+    assert feedback_poll.marker_identity("Reel 01 - a", _note()) != \
+        feedback_poll.marker_identity("Reel 23 - b", _note())
+    assert feedback_poll.marker_identity(f"{REEL} (final)", _note()) != \
+        feedback_poll.marker_identity(REEL, _note())
+    assert feedback_poll.marker_identity(f"{REEL} (final)", _note()) != \
+        feedback_poll.marker_identity(ARCHIVED, _note())
+
+
+def test_a_handed_note_stays_handed_across_a_rebuild(live, tmp_path):
+    """The property the whole poll exists for: handed over on the
+    live reel, the rebuild archives it, and the archived copy carrying
+    the same words stays silent."""
+    live["resolve"] = FakeResolve(FakeProject(
+        "Field", [FakeTimeline(REEL, items=[_clip_with_note()])]))
+    assert len(feedback_poll.run_poll(str(tmp_path))[0]) == 1
+    live["resolve"] = FakeResolve(FakeProject(
+        "Field", [FakeTimeline(ARCHIVED, items=[_clip_with_note()])]))
+    assert feedback_poll.run_poll(str(tmp_path))[0] == []
+
+
 # ── The byte contract ───────────────────────────────────────────────
 
 

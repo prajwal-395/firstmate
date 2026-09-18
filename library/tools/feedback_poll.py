@@ -57,8 +57,8 @@ a rebuild retires the timeline the marker sits on, taking the slot
 with it - while the handover file survives both, which is what
 "prefer whichever survives a rebuild" decides.
 
-The identity is the reel (by base name, so a staging rename does not
-re-arm it), which store the marker sits in, where in that store, the
+The identity is the reel (by base name, so neither a staging
+rename nor an archived generation re-arms it), which store the marker sits in, where in that store, the
 clip it sits on for a clip marker, and the EXACT name, note and
 written attachments.  An edited note - any byte of name or note
 changed - is a new identity and is reported again; a captured still
@@ -412,9 +412,17 @@ def run_poll(project_folder, peek: bool = False,
     except marker_feedback.ResolveUnavailable as exc:
         raise CannotLook(str(exc)) from exc
     handed = read_handover(project_folder)
-    fresh = [(name, note, marker_identity(name, note))
-             for name, note in summons
-             if marker_identity(name, note) not in handed]
+    seen = set(handed)
+    fresh = []
+    for name, note in summons:
+        identity = marker_identity(name, note)
+        if identity in seen:
+            continue
+        # One identity reports once per run: the same note sitting on
+        # the live reel and on an archived generation is one summons,
+        # not two rows with one identity.
+        seen.add(identity)
+        fresh.append((name, note, identity))
     if verbose:
         print(f"  {len(summons)} summons, {len(handed)} handed over, "
               f"{len(fresh)} new, "

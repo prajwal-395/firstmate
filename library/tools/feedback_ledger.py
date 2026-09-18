@@ -40,8 +40,8 @@ The identity
 and nothing else:
 
 * the reel's BASE name, with container suffixes stripped - a note
-  survives its timeline being staged, backed up and promoted, because
-  those are three names for one reel;
+  survives its timeline being staged, backed up, promoted and retired
+  into the archive, because those are names for one reel;
 * the captain's own WORDS, normalised for whitespace and case only.
 
 No frame, no timecode, no pull file.  Those are the things a rebuild
@@ -133,11 +133,26 @@ def base_reel_name(timeline: str) -> str:
     """The reel a timeline name is a container for.
 
     Strips the build's own container suffixes, repeatedly, because a
-    staged backup carries both. Anything else in the name is left
+    staged backup carries both - and a retired generation carries the
+    archive suffix instead. Anything else in the name is left
     exactly as it is: a hand-made container the captain named is a
     different reel to them, and collapsing it into the final would file
     a note about a scratch against the reel they review.
+
+    Which suffixes strip is deliberate, not exhaustive. The three that
+    do are ENGINE-OWNED and machine-shaped - `resolve_bin_layout`
+    owns the staging spelling, `reel_build` the backup spelling, and
+    `reel_retirement.archived_name` the `(archived round NNN[.M])`
+    spelling, read back through its own `parse_archived` rather than
+    re-spelled here. Hand-made copies the project has actually carried
+    - `(batch-1050)`, `(final)`, `(MFA timings)`, `(all three fixes)`,
+    `(baseline scratch)` - do NOT strip: they carry captain or
+    firstmate intent no pattern can recover, and a regex that stripped
+    any parenthesis would collide a reel legitimately named with one
+    against a different reel.
     """
+    from library.tools.reel_retirement import parse_archived
+
     name = (timeline or "").strip()
     changed = True
     while changed:
@@ -146,6 +161,10 @@ def base_reel_name(timeline: str) -> str:
             if name.endswith(suffix):
                 name = name[: -len(suffix)].strip()
                 changed = True
+        reel, _number = parse_archived(name)
+        if reel is not None:
+            name = reel.strip()
+            changed = True
     return name
 
 

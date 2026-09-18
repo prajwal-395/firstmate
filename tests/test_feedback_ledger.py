@@ -73,6 +73,33 @@ def test_a_staging_container_is_the_same_reel():
         == fl.durable_identity(REEL, ASK)
 
 
+def test_an_archived_generation_is_the_same_reel():
+    """A rebuild retires every reel it touches into
+    `... (archived round NNN[.M])`; those are names for one reel, so
+    the identity folds them - the shape `reel_retirement` builds, read
+    back through its own `parse_archived`."""
+    assert fl.durable_identity(f"{REEL} (archived round 001)", ASK) \
+        == fl.durable_identity(REEL, ASK)
+    assert fl.durable_identity(f"{REEL} (archived round 001.2)", ASK) \
+        == fl.durable_identity(REEL, ASK)
+    assert fl.base_reel_name(f"{REEL} (archived round 001)") == REEL
+
+
+def test_a_hand_made_parens_name_is_its_own_reel():
+    """Copies the project has actually carried - `(batch-1050)`,
+    `(final)`, `(MFA timings)`, `(all three fixes)`,
+    `(baseline scratch)` - carry captain or firstmate intent no
+    pattern can recover. Only the engine's own machine-shaped
+    suffixes strip; a regex over any parenthesis would collide a reel
+    legitimately named with one against a different reel."""
+    for suffix in ("(batch-1050)", "(final)", "(MFA timings)",
+                   "(all three fixes)", "(baseline scratch)"):
+        name = f"{REEL} {suffix}"
+        assert fl.base_reel_name(name) == name
+        assert fl.durable_identity(name, ASK) \
+            != fl.durable_identity(REEL, ASK)
+
+
 def test_whitespace_and_case_do_not_split_a_note():
     assert fl.durable_identity(REEL, "  The  Ending\nCuts  Early ") \
         == fl.durable_identity(REEL, "the ending cuts early")
