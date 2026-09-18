@@ -1074,7 +1074,19 @@ def plan_dead_render_bins(
     A leaf named for a timeline that still exists is never examined
     here, whatever that timeline's state: `Earlier plans` reels keep
     their bins.  Contents may be empty - an emptied dead leaf retires
-    as a shell, the same outcome the legacy rule gives its own.
+    as a shell, the same outcome the legacy rule gives its own - but
+    ONLY for a leaf in reel-leaf vocabulary (`Reel NN - ...`, a
+    staging/final/versioned/backup name, or a firstmate proof): the
+    executor retires an emptied leaf through the same membership rule
+    the canonical shell sweep uses, so a leaf the rule cannot prove
+    the pipeline made is DECLINED here, never emitted.  An empty
+    subtree proves nothing off the artefacts - no timeline inside,
+    nothing placed, nothing foreign are all vacuously true - so for a
+    leaf outside that vocabulary "names no live timeline" is the whole
+    proof, and it holds for every captain's bin by construction.
+    Emitting it would hand the executor a plan it must refuse (or
+    worse, a non-empty one it would delete), so the planner says so
+    instead.
     """
     if timeline_names is None:
         timeline_names = frozenset(
@@ -1097,6 +1109,18 @@ def plan_dead_render_bins(
             continue
         leaf = path[1]
         if leaf in timeline_names:
+            continue
+        if not (_REEL_LEAF_RE.match(leaf)
+                or bins.is_proof_timeline(leaf)):
+            declined.append({
+                "path": path,
+                "why": (f"names no live timeline, but {leaf!r} is not "
+                        f"in reel-leaf vocabulary (`Reel NN - ...`) and "
+                        f"is no firstmate proof - kept; from the pool "
+                        f"alone it is indistinguishable from the "
+                        f"captain's, so the sweep cannot prove the "
+                        f"pipeline made it and the captain's "
+                        f"organisation wins where the two conflict")})
             continue
         subtree = [a for a in artefacts
                    if tuple(a.folder_path)[:2] == path]

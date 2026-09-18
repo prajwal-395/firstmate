@@ -5505,7 +5505,10 @@ def _repair_moments(moments, transcript, err):
     itself with no moves, and dropping a moveless moment would grade
     the batch against a smaller plan than the build placed.
     """
-    from library.tools.reel_proposal import snap_moment_to_speech
+    from library.tools.reel_proposal import (
+        decision_lines,
+        snap_moment_to_speech,
+    )
 
     repaired = []
     for moment in moments:
@@ -5517,6 +5520,8 @@ def _repair_moments(moments, transcript, err):
                   f"{move['boundary']} {move['was']:.3f}s -> "
                   f"{move['now']:.3f}s{word} (stored proposal "
                   f"predates the boundary snap)", file=err)
+            for line in decision_lines(moment.number, move, transcript):
+                print(line, file=err)
         repaired.append(fixed)
     return repaired
 

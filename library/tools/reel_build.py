@@ -7768,7 +7768,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # re-deciding WHICH moments the captain approved
     # (`reel_proposal.snap_moment_to_speech`).  In memory only - the file
     # keeps exactly what they ruled on.
-    from library.tools.reel_proposal import snap_moment_to_speech
+    from library.tools.reel_proposal import (
+        decision_lines,
+        snap_moment_to_speech,
+    )
     repaired = []
     for moment in moments:
         fixed, moves = snap_moment_to_speech(moment, transcript)
@@ -7779,6 +7782,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                   f"{move['was']:.3f}s -> {move['now']:.3f}s{word} "
                   f"(stored proposal predates the boundary snap)",
                   file=sys.stderr)
+            # A cascade is loud on the run that would place it; a run
+            # with nothing over the decision threshold prints exactly
+            # what it printed before.  The repair itself is untouched.
+            for line in decision_lines(moment.number, move, transcript,
+                                       project_folder):
+                print(line, file=sys.stderr)
         repaired.append(fixed)
     moments = repaired
 

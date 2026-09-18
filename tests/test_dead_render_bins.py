@@ -1054,6 +1054,52 @@ def test_apply_holds_dead_contents_back_and_retires_bin_with_them(tmp_path):
     assert result["retirement"]["removed_items"] == 1
 
 
+def test_organise_retires_the_leaf_filing_emptied_and_reports_success(
+        tmp_path):
+    """The canary shape end to end through the normal build path: the
+    dead leaf stands EMPTY (the filing pass moved its last render to
+    the live placer), so the fresh plan emits it as a shell and the
+    retirement succeeds - the node reports success instead of
+    refusing after promotion already completed."""
+    from library.tools.execution import organise_media_pool as ex
+    gen = str(tmp_path / "pipeline_output" / "steps" /
+              "4_05_render_subtitles")
+    root = FakeFolder("Master", "root")
+    root.clips.append(FakeClip("t-master", MASTER, kind="timeline"))
+    root.clips.append(FakeClip("t-live", LIVE, kind="timeline"))
+    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
+    six.subs.append(FakeFolder(DEAD, "f-dead"))
+    six.subs.append(FakeFolder(bins.SHARED_BIN, "f-shared"))
+    six.subs.append(FakeFolder("my picks", "f-picks"))
+    six.subs.append(FakeFolder(LIVE, "f-live"))
+    root.subs.append(six)
+    live_clip = FakeClip("c-live", "sub_live.mov",
+                         path=f"{gen}/live.mov")
+    root.clips.append(live_clip)
+    proj = FakeProject("Fake", FakePool(root),
+                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
+    review = tmp_path / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    (review / "plan_provenance.json").write_text(json.dumps({
+        "plan_content_hash": "b" * 64,
+        "built_at": "2026-09-10T00:00:00+00:00",
+        "built_reels": [LIVE],
+    }), encoding="utf-8")
+
+    result = ex.organise_project(proj, str(tmp_path), MASTER, apply=True)
+    assert result["applied"]
+    assert "refused" not in result
+    assert result["retirement"]["retired"] == [
+        f"{bins.SUBTITLES_BIN}/{DEAD}"]
+    assert result["retirement"]["removed_items"] == 0
+    remaining = pool_bins(proj)
+    assert f"{bins.SUBTITLES_BIN}/{DEAD}" not in remaining
+    # The standing destinations and the captain's bin are untouched.
+    assert f"{bins.SUBTITLES_BIN}/{bins.SHARED_BIN}" in remaining
+    assert f"{bins.SUBTITLES_BIN}/my picks" in remaining
+    assert f"{bins.SUBTITLES_BIN}/{LIVE}" in remaining
+
+
 def test_proof_journals_never_share_a_path(tmp_path):
     """Nine removals seconds apart journalled nine records, not five:
     the stamp collides, so the path disambiguates instead of
@@ -1072,3 +1118,160 @@ def test_proof_journals_never_share_a_path(tmp_path):
     third = remove_proof.journal_path_for(
         str(tmp_path), when="20260910T215238Z")
     assert third.endswith("_3.json")
+
+
+# --------------------------------- the planner/executor agreement (D1)
+#
+# The canary batch found the two disagreeing: `plan_dead_render_bins`
+# emitted an emptied leaf with `contents: []` while `retire_bins`
+# refuses anything its shell rule (scheme-or-canonical, both
+# vocabulary-guarded) cannot take.  The planner was the wrong side -
+# for an empty subtree every artefact gate is vacuously true, so
+# "names no live timeline" was the whole proof, and it holds for
+# every captain's bin by construction - so the planner declines
+# vocabulary-free leaves instead of emitting them, and the two agree
+# by construction.
+
+
+def test_a_vocabulary_free_leaf_is_declined_never_emitted():
+    """`my picks` names no live timeline and holds nothing, and is
+    still not dead: from the pool alone it is indistinguishable from
+    the captain's, so the sweep cannot prove the pipeline made it."""
+    artefacts = [timeline("t-master", MASTER)]
+    tree = [(bins.SUBTITLES_BIN,),
+            (bins.SUBTITLES_BIN, "my picks")]
+    dead, declined = plan_dead_render_bins(artefacts, tree, PROJECT_ROOT)
+    assert dead == []
+    assert ["/".join(d["path"]) for d in declined] == [
+        f"{bins.SUBTITLES_BIN}/my picks"]
+    assert "vocabulary" in declined[0]["why"]
+
+
+def test_a_vocabulary_free_leaf_holding_unplaced_renders_is_declined():
+    """The other half of the same hole: a non-empty captain's bin
+    holding unplaced pipeline-generated clips is still not provably
+    pipeline-made.  Emitting it would hand the executor a plan whose
+    re-proof deletes the captain's bin with its contents."""
+    artefacts = [
+        timeline("t-master", MASTER),
+        clip("c-pick", "sub_pick.mov", path=generated("pick.mov"),
+              folder=(bins.SUBTITLES_BIN, "my picks")),
+    ]
+    dead, declined = plan_dead_render_bins(
+        artefacts, tree_of(artefacts), PROJECT_ROOT)
+    assert dead == []
+    assert ["/".join(d["path"]) for d in declined] == [
+        f"{bins.SUBTITLES_BIN}/my picks"]
+
+
+def test_a_proof_leaf_still_retires_as_a_shell():
+    """Firstmate's own bins are pipeline-made by naming convention, so
+    the vocabulary gate keeps letting them through."""
+    artefacts = [timeline("t-master", MASTER)]
+    tree = [(bins.SUBTITLES_BIN,),
+            (bins.SUBTITLES_BIN, "SOP Proof_old-canvas-rail")]
+    dead, _declined = plan_dead_render_bins(artefacts, tree, PROJECT_ROOT)
+    assert names(dead) == [
+        f"{bins.SUBTITLES_BIN}/SOP Proof_old-canvas-rail"]
+    assert dead[0]["contents"] == []
+
+
+def test_an_emptied_per_reel_leaf_retires_cleanly_end_to_end(tmp_path):
+    """The canary shape, through the normal build path: the filing
+    pass emptied the dead leaf, the fresh plan emits it as a shell,
+    and the node reports success instead of refusing."""
+    from library.tools.execution.organise_media_pool import read_pool
+    root = FakeFolder("Master", "root")
+    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
+    six.subs.append(FakeFolder(DEAD, "f-dead"))
+    live = FakeFolder(LIVE, "f-live")
+    live_clip = FakeClip("c-live", "sub_live.mov",
+                         path=generated("live.mov"))
+    live.clips.append(live_clip)
+    six.subs.append(live)
+    root.subs.append(six)
+    proj = FakeProject("Fake", FakePool(root),
+                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
+    artefacts, _, _, _ = read_pool(proj)
+    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)),
+                            project_root=PROJECT_ROOT)
+    assert names(plan) == [f"{bins.SUBTITLES_BIN}/{DEAD}"]
+    assert plan[0]["contents"] == []
+    journal_path = str(tmp_path / "retire.json")
+    result = retire.retire_bins(proj, plan, journal_path,
+                                project_root=PROJECT_ROOT)
+    assert result["retired"] == [f"{bins.SUBTITLES_BIN}/{DEAD}"]
+    assert result["removed_items"] == 0
+    assert f"{bins.SUBTITLES_BIN}/{DEAD}" not in pool_bins(proj)
+    assert f"{bins.SUBTITLES_BIN}/{LIVE}" in pool_bins(proj)
+
+
+def test_an_emptied_shared_leaf_plans_nothing_and_the_node_succeeds(
+        tmp_path):
+    """A standing destination, empty or not: the sweep never names
+    it, so there is nothing to refuse on and the node succeeds."""
+    from library.tools.execution.organise_media_pool import read_pool
+    root = FakeFolder("Master", "root")
+    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
+    six.subs.append(FakeFolder(bins.SHARED_BIN, "f-shared"))
+    live = FakeFolder(LIVE, "f-live")
+    live_clip = FakeClip("c-live", "sub_live.mov",
+                         path=generated("live.mov"))
+    live.clips.append(live_clip)
+    six.subs.append(live)
+    root.subs.append(six)
+    proj = FakeProject("Fake", FakePool(root),
+                       [FakeTimeline(LIVE, [FakeItem(live_clip)])])
+    artefacts, _, _, _ = read_pool(proj)
+    plan = plan_retirements(artefacts, list(retire.read_bin_tree(proj)),
+                            project_root=PROJECT_ROOT)
+    assert names(plan) == []
+    journal_path = str(tmp_path / "retire.json")
+    result = retire.retire_bins(proj, plan, journal_path,
+                                project_root=PROJECT_ROOT)
+    assert result["retired"] == []
+    assert (f"{bins.SUBTITLES_BIN}/{bins.SHARED_BIN}" in pool_bins(proj))
+
+
+def test_a_hand_made_vocabulary_free_entry_still_refuses(tmp_path):
+    """The guard that stops this code deleting something live: a plan
+    entry no rule proves dead refuses, even with empty contents -
+    the executor never trusts the plan's claim."""
+    proj = live_pool()
+    plan = [{"path": (bins.SUBTITLES_BIN, "my picks"),
+             "kind": "dead_render_bin",
+             "why": "test",
+             "contents": []}]
+    with pytest.raises(retire.RetirementRefused,
+                       match="not a pipeline legacy bin"):
+        retire.retire_bins(proj, plan, str(tmp_path / "retire.json"),
+                           project_root=PROJECT_ROOT)
+    assert f"{bins.SUBTITLES_BIN}/{DEAD}" in pool_bins(proj)
+
+
+def test_a_vocabulary_free_entry_with_contents_fails_its_re_proof(
+        tmp_path):
+    """The same guard through the dead-leaf path: the fresh re-proof
+    runs the fixed planner, which declines the leaf, so the run
+    refuses with 'no longer proves dead' instead of deleting it."""
+    from library.tools.execution.organise_media_pool import read_pool
+    root = FakeFolder("Master", "root")
+    six = FakeFolder(bins.SUBTITLES_BIN, "f6")
+    picks = FakeFolder("my picks", "f-picks")
+    picks.clips.append(FakeClip("c-pick", "sub_pick.mov",
+                                path=generated("pick.mov")))
+    six.subs.append(picks)
+    root.subs.append(six)
+    proj = FakeProject("Fake", FakePool(root))
+    plan = [{"path": (bins.SUBTITLES_BIN, "my picks"),
+             "kind": "dead_render_bin",
+             "why": "test",
+             "contents": [{"item_id": "c-pick", "name": "sub_pick.mov",
+                           "file_path": generated("pick.mov"),
+                           "folder": f"{bins.SUBTITLES_BIN}/my picks"}]}]
+    with pytest.raises(retire.RetirementRefused,
+                       match="no longer proves dead"):
+        retire.retire_bins(proj, plan, str(tmp_path / "retire.json"),
+                           project_root=PROJECT_ROOT)
+    assert f"{bins.SUBTITLES_BIN}/my picks" in pool_bins(proj)
+    assert "sub_pick.mov" in pool_clip_names(proj)

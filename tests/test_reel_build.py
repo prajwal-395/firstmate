@@ -890,16 +890,21 @@ def test_an_overlay_import_lands_in_its_declared_bin_not_in_current():
     with the current folder set to the overlay's declared bin, and the
     previous current folder is restored afterwards. Measured
     2026-09-10: a fresh build left every overlay render in Source
-    footage because CURRENT was there and no organise followed."""
+    footage because CURRENT was there and no organise followed.
+
+    The declared bin for this builder-written overlay is `03 -
+    Assets`: a production asset no render step wrote is not a
+    per-reel render (`overlay_import_bin`, AGENTS.md 14), so the
+    binding the test proves is import-into-Assets, not import-into
+    the reel's leaf."""
     from library.tools import resolve_bin_layout as bins
 
     pool, _ = _placer()
     assert len(pool.imported_into) == 1
     landed = pool.imported_into[0]
-    assert landed.GetName() == "fake reel"
+    assert landed.GetName() == bins.ASSETS_BIN
     tops = {f.GetName(): f for f in pool.GetRootFolder().GetSubFolderList()}
-    assert list(tops) == [bins.SUBTITLES_BIN]
-    assert landed in tops[bins.SUBTITLES_BIN].GetSubFolderList()
+    assert list(tops) == [bins.ASSETS_BIN]
 
 
 def test_the_import_restores_the_previous_current_folder():

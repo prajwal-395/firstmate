@@ -726,6 +726,243 @@ def snap_moment_to_speech(moment: ReelMoment,
                     call_to_action=new_cta), moves)
 
 
+SNAP_DECISION_SECONDS = 2.0
+"""A snap move bigger than this needs a decision before the build.
+
+`snap_to_speech` widens outward to whole segments in a fixed-point
+loop, and transcript segments overlap by ASR jitter - so a snap can
+walk from one segment into the next and keep going.  Measured on the
+canary batch: one closer start moved 9.1s, pulling an unrelated
+preamble into the reel and turning a ~40s reel into 61s, and another
+body start moved -9.7s on the same mechanism.  The loop is correct
+per word and wrong per discourse - it has no notion that the
+proposal meant THIS sentence - so moves over about two seconds are
+REPORTED, never re-decided here.  The preview below turns a
+finished-timeline discovery into a line of output beforehand.
+"""
+
+
+def _transcript_word_list(transcript: dict) -> List[tuple]:
+    """Every timed word as `(token, start, end)`, in transcript order.
+
+    The same evidence `_word_intervals` reads, plus the token: the
+    preview must name WHAT a move pulls in, not just how far it goes.
+    Untimed words cannot place anything and are not listed.
+    """
+    out = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            token = str(word.get("word") or "").strip()
+            if token and word_end > word_start:
+                out.append((token, word_start, word_end))
+    return out
+
+
+def _delta_words(transcript: dict, boundary: str, was: float,
+                 now: float) -> tuple:
+    """`(pulled_in, dropped)`: timed words the move covers, each
+    `{"word", "start", "end"}` in transcript order.
+
+    A word counts when it overlaps the newly covered (or uncovered)
+    range even partly - a snap that lands mid-word would have kept
+    walking, so anything touched is played.  The snap only ever
+    widens, so in practice everything lands in `pulled_in`; the
+    direction is still read off the move rather than assumed, so a
+    narrowing repair would report drops instead of silence.
+    """
+    lo, hi = (was, now) if was <= now else (now, was)
+    covered = [{"word": token, "start": start, "end": end}
+               for token, start, end in _transcript_word_list(transcript)
+               if start < hi and end > lo]
+    if not covered:
+        return [], []
+    if boundary in ("body_start", "cta_start"):
+        widened = now < was
+    else:
+        widened = now > was
+    return (covered, []) if widened else ([], covered)
+
+
+def _opening_words(transcript: dict, when: float, count: int = 6) -> str:
+    """The words a span opens on at `when`, for pin phrases.
+
+    The first `count` timed tokens starting at or after `when` - what
+    the captain names when a flagged closer is pinned with
+    `record-closer --anchor/--from`.  Empty where nothing timed is
+    spoken there (silence), and the caller then says so instead of
+    offering a pin command with no phrases in it.
+    """
+    tokens = [token for token, start, _ in
+              _transcript_word_list(transcript)
+              if start >= when - 1e-6][:count]
+    return " ".join(tokens)
+
+
+def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
+                 threshold: float = SNAP_DECISION_SECONDS) -> dict:
+    """Run `snap_moment_to_speech` over moments and report the moves.
+
+    Read-only: nothing is repaired, rewritten or re-decided - the
+    build keeps doing exactly what it does today.  Returns
+    `{"threshold", "moments": [{"reel", "slug", "moves"}], "moved",
+    "flagged"}` where each move carries `boundary`, `was`, `now`,
+    `delta`, `through` (the word a stored boundary sat inside, as the
+    build already reports), `pulled_in`/`dropped` word lists, and
+    `needs_decision` - true when the boundary moves over `threshold`.
+    """
+    entries = []
+    moved = 0
+    flagged = 0
+    for moment in moments or []:
+        _repaired, moves = snap_moment_to_speech(moment,
+                                                 transcript or {})
+        move_reports = []
+        for move in moves:
+            was, now = float(move["was"]), float(move["now"])
+            delta = now - was
+            pulled, dropped = _delta_words(transcript or {},
+                                           move["boundary"], was, now)
+            needs = abs(delta) > threshold
+            moved += 1
+            flagged += 1 if needs else 0
+            # The pin phrases travel with the report, so rendering
+            # needs no transcript: what the ruled span opens on
+            # (`anchor_phrase`) and what the snapped span opens on
+            # (`snapped_phrase`) - the two phrases a closer pin is
+            # recorded with.  Ends carry none; no pin kind moves one.
+            anchor_phrase, snapped_phrase = "", ""
+            if move["boundary"] in ("body_start", "cta_start"):
+                anchor_phrase = _opening_words(transcript or {}, was)
+                snapped_phrase = _opening_words(transcript or {}, now)
+            move_reports.append({
+                "boundary": move["boundary"],
+                "was": was,
+                "now": now,
+                "delta": delta,
+                "through": move.get("through"),
+                "pulled_in": pulled,
+                "dropped": dropped,
+                "needs_decision": needs,
+                "anchor_phrase": anchor_phrase,
+                "snapped_phrase": snapped_phrase,
+            })
+        entries.append({"reel": int(moment.number),
+                        "slug": moment.slug,
+                        "moves": move_reports})
+    return {"threshold": float(threshold),
+            "moments": entries,
+            "moved": moved,
+            "flagged": flagged}
+
+
+def _quote_words(words: Sequence[dict], limit: int = 90) -> str:
+    """`"first ... last"` for a pulled-in word list, truncated."""
+    text = " ".join(w["word"] for w in words)
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + " ..."
+
+
+def decision_lines(number: int, move: dict, transcript: dict,
+                   project_folder: str = "",
+                   threshold: float = SNAP_DECISION_SECONDS) -> List[str]:
+    """The NEEDS DECISION lines for one flagged repair move, else [].
+
+    Pure: the build and the verifier print these beside their existing
+    per-move lines, so a cascade is loud on the run that would have
+    placed it - while a run with nothing flagged prints exactly what
+    it prints today.  A flagged closer names its pin route
+    (`record-closer` with the anchor/from phrases read off the
+    transcript); any other flagged boundary names the proposal as the
+    place the decision lives, because no pin kind extends a body.
+
+    `move` is either a `preview_snap` report entry (carrying its
+    phrases and verdict) or a raw `snap_moment_to_speech` move (the
+    build loop's shape) - missing keys are derived from `transcript`
+    so both callers read one spelling.
+    """
+    was, now = float(move["was"]), float(move["now"])
+    needs = bool(move.get("needs_decision",
+                          abs(now - was) > threshold))
+    if not needs:
+        return []
+    pulled = move.get("pulled_in") or []
+    dropped = move.get("dropped") or []
+    if not pulled and not dropped:
+        pulled, dropped = _delta_words(transcript or {},
+                                       move["boundary"], was, now)
+    words = pulled or dropped
+    verb = "pulls in" if pulled else "drops"
+    quote = (f' - {verb} {len(words)} word(s): '
+             f'"{_quote_words(words)}"' if words else "")
+    lines = [
+        f"  Reel {number:02d}: {move['boundary']} NEEDS DECISION: "
+        f"{was:.3f}s -> {now:.3f}s ({now - was:+.3f}s){quote}",
+    ]
+    project = project_folder or "<project>"
+    if move["boundary"] == "cta_start":
+        anchor = move.get("anchor_phrase") or _opening_words(
+            transcript or {}, was)
+        opening = move.get("snapped_phrase") or _opening_words(
+            transcript or {}, now)
+        if anchor and opening:
+            lines.append(
+                f"    decide: python3 -m library.tools.captain_edits "
+                f"{project} record-closer --anchor {anchor!r} "
+                f"--from {opening!r} --reason "
+                f"'snap preview: closer would open {now - was:+.1f}s "
+                f"from the ruled opening'")
+        else:
+            lines.append(
+                f"    decide: restate the closer opening in words "
+                f"(ruled {was:.2f}s, snapped {now:.2f}s) - no readable "
+                f"words at one end, so record-closer needs its "
+                f"--anchor/--from by hand")
+    else:
+        lines.append(
+            f"    decide: adjust the approved proposal span - the file "
+            f"keeps what the captain ruled on, and no pin kind "
+            f"extends a body")
+    return lines
+
+
+def render_snap_preview(report: dict) -> str:
+    """The preview as lines: one per move, loud where decided.
+
+    A moment with no moves reads as one quiet line; a clean batch
+    reads as one line total.  The flagged lines are the same
+    `decision_lines` the build prints, so the beforehand report and
+    the build agree word for word.
+    """
+    threshold = float(report.get("threshold", SNAP_DECISION_SECONDS))
+    moments = report.get("moments") or []
+    lines = [
+        f"snap preview: {len(moments)} moment(s), "
+        f"{report.get('moved', 0)} boundar(y/ies) would move, "
+        f"{report.get('flagged', 0)} need(s) a decision "
+        f"(over {threshold:.1f}s)",
+    ]
+    for entry in moments:
+        for move in entry.get("moves") or []:
+            was, now = float(move["was"]), float(move["now"])
+            lines.append(
+                f"  Reel {entry['reel']:02d}: {move['boundary']} "
+                f"{was:.3f}s -> {now:.3f}s ({now - was:+.3f}s)"
+                + (" NEEDS DECISION" if move.get("needs_decision")
+                   else ""))
+            lines.extend(decision_lines(entry["reel"], move, {},
+                                        "", threshold))
+    if not report.get("moved"):
+        lines.append("  no boundary moves - the build places the "
+                     "stored spans as ruled.")
+    return "\n".join(lines)
+
+
 # ── Repeated takes ───────────────────────────────────────────────────
 #
 # The captain warned that the rough cut "includes several takes of the
@@ -1479,3 +1716,50 @@ def render_for_review(moments: Sequence[ReelMoment]) -> str:
                 lines.append(f"      sources: {sources}")
         lines.append("")
     return "\n".join(lines)
+
+
+def main(argv=None) -> int:
+    """`python3 -m library.tools.reel_proposal preview-snap <project>`.
+
+    The pre-build report: runs `snap_moment_to_speech` over the
+    stored proposal and prints how far each boundary would move and
+    what words that pulls in or drops, flagging moves over
+    `--threshold` (default 2.0s) as needing a decision.  A report,
+    never a gate: it always exits 0 once printed, and the build
+    repairs exactly as before.  Missing proposal or transcript
+    refuses (exit 2) rather than previewing nothing.
+    """
+    import argparse
+    import sys
+
+    parser = argparse.ArgumentParser(
+        prog="library.tools.reel_proposal",
+        description="Preview the build-time boundary snap before "
+                    "building: how far each stored boundary would move, "
+                    "what words that pulls in, and what needs a decision.")
+    parser.add_argument("project_folder")
+    parser.add_argument("--threshold", type=float,
+                        default=SNAP_DECISION_SECONDS)
+    args = parser.parse_args(
+        list(sys.argv[1:] if argv is None else argv))
+    try:
+        moments = read_proposal(str(proposal_path(args.project_folder)))
+    except (OSError, ValueError, ProposalError) as exc:
+        print(f"REFUSED: no readable reel proposal: {exc}", file=sys.stderr)
+        return 2
+    try:
+        from library.tools.timeline_transcript import transcript_path
+        transcript_file = transcript_path(args.project_folder)
+        transcript = json.loads(Path(transcript_file).read_text(
+            encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"REFUSED: no readable transcript: {exc}", file=sys.stderr)
+        return 2
+    print(render_snap_preview(
+        preview_snap(moments, transcript, args.threshold)))
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _sys.exit(main())
