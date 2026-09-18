@@ -426,10 +426,12 @@ def carried_digest_live(project, timeline) -> Optional[str]:
     therefore PROPAGATE; only a failure to read the timeline returns
     `None`, which the caller treats as a rebuild.
 
-    Both call sites are already inside `@under_lease` sections
-    (`rebuild_reels_in_project`, `promote_staged_reels`), so this takes
-    no lease of its own and holds the instance no longer than the build
-    already does.
+    Both call sites hold the instance themselves
+    (`rebuild_reels_in_project` reads the master under a shared
+    survey hold and each reel under its per-reel exclusive place
+    hold; `promote_staged_reels` under its own exclusive hold), so
+    this takes no lease of its own and holds the instance no longer
+    than the section that called it.
 
     The caller's current timeline is RESTORED.
     """

@@ -130,7 +130,8 @@ from library.tools.paths import REMOTION_DIR
 from library.tools.frame_utils import span_frames
 from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 from library.tools import resolve_bin_layout as bins
-from library.tools.resolve_lock import assert_current_timeline, under_lease
+from library.tools.resolve_lock import (
+    assert_current_timeline, resolve_lease, under_lease)
 from library.tools.timeline_ingest import resolve_project_exactly
 from library.tools.timeline_layout import (
     EXPLAINER,
@@ -7924,10 +7925,15 @@ def discard_staged_record(project_folder: str, resolve_project_name: str,
     for the same reason `discard_staged_reels` files it: a refusal
     that leaves its caption imports loose is the defect, and the gate
     refusing is correct.
+
+    Deleting is a write, so under an EXCLUSIVE hold - the same hold
+    the in-process discard paths take, now that no whole-build hold
+    covers this call.
     """
     project = _connect_resolve_project(resolve_project_name)
-    discard_staged_reels(project, project_folder, staging_names,
-                         master_timeline_name)
+    with resolve_lease("discard refused staging", exclusive=True):
+        discard_staged_reels(project, project_folder, staging_names,
+                             master_timeline_name)
 
 
 def _verify_payload(row: dict | None, *, passed: bool,
@@ -8025,7 +8031,6 @@ def _file_reel_summary(project_folder: str, *, number: int, name: str,
         pass
 
 
-@under_lease("build reels")
 def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                              verify: bool = True, only=None,
                              name_suffix: str = "",
@@ -8152,6 +8157,49 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     Running the verifier in both places would report one set of
     findings twice under two step ids.
 
+    THE LEASE this call holds is the placement it exists to protect,
+    never the whole build. The instance cursor (AGENTS.md 5,
+    `library/tools/resolve_lock.py`) is established and written
+    through in narrow sections, and each holds the instance only
+    for itself:
+
+    - connect (`"build reels connect"`, EXCLUSIVE, seconds): the
+      scripting handshake blocks unboundedly while another lane
+      places, so it is ordered behind any in-progress placement
+      rather than contended inside it.
+    - the draw-gain probe (`"draw-gain probe"`, EXCLUSIVE): it
+      creates a fixed-name scratch timeline, appends, stills twice
+      and deletes - a second concurrent probe would delete the
+      first's scratch as "stale".
+    - one hold per placed reel (`f"place {name}"` with the staging
+      container, EXCLUSIVE):
+      the carried self-read, the rebuild-need decision, the
+      placement and the Fusion comp pass, which acts on the current
+      timeline's items in a subprocess that inherits this hold. The
+      per-reel derivation before it - Remotion caption and card
+      renders, model-answer reads, digest computation - touches no
+      Resolve state and holds nothing, so lanes overlap there and
+      serialise only here, for the measured 19.4-67.1 s a reel's
+      Resolve pass costs.
+    - the gate and the sweep (`"verify built reels"`,
+      `"sweep all reels"`, SHARED): reads that must grade a stable
+      staging, several of which run together while no writer runs.
+      The advisory surveys (prebuild census, divergence) are read
+      through their own per-timeline shared leases instead - a
+      minutes-long outer read hold would block every other lane's
+      placement, which is the serialisation this shape exists to
+      end. Promotion holds its own exclusive lease
+      (`promote_staged_reels`); both discard paths take one.
+
+    Two lanes building the SAME project at once are still a
+    supervisor error, and no lease shape can fix them: staging
+    containers are deterministic per reel name, so a second build
+    would place beside the first under the same names, and the
+    per-reel sidecar merges are read-modify-write. The stale-debris
+    refusal above is what says so loudly instead of grading one
+    run's content as another's. Cross-project overlap is the
+    parallelism this shape provides.
+
     The RETURN VALUE is what the edge to `verify_reels` carries.
     `timelines_built` names what is IN RESOLVE right now - the staging
     containers while staged, the final names once promoted - so the
@@ -8184,10 +8232,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     from library.tools.reel_proposal import read_proposal
     from library.tools.timeline_ingest import snapshot_timeline
     from library.tools.project_registry import get_project
-    
-    resolve = scriptapp_preserving_locale(dvr, "Resolve")
-    pm = resolve.GetProjectManager()
-    
+
     if os.path.isabs(project_slug) and os.path.isdir(project_slug):
         project_folder = project_slug
     else:
@@ -8230,8 +8275,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     master_timeline_name = resolve_config.get("timeline_name")
     if not master_timeline_name:
         raise ValueError("Missing 'timeline_name' under 'resolve' in project.yaml")
-    
-    project = resolve_project_exactly(pm, resolve_name)
+
+    # The handshake first, under its own short EXCLUSIVE hold: while
+    # another lane places, a connect blocks inside `scriptapp` with no
+    # bound, no diagnostic and no holder to name (measured 2026-09-12)
+    # - so it is ordered behind any in-progress placement rather than
+    # contended inside it. Handles stay valid after the hold releases;
+    # every cursor write below takes its own hold.
+    with resolve_lease("build reels connect", exclusive=True):
+        resolve = scriptapp_preserving_locale(dvr, "Resolve")
+        pm = resolve.GetProjectManager()
+        project = resolve_project_exactly(pm, resolve_name)
 
     # The frame this project's reels are DELIVERED in, resolved ONCE and
     # threaded from here: the timeline size, every overlay render, the
@@ -8261,11 +8315,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # the end of this call, so whatever halves Pan and Tilt the way
     # 2026-09-16 did is bracketed to this build instead of to 21
     # hours. Reports, never refuses: a detector that fails the build
-    # is a gate, and this one is an instrument.
+    # is a gate, and this one is an instrument. Its cursor excursions
+    # run under a SHARED hold: they exclude another lane's placement
+    # while running beside its reads, and whatever cursor position
+    # they leave behind is re-established by every placement's own
+    # per-write check.
     try:
         from library.tools import drift_check as _drift_start
-        _drift_start.check_project(project_folder, when="build start",
-                                   resolve=resolve, project=project)
+        with resolve_lease("build reels drift baseline",
+                           exclusive=False):
+            _drift_start.check_project(project_folder, when="build start",
+                                       resolve=resolve, project=project)
     except Exception as exc:  # noqa: BLE001
         print(f"  drift baseline unavailable ({exc!r}) - the build "
               f"continues without a start bracket", flush=True)
@@ -8370,17 +8430,22 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # refuse the batch, not the twelfth reel.
     keep_insistences = _tc.keep_insistences(project_folder)
 
-    timeline = None
-    for i in range(1, project.GetTimelineCount() + 1):
-        t = project.GetTimelineByIndex(i)
-        if t.GetName() == master_timeline_name:
-            timeline = t
-            break
-            
-    if not timeline:
-        raise ValueError(f"Could not find master timeline {master_timeline_name}")
-        
-    snapshot = snapshot_timeline(timeline, project.GetName())
+    # The master read-back this build places from, under a SHARED
+    # hold: a named-handle read that runs beside other readers while
+    # no writer moves underneath it. `snapshot_timeline` takes the
+    # same shared hold itself; the re-entry is a no-op.
+    with resolve_lease("build reels survey", exclusive=False):
+        timeline = None
+        for i in range(1, project.GetTimelineCount() + 1):
+            t = project.GetTimelineByIndex(i)
+            if t.GetName() == master_timeline_name:
+                timeline = t
+                break
+
+        if not timeline:
+            raise ValueError(f"Could not find master timeline {master_timeline_name}")
+
+        snapshot = snapshot_timeline(timeline, project.GetName())
     master_clips = snapshot.clips
 
     # WHICH moments this call builds, decided before anything is touched.
@@ -8413,12 +8478,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # record as a finding: that disagreement is the first
     # machine-readable handle on the renderer state moving again.
     # Reports, never refuses: like the drift baseline, an instrument.
+    # EXCLUSIVE, and the one whole-build hold that stays coarse: the
+    # probe creates a fixed-name scratch timeline, appends, stills
+    # twice and deletes, so a second concurrent probe would remove
+    # the first's scratch as "stale" and still the wrong timeline.
     from library.tools import draw_gain_probe as _gain_probe
     from library.tools.resolve_transform import (
         FALLBACK_DRAW_GAIN as _FALLBACK_GAIN)
     try:
-        gain_record = _gain_probe.calibrate(
-            resolve, project, (reel_width, reel_height))
+        with resolve_lease("draw-gain probe", exclusive=True):
+            gain_record = _gain_probe.calibrate(
+                resolve, project, (reel_width, reel_height))
     except Exception as exc:  # noqa: BLE001 - probe never raises, belt
         # and braces: a probe-shaped surprise must not fail a build.
         gain_record = {
@@ -8442,7 +8512,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     staged_to_final = {built_name(m, name_suffix): staging_name(built_name(m, name_suffix))
                        for m in building}
     staged_names = set(staged_to_final.values())
-    stale_staging = timelines_to_replace(project, staged_names)
+    # The debris refusal reads live state, so it reads under a SHARED
+    # hold: no placement renames underneath the enumeration. Fast -
+    # two enumerations, never the minutes-long census below, which
+    # reads through its own per-timeline holds instead for exactly
+    # this reason.
+    with resolve_lease("build reels debris check", exclusive=False):
+        stale_staging = timelines_to_replace(project, staged_names)
+        stale_backups = timelines_to_replace(
+            project, {backup_name(final) for final in target_names})
     if stale_staging:
         raise ReelBuildError(
             f"REFUSING to build: {len(stale_staging)} staging "
@@ -8451,8 +8529,6 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             f"{sorted(t.GetName() for t in stale_staging)}. Delete "
             f"them in Resolve and re-run; reusing a debris container "
             f"would grade one run's content as another's.")
-    stale_backups = timelines_to_replace(
-        project, {backup_name(final) for final in target_names})
     if stale_backups:
         raise ReelBuildError(
             f"REFUSING to build: {len(stale_backups)} backup "
@@ -8680,8 +8756,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # read off a timeline that is not current, the master's
     # transforms come back different, and this digest is part of
     # EVERY reel's derivation - so a run that entered on another
-    # timeline would rebuild the whole project.
-    _master_digest = _need.carried_digest_live(project, timeline)
+    # timeline would rebuild the whole project. A cursor excursion,
+    # so under a SHARED hold like the baseline above.
+    with resolve_lease("build reels master digest", exclusive=False):
+        _master_digest = _need.carried_digest_live(project, timeline)
 
     # The carried half is read with THE REEL ITSELF CURRENT, because a
     # transform does not read back the same way twice: what Resolve
@@ -9277,278 +9355,295 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             )
             build_signatures[name] = _need.signature_for_record(
                 _derivation)
-            _decision = _need.decide(
-                final, _derivation,
-                _carried_self_read(final),
-                _recorded_signatures.get(final))
-            rebuild_decisions.append(_decision.as_dict())
-            # Derivation facts for the summary, stashed while every
-            # record is in hand: answers per channel with their drops,
-            # the captain's trims and keep-exclusions, the decision.
-            # Placement facts join below; verify/promote facts at
-            # filing. A reel the decision leaves alone files from
-            # this stash alone - nothing placed means nothing more
-            # to say.
-            summary_facts[name].update({
-                "decision": _decision.as_dict(),
-                "answers": {
-                    "semantic": (semantic_record.get("basis")
-                                 if isinstance(semantic_record, dict)
-                                 else None),
-                    "span": (span_record.get("basis")
-                             if isinstance(span_record, dict) else None),
-                    "motion": _motion_basis,
-                },
-                "semantic_record": semantic_record,
-                "span_record": span_record,
-                "motion_record": (
-                    motion_records[-1]
-                    if reel_look_decl is not None and motion_records
-                    else None),
-                "trims": {"applied": list(
-                                _trim_records.get("applied") or []),
-                            "held": list(
-                                _trim_records.get("held") or [])},
-                "keep_exclusions": [
-                    {"id": str(cut_id), "start": cut_start,
-                     "end": cut_end}
-                    for cut_start, cut_end, cut_id in moment_cuts],
-            })
-            if reuse_unchanged and _decision.leave_alone:
-                # NOT placed, and nothing about it touched: the hold
-                # taken for its staging goes (no staging exists), its
-                # signature record is left exactly as it was, and every
-                # per-reel sidecar keeps its entry because every writer
-                # here merges per reel. The approved timeline is the one
-                # that was already there.
-                print(f"  LEAVING {final} ALONE: {_decision.reason}",
-                      flush=True)
+            # ── THE HOLD, per reel ──
+            # The carried self-read, the decision, the placement and
+            # the Fusion comp pass hold the instance EXCLUSIVELY, and
+            # nothing else in this loop does. Everything above -
+            # ranges, cards, caption renders, model answers, digests -
+            # derived with no hold, so lanes overlap there and meet
+            # only here, for the measured seconds-to-a-minute a reel's
+            # Resolve pass costs. The Fusion subprocess inherits this
+            # hold, because comps act on the current timeline's items
+            # and must not run while another lane moves the cursor.
+            # A `continue` below exits the hold; the loop's failure
+            # path discards under its own hold.
+            with resolve_lease(f"place {name}", exclusive=True):
+                _decision = _need.decide(
+                    final, _derivation,
+                    _carried_self_read(final),
+                    _recorded_signatures.get(final))
+                rebuild_decisions.append(_decision.as_dict())
+                # Derivation facts for the summary, stashed while every
+                # record is in hand: answers per channel with their drops,
+                # the captain's trims and keep-exclusions, the decision.
+                # Placement facts join below; verify/promote facts at
+                # filing. A reel the decision leaves alone files from
+                # this stash alone - nothing placed means nothing more
+                # to say.
+                summary_facts[name].update({
+                    "decision": _decision.as_dict(),
+                    "answers": {
+                        "semantic": (semantic_record.get("basis")
+                                     if isinstance(semantic_record, dict)
+                                     else None),
+                        "span": (span_record.get("basis")
+                                 if isinstance(span_record, dict) else None),
+                        "motion": _motion_basis,
+                    },
+                    "semantic_record": semantic_record,
+                    "span_record": span_record,
+                    "motion_record": (
+                        motion_records[-1]
+                        if reel_look_decl is not None and motion_records
+                        else None),
+                    "trims": {"applied": list(
+                                    _trim_records.get("applied") or []),
+                                "held": list(
+                                    _trim_records.get("held") or [])},
+                    "keep_exclusions": [
+                        {"id": str(cut_id), "start": cut_start,
+                         "end": cut_end}
+                        for cut_start, cut_end, cut_id in moment_cuts],
+                })
+                if reuse_unchanged and _decision.leave_alone:
+                    # NOT placed, and nothing about it touched: no
+                    # staging exists, so this hold covered only the
+                    # decision read above. Its signature record is
+                    # left exactly as it was, and every per-reel
+                    # sidecar keeps its entry because every writer
+                    # here merges per reel. The approved timeline is
+                    # the one that was already there.
+                    print(f"  LEAVING {final} ALONE: {_decision.reason}",
+                          flush=True)
+                    try:
+                        from library.tools import reel_phase_log as _alone_log
+                        _alone_log.log_wait(
+                            project_folder, moment.number, name,
+                            f"leaving alone: {_decision.reason}")
+                    except Exception:
+                        pass
+                    _file_reel_summary(
+                        project_folder,
+                        number=summary_facts[name]["number"], name=name,
+                        facts=summary_facts[name],
+                        outcome="left_alone")
+                    _holds.release_holds(project_folder, [name])
+                    build_signatures.pop(name, None)
+                    caption_hashes.pop(name, None)
+                    footage_binding_hashes.pop(name, None)
+                    overlay_records.pop(name, None)
+                    del explainer_plans[_mark[0]:]
+                    del semantic_records[_mark[1]:]
+                    del span_records[_mark[2]:]
+                    del motion_records[_mark[3]:]
+                    del lower_third_plans[_mark[4]:]
+                    left_alone.append(final)
+                    current_staging = None
+                    continue
+                print(f"  placing {name}: {_decision.reason}", flush=True)
+                # The build starts HERE: everything between the answers
+                # and this line was derivation plus the seconds-long
+                # decision read above, so the seconds since
+                # `answers_arrived` name exactly what an M05-class stall
+                # costs - and "no engine wait recorded between" says the
+                # stall sat upstream of the engine (worker loop, model
+                # turns, another lane's Resolve lease), not inside it.
                 try:
-                    from library.tools import reel_phase_log as _alone_log
-                    _alone_log.log_wait(
+                    _waited = _phase_log.seconds_since(_answers_event)
+                    _phase_log.log_event(
                         project_folder, moment.number, name,
-                        f"leaving alone: {_decision.reason}")
+                        _phase_log.BUILD_STARTED,
+                        detail=(f"placing {name}: {_decision.reason}"
+                                + (f"; {_waited}s since answers arrived "
+                                   f"(derivation only, no engine wait "
+                                   f"recorded between)"
+                                   if _waited is not None else "")))
                 except Exception:
                     pass
-                _file_reel_summary(
-                    project_folder,
-                    number=summary_facts[name]["number"], name=name,
-                    facts=summary_facts[name],
-                    outcome="left_alone")
-                _holds.release_holds(project_folder, [name])
-                build_signatures.pop(name, None)
-                caption_hashes.pop(name, None)
-                footage_binding_hashes.pop(name, None)
-                overlay_records.pop(name, None)
-                del explainer_plans[_mark[0]:]
-                del semantic_records[_mark[1]:]
-                del span_records[_mark[2]:]
-                del motion_records[_mark[3]:]
-                del lower_third_plans[_mark[4]:]
-                left_alone.append(final)
-                current_staging = None
-                continue
-            print(f"  placing {name}: {_decision.reason}", flush=True)
-            # The build starts HERE: everything between the answers and
-            # this line was derivation, so the seconds since
-            # `answers_arrived` name exactly what an M05-class stall
-            # costs - and "no engine wait recorded between" says the
-            # stall sat upstream of the engine (worker loop, model
-            # turns, another lane's Resolve lease), not inside it.
-            try:
-                _waited = _phase_log.seconds_since(_answers_event)
-                _phase_log.log_event(
-                    project_folder, moment.number, name,
-                    _phase_log.BUILD_STARTED,
-                    detail=(f"placing {name}: {_decision.reason}"
-                            + (f"; {_waited}s since answers arrived "
-                               f"(derivation only, no engine wait "
-                               f"recorded between)"
-                               if _waited is not None else "")))
-            except Exception:
-                pass
-
-            build_result = build_reel_timeline(
-                project=project,
-                moment=moment,
-                master_clips=master_clips,
-                subtitle_segments=subtitle_segments,
-                fps=24000/1001,
-                width=reel_width,
-                height=reel_height,
-                project_folder=project_folder,
-                transcript=transcript,
-                timeline_name=name,
-                cards=cards,
-                overlay_placements=(overlay_plan.placements
-                                    if overlay_plan else None),
-                explainer_segments=explainer_segments,
-                semantic_segments=semantic_segments,
-                lower_third_segments=lower_third_segments,
-                look=reel_look_decl,
-                motion=reel_motion,
-                # The live master is how the program stream resolves
-                # on projects whose catalog predates stream recording.
-                master_timeline=timeline,
-                extra_cuts=moment_cuts,
-                # The look's CDL half, applied inside the build right
-                # after placement - the Fusion pass below runs after
-                # the build returns, which is the still recipe's
-                # CDL-first order held structurally.
-                grade_cdl=reel_grade_cdl,
-                # The captain's pinned overlay positions ({} when they
-                # declared none): declared wins over computed, so a
-                # rebuild keeps their corrections.
-                overlay_intent=overlay_intent,
-                power_grade=reel_power_grade,
-                draw_gain=run_gain,
-                # The ranges the captions, overlays and explainers above
-                # were planned from - already trimmed of the captain's
-                # span_retime pins. Recomputing from the moment would
-                # un-trim them.
-                ranges=ranges,
-                # WHERE THIS REEL ENDS, and what draws over its tail -
-                # including a declared freeze, which the build renders
-                # and places as the ending shot's held last frame.
-                ending=_ending_decl,
-                # The declared card row: which NAMED row the closing
-                # card lands on. None where nothing declares one; the
-                # build refuses a card-carrying reel then rather than
-                # guessing V1.
-                card_row_role=card_row_role,
-                # The graphics the captain deleted ([] when they
-                # declared none): a rebuild holds the deletion without
-                # being told again.
-                do_not_draw=suppression_rules,
-            )
-            suppressed_here = list(
-                build_result.get("suppressed_overlays") or [])
-            if suppressed_here:
-                # What THIS build held back, recorded onto the plan the
-                # gate grades: `do_not_draw` suppresses the PLACEMENT,
-                # never the plan, so without this F22 reads a recorded
-                # segment with no placed item as a defect. The exemption
-                # fires only on these ids - a rule that matched nothing
-                # stays `unmatched_do_not_draw`, reported below.
-                semantic_record["suppressed"] = [
-                    {"segment_id": sid} for sid in suppressed_here]
-                print(f"  {name}: held back {len(suppressed_here)} "
-                      f"segment(s) on the captain's deletion: "
-                      f"{', '.join(suppressed_here)}", file=sys.stderr)
-            # The plan each staging was placed from, keyed by staging
-            # name - so the conformance proof grades what was built,
-            # never a re-derivation, and promotion renames it with the
-            # timeline it describes.
-            track_plans[name] = build_result["track_plan"]
-            if overlay_intent:
-                # Per-reel intent application, keyed by STAGING name
-                # here and remapped to finals beside `caption_hashes`
-                # after promotion: the durable report below must speak
-                # the timeline names Resolve holds, not the staging the
-                # gate graded.
-                intent_applied_by_reel[name] = list(
-                    build_result.get("applied_overlay_intent") or [])
-                intent_unmatched_by_reel[name] = list(
-                    build_result.get("unmatched_overlay_intent") or [])
-            if name in overlay_records and build_result.get(
-                    "transition_placements") is not None:
-                # The placer re-stamps transition elements onto the
-                # plan's row; the record the verifier grades against
-                # carries the stamped rows, not the planner's default.
-                overlay_records[name]["placements"] = list(
-                    build_result["transition_placements"])
-            # The switch animation and the drift are Fusion comps, and a
-            # comp cannot be imported by the process that created the
-            # timeline (AGENTS.md 5).  So they go in here, in a
-            # subprocess handed the destination it must find current -
-            # after the picture is placed and before the gate reads it,
-            # because a reel whose comps failed is not the reel that was
-            # planned.
-            if reel_look_decl is not None:
-                from library.tools import reel_look as _look
-                # The plan this reel was placed from, so the manifest's
-                # clips ride the same per-angle rows the picture sits on:
-                # a drift planned for a V2 shot must travel on V2, and
-                # the rows come from the layout owner rather than a
-                # hardcoded V1 beside it.
-                manifest = _look.fusion_manifest(
-                    # The TRIMMED ranges, for the reason the motion spine
-                    # above states: a recompute from the moment un-trims
-                    # the captain's pins. Plus the declared FREEZE, which
-                    # is a picture clip on the ending shot's row and the
-                    # last one there - so the tail element is armed on
-                    # the held frames rather than on the live tail.
-                    _with_freeze(
-                        placements(
-                            ranges, master_clips,
-                            24000/1001,
-                            lead_frames=lead_frames(cards, 24000/1001)),
-                        build_result.get("freeze"), 24000/1001),
-                    reel_look_decl, reel_motion, 24000/1001,
-                    track_plan=build_result["track_plan"],
-                    angle_key=_angle_key,
-                    grade_look=reel_grade_look,
-                    # The reel's ending owns the tail element, declared
-                    # or inherited from its call to action. Resolved
-                    # with the SAME moment and transcript the ranges
-                    # seam used: two answers to "where does this reel
-                    # end" would arm the element on a clip the build
-                    # did not freeze.
-                    ending=_reel_ending.resolve_ending(
-                        project_folder, name, moment, transcript))
-                if not _look.apply_comps(manifest, project_folder,
-                                         resolve_name, name):
-                    raise ReelBuildError(
-                        f"{name}: the Fusion pass refused or failed. The "
-                        f"switch animation and every planned drift are "
-                        f"comps, so a reel that lost them is a reel with a "
-                        f"different picture from the one that was planned.")
-            # Placed: only now is this staging a container the gate may
-            # grade and promotion may move. An exception above leaves the
-            # name off this list and the except below removes whatever
-            # half-built container may exist under it.
-            built_reel_names.append(name)
-            try:
-                _phase_log.log_event(
-                    project_folder, moment.number, name,
-                    _phase_log.BUILD_FINISHED,
-                    detail=f"placed {name} (picture, captions, comps)")
-            except Exception:
-                pass
-            # Placement facts for the summary, while the build record
-            # is in hand: caption segments planned against caption
-            # items actually linked, cards placed, overlays held back
-            # or swept, the freeze tail, transition elements.
-            try:
-                _planned_entries = entries
-            except NameError:
-                _planned_entries = None
-            _caption_links = build_result.get("caption_links")
-            _link_warnings = build_result.get("link_warnings")
-            _sweep = build_result.get("overlay_sweep")
-            _transitions = build_result.get("transition_placements")
-            summary_facts[name].update({
-                "captions": {
-                    "planned": (len(_planned_entries)
-                                if isinstance(_planned_entries,
-                                              (list, tuple)) else None),
-                    "linked": (len(_caption_links)
-                               if isinstance(_caption_links,
-                                             (list, tuple)) else None),
-                    "link_warnings": (len(_link_warnings)
-                                      if isinstance(_link_warnings,
-                                                    (list, tuple))
+                build_result = build_reel_timeline(
+                    project=project,
+                    moment=moment,
+                    master_clips=master_clips,
+                    subtitle_segments=subtitle_segments,
+                    fps=24000/1001,
+                    width=reel_width,
+                    height=reel_height,
+                    project_folder=project_folder,
+                    transcript=transcript,
+                    timeline_name=name,
+                    cards=cards,
+                    overlay_placements=(overlay_plan.placements
+                                        if overlay_plan else None),
+                    explainer_segments=explainer_segments,
+                    semantic_segments=semantic_segments,
+                    lower_third_segments=lower_third_segments,
+                    look=reel_look_decl,
+                    motion=reel_motion,
+                    # The live master is how the program stream resolves
+                    # on projects whose catalog predates stream recording.
+                    master_timeline=timeline,
+                    extra_cuts=moment_cuts,
+                    # The look's CDL half, applied inside the build right
+                    # after placement - the Fusion pass below runs after
+                    # the build returns, which is the still recipe's
+                    # CDL-first order held structurally.
+                    grade_cdl=reel_grade_cdl,
+                    # The captain's pinned overlay positions ({} when they
+                    # declared none): declared wins over computed, so a
+                    # rebuild keeps their corrections.
+                    overlay_intent=overlay_intent,
+                    power_grade=reel_power_grade,
+                    draw_gain=run_gain,
+                    # The ranges the captions, overlays and explainers above
+                    # were planned from - already trimmed of the captain's
+                    # span_retime pins. Recomputing from the moment would
+                    # un-trim them.
+                    ranges=ranges,
+                    # WHERE THIS REEL ENDS, and what draws over its tail -
+                    # including a declared freeze, which the build renders
+                    # and places as the ending shot's held last frame.
+                    ending=_ending_decl,
+                    # The declared card row: which NAMED row the closing
+                    # card lands on. None where nothing declares one; the
+                    # build refuses a card-carrying reel then rather than
+                    # guessing V1.
+                    card_row_role=card_row_role,
+                    # The graphics the captain deleted ([] when they
+                    # declared none): a rebuild holds the deletion without
+                    # being told again.
+                    do_not_draw=suppression_rules,
+                )
+                suppressed_here = list(
+                    build_result.get("suppressed_overlays") or [])
+                if suppressed_here:
+                    # What THIS build held back, recorded onto the plan the
+                    # gate grades: `do_not_draw` suppresses the PLACEMENT,
+                    # never the plan, so without this F22 reads a recorded
+                    # segment with no placed item as a defect. The exemption
+                    # fires only on these ids - a rule that matched nothing
+                    # stays `unmatched_do_not_draw`, reported below.
+                    semantic_record["suppressed"] = [
+                        {"segment_id": sid} for sid in suppressed_here]
+                    print(f"  {name}: held back {len(suppressed_here)} "
+                          f"segment(s) on the captain's deletion: "
+                          f"{', '.join(suppressed_here)}", file=sys.stderr)
+                # The plan each staging was placed from, keyed by staging
+                # name - so the conformance proof grades what was built,
+                # never a re-derivation, and promotion renames it with the
+                # timeline it describes.
+                track_plans[name] = build_result["track_plan"]
+                if overlay_intent:
+                    # Per-reel intent application, keyed by STAGING name
+                    # here and remapped to finals beside `caption_hashes`
+                    # after promotion: the durable report below must speak
+                    # the timeline names Resolve holds, not the staging the
+                    # gate graded.
+                    intent_applied_by_reel[name] = list(
+                        build_result.get("applied_overlay_intent") or [])
+                    intent_unmatched_by_reel[name] = list(
+                        build_result.get("unmatched_overlay_intent") or [])
+                if name in overlay_records and build_result.get(
+                        "transition_placements") is not None:
+                    # The placer re-stamps transition elements onto the
+                    # plan's row; the record the verifier grades against
+                    # carries the stamped rows, not the planner's default.
+                    overlay_records[name]["placements"] = list(
+                        build_result["transition_placements"])
+                # The switch animation and the drift are Fusion comps, and a
+                # comp cannot be imported by the process that created the
+                # timeline (AGENTS.md 5).  So they go in here, in a
+                # subprocess handed the destination it must find current -
+                # after the picture is placed and before the gate reads it,
+                # because a reel whose comps failed is not the reel that was
+                # planned. The subprocess inherits THIS hold, so no other
+                # lane moves the cursor between the placement and the
+                # comp pass that reads it back.
+                if reel_look_decl is not None:
+                    from library.tools import reel_look as _look
+                    # The plan this reel was placed from, so the manifest's
+                    # clips ride the same per-angle rows the picture sits on:
+                    # a drift planned for a V2 shot must travel on V2, and
+                    # the rows come from the layout owner rather than a
+                    # hardcoded V1 beside it.
+                    manifest = _look.fusion_manifest(
+                        # The TRIMMED ranges, for the reason the motion spine
+                        # above states: a recompute from the moment un-trims
+                        # the captain's pins. Plus the declared FREEZE, which
+                        # is a picture clip on the ending shot's row and the
+                        # last one there - so the tail element is armed on
+                        # the held frames rather than on the live tail.
+                        _with_freeze(
+                            placements(
+                                ranges, master_clips,
+                                24000/1001,
+                                lead_frames=lead_frames(cards, 24000/1001)),
+                            build_result.get("freeze"), 24000/1001),
+                        reel_look_decl, reel_motion, 24000/1001,
+                        track_plan=build_result["track_plan"],
+                        angle_key=_angle_key,
+                        grade_look=reel_grade_look,
+                        # The reel's ending owns the tail element, declared
+                        # or inherited from its call to action. Resolved
+                        # with the SAME moment and transcript the ranges
+                        # seam used: two answers to "where does this reel
+                        # end" would arm the element on a clip the build
+                        # did not freeze.
+                        ending=_reel_ending.resolve_ending(
+                            project_folder, name, moment, transcript))
+                    if not _look.apply_comps(manifest, project_folder,
+                                             resolve_name, name):
+                        raise ReelBuildError(
+                            f"{name}: the Fusion pass refused or failed. The "
+                            f"switch animation and every planned drift are "
+                            f"comps, so a reel that lost them is a reel with a "
+                            f"different picture from the one that was planned.")
+                # Placed: only now is this staging a container the gate may
+                # grade and promotion may move. An exception above leaves the
+                # name off this list and the except below removes whatever
+                # half-built container may exist under it.
+                built_reel_names.append(name)
+                try:
+                    _phase_log.log_event(
+                        project_folder, moment.number, name,
+                        _phase_log.BUILD_FINISHED,
+                        detail=f"placed {name} (picture, captions, comps)")
+                except Exception:
+                    pass
+                # Placement facts for the summary, while the build record
+                # is in hand: caption segments planned against caption
+                # items actually linked, cards placed, overlays held back
+                # or swept, the freeze tail, transition elements.
+                try:
+                    _planned_entries = entries
+                except NameError:
+                    _planned_entries = None
+                _caption_links = build_result.get("caption_links")
+                _link_warnings = build_result.get("link_warnings")
+                _sweep = build_result.get("overlay_sweep")
+                _transitions = build_result.get("transition_placements")
+                summary_facts[name].update({
+                    "captions": {
+                        "planned": (len(_planned_entries)
+                                    if isinstance(_planned_entries,
+                                                  (list, tuple)) else None),
+                        "linked": (len(_caption_links)
+                                   if isinstance(_caption_links,
+                                                 (list, tuple)) else None),
+                        "link_warnings": (len(_link_warnings)
+                                          if isinstance(_link_warnings,
+                                                        (list, tuple))
+                                          else None),
+                    },
+                    "cards": list(cards or ()),
+                    "suppressed_overlays": list(suppressed_here),
+                    "overlay_sweep": (_sweep if isinstance(_sweep, dict)
                                       else None),
-                },
-                "cards": list(cards or ()),
-                "suppressed_overlays": list(suppressed_here),
-                "overlay_sweep": _sweep if isinstance(_sweep, dict) else None,
-                "transition_placements": (
-                    len(_transitions)
-                    if isinstance(_transitions, (list, tuple)) else None),
-                "has_freeze_tail": (
-                    build_result.get("freeze_tail") is not None),
-            })
+                    "transition_placements": (
+                        len(_transitions)
+                        if isinstance(_transitions, (list, tuple)) else None),
+                    "has_freeze_tail": (
+                        build_result.get("freeze_tail") is not None),
+                })
             for card in cards or ():
                 # SAID on the run that placed it, rather than recorded in the
                 # return value: the verifier re-derives the cards from the
@@ -9574,8 +9669,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     f"build failed: {exc}")
         except Exception:
             pass
-        discard_staged_reels(project, project_folder, placed,
-                             master_timeline_name)
+        # Discarding deletes staging containers, so under an EXCLUSIVE
+        # hold like every other write path - the loop above released
+        # its per-reel holds as it went.
+        with resolve_lease("discard failed staging", exclusive=True):
+            discard_staged_reels(project, project_folder, placed,
+                                 master_timeline_name)
         raise
 
     # What each reel's explainer really was, INCLUDING the empty ones.
@@ -9743,15 +9842,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # here - `built_reel_names` is a list, possibly empty - and an
         # empty one is refused inside `verify_built_reels` rather than
         # passing on nothing.
+        # The gate grades under a SHARED hold: its reads must see a
+        # stable staging, and several such reads run together while
+        # no writer runs. Promotion below takes its own exclusive
+        # hold once the gate has passed.
         try:
-            verify_built_reels(
-                project_folder=project_folder,
-                resolve_project_name=resolve_name,
-                master_timeline_name=master_timeline_name,
-                plan_path=proposal_path,
-                transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
-                only_reels=list(built_reel_names),
-            )
+            with resolve_lease("verify built reels", exclusive=False):
+                verify_built_reels(
+                    project_folder=project_folder,
+                    resolve_project_name=resolve_name,
+                    master_timeline_name=master_timeline_name,
+                    plan_path=proposal_path,
+                    transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
+                    only_reels=list(built_reel_names),
+                )
         except Exception as gate_refused:
             # The gate refused: the staging containers and their
             # baselines go, the approved timelines were never named.
@@ -9799,8 +9903,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                         awaiting_report, _staged,
                         _facts.get("final")),
                     gain_record=gain_record)
-            discard_staged_reels(project, project_folder, built_reel_names,
-                                 master_timeline_name)
+            # The refused staging goes under an EXCLUSIVE hold - a
+            # delete is a write even where the cursor never moves.
+            with resolve_lease("discard refused staging", exclusive=True):
+                discard_staged_reels(project, project_folder, built_reel_names,
+                                     master_timeline_name)
             raise
         try:
             from library.tools import reel_phase_log as _verified_log
@@ -9890,15 +9997,18 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # reel it did not touch, and never refuses - a PLAN-MISMATCH
         # on an untouched reel means an older plan, not a defective
         # build (`sweep_all_reels_informational`).
-        sweep_all_reels_informational(
-            project_folder=project_folder,
-            resolve_project_name=resolve_name,
-            master_timeline_name=master_timeline_name,
-            plan_path=proposal_path,
-            transcript_path=os.path.join(
-                project_folder,
-                "pipeline_output/scratch/timeline_transcript/"
-                "transcript.json"))
+        # The sweep reads every reel timeline, so like the gate it
+        # reads under a SHARED hold rather than between placements.
+        with resolve_lease("sweep all reels", exclusive=False):
+            sweep_all_reels_informational(
+                project_folder=project_folder,
+                resolve_project_name=resolve_name,
+                master_timeline_name=master_timeline_name,
+                plan_path=proposal_path,
+                transcript_path=os.path.join(
+                    project_folder,
+                    "pipeline_output/scratch/timeline_transcript/"
+                    "transcript.json"))
 
     # File the layer-vs-source findings OUTSIDE the scan, and keep
     # only counts in the record below. The full rows quote the heard
@@ -9935,13 +10045,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # The closing half of the baseline above: start and end together
     # bracket whatever moves a built timeline's transforms to this
     # build. Same discipline - reports, never refuses, never fails
-    # the build it instruments.
+    # the build it instruments - and the same SHARED hold, for the
+    # same cursor-excursion reason.
     _drift_end_report = None
     try:
         from library.tools import drift_check as _drift_end
-        _drift_end_report = _drift_end.check_project(
-            project_folder, when="build end",
-            resolve=resolve, project=project)
+        with resolve_lease("build reels drift end", exclusive=False):
+            _drift_end_report = _drift_end.check_project(
+                project_folder, when="build end",
+                resolve=resolve, project=project)
     except Exception as exc:  # noqa: BLE001
         print(f"  drift end-check unavailable ({exc!r}) - the build "
               f"record stands without an end bracket", flush=True)

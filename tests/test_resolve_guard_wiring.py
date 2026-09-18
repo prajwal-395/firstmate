@@ -134,6 +134,10 @@ CONNECTS_BUT_IS_NOT_DISPATCHED = {
     "library/tools/capture_fusion_comps.py",  # operator tool
     "library/tools/qa/timeline_sync_qa.py",   # operator tool
     "library/tools/build_version_control.py",  # called under `promote`
+    "library/steps/step_4_05_render_subtitles/step.py",  # reached
+    # through the routed `render subtitles` row: a connect-and-check
+    # read (refuses unless the open project is this project's own)
+    # and swap writes that take their own leases in `caption_swap`
     "library/tools/drift_check.py",  # takes no lease: called under
     # `build reels` at both ends, and the `drift` CLI holds the
     # instance itself - the cursor move is the write either way

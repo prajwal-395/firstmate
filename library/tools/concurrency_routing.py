@@ -34,8 +34,12 @@ The four classes
                    Unbounded parallelism, and it is most of a build.
 
 The whole point of the split is the last row. A reel build is minutes
-of `FREE` around seconds of `RESOLVE_CURSOR`. Routing the build as one
-unit would serialise the minutes to protect the seconds and delete the
+of `FREE` around seconds of `RESOLVE_CURSOR`, so the build row itself
+is `FREE`: the cursor sections take their own holds inside the body
+(one exclusive hold per placed reel, shared holds for the gate and
+the surveys - see `rebuild_reels_in_project`'s THE LEASE section),
+and two builds meet only there. Routing the build as one unit would
+serialise the minutes to protect the seconds and delete the
 parallelism this exists to provide.
 
 What is NOT in this table
@@ -111,9 +115,15 @@ OPERATIONS: Tuple[Operation, ...] = (
     Operation(
         name="build reels",
         entry_point="library.tools.reel_build.rebuild_reels_in_project",
-        exclusion=RESOLVE_CURSOR,
-        why="Creates and fills timelines. The cursor moves per reel and "
-            "every caption, comp and overlay is appended through it."),
+        exclusion=FREE,
+        why="Minutes of caption renders and model-answer reads around "
+            "seconds of placement per reel. The cursor sections take "
+            "their own holds inside the body - one exclusive hold per "
+            "placed reel, shared holds for the gate and the surveys - "
+            "so two builds meet only there. SAME-PROJECT builds still "
+            "do not overlap: staging containers are deterministic per "
+            "reel name and the per-reel sidecar merges are "
+            "read-modify-write."),
     Operation(
         name="build reel variants",
         entry_point="library.tools.reel_build.build_reel_variants",
@@ -221,7 +231,10 @@ OPERATIONS: Tuple[Operation, ...] = (
         name="render subtitles",
         entry_point="library.steps.step_4_05_render_subtitles",
         exclusion=FREE,
-        why="Remotion and ffmpeg on files."),
+        why="Remotion and ffmpeg on files. The swap's connect-and-check "
+            "is a read that refuses unless the open project is this "
+            "project's own, and its writes take their own leases in "
+            "`caption_swap`."),
 )
 
 BY_ENTRY_POINT: Dict[str, Operation] = {op.entry_point: op

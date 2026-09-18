@@ -21,6 +21,7 @@ from library.tools.concurrency_routing import (
 
 BUILD = "library.tools.reel_build.rebuild_reels_in_project"
 PROMOTE = "library.tools.reel_build.promote_staged_reels"
+RENDER_EDIT = "library.steps.step_6_01_render.resolve_build_timeline"
 READ = "library.tools.timeline_ingest.snapshot_timeline"
 RECORD = "library.tools.captain_edits.record_edit"
 ANALYSE = "library.steps.step_1_03_semantic_analysis"
@@ -47,14 +48,31 @@ def test_a_declaration_row_names_the_file_it_writes():
 # ── The rule itself ─────────────────────────────────────────────────
 
 def test_two_cursor_operations_never_run_together():
-    assert not may_run_together(BUILD, PROMOTE)
-    assert not may_run_together(PROMOTE, BUILD)
+    assert not may_run_together(PROMOTE, RENDER_EDIT)
+    assert not may_run_together(RENDER_EDIT, PROMOTE)
 
 
 def test_a_read_never_runs_beside_a_cursor_operation():
-    """A handle survives a build only by luck: the build deletes timelines."""
-    assert not may_run_together(BUILD, READ)
-    assert not may_run_together(READ, BUILD)
+    """A handle survives a promotion only by luck: it deletes timelines."""
+    assert not may_run_together(PROMOTE, READ)
+    assert not may_run_together(READ, PROMOTE)
+
+
+def test_a_build_runs_beside_reads_and_other_builds():
+    """The ceiling this table exists to raise.
+
+    The build holds the instance only around its own cursor
+    sections - one exclusive hold per placed reel, shared holds for
+    the gate and the surveys - so a second build's derivation and a
+    reader's read proceed while the first build derives. The holds
+    inside serialise the placements; the dispatch does not
+    serialise the builds.
+    """
+    assert may_run_together(BUILD, READ)
+    assert may_run_together(READ, BUILD)
+    assert may_run_together(BUILD, BUILD)
+    assert may_run_together(BUILD, PROMOTE)
+    assert may_run_together(PROMOTE, BUILD)
 
 
 def test_two_reads_run_together():
@@ -87,7 +105,8 @@ def test_an_unlisted_entry_point_reads_as_free_and_says_why():
 # ── The classes mean what the table says they mean ──────────────────
 
 @pytest.mark.parametrize("entry,exclusive,lease", [
-    (BUILD, True, True),
+    (BUILD, False, False),
+    (PROMOTE, True, True),
     (READ, False, True),
     (RECORD, False, False),
     (ANALYSE, False, False),

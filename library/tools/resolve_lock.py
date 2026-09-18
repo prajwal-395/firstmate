@@ -657,12 +657,15 @@ def under_lease(purpose: str, exclusive: bool = True,
     A `RESOLVE_CURSOR` operation in `concurrency_routing.OPERATIONS`
     whose whole body drives Resolve takes the lease here rather than at
     a seam inside it. That is deliberately COARSE, and the cost is
-    stated where it is paid: `rebuild_reels_in_project` renders captions
-    inside its own body, so a second reel build waits through that
-    render as well as through the placement. It is the honest trade -
-    two reel builds into one instance is the thing that must not
-    happen - and the parallelism the routing table protects is ACROSS
-    operations, not within this one.
+    stated where it is paid. The one operation that outgrew the shape
+    is the reel build: `rebuild_reels_in_project` is minutes of
+    caption renders and model-answer reads around seconds of
+    placement, so it takes per-section holds inside its own body
+    (one exclusive hold per placed reel, shared holds for the gate
+    and the surveys) and is routed FREE - two reel builds into one
+    instance meet only at those holds. The parallelism the routing
+    table protects is ACROSS operations, and for that build also
+    within it.
     """
     import functools
 
