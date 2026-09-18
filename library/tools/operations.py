@@ -879,6 +879,13 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="build_reels",
     ),
     Operation(
+        name="reel.ask",
+        summary="Write every APPROVED reel's three visual asks without building anything",
+        owning_node="build_reels",
+        owning_dir="step_7_01_build_reels", body="step.py",
+        attr="ask_reels",
+    ),
+    Operation(
         name="reel.verify",
         summary="Grade the built reel timelines against the plan they were built from",
         owning_node="verify_reels",

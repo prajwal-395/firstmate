@@ -3654,6 +3654,351 @@ def card_render_dir(project_folder: str) -> str:
                         FULL_FRAME_RENDER_DIRNAME)
 
 
+def moment_cuts_and_insistences(moment, transcript: dict,
+                                keep_exclusions, keep_insistences):
+    """This approved moment's own strikes and stay-ins, grown past room tone.
+
+    The cut list the keep ranges are cut from (`reel_ranges`), and the
+    insistence spans that withdraw take cuts rather than making them.
+    Grown over wordless clip lead-in AND wordless tail, because the nub
+    the readability floor refuses forms at either edge - and neither
+    growth may cross a timed word.
+
+    Said on the run that honours them: a cut the operator cannot see is
+    a silent content change. ONE spelling, here, because the pass-1
+    build and `reel.ask` cut from the same list, and two spellings of
+    which seconds a reel plays would be two different reels.
+    """
+    from library.tools import transcript_corrections as _tc
+    moment_cuts = _tc.grow_cuts_over_wordless_leadin(
+        _tc.exclusion_cuts_for_span(
+            moment.timeline_start, moment.timeline_end,
+            keep_exclusions),
+        transcript)
+    moment_cuts, _tails_held = _tc.grow_cuts_over_wordless_tail(
+        moment_cuts, transcript)
+    for _held in _tails_held:
+        print(f"  keep exclusion {_held['id']} ends at "
+              f"{_held['end']:.3f}s and was NOT grown forward "
+              f"({_held['reason']}) - if the master cuts inside "
+              f"the seconds after it, the strike strands a nub "
+              f"the readability floor refuses", flush=True)
+    for cut_start, cut_end, cut_id in moment_cuts:
+        print(f"  keep exclusion {cut_id} cuts "
+              f"{cut_start:.2f}-{cut_end:.2f}s from this reel - "
+              f"recorded by the captain, applied at build so an "
+              f"approved range is honoured rather than re-decided",
+              flush=True)
+    moment_insisted = _tc.insisted_spans_for_span(
+        moment.timeline_start, moment.timeline_end,
+        keep_insistences)
+    return moment_cuts, moment_insisted
+
+
+def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
+                                 project_folder: str, fps: float, name: str,
+                                 moment_cuts, moment_insisted, *,
+                                 card_declarations, look_decl,
+                                 reel_width: int, reel_height: int):
+    """One reel's keep ranges and planned cards, exactly as pass 1 derives.
+
+    `moment_cuts`/`moment_insisted` are `moment_cuts_and_insistences`
+    output. What follows is the loop's own order: `reel_ranges` (a
+    strike covering the whole body raises `ExclusionWipesBody` and the
+    caller drops that reel WITH the reason), the captain's recorded
+    span trims (`captain_edits.retime_ranges`), the declared ending
+    (`reel_ending.apply_ending`, whose tail-fit refusal stands here),
+    and the full-frame card plan (`plan_cards` - PLANNED only; rendering
+    is the build's, the asks need `duration_frames` which planning
+    already sets).
+
+    Returns `(ranges, cards, ending_decl)`. Raises where the build loop
+    refuses, so a caller that cannot derive this reel writes no ask for
+    it - an ask for seconds the reel will not play is a question about
+    another reel.
+    """
+    ranges = reel_ranges(moment, transcript,
+                         extra_cuts=moment_cuts,
+                         insisted_spans=moment_insisted)
+    # The captain's recorded trims (`span_retime`,
+    # `library/tools/captain_edits.py`): applied to the RANGES, before
+    # cards derive from them. Trimming placements after captions were
+    # planned from untrimmed ranges plays trimmed picture under
+    # untrimmed cards - the ranges are the one shape everything reads,
+    # so the trim lands here and nowhere else.
+    from library.tools import captain_edits as _edits
+    try:
+        _all_edits = _edits.load_edits(project_folder)
+    except Exception as exc:
+        raise ReelBuildError(
+            f"  {name}: captain_edits cannot be read: {exc}. A "
+            f"recorded trim the build cannot read must refuse, "
+            f"never build silently past it.")
+    if any(e.get("kind") == "span_retime" for e in _all_edits):
+        ranges, _rt_applied, _rt_held, _rt_stale = (
+            _edits.retime_ranges(
+                ranges,
+                placements(ranges, master_clips, fps),
+                transcript, _all_edits, fps=fps))
+        for record in _rt_applied:
+            print(f"  Captain edit: span {record['span_index']}'s "
+                  f"{record['edge']} trimmed "
+                  f"{record['was'][0]:.3f}-{record['was'][1]:.3f}s "
+                  f"to {record['now'][0]:.3f}-"
+                  f"{record['now'][1]:.3f}s onto "
+                  f"{record['anchor_phrase']!r} - "
+                  f"{record['reason']}", flush=True)
+        for record in _rt_held:
+            print(f"  Captain edit: span {record['span_index']}'s "
+                  f"{record['edge']} already sits on "
+                  f"{record['anchor_phrase']!r} - pin held",
+                  flush=True)
+        _edits.report_stale(_rt_stale)
+
+    # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`), on the
+    # same ranges seam and directly after the trims: an ending is a
+    # decision about the last keep range, so it lands before cards
+    # derive from it, exactly as the trims do.
+    from library.tools import reel_ending as _reel_ending
+    _ending_decl = _reel_ending.resolve_ending(
+        project_folder, name, moment, transcript)
+    if _ending_decl is not None:
+        ranges, _end_record = _reel_ending.apply_ending(
+            ranges,
+            placements(ranges, master_clips, fps),
+            transcript, _ending_decl, fps)
+        _reel_ending.report(_end_record)
+        # The declared tail element must have a shot long enough to
+        # draw in. Checked HERE, where the answer is a refusal naming
+        # both counts, rather than at comp time where
+        # `treatment_verify` would undo it to stderr and the reel would
+        # ship without it.
+        fits = _reel_ending.assert_tail_fits(
+            [p for p in placements(ranges, master_clips, fps)
+             if getattr(p["clip"], "track_type", "video")
+             == "video"],
+            _ending_decl, fps, look=look_decl)
+        print(f"  Ending: tail element {fits['element']} needs "
+              f"{fits['tail_frames']}f, ending shot plays "
+              f"{fits['shot_frames']}f", flush=True)
+
+    # Full-frame elements FIRST, because a head card decides where
+    # every other thing on this reel starts. PLANNED here; the build
+    # renders what planning returns, and the asks read
+    # `duration_frames` off the plan - so a declaration that cannot be
+    # resolved stops this reel here rather than after a timeline
+    # exists (`library/tools/full_frame_element.py`).
+    cards = plan_cards(moment, transcript, ranges, project_folder,
+                       fps=fps,
+                       width=reel_width, height=reel_height,
+                       declarations=card_declarations,
+                       ending=_ending_decl, look=look_decl)
+    if cards:
+        print(f"  {len(cards)} full-frame element(s) declared",
+              flush=True)
+    return ranges, cards, _ending_decl
+
+
+def write_visual_asks(moment, transcript: dict, ranges, master_clips,
+                      project_folder: str, fps: float, name: str,
+                      cards, look_decl) -> dict:
+    """Write this reel's three visual asks, and return where they went.
+
+    The semantic ask (`reel_semantic_visual.write_request`), the span
+    ask (`reel_semantic_visual.write_span_request`) and - where the
+    project declares the TV-frame look - the motion ask
+    (`reel_look.write_motion_request` over
+    `reel_look.motion_spine(placements(...))`). Every one of those
+    writers is PURE (no Resolve); the `master_clips` this needs are read
+    off the live master timeline, never written to.
+
+    The pass-1 build calls this for every reel it touches, and
+    `reel.ask` calls this for every approved reel - ONE spelling, so an
+    ask written without a build is byte-identical (past the cosmetic
+    `timestamp` re-stamp) to what a throwaway build would have written
+    for the same reel. The answers stay with the model in both cases:
+    this moves the QUESTION off the build, never the answer.
+
+    Returns `{"reel_semantic": path, "reel_span": path,
+    "reel_motion": path, "motion_spine": spine}`. A path is `""` where
+    its ask was not written (no timed words, no declared look); the
+    spine is None then, and is what the build resolves the motion
+    answer against.
+    """
+    from library.tools import reel_look as _look
+    from library.tools import reel_semantic_visual as sem_vis
+
+    semantic_path = sem_vis.write_request(
+        moment, transcript, list(ranges), project_folder, fps=fps)
+    span_path = sem_vis.write_span_request(
+        moment, transcript, list(ranges), project_folder, fps=fps)
+    motion_path = ""
+    spine = None
+    if look_decl is not None:
+        spine = _look.motion_spine(
+            # The TRIMMED ranges, not a recompute from the moment: a
+            # recompute un-trims the captain's span_retime pins and
+            # plans motion for seconds the reel no longer plays.
+            placements(list(ranges), master_clips, fps,
+                       lead_frames=lead_frames(cards, fps)),
+            fps)
+        motion_path = _look.write_motion_request(
+            moment.number, name, spine,
+            transcript.get("segments") or [], project_folder)
+    return {"reel_semantic": semantic_path, "reel_span": span_path,
+            "reel_motion": motion_path, "motion_spine": spine}
+
+
+def write_reel_asks_for_project(project_folder: str, transcript: dict,
+                                only=None, name_suffix: str = "") -> dict:
+    """Write every approved reel's three visual asks, without building.
+
+    What `reel.ask` runs. Reads the approved plan and the master
+    timeline's transcript, takes a READ-ONLY snapshot of the master
+    timeline out of live Resolve (getters only - no timeline is
+    created, no cursor lease is taken, no Fusion comp runs), derives
+    each reel's keep ranges and planned cards through the SAME
+    functions the pass-1 build calls, and writes the three asks through
+    `write_visual_asks`. The model's answers are then written beside
+    them by hand or by a lane, and the REAL build - pass 2 - places
+    what was answered.
+
+    The plan is NOT archived here: the build archives it because the
+    next selector run may overwrite it, and an ask run overwrites
+    nothing. Moment repair (`snap_moment_to_speech`) and closer
+    redraws apply in memory, exactly as the build applies them, so the
+    asks describe the seconds the build will play.
+
+    Returns `{"reel_asks": [...], "skipped_by_exclusion": [...]}`. A
+    reel whose strike covers its whole body is SKIPPED with the reason
+    (`ExclusionWipesBody`), the way the build skips it; anything else
+    the build would refuse on refuses here too, before any ask of any
+    reel is answered - an ask for seconds the reel will not play is a
+    question about another reel.
+    """
+    from library.tools import transcript_corrections as _tc
+    from library.tools.reel_proposal import (
+        proposal_path as _proposal_path,
+        read_proposal,
+        snap_moment_to_speech,
+    )
+    from library.tools.timeline_ingest import (
+        resolve_binding,
+        snapshot_timeline,
+    )
+    import sys as _sys
+
+    fps = 24000 / 1001
+    resolve_project_name, master_timeline_name = resolve_binding(
+        project_folder)
+    if not resolve_project_name or not master_timeline_name:
+        raise ReelBuildError(
+            f"{project_folder}/project.yaml declares no complete `resolve` "
+            f"binding (project_name={resolve_project_name!r}, "
+            f"timeline_name={master_timeline_name!r}). A reel is cut FROM a "
+            f"master timeline, and a near match lands on another project "
+            f"(AGENTS.md 5).")
+    project = _connect_resolve_project(resolve_project_name)
+    timeline = None
+    for i in range(1, project.GetTimelineCount() + 1):
+        t = project.GetTimelineByIndex(i)
+        if t.GetName() == master_timeline_name:
+            timeline = t
+            break
+    if not timeline:
+        raise ValueError(
+            f"Could not find master timeline {master_timeline_name}")
+    master_clips = snapshot_timeline(
+        timeline, project.GetName()).clips
+
+    proposal_path = str(_proposal_path(project_folder))
+    moments = read_proposal(proposal_path)
+    repaired = []
+    for moment in moments:
+        fixed, moves = snap_moment_to_speech(moment, transcript)
+        for move in moves:
+            word = (f" through '{move['through']}'"
+                    if move.get("through") else "")
+            print(f"  Reel {moment.number:02d}: {move['boundary']} "
+                  f"{move['was']:.3f}s -> {move['now']:.3f}s{word} "
+                  f"(stored proposal predates the boundary snap)",
+                  file=_sys.stderr)
+        repaired.append(fixed)
+    moments = repaired
+
+    from library.tools import captain_edits as _edits
+    try:
+        _pin_edits = _edits.load_edits(project_folder)
+    except _edits.CaptainEditError as exc:
+        raise ReelBuildError(
+            f"captain_edits cannot be read: {exc}. A recorded pin the "
+            f"ask cannot read must refuse, never ask silently past "
+            f"it.") from exc
+    if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
+        moments, _pin_applied, _pin_held, _pin_stale = \
+            _edits.apply_closer_redraws(moments, transcript, _pin_edits)
+        for record in _pin_applied:
+            print(f"  Reel {record['reel']:02d}: closer "
+                  f"{record['was'][0]:.3f}s -> {record['now'][0]:.3f}s "
+                  f"(now opens on {record['anchor_phrase']!r} - "
+                  f"{record['reason']})", file=_sys.stderr)
+
+    keep_exclusions = _tc.keep_exclusions(project_folder)
+    keep_insistences = _tc.keep_insistences(project_folder)
+
+    wanted = reel_numbers(only)
+    building = [m for m in moments
+                if str(getattr(m.approval, "value", m.approval)) == "approved"
+                and (wanted is None or int(m.number) in wanted)]
+    if wanted is not None:
+        missing = wanted - {int(m.number) for m in building}
+        if missing:
+            raise ReelBuildError(
+                f"asked for reel(s) {sorted(missing)}, and the plan "
+                f"{proposal_path} has no APPROVED moment with those "
+                f"numbers. Approved: "
+                f"{sorted(int(m.number) for m in building)}. An ask that "
+                f"quietly skipped them would report success having asked "
+                f"nothing.")
+
+    from library.tools import reel_look as _reel_look
+    reel_width, reel_height = reel_resolution(project_folder)
+    reel_look_decl = _reel_look.resolve_look(project_folder,
+                                             reel_width, reel_height)
+    card_declarations = declared_cards(project_folder)
+
+    reel_asks = []
+    skipped_by_exclusion = []
+    for moment in building:
+        name = staging_name(built_name(moment, name_suffix or ""))
+        moment_cuts, moment_insisted = moment_cuts_and_insistences(
+            moment, transcript, keep_exclusions, keep_insistences)
+        try:
+            ranges, cards, _ending_decl = derive_reel_ranges_and_cards(
+                moment, transcript, master_clips,
+                project_folder, fps, name,
+                moment_cuts, moment_insisted,
+                card_declarations=card_declarations,
+                look_decl=reel_look_decl,
+                reel_width=reel_width, reel_height=reel_height)
+        except ExclusionWipesBody as wiped:
+            reason = str(wiped)
+            print(f"  SKIPPING {name}: {reason}", flush=True)
+            skipped_by_exclusion.append({"reel": name,
+                                         "number": moment.number,
+                                         "reason": reason})
+            continue
+        paths = write_visual_asks(
+            moment, transcript, ranges, master_clips,
+            project_folder, fps, name, cards, reel_look_decl)
+        reel_asks.append({"reel": name, "number": int(moment.number),
+                          "reel_semantic": paths["reel_semantic"],
+                          "reel_span": paths["reel_span"],
+                          "reel_motion": paths["reel_motion"]})
+    return {"reel_asks": reel_asks,
+            "skipped_by_exclusion": skipped_by_exclusion}
+
+
 
 def reel_explainer_segments(moment, transcript: dict, ranges,
                             project_folder: str, fps: float, width: int,
@@ -8399,32 +8744,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # edge at 899.400 and the master's angle switch is at
             # 899.482, so resuming there admitted 2 frames of the wrong
             # camera. Neither growth may cross a timed word.
-            moment_cuts = _tc.grow_cuts_over_wordless_leadin(
-                _tc.exclusion_cuts_for_span(
-                    moment.timeline_start, moment.timeline_end,
-                    keep_exclusions),
-                transcript)
-            moment_cuts, _tails_held = _tc.grow_cuts_over_wordless_tail(
-                moment_cuts, transcript)
-            for _held in _tails_held:
-                print(f"  keep exclusion {_held['id']} ends at "
-                      f"{_held['end']:.3f}s and was NOT grown forward "
-                      f"({_held['reason']}) - if the master cuts inside "
-                      f"the seconds after it, the strike strands a nub "
-                      f"the readability floor refuses", flush=True)
-            for cut_start, cut_end, cut_id in moment_cuts:
-                print(f"  keep exclusion {cut_id} cuts "
-                      f"{cut_start:.2f}-{cut_end:.2f}s from this reel - "
-                      f"recorded by the captain, applied at build so an "
-                      f"approved range is honoured rather than re-decided",
-                      flush=True)
-            # And the seconds the captain says STAY IN, withdrawing take
-            # cuts rather than making them. SAID with the cut it removed
-            # and the words that cut would have dropped: a withdrawal
-            # nobody can see is a content change nobody can see.
-            moment_insisted = _tc.insisted_spans_for_span(
-                moment.timeline_start, moment.timeline_end,
-                keep_insistences)
+            #
+            # ONE spelling (`moment_cuts_and_insistences`): the pass-1
+            # build and `reel.ask` cut from the same list, and two
+            # spellings of which seconds a reel plays would be two
+            # different reels.
+            moment_cuts, moment_insisted = moment_cuts_and_insistences(
+                moment, transcript, keep_exclusions, keep_insistences)
             for _cut, _ident in withdraw_insisted_cuts(
                     redundant_takes(moment.timeline_start,
                                     moment.timeline_end, transcript),
@@ -8491,16 +8817,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"{echo['kept_end']:.2f}s "
                           f"({echo['speaker']}) - the closer is placed "
                           f"whole", flush=True)
+            # The keep ranges and the planned cards, by the ONE spelling
+            # (`derive_reel_ranges_and_cards`) the ask path shares: a
+            # strike covering the whole body raises `ExclusionWipesBody`
+            # and this reel is dropped WITH the reason, never split and
+            # never emptied - the approved timeline already in Resolve
+            # is left exactly as it is, like a reel this call did not
+            # name.
             try:
-                ranges = reel_ranges(moment, transcript,
-                                     extra_cuts=moment_cuts,
-                                     insisted_spans=moment_insisted)
+                ranges, cards, _ending_decl = (
+                    derive_reel_ranges_and_cards(
+                        moment, transcript, master_clips,
+                        project_folder, 24000 / 1001, name,
+                        moment_cuts, moment_insisted,
+                        card_declarations=card_declarations,
+                        look_decl=reel_look_decl,
+                        reel_width=reel_width,
+                        reel_height=reel_height))
             except ExclusionWipesBody as wiped:
-                # Dropped WITH the reason, never split and never emptied:
-                # the strike covers the whole body, so there is no reel
-                # left to build and no second reel to invent. The
-                # approved timeline already in Resolve is left exactly
-                # as it is, like a reel this call did not name.
                 reason = str(wiped)
                 print(f"  SKIPPING {name}: {reason}", flush=True)
                 skipped_by_exclusion.append({"reel": name,
@@ -8516,94 +8850,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 current_staging = None
                 continue
 
-            # The captain's recorded trims (`span_retime`,
-            # `library/tools/captain_edits.py`): applied to the RANGES,
-            # before cards, captions, explainers, overlays and placements
-            # derive from them. Trimming placements after captions were
-            # planned from untrimmed ranges plays trimmed picture under
-            # untrimmed cards - the ranges are the one shape everything
-            # reads, so the trim lands here and nowhere else.
-            try:
-                from library.tools import captain_edits as _edits
-                _all_edits = _edits.load_edits(project_folder)
-            except Exception as exc:
-                raise ReelBuildError(
-                    f"  {name}: captain_edits cannot be read: {exc}. A "
-                    f"recorded trim the build cannot read must refuse, "
-                    f"never build silently past it.")
-            if any(e.get("kind") == "span_retime" for e in _all_edits):
-                ranges, _rt_applied, _rt_held, _rt_stale = (
-                    _edits.retime_ranges(
-                        ranges,
-                        placements(ranges, master_clips,
-                                   24000 / 1001),
-                        transcript, _all_edits, fps=24000 / 1001))
-                for record in _rt_applied:
-                    print(f"  Captain edit: span {record['span_index']}'s "
-                          f"{record['edge']} trimmed "
-                          f"{record['was'][0]:.3f}-{record['was'][1]:.3f}s "
-                          f"to {record['now'][0]:.3f}-"
-                          f"{record['now'][1]:.3f}s onto "
-                          f"{record['anchor_phrase']!r} - "
-                          f"{record['reason']}", flush=True)
-                for record in _rt_held:
-                    print(f"  Captain edit: span {record['span_index']}'s "
-                          f"{record['edge']} already sits on "
-                          f"{record['anchor_phrase']!r} - pin held",
-                          flush=True)
-                _edits.report_stale(_rt_stale)
-
-            # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`),
-            # on the same ranges seam and directly after the trims: an
-            # ending is a decision about the last keep range, so it
-            # lands before cards, captions and placements derive from
-            # it, exactly as the trims do. An ending only ever removes
-            # seconds - which is what stops a reel acquiring the next
-            # speaker while asking for room at its close.
-            #
-            # The MOMENT and the TRANSCRIPT travel because a reel with
-            # no pin still has an ending: it INHERITS one from the call
-            # to action it closes on (`reel_ending.cta_default_ending`),
-            # which is how the captain's "or will be using this CTA"
-            # reaches a reel nobody has declared anything for.
-            _ending_decl = _reel_ending.resolve_ending(
-                project_folder, name, moment, transcript)
-            if _ending_decl is not None:
-                ranges, _end_record = _reel_ending.apply_ending(
-                    ranges,
-                    placements(ranges, master_clips, 24000 / 1001),
-                    transcript, _ending_decl, 24000 / 1001)
-                _reel_ending.report(_end_record)
-                # The declared tail element must have a shot long
-                # enough to draw in. Checked HERE, where the answer is
-                # a refusal naming both counts, rather than at comp
-                # time where `treatment_verify` would undo it to
-                # stderr and the reel would ship without it.
-                fits = _reel_ending.assert_tail_fits(
-                    [p for p in placements(ranges, master_clips,
-                                           24000 / 1001)
-                     if getattr(p["clip"], "track_type", "video")
-                     == "video"],
-                    _ending_decl, 24000 / 1001, look=reel_look_decl)
-                print(f"  Ending: tail element {fits['element']} needs "
-                      f"{fits['tail_frames']}f, ending shot plays "
-                      f"{fits['shot_frames']}f", flush=True)
-
             # Full-frame elements FIRST, because a head card decides where
-            # every other thing on this reel starts. Planned and rendered
-            # before anything is placed, so a declaration that cannot be
-            # resolved - a binding with nothing behind it, a typeface that
-            # will not draw - stops this reel here rather than after a
-            # timeline exists (`library/tools/full_frame_element.py`).
-            cards = plan_cards(moment, transcript, ranges, project_folder,
-                               fps=24000 / 1001,
-                               width=reel_width, height=reel_height,
-                               declarations=card_declarations,
-                               ending=_ending_decl, look=reel_look_decl)
+            # every other thing on this reel starts. Planned above and
+            # rendered here before anything is placed, so a declaration
+            # that cannot be resolved - a binding with nothing behind
+            # it, a typeface that will not draw - stops this reel here
+            # rather than after a timeline exists
+            # (`library/tools/full_frame_element.py`).
             if cards:
                 from library.tools.full_frame_element import render_reel_cards
-                print(f"  {len(cards)} full-frame element(s) declared",
-                      flush=True)
                 cards = render_reel_cards(
                     cards,
                     str(REMOTION_DIR),
@@ -8661,17 +8916,18 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     draw_gain=run_gain))
             lower_third_plans.append(lower_third_plan)
 
-            # The semantic visuals: what the MODEL says this reel's
-            # speech wants drawn. The ask is written fresh on every
-            # build from the moment, the transcript and these same
-            # ranges; the answer is read off the response file when a
-            # model has written one, and the reel builds without
-            # visuals - SAID as `awaiting_model_answer` - when none
-            # has. A headless build never blocks on a model.
+            # The three visual asks - semantic, span, motion - by the ONE
+            # spelling (`write_visual_asks`) the ask path shares, so an
+            # ask written without a build is what a build would have
+            # written. The answers are read off the response files when
+            # a model has written them, and the reel builds without
+            # them - SAID as `awaiting_model_answer` - when none have.
+            # A headless build never blocks on a model.
             from library.tools import reel_semantic_visual as sem_vis
-            sem_vis.write_request(
-                moment, transcript, ranges, project_folder,
-                fps=24000 / 1001)
+            ask_paths = write_visual_asks(
+                moment, transcript, ranges, master_clips,
+                project_folder, 24000 / 1001, name, cards,
+                reel_look_decl)
             semantic_segments, semantic_record = sem_vis.build_for_reel(
                 moment, transcript, ranges, project_folder,
                 fps=24000 / 1001, width=reel_width, height=reel_height,
@@ -8686,9 +8942,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # the moments yet - the placer needs its own change - so an
             # all-refused plan must read as a refusal, never as a
             # decision for no pictures.
-            span_record = sem_vis.span_record_for_build(
+            span_record = sem_vis.resolve_span_record(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, timeline_name=name)
+                fps=24000 / 1001, timeline_name=name,
+                asked=bool(ask_paths["reel_span"]))
             span_records.append(span_record)
 
             # RECORD what was placed. Derived at build time and previously
@@ -8763,17 +9020,9 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             reel_motion = []
             if reel_look_decl is not None:
                 from library.tools import reel_look as _look
-                spine = _look.motion_spine(
-                    # The TRIMMED ranges, not a recompute from the moment:
-                    # a recompute un-trims the captain's span_retime pins
-                    # and plans motion for seconds the reel no longer
-                    # plays.
-                    placements(ranges, master_clips,
-                               24000/1001, lead_frames=lead_frames(cards, 24000/1001)),
-                    24000/1001)
-                _look.write_motion_request(
-                    moment.number, name, spine,
-                    transcript.get("segments") or [], project_folder)
+                # The spine the ask above was written against - the
+                # TRIMMED ranges, never a recompute from the moment.
+                spine = ask_paths["motion_spine"]
                 reel_motion, motion_record = _look.resolve_motion(
                     _look.read_motion_answer(project_folder, moment.number),
                     spine, 24000/1001)
@@ -8793,7 +9042,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # Logged HERE, at the moment the answers are read, with each
             # channel's basis - never inferred from file times later.
             # The semantic and span waits (unanswered asks) were logged
-            # by the waiter inside `build_for_reel`/`span_record_for_build`;
+            # by the waiter inside `build_for_reel`/`resolve_span_record`;
             # the motion one is logged here, where its record is in hand.
             from library.tools import reel_phase_log as _phase_log
             try:

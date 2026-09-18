@@ -51,28 +51,43 @@ def _calls(node):
 
 def test_the_rebuild_resolves_applies_and_checks_the_ending():
     calls = _calls(_function("rebuild_reels_in_project"))
-    for spelled in ("_reel_ending.load_endings",
-                    "_reel_ending.resolve_ending",
+    assert "derive_reel_ranges_and_cards" in calls, (
+        "the rebuild no longer derives its ranges through the shared "
+        "seam: the ending owner has become a document again.")
+    # The seam itself still asks the owner - directly, not through a
+    # second spelling - and `reel.ask` reaches the same calls.
+    derive_calls = _calls(_function("derive_reel_ranges_and_cards"))
+    for spelled in ("_reel_ending.resolve_ending",
                     "_reel_ending.apply_ending",
                     "_reel_ending.report",
                     "_reel_ending.assert_tail_fits"):
-        assert spelled in calls, (
-            f"{spelled} is no longer called by rebuild_reels_in_project: "
+        assert spelled in derive_calls, (
+            f"{spelled} is no longer called by derive_reel_ranges_and_cards: "
             f"the ending owner has become a document again.")
+    assert "_reel_ending.load_endings" in calls, (
+        "the batch-level endings read left the rebuild.")
 
 
 def test_the_ending_lands_on_the_ranges_before_anything_derives():
     """An ending is a decision about the last keep range, so it must
     land where the trims land - before cards, captions, explainers and
     placements read the ranges. Asserted by ORDER in the source, the
-    way the trim seam's own comment states the rule."""
-    body = SOURCE[SOURCE.index("def rebuild_reels_in_project"):]
-    apply_at = body.index("_reel_ending.apply_ending")
-    assert apply_at < body.index("cards = plan_cards(")
-    assert apply_at < body.index("reel_subtitle_segments(")
-    assert body.index("_edits.retime_ranges(") < apply_at, (
+    way the trim seam's own comment states the rule: inside the shared
+    derivation, and the rebuild derives before it places."""
+    derive = inspect.getsource(reel_build.derive_reel_ranges_and_cards)
+    assert derive.index("_edits.retime_ranges(") < derive.index(
+        "_reel_ending.apply_ending("), (
         "the ending must be applied AFTER the captain's trims: both "
         "move the same ranges and the trims are the finer edit.")
+    assert derive.index("_reel_ending.apply_ending(") < derive.index(
+        "plan_cards("), (
+        "the ending must land before the cards are planned from the "
+        "ranges.")
+    body = SOURCE[SOURCE.index("def rebuild_reels_in_project"):]
+    assert body.index("derive_reel_ranges_and_cards(") < body.index(
+        "reel_subtitle_segments("), (
+        "the ranges - trims and ending included - must be derived "
+        "before the captions are rendered from them.")
 
 
 def test_the_declared_ending_reaches_the_fusion_pass():

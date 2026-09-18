@@ -146,6 +146,64 @@ def build_reels(data: dict) -> dict:
     return {"reel_build": record}
 
 
+def ask_reels(data: dict) -> dict:
+    """Write every approved reel's three visual asks, without building.
+
+    The `reel.ask` operation. Reads the merged input dict - the same
+    thing the runner writes to a step's stdin and the same thing
+    `Operation.execute` binds - REFUSES what it cannot do, and calls
+    `library.tools.reel_build.write_reel_asks_for_project`. That is the
+    same shape `build_reels` above has: this body owns no ask logic,
+    and the pass-1 build stays the one implementation rather than
+    growing a second beside it (Ruling 1,
+    `tests/test_operations_add_no_second_implementation.py`).
+
+    Returns the RECORD of what was asked, per reel: the three
+    `llm_requests/*.json` paths the model answers beside. The answers
+    themselves stay with the model - this moves the QUESTION off the
+    build, never the answer.
+    """
+    project_folder = (data or {}).get("project_folder") or ""
+    if not project_folder:
+        raise ReelBuildRefused(
+            "ask_reels has no project_folder, so there is no project to "
+            "read a reel plan from and no Resolve binding to read the "
+            "master timeline through.")
+
+    transcript = (data or {}).get("timeline_transcript")
+    if not transcript:
+        raise ReelBuildRefused(
+            "ask_reels has no timeline_transcript. NO STEP MAKES ONE - "
+            "it is written by `python3 -m library.tools.timeline_transcript "
+            "<project> --write`, which needs Resolve open on the project's "
+            "own timeline. The reel's keep-ranges, its retake scan and its "
+            "motion spine are all cut from it.")
+
+    from library.tools.reel_build import write_reel_asks_for_project
+    from library.tools.timeline_ingest import resolve_binding
+
+    resolve_project_name, master_timeline_name = resolve_binding(
+        project_folder)
+    if not resolve_project_name or not master_timeline_name:
+        raise ReelBuildRefused(
+            f"{project_folder}/project.yaml declares no complete `resolve` "
+            f"binding (project_name={resolve_project_name!r}, "
+            f"timeline_name={master_timeline_name!r}). A reel is cut FROM a "
+            f"master timeline, and a near match lands on another project "
+            f"(AGENTS.md 5).")
+
+    # FORWARDED, not interpreted, for the reason `build_reels` forwards
+    # `only_reels`: what a malformed value means is
+    # `reel_build.reel_numbers`' to say.
+    record = write_reel_asks_for_project(
+        project_folder,
+        transcript,
+        only=(data or {}).get("only_reels"),
+        name_suffix=str((data or {}).get("timeline_name_suffix") or ""))
+
+    return {"reel_ask": record}
+
+
 def main():
     import json
     import sys

@@ -1253,7 +1253,7 @@ def _span_record(reel_name: str, basis: str, entries: list, resolved=None,
 
 
 def span_record_for_build(moment, transcript: dict, ranges, project_folder: str,
-                          fps: float, timeline_name: str = "") -> dict:
+                           fps: float, timeline_name: str = "") -> dict:
     """Resolve one reel's span plan and return its record. Pure: no Resolve.
 
     The ask is written fresh on every build from the moment, the
@@ -1268,7 +1268,26 @@ def span_record_for_build(moment, transcript: dict, ranges, project_folder: str,
     name = timeline_name or getattr(moment, "timeline_name", "")
     request_path = write_span_request(
         moment, transcript, ranges, project_folder, fps=fps)
-    if not request_path:
+    return resolve_span_record(
+        moment, transcript, ranges, project_folder, fps=fps,
+        timeline_name=name, asked=bool(request_path))
+
+
+def resolve_span_record(moment, transcript: dict, ranges, project_folder: str,
+                        fps: float, timeline_name: str = "",
+                        *, asked: bool) -> dict:
+    """Resolve one reel's span plan against an already-written ask.
+
+    The second half of `span_record_for_build`, split out so a caller
+    that wrote the ask itself - the pass-1 build's shared
+    `reel_build.write_visual_asks`, or `reel.ask` - resolves without
+    writing it twice. `asked` is whether the ask file was written: False
+    is the reel-speaks-no-timed-words case, recorded as
+    SPAN_NOT_PLANNED exactly as the combined form records it.
+    """
+    reel_number = int(moment.number)
+    name = timeline_name or getattr(moment, "timeline_name", "")
+    if not asked:
         return _span_record(
             name, SPAN_NOT_PLANNED, [],
             dropped=[SpanDropped(
