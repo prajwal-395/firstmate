@@ -109,14 +109,27 @@ captain's call (a plan record naming them) never the sweeper's.  The
 axis: canonical destinations the organiser files into, whose removal
 belongs to the prune path under its own authority - never to this one.
 
-CURRENT is a record, not a guess
---------------------------------
-A reel's state comes from `plan_provenance.json`, which the BUILDER
-writes and which names the plan it built from by content hash:
+CURRENT is the plan, not the last build
+------------------------------------
+A reel's state comes from the live PROPOSALS file
+(`reel_proposals_v2.json`, read through
+`plan_provenance.current_plan_names`), not from which reels a build
+call happened to place:
 
-- `CURRENT` - the live provenance record's `built_reels` names it.
-- `EARLIER` - an ARCHIVED plan names it, and the live record does not.
+- `CURRENT` - the live plan's approved moments name it.
+- `EARLIER` - an ARCHIVED plan names it, and the live plan does not.
 - `UNRECORDED` - no plan on disk names it.
+
+The provenance record (`plan_provenance.json`) says which plan a build
+consumed, and on a plan-hash change it drops every entry but the reels
+that build placed - so after one single-reel build it names one reel
+while the plan still names them all. Filing by it read a partial build
+as a plan change and filed every other reel as history (measured
+2026-09-18: building Reel 02 alone demoted eight accepted reels). When
+the live plan cannot be read at all, filing falls back to the
+provenance record's built reels rather than mass-demoting - an
+unreadable plan is "nothing here can say", never evidence that every
+reel left it.
 
 Exact names only.  A near match lands elsewhere is already the rule for
 addressing a Resolve project and a Resolve timeline (AGENTS.md 5), and
@@ -353,19 +366,21 @@ class Plan:
 
 
 def reel_state(timeline_name: str,
-               built_reels: Iterable[str],
+               current_reels: Iterable[str],
                archived_plan_names: Iterable[str]) -> tuple[str, str]:
     """One timeline's state, and the sentence that justifies it.
 
-    EXACT membership, never a prefix.  See the module docstring for why
-    the eight suffixed one-offs on the field test are UNRECORDED rather
-    than EARLIER.
+    `current_reels` is the CURRENT set - every reel the live plan names,
+    resolved by the caller (`plan_provenance.current_plan_names`), NOT
+    the reels the last build happened to place. EXACT membership, never
+    a prefix.  See the module docstring for why the eight suffixed
+    one-offs on the field test are UNRECORDED rather than EARLIER.
     """
-    if timeline_name in set(built_reels):
-        return CURRENT, "the live plan's provenance record names it"
+    if timeline_name in set(current_reels):
+        return CURRENT, "the live plan names it"
     if timeline_name in set(archived_plan_names):
-        return EARLIER, ("an archived plan names it and the live "
-                         "provenance record does not")
+        return EARLIER, ("an archived plan names it and the live plan "
+                         "does not")
     return UNRECORDED, "no plan on disk names it"
 
 
@@ -390,16 +405,18 @@ def _sole_placer(artefact: Artefact) -> str | None:
 def plan_organization(artefacts: Sequence[Artefact],
                       project_root: str,
                       master_timeline_name: str,
-                      built_reels: Iterable[str],
+                      current_reels: Iterable[str],
                       archived_plan_names: Iterable[str],
                       root_bin: str = "Master",
                       plan_hash: str = "",
                       built_at: str = "") -> Plan:
     """The whole filing decision, computed before anything is touched.
 
-    Takes measurements and records; returns a `Plan`.  Calls nothing,
-    writes nothing, and cannot leave the project half-organised because
-    it never touches it.
+    `current_reels` is the CURRENT set - every reel the live plan names
+    (`plan_provenance.current_plan_names`), not the reels the last build
+    placed. Takes measurements and records; returns a `Plan`.  Calls
+    nothing, writes nothing, and cannot leave the project half-organised
+    because it never touches it.
     """
     if not master_timeline_name:
         raise OrganizationError(
@@ -409,7 +426,7 @@ def plan_organization(artefacts: Sequence[Artefact],
             "reel. `resolve.timeline_name` in project.yaml is where it "
             "comes from.")
 
-    built = set(built_reels)
+    built = set(current_reels)
     archived = set(archived_plan_names)
     states: dict[str, tuple[str, str]] = {}
     for a in artefacts:

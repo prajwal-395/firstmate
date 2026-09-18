@@ -41,7 +41,7 @@ def a_plan(artefacts, **kw):
         artefacts=artefacts,
         project_root=PROJECT_ROOT,
         master_timeline_name=MASTER,
-        built_reels=kw.pop("built_reels", []),
+        current_reels=kw.pop("current_reels", []),
         archived_plan_names=kw.pop("archived_plan_names", []),
         **kw)
 
@@ -101,7 +101,7 @@ def test_a_generated_clip_files_under_the_placer_beneath_06():
              folder=("Reel subtitles", "Reel 01 - live")),
     ]
     dest = {v.name: v.destination for v in a_plan(
-        artefacts, built_reels=["Reel 01 - live"]).verdicts}
+        artefacts, current_reels=["Reel 01 - live"]).verdicts}
     assert dest["sub_live_a.mov"] == (bins.SUBTITLES_BIN, "Reel 01 - live")
     assert dest["Reel 01 - live"] == (
         bins.REELS_BIN, bins.REEL_STATE_BINS[org.CURRENT])
@@ -122,7 +122,7 @@ def test_motion_graphics_kind_files_beneath_07_not_06():
              folder=("Reel subtitles", "Reel 01 - live")),
     ]
     dest = {v.name: v.destination for v in a_plan(
-        artefacts, built_reels=["Reel 01 - live"]).verdicts}
+        artefacts, current_reels=["Reel 01 - live"]).verdicts}
     assert dest["mg_live.mov"] == (
         bins.MOTION_GRAPHICS_BIN, "Reel 01 - live")
 
@@ -228,7 +228,7 @@ def test_the_screenshot_pool_converges_on_the_numbered_scheme():
     built = ["Reel 12 - ai-isnt-making-things-up",
              "Reel 09 - your-website-is-only-20-percent",
              "Reel 27 - google-reviews-build-ai-trust"]
-    plan = a_plan(screenshot_pool(), built_reels=built,
+    plan = a_plan(screenshot_pool(), current_reels=built,
                   archived_plan_names=[])
     dest = {v.name: v.destination for v in plan.verdicts}
     for reel in built:
@@ -258,7 +258,7 @@ def test_no_pipeline_bin_is_left_populated_beside_its_successor():
     built = ["Reel 12 - ai-isnt-making-things-up",
              "Reel 09 - your-website-is-only-20-percent",
              "Reel 27 - google-reviews-build-ai-trust"]
-    plan = a_plan(screenshot_pool(), built_reels=built,
+    plan = a_plan(screenshot_pool(), current_reels=built,
                   archived_plan_names=[])
     for verdict in plan.verdicts:
         assert bins.is_canonical(verdict.destination), verdict.destination

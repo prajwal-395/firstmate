@@ -257,7 +257,7 @@ def test_the_import_bin_is_the_bin_the_organiser_keeps():
             plan = org.plan_organization(
                 artefacts=artefacts, project_root=str(tmp),
                 master_timeline_name="master",
-                built_reels=["Reel 01 - live"], archived_plan_names=[])
+                current_reels=["Reel 01 - live"], archived_plan_names=[])
             assert plan.moves == []
 
 

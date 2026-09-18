@@ -7398,8 +7398,8 @@ def _organise_after_refusal(project, project_folder: str,
     them the same way: generated and placed by nothing becomes
     `Reel subtitles/Not placed on any timeline`, and anything the
     surviving timelines still place files per reel. Timelines already
-    filed stay where they are - the plan is derived from the same
-    provenance the discard just updated.
+    filed stay where they are - the plan is derived from the live
+    proposals file, which the discard did not touch.
 
     Never raises: a filing failure is said on stderr, and the gate's
     own refusal - the verdict that matters - still propagates.
@@ -7557,9 +7557,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     points at.
 
     `organise` files the media pool after promotion, so a rebuild
-    TIDIES UP rather than accumulating: the reels this call placed
-    land in `Reels/Current plan`, and a reel the live plan no longer
-    names moves to `Reels/Earlier plans` - moved and relabelled, never
+    TIDIES UP rather than accumulating: Current plan means the PLAN -
+    the live proposals file's approved moments
+    (`plan_provenance.current_plan_names`), never the reels this call
+    placed - so building one reel leaves every other planned reel
+    exactly where it was, and only a reel the live plan no longer names
+    moves to `Reels/Earlier plans` - moved and relabelled, never
     deleted. A reel sitting in a bin outside that layout is where the
     captain put it and stays there (`resolve_organization.TIMELINE_BINS`). Without it, `CreateEmptyTimeline` and `ImportMedia` put
     what they make into whatever bin was CURRENT, which is wherever

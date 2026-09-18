@@ -94,7 +94,7 @@ def test_the_archive_bin_is_the_reel_archives_own():
                   file_path="", placed_by=(), folder_path=()),
          Artefact(item_id="t-old", name=retired, kind="timeline",
                   file_path="", placed_by=(), folder_path=())],
-        "/projects/p", "Master", built_reels=[REEL],
+        "/projects/p", "Master", current_reels=[REEL],
         archived_plan_names=[])
     verdict = [entry for entry in plan.verdicts
                if entry.name == retired]

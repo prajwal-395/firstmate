@@ -87,7 +87,7 @@ def a_plan(artefacts=None, **kw):
         artefacts=artefacts if artefacts is not None else a_project(),
         project_root=PROJECT_ROOT,
         master_timeline_name=MASTER,
-        built_reels=kw.pop("built_reels", BUILT),
+        current_reels=kw.pop("current_reels", BUILT),
         archived_plan_names=kw.pop("archived_plan_names", ARCHIVED),
         plan_hash=kw.pop("plan_hash", "1cf79aebb3c6" + "0" * 52),
         built_at=kw.pop("built_at", "2026-09-07T00:36:28+00:00"),
@@ -97,7 +97,7 @@ def a_plan(artefacts=None, **kw):
 # ---------------------------------------------------------------- states
 
 
-def test_the_live_provenance_record_makes_a_reel_current():
+def test_the_live_plan_makes_a_reel_current():
     assert reel_state("Reel 01 - live (harvest)", BUILT, ARCHIVED)[0] == CURRENT
 
 
@@ -165,7 +165,7 @@ def test_a_caption_bin_does_not_move_when_its_reel_changes_state():
     artefacts = a_project()
     live = {v.name: v.destination for v in a_plan(artefacts).verdicts}
     demoted = {v.name: v.destination
-               for v in a_plan(artefacts, built_reels=[]).verdicts}
+               for v in a_plan(artefacts, current_reels=[]).verdicts}
     assert live["sub_live_a.mov"] == demoted["sub_live_a.mov"]
     assert live["Reel 01 - live (harvest)"] != \
         demoted["Reel 01 - live (harvest)"]
@@ -390,7 +390,7 @@ def test_a_reel_in_a_bin_the_pipeline_does_not_manage_stays_there():
         timeline("t-vox", "Reel 09 - your-website-is-only-20-percent (vox test)",
                  folder=("VOX test",)),
     ]
-    plan = a_plan(artefacts, built_reels=["Reel 01 - seo-ranks-geo-understands"],
+    plan = a_plan(artefacts, current_reels=["Reel 01 - seo-ranks-geo-understands"],
                   archived_plan_names=["Reel 05 - the-audit-that-was-eye-opening"])
     assert plan.verdicts == []
     assert plan.moves == []
@@ -403,7 +403,7 @@ def test_a_reel_in_a_bin_the_pipeline_does_not_manage_stays_there():
     # A project the captain organised reads as organised: the gate must
     # not fail correct output (AGENTS.md 10.4).
     assert findings(artefacts, a_plan(artefacts,
-                    built_reels=["Reel 01 - seo-ranks-geo-understands"],
+                    current_reels=["Reel 01 - seo-ranks-geo-understands"],
                     archived_plan_names=["Reel 05 - the-audit-that-was-eye-opening"])) == []
 
 

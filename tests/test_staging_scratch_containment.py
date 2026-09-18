@@ -84,7 +84,7 @@ def a_plan(artefacts, **kw):
         artefacts=artefacts,
         project_root=PROJECT_ROOT,
         master_timeline_name=MASTER,
-        built_reels=kw.pop("built_reels", []),
+        current_reels=kw.pop("current_reels", []),
         archived_plan_names=kw.pop("archived_plan_names", []),
         **kw)
 
@@ -258,7 +258,7 @@ def test_a_promoted_final_does_not_strand_in_the_scratch_bin():
         timeline("t-master", MASTER),
         timeline("t-final-13", FINAL_13, folder=(bins.SCRATCH_BIN,)),
     ]
-    plan = a_plan(artefacts, built_reels=[FINAL_13])
+    plan = a_plan(artefacts, current_reels=[FINAL_13])
     moves = {v.name: v.destination for v in plan.moves}
     assert moves[FINAL_13] == (
         bins.REELS_BIN, bins.REEL_STATE_BINS[org.CURRENT])

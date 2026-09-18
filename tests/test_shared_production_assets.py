@@ -51,7 +51,7 @@ def timeline(item_id, name):
 def a_plan(artefacts):
     return plan_organization(
         artefacts=artefacts, project_root=PROJECT_ROOT,
-        master_timeline_name=MASTER, built_reels=[REEL_01, REEL_09],
+        master_timeline_name=MASTER, current_reels=[REEL_01, REEL_09],
         archived_plan_names=[])
 
 

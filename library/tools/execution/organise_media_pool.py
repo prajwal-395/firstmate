@@ -189,8 +189,15 @@ def read_pool(project) -> tuple[list[Artefact], list[str], dict[str, str], str]:
 
 def plan_for_project(project, project_folder: str,
                      master_timeline_name: str) -> tuple[Plan, list[Artefact], list[str], dict[str, str]]:
-    """Read the project and the plan records, and decide what belongs where."""
-    from library.tools.plan_provenance import archived_timeline_names, read_provenance
+    """Read the project and the plan records, and decide what belongs where.
+
+    Current plan means the PLAN: the live proposals file's approved
+    moments (`plan_provenance.current_plan_names`), never the reels the
+    last build happened to place - so building one reel leaves every
+    other planned reel exactly where it was, while a reel the live plan
+    genuinely no longer names still demotes to Earlier plans."""
+    from library.tools.plan_provenance import (
+        archived_timeline_names, current_plan_names, read_provenance)
 
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     provenance = read_provenance(review_dir) or {}
@@ -199,7 +206,7 @@ def plan_for_project(project, project_folder: str,
         artefacts=artefacts,
         project_root=project_folder,
         master_timeline_name=master_timeline_name,
-        built_reels=provenance.get("built_reels") or [],
+        current_reels=current_plan_names(project_folder, provenance),
         archived_plan_names=archived_timeline_names(review_dir),
         root_bin=root_name,
         plan_hash=provenance.get("plan_content_hash") or "",

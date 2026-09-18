@@ -262,7 +262,7 @@ def test_the_organiser_files_a_stray_archived_timeline_back():
                   file_path="", placed_by=(), folder_path=()),
          Artefact(item_id="t-old", name=archived, kind="timeline",
                   file_path="", placed_by=(), folder_path=())],
-        "/projects/p", "Master", built_reels=[REEL],
+        "/projects/p", "Master", current_reels=[REEL],
         archived_plan_names=[])
     verdict = [entry for entry in plan.verdicts
                if entry.name == archived]

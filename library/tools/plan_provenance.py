@@ -610,6 +610,51 @@ def read_provenance(review_dir: str) -> Optional[dict]:
     return json.loads(p.read_text(encoding="utf-8"))
 
 
+def current_plan_names(project_folder: str,
+                       provenance: Optional[dict] = None) -> set[str]:
+    """Every reel that belongs in Current plan: the live plan's APPROVED moments.
+
+    Read from the proposals file (`reel_proposals_v2.json`), the same file
+    the builder builds from (`reel_build.rebuild_reels_in_project` reads it
+    through `reel_proposal.read_proposal`), filtered to what the captain
+    approved. Whether some particular build call happened to rebuild a
+    reel is irrelevant to where it is filed: a partial build leaves every
+    other planned reel exactly where it was, and only a reel the live plan
+    no longer names demotes to Earlier plans.
+
+    This is deliberately NOT the provenance record's `built_reels`. That
+    record says which plan a BUILD consumed and which reels it placed -
+    and on a plan-hash change it drops every entry but the reels that
+    built (see `write_provenance`: a different plan does not merge), so
+    after one single-reel build it names one reel while the plan still
+    names twenty-four. Filing by it reads a partial build as a plan
+    change and files every other reel as history. Measured 2026-09-18 on
+    the captain's project: building Reel 02 alone demoted eight accepted
+    reels to Earlier plans, because the plan hash had rotated under them.
+
+    Falls back to the provenance record's `built_reels` when the live
+    plan cannot be read at all - said loudly     on stderr, because a filing
+    by a stale record is a guess being kept quiet. Falling back keeps
+    the current filing instead of mass-demoting: an unreadable plan is
+    "nothing here can say", never evidence that every reel left it.
+    """
+    import sys as _sys
+
+    try:
+        from library.tools.reel_proposal import (
+            proposal_path, read_proposal)
+        moments = read_proposal(str(proposal_path(project_folder)))
+    except Exception as exc:                        # noqa: BLE001
+        fallback = set(((provenance or {}).get("built_reels")) or [])
+        print(f"  live plan unreadable ({exc}) - filing by the "
+              f"provenance record's {len(fallback)} built reel(s) "
+              f"instead of demoting what nothing said left",
+              file=_sys.stderr)
+        return fallback
+    return {m.timeline_name for m in moments
+            if str(getattr(m.approval, "value", m.approval)) == "approved"}
+
+
 def check_plan_matches_provenance(
     plan_path: str,
     provenance: dict,
