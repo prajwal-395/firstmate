@@ -28,6 +28,10 @@ import sys
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+from library.tools.caption_reading import (
+    apply_caption_reading,
+    apply_caption_reading_text,
+)
 from library.tools.render_fonts import measurable_font_path
 from library.tools.safe_area import resolve_safe_area
 from library.tools.subtitle_segment_id import slug
@@ -894,12 +898,21 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 if w["end"] > block_start - 0.05
                 and w["start"] < block_end + 0.05
             ]
+            # Case, then reading, BEFORE grouping: the fit is measured
+            # on what is drawn, so "SEO 2.0" groups at its own width
+            # rather than at "seo two point oh"'s. See
+            # library/tools/caption_reading.py.
+            timeline_words = [
+                {**w, "word": apply_caption_case(w["word"], caption_case)}
+                for w in timeline_words
+            ]
+            timeline_words = apply_caption_reading(timeline_words)
             groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
 
             for g in groups:
-                entry_text = apply_caption_case(g["text"], caption_case).strip()
+                entry_text = g["text"].strip()
                 subtitle_entries.append({
                     "id": _next_id(block["position"]),
                     "card_index": _next_card_index(block["position"]),
@@ -912,7 +925,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     "word_count": g["word_count"],
                     "words": [
                         {
-                            "word": apply_caption_case(w["word"], caption_case).strip(),
+                            "word": w["word"].strip(),
                             "start": w["start"],
                             "end": w["end"],
                         }
@@ -986,12 +999,20 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     if w["end"] > seg_tl_start - 0.05
                     and w["start"] < seg_tl_end + 0.05
                 ]
+                # Case, then reading, BEFORE grouping - the same reason
+                # as the hook branch above: the fit is measured on what
+                # is drawn (library/tools/caption_reading.py).
+                timeline_words = [
+                    {**w, "word": apply_caption_case(w["word"], caption_case)}
+                    for w in timeline_words
+                ]
+                timeline_words = apply_caption_reading(timeline_words)
                 groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
 
                 for g in groups:
-                    entry_text = apply_caption_case(g["text"], caption_case).strip()
+                    entry_text = g["text"].strip()
                     subtitle_entries.append({
                         "id": _next_id(block["position"]),
                         "card_index": _next_card_index(block["position"]),
@@ -1004,7 +1025,7 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                         "word_count": g["word_count"],
                         "words": [
                             {
-                                "word": apply_caption_case(w["word"], caption_case).strip(),
+                                "word": w["word"].strip(),
                                 "start": w["start"],
                                 "end": w["end"],
                             }
@@ -1159,11 +1180,24 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 file=sys.stderr,
             )
 
-    # All text matches the configured caption case
+    # Every card reads as the caption path renders it: lowercase, then
+    # the declared reading. Acronyms ("SEO") and digits ("2.0") are
+    # uppercase by captain's ruling, so a bare lowercase assert would
+    # fail correct output - the contract is that re-reading a card's
+    # own lowercase changes nothing (the reading is idempotent; see
+    # library/tools/caption_reading.py).
     if caption_case != "as_written":
         for sub in subtitle_entries:
-            assert sub["text"] == sub["text"].lower(), \
-                f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} is not lowercase: {sub['text']}"
+            assert apply_caption_reading_text(
+                sub["text"].lower()) == sub["text"], \
+                f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} " \
+                f"is not the declared reading of its lowercase: {sub['text']}"
+            for word in sub.get("words", []):
+                assert apply_caption_reading_text(
+                    word["word"].lower()) == word["word"], \
+                    f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} " \
+                    f"word is not the declared reading of its " \
+                    f"lowercase: {word['word']}"
 
     # Word count warnings
     for sub in subtitle_entries:
@@ -1312,7 +1346,9 @@ def splice_region_plan(audio_spine: dict, stored_plan: dict, scope,
     """
     from library.tools.spine_contract import blocks_overlapping
     from library.tools.subtitle_splice import (
-        assert_durations_preserved, splice_plan, splice_report,
+        assert_durations_preserved,
+        splice_plan,
+        splice_report,
     )
 
     span = scope.region_span
