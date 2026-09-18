@@ -1313,7 +1313,11 @@ def rename_span_record_reels(project_folder: str, mapping: dict) -> None:
 
     The staging half of promotion, mirroring `rename_record_reels`: the
     verifier graded the staging against this file, and after promotion
-    the same resolutions live under the final name.
+    the same resolutions live under the final name. A record the previous
+    build left under the final name is REPLACED, not kept beside the
+    renamed one: two records for one reel leave `span_record_for_reel`
+    reading the stale first, so the next verifier grades the promoted
+    timeline against the absence.
     """
     if not mapping:
         return
@@ -1322,9 +1326,12 @@ def rename_span_record_reels(project_folder: str, mapping: dict) -> None:
         return
     with open(path, "r", encoding="utf-8") as handle:
         stored = json.load(handle) or {}
-    for record in (stored.get("plans") or []):
+    finals = set(mapping.values())
+    stored["plans"] = [record for record in (stored.get("plans") or [])
+                       if record.get("reel") not in finals]
+    for record in stored["plans"]:
         if record.get("reel") in mapping:
-            record["reel"] = mapping[record["reel"]]
+            record["reel"] = mapping[record.get("reel")]
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(stored, handle, indent=2)
 

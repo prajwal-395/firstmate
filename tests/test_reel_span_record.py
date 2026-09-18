@@ -202,6 +202,28 @@ def test_records_follow_staging_rename_and_refusal_drop(tmp_path):
     assert span.read_span_records(str(project))["plans"] == []
 
 
+def test_staging_rename_replaces_the_previous_final_record(tmp_path):
+    project = tmp_path / "proj"
+    _answer_file(project, [_refused_beat()])
+    stale = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 09 - plays with his mind")
+    span.write_span_records(str(project), [stale])
+    _answer_file(project, [_resolving_beat()])
+    fresh = span.span_record_for_build(
+        _Moment(), _transcript(), _ranges(), str(project),
+        fps=30.0, timeline_name="Reel 09 - plays STAGING")
+    span.write_span_records(str(project), [fresh])
+    span.rename_span_record_reels(
+        str(project), {"Reel 09 - plays STAGING": "Reel 09 - plays with his mind"})
+    records = span.read_span_records(str(project))
+    matches = [p for p in records["plans"]
+               if p["reel"] == "Reel 09 - plays with his mind"]
+    assert len(matches) == 1
+    assert span.span_record_for_reel(
+        records, "Reel 09 - plays with his mind")["basis"] == fresh["basis"]
+
+
 def test_no_record_file_reads_as_no_record():
     assert span.read_span_records("/no/such/project") == {}
 
