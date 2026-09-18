@@ -342,6 +342,38 @@ def test_no_recorded_override_costs_nothing(tmp_path):
         14.0)
 
 
+def test_a_multi_property_aim_proves_the_window_once_all_hold(tmp_path):
+    """A whole-shot aim is proved whole, not property by property.
+
+    A multi-property aim (zoom plus pan plus tilt for one refused
+    shot) arrives as one record per property. Proving the screen
+    window after the first one fails on the three not yet set -
+    measured on Reel 24, 2026-09-18, where Pan held while ZoomX was
+    still 1 and the build refused before ZoomX was ever set. Each
+    property is still judged by its own read-back as it lands; the
+    window is proved once, on the merged hold.
+    """
+    from library.tools import reel_build
+    project = _project(tmp_path)
+    _write_edits_file(project, [
+        _override(prop="ZoomX", value=2.4),
+        _override(prop="ZoomY", value=2.4),
+        _override(prop="Pan", value=0.0),
+        _override(prop="Tilt", value=0.0),
+    ])
+    item = _Item()
+    item.held = {"Pan": 0.0, "Tilt": 0.0, "ZoomX": 1.0, "ZoomY": 1.0}
+    applied = reel_build.apply_transform_overrides(
+        "Reel 09", _TrackPlan(), {"1": 1}, [_span((10.0, 14.0))],
+        _Timeline([item]), _tx(), str(project), 1080, 1920,
+        screen_window=(18.0, 259.5, 1061.0, 1661.0))
+    assert applied == 4
+    assert item.GetProperty("ZoomX") == pytest.approx(2.4)
+    assert item.GetProperty("ZoomY") == pytest.approx(2.4)
+    assert [prop for prop, _ in item.sets] == [
+        "ZoomX", "ZoomY", "Pan", "Tilt"]
+
+
 # ── 4. The write side: record, refuse, supersede ────────────────────
 
 def test_record_creates_the_store_where_none_was_ever_written(tmp_path):

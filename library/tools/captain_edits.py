@@ -1259,7 +1259,38 @@ def retime_ranges(ranges: list, spans: list, transcript: dict,
             merged[-1][1] = max(merged[-1][1], end)
         else:
             merged.append([start, end])
-    return ([(round(start, 3), round(end, 3)) for start, end in merged],
+    # Play order, not master order. The caller lays `ranges` in the
+    # order the reel plays them - body ranges, then the closing CTA,
+    # which may come from anywhere in the episode - and every
+    # downstream reader (the ending first among them) reads the LAST
+    # range as the close. Merging above sorts by master time, so an
+    # early-master CTA sorts before the body and the ending truncates
+    # the body to the CTA's shot end and refuses (measured on Reel 16,
+    # 2026-09-18: a head pin re-sorted the CTA first and the build
+    # died in `apply_ending`). Trims only move edges, never reorder,
+    # so each merged interval belongs to the input range it overlaps;
+    # emit groups in input order, master order inside a group, and
+    # anything overlapping no input range (which a pure edge-move
+    # cannot produce) at the end rather than dropped.
+    def _overlaps(interval, want) -> bool:
+        try:
+            lo, hi = float(interval[0]), float(interval[1])
+            rs, re_ = float(want[0]), float(want[1])
+        except (TypeError, ValueError, IndexError):
+            return False
+        return lo < re_ and hi > rs
+
+    ordered: list = []
+    claimed = [False] * len(merged)
+    for want in ranges or []:
+        for index, interval in enumerate(merged):
+            if not claimed[index] and _overlaps(interval, want):
+                ordered.append(interval)
+                claimed[index] = True
+    for index, interval in enumerate(merged):
+        if not claimed[index]:
+            ordered.append(interval)
+    return ([(round(start, 3), round(end, 3)) for start, end in ordered],
             applied, held, stale)
 
 

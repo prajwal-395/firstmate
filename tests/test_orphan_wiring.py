@@ -106,6 +106,35 @@ def test_retime_ranges_matches_placement_rebuild():
     assert placed_after[0]["source_in"] == pytest.approx(50.5)
 
 
+def test_retime_ranges_keeps_play_order_with_early_master_cta():
+    """A head pin must not re-sort the CTA before the body.
+
+    The reel plays body ranges, then the closing CTA - which may come
+    from anywhere in the episode, including EARLIER master seconds.
+    The merge-back used to sort by master time, so a pin on Reel 16's
+    body (2026-09-18) returned the 1168s CTA before the 1338s body and
+    the ending truncated the body to the CTA's shot end and refused
+    the build. Play order in, play order out.
+    """
+    transcript = {"segments": [
+        {"text": "check it out",
+         "words": _words("check", "it", "out", start=10.0)},
+        {"text": "what you are saying reverts back if your brand "
+                 "is mentioned here today",
+         "words": _words("what", "you", "are", "saying", "reverts",
+                          "back", "if", "your", "brand", "is",
+                          "mentioned", "here", "today", start=30.0)}]}
+    spans = [{"master": (30.0, 40.0)}, {"master": (10.0, 12.0)}]
+    edits = [{"kind": "span_retime",
+              "anchor_phrase": "if your brand is mentioned here",
+              "edge": "head", "reason": "reel 16 re-pin"}]
+    ranges, applied, _, stale = captain_edits.retime_ranges(
+        [(30.0, 40.0), (10.0, 12.0)], spans, transcript, edits,
+        fps=24.0)
+    assert not stale and len(applied) == 1
+    assert ranges == [(33.0, 40.0), (10.0, 12.0)]
+
+
 def test_builder_threading_names_ranges():
     """`build_reel_timeline` takes precomputed (trimmed) ranges instead
     of recomputing them from the moment - the static half of the seam

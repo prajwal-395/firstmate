@@ -4967,6 +4967,25 @@ def _derive_plan_from_master(
     # Compute placements from master clips
     master_clips = master_snapshot.picture_clips()
 
+    # The captain's recorded trims (`span_retime`), re-derived with the
+    # same code the build used (`captain_edits.retime_ranges` over a
+    # placements probe) and at the same seam - after the closer is
+    # appended and before the ending reads the last range. A reel
+    # cannot be built to one rule and checked against another: without
+    # this every honoured trim reads as plan mismatch (measured on
+    # Reel 16, 2026-09-18: the pinned 1802-frame timeline graded
+    # against a re-derived 1926-frame plan, plus a logo card planned
+    # 124 frames past where the trimmed build placed it).
+    if project_folder:
+        from library.tools import captain_edits as _edits
+
+        _all_edits = _edits.load_edits(project_folder)
+        if any(e.get("kind") == "span_retime" for e in _all_edits):
+            kr, _rt_applied, _rt_held, _rt_stale = _edits.retime_ranges(
+                list(kr), compute_placements(kr, master_clips, fps),
+                transcript or {}, _all_edits, fps=fps)
+            _edits.report_stale(_rt_stale)
+
     # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`), re-derived
     # with the same code the build used and at the same seam - after
     # the closer is appended and before cards, captions and placements

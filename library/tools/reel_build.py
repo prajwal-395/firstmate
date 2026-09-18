@@ -4594,6 +4594,15 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
             if not records:
                 continue
             source_file = place["clip"].source_file
+            # ALL of this span's holds land before anything is proved:
+            # a multi-property aim (zoom plus pan plus tilt for one
+            # shot) arrives as one record per property, and proving
+            # the window after the first one fails on the three not
+            # yet set (measured on Reel 24, 2026-09-18: Pan held while
+            # ZoomX was still 1, and the re-proof refused the build
+            # before ZoomX was ever set). Each property is still
+            # judged by its own read-back as it lands; the window is
+            # proved once, on the merged hold.
             for record in records:
                 prop, value = record["property"], record["value"]
                 before = _held_property(item, prop)
@@ -4612,27 +4621,35 @@ def apply_transform_overrides(name: str, track_plan, video_row_by_angle: dict,
                         f"holds {held:g} (asked {value:g}). A silent "
                         f"clamp is a rebuild that reports the "
                         f"captain's value and plays another.")
-                if screen_window is not None:
-                    current = {key: _held_property(item, key)
-                               for key in ("ZoomX", "ZoomY", "Pan",
-                                           "Tilt")}
-                    if any(v is not None for v in current.values()):
-                        effective = {
-                            key: (current[key]
-                                  if current[key] is not None
-                                  else (1.0 if key.startswith("Zoom")
-                                        else 0.0))
-                            for key in current}
-                        try:
-                            assert_punch_took(
-                                name, item, source_file, effective,
-                                _source_frame_size(item), width, height,
-                                screen_window, draw_gain=draw_gain)
-                        except Exception as exc:
-                            raise ReelBuildError(
-                                f"{name}: the captain's {prop}={value:g} "
-                                f"on {item.GetName()!r} uncovers the "
-                                f"screen window: {exc}") from exc
+                record["held"] = held
+                record["before"] = before
+            if screen_window is not None:
+                current = {key: _held_property(item, key)
+                           for key in ("ZoomX", "ZoomY", "Pan",
+                                       "Tilt")}
+                if any(v is not None for v in current.values()):
+                    effective = {
+                        key: (current[key]
+                              if current[key] is not None
+                              else (1.0 if key.startswith("Zoom")
+                                    else 0.0))
+                        for key in current}
+                    try:
+                        assert_punch_took(
+                            name, item, source_file, effective,
+                            _source_frame_size(item), width, height,
+                            screen_window, draw_gain=draw_gain)
+                    except Exception as exc:
+                        first = records[0]
+                        prop, value = (first["property"],
+                                       first["value"])
+                        raise ReelBuildError(
+                            f"{name}: the captain's {prop}={value:g} "
+                            f"on {item.GetName()!r} uncovers the "
+                            f"screen window: {exc}") from exc
+            for record in records:
+                prop, value = record["property"], record["value"]
+                held, before = record.get("held"), record.get("before")
                 held_desc = (f"{held:g}" if held is not None
                              else "unreadable")
                 before_desc = (f"{before:g}" if before is not None

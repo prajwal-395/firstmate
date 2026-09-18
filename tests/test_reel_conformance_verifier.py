@@ -1737,6 +1737,63 @@ class TestClosingCallToAction:
         plan = self._derive(self._moment(cta=(468.0, 476.0)))
         assert plan.plan_seconds == pytest.approx(68.0)
 
+    def test_a_recorded_head_trim_survives_re_derivation_in_play_order(
+            self, tmp_path):
+        """A reel cannot be built to one rule and checked against another.
+
+        The build trims keep ranges per recorded `span_retime` pins
+        (`captain_edits.retime_ranges`) before the ending reads the last
+        range. The verifier re-derived without them, so Reel 16's pinned
+        1802-frame timeline (2026-09-18) was graded against a 1926-frame
+        plan and failed F4 - plus a logo card planned 124 frames past
+        where the trimmed build placed it. The re-derivation applies the
+        same trims at the same seam, and the early-master CTA still
+        closes the reel.
+        """
+        def _timed(tokens, start):
+            words, cursor = [], start
+            for token in tokens:
+                words.append({"word": token, "start": cursor,
+                              "end": round(cursor + 0.4, 3),
+                              "timed": True})
+                cursor = round(cursor + 0.5, 3)
+            return words
+
+        transcript = {"segments": [
+            _row(468.0, 476.0, "Craig", "check it out",
+                 words=_timed(["check", "it", "out"], 468.0)),
+            _row(600.0, 660.0, "Craig",
+                 "what you are saying reverts back if your brand is "
+                 "mentioned here today",
+                 words=_timed(
+                     ["what", "you", "are", "saying", "reverts", "back",
+                      "if", "your", "brand", "is", "mentioned", "here",
+                      "today"], 600.0)),
+        ]}
+        external = tmp_path / "external"
+        external.mkdir(exist_ok=True)
+        (external / "captain_edits.json").write_text(
+            json.dumps({"key": "captain_edits", "source": "test",
+                        "value": [{
+                            "kind": "span_retime",
+                            "anchor_phrase": (
+                                "if your brand is mentioned here"),
+                            "edge": "head",
+                            "reason": "reel 16 re-pin"}]}),
+            encoding="utf-8")
+        from library.tools.reel_conformance_verifier import (
+            _derive_plan_from_master)
+        plan = _derive_plan_from_master(
+            "Reel 01 - retrieval", 1, 600.0, 660.0, self._master(),
+            transcript,
+            call_to_action=(468.0, 476.0),
+            moment=self._moment(cta=(468.0, 476.0)),
+            project_folder=str(tmp_path))
+        assert [r[0] for r in plan.keep_ranges] == pytest.approx(
+            [603.0, 468.0], abs=0.05)
+        assert [r[1] for r in plan.keep_ranges] == pytest.approx(
+            [660.0, 476.0], abs=0.05)
+
     def test_the_closers_own_boundaries_are_checked_for_cut_speech(self):
         """F8 tested only the body's two boundaries. The closer's are the
         ones that decide whether the reel ends on a finished sentence."""
