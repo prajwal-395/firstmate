@@ -1163,6 +1163,18 @@ def write_motion_request(reel_number: int, reel_name: str,
     path = os.path.join(directory, motion_request_stem(reel_number) + ".json")
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
+    # The ask, logged AT THE ASK: request files are rewritten on every
+    # build, so their mtime is the last rewrite and not the ask - the
+    # phase log carries its own timestamp instead (`reel_phase_log`).
+    try:
+        from library.tools import reel_phase_log as _phase_log
+        _phase_log.log_event(
+            project_folder, int(reel_number), reel_name,
+            _phase_log.PLAN_ASKED,
+            detail=f"motion ask written: "
+                   f"{motion_request_stem(reel_number)}.json")
+    except Exception:
+        pass
     return path
 
 

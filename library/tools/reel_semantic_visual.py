@@ -264,6 +264,13 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
     except ReelSpineError as why:
         name = getattr(moment, "timeline_name", f"reel {reel_number}")
         print(f"  {name}: NO SEMANTIC REQUEST - {why}", file=sys.stderr)
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            _phase_log.log_wait(
+                project_folder, reel_number, name,
+                f"no semantic ask - {why}")
+        except Exception:
+            pass
         return ""
     context = bridge_context(spine, project_folder, fps)
     try:
@@ -297,6 +304,17 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
     path = os.path.join(str(out_dir), request_stem(reel_number) + ".json")
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(request, handle, indent=2)
+    # The ask, logged AT THE ASK: this file is rewritten on every build,
+    # so its mtime is the last rewrite and not the ask - the phase log
+    # carries its own timestamp instead (`reel_phase_log`).
+    try:
+        from library.tools import reel_phase_log as _phase_log
+        _phase_log.log_event(
+            project_folder, reel_number,
+            getattr(moment, "timeline_name", ""), _phase_log.PLAN_ASKED,
+            detail=f"semantic ask written: {request_stem(reel_number)}.json")
+    except Exception:
+        pass
     return path
 
 
@@ -354,6 +372,18 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
         print(f"  {name}: NO SEMANTIC VISUALS - no model answer on file "
               f"({request_stem(reel_number)}.json), building without",
               file=sys.stderr)
+        # The wait, by the waiter: the answer never arrived, so the reel
+        # builds without visuals. Logged here, where both facts are in
+        # hand (`reel_phase_log`).
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            _phase_log.log_wait(
+                project_folder, reel_number, name,
+                f"no model answer on file "
+                f"({request_stem(reel_number)}.json) - "
+                f"building without semantic visuals")
+        except Exception:
+            pass
         return [], _record(name, AWAITING_MODEL_ANSWER, [], resolved=None,
                            dropped=[])
     if not answer:
@@ -831,6 +861,14 @@ def write_span_request(moment, transcript: dict, ranges, project_folder: str,
         print(f"  {name}: NO SPAN REQUEST - no timed words in "
               f"{len(list(ranges or []))} keep range(s), so no beat has "
               f"a window to land on", file=sys.stderr)
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            _phase_log.log_wait(
+                project_folder, reel_number, name,
+                "no span ask - no timed words in "
+                f"{len(list(ranges or []))} keep range(s)")
+        except Exception:
+            pass
         return ""
     bridge = _step_4_06_bridge()
     rows = []
@@ -879,6 +917,15 @@ def write_span_request(moment, transcript: dict, ranges, project_folder: str,
     path = os.path.join(str(out_dir), span_request_stem(reel_number) + ".json")
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(request, handle, indent=2)
+    # The ask, logged AT THE ASK - see `write_request` above.
+    try:
+        from library.tools import reel_phase_log as _phase_log
+        _phase_log.log_event(
+            project_folder, reel_number,
+            getattr(moment, "timeline_name", ""), _phase_log.PLAN_ASKED,
+            detail=f"span ask written: {span_request_stem(reel_number)}.json")
+    except Exception:
+        pass
     return path
 
 
@@ -1234,6 +1281,16 @@ def span_record_for_build(moment, transcript: dict, ranges, project_folder: str,
         print(f"  {name}: NO SPAN PICTURES - no model answer on file "
               f"({span_request_stem(reel_number)}.json), recording "
               f"{SPAN_NOT_PLANNED}", file=sys.stderr)
+        # The wait, by the waiter: asked, unanswered, recorded as such.
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            _phase_log.log_wait(
+                project_folder, reel_number, name,
+                f"no model answer on file "
+                f"({span_request_stem(reel_number)}.json) - "
+                f"recording {SPAN_NOT_PLANNED}")
+        except Exception:
+            pass
         return _span_record(name, SPAN_NOT_PLANNED, [])
     resolved = resolve_span_plan(
         answer, segment_words=span_segment_words(ranges, transcript),

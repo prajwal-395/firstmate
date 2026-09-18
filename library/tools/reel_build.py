@@ -8506,6 +8506,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 skipped_by_exclusion.append({"reel": name,
                                              "number": moment.number,
                                              "reason": reason})
+                try:
+                    from library.tools import reel_phase_log as _skip_log
+                    _skip_log.log_wait(
+                        project_folder, moment.number, name,
+                        f"skipped by exclusion: {reason}")
+                except Exception:
+                    pass
                 current_staging = None
                 continue
 
@@ -8679,9 +8686,10 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # the moments yet - the placer needs its own change - so an
             # all-refused plan must read as a refusal, never as a
             # decision for no pictures.
-            span_records.append(sem_vis.span_record_for_build(
+            span_record = sem_vis.span_record_for_build(
                 moment, transcript, ranges, project_folder,
-                fps=24000 / 1001, timeline_name=name))
+                fps=24000 / 1001, timeline_name=name)
+            span_records.append(span_record)
 
             # RECORD what was placed. Derived at build time and previously
             # written down nowhere, which is why the verifier could re-derive
@@ -8781,6 +8789,34 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"({drop['effect_type']}): {drop['reason']}",
                           file=sys.stderr)
 
+            # ── PHASE LOG: the answers arrived ─────────────────────
+            # Logged HERE, at the moment the answers are read, with each
+            # channel's basis - never inferred from file times later.
+            # The semantic and span waits (unanswered asks) were logged
+            # by the waiter inside `build_for_reel`/`span_record_for_build`;
+            # the motion one is logged here, where its record is in hand.
+            from library.tools import reel_phase_log as _phase_log
+            try:
+                if reel_look_decl is not None and motion_records:
+                    _motion_basis = motion_records[-1].get("basis")
+                    if _motion_basis == _look.MOTION_AWAITING_ANSWER:
+                        _phase_log.log_wait(
+                            project_folder, moment.number, name,
+                            f"no model answer on file "
+                            f"({_look.motion_request_stem(moment.number)}"
+                            f".json) - every shot plays still")
+                else:
+                    _motion_basis = "not_declared"
+                _answers_event = _phase_log.log_event(
+                    project_folder, moment.number, name,
+                    _phase_log.ANSWERS_ARRIVED,
+                    detail=(f"semantic={semantic_record.get('basis')} "
+                            f"span={span_record.get('basis')} "
+                            f"motion={_motion_basis}"))
+            except Exception:
+                _answers_event = {}
+                _motion_basis = "not_declared"
+
             # ── THE DECISION, taken with everything derived and
             # nothing placed ─────────────────────────────────────────
             # This is the last moment before Resolve is touched for
@@ -8864,6 +8900,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 # that was already there.
                 print(f"  LEAVING {final} ALONE: {_decision.reason}",
                       flush=True)
+                try:
+                    from library.tools import reel_phase_log as _alone_log
+                    _alone_log.log_wait(
+                        project_folder, moment.number, name,
+                        f"leaving alone: {_decision.reason}")
+                except Exception:
+                    pass
                 _holds.release_holds(project_folder, [name])
                 build_signatures.pop(name, None)
                 caption_hashes.pop(name, None)
@@ -8878,6 +8921,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 current_staging = None
                 continue
             print(f"  placing {name}: {_decision.reason}", flush=True)
+            # The build starts HERE: everything between the answers and
+            # this line was derivation, so the seconds since
+            # `answers_arrived` name exactly what an M05-class stall
+            # costs - and "no engine wait recorded between" says the
+            # stall sat upstream of the engine (worker loop, model
+            # turns, another lane's Resolve lease), not inside it.
+            try:
+                _waited = _phase_log.seconds_since(_answers_event)
+                _phase_log.log_event(
+                    project_folder, moment.number, name,
+                    _phase_log.BUILD_STARTED,
+                    detail=(f"placing {name}: {_decision.reason}"
+                            + (f"; {_waited}s since answers arrived "
+                               f"(derivation only, no engine wait "
+                               f"recorded between)"
+                               if _waited is not None else "")))
+            except Exception:
+                pass
 
             build_result = build_reel_timeline(
                 project=project,
@@ -9019,6 +9080,13 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # name off this list and the except below removes whatever
             # half-built container may exist under it.
             built_reel_names.append(name)
+            try:
+                _phase_log.log_event(
+                    project_folder, moment.number, name,
+                    _phase_log.BUILD_FINISHED,
+                    detail=f"placed {name} (picture, captions, comps)")
+            except Exception:
+                pass
             for card in cards or ():
                 # SAID on the run that placed it, rather than recorded in the
                 # return value: the verifier re-derives the cards from the
@@ -9029,9 +9097,21 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 print(f"  placed {card.placement} card {card.render_name} at "
                       f"reel frame {card.reel_start_frame} "
                       f"({card.duration_frames}f)", flush=True)
-    except Exception:
+    except Exception as exc:
         placed = list(dict.fromkeys(
             built_reel_names + ([current_staging] if current_staging else [])))
+        try:
+            from library.tools import reel_phase_log as _fail_log
+            if current_staging:
+                try:
+                    _failed_number = int(moment.number)
+                except Exception:
+                    _failed_number = 0
+                _fail_log.log_wait(
+                    project_folder, _failed_number, current_staging,
+                    f"build failed: {exc}")
+        except Exception:
+            pass
         discard_staged_reels(project, project_folder, placed,
                              master_timeline_name)
         raise
@@ -9167,6 +9247,15 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     except ValueError as bad_declaration:
         raise ReelBuildError(
             f"REFUSING to build: {bad_declaration}") from bad_declaration
+    # Staging container -> reel number, so the phase log can name which
+    # reel each staging line belongs to without parsing timeline names.
+    _staged_numbers: dict = {}
+    for _m in building:
+        try:
+            _staged_numbers[
+                staging_name(built_name(_m, name_suffix))] = int(_m.number)
+        except Exception:
+            pass
     if verify and not built_reel_names and left_alone:
         # Nothing was placed, and that IS the answer: every reel this
         # call named already carries what this build would have given
@@ -9198,16 +9287,34 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
                 only_reels=list(built_reel_names),
             )
-        except Exception:
+        except Exception as gate_refused:
             # The gate refused: the staging containers and their
             # baselines go, the approved timelines were never named.
             # Reel 5's F17+F8 is exactly this path - and the reel the
             # captain approved is still in the project afterwards.
             # The pool is filed too, so the refused staging's caption
             # imports do not stay loose where ImportMedia left them.
+            try:
+                from library.tools import reel_phase_log as _gate_log
+                for _staged in built_reel_names:
+                    _gate_log.log_wait(
+                        project_folder,
+                        _staged_numbers.get(_staged, 0), _staged,
+                        f"verification refused: {gate_refused}")
+            except Exception:
+                pass
             discard_staged_reels(project, project_folder, built_reel_names,
                                  master_timeline_name)
             raise
+        try:
+            from library.tools import reel_phase_log as _verified_log
+            for _staged in built_reel_names:
+                _verified_log.log_event(
+                    project_folder, _staged_numbers.get(_staged, 0),
+                    _staged, _verified_log.VERIFIED,
+                    detail="conformance gate passed over the staging")
+        except Exception:
+            pass
         promoted = promote_staged_reels(
             project_folder, resolve_name, master_timeline_name,
             dict(staged_to_final), organise=organise,
@@ -9219,6 +9326,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # now is the promoted timelines, and the sidecar files were
         # renamed to match by the promotion.
         final_names = promoted["promoted"]
+        try:
+            from library.tools import reel_phase_log as _promo_log
+            for _final in final_names:
+                _promo_log.log_event(
+                    project_folder,
+                    _staged_numbers.get(staged_to_final.get(_final, ""), 0),
+                    _final, _promo_log.CONSOLIDATED,
+                    detail=f"promoted {staged_to_final.get(_final, '')} "
+                           f"onto {_final}")
+        except Exception:
+            pass
         caption_hashes = {
             final: caption_hashes[staged_to_final[final]]
             for final in final_names if staged_to_final[final] in caption_hashes}
@@ -10297,6 +10415,36 @@ def build_reel_variants(project_slug: str, reel_number: int,
                     print(f"  {final}: NO PICTURE MOTION - no model "
                           f"answer on file, every shot plays still",
                           file=sys.stderr)
+            # Phase log: the variant's answers, at the moment they are
+            # read - the same `answers_arrived` the rebuild logs, keyed
+            # to the variant's own timeline name.
+            from library.tools import reel_phase_log as _vphase_log
+            try:
+                _v_motion_basis = (
+                    motion_record.get("basis")
+                    if reel_look_decl is not None else "not_declared")
+                if (reel_look_decl is not None
+                        and _v_motion_basis
+                        == _reel_look.MOTION_AWAITING_ANSWER):
+                    _vphase_log.log_wait(
+                        project_folder, int(reel_number), final,
+                        f"no model answer on file "
+                        f"({_reel_look.motion_request_stem(moment.number)}"
+                        f".json) - every shot plays still")
+                _v_answers = _vphase_log.log_event(
+                    project_folder, int(reel_number), final,
+                    _vphase_log.ANSWERS_ARRIVED,
+                    detail=(f"semantic={_semantic_record.get('basis')} "
+                            f"motion={_v_motion_basis}"))
+                _v_waited = _vphase_log.seconds_since(_v_answers)
+                _vphase_log.log_event(
+                    project_folder, int(reel_number), final,
+                    _vphase_log.BUILD_STARTED,
+                    detail=(f"building variant {final}"
+                            + (f"; {_v_waited}s since answers arrived"
+                               if _v_waited is not None else "")))
+            except Exception:
+                pass
 
             build_result = build_reel_timeline(
                 project=project,
@@ -10391,6 +10539,18 @@ def build_reel_variants(project_slug: str, reel_number: int,
             print(f"  {final}: conformance-clean "
                   f"({len(report.get('checks_run', []))} checks)",
                   flush=True)
+            try:
+                _vphase_log.log_event(
+                    project_folder, int(reel_number), final,
+                    _vphase_log.BUILD_FINISHED,
+                    detail=f"variant {final} placed and conformance-clean")
+                _vphase_log.log_event(
+                    project_folder, int(reel_number), final,
+                    _vphase_log.VERIFIED,
+                    detail=(f"structural conformance passed "
+                            f"({len(report.get('checks_run', []))} checks)"))
+            except Exception:
+                pass
             # The ROWS of what was just placed, stored off Resolve.
             # `round_diff.diff_reel` over two of these is what turns
             # "watch both and decide" into a readable list of what

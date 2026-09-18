@@ -115,11 +115,31 @@ def verify_reels(data: dict) -> dict:
             "is nothing this node may grade. Grading every reel timeline "
             "instead would re-grade work this build never touched; "
             "re-run build_reels.")
+    # Staging/final container -> reel number, read off the plan the
+    # build itself recorded (never parsed out of a timeline name), so
+    # the phase log names which reel each line belongs to. Unknown is
+    # 0 with the full timeline name - an honest absence, not a guess.
+    _staging_numbers: dict = {}
+    _final_numbers: dict = {}
+    try:
+        from library.tools.reel_build import built_name
+        from library.tools.reel_proposal import read_proposal
+        _suffix = str(build.get("name_suffix") or "")
+        for _m in read_proposal(plan_path):
+            try:
+                _final_numbers[built_name(_m, _suffix)] = int(_m.number)
+            except Exception:
+                pass
+    except Exception:
+        pass
     # `staged_timelines` maps final -> staging while anything is
     # staged. It is absent on records written before staging existed -
     # those timelines are already final and promote to nothing, so
     # grading them is the whole job and there is no second half.
     staged = dict(build.get("staged_timelines") or {})
+    for _final, _staging in staged.items():
+        if _final in _final_numbers:
+            _staging_numbers[_staging] = _final_numbers[_final]
     # The gain the BUILD calibrated and placed with, off its own
     # record - the verifier grades stored transforms, so on a run
     # whose renderer drew another gain the fallback default would
@@ -140,13 +160,22 @@ def verify_reels(data: dict) -> dict:
             # it is not composed by hand outside reel_build.py).
             transcript_path=str(transcript_path(project_folder)),
             only_reels=timelines_built)
-    except Exception:
+    except Exception as gate_refused:
         # The gate refused: the staging containers and their baselines
         # go before the refusal propagates, or the next build would
         # refuse on this run's debris. The approved timelines were
         # never named and are still in the project. A discard that
         # itself fails is said, never silent - but it never stops the
         # gate's own refusal, which is the verdict that matters.
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            for _staged in timelines_built:
+                _phase_log.log_wait(
+                    project_folder, _staging_numbers.get(_staged, 0),
+                    _staged,
+                    f"verification refused: {gate_refused}")
+        except Exception:
+            pass
         if staged:
             from library.tools.reel_build import discard_staged_record
             try:
@@ -160,6 +189,20 @@ def verify_reels(data: dict) -> dict:
                       f"timelines {sorted(staged.values())} in Resolve "
                       f"before re-running", file=_sys.stderr)
         raise
+
+    # The gate passed: when verification ran, per reel, at the moment
+    # it ran - a pure read that would otherwise leave no trace, which
+    # is exactly the first hypothesis the 2026-09-18 stall could not
+    # exclude (`reel_phase_log`).
+    try:
+        from library.tools import reel_phase_log as _phase_log
+        for _staged in timelines_built:
+            _phase_log.log_event(
+                project_folder, _staging_numbers.get(_staged, 0),
+                _staged, _phase_log.VERIFIED,
+                detail="conformance gate passed over the staging")
+    except Exception:
+        pass
 
     # Promotion is the build's deferred second half, and it runs HERE -
     # after this gate passed, never before. The build node stages into
@@ -201,6 +244,18 @@ def verify_reels(data: dict) -> dict:
             retain=retaining)
         organised = promoted["organised"]
         timelines_verified = list(promoted["promoted"])
+        # Consolidation ran, per reel, at the moment it ran: the staging
+        # is now the final name (`reel_phase_log`).
+        try:
+            from library.tools import reel_phase_log as _phase_log
+            for _final in timelines_verified:
+                _phase_log.log_event(
+                    project_folder, _final_numbers.get(_final, 0),
+                    _final, _phase_log.CONSOLIDATED,
+                    detail=f"promoted {staged.get(_final, '')} "
+                           f"onto {_final}")
+        except Exception:
+            pass
         # The 6.01 hook never fired for reels, so no reel build ever
         # committed its baseline (measured 2026-09-11). Snapshot each
         # promoted timeline beside the declaration it was built from
