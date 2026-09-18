@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+#
+# bin/vep: run a Python entry point under this pipeline's environment.
+#
+#   bin/vep manage_project.py build-reels <project> --only-reel 21
+#   bin/vep -m pytest tests/test_shared_environment.py -q
+#
+# A lane calls this DELIBERATELY, for the interpreter. It replaces the
+# ~200-character preamble lanes re-typed 239 times across six lanes
+# (measured 2026-09-18 from 2,016 recorded lane tool calls):
+#
+#   export RESOLVE_SCRIPT_API="..." RESOLVE_SCRIPT_LIB="...fusionscript.so" \
+#     && ~/.local/share/vep/venv-py312/bin/python3 manage_project.py ...
+#
+# plus the 379 literal venv paths. The automatic half is the HOOK -
+# `.opencode/plugins/vep-env.js`, which injects the same three variables
+# into every shell without being asked. The two are not collapsed: the
+# hook cannot choose the interpreter a command runs under (a bare
+# `python3` here is 3.14 with none of the ML stack), so the wrapper execs
+# the resolved one explicitly. Do not add a second wrapper; extend this one.
+#
+# The interpreter is resolved through `shared_environment`'s ladder - the
+# same query `scripts/full_suite_gate.sh:48-57` makes - never hardcoded
+# here and never the ambient `python3`. A previous investigation ran the
+# suite under the system interpreter and read the failures as a broken
+# main; whatever this resolves is the default (`PIPELINE_PYTHON` is
+# exported for children), so nobody hits that again.
+#
+# With no arguments, reports the resolved environment and exits 0 - the
+# cold-start proof surface. Refusal (no interpreter anywhere) exits 3
+# with the ladder's own message, VERBATIM, so the wording has one source.
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+
+# The two Resolve variables, exactly as lanes set them (and as
+# `library/tools/paths.py` defaults them). An explicit environment wins:
+# a non-standard Resolve install stays addressable.
+if [ -z "${RESOLVE_SCRIPT_API:-}" ]; then
+  RESOLVE_SCRIPT_API="/Library/Application Support/Blackmagic Design/DaVinci Resolve/Developer/Scripting"
+fi
+if [ -z "${RESOLVE_SCRIPT_LIB:-}" ]; then
+  RESOLVE_SCRIPT_LIB="/Applications/DaVinci Resolve/DaVinci Resolve.app/Contents/Libraries/Fusion/fusionscript.so"
+fi
+export RESOLVE_SCRIPT_API RESOLVE_SCRIPT_LIB
+
+# Rung 1 of the ladder is an explicit choice and wins outright - when it
+# names something executable there is nothing to resolve.
+if [ -n "${PIPELINE_PYTHON:-}" ] && [ -f "${PIPELINE_PYTHON}" ] \
+  && [ -x "${PIPELINE_PYTHON}" ]; then
+  PYTHON="${PIPELINE_PYTHON}"
+else
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "bin/vep: no python3 on PATH to even ask the interpreter ladder." >&2
+    echo "Install a Python 3, then see docs/ML_ENVIRONMENT.md." >&2
+    exit 3
+  fi
+  # The query vehicle may be ANY python3 - answering evaluates only
+  # stdlib path predicates. PYTHONPATH is scoped to this one command so
+  # the exec below inherits nothing extra.
+  REPORT="$(PYTHONPATH="${REPO_ROOT}${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m library.tools.shared_environment --resolve-interpreter \
+    --repo-root "${REPO_ROOT}" 2>/dev/null || true)"
+  PYTHON="$(printf '%s' "${REPORT}" \
+    | python3 -c "import sys, json
+try:
+    print(json.loads(sys.stdin.read()).get('python', ''))
+except ValueError:
+    print('')" 2>/dev/null)"
+  if [ -z "${PYTHON}" ]; then
+    ERROR="$(printf '%s' "${REPORT}" \
+      | python3 -c "import sys, json
+try:
+    print(json.loads(sys.stdin.read()).get('error', ''))
+except ValueError:
+    print('')" 2>/dev/null)"
+    echo "bin/vep: refusing - no interpreter carrying the ML stack." >&2
+    if [ -n "${ERROR}" ]; then
+      printf '%s\n' "${ERROR}" >&2
+    else
+      echo "(the ladder answered nothing parseable; see docs/ML_ENVIRONMENT.md)" >&2
+    fi
+    exit 3
+  fi
+fi
+
+export PIPELINE_PYTHON="${PYTHON}"
+
+if [ "$#" -eq 0 ]; then
+  printf 'PIPELINE_PYTHON=%s\n' "${PYTHON}"
+  printf 'RESOLVE_SCRIPT_API=%s\n' "${RESOLVE_SCRIPT_API}"
+  printf 'RESOLVE_SCRIPT_LIB=%s\n' "${RESOLVE_SCRIPT_LIB}"
+  exit 0
+fi
+
+exec "${PYTHON}" "$@"

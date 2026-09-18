@@ -333,39 +333,38 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 
 ## 9. Environment and dependencies
 
-- **`run` is NOT the only command needing the dedicated `.venv`: `build-reels` does too, and `ML_DEPENDENT_COMMANDS` does not list it.** The preflight is NEVER at import time and checks that list, so `reel_look` refuses the punch-in far later, inside the build, when cv2 has no Haar cascade (>=4.8,<5). A build also needs those variables set and the manager PARKED in the project's `resolve.folder` - it reads the CURRENT folder (`library/tools/timeline_ingest.py`). `tests/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
-- Set `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB` to your DaVinci Resolve installation, `HF_TOKEN` for HuggingFace models, and `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY`/`PIPELINE_PROJECTS_ROOT` to absolute paths.
+- **`run` is NOT the only command needing the dedicated `.venv`: `build-reels` does too, and `ML_DEPENDENT_COMMANDS` does not list it.** The preflight is NEVER at import time and checks that list, so `reel_look` refuses the punch-in inside the build, when cv2 has no Haar cascade (>=4.8,<5). A build also needs those variables set and the manager PARKED in the project's `resolve.folder` - it reads the CURRENT folder (`library/tools/timeline_ingest.py`). `tests/test_cli_ml_preflight.py`. [why](docs/RULE_EVIDENCE.md#the-dashboard-could-not-be-opened)
+- Set `HF_TOKEN` for HuggingFace models and `PIPELINE_SFX_LIBRARY`/`PIPELINE_MUSIC_LIBRARY`/`PIPELINE_PROJECTS_ROOT` to absolute paths. Never hand-export the Resolve preamble or re-type the venv path: `.opencode/plugins/vep-env.js` injects `RESOLVE_SCRIPT_API`/`RESOLVE_SCRIPT_LIB`/`PIPELINE_PYTHON` into every shell, and `bin/vep <py-args>` runs the ladder-resolved interpreter. `tests/test_vep_env.py`.
 - Python dependencies are in `requirements.txt`. `librosa` is required by `music_analysis`; without it the step reports `available: false` and the run fails rather than continuing silently.
 - External tools: `ffmpeg` and `ffprobe`. Node.js for Remotion subtitle rendering.
-- **A shared dependency lives ONCE PER MACHINE, outside every checkout; a checkout FINDS it, and absence REFUSES rather than skipping or falling back.** `library/tools/shared_environment.py` locates the Node store and the ML interpreter: `docs/SHARED_ENVIRONMENT.md`. Building the venv: `docs/ML_ENVIRONMENT.md`.
+- **A shared dependency lives ONCE PER MACHINE, outside every checkout; a checkout FINDS it, and absence REFUSES rather than skipping or falling back.** `library/tools/shared_environment.py` locates the Node store and the ML interpreter: `docs/SHARED_ENVIRONMENT.md`. The venv build is `docs/ML_ENVIRONMENT.md`.
 - GPU acceleration is required for Gemma 4, SAM 2, WhisperX and EasyOCR.
 - **Every `subprocess.run` capturing text must pass `encoding="utf-8"`.** `text=True` decodes with the locale codec, and this pipeline writes UTF-8 status glyphs. [why](docs/RULE_EVIDENCE.md#text-true-decodes-with-the-locale-codec)
-- **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repository's own UTF-8 sources. Only `LC_CTYPE` is restored, never `LC_NUMERIC`. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - that list, and why `LC_NUMERIC` stays put, in `library/tools/resolve_locale.py`.
+- **Reach Resolve through `library/tools/resolve_locale.scriptapp_preserving_locale`, never `dvr.scriptapp` directly.** The call resets `LC_CTYPE` to `C` down in Blackmagic's library, so `locale.getpreferredencoding()` becomes US-ASCII and every later `open()`, `Path.read_text()` or `text=True` subprocess without an explicit encoding raises `UnicodeDecodeError` on this repo's own UTF-8 sources. Only `LC_CTYPE` is restored, never `LC_NUMERIC`. **Two call sites use the wrapper (`marker_feedback`, step 6.01); eight others still call `scriptapp` directly and are unmigrated** - that list, and why `LC_NUMERIC` stays put, in `library/tools/resolve_locale.py`.
 
 ### What CI actually checks
 
 **The build has one gate that CAN fail and one report that cannot, and the two run under DIFFERENT ruff configs.**
 `ruff-ci-gate.toml` at the repository root is the enforcing half - what is enforced, what is deferred and the count of each are written down in it.
-`.github/workflows/ci.yml` runs it with NO `|| true`; the unfiltered run beside it keeps `|| true` and keeps annotating everything.
+`.github/workflows/ci.yml` runs it with NO `|| true`; the unfiltered run beside it keeps `|| true` and annotates everything.
 [why](docs/RULE_EVIDENCE.md#the-build-that-declined-to-look)
 
-- **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is exempt from that rule entirely, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
-- **The runner installs ffmpeg**, because 27 library files shell out to it and every audio and video measurement path skipped itself without it. The suite skipped HONESTLY, which is what made it invisible.
+- **A deferral is per FILE with its count, and that is weaker than it reads**: a listed file is wholly exempt, so a NEW violation in one still passes. Fixing a file means DELETING its line - a line no longer needed is a lie about what is still owed.
+- **The runner installs ffmpeg**, because 27 library files shell out to it and every audio/video measurement path skipped without it. The suite skipped HONESTLY, which is what made it invisible.
 - **pytest runs with `-rs`.** `131 skipped` names nothing; a build that declines to measure something must say what.
 - `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
 
 **CI is THREE LAYERS, and only the last is on GitHub.**
-Detail: `docs/CI_LAYERS.md`. Nothing fires on push, on dispatch, or on your PR: one
+Detail: `docs/CI_LAYERS.md`. Nothing fires on push, dispatch, or your PR: one
 clean-room gate runs per BATCH on the `run-tests` label, proving the project installs
-from its declared manifests. The real full-suite gate is LOCAL and free - firstmate
+from its declared manifests. The full-suite gate is LOCAL and free - firstmate
 runs `scripts/full_suite_gate.sh` (4m54s) before a batch merges.
 
 - **Run the tests that cover what you changed**, and expect no CI verdict on your PR.
   Captain's rule, 2026-09-03: *"is there a reason why we run all these test locally
   and fry the CPU?"* - so pick the narrowest selection that answers your question.
-- **The one exception is genuinely wide fan-out, and you must NAME it in one line when
-  you claim it.** `compile_manifest` is a fair claim; a renderer, a docs move or an
-  AGENTS.md restructure is not.
+- **Wide fan-out is the one exception: NAME it.** `compile_manifest` is a fair claim; a renderer, a docs move or an
+AGENTS.md restructure is not.
 
 ### This file is an INDEX, and two gates keep it one
 
@@ -378,18 +377,16 @@ it". A condensation buys two days; only moving the detail out changes the slope.
 - **`scripts/check_agents_md_size.py` gates the size, globally and PER SECTION**, and runs in
   CI. Both ratchets may ONLY EVER MOVE DOWN. `SECTION_BUDGETS` must SUM to no more than
   `CEILING`, so a budget cannot be raised without lowering another; a `##` section with no
-  budget row FAILS rather than defaulting, because a section that exists and silently has no
-  bound is the trap.
+  budget row FAILS rather than defaulting, because an unbudgeted section is the trap.
 - **`scripts/check_agents_md_preservation.py` gates a MOVE**, and is run by hand with a
   `--before`. `--after` takes the rule corpus - AGENTS.md first, then every destination,
   **ENUMERATED, never a glob**: a glob would let a rule survive because its identifier happens
   to occur in an unrelated file, and the enumeration IS the reviewable list of claimed
-  destinations. It prints WHERE each moved rule landed, so a PASS reads as a mapping rather
-  than a count.
+  destinations. It prints WHERE each rule landed: a PASS reads as a mapping, not a count.
 - **A section may shrink to an index row; it may not shrink into silence.** Past the shrink
   floor, what remains must NAME a destination that is in the corpus AND has gained content.
   Naming a destination that received nothing is refused.
-- **Headings never move**, whatever the prose does: section numbers are cross-referenced from
+- **Headings never move**: section numbers are cross-referenced from
   code (`AGENTS.md 10.1`, `§10.5`).
 - `tests/test_agents_md_gates.py` pins that both gates can FAIL - AGENTS.md 10.4's rule
   applied to the gates on this file.
