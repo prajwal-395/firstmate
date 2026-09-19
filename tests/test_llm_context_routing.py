@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
 from library.processes.edit_video.run_pipeline import (
+    get_step_implementation,
     llm_output_declarations,
     present_llm_step,
 )
@@ -28,30 +29,36 @@ from library.tools.context_projector import project_fields
 DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
 STEPS = REPO / "library" / "steps"
 
-# Steps whose implementation reaches `present_llm_step`, by DAG node id.
-# Hand-written, and it was short: `select_reels` and
-# `render_motion_graphics` were absent, so every assertion below had
-# never once been asked about either. `test_context_fields_binds.py`
-# derives the same set from the DAG and fails when this one is missing a
-# node.
-LLM_STEPS = {
-    "semantic_analysis": "step_1_03_semantic_analysis",
-    "creative_direction": "step_2_01_creative_direction",
-    "speech_sequence": "step_2_02_speech_sequence",
-    "music_selection": "step_2_04_music_selection",
-    "mesh_spine": "step_2_05_mesh_spine",
-    "select_broll": "step_3_02_select_broll",
-    "review_rough_cut": "step_3_03_review_rough_cut",
-    "select_reels": "step_3_04_select_reels",
-    "judge_reels": "step_3_05_judge_reels",
-    "plan_transitions": "step_4_02_plan_transitions",
-    "plan_vfx": "step_4_03_plan_vfx",
-    "plan_sfx": "step_4_04_plan_sfx",
-    "render_motion_graphics": "step_4_06_render_motion_graphics",
-    "color_grade": "step_5_01_color_grade",
-    "render": "step_6_01_render",
-    "validate": "step_6_02_validate_output",
-}
+# Steps whose implementation reaches a model, by DAG node id, with the
+# step directory each node runs.
+#
+# DERIVED from the DAG through the same `get_step_implementation` the
+# runner uses - not hand-written. The hand-written list this replaces
+# drifted twice: first `select_reels` and `render_motion_graphics` were
+# absent, then `audio_mix` was added by other work and never added to
+# the list, so every assertion below had never once been asked about
+# the missing step. A new LLM step now joins that coverage
+# automatically, because the parametrize marks read this dict.
+#
+# Membership here encodes NO judgement - it is mechanism (a handoff.md
+# beside a bridge/step, or an `llm` runtime). The judgements live in
+# the lists below: NO_PROJECTION (which steps may skip narrowing, and
+# why), SPINE_PLANNERS (which prompts must not carry word timings), and
+# BRIDGE_TABLES (which pre-bridge tables each handoff asks for). A new
+# step that needs an entry in one of THOSE still needs a human to argue
+# for it; a new step that merely reaches a model needs nothing.
+# `test_context_fields_binds.py` derives the same set independently and
+# fails if the two ever disagree.
+def _llm_steps_from_dag() -> dict:
+    out = {}
+    for node in DAG["nodes"]:
+        impl = get_step_implementation(REPO / "library" / node["step_ref"])
+        if impl["type"] in ("llm_only", "hybrid", "deterministic_with_llm"):
+            out[node["id"]] = Path(node["step_ref"]).name
+    return out
+
+
+LLM_STEPS = _llm_steps_from_dag()
 
 # A step reaches an LLM without a projection only for a stated reason.
 NO_PROJECTION = {

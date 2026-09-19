@@ -291,12 +291,17 @@ def test_every_llm_step_declares_an_allow_list():
 
 
 def test_the_hand_written_llm_step_list_names_every_one():
-    """`test_llm_context_routing.LLM_STEPS` is a list, and it was short.
+    """`test_llm_context_routing.LLM_STEPS` is derived, and stays complete.
 
-    It omitted `select_reels` and `render_motion_graphics`, so the
-    assertion that every LLM step projects its context had never been
-    asked about either of them. AGENTS.md 10.4: a gate that cannot fail
-    on the case it exists for is not coverage.
+    The name is history: the list WAS hand-written and short twice -
+    first `select_reels` and `render_motion_graphics`, then `audio_mix` -
+    so the assertion that every LLM step projects its context had never
+    been asked about the missing step. It is now derived from the DAG in
+    that file; this test derives the same set here, independently, and
+    fails if the two ever disagree - which is what a reintroduced hand
+    list, or a narrowed predicate on either side, would do. AGENTS.md
+    10.4: a gate that cannot fail on the case it exists for is not
+    coverage.
     """
     from tests.test_llm_context_routing import LLM_STEPS
 
