@@ -636,7 +636,11 @@ class _BuildMediaPool(FakeMediaPool):
 class _PoolItem:
     def __init__(self, path):
         self._props = {"File Path": path, "Frames": "3000", "FPS": "30.0",
-                       "Resolution": "1080x1920"}
+                       "Resolution": "1080x1920",
+                       # Single-stream fixtures: the build resolves the
+                       # speech channel off this, and an unreadable one
+                       # refuses rather than defaults.
+                       "Audio Ch": "1"}
 
     def GetName(self): return Path(self._props["File Path"]).name
     def GetClipProperty(self, key=None):

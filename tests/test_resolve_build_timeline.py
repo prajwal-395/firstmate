@@ -205,6 +205,10 @@ def test_clip_placement_calculations(mock_resolve, sample_manifest):
     def get_clip_prop(prop):
         if prop == "File Path":
             return "test_v1.mov"
+        if prop == "Audio Ch":
+            # Single-stream fixture: the build resolves the speech
+            # channel off this, and an unreadable one refuses.
+            return "1"
         return ""
     pool_item.GetClipProperty.side_effect = get_clip_prop
     
@@ -266,11 +270,15 @@ def test_two_pass_architecture(mock_resolve, sample_manifest):
     def get_clip_prop_v1(prop):
         if prop == "File Path":
             return "test_v1.mov"
+        if prop == "Audio Ch":
+            return "1"
         return ""
         
     def get_clip_prop_a2(prop):
         if prop == "File Path":
             return "test_music.wav"
+        if prop == "Audio Ch":
+            return "1"
         return ""
         
     pool_item_v1.GetClipProperty.side_effect = get_clip_prop_v1
@@ -335,6 +343,8 @@ def test_audio_markers_are_the_fallback_not_the_mix(mock_resolve, sample_manifes
     def get_clip_prop(prop):
         if prop == "File Path":
             return "test_v1.mov"
+        if prop == "Audio Ch":
+            return "1"
         return ""
     pool_item.GetClipProperty.side_effect = get_clip_prop
     
@@ -395,6 +405,8 @@ def test_generator_overlay_lands_on_plan_row(mock_resolve, sample_manifest):
     def get_clip_prop_v1(prop):
         if prop == "File Path":
             return "test_v1.mov"
+        if prop == "Audio Ch":
+            return "1"
         return ""
     pool_item_v1.GetClipProperty.side_effect = get_clip_prop_v1
 
@@ -502,7 +514,9 @@ def test_multiple_generators_all_land_on_plan_row(mock_resolve, sample_manifest)
     root_folder = mock_resolve['root_folder']
 
     pool_item_v1 = MagicMock()
-    pool_item_v1.GetClipProperty.side_effect = lambda p: "test_v1.mov" if p == "File Path" else ""
+    pool_item_v1.GetClipProperty.side_effect = (
+        lambda p: "test_v1.mov" if p == "File Path"
+        else ("1" if p == "Audio Ch" else ""))
     root_folder.GetClipList.return_value = [pool_item_v1]
 
     carrier_pool_item = MagicMock()
@@ -560,7 +574,9 @@ def test_no_generators_does_not_create_v5(mock_resolve, sample_manifest):
     root_folder = mock_resolve['root_folder']
 
     pool_item = MagicMock()
-    pool_item.GetClipProperty.side_effect = lambda p: "test_v1.mov" if p == "File Path" else ""
+    pool_item.GetClipProperty.side_effect = (
+        lambda p: "test_v1.mov" if p == "File Path"
+        else ("1" if p == "Audio Ch" else ""))
     root_folder.GetClipList.return_value = [pool_item]
 
     placed = MagicMock()
@@ -588,6 +604,8 @@ def test_loud_banner_prints_on_qa_failure_but_not_fatal(mock_resolve, sample_man
     def get_clip_prop(prop):
         if prop == "File Path":
             return "test_v1.mov"
+        if prop == "Audio Ch":
+            return "1"
         return ""
     pool_item.GetClipProperty.side_effect = get_clip_prop
     

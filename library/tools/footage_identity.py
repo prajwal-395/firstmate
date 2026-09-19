@@ -40,7 +40,7 @@ import hashlib
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 # The extensions the pipeline treats as raw footage.  Step 1.01 imports
 # this rather than carrying its own copy.
@@ -127,6 +127,59 @@ def footage_root(project_folder: str) -> str:
             f"project has no footage' is the refusal this declaration "
             f"exists to prevent.")
     return declared
+
+
+def source_block(project_folder: str) -> Dict[str, object]:
+    """The project's raw `source:` block, or {}.
+
+    Read straight off project.yaml - the same route
+    `brand_registry.project_pipeline_block` takes for `pipeline:` -
+    so a declaration works whether or not the key reached the run's
+    broadcast `project_config`. Never raises: an absent or unreadable
+    project.yaml reads as "nothing declared", and malformed values
+    read as undeclared here. `ProjectConfig.validate` (in
+    `library/schemas/project_config.py`) is what tells the project
+    its declaration is malformed.
+    """
+    if not project_folder:
+        return {}
+    project_yaml = os.path.join(project_folder, "project.yaml")
+    if not os.path.isfile(project_yaml):
+        return {}
+    try:
+        import yaml
+    except ImportError:
+        return {}
+    try:
+        with open(project_yaml, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+    except (OSError, ValueError):
+        return {}
+    block = data.get("source") or {}
+    return block if isinstance(block, dict) else {}
+
+
+def declared_program_stream(project_folder: str) -> Optional[int]:
+    """The 1-based program-mix channel the project declares, or None.
+
+    Which channel of multi-channel footage is the mix is a property of
+    the footage: declared here (`source.program_stream`), or measured
+    (`source.measure_program_stream`, honoured by step 1.02), never a
+    bare constant in the code. Measured 2026-09-19 across all seven
+    geo-podcast sources: CH1 is the mix on every file, CH2 is empty,
+    CH3/CH4 are ISOs - so that project declares `1`.
+    """
+    declared = source_block(project_folder).get("program_stream")
+    if (isinstance(declared, bool) or not isinstance(declared, int)
+            or declared < 1):
+        return None
+    return declared
+
+
+def measure_program_stream_flag(project_folder: str) -> bool:
+    """Whether the project opts into measuring the program mix itself."""
+    return bool(source_block(project_folder).get(
+        "measure_program_stream", False))
 
 
 def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:

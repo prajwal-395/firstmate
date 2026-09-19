@@ -34,6 +34,18 @@ class ProgramStreamRefused(ValueError):
     """
 
 
+# A measurement operating point, not taste. The mix bus of a field
+# recorder carries (at least) the energy of everything it mixes, so a
+# stream that is not clearly louder than every other stream is not
+# clearly the mix: twice the power (3 dB) is the bar for "clearly".
+# Below it the measurement refuses and the project must declare.
+MEASURE_MARGIN_DB = 3.0
+# Below this a stream is room tone off, not a candidate for anything:
+# the captain's MXF carry an empty stream at about -69 dB, so -60 dB
+# excludes exactly the nothing while keeping any real ISO.
+MEASURE_SILENCE_DB = -60.0
+
+
 def describe_audio_streams(probe: dict) -> list:
     """Every audio stream ffprobe reports, with whatever tells them
     apart: ffprobe index, 1-based channel ordinal among audio streams,
@@ -79,16 +91,20 @@ def _stream_signature(stream: dict) -> str:
 
 
 def select_program_stream(audio_streams: list, declaration=None,
-                          source: str = "") -> dict:
+                           source: str = "",
+                           measured_selection: dict | None = None) -> dict:
     """Which recorded stream reaches the timeline.
 
     - No streams: returns None (the source is silent).
     - One stream: it is the program, basis "single".
     - More than one: `declaration` - the 1-based channel ordinal the
-      project declares - names it, basis "declared". Anything else is
+      project declares - names it, basis "declared". Failing that, a
+      `measured_selection` the pipeline measured off the footage names
+      it, basis "measured-loudest" with its levels as evidence. A
+      declaration always wins over a measurement. Anything else is
       a ProgramStreamRefused naming the source and every stream seen.
       Even distinguishable metadata does not choose: the mix is
-      declared, not inferred.
+      declared or measured, never inferred from labels.
     """
     if not audio_streams:
         return None
@@ -108,7 +124,113 @@ def select_program_stream(audio_streams: list, declaration=None,
             f"streams and none is CH{declaration}: "
             + "; ".join(_stream_signature(s) for s in audio_streams)
         )
+    if measured_selection is not None:
+        for stream in audio_streams:
+            if stream.get("channel") == measured_selection.get("channel"):
+                chosen = dict(stream)
+                chosen["basis"] = measured_selection.get(
+                    "basis", "measured")
+                evidence = measured_selection.get("measured_levels_db")
+                if evidence is None:
+                    evidence = measured_selection.get("levels")
+                if evidence is not None:
+                    chosen["measured_levels_db"] = dict(evidence)
+                return chosen
+        raise ProgramStreamRefused(
+            f"Refusal: measured program stream "
+            f"CH{measured_selection.get('channel')} for {source!r} "
+            f"matches none of its {len(audio_streams)} audio streams: "
+            + "; ".join(_stream_signature(s) for s in audio_streams)
+        )
     return _refuse_program_stream(audio_streams, source)
+
+
+def measure_stream_levels(filepath: str, audio_streams: list) -> dict:
+    """Mean volume per audio stream, in dB, keyed by channel ordinal.
+
+    One ffmpeg pass PER stream (`-map` by ffprobe index): a single
+    pass over all streams reports per-stream statistics in frame
+    order, not stream order, so assigning them positionally scrambles
+    the answer (measured: four streams came back 2,1,3,0). A stream
+    with no measurable signal reads -inf. Raises RuntimeError when
+    ffmpeg itself fails - a broken measurement is not a quiet one.
+    """
+    levels = {}
+    for stream in audio_streams:
+        index = stream.get("index")
+        channel = stream.get("channel")
+        try:
+            result = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-i", filepath,
+                 "-map", f"0:{index}", "-af", "volumedetect",
+                 "-f", "null", "/dev/null"],
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=600,
+            )
+        except FileNotFoundError:
+            raise RuntimeError(
+                "ffmpeg not found. Install ffmpeg: brew install ffmpeg"
+            )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"ffmpeg volumedetect failed (exit {result.returncode}) "
+                f"for {filepath} stream {index}: "
+                f"{result.stderr[-500:]}")
+        level = float("-inf")
+        for line in result.stderr.splitlines():
+            if "mean_volume" in line:
+                try:
+                    level = float(line.split("mean_volume:")[1]
+                                  .split("dB")[0].strip())
+                except ValueError:
+                    level = float("-inf")
+        levels[channel] = level
+    return levels
+
+
+def measure_program_selection(filepath: str, audio_streams: list,
+                               source: str = "") -> dict:
+    """The program stream as MEASURED off the footage, or a refusal.
+
+    The uniquely loudest stream is the mix: a mix bus carries the
+    energy of everything it mixes. "Uniquely" is MEASURE_MARGIN_DB -
+    anything closer refuses, because a hot ISO over a quiet mix is a
+    human's call, not the pipeline's. All streams below
+    MEASURE_SILENCE_DB refuses too: there is no mix to find. The
+    returned selection carries every stream's level, so the decision
+    is auditable per file rather than a rule inferred from one file.
+    """
+    levels = measure_stream_levels(filepath, audio_streams)
+    if not levels:
+        raise ProgramStreamRefused(
+            f"Refusal: no audio levels could be measured for "
+            f"{source or filepath!r}.")
+    ranked = sorted(levels.items(), key=lambda kv: kv[1], reverse=True)
+    loudest_channel, loudest_level = ranked[0]
+    if loudest_level < MEASURE_SILENCE_DB:
+        raise ProgramStreamRefused(
+            f"Refusal: every audio stream of {source or filepath!r} "
+            f"is below {MEASURE_SILENCE_DB} dB "
+            + ", ".join(f"CH{c} {v:.1f} dB" for c, v in ranked)
+            + " - silence has no program stream.")
+    if len(ranked) > 1 and (loudest_level - ranked[1][1]
+                            < MEASURE_MARGIN_DB):
+        raise ProgramStreamRefused(
+            f"Refusal: no uniquely loudest audio stream on "
+            f"{source or filepath!r} "
+            + ", ".join(f"CH{c} {v:.1f} dB" for c, v in ranked)
+            + f" - the top two are within {MEASURE_MARGIN_DB} dB, so "
+            f"the mix is not decisive. Declare source.program_stream.")
+    for stream in audio_streams:
+        if stream.get("channel") == loudest_channel:
+            chosen = dict(stream)
+            chosen["basis"] = "measured-loudest"
+            chosen["measured_levels_db"] = {
+                f"CH{c}": round(v, 1) for c, v in ranked}
+            return chosen
+    raise ProgramStreamRefused(  # pragma: no cover - defensive
+        f"Refusal: measured CH{loudest_channel} for "
+        f"{source or filepath!r} matches no described stream.")
 
 
 def _refuse_program_stream(audio_streams: list, source: str) -> dict:
@@ -121,7 +243,33 @@ def _refuse_program_stream(audio_streams: list, source: str) -> dict:
     )
 
 
-def extract_metadata(filepath: str, program_stream=None) -> dict:
+def _source_block_declaration(project_folder: str) -> tuple:
+    """`(program_stream, measure_flag)` from the project's `source:` block.
+
+    Read through `footage_identity` - the one module that owns
+    footage properties - so a declaration works whether or not the key
+    reached the run's broadcast `project_config`. An unreadable
+    project.yaml is not a catalog failure: the declaration stays
+    undeclared and selection proceeds to refusal as before.
+    """
+    if not project_folder:
+        return None, False
+    try:
+        from library.tools.footage_identity import (
+            declared_program_stream, measure_program_stream_flag)
+    except ImportError:
+        return None, False
+    try:
+        return (declared_program_stream(project_folder),
+                measure_program_stream_flag(project_folder))
+    except Exception as exc:
+        print(f"WARNING: could not read source block for "
+              f"{project_folder}: {exc}", file=sys.stderr)
+        return None, False
+
+
+def extract_metadata(filepath: str, program_stream=None,
+                     measure_program_stream: bool = False) -> dict:
     """
     Extract technical metadata from a video file using ffprobe.
     Returns a dict of metadata fields, or a dict with an 'error' key if extraction fails.
@@ -129,7 +277,10 @@ def extract_metadata(filepath: str, program_stream=None) -> dict:
     `program_stream` is the project's declaration of which audio stream
     is the program mix (1-based channel ordinal, e.g. 1 for CH1). A
     multi-stream source without one is RECORDED as refused, never
-    defaulted: see `select_program_stream`.
+    defaulted: see `select_program_stream`. When `measure_program_stream`
+    is true and nothing is declared, the footage itself is measured
+    (uniquely loudest stream) and the levels recorded; an indecisive
+    measurement refuses the same way.
     """
     try:
         result = subprocess.run(
@@ -239,16 +390,29 @@ def extract_metadata(filepath: str, program_stream=None) -> dict:
     # refusal is data on the entry - not an exception - so one
     # undeclared source cannot fail the whole catalog; the entry says
     # which source and what ffprobe saw, and downstream must not place
-    # its audio until the project declares.
+    # its audio until the project declares. A declaration always wins;
+    # measurement runs only when nothing is declared, and its own
+    # refusal lands in the same field.
     described_streams = describe_audio_streams(probe)
     _program_selection = None
     _program_refusal = None
-    try:
-        _program_selection = select_program_stream(
-            described_streams, declaration=program_stream,
-            source=os.path.basename(filepath))
-    except ProgramStreamRefused as exc:
-        _program_refusal = str(exc)
+    _measured_selection = None
+    if (program_stream is None and measure_program_stream
+            and len(described_streams) > 1):
+        try:
+            _measured_selection = measure_program_selection(
+                filepath, described_streams,
+                source=os.path.basename(filepath))
+        except ProgramStreamRefused as exc:
+            _program_refusal = str(exc)
+    if _program_refusal is None:
+        try:
+            _program_selection = select_program_stream(
+                described_streams, declaration=program_stream,
+                source=os.path.basename(filepath),
+                measured_selection=_measured_selection)
+        except ProgramStreamRefused as exc:
+            _program_refusal = str(exc)
 
     return {
         "duration_seconds": round(float(fmt.get("duration", 0)), 3),
@@ -303,17 +467,40 @@ def parse_creation_time(ct_str: str | None) -> datetime | None:
 
 
 def catalog_footage(raw_footage_files: list, program_stream=None,
-                    project_config: dict | None = None) -> dict:
+                    project_config: dict | None = None,
+                    project_folder: str = "",
+                    measure_program_stream: bool | None = None) -> dict:
     """
     Extract metadata for each file, sort chronologically, assign ordering.
 
-    `program_stream` (or `project_config["audio"]["program_stream"]`)
-    declares which audio stream is the program mix. See
-    `select_program_stream`.
+    `program_stream` (or `project_config["audio"]["program_stream"]`,
+    or the project's `source:` block) declares which audio stream is
+    the program mix. See `select_program_stream`. When nothing declares
+    one, `measure_program_stream` (or
+    `source.measure_program_stream`) opts into measuring it off the
+    footage; an indecisive measurement refuses like an undeclared one.
     """
     if program_stream is None and project_config:
         program_stream = (project_config.get("audio") or {}).get(
             "program_stream")
+    if program_stream is None and project_config:
+        program_stream = (project_config.get("source") or {}).get(
+            "program_stream")
+    if measure_program_stream is None and project_config:
+        for block_name in ("audio", "source"):
+            block = project_config.get(block_name) or {}
+            if block.get("measure_program_stream"):
+                measure_program_stream = True
+                break
+    if program_stream is None or measure_program_stream is None:
+        file_declared, file_measure = _source_block_declaration(
+            project_folder)
+        if program_stream is None:
+            program_stream = file_declared
+        if measure_program_stream is None:
+            measure_program_stream = file_measure
+    if measure_program_stream is None:
+        measure_program_stream = False
     entries = []
     skipped = []
 
@@ -331,7 +518,9 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
             )
             continue
 
-        metadata = extract_metadata(filepath, program_stream=program_stream)
+        metadata = extract_metadata(
+            filepath, program_stream=program_stream,
+            measure_program_stream=measure_program_stream)
         if metadata is None or "error" in metadata:
             err = metadata.get("error", "metadata extraction failed") if metadata else "metadata extraction failed"
             skipped.append({
@@ -454,6 +643,9 @@ def main():
             raw_footage_files,
             program_stream=input_data.get("program_stream"),
             project_config=input_data.get("project_config"),
+            project_folder=input_data.get("project_folder", ""),
+            measure_program_stream=input_data.get(
+                "measure_program_stream"),
         )
     except (ValueError, RuntimeError) as e:
         print(json.dumps({

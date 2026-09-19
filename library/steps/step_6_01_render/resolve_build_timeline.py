@@ -527,6 +527,149 @@ def caption_block_offsets(v1_clips, placed_by_label) -> dict:
     return block_offsets
 
 
+class SpeechChannelRefused(ValueError):
+    """No speech channel reaches the timeline by default.
+
+    The 6.01 build used to place every angle's audio on an undeclared
+    `program_channel: 1` - stream 0 dressed as the mix, the same failure
+    `ProgramStreamRefused` stops at the catalog. Which channel of a
+    multi-channel source is the program mix is declared (the manifest
+    angle, or the project's `source.program_stream`) or recorded (the
+    catalog's selection); a single-channel source is its own answer.
+    Anything else refuses, naming the angle and the source.
+    """
+
+
+def read_declared_program_stream(project_folder: str):
+    """The project's `source.program_stream` declaration, or None.
+
+    Read through `footage_identity` - the one module that owns footage
+    properties - so the declaration works whether or not the key
+    reached the run's broadcast `project_config`. Anything that is not
+    a positive int reads as undeclared here; the schema
+    (`ProjectConfig.validate`) is what tells the project its
+    declaration is malformed.
+    """
+    if not project_folder:
+        return None
+    try:
+        from library.tools.footage_identity import (
+            declared_program_stream)
+    except ImportError:
+        return None
+    try:
+        return declared_program_stream(project_folder)
+    except Exception:
+        return None
+
+
+def read_catalog_program_channels(project_folder: str):
+    """`({basename: channel}, {basename: refusal})` off the recorded catalog.
+
+    The catalog's own route - `pipeline_data.json`, the file a step's
+    output is guaranteed to have landed in - read the way
+    `reel_build.catalog_program_channels` reads it, without importing
+    that module for one lookup. A project whose catalog predates stream
+    recording comes back empty on both.
+    """
+    channels: dict = {}
+    refusals: dict = {}
+    if not project_folder:
+        return channels, refusals
+    try:
+        with open(os.path.join(project_folder, "pipeline_data.json"),
+                  encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, ValueError):
+        return channels, refusals
+    entries = (((state.get("step_outputs") or {}).get("catalog") or {})
+               .get("clip_catalog") or [])
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source_file") or entry.get("path") or ""
+        if not source:
+            continue
+        keys = {source, source.rsplit("/", 1)[-1]}
+        selection = entry.get("program_stream") or {}
+        try:
+            channel = int(selection.get("channel"))
+        except (TypeError, ValueError):
+            channel = None
+        if channel is not None and channel >= 1:
+            for key in keys:
+                channels.setdefault(key, channel)
+            continue
+        refusal = entry.get("program_stream_refusal")
+        if refusal:
+            for key in keys:
+                refusals.setdefault(key, str(refusal))
+    return channels, refusals
+
+
+def resolve_speech_channel(angle_key: str, angle_label: str,
+                           manifest_channel,
+                           source_basenames,
+                           catalog_channels: dict,
+                           catalog_refusals: dict,
+                           declared_channel,
+                           single_stream_basenames) -> tuple:
+    """The speech channel for one angle: `(channel, basis)`, or a refusal.
+
+    Precedence - the project's stated preference first, then what was
+    recorded, then what is mechanically certain:
+    manifest angle declaration, `source.program_stream` declaration,
+    the catalog's recorded selection, a single-stream source (there is
+    nothing else it could be). A multi-stream source with none of those
+    raises SpeechChannelRefused naming the angle and the source: the
+    mix is declared or measured, never stream 0 dressed as the mix.
+    Every source on the angle must resolve to ONE channel; sources
+    that disagree refuse the same way.
+    """
+    try:
+        manifest_channel = (None if manifest_channel is None
+                            else int(manifest_channel))
+    except (TypeError, ValueError):
+        raise SpeechChannelRefused(
+            f"REFUSING to place speech for angle {angle_label!r}: its "
+            f"manifest declares program_channel "
+            f"{manifest_channel!r}, which is not a channel ordinal.")
+    if manifest_channel is not None:
+        return manifest_channel, "manifest angle declaration"
+    if declared_channel is not None:
+        return int(declared_channel), "source.program_stream declaration"
+    if not source_basenames:
+        raise SpeechChannelRefused(
+            f"REFUSING to place speech for angle {angle_label!r}: no "
+            f"source clips, so no program stream can be resolved.")
+    resolved: dict = {}
+    for basename in sorted(source_basenames):
+        channel = catalog_channels.get(basename)
+        basis = "the catalog's recorded program stream"
+        if channel is None and basename in single_stream_basenames:
+            channel, basis = 1, "single-stream source"
+        if channel is None:
+            refusal = catalog_refusals.get(basename)
+            raise SpeechChannelRefused(
+                f"REFUSING to place speech for angle {angle_label!r}: "
+                f"{basename} carries multiple audio streams and no "
+                f"program stream is declared or recorded"
+                + (f" - {refusal}" if refusal else "") + ". Declare "
+                f"source.program_stream in the project's project.yaml "
+                f"and re-run catalog_footage.")
+        resolved[basename] = (int(channel), basis)
+    distinct = {channel for channel, _ in resolved.values()}
+    if len(distinct) != 1:
+        raise SpeechChannelRefused(
+            f"REFUSING to place speech for angle {angle_label!r}: its "
+            f"sources resolve to different program streams - "
+            + ", ".join(f"{s} CH{c}" for s, (c, _) in
+                        sorted(resolved.items())))
+    channel = next(iter(distinct))
+    basis = "; ".join(sorted({b for _, b in resolved.values()}))
+    return channel, basis
+
+
 @under_lease("render the edit timeline")
 def build_timeline(
     manifest: dict,
@@ -879,13 +1022,78 @@ def build_timeline(
     # No declared angles and no marked clips: pass none and let the
     # layout fall back to its legacy single-camera pair (A-Roll/Speech).
     # Anything materialised is named from the declaration or the key.
+    #
+    # The speech channel is RESOLVED per angle here, never defaulted.
+    # The project's `source.program_stream` declaration first, then the
+    # catalog's recorded selection, then a single-stream pool source as
+    # the mechanical last resort (there is nothing else it could be).
+    # A multi-stream source with none of those refuses the whole build,
+    # naming the angle and the source - the timeline created below must
+    # never carry an unchosen stream.
+    _angle_sources: dict = {}
+    for _c in v1_clips:
+        # Silent cards carry no audio to resolve: the placement loop
+        # below places them video-only, so resolving a stream for them
+        # would refuse builds over nothing.
+        if _c.get("video_only"):
+            continue
+        _src = _c.get("source_file", "")
+        if _src:
+            _angle_sources.setdefault(
+                _c.get("angle", _default_angle), set()).add(_src)
+    _catalog_channels, _catalog_refusals = read_catalog_program_channels(
+        project_folder)
+    _declared_channel = read_declared_program_stream(project_folder)
+    _single_stream_sources = set()
+    for _paths in _angle_sources.values():
+        for _src in _paths:
+            # The SAME lookup the placement loop below uses: pool path
+            # first, basename second. A pool item Resolve renamed still
+            # answers for its file.
+            _pool_item = _find_pool_clip(_src)
+            if _pool_item is None:
+                continue
+            try:
+                _audio_ch = _pool_item.GetClipProperty("Audio Ch")
+            except Exception:
+                continue
+            try:
+                if int(str(_audio_ch).strip()) == 1:
+                    _single_stream_sources.add(
+                        _src.rsplit("/", 1)[-1])
+            except (TypeError, ValueError):
+                continue
     _material_angles = []
     for _k in _angle_keys:
         if not _marked_keys and not _declared_angles:
             break
         _decl = _declared_by_key.get(_k, {})
         _label = _decl.get("label") or _k
-        _channel = int(_decl.get("program_channel", 1))
+        _angle_files = {_p.rsplit("/", 1)[-1]
+                        for _p in _angle_sources.get(_k, set())}
+        if not _angle_files:
+            # A declared angle with no clips places no audio, so there
+            # is no stream to resolve - but the row still needs a name.
+            # Cosmetic only: enforcement never runs without a placement.
+            try:
+                _channel = int(_decl.get("program_channel")
+                               or _declared_channel or 1)
+            except (TypeError, ValueError):
+                _channel = int(_declared_channel or 1)
+            _basis = "no clips on this angle - row naming only"
+        else:
+            try:
+                _channel, _basis = resolve_speech_channel(
+                    _k, _label, _decl.get("program_channel"),
+                    _angle_files,
+                    _catalog_channels, _catalog_refusals,
+                    _declared_channel, _single_stream_sources)
+            except SpeechChannelRefused as exc:
+                results["errors"].append(str(exc))
+                print(f"  ✗ {exc}", file=sys.stderr)
+                return results
+        print(f"  Speech for angle {_label!r}: program CH{_channel} "
+              f"({_basis})", file=sys.stderr)
         _material_angles.append({
             "key": _k,
             "label": _label,
@@ -1122,7 +1330,31 @@ def build_timeline(
           f"music/SFX rows after speech placement)", file=sys.stderr)
 
     _program_channel = {a["key"]: a["program_channel"]
-                        for a in _material_angles} or {"main": 1}
+                        for a in _material_angles}
+    if not _program_channel:
+        # The legacy single-camera manifest: no angles declared, no
+        # clips marked, one speech row for everything. The channel for
+        # it resolves the same way - declaration, recording, then the
+        # single-stream mechanical answer - and refuses the same way.
+        # The old `or {"main": 1}` put every undeclared multi-stream
+        # source on stream 0 without a word said.
+        _legacy_sources = {
+            _c.get("source_file", "").rsplit("/", 1)[-1]
+            for _c in v1_clips if _c.get("source_file")
+            and not _c.get("video_only")}
+        if _legacy_sources:
+            try:
+                _main_channel, _main_basis = resolve_speech_channel(
+                    "main", "main", None, _legacy_sources,
+                    _catalog_channels, _catalog_refusals,
+                    _declared_channel, _single_stream_sources)
+            except SpeechChannelRefused as exc:
+                results["errors"].append(str(exc))
+                print(f"  ✗ {exc}", file=sys.stderr)
+                return results
+            print(f"  Speech for the single row: program "
+                  f"CH{_main_channel} ({_main_basis})", file=sys.stderr)
+            _program_channel = {"main": _main_channel}
 
     def _enforce_program_stream(angle_key, placed_items, label):
         """Only the recorded program stream stays on a speech row.
@@ -1134,7 +1366,17 @@ def build_timeline(
         unreadable check must not delete picture, and it must not read
         as a passing one either.
         """
-        expected = _program_channel.get(angle_key, 1)
+        expected = _program_channel.get(angle_key)
+        if expected is None:
+            # Unreachable when the resolution above ran: every angle
+            # with clips resolved or refused the build. Kept and
+            # reported rather than defaulted, so a future caller that
+            # reaches here without resolving still cannot place an
+            # unchosen stream silently.
+            results["warnings"].append(
+                f"{label}: no resolved program channel for this angle - "
+                f"kept, UNVERIFIED")
+            return list(placed_items or [])
         kept = []
         for item in placed_items or []:
             results["stream_enforcement"]["checked"] += 1

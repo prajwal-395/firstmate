@@ -51,6 +51,30 @@ class SourceConfig:
     `library/tools/footage_identity.enumerate_footage`, which is the one
     place that resolves this."""
 
+    program_stream: Optional[int] = None
+    """The 1-based audio channel ordinal that is this footage's program
+    mix - the ONE channel that reaches a timeline.
+
+    Field-recorder footage (the captain's MXF: four mono streams, one
+    mix, two ISOs, one empty) plays every embedded channel unless a
+    build is told which one is the mix. Measured 2026-09-19 across all
+    seven geo-podcast sources: CH1 is the mix on every file, CH2 is
+    empty, CH3/CH4 are ISOs - so that project declares `1`. Which
+    channel is the main one is a property of the footage: declared
+    here, or measured (`measure_program_stream`), never a bare constant
+    in the code. See `library/steps/step_1_02_catalog_footage/step.py`.
+
+    None means undeclared: the catalog refuses a multi-stream source
+    rather than guessing, and the build refuses to place its audio."""
+
+    measure_program_stream: bool = False
+    """When true and `program_stream` is undeclared, the catalog measures
+    the footage (per-stream loudness, whole file) and records the
+    uniquely loudest stream as the program mix with its levels as
+    evidence. An ambiguous or all-silent measurement refuses like an
+    undeclared one - measurement decides only when it is decisive.
+    A declaration always wins over a measurement."""
+
     @property
     def width(self) -> int:
         return int(self.resolution.split("x")[0])
@@ -236,6 +260,23 @@ class ProjectConfig:
             ProjectStatus(self.status) if isinstance(self.status, str) else self.status
         except ValueError:
             errors.append(f"Invalid status: {self.status}")
+        if self.source.program_stream is not None:
+            # A channel ordinal names a real channel: positive int, no
+            # guessing. A 0 or a "CH1" string would silently select
+            # nothing (or the wrong thing) downstream.
+            if (not isinstance(self.source.program_stream, bool)
+                    and isinstance(self.source.program_stream, int)
+                    and self.source.program_stream >= 1):
+                pass
+            else:
+                errors.append(
+                    "source.program_stream must be a 1-based audio "
+                    "channel ordinal (a positive integer), got "
+                    f"{self.source.program_stream!r}.")
+        if not isinstance(self.source.measure_program_stream, bool):
+            errors.append(
+                "source.measure_program_stream must be true or false, "
+                f"got {self.source.measure_program_stream!r}.")
         if self.pipeline.delivery_format:
             from library.tools.delivery_format import DELIVERY_FORMATS
             if self.pipeline.delivery_format not in DELIVERY_FORMATS:
@@ -382,6 +423,9 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
         resolution=source_data.get("resolution", "1080x1920"),
         fps=source_data.get("fps", 30),
         footage_root=source_data.get("footage_root", "") or "",
+        program_stream=source_data.get("program_stream"),
+        measure_program_stream=source_data.get(
+            "measure_program_stream", False),
     )
 
     pipeline = PipelineConfig(
@@ -464,6 +508,14 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
             # "" and "not declared" are the same answer here anyway.
             **({"footage_root": config.source.footage_root}
                if config.source.footage_root else {}),
+            # Only when declared: an undeclared program mix must stay
+            # absent so downstream reads it as "nothing chosen", never
+            # as channel 1.
+            **({"program_stream": config.source.program_stream}
+               if config.source.program_stream is not None else {}),
+            **({"measure_program_stream":
+                config.source.measure_program_stream}
+               if config.source.measure_program_stream else {}),
         },
         "pipeline": {
             "brand_template": config.pipeline.brand_template,

@@ -411,15 +411,23 @@ def resolve_reel_program_channels(angles: Sequence[dict],
                                   ) -> Dict[str, int]:
     """The program stream per reel angle, or a refusal naming the source.
 
-    The catalog's recorded selection first, the live master timeline
-    second (its rows already carry only program audio), an explicit
-    per-angle map ahead of both - what a test passes, and the only
-    override. Every source on an angle must resolve to ONE channel;
-    a source nothing recorded, and an angle whose sources disagree,
-    REFUSE rather than default: the mix is declared or measured,
-    never stream 0 dressed as the mix.
+    The project's `source.program_stream` declaration first - the
+    project's current word, which a stale catalog cannot overrule -
+    then the catalog's recorded selection, then the live master
+    timeline (its rows already carry only program audio), an explicit
+    per-angle map ahead of all of them - what a test passes. Every
+    source on an angle must resolve to ONE channel; a source nothing
+    recorded, and an angle whose sources disagree, REFUSE rather than
+    default: the mix is declared or measured, never stream 0 dressed
+    as the mix.
     """
     explicit = dict(explicit or {})
+    try:
+        from library.tools.footage_identity import (
+            declared_program_stream)
+        declared = declared_program_stream(project_folder)
+    except Exception:
+        declared = None
     catalog, refused = catalog_program_channels(project_folder)
     live = master_program_channels(master_timeline)
 
@@ -451,8 +459,11 @@ def resolve_reel_program_channels(angles: Sequence[dict],
         channels: Dict[str, int] = {}
         for source in files:
             short = source.rsplit("/", 1)[-1]
-            channel = catalog.get(source, catalog.get(short))
-            basis = "the catalog's recorded program stream"
+            channel = declared
+            basis = "the source.program_stream declaration"
+            if channel is None:
+                channel = catalog.get(source, catalog.get(short))
+                basis = "the catalog's recorded program stream"
             if channel is None:
                 channel = live.get(source, live.get(short))
                 basis = ("the master timeline's own speech rows, which "
@@ -466,9 +477,10 @@ def resolve_reel_program_channels(angles: Sequence[dict],
                        if refused.get(source, refused.get(short)) else
                        " and it predates stream recording")
                     + f", and the master timeline carries nothing to read "
-                    f"it off. Declare audio.program_stream and re-run "
-                    f"catalog_footage, or build from a master whose rows "
-                    f"already carry program audio.")
+                    f"it off. Declare source.program_stream in the "
+                    f"project's project.yaml and re-run catalog_footage, "
+                    f"or build from a master whose rows already carry "
+                    f"program audio.")
             channels[source] = int(channel)
         distinct = set(channels.values())
         if len(distinct) != 1:
