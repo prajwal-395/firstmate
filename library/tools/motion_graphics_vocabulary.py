@@ -716,6 +716,11 @@ ROSTER: tuple[MotionElement, ...] = (
              "readable."),
             ("Where the items are not timed to the words. A set that "
              "appears all at once is a quote_card."),
+            ("For items at different type_roles. The items of one "
+             "enumeration are peers and share one role - the renderer "
+             "draws them at one size, keeping only the weight contrast "
+             "the roles declare. A title with a detail line under it "
+             "is title_lockup, not a list."),
         ),
         axes=("timing", "anchor", "footprint", "entrance", "exit",
               "emphasis", "colour_role", "type_role", "copy"),

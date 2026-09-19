@@ -1906,9 +1906,18 @@ const DrawnElement: React.FC<{
   // `list_build` - items appearing one at a time with staggered entrances.
   // Each run is one list item, revealed as its portion of the duration
   // arrives. Uses spring physics for a natural settle on each item.
+  //
+  // Peer items share ONE size: the lead item's type_role governs the
+  // whole list. The plan was never told sizes - the roster legend says
+  // axes carry no values - so a display-first / supporting-rest plan
+  // declares emphasis, not a 56px-vs-36px ladder, and the ladder reads
+  // as mis-sized bullets (Reels 19/24/25, 2026-09-19). Weights stay
+  // per-run: weight contrast IS what the type_role axis means.
   if (element.element === "list_build") {
     const items = element.runs;
     if (!items.length) return null;
+    const listSize =
+      TYPE_SIZE[items[0].type_role] ?? TYPE_SIZE.supporting;
     // WHEN each item appears is `stageStarts`: the plan's own
     // per-stage offsets where it has them, an equal share of the hold
     // where it does not. See the helper for which is which.
@@ -1964,18 +1973,14 @@ const DrawnElement: React.FC<{
                   borderRadius: "50%",
                   backgroundColor: element.color,
                   marginTop: `${Math.round(
-                    ((TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting) *
-                      LINE_HEIGHT -
-                      8) *
-                      scale *
-                      0.5,
+                    (listSize * LINE_HEIGHT - 8) * scale * 0.5,
                   )}px`,
                   flexShrink: 0,
                 }}
               />
               <div
                 style={{
-                  fontSize: `${(TYPE_SIZE[run.type_role] ?? TYPE_SIZE.supporting) * scale}px`,
+                  fontSize: `${listSize * scale}px`,
                   fontWeight: TYPE_WEIGHT[run.type_role] ?? TYPE_WEIGHT.supporting,
                   color: element.color,
                   textShadow: "0px 4px 12px rgba(0,0,0,0.6)",

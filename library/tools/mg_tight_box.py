@@ -257,6 +257,26 @@ def _run_width(text: str, type_role: str, scale: float,
     return width
 
 
+def _list_item_width(text: str, size: float, weight: int,
+                     project_folder: str, _cache: dict) -> float:
+    """One list item's drawn width at the list's ONE size.
+
+    The composition's `list_build` arm draws every item at the lead
+    item's size with its own weight and its text as written - no
+    uppercase, no letter spacing. Measured through the same fitter
+    cache `_run_width` uses, minus the display branch that arm never
+    draws. Measuring here at the run's own role instead under-reads
+    every supporting item in a display-led list by the 56/36 ladder,
+    and the re-render clips it (Reel 25's list by 70px, 2026-09-19).
+    """
+    key = (round(size, 3), weight)
+    fitter = _cache.get(key)
+    if fitter is None:
+        fitter = _fitter_for_size(size, weight, project_folder)
+        _cache[key] = fitter
+    return fitter.word_width(text)
+
+
 def _run_line_height(type_role: str, scale: float) -> float:
     size = TYPE_SIZE.get(type_role, TYPE_SIZE["supporting"]) * scale
     return size * LINE_HEIGHT
@@ -459,14 +479,32 @@ def _element_size(element: dict, scale: float, project_folder: str,
         return usable_width, height
     if kind == "list_build":
         runs = element.get("runs") or []
+        # Peer items share ONE size - the lead item's type_role governs
+        # the whole list, exactly as the composition draws it. A
+        # display-first / supporting-rest plan declares emphasis, not a
+        # size ladder (the roster legend: axes carry no values), and the
+        # ladder reads as mis-sized bullets (Reels 19/24/25, 2026-09-19).
+        # Weights stay per-run; only the size unifies. Widths are
+        # measured at that same one size (`_list_item_width`) - the old
+        # per-role measurement under-read supporting items by the
+        # ladder and would clip them on re-render.
+        lead_role = (runs[0].get("type_role", "supporting")
+                     if runs else "supporting")
+        lead_size = TYPE_SIZE.get(lead_role, TYPE_SIZE["supporting"])
         width = 0.0
         height = 0.0
         for run in runs:
-            size = TYPE_SIZE.get(run.get("type_role", "supporting"),
-                                 TYPE_SIZE["supporting"]) * scale
-            width = max(width, _run_width(
-                run.get("text", ""), run.get("type_role", "supporting"),
-                scale, project_folder, _cache) + 20 * scale)
+            size = lead_size * scale
+            # Widths are measured at the same ONE size the arm draws -
+            # a supporting run measured at its own role under-reads by
+            # the ladder and clips on re-render. Weights stay per-run,
+            # exactly as drawn.
+            weight = TYPE_WEIGHT.get(
+                run.get("type_role", "supporting"),
+                TYPE_WEIGHT["supporting"])
+            width = max(width, _list_item_width(
+                run.get("text", ""), size, weight,
+                project_folder, _cache) + 20 * scale)
             height += size * LIST_LINE_HEIGHT
         if len(runs) > 1:
             height += 12 * scale * (len(runs) - 1)

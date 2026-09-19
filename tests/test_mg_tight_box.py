@@ -589,3 +589,59 @@ def test_top_anchored_graphic_places_at_the_measured_value():
     # one: a top-anchored union at the 120px safe inset sits its
     # 480-tall canvas at y 72.
     assert canvas_offset(box) == (348, 72)
+
+
+def _list_build_runs():
+    # Reel 24's marked list, verbatim: a display-first ladder over a
+    # supporting rest.
+    return [
+        {"text": "YouTube", "type_role": "display"},
+        {"text": "Instagram", "type_role": "supporting"},
+        {"text": "TikTok", "type_role": "supporting"},
+    ]
+
+
+def test_list_build_mixed_roles_share_one_row_height():
+    """Reels 19/24/25, 2026-09-19: the items of one enumeration are
+    peers and share one size, so a display-first / supporting-rest
+    plan stacks every row at the lead item's height. Under the old
+    per-role sum the Reel 24 list stacked 190px against 242px for the
+    same texts all in the lead role; the ladder read as mis-sized
+    bullets. Weights stay per-run by design (the roster's `never`
+    keeps the weight contrast), so widths may still differ by weight -
+    that half is pinned by the coverage test below.
+    """
+    from library.tools.mg_tight_box import _element_size
+    cache: dict = {}
+    mixed = {"element": "list_build", "runs": _list_build_runs()}
+    unified = {"element": "list_build",
+               "runs": [{"text": r["text"], "type_role": "display"}
+                        for r in _list_build_runs()]}
+    mixed_w, mixed_h = _element_size(mixed, 1.0, "", 10 ** 9, cache)
+    unified_w, unified_h = _element_size(unified, 1.0, "", 10 ** 9, cache)
+    assert mixed_h == unified_h
+
+
+def test_list_build_canvas_covers_the_unified_drawing():
+    """Reel 25's list re-rendered under the old prediction clipped by
+    70px: supporting runs measured at their own 36px role while the
+    fixed renderer draws them at the lead 56px. The canvas must cover
+    every run measured at the one size the composition draws."""
+    from library.tools.mg_tight_box import (
+        TYPE_SIZE,
+        TYPE_WEIGHT,
+        _list_item_width,
+    )
+    runs = _list_build_runs()
+    box = tighten_motion_graphics_props(
+        _props([_el("list_build", anchor="top_centre", runs=runs)]))
+    assert box is not None
+    lead_size = TYPE_SIZE[runs[0]["type_role"]]
+    cache: dict = {}
+    drawn = max(
+        _list_item_width(
+            r["text"], lead_size,
+            TYPE_WEIGHT.get(r["type_role"], TYPE_WEIGHT["supporting"]),
+            "", cache)
+        for r in runs)
+    assert box.width - 2 * MG_PAD >= drawn
