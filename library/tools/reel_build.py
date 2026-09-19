@@ -111,13 +111,18 @@ The CTA range is placed WHOLE - `redundant_takes` is not run over it.  It
 is a passage the plan named to the second and the captain approved; a
 retake scan silently shortening the closer would be a worse failure than
 leaving a repetition in a clip somebody chose deliberately.  Placed
-whole is not unscanned, though: `closer_repeats` measures the closer
-against itself and against the body ranges the reel actually plays, and
-reports both - carried per moment by `reel_proposal.enrich` so the
-model sees the echo while it can still pick another closer, and printed
-by `rebuild_reels_in_project` so an operator sees it at build time.
-A closer echoing the body is the reel playing those words twice; which
-of the two readings stays is taste, so the report never shortens one.
+ whole is not unscanned, though: `closer_repeats` measures the closer
+ against itself and against the body ranges the reel actually plays, and
+ reports both - carried per moment by `reel_proposal.enrich` so the
+ model sees the echo while it can still pick another closer, and printed
+ by `rebuild_reels_in_project` so an operator sees it at build time.
+ A closer echoing the body is the reel playing those words twice; which
+ of the two readings stays is taste, so the report never shortens one.
+ Whether the ending FOLLOWS is a different question and lives in
+ `library/tools/closer_fit.py` (2026-09-19 ruling): the share count
+ across reels plus the survey's recorded model verdict, printed beside
+ this echo report and carried on the build record. `closer_repeats`
+ measures echo-of-body/self and never fit.
 
 `tests/test_reel_build.py`.
 """
@@ -9330,6 +9335,29 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 f"quietly skipped them would report success having placed "
                 f"nothing.")
 
+    # ── CLOSER-FIT BASELINE (start of build) ──
+    # How many reels share each ending clip, and the recorded fit
+    # verdict per reel (`library/tools/closer_fit.py`, the 2026-09-19
+    # ruling: reuse is not a defect, topical misfit is). Grouped over
+    # every APPROVED moment, not just the ones this call builds, so an
+    # `--only` build reports the true share count rather than the
+    # count within its own subset. Verdicts come from the survey
+    # sidecar, never from a fresh judgement: a build places, it does
+    # not ask. Reports, never refuses - like every instrument here, a
+    # failure to read is said on stderr and the build continues.
+    try:
+        from library.tools import closer_fit as _closer_fit
+        _fit_approved = [
+            m for m in moments
+            if str(getattr(m.approval, "value", m.approval)) == "approved"]
+        _fit_groups = _closer_fit.reuse_groups(_fit_approved)
+        _fit_verdicts = _closer_fit.read_fit_verdicts(project_folder)
+    except Exception as exc:  # noqa: BLE001 - instrument, not gate.
+        print(f"  closer-fit baseline unavailable ({exc!r}) - reels "
+              f"build without the share/fit report", flush=True)
+        _fit_groups, _fit_verdicts = [], {}
+    closer_fit_report: dict = {}
+
     # ── DRAW-GAIN PROBE (start of build) ──
     # The Pan/Tilt draw gain is renderer STATE, not geometry: it read
     # 1.0 on 2026-09-11 and 2.0 on 2026-09-17 with no restart and no
@@ -9905,6 +9933,37 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                           f"{echo['kept_end']:.2f}s "
                           f"({echo['speaker']}) - the closer is placed "
                           f"whole", flush=True)
+            # Whether the ending follows from what this reel just said
+            # (`library/tools/closer_fit.py`, 2026-09-19 ruling). The
+            # share count is measured live above; the verdict was
+            # recorded by the survey before anything was re-cut. Said
+            # here, beside the echo report, and carried on the record
+            # below - and the reel is placed whole whatever it says.
+            try:
+                _fit_group = _closer_fit.group_for(moment, _fit_groups)
+                _fit_context = _closer_fit.fit_context(
+                    moment, transcript, _fit_group,
+                    extra_cuts=moment_cuts,
+                    insisted_spans=moment_insisted)
+                _fit_verdict = (_fit_verdicts.get(str(int(moment.number)))
+                                or None)
+                for _fit_line in _closer_fit.verdict_lines(
+                        int(moment.number), _fit_context, _fit_verdict):
+                    print(_fit_line, flush=True)
+                closer_fit_report[str(int(moment.number))] = {
+                    "reuse_count": _fit_context.get("reuse_count"),
+                    "shared_with": _fit_context.get("shared_with"),
+                    "closer_range": _fit_context.get("closer_range"),
+                    "content_hash": _fit_context.get("content_hash"),
+                    "verdict": (_fit_verdict or {}).get("verdict",
+                                                        "unjudged"),
+                    "reason": (_fit_verdict or {}).get("reason", ""),
+                }
+            except Exception as exc:  # noqa: BLE001 - instrument,
+                # not gate: a fit report that cannot be rendered must
+                # not fail the placement it reports on.
+                print(f"  closer-fit report unavailable for "
+                      f"{name} ({exc!r})", flush=True)
             # The keep ranges and the planned cards, by the ONE spelling
             # (`derive_reel_ranges_and_cards`) the ask path shares: a
             # strike covering the whole body raises `ExclusionWipesBody`
@@ -11179,6 +11238,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # final and promote to nothing.
         "staged_timelines": staged_out,
         "caption_hashes": caption_hashes,
+        # Per-reel closer share + fit, as reported at build time
+        # (`library/tools/closer_fit.py`, 2026-09-19 ruling): the live
+        # reuse count and shared-with list beside the survey's recorded
+        # verdict, keyed by reel number. A reel with no recorded
+        # verdict reads as "unjudged", never as a fit verdict.
+        "closer_fit": closer_fit_report,
         # The track plan each timeline was placed from, by final name
         # once promoted - so a conformance proof grades what was
         # built, never a re-derivation of it.
