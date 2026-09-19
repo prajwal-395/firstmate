@@ -251,6 +251,20 @@ class FindingClass:
     # is measured, because it was previously neither.
     F20 = "F20"  # PLANNING: transition element covers a caption (warning)
 
+    # 2026-09-19.  Every caption check above grades timing, geometry or
+    # placement - F5 measures uncaptioned SECONDS, F15 hangs, F17
+    # speaker bleed - and none of them reads whether the captioned
+    # WORDS are the words the reel plays. Five captain's notes across
+    # reels 05, 12 and 29 (missing words, added words, whole spans with
+    # no caption) passed all of them. F25 diffs played, captioned and
+    # spine at word level (`library/tools/subtitle_coverage.py`): a
+    # word played but not captioned, a word captioned but not played,
+    # and a caption word the artefact gives no time on screen are
+    # errors; transcript rows that cannot be mapped, pile-up timings,
+    # a stale transcript basis and played-vs-spine drift are warnings -
+    # worth a look, never a caption failure.
+    F25 = "F25"  # PLANNING: caption words are not the words played
+
 
 ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F9, FindingClass.F10, FindingClass.F12,
@@ -258,7 +272,7 @@ ENCODING_CLASSES = {FindingClass.F1, FindingClass.F2, FindingClass.F4,
                     FindingClass.F19}
 PLANNING_CLASSES = {FindingClass.F3, FindingClass.F5, FindingClass.F6,
                     FindingClass.F7, FindingClass.F8, FindingClass.F11, FindingClass.F14, FindingClass.F15, FindingClass.F16, FindingClass.F17,
-                    FindingClass.F20}
+                    FindingClass.F20, FindingClass.F25}
 PLAN_QUALITY_CLASSES = {FindingClass.PQ_LENGTH, FindingClass.PQ_SPEAKERS,
                         FindingClass.PQ_PICTURE}
 PROVENANCE_CLASSES = {FindingClass.PLAN_MISMATCH, FindingClass.NO_REFERENCE}
@@ -4274,6 +4288,175 @@ def hash_snapshot_dict(data: dict) -> str:
 
 # ── Verifying one reel ───────────────────────────────────────────────
 
+def check_subtitle_word_coverage(reel_name: str,
+                                 word_coverage: dict) -> List[Finding]:
+    """F25: played == captioned == spine, at word level.
+
+    `word_coverage` is what `_derive_word_coverage` built off the live
+    snapshot, the transcript, the proposal moment and the rendered
+    props artefacts: `{played, captioned, cards, spine|None,
+    unreadable, undetermined, stretched, degenerate_rows,
+    currency|None}`. The diff itself lives in
+    `library/tools/subtitle_coverage.py`; this wraps its finding dicts
+    into `Finding`s at this file's severity discipline - word
+    disagreements fail, basis problems (unmappable rows, pile-up
+    timings, a stale transcript, played-vs-spine drift) warn, because
+    a gate that fails correct output is no more coverage than one that
+    cannot fail (AGENTS.md 10.4).
+    """
+    from library.tools import subtitle_coverage as _coverage
+
+    findings: List[Finding] = []
+    result = _coverage.check_word_coverage(
+        word_coverage.get("played", []),
+        word_coverage.get("captioned", []),
+        word_coverage.get("cards", []),
+        spine=word_coverage.get("spine"),
+        edge_spill_seconds=_coverage.EDGE_SPILL_SECONDS)
+    for entry in result["findings"]:
+        severity = entry["severity"]
+        if severity not in ("error", "warning"):
+            severity = "warning"
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=f"{entry['kind']}: {entry['message']}",
+            severity=severity,
+            detail={"kind": entry["kind"], **entry.get("detail", {})}))
+    for entry in word_coverage.get("unreadable", []):
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"unreadable: placed caption {entry['card'][:48]} "
+                     f"cannot be verified: {entry['reason']}"),
+            severity="error",
+            detail={"kind": "unreadable", **entry}))
+    for entry in word_coverage.get("undetermined", []):
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"undetermined: transcript words that cannot be "
+                     f"mapped onto the reel ({entry.get('reason')}): "
+                     f"{entry.get('text', '')[:100]}"),
+            severity="warning",
+            detail={"kind": "undetermined", **entry}))
+    if word_coverage.get("stretched"):
+        total = sum(s.get("span_seconds", 0)
+                    for s in word_coverage["stretched"])
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"stretched: "
+                     f"{len(word_coverage['stretched'])} aligner-stretched "
+                     f"word(s) ({total:.1f}s) excluded from the played "
+                     f"measure"),
+            severity="warning",
+            detail={"kind": "stretched",
+                    "words": word_coverage["stretched"][:10]}))
+    if word_coverage.get("degenerate_rows"):
+        total = sum(r.get("degenerate_count", 0)
+                    for r in word_coverage["degenerate_rows"])
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"degenerate_rows: {total} word(s) in "
+                     f"{len(word_coverage['degenerate_rows'])} transcript "
+                     f"row(s) carry pile-up timings and place nowhere"),
+            severity="warning",
+            detail={"kind": "degenerate_rows",
+                    "rows": word_coverage["degenerate_rows"][:10]}))
+    currency = word_coverage.get("currency") or {}
+    for mismatch in currency.get("mismatches", []):
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"stale-transcript: cached transcript disagrees with "
+                     f"the live master on {mismatch['field']} "
+                     f"(cached {mismatch['cached']!r}, live "
+                     f"{mismatch['live']!r}) - the played-words basis is "
+                     f"stale"),
+            severity="warning",
+            detail={"kind": "stale-transcript", **mismatch}))
+    return findings
+
+
+def _derive_word_coverage(reel_snapshot,
+                          reel_timeline: "ReelTimeline",
+                          transcript: Optional[dict],
+                          source_spans: Optional[Sequence[dict]],
+                          master_snapshot,
+                          props_dir: str) -> Optional[dict]:
+    """Build F25's three word sequences off live state.
+
+    Played words come from the transcript intersected with the reel's
+    PLACED audio spans (source seconds off the snapshot - the played
+    range, never the raw frame report); captioned words from the props
+    artefacts behind the placed caption items; the spine from the
+    proposal moment's source spans where one was matched. Currency is
+    the cached transcript's `derived_from` against the live master -
+    the cache trap (`transcript.json` is written only by the transcribe
+    pass, never by a build): a re-cut master makes a re-cut reel look
+    correct against old timings, so the check refuses the basis loudly
+    instead of grading on it.
+
+    None when there is nothing to diff (no transcript, no audio on the
+    reel): the caller says the check did not run rather than passing
+    it on nothing.
+    """
+    from library.tools import subtitle_coverage as _coverage
+
+    transcript_segments = (transcript or {}).get("segments", [])
+    if not transcript_segments:
+        return None
+    audio_spans = [
+        {"source_file": clip.source_file,
+         "source_start": clip.source_in,
+         "source_end": clip.source_out,
+         "reel_start": clip.timeline_start}
+        for clip in reel_snapshot.clips
+        if clip.track_type == "audio" and clip.source_file]
+    if not audio_spans:
+        return None
+    played = _coverage.played_words_from_transcript(
+        transcript_segments, audio_spans,
+        max_word_seconds=MAX_WORD_SECONDS)
+    cards = [{
+        "clip_path": item.source_file or item.name,
+        "reel_start_frame": item.start_frame,
+        "reel_end_frame": item.start_frame + item.duration_frames,
+        "source_in_frame": item.source_start_frame,
+    } for item in reel_timeline.caption_items]
+    captioned = _coverage.captioned_words_from_placed_cards(
+        cards, props_dir, reel_timeline.fps or _fps())
+    spine = _coverage.spine_words_from_spans(
+        transcript_segments, source_spans or [])
+    holes = None
+    if master_snapshot is not None:
+        ranges = sorted(
+            (c.timeline_start, c.timeline_end)
+            for c in master_snapshot.picture_clips())
+        holes = []
+        cursor = 0.0
+        for start, end in ranges:
+            if start > cursor + 0.04:
+                holes.append([round(cursor, 3), round(start, 3)])
+            cursor = max(cursor, end)
+    currency = _coverage.transcript_currency(
+        transcript or {},
+        master_snapshot.fps if master_snapshot else 0.0,
+        master_snapshot.duration if master_snapshot else 0.0,
+        holes)
+    return {"played": played["words"],
+            "captioned": captioned["words"],
+            "cards": captioned["cards"],
+            "spine": spine["words"],
+            "unreadable": captioned["unreadable"],
+            "undetermined": played["undetermined"],
+            "stretched": played["stretched"],
+            "degenerate_rows": played["degenerate_rows"],
+            "currency": currency}
+
+
 def verify_reel(plan: ReelPlan,
                 timeline: ReelTimeline,
                 transcript_segments: Optional[Sequence[dict]] = None,
@@ -4291,9 +4474,10 @@ def verify_reel(plan: ReelPlan,
                 semantic_plan: Optional[dict] = None,
                 span_plan: Optional[dict] = None,
                 lower_third_plan: Optional[dict] = None,
-                expected_frame: Optional[Tuple[int, int]] = None,
-                draw_gain: float = None,
-                ) -> ReelResult:
+                 expected_frame: Optional[Tuple[int, int]] = None,
+                 draw_gain: float = None,
+                 word_coverage: Optional[dict] = None,
+                 ) -> ReelResult:
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     if draw_gain is None:
         draw_gain = FALLBACK_DRAW_GAIN
@@ -4303,6 +4487,12 @@ def verify_reel(plan: ReelPlan,
     against - every video item on the MASTER, as dicts. It returns
     nothing at all without them, so a caller that omits it gets that
     gate's silence rather than its answer.
+
+    `word_coverage` is F25's precomputed basis (`_derive_word_coverage`
+    in the live run): played, captioned and spine word sequences plus
+    the unreadable/undetermined/stretched/degenerate/currency records.
+    None skips F25 - the check that cannot read its basis says it did
+    not run rather than passing on nothing.
     """
     fps = timeline.fps or _fps()
     findings: List[Finding] = []
@@ -4574,6 +4764,14 @@ def verify_reel(plan: ReelPlan,
             plan.reel_name, cards, transcript_segments,
             plan.keep_ranges or [(plan.span_start, plan.span_end)],
             fps, lead_seconds=plan.lead_seconds))
+
+    # F25: played == captioned == spine, at word level. Runs wherever
+    # the caller derived the basis (live runs with a transcript and a
+    # project folder); anywhere else the check says it did not run
+    # rather than passing on nothing.
+    if word_coverage is not None:
+        findings.extend(check_subtitle_word_coverage(
+            plan.reel_name, word_coverage))
 
     # The spans a viewer hears an edge of: the body, and the closer if
     # the reel has one.  NOT the bad-take seams inside the body, which
@@ -6090,6 +6288,30 @@ def run_verification(
         print(f"Declared framing_intent: {declared_intent} "
               f"(crop factor {declared_crop_factor})", file=err)
 
+    # ── F25's reading position: the rendered props artefacts ─────────
+    #
+    # The captioned words come from the `<stem>_props.json` artefacts
+    # each placed `sub_*` clip was rendered from - never from the plan
+    # that requested them. Without a project folder there is no
+    # artefact dir to read, and F25 says it did not run rather than
+    # passing on nothing.
+    caption_props_dir = ""
+    if project_folder:
+        try:
+            from library.tools.project_layout import (
+                Area as _Area, ProjectLayout as _Layout)
+            caption_props_dir = str(_Layout(project_folder).read_dir(
+                _Area.SUBTITLE_SEGMENTS))
+        except Exception as exc:  # noqa: BLE001 - derivation, never a gate
+            print(f"Word coverage (F25): no caption artefact dir: {exc}",
+                  file=err)
+    if transcript and not caption_props_dir:
+        print("Word coverage (F25): DID NOT RUN - no project folder, so "
+              "the rendered caption words cannot be read.", file=err)
+    elif not transcript:
+        print("Word coverage (F25): DID NOT RUN - no transcript, so "
+              "there are no played words to compare against.", file=err)
+
     if plan_refused:
         # The plan does not describe these timelines.  Every F1-F11
         # finding would be noise that looks like signal.  REFUSE.
@@ -6150,6 +6372,19 @@ def run_verification(
             # The transcript is what F5 measures coverage against, and
             # it was never passed - so F5 was skipped on every live run
             # regardless of the plan's caption side.
+            #
+            # F25's basis, derived off the same live snapshot: played
+            # words off the placed audio, captioned words off the
+            # rendered props, the spine off the matched moment, and the
+            # transcript's currency against the live master. None where
+            # there is no transcript or no artefact dir - the check
+            # then says it did not run.
+            word_coverage = None
+            if transcript and caption_props_dir:
+                word_coverage = _derive_word_coverage(
+                    snap, reel_tl, transcript,
+                    moment.source_spans if moment else None,
+                    master_snapshot, caption_props_dir)
             result = verify_reel(
                 plan, reel_tl,
                 transcript_segments=(transcript or {}).get("segments"),
@@ -6170,7 +6405,8 @@ def run_verification(
                 lower_third_plan=lower_third_plan_for_reel(
                     lower_third_plans, name),
                 expected_frame=expected_frame,
-                draw_gain=draw_gain)
+                draw_gain=draw_gain,
+                word_coverage=word_coverage)
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "
