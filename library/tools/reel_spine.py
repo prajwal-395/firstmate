@@ -386,6 +386,21 @@ def _unanchored_band(segment: dict, anchored: Sequence[dict]) -> str:
     return "ambiguous"
 
 
+def _covering_range_end(master_start: float,
+                        ranges: Sequence[tuple[float, float]]
+                        ) -> float | None:
+    """The end of the kept range playing `master_start`, or None.
+
+    The same half-open membership `reel_time` tests: a block that
+    starts inside a range is clipped to THAT range's end, never to a
+    later one.
+    """
+    for range_start, range_end in ranges or ():
+        if range_start <= master_start < range_end:
+            return float(range_end)
+    return None
+
+
 def spine_for_reel(moment, transcript: dict,
                    ranges: Sequence[tuple[float, float]] | None = None,
                    lead_seconds: float = 0.0,
@@ -431,6 +446,7 @@ def spine_for_reel(moment, transcript: dict,
 
     blocks: list[dict] = []
     dropped_no_binding = 0
+    range_clipped: list[dict] = []
     anchored_rows = [s for s in segments
                      if (s.get("resolve_item_id") or s.get("source_file"))
                      and s.get("source_start") is not None]
@@ -515,7 +531,33 @@ def spine_for_reel(moment, transcript: dict,
 
         reel_start = reel_time(master_start, ranges)
         reel_end = reel_time(master_end, ranges, at_end=True)
-        if reel_start is None or reel_end is None or reel_end <= reel_start:
+        if reel_start is None:
+            continue
+        if reel_end is None:
+            # The block's tail runs past a kept range's end. That end
+            # may be a HELD approved bound sitting inside the final
+            # word (the stranded-tail repair holds it there), and
+            # dropping the whole block would silently uncaption seconds
+            # the reel really plays - exactly how an 11s closing
+            # segment vanished from a reel whose picture kept it. CLIP
+            # the block to the range end instead, and SAY so below.
+            clip_to = _covering_range_end(master_start, ranges)
+            if clip_to is None or clip_to <= master_start:
+                continue
+            dropped = float(master_end) - float(clip_to)
+            range_clipped.append({
+                "clip_id": clip_id,
+                "speaker": segment.get("speaker"),
+                "master_end": round(float(master_end), 3),
+                "clipped_to": round(float(clip_to), 3),
+                "seconds": round(dropped, 3),
+            })
+            master_end = float(clip_to)
+            source_end = float(source_end) - dropped
+            reel_end = reel_time(master_end, ranges, at_end=True)
+            if reel_end is None or reel_end <= reel_start:
+                continue
+        if reel_end <= reel_start:
             continue
 
         words = _source_words(segment, master_start, source_start)
@@ -631,7 +673,12 @@ def spine_for_reel(moment, transcript: dict,
             # the captain is looking at.
             "unbindable_seconds": round(
                 sum(u["seconds"] for u in unbindable), 2),
-            "unbindable_spans": unbindable}
+            "unbindable_spans": unbindable,
+            # Blocks whose tail a kept range's end cut short, clipped to
+            # that end rather than dropped whole. Each names the block
+            # and how much of it was cut, because a clip nobody can see
+            # is a silent content change.
+            "range_clipped_blocks": range_clipped}
 
 
 def _block_seconds(block: dict) -> float:

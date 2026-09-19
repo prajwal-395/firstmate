@@ -662,6 +662,63 @@ def _word_through(transcript: dict, when: float) -> Optional[str]:
     return None
 
 
+def _is_held_move(move: dict) -> bool:
+    """A move that changes nothing and asks a human: a tail the pass
+    abstained on, or a fully judged tail reported rather than
+    applied. Both move nothing; both need a decision as loudly as a
+    cascade does."""
+    return bool(move.get("abstained", False) or move.get("reported", False))
+
+
+def _tail_why(tail: dict) -> str:
+    """The human sentence behind a stranded-tail move.
+
+    An extension that finished a sentence must read differently from
+    one that ran on, and a hold differently from both - a later reader
+    checks the WHY, not just the new number. Every number quoted is
+    measured from the kept range's own segment word timings.
+    """
+    verdict = (tail or {}).get("verdict", "")
+    measured = (tail or {}).get("pace_from", "") == "closing segment"
+    pace_note = (f"{tail.get('pace', 0.0):.2f}s (median word)"
+                 if measured else
+                 f"{tail.get('pace', 0.0):.2f}s "
+                 f"({tail.get('pace_from', 'fallback')})")
+    if verdict == "extend":
+        quoted = " ".join(tail.get("tail_words", [])[:12])
+        if len(tail.get("tail_words", [])) > 12:
+            quoted += " ..."
+        return (
+            f"finishes the {tail.get('kind', 'sentence-tail')} "
+            f"({quoted!r}): the first stranded word starts "
+            f"{tail.get('gap', 0.0):.2f}s past the bound, inside the "
+            f"speaker's pace of {pace_note}, so the thought runs to "
+            f"the sentence end at {tail.get('tail_end', 0.0):.2f}s")
+    if verdict == "hold":
+        following = ""
+        if tail.get("next_gap") is not None:
+            following = (f"; the next speech starts "
+                         f"{tail.get('next_gap', 0.0):.2f}s later, "
+                         f"beyond the pace, so the reel still ends "
+                         f"before it either way")
+        return (
+            f"approved bound stands: the final word "
+            f"{tail.get('word', '')!r} is already covered with "
+            f"{tail.get('remainder', 0.0):.2f}s of breath inside the "
+            f"pace of {pace_note} - drift since "
+            f"approval does not move approved spans{following}")
+    if verdict == "report":
+        quoted = " ".join(tail.get("tail_words", [])[:12])
+        if len(tail.get("tail_words", [])) > 12:
+            quoted += " ..."
+        return (
+            f"reports the severed {tail.get('kind', 'sentence-tail')} "
+            f"({quoted!r}): it runs to {tail.get('tail_end', 0.0):.2f}s "
+            f"- longer than the closing thought - so the span places "
+            f"as approved and a human decides")
+    return str((tail or {}).get("reason", "the tail cannot be judged"))
+
+
 def snap_moment_to_speech(moment: ReelMoment,
                           transcript: dict) -> tuple:
     """Repair a STORED moment's boundaries at build time.
@@ -686,21 +743,81 @@ def snap_moment_to_speech(moment: ReelMoment,
     its spans.  `moves` names each repaired boundary, what it was, what
     it is now, and the word it sat inside, because a repair the operator
     cannot see is a silent content change.
+
+    Before the word/segment phases, the body END takes the stranded-tail
+    pass (`reel_build.repair_moment_tail`): an end that leaves whole
+    kept words unplayed inside the speaker's own pace moves OUT to the
+    sentence end first, and an end that already covers all but breath
+    of the final word HOLDS - drift in word timings since approval does
+    not move approved spans, only stranded whole words do.  A hold
+    suppresses the word/segment phases for that boundary, so the held
+    value is what the build places.  A tail the pass cannot judge is
+    reported as an abstaining move (`was == now`, `abstained: True`)
+    and the span is left for a human to redraw.  Every tail move
+    carries `attribution` (`tail-extend`, `tail-hold`, `tail-abstain`)
+    and its WHY, the pin-vs-snap provenance
+    `pipeline_output/review/moment_boundary_repairs.json` is built
+    from.  Closer ends stay snap-owned - recorded closer pins own
+    closer starts, and no tail pass moves a closer end; body starts
+    are the onset mirror this pass deliberately does not cover.
     """
+    from library.tools.reel_build import repair_moment_tail
+
     moves: List[dict] = []
-    start, end = snap_to_speech(float(moment.timeline_start),
-                                float(moment.timeline_end), transcript)
-    if start != float(moment.timeline_start):
-        moves.append({"boundary": "body_start",
-                      "was": float(moment.timeline_start), "now": start,
-                      "through": _word_through(
-                          transcript, float(moment.timeline_start))})
-    if end != float(moment.timeline_end):
-        moves.append({"boundary": "body_end",
-                      "was": float(moment.timeline_end), "now": end,
-                      "through": _word_through(
-                          transcript, float(moment.timeline_end))})
+    stored_start = float(moment.timeline_start)
+    stored_end = float(moment.timeline_end)
     cta = getattr(moment, "call_to_action", None)
+    later: List[tuple] = []
+    if cta is not None:
+        try:
+            later.append((float(cta.timeline_start),
+                          float(cta.timeline_end)))
+        except (TypeError, ValueError):
+            later = []
+    tailed_end, tail = repair_moment_tail(stored_end, stored_start,
+                                          transcript, later=later)
+    held_end: Optional[float] = None
+    if tail is not None:
+        verdict = tail.get("verdict", "")
+        attribution = {"extend": "tail-extend",
+                       "hold": "tail-hold",
+                       "report": "tail-report"}.get(verdict, "tail-abstain")
+        record = {"boundary": "body_end",
+                  "was": stored_end, "now": tailed_end,
+                  "through": _word_through(transcript, stored_end),
+                  "attribution": attribution,
+                  "why": _tail_why(tail),
+                  "tail_kind": tail.get("kind", ""),
+                  "tail_words": tail.get("tail_words", []),
+                  "gap": tail.get("gap"),
+                  "pace": tail.get("pace"),
+                  "pace_from": tail.get("pace_from", "")}
+        if verdict == "abstain":
+            record["abstained"] = True
+        if verdict == "report":
+            record["reported"] = True
+        moves.append(record)
+        if verdict == "hold":
+            held_end = stored_end
+    start, end = snap_to_speech(stored_start, tailed_end, transcript)
+    if held_end is not None and end != held_end:
+        # The hold overrules the phases for this boundary: the approved
+        # edge stands.  Widening the end cannot move the start earlier
+        # (a newly touched segment starts past the old end, so the
+        # minimum over touched starts is unchanged), so reverting the
+        # end leaves the start exactly as a held snap would compute it.
+        end = held_end
+        moves = [move for move in moves
+                 if not (move.get("boundary") == "body_end"
+                         and "attribution" not in move)]
+    if start != stored_start:
+        moves.append({"boundary": "body_start",
+                      "was": stored_start, "now": start,
+                      "through": _word_through(transcript, stored_start)})
+    if end != tailed_end:
+        moves.append({"boundary": "body_end",
+                      "was": tailed_end, "now": end,
+                      "through": _word_through(transcript, tailed_end)})
     new_cta = cta
     if cta is not None:
         cta_start, cta_end = snap_to_speech(float(cta.timeline_start),
@@ -813,7 +930,11 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
     "flagged"}` where each move carries `boundary`, `was`, `now`,
     `delta`, `through` (the word a stored boundary sat inside, as the
     build already reports), `pulled_in`/`dropped` word lists, and
-    `needs_decision` - true when the boundary moves over `threshold`.
+    `needs_decision` - true when the boundary moves over `threshold`,
+    or when the stranded-tail pass abstains and holds the span for a
+    human. Tail moves also carry their `attribution` and WHY, so the
+    preview agrees with the build on what was decided, not just how
+    far a boundary moves.
     """
     entries = []
     moved = 0
@@ -827,8 +948,11 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
             delta = now - was
             pulled, dropped = _delta_words(transcript or {},
                                            move["boundary"], was, now)
-            needs = abs(delta) > threshold
-            moved += 1
+            abstained = _is_held_move(move)
+            # A held span moves nothing, but it needs a decision as
+            # loudly as a cascade does.
+            needs = abs(delta) > threshold or abstained
+            moved += 0 if abstained else 1
             flagged += 1 if needs else 0
             # The pin phrases travel with the report, so rendering
             # needs no transcript: what the ruled span opens on
@@ -850,6 +974,17 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
                 "needs_decision": needs,
                 "anchor_phrase": anchor_phrase,
                 "snapped_phrase": snapped_phrase,
+                # The stranded-tail provenance travels with the
+                # report, so the beforehand preview and the build
+                # agree on WHY - not just how far the boundary moves.
+                "attribution": move.get("attribution", ""),
+                "why": move.get("why", ""),
+                "tail_kind": move.get("tail_kind", ""),
+                "gap": move.get("gap"),
+                "pace": move.get("pace"),
+                "pace_from": move.get("pace_from", ""),
+                "abstained": bool(move.get("abstained", False)),
+                "reported": bool(move.get("reported", False)),
             })
         entries.append({"reel": int(moment.number),
                         "slug": moment.slug,
@@ -878,8 +1013,9 @@ def decision_lines(number: int, move: dict, transcript: dict,
     placed it - while a run with nothing flagged prints exactly what
     it prints today.  A flagged closer names its pin route
     (`record-closer` with the anchor/from phrases read off the
-    transcript); any other flagged boundary names the proposal as the
-    place the decision lives, because no pin kind extends a body.
+    transcript); a flagged body end the tail pass already extended
+    points at its recorded WHY, and any other flagged boundary names
+    the proposal as the place the decision lives.
 
     `move` is either a `preview_snap` report entry (carrying its
     phrases and verdict) or a raw `snap_moment_to_speech` move (the
@@ -887,6 +1023,20 @@ def decision_lines(number: int, move: dict, transcript: dict,
     so both callers read one spelling.
     """
     was, now = float(move["was"]), float(move["now"])
+    if move.get("reported"):
+        return [
+            f"  Reel {number:02d}: {move['boundary']} NEEDS DECISION: "
+            f"reported at {was:.3f}s - {move.get('why', '')}",
+            f"    recorded: {move.get('why', '')} - see "
+            f"pipeline_output/review/moment_boundary_repairs.json",
+        ]
+    if move.get("abstained"):
+        return [
+            f"  Reel {number:02d}: {move['boundary']} NEEDS DECISION: "
+            f"held at {was:.3f}s - {move.get('why', '')}",
+            f"    decide: redraw the approved proposal span - the tail "
+            f"pass judged nothing and applied nothing",
+        ]
     needs = bool(move.get("needs_decision",
                           abs(now - was) > threshold))
     if not needs:
@@ -924,10 +1074,17 @@ def decision_lines(number: int, move: dict, transcript: dict,
                 f"words at one end, so record-closer needs its "
                 f"--anchor/--from by hand")
     else:
-        lines.append(
-            f"    decide: adjust the approved proposal span - the file "
-            f"keeps what the captain ruled on, and no pin kind "
-            f"extends a body")
+        if move.get("attribution") in ("tail-extend", "tail-hold",
+                                           "tail-report"):
+            lines.append(
+                f"    recorded: {move.get('why', '')} - see "
+                f"pipeline_output/review/moment_boundary_repairs.json")
+        else:
+            lines.append(
+                f"    decide: adjust the approved proposal span - the file "
+                f"keeps what the captain ruled on; the stranded-tail "
+                f"pass declined (the gap outruns the speaker's pace), "
+                f"so no repair extends the body further")
     return lines
 
 
@@ -950,11 +1107,22 @@ def render_snap_preview(report: dict) -> str:
     for entry in moments:
         for move in entry.get("moves") or []:
             was, now = float(move["was"]), float(move["now"])
-            lines.append(
-                f"  Reel {entry['reel']:02d}: {move['boundary']} "
-                f"{was:.3f}s -> {now:.3f}s ({now - was:+.3f}s)"
-                + (" NEEDS DECISION" if move.get("needs_decision")
-                   else ""))
+            if move.get("reported"):
+                lines.append(
+                    f"  Reel {entry['reel']:02d}: {move['boundary']} "
+                    f"REPORTED at {was:.3f}s - "
+                    f"{move.get('why', '')}")
+            elif move.get("abstained"):
+                lines.append(
+                    f"  Reel {entry['reel']:02d}: {move['boundary']} "
+                    f"HELD FOR DECISION at {was:.3f}s - "
+                    f"{move.get('why', '')}")
+            else:
+                lines.append(
+                    f"  Reel {entry['reel']:02d}: {move['boundary']} "
+                    f"{was:.3f}s -> {now:.3f}s ({now - was:+.3f}s)"
+                    + (" NEEDS DECISION" if move.get("needs_decision")
+                       else ""))
             lines.extend(decision_lines(entry["reel"], move, {},
                                         "", threshold))
     if not report.get("moved"):

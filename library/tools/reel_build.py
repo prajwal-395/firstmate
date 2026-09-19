@@ -2453,6 +2453,597 @@ def midword_keep_edges(start: float, end: float, transcript: dict,
     return found
 
 
+def _tail_timed_words(transcript: dict) -> List[Tuple[float, float, str]]:
+    """Every timed word as `(start, end, token)`, in transcript order.
+
+    Bound or straddling alike: whether an edge strands a tail is a
+    question about what is SPOKEN after it, and a straddling row's
+    words are audible even though no boundary may be placed on them
+    (`reel_proposal.bound_segments` states the rule). Untimed words
+    cannot place anything and are not listed.
+    """
+    out: List[Tuple[float, float, str]] = []
+    for segment in (transcript or {}).get("segments") or ():
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                out.append((word_start, word_end,
+                            str(word.get("word") or "")))
+    return out
+
+
+def _tail_fallback_pace(transcript: dict) -> Optional[float]:
+    """The episode's overall speaking pace: the median timed-word
+    duration across BOUND segments.
+
+    The NAMED fallback the family is allowed where the kept range's
+    own segment cannot be measured - no bound segment reaches the
+    edge, so the segment pace is uninferable. It NEVER extends: a
+    content decision without local measurement belongs to a human,
+    so within-fallback-pace stranding abstains loudly, while beyond
+    it the edge is cleanly done. Any finding made on it says so
+    (`pace_from`), because a fallback nobody can see is a silent
+    constant wearing derived clothes.
+    """
+    from library.tools.reel_proposal import bound_segments
+
+    durations = []
+    for segment in bound_segments(transcript or {}):
+        for word in segment.get("words") or ():
+            try:
+                word_start = float(word["start"])
+                word_end = float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if word_end > word_start:
+                durations.append(word_end - word_start)
+    if not durations:
+        return None
+    ordered = sorted(durations)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[mid])
+    return float((ordered[mid - 1] + ordered[mid]) / 2.0)
+
+
+def _tail_closing_segment(edge: float, transcript: dict) -> Optional[dict]:
+    """The kept range's own segment at `edge`: the BOUND segment
+    containing it, else the latest bound segment ending at or before
+    it.
+
+    Bound only, the list `reel_proposal.bound_segments` reads - the
+    pace below must come from words with a single source behind them,
+    and a straddling row's bridged silence is not anyone's pace.
+    None where no bound segment reaches the edge: the caller falls
+    back to the transcript-wide pace (`_tail_fallback_pace`), and
+    says so.
+    """
+    from library.tools.reel_proposal import bound_segments
+
+    containing: Optional[dict] = None
+    latest: Optional[dict] = None
+    for segment in bound_segments(transcript or {}):
+        try:
+            seg_start = float(segment["timeline_start"])
+            seg_end = float(segment["timeline_end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if seg_end <= seg_start:
+            continue
+        if seg_start - EDGE_TOLERANCE <= edge <= seg_end + EDGE_TOLERANCE:
+            if (containing is None
+                    or seg_end > float(containing["timeline_end"])):
+                containing = segment
+        elif seg_end <= edge + EDGE_TOLERANCE:
+            if (latest is None
+                    or seg_end > float(latest["timeline_end"])):
+                latest = segment
+    return containing if containing is not None else latest
+
+
+def _tail_pace(segment: dict) -> Optional[float]:
+    """The speaker's pace at the edge: the MEDIAN timed-word duration
+    in the closing segment.
+
+    Derived from the material, never declared: a gap that counts as
+    "stranded" depends on the speaker and their pace, so it is
+    measured from the words around the edge. Median, not mean - one
+    0.9s "ChatGPT," must not license 0.8s leaps for a speaker whose
+    typical word is 0.2s. None where the segment carries no timed
+    words: nothing can be inferred, and the caller says so rather
+    than falling back to a number.
+    """
+    durations = []
+    for word in (segment or {}).get("words") or ():
+        try:
+            word_start = float(word["start"])
+            word_end = float(word["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if word_end > word_start:
+            durations.append(word_end - word_start)
+    if not durations:
+        return None
+    ordered = sorted(durations)
+    mid = len(ordered) // 2
+    if len(ordered) % 2:
+        return float(ordered[mid])
+    return float((ordered[mid - 1] + ordered[mid]) / 2.0)
+
+
+def _analyze_tail_edge(edge: float, ranges: Sequence[Tuple[float, float]],
+                       transcript: dict,
+                       dropped_spans: Sequence[tuple] = ()) -> dict:
+    """What a keep-range END leaves unplayed after it: `clean`,
+    `extend`, `hold` or `abstain`.
+
+    One predicate family over the kept range's own segment word
+    timings, covering a stranded tail whether it is one word (Reel
+    09: the keep edge lands 0.02s before the final word's start, so
+    `midword_keep_edges` passes it clean and the last word is simply
+    gone) or the rest of a sentence (Reel 04: the body ends on "why."
+    and the sentence that states its point starts five frames later).
+
+    - `extend`: whole timed words the plan keeps stand after the edge
+      within the speaker's own pace (the gap to the first of them is
+      at most the closing segment's median word duration) AND in the
+      closing voice, so the thought the range carries has not
+      finished. A new voice taking over is a turn boundary - a
+      legitimate end the repair leaves alone. Carries `tail_end`
+      (the end of that sentence, measured by `sentence_spans`, never
+      past it) and the evidence (`gap`, `pace`, `tail_words`).
+      Precedence over `hold`: a whole stranded word beats
+      breath-preservation.
+    - `hold`: the edge sits inside the final word of a BOUND segment
+      with only breath uncovered (at most the pace) - the approved
+      bound stands, and drift in word timings since approval does not
+      move it. Following speech at a proper distance does not clear
+      the hold: the reel still ends before it either way, and moving
+      the approved edge for breath alone is what stranded Reel 09 a
+      frame short. Inside a STRADDLING word there is no hold: no
+      boundary is ever placed on one, so the snap owns it as before.
+    - `abstain`: words stand after the edge but no pace can be
+      measured, or no sentence end can be read for them, or the tail
+      crosses a dropped take or strike - extending would reinstate
+      what the cutter deliberately removed. Reported, never applied.
+    - `report`: the tail is fully measured and would otherwise
+      extend, but it runs LONGER than the closing thought it
+      continues (the added seconds exceed the closing sentence) - a
+      further passage absorbed, not a severed thought finished.
+      Reported with the same evidence an extension would carry, and
+      never applied: the span places as approved and a human decides.
+    - `clean`: everything else, including an edge whose following
+      words all play in a later range or fall in a dropped span, or
+      whose nearest following speech starts beyond the pace.
+
+    REPORTS, never repairs: the caller decides. A moment end the snap
+    owns is extended or held by `repair_moment_tail`; an interior
+    edge the cutter drew is refused by `reel_ranges`, because
+    widening it reinstates take content the way `midword_keep_edges`
+    already refuses to.
+    """
+    from library.tools.reel_proposal import bound_segments
+
+    words = _tail_timed_words(transcript)
+    closing = _tail_closing_segment(edge, transcript)
+    segment_pace = _tail_pace(closing) if closing is not None else None
+    if segment_pace is not None:
+        pace, measured = segment_pace, True
+        pace_from = "closing segment"
+    else:
+        pace, measured = _tail_fallback_pace(transcript), False
+        pace_from = ("transcript fallback: no bound segment "
+                     "reaches the edge")
+
+    def _covered(when: float) -> bool:
+        return any(range_start <= when < range_end
+                   for range_start, range_end in ranges)
+
+    def _dropped(when: float) -> bool:
+        return any(drop_start <= when < drop_end
+                   for drop_start, drop_end in dropped_spans
+                   if drop_end > drop_start)
+
+    after = [entry for entry in words
+             if entry[0] >= edge - EDGE_TOLERANCE]
+    stranded = [entry for entry in after
+                if not _covered(entry[0]) and not _dropped(entry[0])]
+    holding = None
+    for word_start, word_end, token in words:
+        if word_start < edge < word_end:
+            remainder = word_end - edge
+            if measured and remainder <= pace and any(
+                    _word_in_bound_segments(
+                        word_start, word_end, token, segment)
+                    for segment in bound_segments(transcript or {})):
+                holding = {"verdict": "hold", "edge": edge,
+                           "word": token,
+                           "word_start": word_start, "word_end": word_end,
+                           "remainder": remainder, "pace": pace,
+                           "pace_from": pace_from,
+                           "inferred": True}
+            break
+    if stranded:
+        first_start = stranded[0][0]
+        gap = first_start - edge
+        if pace is None:
+            return {"verdict": "abstain", "edge": edge,
+                    "reason": ("words stand unplayed after the edge but "
+                               "no pace can be measured anywhere - "
+                               "redraw the span"),
+                    "tail_words": [token for _, _, token in stranded],
+                    "pace_from": pace_from,
+                    "inferred": False}
+        sentence = sentence_around(first_start, transcript)
+        if not (sentence or {}).get("text"):
+            if holding is not None:
+                return holding
+            return {"verdict": "abstain", "edge": edge,
+                    "gap": gap, "pace": pace,
+                    "reason": ("words stand unplayed after the edge but "
+                               "no sentence end can be read for them - "
+                               "redraw the span"),
+                    "tail_words": [token for _, _, token in stranded],
+                    "pace_from": pace_from,
+                    "inferred": False}
+        tail_end = float(sentence["end"])
+        sentence_words = [
+            token for token_start, _, token in words
+            if sentence["start"] - EDGE_TOLERANCE <= token_start < tail_end
+            and token_start >= edge - EDGE_TOLERANCE]
+        crossed = [token for token_start, _, token in words
+                   if sentence["start"] - EDGE_TOLERANCE <= token_start
+                   < tail_end and _dropped(token_start)]
+        if crossed:
+            if holding is not None:
+                return holding
+            return {"verdict": "abstain", "edge": edge,
+                    "gap": gap, "pace": pace,
+                    "reason": ("the tail crosses a dropped take or strike "
+                               f"({', '.join(crossed[:6])!r}) - extending "
+                               "would reinstate what the cutter removed, "
+                               "so redraw the span"),
+                    "tail_words": sentence_words,
+                    "tail_end": tail_end,
+                    "pace_from": pace_from,
+                    "inferred": False}
+        if tail_end > edge + EDGE_TOLERANCE and gap <= pace:
+            if not measured:
+                # The fallback pace says "nearby", but no closing
+                # segment was measured: extending is a content
+                # decision without local evidence, so a human
+                # redraws rather than the engine reaching.
+                if holding is not None:
+                    return holding
+                return {"verdict": "abstain", "edge": edge,
+                        "gap": gap, "pace": pace,
+                        "reason": ("words stand unplayed after the edge "
+                                   "within the fallback pace, but no "
+                                   "closing segment measures them - "
+                                   "redraw the span"),
+                        "tail_words": sentence_words,
+                        "tail_end": tail_end,
+                        "pace_from": pace_from,
+                        "inferred": False}
+            if not _same_voice(first_start, transcript, closing):
+                # A new voice takes over after the edge: the reel ends
+                # at a turn boundary, which is a legitimate approved
+                # shape - reaching into another speaker's turn is a
+                # content decision for selection (redraw the span),
+                # never an automatic extension. A measured hold still
+                # stands: the approved edge is good either way.
+                if holding is not None:
+                    holding["next_gap"] = gap
+                    return holding
+                return {"verdict": "clean", "edge": edge}
+            closing_end = float(closing["timeline_end"])
+            kind = ("word-tail" if tail_end <= closing_end
+                    + EDGE_TOLERANCE else "sentence-tail")
+            if kind == "sentence-tail":
+                # A tail longer than the thought it continues is a
+                # further passage absorbed, not a severed thought
+                # finished: the added seconds are weighed against the
+                # closing sentence, both measured, no declared bound.
+                # Reported with the full evidence an extension would
+                # carry, and never applied.
+                thought = _closing_sentence(edge, transcript)
+                if thought is None:
+                    return {"verdict": "report", "edge": edge,
+                            "tail_end": tail_end, "gap": gap,
+                            "pace": pace,
+                            "reason": ("the tail would extend the body "
+                                       "but no closing sentence ends at "
+                                       "the edge to weigh it against - "
+                                       "reported, never applied"),
+                            "tail_words": sentence_words,
+                            "kind": kind,
+                            "sentence": sentence.get("text", ""),
+                            "pace_from": pace_from,
+                            "inferred": True}
+                thought_seconds = (float(thought["end"])
+                                   - float(thought["start"]))
+                if tail_end - edge > thought_seconds:
+                    return {"verdict": "report", "edge": edge,
+                            "tail_end": tail_end, "gap": gap,
+                            "pace": pace,
+                            "reason": (
+                                f"the tail adds {tail_end - edge:.1f}s "
+                                f"past a {thought_seconds:.1f}s closing "
+                                f"thought - a further passage, not a "
+                                f"severed tail - reported, never applied"),
+                            "tail_words": sentence_words,
+                            "kind": kind,
+                            "sentence": sentence.get("text", ""),
+                            "pace_from": pace_from,
+                            "inferred": True}
+            return {"verdict": "extend", "edge": edge,
+                    "tail_end": tail_end, "gap": gap, "pace": pace,
+                    "tail_words": sentence_words,
+                    "kind": kind,
+                    "sentence": sentence.get("text", ""),
+                    "pace_from": pace_from,
+                    "inferred": True}
+        # A stranded tail the edge correctly leaves behind (a new
+        # thought at a proper distance) still leaves the hold
+        # standing where one was measured: the reel ends before it
+        # either way, and drift does not move approved spans.
+        if holding is not None:
+            holding["next_gap"] = gap
+            return holding
+        return {"verdict": "clean", "edge": edge}
+    if holding is not None:
+        return holding
+    return {"verdict": "clean", "edge": edge}
+
+
+def _closing_sentence(edge: float, transcript: dict) -> Optional[dict]:
+    """The thought the edge closes on: the latest sentence ending at
+    or before it.
+
+    The scale a tail is judged against - a tail longer than the
+    thought it continues is a further passage absorbed, not a severed
+    thought finished. None where no sentence ends there yet: with no
+    closing thought measured, scale cannot be judged and the caller
+    reports rather than extending.
+    """
+    latest: Optional[dict] = None
+    for sentence in sentence_spans(transcript or {}):
+        try:
+            end = float(sentence["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if end <= edge + EDGE_TOLERANCE and (sentence or {}).get("text"):
+            if latest is None or end > float(latest["end"]):
+                latest = sentence
+    return latest
+
+
+def _same_voice(first_start: float, transcript: dict,
+                closing: dict) -> bool:
+    """Does the stranded tail continue in the closing voice?
+    The tail extends a thought only when the same speaker carries it:
+    reaching into another speaker's turn is a content decision for
+    selection, never an automatic repair. The tail's voice is read off
+    the BOUND segment containing its first word - a straddling row's
+    speaker claim cannot testify. Either side unnamed is not
+    continuity.
+    """
+    from library.tools.reel_proposal import bound_segments
+
+    closing_speaker = (closing or {}).get("speaker") or ""
+    tail_speaker = ""
+    tail_start = -1.0
+    for segment in bound_segments(transcript or {}):
+        try:
+            seg_start = float(segment["timeline_start"])
+            seg_end = float(segment["timeline_end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        # The LATEST-starting row containing the word owns it:
+        # segments overlap by ASR jitter, and a word at the seam
+        # opens the row that starts there rather than continuing the
+        # one it overlaps.
+        if (seg_start - EDGE_TOLERANCE <= first_start <= seg_end
+                + EDGE_TOLERANCE and seg_start > tail_start):
+            tail_start = seg_start
+            tail_speaker = segment.get("speaker") or ""
+    return bool(closing_speaker) and closing_speaker == tail_speaker
+
+
+def _word_in_bound_segments(word_start: float, word_end: float,
+                            token: str, segment: dict) -> bool:
+    """Does this bound segment carry this exact timed word."""
+    try:
+        seg_start = float(segment["timeline_start"])
+        seg_end = float(segment["timeline_end"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    if not (seg_start - EDGE_TOLERANCE <= word_start
+            and word_end <= seg_end + EDGE_TOLERANCE):
+        return False
+    for word in segment.get("words") or ():
+        try:
+            candidate_start = float(word["start"])
+            candidate_end = float(word["end"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (abs(candidate_start - word_start) <= EDGE_TOLERANCE
+                and abs(candidate_end - word_end) <= EDGE_TOLERANCE
+                and str(word.get("word") or "") == token):
+            return True
+    return False
+
+
+def stranded_tail_keep_edges(
+        start: float, end: float, transcript: dict,
+        cuts: Optional[Sequence["Cut"]] = None,
+        extra_cuts: Sequence[tuple] = ()) -> List[dict]:
+    """Interior keep-range ends that strand whole kept words.
+
+    The sibling `midword_keep_edges` refuses an edge that falls
+    INSIDE a word; this refuses the shape it cannot see - an edge
+    that falls just BEFORE one, 0.02s before the final word's start
+    with every gate green (Reel 09). Each finding carries the edge,
+    the stranded tail (words, gap, the speaker's pace, where the
+    sentence ends) so the redraw it forces names what was lost.
+
+    Interior edges only: the snap owns the outer span edges, and a
+    moment end that strands a tail is EXTENDED by
+    `repair_moment_tail`, not refused here. Takes a cut drops and
+    recorded strikes deliberately remove are not stranded - only
+    speech the plan keeps but no range plays is.
+    """
+    if cuts is None:
+        cuts = redundant_takes(start, end, transcript)
+    ranges = keep_ranges(start, end, cuts)
+    if len(ranges) < 2:
+        return []
+    dropped = [(float(cut.dropped_start), float(cut.dropped_end))
+               for cut in cuts or ()]
+    for extra in extra_cuts or ():
+        try:
+            dropped.append((float(extra[0]), float(extra[1])))
+        except (TypeError, ValueError, IndexError):
+            continue
+    edges: Dict[float, str] = {}
+    for range_start, range_end in ranges:
+        for when, side in ((range_start, "keep_start"),
+                           (range_end, "keep_end")):
+            if when == start or when == end:
+                continue
+            key = round(when, 6)
+            if key not in edges:
+                edges[key] = side
+    found = []
+    for edge in sorted(edges):
+        outcome = _analyze_tail_edge(edge, ranges, transcript, dropped)
+        if outcome["verdict"] in ("extend", "abstain", "report"):
+            record = {"edge": edge, "side": edges[edge]}
+            record.update({key: outcome[key] for key in outcome
+                           if key != "verdict"})
+            record["verdict"] = outcome["verdict"]
+            found.append(record)
+    return found
+
+
+def repair_moment_tail(end: float, start: float, transcript: dict,
+                       later: Sequence[Tuple[float, float]] = (),
+                       take_cuts: Optional[Sequence["Cut"]] = None
+                       ) -> Tuple[float, Optional[dict]]:
+    """Extend or hold a STORED moment end that strands its own tail.
+
+    The snap repair `reel_proposal.snap_moment_to_speech` runs this
+    first: an end that leaves whole kept words unplayed inside the
+    speaker's pace moves OUT to the sentence end (Reel 04's body
+    gains its "decision engine" punchline), and an end that already
+    covers all but breath of the final word HOLDS (Reel 09's approved
+    693.3s stands, because drift in word timings since approval does
+    not move approved spans - only stranded whole words do).
+
+    Returns `(new_end, finding)`: `finding` is None when the end is
+    clean, else the `extend`/`hold`/`abstain`/`report` record with
+    its WHY - gap against pace, tail words quoted, and which
+    sentence the extension finishes. A `report` finding is fully
+    judged but runs longer than the closing thought, so it is
+    reported and never applied: `new_end` stays the stored end.
+    `later` is ranges the tail may already play
+    in (the closing CTA); `take_cuts` lets the caller pass cuts it
+    already computed, else they are scanned raw - an unjudged scan
+    over-abstains rather than extending over a take.
+    """
+    ranges = [(float(start), float(end))]
+    ranges.extend((float(first), float(last)) for first, last in later)
+    if take_cuts is None:
+        take_cuts = redundant_takes(start, end, transcript)
+    dropped = [(float(cut.dropped_start), float(cut.dropped_end))
+               for cut in take_cuts or ()]
+    outcome = _analyze_tail_edge(float(end), ranges, transcript, dropped)
+    verdict = outcome["verdict"]
+    if verdict == "clean":
+        return float(end), None
+    if verdict == "extend":
+        return float(outcome["tail_end"]), outcome
+    return float(end), outcome
+
+
+def record_tail_repairs(project_folder: str,
+                        repairs: Sequence[tuple]) -> Optional[str]:
+    """Upsert stranded-tail repairs onto the boundary-repair ledger.
+
+    `repairs` are `(reel_number, move)` pairs as `snap_moment_to_speech`
+    reports them. Each lands on
+    `pipeline_output/review/moment_boundary_repairs.json` in that
+    file's own shape (`kind: moment_boundary_repair` with reel,
+    boundary, was, now, attribution and reason), keyed by
+    (reel, boundary, attribution) so a rebuild that recomputes the
+    same repair rewrites the same entry instead of appending a
+    duplicate. Entries the repair did not write - snaps, canary pins -
+    are never touched.
+
+    Returns the ledger path, or None where there is no project folder
+    to record against (the repair still applies in memory; only the
+    human-readable record is skipped).
+    """
+    if not project_folder:
+        return None
+    import datetime as _datetime
+    import json as _json
+
+    path = os.path.join(project_folder, "pipeline_output", "review",
+                        "moment_boundary_repairs.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            ledger = _json.load(handle)
+    except (OSError, ValueError):
+        ledger = {}
+    if not isinstance(ledger, dict):
+        ledger = {}
+    entries = ledger.get("value")
+    if not isinstance(entries, list):
+        entries = []
+    stamped = _datetime.datetime.now(
+        _datetime.timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    for reel_number, move in repairs or ():
+        attribution = str(move.get("attribution", "tail-extend"))
+        entry = {
+            "kind": "moment_boundary_repair",
+            "reel": int(reel_number),
+            "boundary": str(move.get("boundary", "body_end")),
+            "was": float(move.get("was", 0.0)),
+            "now": float(move.get("now", 0.0)),
+            "attribution": attribution,
+            "reason": str(move.get("why") or ""),
+            "source": f"stranded-tail repair {stamped} (automated)",
+        }
+        if move.get("abstained"):
+            entry["held_for_decision"] = True
+        if move.get("reported"):
+            entry["reported_for_decision"] = True
+        replaced = False
+        for index, existing in enumerate(entries):
+            if (isinstance(existing, dict)
+                    and existing.get("kind") == "moment_boundary_repair"
+                    and existing.get("reel") == entry["reel"]
+                    and existing.get("boundary") == entry["boundary"]
+                    and existing.get("attribution") == attribution):
+                entries[index] = entry
+                replaced = True
+                break
+        if not replaced:
+            entries.append(entry)
+    ledger["key"] = "moment_boundary_repairs"
+    ledger["value"] = entries
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        _json.dump(ledger, handle, indent=2)
+        handle.write("\n")
+    return path
+
+
 def cta_range(moment) -> Optional[Tuple[float, float]]:
     """The moment's closing CTA range on the MASTER, or None.
 
@@ -2696,6 +3287,41 @@ def reel_ranges(moment, transcript: dict,
             f"reinstates part of a take the cutter dropped, narrowing "
             f"drops more speech it kept - so redraw the span past the "
             f"take instead.")
+    # The shape `midword_keep_edges` cannot see: an edge that lands
+    # just BEFORE a word strands the whole tail after it - Reel 09's
+    # last word, gone with every gate green because the edge sat
+    # 0.02s before it started rather than inside it. Takes a cut
+    # drops and strikes deliberately remove are not stranded; only
+    # speech the plan keeps but no range plays refuses here, naming
+    # the tail so the span is redrawn past the take instead. A tail
+    # the predicate cannot judge refuses too, naming why - shipping
+    # audio nobody judged cut off is the defect this exists to stop.
+    stranded = stranded_tail_keep_edges(
+        moment.timeline_start, moment.timeline_end, transcript, cuts,
+        extra_cuts=[(float(s), float(e)) for s, e, *_ in intervals])
+    if stranded:
+        first = stranded[0]
+        if first.get("verdict") == "abstain":
+            raise ReelBuildError(
+                f"REFUSING to build: a keep edge at "
+                f"{first['edge']:.2f}s cannot be judged - "
+                f"{first.get('reason', 'the tail cannot be judged')}. "
+                f"Redraw the span past the take instead.")
+        if first.get("verdict") == "report":
+            raise ReelBuildError(
+                f"REFUSING to build: a keep edge at "
+                f"{first['edge']:.2f}s strands more than the thought "
+                f"it closes - {first.get('reason', '')} Redraw the "
+                f"span past the take instead.")
+        tail = " ".join(first.get("tail_words", [])[:12])
+        raise ReelBuildError(
+            f"REFUSING to build: a keep edge at {first['edge']:.2f}s "
+            f"strands the {first.get('kind', 'sentence-tail')} "
+            f"{tail!r} - the first stranded word starts "
+            f"{first.get('gap', 0.0):.2f}s past the edge, inside the "
+            f"speaker's pace of {first.get('pace', 0.0):.2f}s, so the "
+            f"reel would stop before the thought finishes and then "
+            f"jump. Redraw the span past the take instead.")
     closer = cta_range(moment)
     if closer is None:
         return ranges
@@ -3565,6 +4191,16 @@ def reel_subtitle_segments(moment, transcript: dict, ranges, project_folder: str
               f"({span['seconds']:.2f}s of {span['speaker']}'s words, "
               f"master {span['master_start']:.1f}-{span['master_end']:.1f}) "
               f"- no clip carries them", file=sys.stderr)
+    # Blocks a kept range's end cut short: the spine clips them to the
+    # range rather than dropping them whole, and the cut is said here -
+    # a caption ending early is a fact about the reel, and one nobody
+    # can see is a silent content change.
+    for clipped in spine.get("range_clipped_blocks") or []:
+        print(f"  {name}: caption block of {clipped.get('speaker')}'s "
+              f"words clipped {clipped.get('master_end', 0.0):.2f}s to "
+              f"{clipped.get('clipped_to', 0.0):.2f}s "
+              f"({clipped.get('seconds', 0.0):.2f}s cut by the range end)",
+              file=sys.stderr)
 
     plan = operations.get("subtitles.plan").run(
         spine, brand_effect={}, brand_style={}, project_folder=project_folder,
@@ -8559,10 +9195,33 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "body": _stored_windows(moment)[0],
             "closer": _stored_windows(moment)[1],
         }
+    tail_repairs: list = []
     for moment in moments:
         fixed, moves = snap_moment_to_speech(moment, transcript)
         repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
+            attribution = move.get("attribution", "")
+            if attribution.startswith("tail-"):
+                tail_repairs.append((int(moment.number), move))
+                if move.get("reported"):
+                    print(f"  Reel {moment.number:02d}: "
+                          f"{move['boundary']} REPORTED at "
+                          f"{move['was']:.3f}s - {move.get('why', '')}",
+                          file=sys.stderr)
+                elif move.get("abstained"):
+                    print(f"  Reel {moment.number:02d}: "
+                          f"{move['boundary']} HELD FOR DECISION at "
+                          f"{move['was']:.3f}s - {move.get('why', '')}",
+                          file=sys.stderr)
+                else:
+                    print(f"  Reel {moment.number:02d}: "
+                          f"{move['boundary']} {move['was']:.3f}s -> "
+                          f"{move['now']:.3f}s ({attribution}: "
+                          f"{move.get('why', '')})", file=sys.stderr)
+                for line in decision_lines(moment.number, move,
+                                           transcript, project_folder):
+                    print(line, file=sys.stderr)
+                continue
             word = (f" through '{move['through']}'"
                     if move.get("through") else "")
             print(f"  Reel {moment.number:02d}: {move['boundary']} "
@@ -8577,6 +9236,14 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                 print(line, file=sys.stderr)
         repaired.append(fixed)
     moments = repaired
+    if tail_repairs:
+        # Every tail repair lands on the human-readable ledger beside
+        # the pin-vs-snap provenance that let a human check the 09-18
+        # repairs: reel, boundary, was, now, attribution and WHY. The
+        # proposals file is never rewritten (in-memory only), so the
+        # ledger entry IS the reversibility - ignore it and the next
+        # build recomputes the same repair from the same words.
+        record_tail_repairs(project_folder, tail_repairs)
 
     # The captain's recorded closer pins, applied to APPROVED moments in
     # memory - the file keeps exactly what they ruled on, like the
