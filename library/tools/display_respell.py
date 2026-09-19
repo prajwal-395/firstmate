@@ -28,6 +28,16 @@ mechanism), speaker attributions (a separate measurement from quoted
 words), approvals, formats and versions. A whole-word match inside an
 id would otherwise rename the thing the id names.
 
+What is SUPPRESSED: tokens a display suppression hides - but GLOBAL
+ones only. An anchored suppression ("s" between "um" and "best") needs
+the speaker and the neighbour words to match safely, and regenerated
+free text carries neither; applying it blindly would delete real words
+from real sentences. Anchored tokens are hidden where their context is
+known - the transcript pass (`apply_suppressions`) and the caption
+planner (`apply_to_words`) - and the prompt half (`render_for_model`)
+tells the model never to re-quote them. A global token ("um") needs no
+context and is dropped from every display string here.
+
 Where it runs (each guarded - a respell failure warns and keeps the
 unrespelled text, and the coherence wording scan still flags it, so a
 broken post-pass is loud rather than silent):
@@ -119,6 +129,74 @@ def respell_display(obj, corrections: list):
     return report
 
 
+def suppress_display(obj, suppressions: list):
+    """Drop globally-suppressed tokens from every display string.
+
+    In place. Returns `{"suppressed": n, "fields": [...]}`. The same
+    walk as `respell_display` - same `SKIP_KEYS`, same no-slash rule
+    (paths are reference, never quotes) - with whole-word removal
+    (`transcript_corrections._drop_token_occurrences`) instead of
+    substitution. GLOBAL suppressions only (see the module docstring);
+    anchored ones never reach free text without their anchor. Empty
+    suppressions returns zeros and touches nothing.
+    """
+    from library.tools import transcript_corrections as _tc
+
+    report: dict = {"suppressed": 0, "fields": []}
+    active = [s for s in (suppressions or [])
+              if s.get("scope") is None
+              and (s.get("heard") or "").strip()]
+    if not active:
+        return report
+
+    def _drop(text: str) -> tuple:
+        # Free text has no word entries, so there are no ordinals to
+        # map: every whole-word occurrence of a globally-suppressed
+        # token leaves. Out-of-range ordinals are ignored by
+        # `_drop_token_occurrences`, so "every index" is "every hit".
+        total = 0
+        current = text
+        for suppression in active:
+            current, n = _tc._drop_token_occurrences(
+                current, suppression["heard"],
+                list(range(len(current.split()) + 1)))
+            total += n
+        return current, total
+
+    def _walk(node, key: str, location: str) -> None:
+        if isinstance(node, dict):
+            for child_key, value in list(node.items()):
+                child_location = (f"{location}/{child_key}"
+                                  if location else str(child_key))
+                if (isinstance(value, str)
+                        and str(child_key) not in SKIP_KEYS
+                        and "/" not in value):
+                    new_text, count = _drop(value)
+                    if count:
+                        node[child_key] = new_text
+                        report["suppressed"] += count
+                        if len(report["fields"]) < 20:
+                            report["fields"].append(child_location)
+                else:
+                    _walk(value, str(child_key), child_location)
+        elif isinstance(node, list):
+            for index, value in enumerate(node):
+                child_location = f"{location}/{index}"
+                if (isinstance(value, str) and key not in SKIP_KEYS
+                        and "/" not in value):
+                    new_text, count = _drop(value)
+                    if count:
+                        node[index] = new_text
+                        report["suppressed"] += count
+                        if len(report["fields"]) < 20:
+                            report["fields"].append(child_location)
+                else:
+                    _walk(value, key, child_location)
+
+    _walk(obj, "", "")
+    return report
+
+
 def respell_for_project(obj, project_folder: str):
     """Respell `obj` with the project's active corrections. In place.
 
@@ -143,14 +221,16 @@ def respell_for_project(obj, project_folder: str):
 def apply_post_pass(obj, project_folder: str, where: str):
     """The one call every regen point makes. In place, guarded.
 
-    Respells `obj`, says what moved on stderr, and never raises: a
-    post-pass failure warns and keeps the unrespelled text, and the
-    layer-coherence wording scan still flags what stands - a broken
-    pass is loud rather than silent. Returns the report.
+    Respells `obj`, drops globally-suppressed tokens from it, says
+    what moved on stderr, and never raises: a post-pass failure warns
+    and keeps the unrespelled text, and the layer-coherence wording
+    scan still flags what stands - a broken pass is loud rather than
+    silent. Returns the merged report (`replacements`, `suppressed`,
+    `fields`).
     """
     import sys
 
-    empty: dict = {"replacements": 0, "fields": []}
+    empty: dict = {"replacements": 0, "suppressed": 0, "fields": []}
     try:
         report, _ = respell_for_project(obj, project_folder)
     except Exception as exc:  # noqa: BLE001 - a post-pass never refuses
@@ -158,9 +238,22 @@ def apply_post_pass(obj, project_folder: str, where: str):
               f"unrespelled text stands and the coherence scan still "
               f"flags it.", file=sys.stderr)
         return empty
-    if report["replacements"]:
+    try:
+        from library.tools import transcript_corrections as _tc
+        active = (_tc.suppressions(project_folder)
+                  if project_folder else [])
+        if active:
+            dropped = suppress_display(obj, active)
+            report["suppressed"] = dropped["suppressed"]
+            report["fields"].extend(f for f in dropped["fields"]
+                                    if f not in report["fields"])
+    except Exception as exc:  # noqa: BLE001 - a post-pass never refuses
+        print(f"WARNING: display suppression skipped at {where} ({exc}); "
+              f"unsuppressed text stands.", file=sys.stderr)
+    if report["replacements"] or report.get("suppressed"):
         print(f"  display respell at {where}: "
-              f"{report['replacements']} substitution(s) - "
+              f"{report['replacements']} substitution(s), "
+              f"{report.get('suppressed', 0)} suppressed - "
               f"{', '.join(report['fields'][:5])}"
               f"{'...' if len(report['fields']) > 5 else ''}",
               file=sys.stderr)

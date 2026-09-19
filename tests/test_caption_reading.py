@@ -30,7 +30,11 @@ def _words(*tokens):
 
 class TestAcronymDeclaration:
     def test_named_acronyms_are_declared(self):
-        assert set(CAPTION_ACRONYMS) == {"SEO", "GEO", "AI"}
+        # 2026-09-18: SEO, GEO, AI. 2026-09-19: the captain's Reel 01
+        # (CEO), Reel 07 (CMO) and Reel 03 (CRM) notes join them - the
+        # same sanctioned path, a scope answer as a declaration edit.
+        assert set(CAPTION_ACRONYMS) == {"SEO", "GEO", "AI", "CEO", "CMO",
+                                         "CRM"}
 
     @pytest.mark.parametrize(
         "surface,read",
@@ -41,6 +45,10 @@ class TestAcronymDeclaration:
             ("geo", "GEO"),
             ("ai", "AI"),
             ("AI", "AI"),
+            ("ceo", "CEO"),
+            ("cmo", "CMO"),
+            ("crm", "CRM"),
+            ("cmos", "CMOs"),
         ],
     )
     def test_acronyms_restore_case_insensitively(self, surface, read):

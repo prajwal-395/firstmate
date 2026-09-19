@@ -46,7 +46,12 @@ import re
 #: The acronyms the captain named, in canonical case. Complete: a word
 #: that reads uppercase on a caption is a member of this tuple. Adding
 #: "AI" took appending one entry; "chatgpt" stays out until he names it.
-CAPTION_ACRONYMS: tuple[str, ...] = ("SEO", "GEO", "AI")
+#: 2026-09-19: "CEO", "CMO" and "CRM" join them - the captain's Reel 01,
+#: Reel 07 and Reel 03 notes, each "needs to be properly reflected in
+#: the subtitles". Same sanctioned path: a scope answer is an edit to
+#: this declaration and nothing else.
+CAPTION_ACRONYMS: tuple[str, ...] = ("SEO", "GEO", "AI", "CEO", "CMO",
+                                     "CRM")
 
 #: Rank labels are NOT decided. A cardinal directly after one of these
 #: stays a word ("number one", "the top three") and is flagged for the
@@ -188,6 +193,12 @@ def _acronym_for(core: str) -> str | None:
             return acronym
         if core == lowered + "'s":
             return acronym + "'s"
+        # 2026-09-19: the transcript says "CMOs" (plural), and a
+        # lowercase caption would read "cmos". A bare trailing "s" on
+        # an acronym is its plural, the same shape the possessive
+        # above already honours.
+        if core == lowered + "s":
+            return acronym + "s"
     return None
 
 

@@ -701,6 +701,35 @@ def _words_in_source_window(
     return in_range
 
 
+def _apply_transcript_corrections(timeline_words: list,
+                                    speaker: str | None,
+                                    project_folder: str) -> list:
+    """Recorded corrections onto timeline words. Never refuses.
+
+    `transcript_corrections.apply_to_words` respells (phrase-aware)
+    and suppresses (display-only) with the project's store; without a
+    project folder, or with nothing recorded, the words pass through
+    untouched. What moved is said on stderr with the learning ids, so
+    a caption that changed names its reason on the run that planned
+    it. A word list emptied entirely (a block of nothing but "um")
+    plans no cards - the audio still plays them, and silence captions
+    nothing.
+    """
+    if not project_folder:
+        return timeline_words
+    from library.tools import transcript_corrections as _tc
+    words, report = _tc.apply_to_words(
+        timeline_words, speaker, project_folder)
+    if report["replacements"] or report["suppressed"]:
+        print(f"  transcript corrections on caption words"
+              f"{f' ({speaker})' if speaker else ''}: "
+              f"{report['replacements']} replacement(s), "
+              f"{report['suppressed']} suppressed "
+              f"{[a['id'] for a in report['applied']]}",
+              file=sys.stderr)
+    return words
+
+
 def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                        brand_effect: dict = None,
                        brand_style: dict = None,
@@ -907,6 +936,18 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 for w in timeline_words
             ]
             timeline_words = apply_caption_reading(timeline_words)
+            # Recorded transcript corrections, enforced on the timed
+            # words the transcript text pass cannot reach: the spine's
+            # words are a second ASR product (step 1.04 over source
+            # audio), so a "C RMs" fixed in the transcript still
+            # captions "c rms" without this. Spelling merges phrases
+            # across entries without inventing timings; suppression
+            # drops pronounced-but-unread tokens (audio and spine
+            # untouched - entries are partitioned, never retimed).
+            # Runs BEFORE grouping so the fit is measured on what is
+            # drawn, for the same reason case and reading run first.
+            timeline_words = _apply_transcript_corrections(
+                timeline_words, block_speaker, project_folder)
             groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
@@ -1007,6 +1048,8 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     for w in timeline_words
                 ]
                 timeline_words = apply_caption_reading(timeline_words)
+                timeline_words = _apply_transcript_corrections(
+                    timeline_words, block_speaker, project_folder)
                 groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)

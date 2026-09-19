@@ -76,6 +76,43 @@ routes to `build_reels` rather than `select_reels` for the same reason
 a cut only the builder makes.  Neither changes what the scan MEASURED;
 the scan still reports what it saw.
 
+A fourth shape: the word stays, the READING goes
+------------------------------------------------
+Every shape above either rewrites a word (`transcript_spelling`) or
+strikes audio (`keep_exclusion`).  On 2026-09-19 the captain asked for
+neither, twenty times over: the "qu", the stray "i", "f" and "s", the
+"um"s - all PRONOUNCED, all rightly still in the audio - only out of
+the read text.  The subtitle should carry what a reader needs, not a
+phonetic transcript of what the microphone caught.
+
+A DISPLAY SUPPRESSION (`record_display_suppression`) marks matching
+word entries `display: False` and drops the token from segment text
+and from quoted copy downstream (`display_respell`).  The audio, the
+spine and every timing are untouched: the marked entry keeps its
+`start`/`end`, so the words either side keep theirs, caption
+segmentation still measures the same spans, and the word-level
+alignment the caption renderer keys on never shifts.  Downstream the
+grouping partitions on ALL words and draws only displayed ones, so a
+suppressed token changes the text of its own card and re-keys nothing
+after it (`step_4_01_plan_subtitles.split_into_groups`).
+
+Two scopes, because "i" is also a pronoun.  A GLOBAL suppression
+matches whole-word, case-insensitively, everywhere ("um" never carries
+meaning for a reader).  An ANCHORED one names the surface exactly plus
+its neighbours (`speaker`, `prev`, `next` word cores), so Craig's stray
+lowercase "i" suppresses without touching the hundreds of "I" the two
+speakers mean.  The anchor is words, never seconds: re-transcription
+re-times every boundary, and an anchor in seconds would die with the
+transcript it was recorded against.
+
+Who proposed it is part of the record.  A captain's note records a
+`correction` (the captain said it); the hygiene scanner's judgement
+(`library/tools/transcript_hygiene.py`) records a `mistake_fix` (the
+pipeline concluded it) with its evidence in `source`.  Same routing,
+same retirement, honest `said_by` - a model guess wearing the
+captain's name would be the misattribution the store exists to
+prevent.  `correct()` promotes a confirmed proposal to a correction.
+
 `tests/test_transcript_corrections.py`,
 `tests/test_keep_insistence.py`.
 """
@@ -89,6 +126,13 @@ from library.tools import learned_context
 SPELLING = "transcript_spelling"
 KEEP_EXCLUSION = "keep_exclusion"
 KEEP_INSISTENCE = "keep_insistence"
+DISPLAY_SUPPRESSION = "display_suppression"
+
+#: What an anchored display suppression must name. Exactly these: the
+#: speaker, the exact transcribed surface, and the word cores either
+#: side of it. A partial anchor matches nothing loudly or everything
+#: silently, and the record refuses both.
+_ANCHOR_KEYS = ("speaker", "surface", "prev", "next")
 
 #: Steps whose model-authored copy must spell it right. Transcript
 #: corrections route `read_by: ["*"]` - every planning step - because a
@@ -110,9 +154,33 @@ _APPLIED_KEY = "transcript_corrections_applied"
 
 # ── Recording ─────────────────────────────────────────────────────────
 
+#: Who may propose a correction, and the learning kind each becomes.
+#: A captain's note is a `correction` (the captain said it); the hygiene
+#: scanner's judgement is a `mistake_fix` (the pipeline concluded it) -
+#: same routing, same retirement, honest `said_by`. Anything else is
+#: refused: a proposal with no provenance cannot be retired on purpose.
+PROPOSERS = {"captain": learned_context.CORRECTION,
+             "model": learned_context.MISTAKE_FIX}
+
+
+def _kind_for(proposed_by: str) -> str:
+    try:
+        return PROPOSERS[proposed_by]
+    except KeyError:
+        raise learned_context.LearnedContextError(
+            f"proposed_by {proposed_by!r} names nobody. One of "
+            f"{sorted(PROPOSERS)}: a correction that cannot say who "
+            f"proposed it cannot be retired on purpose.") from None
+
 def record_spelling(project_folder: str, heard: str, correct: str,
-                    reason: str) -> dict:
-    """The transcriber hears `heard`; the captain hears `correct`."""
+                    reason: str, proposed_by: str = "captain") -> dict:
+    """The transcriber hears `heard`; the captain hears `correct`.
+
+    `proposed_by` is who said so - "captain" for a note, "model" for the
+    hygiene scanner's judgement (`library/tools/transcript_hygiene.py`)
+    - and decides the learning kind, never the routing: both route
+    `read_by: ["*"]` and both retire the same way.
+    """
     heard = (heard or "").strip()
     correct = (correct or "").strip()
     if not heard or not correct:
@@ -123,15 +191,24 @@ def record_spelling(project_folder: str, heard: str, correct: str,
         raise learned_context.LearnedContextError(
             "a spelling correction with no reason is refused: the next "
             "run cannot tell a captain's verdict from tidying.")
+    kind = _kind_for(proposed_by)
+    statement = (
+        f'Transcript spelling: the audio this project transcribed as '
+        f'"{heard}" is "{correct}". Write "{correct}" in every '
+        f'caption, motion graphic and plan that quotes these words.')
+    if kind != learned_context.CORRECTION:
+        statement = (
+            f'Model-proposed transcript spelling (not yet confirmed by '
+            f'the captain - retire it if wrong): the audio this project '
+            f'transcribed as "{heard}" reads as "{correct}". Write '
+            f'"{correct}" in every caption, motion graphic and plan '
+            f'that quotes these words.')
     return learned_context.record(
-        project_folder, kind=learned_context.CORRECTION,
-        statement=(
-            f'Transcript spelling: the audio this project transcribed as '
-            f'"{heard}" is "{correct}". Write "{correct}" in every '
-            f'caption, motion graphic and plan that quotes these words.'),
+        project_folder, kind=kind,
+        statement=statement,
         read_by=list(SPELLING_READERS),
         source={"correction_type": SPELLING, "heard": heard,
-                "correct": correct},
+                "correct": correct, "proposed_by": proposed_by},
         detail=reason.strip())
 
 
@@ -201,15 +278,105 @@ def record_keep_insistence(project_folder: str, start: float, end: float,
         detail=reason.strip())
 
 
+def record_display_suppression(project_folder: str, heard: str,
+                               reason: str, scope: dict | None = None,
+                               proposed_by: str = "captain") -> dict:
+    """A pronounced token the reader never sees: mark, don't strike.
+
+    `heard` is the single transcribed token ("um", "qu", "s") - one
+    token only, because a suppression matches word entries and a phrase
+    is a respell, not a deletion.  `scope` is None for a GLOBAL
+    suppression (every whole-word occurrence, case-insensitive - "um"
+    never carries meaning) or an ANCHORED one naming the surface
+    exactly plus its neighbours::
+
+        {"speaker": "Craig", "surface": "i",
+         "prev": "said", "next": "went"}
+
+    matched case-insensitively like everything else here - the
+    ANCHOR (speaker plus neighbours) is what keeps a stray "i" from
+    touching the pronoun "I", and case-insensitivity is what lets one
+    anchor hit cased transcript words and lowercased spine words alike.  The anchor is words, never
+    seconds: re-transcription re-times every boundary, and an anchor in
+    seconds would die with the transcript it was recorded against.
+
+    `proposed_by` decides the kind the same way `record_spelling` does:
+    a captain's note is a correction, the scanner's judgement a
+    mistake_fix with its evidence, so a wrong model guess retires
+    rather than wearing the captain's name.
+    """
+    heard = (heard or "").strip()
+    if not heard or len(heard.split()) != 1:
+        raise learned_context.LearnedContextError(
+            f"a display suppression of {heard!r} is not one token. Name "
+            f"the single transcribed token to hide; a phrase is a "
+            f"respell (`record_spelling`), not a deletion.")
+    if not (reason or "").strip():
+        raise learned_context.LearnedContextError(
+            "a display suppression with no reason is refused, for the "
+            "same cause a reasonless spelling correction is.")
+    anchor = None
+    if scope is not None:
+        if not isinstance(scope, dict):
+            raise learned_context.LearnedContextError(
+                f"a display-suppression scope of {scope!r} is not an "
+                f"anchor. Pass None for a global suppression or a "
+                f"{sorted(_ANCHOR_KEYS)} anchor.")
+        unknown = sorted(set(scope) - set(_ANCHOR_KEYS))
+        missing = [k for k in _ANCHOR_KEYS if k not in scope]
+        if unknown or missing:
+            raise learned_context.LearnedContextError(
+                f"a display-suppression scope names {sorted(scope)}; an "
+                f"anchored suppression names exactly "
+                f"{sorted(_ANCHOR_KEYS)}. A partial anchor matches "
+                f"nothing loudly or everything silently, and neither "
+                f"is acceptable.")
+        anchor = {key: str(scope[key]).strip() for key in _ANCHOR_KEYS}
+        if not all(anchor.values()):
+            raise learned_context.LearnedContextError(
+                "an anchored display suppression with an empty speaker, "
+                "surface or neighbour is refused: it would match "
+                "nothing and report zero, which reads as absence.")
+    kind = _kind_for(proposed_by)
+    where = ("everywhere it is transcribed" if anchor is None else
+             f"where {anchor['speaker']} says it between "
+             f"\"{anchor['prev']}\" and \"{anchor['next']}\"")
+    statement = (
+        f'Display suppression: the transcribed token "{heard}" '
+        f'{where} is pronounced and stays in the audio - hide it from '
+        f'captions and quoted copy, and never re-quote it back in.')
+    if kind != learned_context.CORRECTION:
+        statement = (
+            f'Model-proposed display suppression (not yet confirmed by '
+            f'the captain - retire it if wrong): the transcribed token '
+            f'"{heard}" {where} is pronounced and stays in the audio - '
+            f'hide it from captions and quoted copy.')
+    return learned_context.record(
+        project_folder, kind=kind,
+        statement=statement,
+        read_by=list(SPELLING_READERS),
+        source={"correction_type": DISPLAY_SUPPRESSION, "heard": heard,
+                "scope": anchor, "proposed_by": proposed_by},
+        detail=reason.strip())
+
+
 # ── Reading ───────────────────────────────────────────────────────────
 
 def _typed(project_folder: str, want: str) -> list:
-    """Active learnings of one correction shape, in record order."""
+    """Active learnings of one correction shape, in record order.
+
+    Both attributions: a captain's `correction` and the scanner's
+    `mistake_fix` carry the same `correction_type` source shapes and the
+    same routing - the kinds differ in who said it (`said_by`), never
+    in what is enforced.  An unrelated mistake_fix carries no
+    `correction_type` and never matches.
+    """
     out = []
     for learning in learned_context.active_for_step(project_folder, "*"):
         if not isinstance(learning, dict):
             continue
-        if learning.get("kind") != learned_context.CORRECTION:
+        if learning.get("kind") not in (learned_context.CORRECTION,
+                                        learned_context.MISTAKE_FIX):
             continue
         source = learning.get("source") or {}
         if source.get("correction_type") != want:
@@ -266,6 +433,33 @@ def keep_insistences(project_folder: str) -> list:
     return insisted
 
 
+def suppressions(project_folder: str) -> list:
+    """Every active display suppression: tokens hidden, audio kept.
+
+    Each is `{"id", "heard", "scope", "reason"}` where `scope` is None
+    (global: every whole-word occurrence) or the anchor dict
+    (`speaker`, `surface`, `prev`, `next` word cores).
+    """
+    out = []
+    for learning in _typed(project_folder, DISPLAY_SUPPRESSION):
+        source = learning.get("source") or {}
+        heard = (source.get("heard") or "").strip()
+        if not heard or len(heard.split()) != 1:
+            continue
+        scope = source.get("scope")
+        if scope is not None:
+            if not isinstance(scope, dict):
+                continue
+            if sorted(scope) != sorted(_ANCHOR_KEYS):
+                continue
+            scope = {key: str(scope[key]).strip() for key in _ANCHOR_KEYS}
+            if not all(scope.values()):
+                continue
+        out.append({"id": learning.get("id", ""),
+                    "heard": heard, "scope": scope,
+                    "reason": str(learning.get("detail") or "")})
+    return out
+
 def insisted_spans_for_span(start: float, end: float,
                             insistences: list) -> list:
     """Insisted seconds inside one span, as `(start, end, id)` triples.
@@ -288,6 +482,339 @@ def insisted_spans_for_span(start: float, end: float,
 
 
 # ── The deterministic spelling pass ───────────────────────────────────
+
+_WORD_CORE_RE = re.compile(
+    r"^[^A-Za-z0-9\u00c0-\u024f\u1e00-\u1eff]+|"
+    r"[^A-Za-z0-9\u00c0-\u024f\u1e00-\u1eff]+$")
+
+
+def word_core(token: str) -> str:
+    """A transcribed token without its edge punctuation.
+
+    `"um,"` cores to `"um"`, `"s"` stays `"s"`, `"D."` cores to `"D"`.
+    One predicate for every suppression match, so the transcript pass
+    and the caption planner cannot disagree about what a word IS.
+    """
+    return _WORD_CORE_RE.sub("", str(token or ""))
+
+
+def suppression_matches(word: str, speaker: str | None,
+                        prev_core: str, next_core: str,
+                        suppression: dict) -> bool:
+    """Whether one word entry falls under one display suppression.
+
+    GLOBAL (`scope` None): the cores agree case-insensitively - "um"
+    never carries meaning for a reader, however it was cased. ANCHORED:
+    the speaker agrees case-insensitively, the SURFACE agrees
+    case-insensitively, and the neighbour cores agree
+    case-insensitively. The ANCHOR is the guard, not the casing: a
+    stray lowercase "i" suppresses without touching the pronoun "I"
+    because the neighbours differ, and case-insensitivity is what lets
+    the same anchor hit the transcript's cased words AND the spine's
+    lowercased ones (step 1.04 lowercases every temporal word, so an
+    exact-case anchor would fix the transcript while silently missing
+    every caption - found on 2026-09-19 via a zero-count suppression
+    report). Casing is the transcriber's accident; position is the
+    anchor.
+    """
+    heard = (suppression.get("heard") or "").strip()
+    if not heard:
+        return False
+    scope = suppression.get("scope")
+    if scope is None:
+        return word_core(word).lower() == heard.lower()
+    if (speaker or "").strip().lower() != \
+            str(scope.get("speaker") or "").strip().lower():
+        return False
+    if str(word or "").strip().lower() != \
+            str(scope.get("surface") or "").strip().lower():
+        return False
+    return (str(prev_core or "").lower()
+            == str(scope.get("prev") or "").strip().lower()
+            and str(next_core or "").lower()
+            == str(scope.get("next") or "").strip().lower())
+
+
+def filter_words(words: list, speaker: str | None,
+                 suppressions: list) -> tuple:
+    """Split word entries into `(kept, dropped)` by display suppression.
+
+    The ONE predicate the transcript pass and the caption planner
+    share (`suppression_matches`): neighbour cores are read off the
+    list itself, so the planner needs no transcript - only the block's
+    speaker and its own word order. Timings are never touched: entries
+    are partitioned, never edited, so the words either side keep their
+    `start`/`end` byte-identical.
+    """
+    if not suppressions:
+        return list(words or []), []
+    kept, dropped = [], []
+    cores = [word_core(w.get("word", "")) for w in (words or [])]
+    for index, entry in enumerate(words or []):
+        prev_core = cores[index - 1] if index > 0 else ""
+        next_core = cores[index + 1] if index + 1 < len(cores) else ""
+        if any(suppression_matches(entry.get("word", ""), speaker,
+                                   prev_core, next_core, suppression)
+               for suppression in suppressions):
+            dropped.append(entry)
+        else:
+            kept.append(entry)
+    return kept, dropped
+
+
+def _drop_token_occurrences(text: str, heard: str,
+                            ordinals: list) -> tuple:
+    """Drop the `ordinals`-th whole-word occurrences of `heard`.
+
+    Case-insensitive, whole words only (the same rule `apply_spelling`
+    uses); leftover runs of whitespace collapse to one and the ends
+    strip. Commas and periods stand: removing punctuation is taste, and
+    this pass only hides pronounced tokens. Returns `(new_text, n)`.
+    """
+    pattern = re.compile(
+        rf"(?P<lead>(?:^|[^\w\u00c0-\u024f\u1e00-\u1eff'\u2019]))"
+        rf"(?P<word>{re.escape(heard)})"
+        rf"(?![\w\u00c0-\u024f\u1e00-\u1eff])",
+        re.IGNORECASE)
+    hits = list(pattern.finditer(text or ""))
+    drop = {hits[o].span() for o in ordinals
+            if 0 <= o < len(hits)}
+    if not drop:
+        return text, 0
+    out, cursor, n = [], 0, 0
+    for match in hits:
+        if match.span() in drop:
+            out.append(text[cursor:match.start("word")])
+            cursor = match.end("word")
+            n += 1
+        # A kept occurrence is copied verbatim by the join below.
+    out.append(text[cursor:])
+    new_text = re.sub(r"\s{2,}", " ", "".join(out)).strip()
+    # Debris, not punctuation: the comma belonged to the hidden token
+    # ("Um, and" - the "Um" leaves and its comma cannot stay, or a
+    # card opens on ","), and a gap left before a mark ("same , same")
+    # is spacing, not taste. A period mid-sentence stands: only the
+    # sentence knows whether it ends one.
+    new_text = re.sub(r"^[,;:]+\s*", "", new_text)
+    new_text = re.sub(r"\s+([,.!?;:])", r"\1", new_text)
+    # Two commas meet where two removed tokens stood ("you know, um,
+    # same f um, same" - the fillers leave and their commas collide).
+    # Commas only: no other mark doubles this way, and collapsing
+    # periods or bangs would decide what emphasis means.
+    new_text = re.sub(r",\s*,", ",", new_text)
+    return new_text, n
+
+
+def apply_suppressions(document: dict, suppressions: list) -> dict:
+    """Hide suppressed tokens from read text. The display half.
+
+    Every matching word entry is marked `display: False` and the token
+    leaves its segment's `text`; everything else on the entry -
+    `start`, `end`, `timed`, alignment scores - stands untouched, and
+    so does every neighbouring entry. The audio span, the spine and the
+    caption segmentation's timing inputs are therefore byte-identical:
+    only drawn text changes, the way a respell changes only text.
+
+    Which occurrence leaves which text is ordinal-mapped: a suppressed
+    entry drops the occurrence at its own position among same-core
+    entries, so an anchored "s" removes one "s" and a global "um"
+    removes every "um". Idempotent: a second pass re-marks the same
+    entries and finds no text left to drop.
+
+    A suppression that empties a segment's text (a lone "Um" card)
+    still stands - the words and their timings stay for the audio, and
+    the empty text SAYS the card draws nothing. Reports
+    `{"suppressed", "segments_touched", "applied"}` with per-learning
+    counts, the same shape the spelling pass reports, so a suppression
+    that stopped matching reads as zero rather than as absent.
+    """
+    report = {"suppressed": 0, "segments_touched": 0, "applied": []}
+    if not suppressions:
+        return report
+    touched_segments = set()
+    for suppression in suppressions:
+        made = 0
+        heard = (suppression.get("heard") or "").strip()
+        for index, segment in enumerate(document.get("segments") or []):
+            words = segment.get("words") or []
+            speaker = segment.get("speaker")
+            cores = [word_core(w.get("word", "")
+                               if isinstance(w.get("word"), str) else "")
+                     for w in words]
+            # Ordinal of each entry among same-core entries: the map
+            # from a marked entry to the text occurrence it owns.
+            seen: dict = {}
+            ordinals: dict = {}
+            for word_index in range(len(words)):
+                key = cores[word_index].lower()
+                ordinals[word_index] = seen.get(key, 0)
+                seen[key] = seen.get(key, 0) + 1
+            drop_ordinals = []
+            for word_index, entry in enumerate(words):
+                if not isinstance(entry.get("word"), str):
+                    continue
+                prev_core = cores[word_index - 1] if word_index > 0 else ""
+                next_core = (cores[word_index + 1]
+                             if word_index + 1 < len(cores) else "")
+                if suppression_matches(entry["word"], speaker,
+                                       prev_core, next_core, suppression):
+                    entry["display"] = False
+                    drop_ordinals.append(ordinals[word_index])
+                    made += 1
+                    touched_segments.add(index)
+            if drop_ordinals and isinstance(segment.get("text"), str):
+                new_text, _ = _drop_token_occurrences(
+                    segment["text"], heard, drop_ordinals)
+                segment["text"] = new_text
+        report["applied"].append({"id": suppression.get("id", ""),
+                                 "heard": heard,
+                                 "suppressed": made})
+        report["suppressed"] += made
+    report["segments_touched"] = len(touched_segments)
+    return report
+
+
+def _word_heard_forms(token: str) -> tuple:
+    """The matchable body of one timed word, plus any possessive clitic.
+
+    `apply_spelling` lets a possessive `'s` survive a respell ("ai's"
+    reads "AI's"); the word-level pass owes the same word the same
+    verdict. Returns `(body, clitic)`: `"AI's"` -> `("AI", "'s")`,
+    `"RMs,"` -> `("RMs,", "")` (trailing punctuation is not a clitic -
+    the core still has to agree whole).
+    """
+    text = str(token or "")
+    for clitic in ("'s", "'S", "\u2019s", "\u2019S"):
+        if text.endswith(clitic) and len(text) > len(clitic):
+            return text[:-len(clitic)], text[-len(clitic):]
+    return text, ""
+
+
+def apply_spelling_to_words(words: list, corrections: list) -> tuple:
+    """Respell timed word entries, phrase-aware. Returns `(words, made)`.
+
+    The word-level twin of `apply_spelling`: the transcript pass fixes
+    segment TEXT, but the caption planner (step 4.01) groups TIMED
+    WORDS from the spine - a second ASR product the text pass never
+    touches - so a "C RMs" fixed in the transcript still captions "c
+    rms" without this. One correction at a time, in record order; a
+    multi-token `heard` ("jim and i") matches a consecutive run and
+    merges it into ONE entry spanning first start to last end (no
+    timing is invented - the span is the span the audio measured);
+    a single-token `correct` for a single-token `heard` rewrites the
+    entry in place. `made` counts matched entries per correction in
+    the caller's report. Pure: the input is not mutated.
+    """
+    out = [dict(w) for w in (words or [])]
+    made: dict = {}
+    for correction in corrections or []:
+        heard = (correction.get("heard") or "").strip()
+        correct = (correction.get("correct") or "").strip()
+        if not heard or not correct:
+            continue
+        heard_cores = [word_core(t).lower() for t in heard.split()]
+        heard_cores = [c for c in heard_cores if c]
+        if not heard_cores:
+            continue
+        count = 0
+        index = 0
+        merged = []
+        while index < len(out):
+            run = out[index:index + len(heard_cores)]
+            bodies = []
+            clitic = ""
+            ok = len(run) == len(heard_cores)
+            if ok:
+                for entry in run:
+                    body, tail = _word_heard_forms(entry.get("word", ""))
+                    bodies.append(word_core(body).lower())
+                    clitic = tail  # only the run's last tail survives
+                ok = bodies == heard_cores
+                # The run's last word may carry other trailing
+                # punctuation ("RMs,") - the core agreed above, which
+                # is the whole-word rule; the surface keeps its comma.
+            if ok:
+                first, last = run[0], run[-1]
+                fixed = _cased(correct, str(first.get("word", "")))
+                entry = dict(first)
+                entry["word"] = fixed + (
+                    clitic if len(run) == 1 else "")
+                entry["end"] = last.get("end", entry.get("end"))
+                merged.append(entry)
+                count += 1
+                index += len(run)
+            else:
+                merged.append(run[0])
+                index += 1
+        out = merged
+        if count:
+            made[correction.get("id", "")] = count
+    return out, made
+
+
+def apply_to_words(words: list, speaker: str | None,
+                   project_folder: str) -> tuple:
+    """Correct timed words for DISPLAY: respell, then suppress.
+
+    What step 4.01 runs on each block's timeline words after the case
+    and reading transforms and before `split_into_groups`: the same
+    store the transcript pass enforces, applied to the timed words the
+    text pass cannot reach. Spelling first (a respelled "CRMs" is gone
+    before suppression looks for a stray "C"), suppression second via
+    `filter_words`. Neighbour timings are never edited - entries are
+    rewritten, merged or dropped, never retimed. Returns
+    `(words, report)`; empty store returns the input untouched. Never
+    raises: a correction pass must not refuse a caption plan (the
+    transcript pass already reported what each learning did).
+    """
+    import sys
+
+    current = list(words or [])
+    report: dict = {"replacements": 0, "suppressed": 0, "applied": []}
+    if not project_folder:
+        return current, report
+    try:
+        corrections = spelling_corrections(project_folder)
+        active = suppressions(project_folder)
+    except Exception as exc:  # noqa: BLE001 - caption plan must survive
+        print(f"WARNING: transcript corrections unreadable ({exc}); "
+              f"caption words stand uncorrected.", file=sys.stderr)
+        return current, report
+    if not corrections and not active:
+        return current, report
+    try:
+        if corrections:
+            current, made = apply_spelling_to_words(current, corrections)
+            for correction in corrections:
+                count = made.get(correction.get("id", ""), 0)
+                if count:
+                    report["applied"].append(
+                        {"id": correction.get("id", ""),
+                         "heard": correction.get("heard", ""),
+                         "correct": correction.get("correct", ""),
+                         "replacements": count})
+                    report["replacements"] += count
+        if active:
+            kept, _dropped = filter_words(current, speaker, active)
+            # Per-learning counts, so a suppression that stopped
+            # matching reads as zero rather than as absent.
+            for suppression in active:
+                _kept, dropped_check = filter_words(
+                    current, speaker, [suppression])
+                if dropped_check:
+                    report["applied"].append(
+                        {"id": suppression.get("id", ""),
+                         "heard": suppression.get("heard", ""),
+                         "suppressed": len(dropped_check)})
+                    report["suppressed"] += len(dropped_check)
+            current = kept
+    except Exception as exc:  # noqa: BLE001 - caption plan must survive
+        print(f"WARNING: transcript corrections failed ({exc}); "
+              f"caption words stand uncorrected.", file=sys.stderr)
+        return list(words or []), {"replacements": 0, "suppressed": 0,
+                                   "applied": []}
+    return current, report
+
 
 _WORD_CHAR = r"[A-Za-z0-9\u00c0-\u024f\u1e00-\u1eff]"  # incl. diacritics
 
@@ -331,21 +858,36 @@ def apply_spelling(text: str, corrections: list) -> tuple:
 
         new_text, n = pattern.subn(_one, new_text)
         total += n
+    if new_text == (text or ""):
+        # Every match respelled to itself ("CMOS" hearing "cmos" for a
+        # "CMOs" verdict): nothing moved, so nothing is reported. A
+        # stamp that counts no-ops as replacements reads as work on
+        # every rerun and breaks the rerun-zero idempotence the store
+        # promises.
+        return text or "", 0
     return new_text, total
 
 
 def apply_to_document(document: dict, project_folder: str) -> dict:
-    """Respell a transcript document in place. The guarantee half.
+    """Respell and suppress a transcript document in place. The guarantee half.
 
     Rewrites every segment's `text` and its word entries, stamps which
     learnings were applied under `_APPLIED_KEY` (with per-learning
     counts, so a correction that stopped matching reads as zero rather
     than as absent), and reports `{"replacements", "segments_touched",
-    "applied"}`. Idempotent: corrected text contains nothing to match.
+    "suppressed", "suppression_segments", "applied"}`. Idempotent:
+    corrected text contains nothing to match, and a second suppression
+    pass re-marks the same entries while dropping no further text.
+
+    Spelling runs BEFORE suppression, on purpose: a "C RMs" the store
+    respells to "CRMs" is gone before the suppression pass looks for a
+    stray "C", so a fixed mishearing is never also counted as hidden.
     """
     corrections = spelling_corrections(project_folder)
-    report = {"replacements": 0, "segments_touched": 0, "applied": []}
-    if not corrections:
+    active_suppressions = suppressions(project_folder)
+    report = {"replacements": 0, "segments_touched": 0, "applied": [],
+              "suppressed": 0, "suppression_segments": 0}
+    if not corrections and not active_suppressions:
         document[_APPLIED_KEY] = []
         return report
     touched_segments = set()
@@ -376,6 +918,13 @@ def apply_to_document(document: dict, project_folder: str) -> dict:
                                   "replacements": made})
         report["replacements"] += made
     report["segments_touched"] = len(touched_segments)
+    if active_suppressions:
+        suppression_report = apply_suppressions(document,
+                                                active_suppressions)
+        report["suppressed"] = suppression_report["suppressed"]
+        report["suppression_segments"] = \
+            suppression_report["segments_touched"]
+        report["applied"].extend(suppression_report["applied"])
     document[_APPLIED_KEY] = report["applied"]
     return report
 
@@ -404,13 +953,16 @@ def render_for_model(project_folder: str) -> str:
     """Active spelling corrections as a model reads them.
 
     One line per learning, heard and corrected, each naming its id so
-    the model can quote the verdict rather than re-derive it. Empty
+    the model can quote the verdict rather than re-derive it. Active
+    display suppressions follow as their own lines - "never re-quote
+    it back in" only works when the prompt SAYS what is hidden. Empty
     when the project recorded none. Read by the reel semantic-visual
     request (`reel_semantic_visual.bridge_context`) and, through
     `project_context`, by every planning step routed `read_by: ["*"]`.
     """
     corrections = spelling_corrections(project_folder)
-    if not corrections:
+    active = suppressions(project_folder)
+    if not corrections and not active:
         return ""
     lines = ["Recorded transcript corrections (quote the corrected "
              "spelling in every copy, subject and anchor_phrase):"]
@@ -418,6 +970,15 @@ def render_for_model(project_folder: str) -> str:
         lines.append(f"- [{correction['id']}] heard "
                      f"\"{correction['heard']}\", write "
                      f"\"{correction['correct']}\"")
+    for suppression in active:
+        scope = suppression.get("scope")
+        where = ("everywhere" if scope is None else
+                 f"where {scope['speaker']} says it between "
+                 f"\"{scope['prev']}\" and \"{scope['next']}\"")
+        lines.append(f"- [{suppression['id']}] hidden token "
+                     f"\"{suppression['heard']}\" {where}: pronounced, "
+                     f"stays in the audio, never write it in a caption, "
+                     f"quote, subject or anchor_phrase")
     return "\n".join(lines)
 
 
