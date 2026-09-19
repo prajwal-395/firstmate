@@ -10335,7 +10335,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # and must not run while another lane moves the cursor.
             # A `continue` below exits the hold; the loop's failure
             # path discards under its own hold.
-            with resolve_lease(f"place {name}", exclusive=True):
+            with resolve_lease(f"place {name}", exclusive=True) as _lease:
+                # Lease-contention measurement: one `wait` line per
+                # placement acquisition, ALWAYS including the
+                # uncontended ones - the fraction that contended is the
+                # whole question behind a future queue, and an absent
+                # record must not read as zero
+                # (`library/tools/reel_phase_log.py`).
+                try:
+                    from library.tools import reel_phase_log as _lease_log
+                    _lease_log.log_lease_wait(
+                        project_folder, moment.number, name,
+                        purpose=f"place {name}",
+                        wait_seconds=getattr(_lease, "wait_seconds",
+                                             0.0) or 0.0,
+                        waited_on=getattr(_lease, "waited_on", "") or "",
+                        exclusive=True)
+                except Exception:
+                    pass
                 _decision = _need.decide(
                     final, _derivation,
                     _carried_self_read(final),

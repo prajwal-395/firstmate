@@ -195,6 +195,151 @@ def log_wait(project_folder: str, reel_number: int, reel_name: str,
                      detail=reason)
 
 
+LEASE_WAIT_KIND = "lease_wait"
+LEASE_WAIT_PREFIX = "lease wait "
+"""How a Resolve lease acquisition files itself: one `wait` line per
+acquisition, ALWAYS including the uncontended ones. A zero-wait
+acquisition files `0.0s ... (uncontended)` - an absent record and a
+zero record must not look the same, or nobody can compute what
+fraction of acquisitions contended. The human reason rides in
+`detail`; the numbers ride beside it in `summary` for
+`summarize_lease_waits`."""
+
+
+def log_lease_wait(project_folder: str, reel_number: int, reel_name: str,
+                   *, purpose: str, wait_seconds: float,
+                   waited_on: str = "",
+                   exclusive: bool = True) -> Dict[str, Any]:
+    """File one `wait` line for a Resolve lease acquisition, never failing.
+
+    `wait_seconds` is how long the caller waited before the instance
+    was granted (`Lease.wait_seconds`); `waited_on` names who was
+    observed holding it (`Lease.waited_on`), empty where nothing was.
+    Filed under the same never-fail contract as every other line: a
+    filing failure is said on stderr and the build continues.
+    """
+    try:
+        waited = float(wait_seconds)
+    except (TypeError, ValueError):
+        waited = 0.0
+    waited = max(0.0, waited)
+    holder_text = str(waited_on or "").strip()
+    if holder_text:
+        detail = (f"{LEASE_WAIT_PREFIX}{waited:.1f}s for {purpose!r} "
+                  f"behind {holder_text}")
+    else:
+        detail = (f"{LEASE_WAIT_PREFIX}{waited:.1f}s for {purpose!r} "
+                  f"(uncontended)")
+    return log_event(
+        project_folder, reel_number, reel_name, WAIT,
+        detail=detail,
+        summary={"kind": LEASE_WAIT_KIND,
+                 "purpose": str(purpose or ""),
+                 "wait_seconds": round(waited, 3),
+                 "waited_on": holder_text,
+                 "exclusive": bool(exclusive),
+                 # Contended means a holder was SEEN, not that the wait
+                 # was long: an arrival that found the instance held is
+                 # contention even where the holder released before the
+                 # first poll. The queueing time is `wait_seconds`, and
+                 # the reader reports both, so a near-zero finding reads
+                 # as near-zero rather than as missing data.
+                 "contended": bool(holder_text)})
+
+
+def summarize_lease_waits(
+        events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Add up the lease-wait lines: does the exclusive hold serialise?
+
+    Reads the `lease_wait` lines `log_lease_wait` filed and answers
+    the question that decides whether a queue is worth building: how
+    many acquisitions, what fraction found the instance held, and how
+    much queueing time that cost in total. A near-zero result is a
+    result - "build no queue" - not a failure, and this report
+    supports it as readily as the opposite: every acquisition files,
+    so `acquisitions` is the denominator, not a count of incidents.
+
+    Lines are recognised by their `summary.kind`, falling back to the
+    `detail` prefix for hand-written ones; anything else is not a
+    lease line and is ignored. Never refuses: an empty log reports
+    zeros.
+    """
+    rows: List[Dict[str, Any]] = []
+    for event in events or ():
+        if not isinstance(event, dict) or event.get("phase") != WAIT:
+            continue
+        payload = event.get("summary")
+        if isinstance(payload, dict) and payload.get("kind") == (
+                LEASE_WAIT_KIND):
+            try:
+                waited = float(payload.get("wait_seconds") or 0.0)
+            except (TypeError, ValueError):
+                waited = 0.0
+            rows.append({
+                "at": event.get("at"),
+                "reel": event.get("reel") or "",
+                "reel_number": event.get("reel_number"),
+                "purpose": payload.get("purpose") or "",
+                "wait_seconds": max(0.0, waited),
+                "waited_on": str(payload.get("waited_on") or ""),
+                "contended": bool(payload.get("waited_on")),
+            })
+        elif (isinstance(event.get("detail"), str)
+                and event["detail"].startswith(LEASE_WAIT_PREFIX)):
+            rows.append({
+                "at": event.get("at"),
+                "reel": event.get("reel") or "",
+                "reel_number": event.get("reel_number"),
+                "purpose": "",
+                "wait_seconds": _lease_wait_seconds(event["detail"]),
+                "waited_on": _lease_wait_holder(event["detail"]),
+                "contended": "(uncontended)" not in event["detail"],
+            })
+    acquisitions = len(rows)
+    contended_rows = [row for row in rows if row["contended"]]
+    total_wait = round(sum(row["wait_seconds"] for row in rows), 3)
+    max_row = max(rows, key=lambda row: row["wait_seconds"],
+                  default=None)
+    by_holder: Dict[str, Dict[str, Any]] = {}
+    for row in contended_rows:
+        slot = by_holder.setdefault(row["waited_on"] or "(unnamed)", {
+            "acquisitions": 0, "total_wait_seconds": 0.0})
+        slot["acquisitions"] += 1
+        slot["total_wait_seconds"] = round(
+            slot["total_wait_seconds"] + row["wait_seconds"], 3)
+    return {
+        "acquisitions": acquisitions,
+        "contended": len(contended_rows),
+        "fraction_contended": (round(len(contended_rows) / acquisitions, 3)
+                               if acquisitions else 0.0),
+        "total_wait_seconds": total_wait,
+        "mean_wait_seconds": (round(total_wait / acquisitions, 3)
+                              if acquisitions else 0.0),
+        "max_wait_seconds": (max_row["wait_seconds"]
+                             if max_row is not None else 0.0),
+        "max_wait": max_row,
+        "by_holder": by_holder,
+        "rows": rows,
+    }
+
+
+def _lease_wait_seconds(detail: str) -> float:
+    """The seconds off a hand-written lease-wait line, best-effort."""
+    try:
+        head = detail[len(LEASE_WAIT_PREFIX):].split("s ", 1)[0]
+        return max(0.0, float(head))
+    except (TypeError, ValueError, IndexError):
+        return 0.0
+
+
+def _lease_wait_holder(detail: str) -> str:
+    """The holder off a hand-written lease-wait line, best-effort."""
+    marker = " behind "
+    if marker in detail:
+        return detail.split(marker, 1)[1].strip()
+    return ""
+
+
 OUTCOME_PROMOTED = "promoted"
 OUTCOME_LEFT_ALONE = "left_alone"
 OUTCOME_VERIFY_REFUSED = "verify_refused"

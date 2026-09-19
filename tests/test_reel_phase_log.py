@@ -538,3 +538,72 @@ def test_build_side_helpers_shape_slices_and_file(tmp_path):
     reel_build._file_reel_summary(
         project, number=5, name="Reel 05 - slug", facts=None,  # type: ignore[arg-type]
         outcome="promoted")
+
+
+def test_a_lease_wait_files_zero_as_zero_not_as_silence(tmp_path):
+    """An uncontended placement still files: absent and zero differ.
+
+    The fraction that contended is the whole queue question, so the
+    denominator - every acquisition - has to be on disk.
+    """
+    project = _project(tmp_path)
+    event = phase_log.log_lease_wait(
+        project, 12, "Reel 12", purpose="place Reel 12",
+        wait_seconds=0.0, waited_on="")
+    assert event["phase"] == phase_log.WAIT
+    assert "uncontended" in event["detail"]
+    assert event["summary"]["kind"] == phase_log.LEASE_WAIT_KIND
+    assert event["summary"]["wait_seconds"] == 0.0
+    assert event["summary"]["contended"] is False
+
+    held = phase_log.log_lease_wait(
+        project, 12, "Reel 12", purpose="place Reel 12",
+        wait_seconds=42.3, waited_on="lane-7 (pid 1 on mac): build")
+    assert "42.3s" in held["detail"]
+    assert "lane-7" in held["detail"]
+    assert held["summary"]["contended"] is True
+
+
+def test_lease_waits_add_up_to_a_contention_reading(tmp_path):
+    """The reader answers the queue question either way it comes out.
+
+    Near-zero contention must read as near-zero - "build no queue" -
+    not as missing data, so zeros count as acquisitions.
+    """
+    project = _project(tmp_path)
+    phase_log.log_lease_wait(project, 1, "Reel 01", purpose="place Reel 01",
+                             wait_seconds=0.0, waited_on="")
+    phase_log.log_lease_wait(project, 2, "Reel 02", purpose="place Reel 02",
+                             wait_seconds=2.5,
+                             waited_on="lane-7: place Reel 01")
+    phase_log.log_lease_wait(project, 3, "Reel 03", purpose="place Reel 03",
+                             wait_seconds=1.0,
+                             waited_on="lane-7: place Reel 01")
+    report = phase_log.summarize_lease_waits(
+        phase_log.read_events(project))
+    assert report["acquisitions"] == 3
+    assert report["contended"] == 2
+    assert report["fraction_contended"] == 0.667
+    assert report["total_wait_seconds"] == 3.5
+    assert report["mean_wait_seconds"] == 1.167
+    assert report["max_wait_seconds"] == 2.5
+    assert report["by_holder"]["lane-7: place Reel 01"] == {
+        "acquisitions": 2, "total_wait_seconds": 3.5}
+    assert phase_log.summarize_lease_waits([])["acquisitions"] == 0
+
+
+def test_the_placement_hold_files_its_lease_wait():
+    """Wiring pin: the per-reel hold logs its acquisition wait.
+
+    The build's Resolve pass is the contention point the queue
+    question is about (seconds-to-a-minute exclusive holds); its
+    acquisition must file through `log_lease_wait`, including zeros.
+    """
+    import inspect
+
+    from library.tools import reel_build
+
+    body = inspect.getsource(reel_build.rebuild_reels_in_project)
+    assert "log_lease_wait" in body, (
+        "the per-reel placement hold no longer files its lease wait - "
+        "contention during the rebuild wave would produce no data")

@@ -233,6 +233,56 @@ def test_a_waiter_that_gives_up_names_the_holder(lock_dir):
     assert float(gave_up.split()[1]) < 3.0, gave_up
 
 
+# ── Contention measurement: every acquisition says what it waited ──
+
+def test_an_uncontended_acquisition_records_zero_not_nothing(lock_dir,
+                                                             unguarded):
+    """A zero-wait acquisition is recorded as zero, not omitted.
+
+    Only contended acquisitions logged means nobody can compute what
+    fraction contended - and that fraction is the whole question.
+    """
+    with resolve_lease("a quiet build", timeout=1.0) as lease:
+        assert lease.wait_seconds == 0.0 or lease.wait_seconds < 0.25
+        assert lease.waited_on == ""
+
+
+_WAITER_STATS = textwrap.dedent("""
+    import sys, time
+    sys.path.insert(0, {repo!r})
+    from library.tools.resolve_lock import resolve_lease, ResolveBusy
+    try:
+        with resolve_lease("waiting for the demonstration", owner="waiter",
+                           timeout={timeout}) as lease:
+            print("ACQUIRED %.2f %s" % (lease.wait_seconds,
+                                        lease.waited_on), flush=True)
+    except ResolveBusy as busy:
+        print("BUSY %s" % (busy,), flush=True)
+""")
+
+
+def test_a_contended_acquisition_records_its_wait_and_its_holder(lock_dir):
+    """Two processes, one flock: the waiter names how long and behind whom.
+
+    The measurement the queue question waits on: a 40s wait behind
+    "place Reel 12" is a different finding from 40s behind the
+    captain's session, and both differ from no wait at all.
+    """
+    holder = _spawn(_HOLDER.format(repo=REPO_ROOT, seconds=1.5), lock_dir)
+    assert holder.stdout.readline().strip() == "HELD"
+
+    waiter = _spawn(_WAITER_STATS.format(repo=REPO_ROOT, timeout=10.0),
+                    lock_dir)
+    waited, _ = waiter.communicate(timeout=30)
+    holder.communicate(timeout=30)
+
+    assert waited.startswith("ACQUIRED"), waited
+    _, seconds, waited_on = waited.strip().split(" ", 2)
+    assert float(seconds) >= 1.0, waited
+    assert "holder" in waited_on, waited_on
+    assert "holding for the demonstration" in waited_on, waited_on
+
+
 # ── The fence: an uncooperative writer, DETECTED ────────────────────
 
 def test_the_fence_detects_a_foreign_cursor_move(lock_dir):

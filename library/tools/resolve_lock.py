@@ -256,13 +256,24 @@ def default_timeout() -> float:
 
 @dataclass(frozen=True)
 class Lease:
-    """Who is holding the instance, and what for."""
+    """Who is holding the instance, and what for.
+
+    `wait_seconds` is how long THIS acquisition waited before the
+    instance was granted - 0.0 where it walked straight in, and an
+    absent record must never be read as zero (that fraction is the
+    whole contention question). `waited_on` names who was observed
+    holding it while this caller waited (the most recent holder seen
+    during the wait, or the captain's signal where that is what
+    waited on) - empty where nothing was.
+    """
 
     owner: str
     purpose: str
     pid: int
     host: str
     since: float
+    wait_seconds: float = 0.0
+    waited_on: str = ""
 
     def held_for(self) -> float:
         return max(0.0, time.time() - self.since)
@@ -467,8 +478,17 @@ def holder() -> Optional[Lease]:
         body = json.loads(lease_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    if not isinstance(body, dict):
+        return None
     try:
-        return Lease(**body)
+        # Only the identity fields: a lease file also carries the
+        # holder's own acquisition wait (`wait_seconds`, `waited_on`),
+        # and an older or hand-written file may lack them - either
+        # way the diagnostic is who holds it, not how long they
+        # waited.
+        return Lease(**{key: body[key] for key in
+                        ("owner", "purpose", "pid", "host", "since")
+                        if key in body})
     except TypeError:
         return None
 
@@ -573,6 +593,22 @@ def resolve_lease(purpose: str, exclusive: bool = True,
 
     resolved_timeout = (default_timeout() if timeout is None
                         else float(timeout))
+    # ── Contention measurement: how long this acquisition waited,
+    # and who was holding it. Taken on EVERY real acquisition -
+    # including the uncontended ones, where the answer is 0.0 and
+    # must be RECORDED as zero, never omitted: only contended
+    # acquisitions logged means nobody can compute what fraction
+    # contended, and that fraction is the whole question. Cost on
+    # the fast path is two clocks and two small file reads; nothing
+    # is printed, and the lock's behaviour is unchanged - this only
+    # observes it. Nested and inherited acquisitions are no-ops by
+    # design (they never contended), so only this path records.
+    acquire_start = time.time()
+    waited_on = ""
+    _entry_holder = holder()
+    if _entry_holder is not None:
+        waited_on = _entry_holder.describe()
+    _entry_captain = captain_present() if honor_captain else None
     if honor_captain:
         _wait_for_captain(purpose, resolved_timeout)
     deadline = time.time() + resolved_timeout
@@ -588,11 +624,23 @@ def resolve_lease(purpose: str, exclusive: bool = True,
                     f" - waited {resolved_timeout:g}s "
                     f"for {purpose!r}. One instance, no isolation: the "
                     f"only route is to wait or to come back.")
+            # Who is holding it NOW, not just who was there at entry:
+            # a handoff mid-wait otherwise misattributes the delay.
+            # One small file read per poll; the most recent holder
+            # seen is what the granted lease names.
+            _during = holder()
+            if _during is not None:
+                waited_on = _during.describe()
             time.sleep(_POLL_SECONDS)
 
+        wait_seconds = max(0.0, time.time() - acquire_start)
+        if not waited_on and _entry_captain is not None:
+            waited_on = _entry_captain.describe()
         lease = Lease(owner=owner or default_owner(), purpose=purpose,
                       pid=os.getpid(), host=socket.gethostname(),
-                      since=time.time())
+                      since=time.time(),
+                      wait_seconds=wait_seconds,
+                      waited_on=waited_on)
         _depth, _mode = 1, "exclusive" if exclusive else "shared"
         previous_inherit = os.environ.get(INHERIT_ENV)
         os.environ[INHERIT_ENV] = str(os.getpid())
