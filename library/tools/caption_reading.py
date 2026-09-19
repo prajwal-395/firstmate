@@ -32,6 +32,19 @@ footage - "one of the best ways", "another one", "see which one is"),
 rank labels ("number one", "the top three" - undecided, flagged), and
 ordinals ("first", "second" - never cardinals, never touched).
 
+Spelling corrections: the project's recorded transcript spellings
+(`transcript_corrections.spelling_corrections` - "google" reads
+"Google", "atlanta journal constitution" reads "Atlanta Journal
+Constitution") arrive as DATA on the optional `corrections` argument,
+never as entries here. The planner applies that same store to the
+words AFTER this reading runs, so a reading that does not know them
+fails the plan's own contract on correct output (2026-09-19: every
+reel carrying "Google" refused its build). A correction outranks the
+acronym and numeral rules - it is the captain's spelling of what was
+heard - and matches phrase-aware with the planner's own possessive
+rule (a lone clitic survives a single-word respell, multi-word runs
+drop it). Absent corrections read exactly as before.
+
 Timings are never invented. `apply_caption_reading` maps a word list to
 a word list: a merged numeral ("two point oh" -> "2.0") spans from the
 first word's start to the last word's end, so every emitted token is
@@ -202,6 +215,72 @@ def _acronym_for(core: str) -> str | None:
     return None
 
 
+def _split_clitic(core: str) -> tuple[str, str]:
+    """The matchable body of one lowered core, plus any possessive clitic.
+
+    The planner's `_word_heard_forms` twin, on the lowered core rather
+    than the raw word: a lone `'s` survives a single-word respell and
+    multi-word runs drop it, so the reading owes the same word the
+    same verdict. `"google's"` -> `("google", "'s")`.
+    """
+    for tail in ("'s", "\u2019s"):
+        if core.endswith(tail) and len(core) > len(tail):
+            return core[: -len(tail)], core[-len(tail):]
+    return core, ""
+
+
+def _correction_table(corrections) -> list[tuple[tuple[str, ...], str]]:
+    """Recorded spellings as matchable bodies, longest heard first.
+
+    `corrections` is the `transcript_corrections.spelling_corrections`
+    shape - mappings carrying `heard` and `correct`. Heard and core
+    meet lowered and de-clitic'd, the way the planner's spelling pass
+    matches them; `correct` rides verbatim because the planner runs on
+    already-lowercased words, where `_cased` is the identity. Longest
+    heard first, so "atlanta journal constitution" wins over "atlanta"
+    at the same position.
+    """
+    table: list[tuple[tuple[str, ...], str]] = []
+    for correction in corrections or ():
+        try:
+            heard = (correction.get("heard") or "")
+            correct = (correction.get("correct") or "").strip()
+        except AttributeError:
+            continue
+        bodies = tuple(
+            body for body in
+            (_split_clitic(_core(token))[0] for token in heard.split())
+            if body
+        )
+        if not bodies or not correct:
+            continue
+        table.append((bodies, correct))
+    table.sort(key=lambda entry: -len(entry[0]))
+    return table
+
+
+def _correction_at(cores: list[str], at: int,
+                   table) -> tuple[str, int] | None:
+    """The recorded spelling starting at `at`, or None.
+
+    Single-word runs keep a possessive clitic, multi-word runs drop
+    it - the planner's `apply_spelling_to_words` rule exactly, so a
+    card the planner corrected reads back as corrected.
+    """
+    for bodies, correct in table:
+        length = len(bodies)
+        if at + length > len(cores):
+            continue
+        split = [_split_clitic(cores[at + offset])
+                 for offset in range(length)]
+        if tuple(body for body, _ in split) != bodies:
+            continue
+        if length == 1:
+            return correct + split[0][1], 1
+        return correct, length
+    return None
+
+
 def _read_hyphenated_token(token: str) -> str | None:
     """`_read_hyphenated` with the token's own affixes preserved.
 
@@ -243,16 +322,25 @@ def _read_hyphenated(token: str) -> str | None:
     return None
 
 
-def _plan_tokens(cores: list[str]) -> list[tuple[str, int]]:
+def _plan_tokens(cores: list[str], corrections=None) -> list[tuple[str, int]]:
     """The caption's tokens, read. Each is (output, words consumed).
 
     The single decision procedure both entry points share: the word-list
     entry uses the consumption counts to merge timings, the text entry
     uses the outputs. One procedure, so the two can never disagree.
+    Recorded spellings match first - longest heard first - because they
+    are the captain's spelling of what was heard; acronyms and numerals
+    read what is left.
     """
+    table = _correction_table(corrections)
     out: list[tuple[str, int]] = []
     i = 0
     while i < len(cores):
+        corrected = _correction_at(cores, i, table) if table else None
+        if corrected is not None:
+            out.append(corrected)
+            i += corrected[1]
+            continue
         core = cores[i]
         acronym = _acronym_for(core)
         if acronym is not None:
@@ -322,19 +410,22 @@ def _plan_tokens(cores: list[str]) -> list[tuple[str, int]]:
     return out
 
 
-def apply_caption_reading_text(text: str) -> str:
+def apply_caption_reading_text(text: str, corrections=None) -> str:
     """The text-level reading, for the plan's own contract check.
 
     Lowercases nothing and invents nothing: the planner lowercases first
     (`apply_caption_case`) and this restores what the declarations name.
-    Idempotent - reading its own output changes nothing - which is what
-    step 4.01 asserts every card with.
+    `corrections` is the project's recorded spellings
+    (`transcript_corrections.spelling_corrections`), which the planner
+    enforces after this runs - passed here so the contract checks what
+    is drawn. Idempotent - reading its own output changes nothing - which
+    is what step 4.01 asserts every card with.
     """
     tokens = text.split()
     if not tokens:
         return text
     cores = [_core(token) for token in tokens]
-    planned = _plan_tokens(cores)
+    planned = _plan_tokens(cores, corrections)
     rebuilt = []
     cursor = 0
     for output, consumed in planned:
@@ -352,21 +443,22 @@ def apply_caption_reading_text(text: str) -> str:
     return " ".join(rebuilt)
 
 
-def apply_caption_reading(words: list[dict]) -> list[dict]:
+def apply_caption_reading(words: list[dict], corrections=None) -> list[dict]:
     """The word-list reading: text fixed, timings kept, none invented.
 
     Each input word carries `word`, `start` and `end` and may carry
     more (speaker clocks, scores - everything unrecognised rides along
     untouched). A merged numeral spans its first word's start to its
-    last word's end; every other word keeps its own span. The output is
-    never longer in words than the input, and never carries a word with
-    no span.
+    last word's end, and so does a merged respell ("jim and i" reads
+    "Gemini" over the three words' span); every other word keeps its
+    own span. The output is never longer in words than the input, and
+    never carries a word with no span.
     """
     if not words:
         return words
     surfaces = [str(entry.get("word", "")) for entry in words]
     cores = [_core(surface) for surface in surfaces]
-    planned = _plan_tokens(cores)
+    planned = _plan_tokens(cores, corrections)
     hyphenated = [
         _read_hyphenated_token(surface) if "-" in surface else None
         for surface in surfaces

@@ -748,6 +748,25 @@ def _word_heard_forms(token: str) -> tuple:
     return text, ""
 
 
+def _edge_punct(text: str) -> tuple:
+    """Edge punctuation a respell must carry over, `(lead, trail)`.
+
+    A respell rewrites the word's CORE ("chronicle," -> "Chronicle")
+    but the commas, periods and quotes either side of it are the
+    surface the audio measured, not the error being fixed - dropping
+    them turns "Chronicle," into "Chronicle" on the caption that
+    proves the fix. The core predicate is `word_core`'s own, so the
+    two cannot disagree about where the word ends.
+    """
+    text = str(text or "")
+    core = _WORD_CORE_RE.sub("", text)
+    if not core:
+        return "", ""
+    start = text.find(core)
+    end = text.rfind(core) + len(core)
+    return text[:start], text[end:]
+
+
 def apply_spelling_to_words(words: list, corrections: list) -> tuple:
     """Respell timed word entries, phrase-aware. Returns `(words, made)`.
 
@@ -788,15 +807,18 @@ def apply_spelling_to_words(words: list, corrections: list) -> tuple:
                     bodies.append(word_core(body).lower())
                     clitic = tail  # only the run's last tail survives
                 ok = bodies == heard_cores
-                # The run's last word may carry other trailing
-                # punctuation ("RMs,") - the core agreed above, which
-                # is the whole-word rule; the surface keeps its comma.
             if ok:
                 first, last = run[0], run[-1]
                 fixed = _cased(correct, str(first.get("word", "")))
+                first_lead, _ = _edge_punct(
+                    str(first.get("word", "")))
+                _, last_trail = _edge_punct(
+                    str(last.get("word", "")))
                 entry = dict(first)
-                entry["word"] = fixed + (
-                    clitic if len(run) == 1 else "")
+                entry["word"] = (
+                    first_lead + fixed
+                    + (clitic if len(run) == 1 else "")
+                    + last_trail)
                 entry["end"] = last.get("end", entry.get("end"))
                 merged.append(entry)
                 count += 1

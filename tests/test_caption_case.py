@@ -158,15 +158,17 @@ class TestCaptionCaseInGenerateSubtitles:
             assert entry["text"] == entry["text"].lower()
 
 
-# ── Recorded corrections conform to the caption contract ──
+# ── Recorded corrections survive into the captions they were ordered into ──
 # Reel 09, 2026-09-19: a model-proposed spelling ("Google Business
-# profile" reads "Google Business Profile", lc-0046) carries recorded
+# profile" reads "Google Business Profile", lc-0046) carried recorded
 # case into caption words AFTER the lowercase + reading transforms, so
-# the reading-idempotency gate below refused the whole reel build with
-# `sub_7_003 is not the declared reading of its lowercase`. The casing
-# of the record is the verdict for transcript prose, but captions keep
-# house style: corrections run BEFORE case and reading, so whatever
-# they emit is conformed by the same transforms as every other word.
+# the reading-idempotency gate below refused the whole reel build.
+# The first fix conformed every correction to house lowercase - which
+# holds the gate but disobeys the six active CAPTAIN-said spellings
+# (lc-0001, lc-0084..lc-0088: write the casing "in every caption").
+# So corrections run after the transforms, and the reading restores
+# the same store: a card is a fixed point of the reading
+# (library/tools/caption_reading.py).
 
 class TestCorrectionsConformToCaptionContract:
     def _spine(self, words):
@@ -193,13 +195,22 @@ class TestCorrectionsConformToCaptionContract:
             ]
         }
 
-    def test_case_bearing_correction_plans_and_reads_lowercase(
-            self, tmp_path):
-        """A correction emitting recorded case does not refuse the plan."""
+    def _assert_fixed_point(self, entries, project_folder):
         from library.tools import transcript_corrections
         from library.tools.caption_reading import (
             apply_caption_reading_text,
         )
+        corrections = transcript_corrections.spelling_corrections(
+            project_folder)
+        for entry in entries:
+            assert apply_caption_reading_text(
+                entry["text"],
+                corrections=corrections) == entry["text"], entry["text"]
+
+    def test_case_bearing_correction_plans_and_reads_as_recorded(
+            self, tmp_path):
+        """A correction emitting recorded case does not refuse the plan."""
+        from library.tools import transcript_corrections
         transcript_corrections.record_spelling(
             str(tmp_path), "Google Business profile",
             "Google Business Profile",
@@ -210,16 +221,13 @@ class TestCorrectionsConformToCaptionContract:
                                     project_folder=str(tmp_path))
         entries = result["subtitle_plan"]["subtitle_entries"]
         assert len(entries) > 0
-        for entry in entries:
-            assert apply_caption_reading_text(
-                entry["text"].lower()) == entry["text"], entry["text"]
+        all_text = " ".join(e["text"] for e in entries)
+        assert "Google Business Profile" in all_text
+        self._assert_fixed_point(entries, str(tmp_path))
 
     def test_single_token_correction_conforms_too(self, tmp_path):
         """The lucy->Lucie shape conforms the same way."""
         from library.tools import transcript_corrections
-        from library.tools.caption_reading import (
-            apply_caption_reading_text,
-        )
         transcript_corrections.record_spelling(
             str(tmp_path), "lucy", "Lucie", "the client's name")
         spine = self._spine(["go", "check", "out", "lucy", "today"])
@@ -228,10 +236,8 @@ class TestCorrectionsConformToCaptionContract:
         entries = result["subtitle_plan"]["subtitle_entries"]
         assert len(entries) > 0
         all_text = " ".join(e["text"] for e in entries)
-        assert "lucie" in all_text
-        for entry in entries:
-            assert apply_caption_reading_text(
-                entry["text"].lower()) == entry["text"], entry["text"]
+        assert "Lucie" in all_text
+        self._assert_fixed_point(entries, str(tmp_path))
 
 class TestEffectSlotsDefault:
     def test_default_caption_case_is_lowercase(self):

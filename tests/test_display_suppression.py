@@ -222,6 +222,33 @@ def test_possessive_survives_a_word_level_respell():
     assert (out[0]["start"], out[0]["end"]) == (1.0, 1.3)
 
 
+def test_edge_punctuation_survives_a_word_level_respell():
+    # Reel 16, 2026-09-19: respelling "chronicle," to "Chronicle"
+    # must not eat the comma the caption proving the fix carries.
+    words = [
+        {"word": "the", "start": 1.0, "end": 1.1},
+        {"word": "atlanta", "start": 1.1, "end": 1.4},
+        {"word": "business", "start": 1.4, "end": 1.7},
+        {"word": "chronicle,", "start": 1.7, "end": 2.1},
+        {"word": "as", "start": 2.1, "end": 2.2},
+    ]
+    out, made = tc.apply_spelling_to_words(
+        words, [{"id": "a", "heard": "atlanta business chronicle",
+                 "correct": "Atlanta Business Chronicle"}])
+    assert [w["word"] for w in out] == [
+        "the", "Atlanta Business Chronicle,", "as"]
+    # The merged entry spans the run it replaced - timings stand.
+    assert (out[1]["start"], out[1]["end"]) == (1.1, 2.1)
+    assert made == {"a": 1}
+
+
+def test_single_word_respell_keeps_its_trailing_period():
+    words = [{"word": "google.", "start": 1.0, "end": 1.3}]
+    out, _ = tc.apply_spelling_to_words(
+        words, [{"id": "a", "heard": "google", "correct": "Google"}])
+    assert out[0]["word"] == "Google."
+
+
 def test_comma_debris_leaves_with_its_token():
     assert tc._drop_token_occurrences("Um, and go", "um", [0]) == (
         "and go", 1)

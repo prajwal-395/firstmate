@@ -701,6 +701,24 @@ def _words_in_source_window(
     return in_range
 
 
+def _reading_corrections(project_folder: str):
+    """Recorded spellings the caption reading restores, or None.
+
+    `transcript_corrections.spelling_corrections`: the store the planner
+    enforces on the words after the reading runs. Never refuses - an
+    unreadable store reads as absent, and the caption plan must survive
+    it the way `apply_to_words` does.
+    """
+    if not project_folder:
+        return None
+    try:
+        from library.tools import transcript_corrections as _tc
+        corrections = _tc.spelling_corrections(project_folder)
+    except Exception:  # noqa: BLE001 - caption plan must survive
+        return None
+    return corrections or None
+
+
 def _apply_transcript_corrections(timeline_words: list,
                                     speaker: str | None,
                                     project_folder: str) -> list:
@@ -844,6 +862,13 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                                    reel_name=reel_name or None)
     safe_area = resolve_safe_area(project_folder or None)
     fitter = build_caption_fitter(style, safe_area, project_folder)
+    # Recorded spellings the reading restores ("google" reads "Google"):
+    # the same store enforced on the words after the reading runs, so a
+    # card the corrections respelled still reads as the caption path
+    # renders it (2026-09-19: every reel carrying "Google" refused its
+    # build on correct output). None where the store is absent, which
+    # reads exactly as before. See library/tools/caption_reading.py.
+    reading_corrections = _reading_corrections(project_folder)
 
     # A project may caption each speaker differently - the styling IS the
     # diarization signal when two people are talking. A per-speaker style
@@ -927,35 +952,35 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 if w["end"] > block_start - 0.05
                 and w["start"] < block_end + 0.05
             ]
-            # Recorded transcript corrections FIRST: they carry the
-            # record's own casing ("Google Business Profile"), which the
-            # caption contract below does not declare - a correction
-            # applied after case and reading kept that casing onto the
-            # card and tripped the reading gate for the whole reel
-            # (Reel 09, lc-0046). Matching is case-insensitive, so the
-            # order changes nothing matched; what it changes is that
-            # every corrected word still passes through the transforms.
-            # The spine's words are a second ASR product (step 1.04 over
-            # source audio), so a "C RMs" fixed in the transcript still
-            # captions "c rms" without this. Spelling merges phrases
-            # across entries without inventing timings; suppression
-            # drops pronounced-but-unread tokens (audio and spine
-            # untouched - entries are partitioned, never retimed).
-            timeline_words = _apply_transcript_corrections(
-                timeline_words, block_speaker, project_folder)
             # Case, then reading, BEFORE grouping: the fit is measured
             # on what is drawn, so "SEO 2.0" groups at its own width
             # rather than at "seo two point oh"'s. See
-            # library/tools/caption_reading.py. And because corrections
-            # ran first, this is also what conforms a correction's
-            # recorded casing to the caption contract the verification
-            # below asserts - the record stands in transcript prose,
-            # captions keep house style.
+            # library/tools/caption_reading.py. Corrections run AFTER
+            # the transforms, not before: six active CAPTAIN-said
+            # spellings (lc-0001, lc-0084..lc-0088) order their casing
+            # "in every caption", and conforming them to house style
+            # first would obey the brand over the captain's stated
+            # preference (AGENTS.md 10.5). The reading restores them -
+            # it takes the same store - so the contract below still
+            # holds on what is drawn.
             timeline_words = [
                 {**w, "word": apply_caption_case(w["word"], caption_case)}
                 for w in timeline_words
             ]
-            timeline_words = apply_caption_reading(timeline_words)
+            timeline_words = apply_caption_reading(
+                timeline_words, corrections=reading_corrections)
+            # Recorded transcript corrections, enforced on the timed
+            # words the transcript text pass cannot reach: the spine's
+            # words are a second ASR product (step 1.04 over source
+            # audio), so a "C RMs" fixed in the transcript still
+            # captions "c rms" without this. Spelling merges phrases
+            # across entries without inventing timings; suppression
+            # drops pronounced-but-unread tokens (audio and spine
+            # untouched - entries are partitioned, never retimed).
+            # Runs BEFORE grouping so the fit is measured on what is
+            # drawn, for the same reason case and reading run first.
+            timeline_words = _apply_transcript_corrections(
+                timeline_words, block_speaker, project_folder)
             groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
@@ -1048,20 +1073,19 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     if w["end"] > seg_tl_start - 0.05
                     and w["start"] < seg_tl_end + 0.05
                 ]
-                # Corrections before case and reading, like the hook
-                # branch above: a correction's recorded casing is
-                # conformed to the caption contract by the transforms,
-                # so it can never trip the reading gate below.
-                timeline_words = _apply_transcript_corrections(
-                    timeline_words, block_speaker, project_folder)
                 # Case, then reading, BEFORE grouping - the same reason
                 # as the hook branch above: the fit is measured on what
-                # is drawn (library/tools/caption_reading.py).
+                # is drawn (library/tools/caption_reading.py). Corrections
+                # run after the transforms there too, so captain-said
+                # casing survives into the captions it was ordered into.
                 timeline_words = [
                     {**w, "word": apply_caption_case(w["word"], caption_case)}
                     for w in timeline_words
                 ]
-                timeline_words = apply_caption_reading(timeline_words)
+                timeline_words = apply_caption_reading(
+                    timeline_words, corrections=reading_corrections)
+                timeline_words = _apply_transcript_corrections(
+                    timeline_words, block_speaker, project_folder)
                 groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
@@ -1235,24 +1259,31 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 file=sys.stderr,
             )
 
-    # Every card reads as the caption path renders it: lowercase, then
-    # the declared reading. Acronyms ("SEO") and digits ("2.0") are
-    # uppercase by captain's ruling, so a bare lowercase assert would
-    # fail correct output - the contract is that re-reading a card's
-    # own lowercase changes nothing (the reading is idempotent; see
+    # Every card reads as the caption path renders it: the card is a
+    # fixed point of the declared reading. Acronyms ("SEO"), digits
+    # ("2.0") and recorded spellings ("Google") are uppercase by
+    # captain's ruling, so a bare lowercase assert would fail correct
+    # output - and lowercasing first would even destroy the evidence:
+    # a card corrected from heard "lucy" reads "Lucie", whose
+    # lowercase ("lucie") was never the heard form, so only the card
+    # as drawn round-trips. The reading takes the same store the
+    # planner enforced above, or the check grades against an older
+    # answer than the cards carry (see
     # library/tools/caption_reading.py).
     if caption_case != "as_written":
         for sub in subtitle_entries:
             assert apply_caption_reading_text(
-                sub["text"].lower()) == sub["text"], \
+                sub["text"],
+                corrections=reading_corrections) == sub["text"], \
                 f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} " \
-                f"is not the declared reading of its lowercase: {sub['text']}"
+                f"is not the declared reading of itself: {sub['text']}"
             for word in sub.get("words", []):
                 assert apply_caption_reading_text(
-                    word["word"].lower()) == word["word"], \
+                    word["word"],
+                    corrections=reading_corrections) == word["word"], \
                     f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} " \
-                    f"word is not the declared reading of its " \
-                    f"lowercase: {word['word']}"
+                    f"word is not the declared reading of " \
+                    f"itself: {word['word']}"
 
     # Word count warnings
     for sub in subtitle_entries:

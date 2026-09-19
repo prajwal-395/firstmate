@@ -154,3 +154,99 @@ class TestTimingPreservation:
 
     def test_empty_in_empty_out(self):
         assert apply_caption_reading([]) == []
+
+
+def _corrections(*pairs):
+    """Recorded spellings in the store's shape: heard -> correct."""
+    return [
+        {"id": f"lc-test-{i:02d}", "heard": heard, "correct": correct}
+        for i, (heard, correct) in enumerate(pairs)
+    ]
+
+
+class TestRecordedSpellings:
+    """2026-09-19: the planner enforced the correction store after the
+    reading ran, so every reel carrying "Google" refused its build on
+    correct output. The reading takes the same store as data - never a
+    second list - and the plan asserts with it.
+    """
+
+    def test_reel_04_failing_card_reads(self):
+        corrections = _corrections(("google", "Google"))
+        assert (
+            apply_caption_reading_text(
+                "we ran it on Google search".lower(),
+                corrections=corrections,
+            )
+            == "we ran it on Google search"
+        )
+
+    def test_recorded_spelling_is_idempotent(self):
+        corrections = _corrections(("google", "Google"))
+        once = apply_caption_reading_text("we ran it on google search",
+                                          corrections=corrections)
+        assert once == "we ran it on Google search"
+        assert apply_caption_reading_text(once,
+                                          corrections=corrections) == once
+
+    def test_longest_phrase_wins(self):
+        corrections = _corrections(
+            ("atlanta", "Atlanta"),
+            ("atlanta journal constitution", "Atlanta Journal Constitution"),
+        )
+        assert (
+            apply_caption_reading_text(
+                "we're in atlanta and the atlanta journal constitution",
+                corrections=corrections,
+            )
+            == "we're in Atlanta and the Atlanta Journal Constitution"
+        )
+
+    def test_multiword_correct_merges_with_span(self):
+        corrections = _corrections(("AICs", "AI sees"))
+        out = apply_caption_reading(
+            _words("the", "aics", "saw", "it"), corrections=corrections)
+        assert [(entry["word"], entry["start"], entry["end"])
+                for entry in out] == [
+            ("the", 0.0, 0.4),
+            ("AI sees", 1.0, 1.4),
+            ("saw", 2.0, 2.4),
+            ("it", 3.0, 3.4),
+        ]
+
+    def test_merge_spans_first_to_last(self):
+        corrections = _corrections(("Jim and i", "Gemini"))
+        out = apply_caption_reading(_words("jim", "and", "i", "met"),
+                                    corrections=corrections)
+        assert [(entry["word"], entry["start"], entry["end"])
+                for entry in out] == [
+            ("Gemini", 0.0, 2.4),
+            ("met", 3.0, 3.4),
+        ]
+
+    def test_possessive_survives_a_single_word_respell(self):
+        corrections = _corrections(("google", "Google"))
+        assert (
+            apply_caption_reading_text("google's own engine",
+                                       corrections=corrections)
+            == "Google's own engine"
+        )
+
+    def test_correction_outranks_the_acronym_rule(self):
+        # Without the store "aics" reads "AICs" (acronym plural); the
+        # captain's spelling says "AI sees" and wins.
+        corrections = _corrections(("AICs", "AI sees"))
+        assert (
+            apply_caption_reading_text("the aics saw it",
+                                       corrections=corrections)
+            == "the AI sees saw it"
+        )
+
+    def test_absent_store_reads_as_before(self):
+        assert apply_caption_reading_text("we ran it on google search") == (
+            "we ran it on google search"
+        )
+        assert (
+            apply_caption_reading_text("chatgpt, it gave three")
+            == "chatgpt, it gave 3"
+        )
