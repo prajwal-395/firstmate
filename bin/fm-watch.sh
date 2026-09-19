@@ -1929,13 +1929,13 @@ signal_files_actionable() {  # <status-file> ...
 # doubt still wakes. Non-.status arguments are skipped; a skipped-only batch
 # returns 1.
 signal_spans_only_child_facts() {  # <status-file> ...
-  local f start endpoint checked=0 ef eend eident
+  local f start endpoint checked=0 ef eend
   [ "$#" -gt 0 ] || return 1
   for f in "$@"; do
     case "$f" in *.status) ;; *) continue ;; esac
     [ -e "$f" ] || [ -L "$f" ] || continue
     endpoint=
-    while IFS=$(printf '\t') read -r ef eend eident; do
+    while IFS=$(printf '\t') read -r ef eend _; do
       if [ "$ef" = "$f" ]; then endpoint=$eend; break; fi
     done <<EOF
 $FM_SIGNAL_SURFACE_ENDPOINTS
