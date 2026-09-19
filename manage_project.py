@@ -1481,7 +1481,17 @@ def cmd_build_reels(args):
             state = (_json.loads(Path(path).read_text(encoding="utf-8"))
                      if Path(path).is_file() else {})
             state["project_folder"] = project_folder
-            state.setdefault("step_outputs", {})[node_id] = result.payload
+            # MERGE the op's output into the node's slot, never overwrite
+            # it: one node may own several ops (`build_reels` owns both
+            # `reel.build` and `reel.ask`), and a wholesale write lets
+            # the later op destroy the earlier's output. Measured
+            # 2026-09-19 on Reel 04: `reel.ask` overwrote
+            # `step_outputs.build_reels` with its ask-only payload, the
+            # `reel_build` record the build had just placed was lost, and
+            # `reel.verify` refused - a staged reel with no path to
+            # promotion. A node's record is the union of its ops.
+            slot = state.setdefault("step_outputs", {})
+            _record_node_output(slot, node_id, result.payload)
             _edit_video_runner().save_pipeline_state(project_folder, state)
             print(f"{op.name}: {result.status}", file=sys.stderr)
             _report_rebuild_need(result.payload)
@@ -1923,6 +1933,26 @@ def _reel_project_folder(project: str) -> str:
     except FileNotFoundError as unknown:
         print(f"Error: {unknown}", file=sys.stderr)
         sys.exit(1)
+
+
+def _record_node_output(slot: dict, node_id: str, payload) -> None:
+    """Merge one op's payload into its node's recorded output.
+
+    One node may own several ops (`build_reels` owns both `reel.build`
+    and `reel.ask`), and a wholesale write lets the later op destroy
+    the earlier's output. Measured 2026-09-19 on Reel 04: `reel.ask`
+    overwrote `step_outputs.build_reels` with its ask-only payload, the
+    `reel_build` record the build had just placed was lost, and
+    `reel.verify` refused - a staged reel with no path to promotion. A
+    node's record is the union of its ops; non-dict payloads keep the
+    old overwrite behaviour.
+    """
+    prior = slot.get(node_id)
+    if isinstance(prior, dict) and isinstance(payload, dict):
+        prior.update(payload)
+        slot[node_id] = prior
+    else:
+        slot[node_id] = payload
 
 
 def _edit_video_runner():

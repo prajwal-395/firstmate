@@ -441,3 +441,164 @@ class TestVerifierWiring:
         result = verify_reel(plan, timeline, word_coverage=None)
         assert [f for f in result.findings
                 if f.finding_class == FindingClass.F25] == []
+
+
+# ── span-edge slivers are dust, not speech ─────────────────────────
+#
+# Reel 04, 2026-09-19: the approved head trim starts the body at
+# 268.94s and "because" ends there to the millisecond. The placed
+# span starts a dust-width earlier (frame quantisation), so the word
+# mapped as a 5ms played sliver at reel 0.00s. The caption correctly
+# drops a word the cut removes; the diff must not fail it.
+
+class TestSpanEdgeSliver:
+    def _segments(self):
+        return [{
+            "speaker": "Craig", "text": "because we've",
+            "timeline_start": 268.0, "timeline_end": 270.0,
+            "source_file": "/m/LCATL0013.MXF",
+            "source_start": 268.0, "source_end": 270.0,
+            "words": [{"word": "because", "start": 268.60, "end": 268.94,
+                       "timed": True},
+                      {"word": "we've", "start": 268.94, "end": 269.17,
+                       "timed": True}],
+        }]
+
+    def test_five_millisecond_touch_is_not_played(self):
+        spans = [{"source_file": "/m/LCATL0013.MXF",
+                  "source_start": 268.935, "source_end": 300.0,
+                  "reel_start": 0.0}]
+        out = sc.played_words_from_transcript(self._segments(), spans)
+        assert [w["word"] for w in out["words"]] == ["we've"]
+        assert len(out["slivers"]) == 1
+        assert out["slivers"][0]["word"] == "because"
+
+    def test_thirty_millisecond_overlap_still_plays(self):
+        # The Reel-12 "That" precedent (50ms surviving a cut counts)
+        # stays above the sub-half-frame floor.
+        spans = [{"source_file": "/m/LCATL0013.MXF",
+                  "source_start": 268.91, "source_end": 300.0,
+                  "reel_start": 0.0}]
+        out = sc.played_words_from_transcript(self._segments(), spans)
+        assert [w["word"] for w in out["words"]] == ["because", "we've"]
+        assert out["slivers"] == []
+
+
+# ── the diff reads what the planner wrote ──────────────────────────
+#
+# Reel 04, 2026-09-19: the caption reads "3 recommendations" (the
+# numeral rule) where the reel plays "three". Raw transcript against
+# read captions fails correct output; both sides must be in read
+# space before they meet.
+
+class TestCaptionReadingComparison:
+    def test_numeral_reads_equal(self):
+        played = [dict(_w("three", 14.0, 14.5), source_file="/m/a.MXF")]
+        read = sc.read_words_for_comparison(played)
+        assert [w["word"] for w in read] == ["3"]
+        captioned = [_w("3", 14.0, 14.5, card="c.mov")]
+        result = sc.check_word_coverage(
+            read, captioned, [_card("c.mov", 13.5, 15.0)])
+        assert [f for f in result["findings"]
+                if f["severity"] == "error"] == []
+
+    def test_recorded_respells_merge_both_sides(self):
+        corrections = [{"id": "t",
+                        "heard": "atlanta business chronicle",
+                        "correct": "Atlanta Business Chronicle"}]
+        played = [dict(_w("atlanta", 1.0, 1.3), source_file="/m/a.MXF"),
+                  dict(_w("business", 1.3, 1.6), source_file="/m/a.MXF"),
+                  dict(_w("chronicle,", 1.6, 2.1),
+                       source_file="/m/a.MXF")]
+        read = sc.read_words_for_comparison(played, corrections)
+        assert len(read) == 1
+        assert read[0]["norm"] == "atlanta business chronicle"
+        captioned = [_w("Atlanta Business Chronicle,", 1.0, 2.1,
+                        card="c.mov")]
+        result = sc.check_word_coverage(
+            read, captioned, [_card("c.mov", 0.5, 2.5)])
+        assert [f for f in result["findings"]
+                if f["severity"] == "error"] == []
+
+    def test_real_divergence_still_fails(self):
+        played = [dict(_w("hello", 14.0, 14.5), source_file="/m/a.MXF")]
+        read = sc.read_words_for_comparison(played)
+        captioned = [_w("goodbye", 14.0, 14.5, card="c.mov")]
+        result = sc.check_word_coverage(
+            read, captioned, [_card("c.mov", 13.5, 15.0)])
+        assert any(f["kind"] == "word_mismatch"
+                   and f["severity"] == "error"
+                   for f in result["findings"])
+
+
+# ── one file is one mouth ──────────────────────────────────────────
+#
+# Reel 04, 2026-09-19: the transcript runs Craig's "website." to
+# 817.89s while starting his "Also" at 817.59s of the same LCATL0013.
+# One mouth cannot say both; the overlap is alignment slop and the
+# caption must serialize the words whatever the transcript stamps.
+# Different files are different mics and keep their overlaps.
+
+class TestSameFileSerialization:
+    def _played(self, file_a="LCATL0013.MXF", file_b="LCATL0013.MXF"):
+        return [
+            {"word": "website.", "norm": "website",
+             "reel_start": 24.03, "reel_end": 24.60,
+             "source_file": f"/m/{file_a}"},
+            {"word": "Also", "norm": "also",
+             "reel_start": 24.26, "reel_end": 24.67,
+             "source_file": f"/m/{file_b}"},
+        ]
+
+    def test_same_file_overlap_clips_sequential(self):
+        words = self._played()
+        serialized = sc._serialize_same_file_overlaps(words)
+        assert words[0]["reel_end"] == pytest.approx(24.26)
+        assert words[1]["reel_start"] == pytest.approx(24.26)
+        assert len(serialized) == 1
+        assert serialized[0]["word"] == "website."
+
+    def test_different_files_keep_their_overlap(self):
+        words = self._played(file_b="LC4932.MXF")
+        serialized = sc._serialize_same_file_overlaps(words)
+        assert words[0]["reel_end"] == pytest.approx(24.60)
+        assert serialized == []
+
+    def test_serialized_overlap_passes_the_diff(self):
+        words = self._played()
+        sc._serialize_same_file_overlaps(words)
+        captioned = [_w("website.", 23.98, 24.27, card="a.mov"),
+                     _w("Also", 24.26, 24.67, card="b.mov")]
+        result = sc.check_word_coverage(
+            words, captioned,
+            [_card("a.mov", 23.48, 24.26), _card("b.mov", 24.26, 25.75)])
+        assert [f for f in result["findings"]
+                if f["severity"] == "error"] == []
+
+    def test_coincident_words_stay_loud_not_silent(self):
+        words = [
+            {"word": "x", "norm": "x", "reel_start": 1.0, "reel_end": 2.0,
+             "source_file": "/m/a.MXF"},
+            {"word": "y", "norm": "y", "reel_start": 1.0, "reel_end": 2.0,
+             "source_file": "/m/a.MXF"},
+        ]
+        serialized = sc._serialize_same_file_overlaps(words)
+        assert words[0]["reel_end"] == pytest.approx(2.0)
+        assert serialized and serialized[0].get("unresolved") is True
+
+
+# ── the new basis reports warn, never fail ─────────────────────────
+
+class TestNewBasisReports:
+    def test_slivers_and_serialized_warn(self):
+        word = _w("hi", 0.1, 0.3, card="c.mov")
+        cov = _coverage([word], [word], [_card("c.mov", 0.0, 1.0)])
+        cov["slivers"] = [{"word": "because", "overlap_seconds": 0.005,
+                           "timeline_start": 268.6}]
+        cov["serialized"] = [{"word": "website.", "reel_start": 24.03,
+                              "was_end": 24.6, "now_end": 24.26,
+                              "overlaps": "Also"}]
+        findings = check_subtitle_word_coverage("Reel 04 - x", cov)
+        assert {f.severity for f in findings} == {"warning"}
+        assert {f.detail["kind"] for f in findings} == {"slivers",
+                                                        "serialized"}

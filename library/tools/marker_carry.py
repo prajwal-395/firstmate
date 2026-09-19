@@ -67,14 +67,30 @@ class MarkerCarryUnreadable(RuntimeError):
 
 
 def _picture_rows(timeline) -> list:
-    """Every video row's items, in row order, as (index, name, items)."""
+    """Every PICTURE row's items, in row order, as (index, name, items).
+
+    Layer rows (captions, overlays, frames - `timeline_layout`'s own
+    singleton names) are not picture: their artefacts are rebuilt with
+    fresh content hashes on every build, so a marker anchored to one
+    can never resolve in the replacement. Measured 2026-09-19 on Reel
+    04: the pink verdict at frame 65 anchored to a motion-graphics
+    overlay the rebuild re-rendered, and promotion reported it NOT
+    CARRIED while the same Akshita source frame still plays at 65.
+    Speaker and camera rows keep their names from the plan, so they
+    are what an anchor can hold across a rebuild. Where filtering
+    leaves no rows at all, every row is a picture row - the old
+    behaviour, never a refusal to anchor.
+    """
+    from library.tools.timeline_layout import SINGLETON_NAMES
+
     rows = []
     count = timeline.GetTrackCount(_PICTURE_MEDIA) or 0
     for index in range(1, count + 1):
         name = timeline.GetTrackName(_PICTURE_MEDIA, index) or f"#{index}"
         items = timeline.GetItemListInTrack(_PICTURE_MEDIA, index) or []
         rows.append((index, name, items))
-    return rows
+    picture = [row for row in rows if row[1] not in SINGLETON_NAMES]
+    return picture or rows
 
 
 def _source_path(item) -> str:

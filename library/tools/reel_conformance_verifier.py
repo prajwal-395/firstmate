@@ -4353,6 +4353,30 @@ def check_subtitle_word_coverage(reel_name: str,
             severity="warning",
             detail={"kind": "stretched",
                     "words": word_coverage["stretched"][:10]}))
+    if word_coverage.get("slivers"):
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"slivers: "
+                     f"{len(word_coverage['slivers'])} word(s) touch a "
+                     f"placed span by less than a captionable span "
+                     f"(sub-half-frame placement dust at a cut) and are "
+                     f"not counted as played"),
+            severity="warning",
+            detail={"kind": "slivers",
+                    "words": word_coverage["slivers"][:10]}))
+    if word_coverage.get("serialized"):
+        findings.append(Finding(
+            finding_class=FindingClass.F25,
+            reel=reel_name,
+            message=(f"serialized: "
+                     f"{len(word_coverage['serialized'])} same-file "
+                     f"transcript overlap(s) read sequential (one file is "
+                     f"one mouth) - the caption must serialize them "
+                     f"whatever the transcript stamps"),
+            severity="warning",
+            detail={"kind": "serialized",
+                    "words": word_coverage["serialized"][:10]}))
     if word_coverage.get("degenerate_rows"):
         total = sum(r.get("degenerate_count", 0)
                     for r in word_coverage["degenerate_rows"])
@@ -4385,7 +4409,8 @@ def _derive_word_coverage(reel_snapshot,
                           transcript: Optional[dict],
                           source_spans: Optional[Sequence[dict]],
                           master_snapshot,
-                          props_dir: str) -> Optional[dict]:
+                          props_dir: str,
+                          project_folder: str = "") -> Optional[dict]:
     """Build F25's three word sequences off live state.
 
     Played words come from the transcript intersected with the reel's
@@ -4398,6 +4423,14 @@ def _derive_word_coverage(reel_snapshot,
     pass, never by a build): a re-cut master makes a re-cut reel look
     correct against old timings, so the check refuses the basis loudly
     instead of grading on it.
+
+    Played and spine words are compared in caption-read space, never
+    raw: the planner renders acronyms, numerals and recorded spellings
+    (`library/tools/caption_reading.py`), and a diff of raw transcript
+    against read captions fails correct output. The reading takes the
+    project's recorded spellings where a project folder is known;
+    without one it reads exactly as before, and a store that cannot be
+    read is absence, never a refusal.
 
     None when there is nothing to diff (no transcript, no audio on the
     reel): the caller says the check did not run rather than passing
@@ -4420,6 +4453,15 @@ def _derive_word_coverage(reel_snapshot,
     played = _coverage.played_words_from_transcript(
         transcript_segments, audio_spans,
         max_word_seconds=MAX_WORD_SECONDS)
+    corrections = None
+    if project_folder:
+        try:
+            from library.tools import transcript_corrections as _spell
+            corrections = _spell.spelling_corrections(project_folder)
+        except Exception:
+            corrections = None
+    read_played = _coverage.read_words_for_comparison(
+        played["words"], corrections)
     cards = [{
         "clip_path": item.source_file or item.name,
         "reel_start_frame": item.start_frame,
@@ -4430,6 +4472,8 @@ def _derive_word_coverage(reel_snapshot,
         cards, props_dir, reel_timeline.fps or _fps())
     spine = _coverage.spine_words_from_spans(
         transcript_segments, source_spans or [])
+    read_spine = _coverage.read_words_for_comparison(
+        spine["words"], corrections)
     holes = None
     if master_snapshot is not None:
         ranges = sorted(
@@ -4446,13 +4490,15 @@ def _derive_word_coverage(reel_snapshot,
         master_snapshot.fps if master_snapshot else 0.0,
         master_snapshot.duration if master_snapshot else 0.0,
         holes)
-    return {"played": played["words"],
+    return {"played": read_played,
             "captioned": captioned["words"],
             "cards": captioned["cards"],
-            "spine": spine["words"],
+            "spine": read_spine,
             "unreadable": captioned["unreadable"],
             "undetermined": played["undetermined"],
             "stretched": played["stretched"],
+            "slivers": played.get("slivers", []),
+            "serialized": played.get("serialized", []),
             "degenerate_rows": played["degenerate_rows"],
             "currency": currency}
 
@@ -6384,7 +6430,8 @@ def run_verification(
                 word_coverage = _derive_word_coverage(
                     snap, reel_tl, transcript,
                     moment.source_spans if moment else None,
-                    master_snapshot, caption_props_dir)
+                    master_snapshot, caption_props_dir,
+                    project_folder=project_folder)
             result = verify_reel(
                 plan, reel_tl,
                 transcript_segments=(transcript or {}).get("segments"),

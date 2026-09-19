@@ -41,12 +41,15 @@ What this does NOT read
 -----------------------
 Per-word confidence scores. The default MFA path carries none
 (`ALIGNMENT_SCORE_ABSENT_MFA`), so the diff works on the words
-themselves. Comparison is on NORMALISED forms (case and surrounding
+themselves. Comparison is on READ forms - the transcript words run
+through the caption reading (`read_words_for_comparison`: the numeral
+rule, the acronym set, the recorded spellings - the same procedure
+the planner renders with) and then normalised (case and surrounding
 punctuation folded - the same rule the renderer matches emphasis
-with, `SubtitleOverlay normaliseWord`) while every finding quotes the
-RAW forms, so the transcript-normalisation lane's corrections
-("jim and i" -> "Gemini") never read as false positives and a real
-divergence ("100" vs "hundred") still does.
+with, `SubtitleOverlay normaliseWord`) - while every finding quotes
+the RAW forms. A deliberate respelling ("three" reads "3", "jim and
+i" reads "Gemini") never reads as a false positive; an unread one
+("hello" captioned "goodbye") still fails.
 
 A stretched word (longer than `max_word_seconds`) is the aligner
 bridging silence, not speech - the same reading F5 applies
@@ -90,6 +93,17 @@ DEGENERATE_OVERLAP_SECONDS = 0.005
 # rounds again), so a word straddling the boundary by a frame or two is
 # placement arithmetic, not a lost word.
 EDGE_SPILL_SECONDS = 0.15
+
+# How much of a transcript word must lie inside a placed span to count
+# as played. A word ending exactly where a cut begins still overlaps
+# its span by float dust - measured 2026-09-19 on Reel 04: "because"
+# ends at the 268.94s head trim to the millisecond and mapped as a 5ms
+# played sliver at reel 0.00s, which the caption correctly drops and
+# the diff then fails. A sliver narrower than half a frame (21ms at
+# 23.976fps) is placement dust, never speech a card could carry: cards
+# are frame-quantised, and the Reel-12 "That" precedent (50ms of a word
+# surviving a cut counts as played) stays comfortably above this floor.
+MIN_SPAN_OVERLAP_SECONDS = 0.02
 
 
 def degenerate_indices(words: Sequence[dict]) -> set:
@@ -171,10 +185,16 @@ def played_words_from_transcript(
 
     Returns `{words, stretched, undetermined}`: `words` are
     `{word, norm, reel_start, reel_end, source_file, source_time}`;
-    `stretched` are words longer than `max_word_seconds` (aligner
-    bridging silence - excluded and reported); `undetermined` are rows
-    that could not be mapped at all (unbound, untimed - reported,
-    never counted).
+    Returns `{words, stretched, undetermined, slivers, serialized}`:
+    `words` are `{word, norm, reel_start, reel_end, source_file,
+    source_time}`; `stretched` are words longer than `max_word_seconds`
+    (aligner bridging silence - excluded and reported); `undetermined`
+    are rows that could not be mapped at all (unbound, untimed -
+    reported, never counted); `slivers` are words touching a placed
+    span by less than MIN_SPAN_OVERLAP_SECONDS (placement dust -
+    reported, never counted); `serialized` are same-file overlaps the
+    transcript stamped onto one instant, clipped sequential and
+    reported (one file is one mouth).
     """
     by_file: Dict[str, list] = {}
     for span in placed_spans or []:
@@ -183,6 +203,7 @@ def played_words_from_transcript(
     words: list = []
     stretched: list = []
     undetermined: list = []
+    slivers: list = []
     degenerate_rows: list = []
     for segment in segments or []:
         seg_file = segment.get("source_file")
@@ -239,13 +260,29 @@ def played_words_from_transcript(
             # before a placed span still plays (measured: Reel 12 opens
             # on "That", whose first 0.05s the reel cuts). The played
             # part is clipped to the span; a word inside a removed
-            # take overlaps no span and stays out.
+            # take overlaps no span and stays out. The overlap must
+            # clear MIN_SPAN_OVERLAP_SECONDS: a word ending exactly at
+            # a cut still touches its span by float dust, and that
+            # sliver is not speech (measured: Reel 04's "because" at
+            # the 268.94s head trim).
             hit = None
+            sliver = False
             for span in spans:
-                if src < span["source_end"] and src_end > span["source_start"]:
+                overlap = (min(src_end, span["source_end"])
+                           - max(src, span["source_start"]))
+                if overlap <= 0:
+                    continue
+                if overlap > MIN_SPAN_OVERLAP_SECONDS:
                     hit = span
                     break
+                sliver = True
             if hit is None:
+                if sliver:
+                    slivers.append({
+                        "word": raw,
+                        "overlap_seconds": round(overlap, 4),
+                        "timeline_start": segment.get("timeline_start"),
+                    })
                 continue
             mapped += 1
             reel_start = hit["reel_start"] + max(
@@ -272,9 +309,121 @@ def played_words_from_transcript(
                 "degenerate_count": len(degenerate),
             })
     words.sort(key=lambda w: (w["reel_start"], w["reel_end"]))
+    serialized = _serialize_same_file_overlaps(words)
     return {"words": words, "stretched": stretched,
             "undetermined": undetermined,
+            "slivers": slivers,
+            "serialized": serialized,
             "degenerate_rows": degenerate_rows}
+
+
+def _serialize_same_file_overlaps(words: Sequence[dict]) -> list:
+    """Clip same-file overlaps to sequential, and say so.
+
+    One source file is one mouth: two of its words stamped onto one
+    instant is alignment slop, not talk-over (measured 2026-09-19 on
+    Reel 04: the transcript runs Craig's "website." to 817.89s while
+    starting his "Also" at 817.59s of the same LCATL0013 - the caption
+    must serialize them onto one track whatever the transcript says,
+    and grading the serialization against the overlap fails correct
+    output). The earlier word ends where the later begins - the later
+    word's start anchors its card, so it never moves. Different files
+    are different mics and keep their overlaps: real talk-over still
+    diffs as before.
+
+    A clip that would invert the word (end at or before its start) is
+    left alone: destroying a word is not serializing it. Every clip is
+    reported - the played measure changed, so the report says where.
+    """
+    serialized: list = []
+    by_file: Dict[str, list] = {}
+    for word in words:
+        # No source, no mouth: words that cannot be bound to one file
+        # never serialize against each other.
+        key = _base(word.get("source_file"))
+        if not key:
+            continue
+        by_file.setdefault(key, []).append(word)
+    for group in by_file.values():
+        ordered = sorted(group,
+                         key=lambda w: (w["reel_start"], w["reel_end"]))
+        for earlier, later in zip(ordered, ordered[1:]):
+            overlap = earlier["reel_end"] - later["reel_start"]
+            if overlap <= DEGENERATE_OVERLAP_SECONDS:
+                continue
+            clipped = min(earlier["reel_end"], later["reel_start"])
+            if clipped <= earlier["reel_start"] + DEGENERATE_OVERLAP_SECONDS:
+                serialized.append({
+                    "word": earlier["word"],
+                    "reel_start": round(earlier["reel_start"], 3),
+                    "reel_end": round(earlier["reel_end"], 3),
+                    "overlaps": later["word"],
+                    "unresolved": True,
+                })
+                continue
+            serialized.append({
+                "word": earlier["word"],
+                "reel_start": round(earlier["reel_start"], 3),
+                "was_end": round(earlier["reel_end"], 3),
+                "now_end": round(clipped, 3),
+                "overlaps": later["word"],
+            })
+            earlier["reel_end"] = clipped
+    return serialized
+
+
+def read_words_for_comparison(words: Sequence[dict],
+                              corrections=None) -> list:
+    """Played words through the caption reading the planner applied.
+
+    The planner renders acronyms, numerals and recorded spellings
+    (`library/tools/caption_reading.py`: "three" reads "3", "google"
+    reads "Google"), so a verifier comparing RAW transcript words
+    against READ captions fails correct output (measured 2026-09-19
+    on Reel 04: '3' where the reel plays 'three'). Both sides of the
+    diff must be in read space: this runs the SAME procedure the
+    planner runs - `apply_caption_reading` with the project's recorded
+    spellings - over the played words, keeping every entry's reel
+    timings (a merged numeral spans its first word's start to its
+    last word's end, exactly as the planner's does) and recomputing
+    `norm` off the read form. Entries reading to pure punctuation are
+    dropped, the way the played derivation drops them going in.
+    """
+    from library.tools import caption_reading as _reading
+
+    played = list(words or [])
+    if not played:
+        return []
+    projected = []
+    for index, entry in enumerate(played):
+        projected.append({
+            "word": entry.get("word", ""),
+            "start": entry.get("reel_start"),
+            "end": entry.get("reel_end"),
+            "_order": index,
+        })
+    read = _reading.apply_caption_reading(projected, corrections)
+    orders = [entry.get("_order") for entry in read]
+    out: list = []
+    for position, entry in enumerate(read):
+        first = entry.get("_order")
+        if not isinstance(first, int):
+            continue
+        last = (orders[position + 1]
+                if position + 1 < len(orders) else len(played))
+        norm = normalize_word(str(entry.get("word", "")))
+        if not norm:
+            continue
+        kept = dict(played[first])
+        kept["word"] = entry.get("word")
+        kept["norm"] = norm
+        kept["reel_start"] = entry.get("start")
+        kept["reel_end"] = entry.get("end")
+        kept["degenerate"] = any(
+            bool(source.get("degenerate"))
+            for source in played[first:last])
+        out.append(kept)
+    return out
 
 
 def _props_path(props_dir: str, clip_path: str) -> str:
@@ -928,9 +1077,15 @@ def diagnose_reel(snapshot: dict,
                                     source_spans)
              if source_spans is not None else None)
 
+    # Read space, like the gate: raw transcript against read captions
+    # fails correct output (numerals, acronyms). No project here, so no
+    # recorded spellings - the diagnose names that where it matters.
+    read_played = read_words_for_comparison(played["words"])
+    read_spine = (read_words_for_comparison(spine["words"])
+                  if spine is not None else None)
     result = check_word_coverage(
-        played["words"], captioned["words"], captioned["cards"],
-        spine=(spine["words"] if spine is not None else None))
+        read_played, captioned["words"], captioned["cards"],
+        spine=(read_spine if spine is not None else None))
 
     findings = list(result["findings"])
     for entry in captioned["unreadable"]:
@@ -971,6 +1126,23 @@ def diagnose_reel(snapshot: dict,
                         f"carry pile-up timings and place nowhere - "
                         f"identity skipped where they fall"),
             "detail": {"rows": played["degenerate_rows"][:10]},
+        })
+    if played.get("slivers"):
+        findings.append({
+            "kind": "slivers",
+            "severity": "warning",
+            "message": (f"{len(played['slivers'])} word(s) touch a placed "
+                        f"span by less than a captionable span and are "
+                        f"not counted as played"),
+            "detail": {"words": played["slivers"][:10]},
+        })
+    if played.get("serialized"):
+        findings.append({
+            "kind": "serialized",
+            "severity": "warning",
+            "message": (f"{len(played['serialized'])} same-file transcript "
+                        f"overlap(s) read sequential"),
+            "detail": {"words": played["serialized"][:10]},
         })
 
     result["findings"] = findings

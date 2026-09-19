@@ -183,3 +183,50 @@ def test_a_timeline_with_no_markers_reports_nothing(capsys):
     marker_carry.report("R", [], [])
     captured = capsys.readouterr()
     assert captured.out == "" and captured.err == ""
+
+
+def _reel04():
+    """Reel 04's shape at the 2026-09-19 rebuild: Akshita body on V1
+    from frame 65, a motion-graphics overlay across V5/V6 with
+    per-build content hashes, and the pink verdict at 65 - the first
+    body frame, under the overlay."""
+    return _Timeline(
+        [("Akshita", [_Item(65, 395, "/f/LC4932.MXF", left=6505)]),
+         ("Craig", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
+         ("Frame", [_Item(0, 600, "/f/tv_frame.mov")]),
+         ("Subtitles", [_Item(0, 32, "/f/sub.mov")]),
+         ("Semantic", [_Item(0, 108, "/f/mg_old.mov")]),
+         ("Motion Graphics", [_Item(0, 152, "/f/mg_old2.mov")])],
+        markers={65: {"color": "Pink", "name": "verdict (firstmate)",
+                      "note": "FIXABLE", "duration": 444,
+                      "customData": "cd"}})
+
+
+def test_the_anchor_is_picture_never_overlay():
+    notes = marker_carry.read_markers(_reel04(), "Reel 04")
+    assert notes[0]["anchor"] == ("/f/LC4932.MXF", 6505)
+
+
+def test_a_verdict_anchored_to_picture_survives_rerendered_overlays():
+    notes = marker_carry.read_markers(_reel04(), "Reel 04")
+    # The rebuild extended the body and re-rendered every overlay
+    # under fresh content hashes; the footage did not move.
+    replacement = _Timeline(
+        [("Akshita", [_Item(65, 511, "/f/LC4932.MXF", left=6505)]),
+         ("Craig", [_Item(0, 65, "/f/LCATL0013.MXF", left=6348)]),
+         ("Frame", [_Item(0, 716, "/f/tv_frame.mov")]),
+         ("Subtitles", [_Item(0, 32, "/f/sub.mov")]),
+         ("Semantic", [_Item(0, 108, "/f/mg_new.mov")]),
+         ("Motion Graphics", [_Item(0, 152, "/f/mg_new2.mov")])])
+    carried, uncarried = marker_carry.plan_carry(notes, replacement)
+    assert not uncarried and len(carried) == 1
+    assert carried[0]["to_frame"] == 65
+
+
+def test_layer_only_timelines_keep_the_old_anchor():
+    retiring = _Timeline(
+        [("Motion Graphics", [_Item(0, 100, "/f/mg.mov")])],
+        markers={10: {"color": "Blue", "name": "feedback", "note": "n",
+                      "duration": 1}})
+    notes = marker_carry.read_markers(retiring, "Reel X")
+    assert notes[0]["anchor"] == ("/f/mg.mov", 10)
