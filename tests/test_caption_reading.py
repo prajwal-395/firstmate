@@ -250,3 +250,45 @@ class TestRecordedSpellings:
             apply_caption_reading_text("chatgpt, it gave three")
             == "chatgpt, it gave 3"
         )
+
+    def test_mixed_case_brand_restores_through_the_store(self):
+        # 2026-09-19: the captain's Reel 16 proper-noun instruction
+        # applied to the brand he did not enumerate. "chatgpt" is
+        # mixed-case, never an acronym-table entry: the recorded
+        # spelling restores it after the house lowercasing, composing
+        # with the numeral rule on the same card.
+        corrections = _corrections(("chatgpt", "ChatGPT"),
+                                   ("chat gpt", "ChatGPT"))
+        assert (
+            apply_caption_reading_text("chatgpt, it gave three",
+                                       corrections=corrections)
+            == "ChatGPT, it gave 3"
+        )
+        assert (
+            apply_caption_reading_text("they get on chatgpt",
+                                       corrections=corrections)
+            == "they get on ChatGPT"
+        )
+
+    def test_split_brand_hearing_merges_to_one_token(self):
+        corrections = _corrections(("chatgpt", "ChatGPT"),
+                                   ("chat gpt", "ChatGPT"))
+        out = apply_caption_reading(
+            _words("they're", "going", "to", "chat", "gpt"),
+            corrections=corrections)
+        assert [(entry["word"], entry["start"], entry["end"])
+                for entry in out] == [
+            ("they're", 0.0, 0.4),
+            ("going", 1.0, 1.4),
+            ("to", 2.0, 2.4),
+            ("ChatGPT", 3.0, 4.4),
+        ]
+
+    def test_mixed_case_brand_reading_is_idempotent(self):
+        corrections = _corrections(("chatgpt", "ChatGPT"),
+                                   ("chat gpt", "ChatGPT"))
+        once = apply_caption_reading_text("they get on chatgpt",
+                                          corrections=corrections)
+        assert once == "they get on ChatGPT"
+        assert (apply_caption_reading_text(once, corrections=corrections)
+                == once)

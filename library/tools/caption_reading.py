@@ -19,9 +19,10 @@ What converts, and what deliberately does not
 Acronyms: a whole-word, case-insensitive match against
 `CAPTION_ACRONYMS` is restored to its canonical case - "seo" reads
 "SEO", "ai" reads "AI", and the possessive keeps its clitic ("ai's"
-reads "AI's"). "chatgpt" is the same SHAPE and is NOT a member: the
-captain did not name it, so it stays lowercase and is flagged for him
-in the open-questions record, not decided here.
+reads "AI's"). "chatgpt" is NOT a member and never joins by naming:
+it is mixed-case, not an acronym, so the captain's Reel 16
+proper-noun instruction restores it through a recorded spelling
+("chatgpt" reads "ChatGPT") rather than through this table.
 
 Numerals: a spelled-out number used as a QUANTITY, RATING, VERSION,
 MEASURE or YEAR reads as digits - "twenty percent" reads "20 percent",
@@ -57,8 +58,10 @@ from __future__ import annotations
 import re
 
 #: The acronyms the captain named, in canonical case. Complete: a word
-#: that reads uppercase on a caption is a member of this tuple. Adding
-#: "AI" took appending one entry; "chatgpt" stays out until he names it.
+#: that reads ALL-UPPERCASE on a caption is a member of this tuple.
+#: Adding "AI" took appending one entry. A mixed-case brand ("ChatGPT")
+#: is never a member: it is restored through a recorded spelling, which
+#: is the Reel 16 proper-noun instruction's route rather than this table.
 #: 2026-09-19: "CEO", "CMO" and "CRM" join them - the captain's Reel 01,
 #: Reel 07 and Reel 03 notes, each "needs to be properly reflected in
 #: the subtitles". Same sanctioned path: a scope answer is an edit to
