@@ -119,6 +119,9 @@ def preview_take_pick(project_folder: str, number: int,
 
     snap_report = preview_snap([moment], transcript, threshold)
     takes = duplicate_takes(body_start, body_end, transcript)
+    from library.tools import retake_scan as _retake_scan
+    retakes = _retake_scan.scan_span(
+        body_start, body_end, transcript)["reported"]
 
     return {
         "reel": int(moment.number),
@@ -132,6 +135,9 @@ def preview_take_pick(project_folder: str, number: int,
         "recorded_insistences": len(insistences),
         "exclusions": [
             {"id": ident, "start": s, "end": e,
+             "author": next(
+                 (x.get("author", "captain") for x in exclusions
+                  if str(x.get("id", "")) == str(ident)), "captain"),
              "reason": next(
                  (x.get("reason", "") for x in exclusions
                   if str(x.get("id", "")) == str(ident)), "")}
@@ -154,6 +160,7 @@ def preview_take_pick(project_folder: str, number: int,
         "cascade_error": cascade_error,
         "snap": snap_report,
         "takes": takes,
+        "retakes": retakes,
         "segments": _segments_in_body(transcript, body_start, body_end),
     }
 
@@ -201,7 +208,8 @@ def render_take_pick_preview(report: Dict[str, Any]) -> str:
     for item in report.get("exclusions") or []:
         lines.append(
             f"  exclusion {item.get('id', '')} "
-            f"{float(item['start']):.3f}-{float(item['end']):.3f}: "
+            f"{float(item['start']):.3f}-{float(item['end']):.3f} "
+            f"[{item.get('author', 'captain')}] "
             f"{_first_line(item.get('reason', ''))}")
     for item in report.get("insistences") or []:
         lines.append(
@@ -250,6 +258,21 @@ def render_take_pick_preview(report: Dict[str, Any]) -> str:
             f"{float(finding['second_end']):.2f} "
             f"\"{(finding.get('second_text') or '')[:80]}\" "
             f"({finding.get('similarity', '')})")
+
+    retakes = report.get("retakes") or []
+    lines.append(f"abandoned tellings the cut lane misses: {len(retakes)}")
+    for finding in retakes:
+        lines.append(
+            f"  [{finding.get('kind', '')}/"
+            f"{finding.get('shape', '')}] "
+            f"drop {float(finding['dropped_start']):.2f}-"
+            f"{float(finding['dropped_end']):.2f} "
+            f"\"{(finding.get('dropped_text') or '')[:80]}\" keep "
+            f"{float(finding['kept_start']):.2f}-"
+            f"{float(finding['kept_end']):.2f} "
+            f"\"{(finding.get('kept_text') or '')[:80]}\"")
+        lines.append(f"    basis: {_first_line(finding.get('basis', ''), 200)}")
+        lines.append(f"    verdict: {_first_line(finding.get('recommended_action', ''), 200)}")
 
     segments: Sequence[dict] = report.get("segments") or []
     lines.append(f"words in this body ({len(segments)} segment(s)):")

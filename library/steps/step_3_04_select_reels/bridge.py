@@ -108,13 +108,40 @@ def repetition_inside(start: float, end: float, transcript: dict) -> list[dict]:
     cross-turn paraphrase the cut lane refuses outright is not in any
     run at all, so candidates carry those separately (see below).
     """
-    from library.tools.reel_build import redundant_runs, take_cut_context
+    from library.tools.reel_build import (
+        judge_take_cuts, redundant_runs, take_cut_context)
 
     out: list[dict] = []
     for run in redundant_runs(float(start), float(end), transcript):
         cuts = []
+        _, withdrawn = judge_take_cuts(list(run.cuts), float(start),
+                                       float(end), transcript)
+        refused = {(round(w["cut"].dropped_start, 4),
+                    round(w["cut"].kept_start, 4)): w
+                   for w in withdrawn}
         for cut in run.cuts:
             context = take_cut_context(cut, transcript)
+            key = (round(float(cut.dropped_start), 4),
+                   round(float(cut.kept_start), 4))
+            if key in refused:
+                # The build will NOT remove this telling, and the
+                # reason says why - a mid-word edge, bleed-free second
+                # voice, an excision from a live sentence. The boundary
+                # is the only thing that changes that, and this step
+                # is the only place it can be moved: redraw the span
+                # past the dropped telling, or keep both on purpose.
+                context["judge"] = {
+                    "build_removes": False,
+                    "reason": refused[key]["reason"],
+                    "why": refused[key]["why"],
+                    "recommended_action": (
+                        f"redraw the span past "
+                        f"{float(cut.dropped_start):.2f}-"
+                        f"{float(cut.dropped_end):.2f}s, or keep both "
+                        f"tellings on purpose"),
+                }
+            else:
+                context["judge"] = {"build_removes": True}
             cuts.append(context)
         out.append({
             "start": round(run.start, 2),
@@ -134,6 +161,69 @@ def repetition_inside(start: float, end: float, transcript: dict) -> list[dict]:
                 f"These seconds WILL play twice unless the span is drawn "
                 f"clear of one of the takes."),
         })
+    return out
+
+
+def retake_candidates_inside(start: float, end: float,
+                               transcript: dict) -> list:
+    """Abandoned tellings the cut lane misses, for the model to verdict.
+
+    `repetition_inside` reports what the pair scan paired - found or
+    withdrawn with its reason. This reports what it never paired:
+    false starts and paraphrases (`retake_scan`), each with both
+    tellings' measured properties (`take_cut_context`: durations,
+    completeness, disfluency, what the second telling adds) and a
+    concrete recommended strike. A candidate overlapping a run cut's
+    dropped span is the run's business and is left out - one
+    repetition, one report, never two verdicts on it. Empty (the
+    common case) is offered as nothing: a call with nothing to ask is
+    not made, and a candidate with no retake carries no new key.
+
+    The verdict travels as `takes_dropped` on the chosen moment, and
+    the post-bridge records it as a keep exclusion - so a take the
+    model strikes stays out of every regeneration, not just this one.
+    """
+    from library.tools import retake_scan
+    from library.tools.reel_build import (
+        Cut, redundant_runs, take_cut_context)
+
+    run_drops = [(float(cut.dropped_start), float(cut.dropped_end))
+                 for run in redundant_runs(float(start), float(end),
+                                           transcript)
+                 for cut in run.cuts]
+    out = []
+    for candidate in retake_scan.scan_span(
+            float(start), float(end), transcript)["reported"]:
+        dropped = (float(candidate["dropped_start"]),
+                   float(candidate["dropped_end"]))
+        if any(not (drop_end <= dropped[0] or drop_start >= dropped[1])
+               for drop_start, drop_end in run_drops):
+            continue
+        similarity = float(candidate.get("similarity", 0.0) or 0.0)
+        cut = Cut(
+            dropped_start=dropped[0], dropped_end=dropped[1],
+            dropped_text=candidate.get("dropped_text", ""),
+            kept_start=float(candidate["kept_start"]),
+            kept_end=float(candidate["kept_end"]),
+            kept_text=candidate.get("kept_text", ""),
+            speaker=candidate.get("speaker"),
+            containment=similarity, jaccard=similarity,
+            basis=candidate.get("basis", ""))
+        context = take_cut_context(cut, transcript)
+        context["kind"] = candidate.get("kind", "")
+        context["shape"] = candidate.get("shape", "")
+        context["basis"] = candidate.get("basis", "")
+        context["recommended_action"] = candidate.get(
+            "recommended_action", "")
+        context["judge"] = {
+            "build_removes": False,
+            "reason": "below_the_cut_lane",
+            "why": ("the pair scan never paired these tellings, so no "
+                    "cut removes them - only a verdict does"),
+            "recommended_action": candidate.get("recommended_action",
+                                                ""),
+        }
+        out.append(context)
     return out
 
 
@@ -182,11 +272,15 @@ def build_context(data: dict) -> dict:
     candidates.sort(key=lambda c: c["start"])
     for candidate in candidates:
         inside = repetition_inside(candidate["start"], candidate["end"],
-                                    transcript)
+                                     transcript)
         if inside:
             candidate["repetition_inside"] = inside
+        retakes = retake_candidates_inside(candidate["start"],
+                                           candidate["end"], transcript)
+        if retakes:
+            candidate["retake_candidates"] = retakes
         retold = retellings_inside(candidate["start"], candidate["end"],
-                                   transcript)
+                                    transcript)
         if retold:
             candidate["possible_retellings"] = retold
 

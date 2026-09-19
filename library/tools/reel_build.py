@@ -1166,6 +1166,14 @@ class Cut:
     speaker: Optional[str]
     containment: float
     jaccard: float
+    basis: str = ""
+    """Why THIS telling was dropped, in one human sentence.
+
+    Recorded, not silent: a cut whose reason nobody can read is a
+    content change nobody can judge. The pair scan states its bars,
+    a same-segment word-stream verbatim states its similarity, and
+    the build prints it beside every applied cut.
+    """
 
     def as_dict(self) -> dict:
         return {
@@ -1178,6 +1186,7 @@ class Cut:
             "speaker": self.speaker,
             "containment": round(self.containment, 3),
             "jaccard": round(self.jaccard, 3),
+            "basis": self.basis,
             "kept": "the later take - a retake exists because the first "
                     "was flubbed",
         }
@@ -1314,7 +1323,13 @@ def _scan(start: float, end: float, transcript: dict,
                 kept_end=float(second["timeline_end"]),
                 kept_text=(second.get("text") or "").strip(),
                 speaker=first.get("speaker"),
-                containment=containment, jaccard=jaccard))
+                containment=containment, jaccard=jaccard,
+                basis=(
+                    f"segment pair over both cut bars "
+                    f"(containment {containment:.3f}, "
+                    f"Jaccard {jaccard:.3f}), one speaker, durations "
+                    f"within {DURATION_RATIO}x, the later telling kept"),
+            ))
             held = None
             break
         if held is not None:
@@ -1582,7 +1597,12 @@ def redundant_takes(start: float, end: float, transcript: dict) -> List[Cut]:
                 kept_text=dt.get("second_text", "").strip(),
                 speaker=seg1[0].get("speaker"),
                 containment=dt.get("similarity", 0.0),
-                jaccard=dt.get("similarity", 0.0)
+                jaccard=dt.get("similarity", 0.0),
+                basis=(
+                    f"word-stream verbatim inside one segment at "
+                    f"similarity {float(dt.get('similarity', 0.0)):.2f}; "
+                    f"the earlier window was the aborted flub and the "
+                    f"later one the completed thought"),
             ))
 
     refused = [run for run in redundant_runs(start, end, transcript)
@@ -1687,14 +1707,20 @@ def _bound_edge_times(transcript: dict) -> List[float]:
 
 
 def _bound_word_speakers(transcript: dict) -> List[tuple]:
-    """`(start, end, speaker)` for every timed word in a BOUND segment.
+    """`(start, end, speaker, normalised)` for every timed word in a
+    BOUND segment.
 
     Bound only: a straddling segment carries no single source, so its
     speaker claim cannot testify whose telling a word belongs to. Words
     falling in straddling time are ignored by the judge rather than
     judged by a claim nobody anchors.
+
+    The normalised text is `reel_spine`'s own normalisation - one
+    spelling of the rule, shared rather than restated, so a word the
+    bleed sweep reads as a duplicate reads as one here too.
     """
     from library.tools.reel_proposal import bound_segments
+    from library.tools.reel_spine import _normalise
 
     out = []
     for segment in bound_segments(transcript or {}):
@@ -1708,7 +1734,8 @@ def _bound_word_speakers(transcript: dict) -> List[tuple]:
             except (KeyError, TypeError, ValueError):
                 continue
             if word_end > word_start:
-                out.append((word_start, word_end, speaker))
+                out.append((word_start, word_end, speaker,
+                            _normalise(str(word.get("word", "")))))
     return out
 
 
@@ -1733,6 +1760,40 @@ def _timed_word_edges(transcript: dict) -> List[tuple]:
     return out
 
 
+def _is_bleed_of(word_start: float, word_end: float, norm: str,
+                 telling_speaker: Optional[str],
+                 speakers: Sequence[tuple],
+                 dropped_start: float, dropped_end: float) -> bool:
+    """Is this foreign word the other mic hearing the telling?
+
+    Two people cannot utter the same word at the same instant
+    (`reel_spine._foreign_at`): a word of another speaker that matches
+    one of the telling speaker's own words, normalised, at an
+    overlapping instant inside the dropped span, is bleed - one mic
+    hearing the other - and not a second voice in the telling.
+    Measured on Reel 08: Craig's track carries Akshita's "Yeah, so
+    ranking tells Google," word for word at her own seconds, and the
+    old voice count read that as two voices and withdrew her retake.
+
+    A token that normalises to nothing matches every other one, so it
+    explains nothing. A foreign word with no same-word overlap in the
+    telling speaker's own words is a genuine second voice and still
+    refuses the cut.
+    """
+    if not norm or not telling_speaker:
+        return False
+    for own_start, own_end, own_speaker, own_norm in speakers:
+        if own_speaker != telling_speaker or not own_norm:
+            continue
+        if own_norm != norm:
+            continue
+        if own_start >= dropped_end or own_end <= dropped_start:
+            continue
+        if min(word_end, own_end) - max(word_start, own_start) > 0.0:
+            return True
+    return False
+
+
 def judge_take_cuts(cuts: Sequence["Cut"], start: float, end: float,
                     transcript: dict) -> tuple:
     """The judge above the take-cut candidates: `(kept, withdrawn)`.
@@ -1750,7 +1811,9 @@ def judge_take_cuts(cuts: Sequence["Cut"], start: float, end: float,
       ends. A retake's first telling must END before the second BEGINS;
       overlap is simultaneous speech or bleed, not first-then-retake.
     - `cross_speaker`: the dropped span's own timed words are spoken by
-      more than one speaker. One telling has one voice.
+      more than one speaker. One telling has one voice - and one mic
+      hearing the other's words at the same instant is not a second
+      voice (`_is_bleed_of`, measured on Reel 08).
     - `mid_utterance`: both dropped edges sit strictly inside ONE bound
       segment, with flowing speech on both sides. That is an excision
       from the middle of a live sentence (lc-0004's "got to get into",
@@ -1801,9 +1864,19 @@ def judge_take_cuts(cuts: Sequence["Cut"], start: float, end: float,
                       f"overlaps it - a retake's first telling ends "
                       f"before the second begins")
             continue
-        voices = {speaker for word_start, word_end, speaker in speakers
-                  if speaker and word_start < dropped_end
-                  and word_end > dropped_start}
+        voices = set()
+        for word_start, word_end, speaker, _norm in speakers:
+            if not speaker:
+                continue
+            if not (word_start < dropped_end
+                    and word_end > dropped_start):
+                continue
+            if (speaker != (cut.speaker or "")
+                    and _is_bleed_of(word_start, word_end, _norm,
+                                     cut.speaker, speakers,
+                                     dropped_start, dropped_end)):
+                continue
+            voices.add(speaker)
         if len(voices) > 1:
             _refuse(cut, JUDGE_CROSS_SPEAKER,
                       f"drops {dropped_start:.2f}-{dropped_end:.2f}s whose "
@@ -1915,7 +1988,8 @@ def _span_position(span_start: float, span_end: float,
     return "middle"
 
 
-def take_cut_context(cut: "Cut", transcript: dict) -> dict:
+def take_cut_context(cut: "Cut", transcript: dict,
+                     thesis: Optional[str] = None) -> dict:
     """What the model needs to judge one candidate cut, beside its spans.
 
     The surrounding sentences (not just the two spans), whether the
@@ -1923,10 +1997,22 @@ def take_cut_context(cut: "Cut", transcript: dict) -> dict:
     anything (`novel_words`, ordered kept content words the dropped
     telling never said). `seam_gap_seconds` is the silence between the
     dropped telling's end and the next timed word - zero means the cut
-    edge has nowhere to land but on sound. REPORTS, never decides.
+    edge has nowhere to land but on sound. Each telling also carries
+    its MEASURED properties: how long it runs, how many content words
+    it says, whether it ends complete, and the disfluency the
+    transcriber heard inside it (fillers, aborted words). The captain's
+    own criterion for keeping one telling over another is "more
+    concisely and clearly" - that is taste, and these are the
+    measurements taste reads. REPORTS, never decides.
+
+    `thesis` is the reel's point as the selector stated it, carried
+    beside the evidence so the choice is judged against what the reel
+    is FOR. Pre-selection no thesis exists yet and it stays absent -
+    a call with nothing to ask is not made.
     """
     from library.tools.reel_proposal import (
         _content_words, _content_words_ordered, bound_segments)
+    from library.tools import retake_scan as _scan
 
     dropped_sentence = sentence_around(float(cut.dropped_start), transcript)
     kept_sentence = sentence_around(float(cut.kept_start), transcript)
@@ -1946,7 +2032,13 @@ def take_cut_context(cut: "Cut", transcript: dict) -> dict:
     later = [word_start
              for word_start, _ in _timed_word_edges(transcript)
              if word_start >= float(cut.dropped_end) - 1e-9]
-    return {
+    dropped_props = _scan.telling_properties(float(cut.dropped_start),
+                                             float(cut.dropped_end),
+                                             transcript)
+    kept_props = _scan.telling_properties(float(cut.kept_start),
+                                          float(cut.kept_end),
+                                          transcript)
+    context = {
         "dropped_start": round(float(cut.dropped_start), 2),
         "dropped_end": round(float(cut.dropped_end), 2),
         "dropped_text": (cut.dropped_text or "").strip(),
@@ -1954,6 +2046,10 @@ def take_cut_context(cut: "Cut", transcript: dict) -> dict:
         "dropped_position": _span_position(float(cut.dropped_start),
                                            float(cut.dropped_end),
                                            dropped_sentence),
+        "dropped_duration_seconds": dropped_props["duration_seconds"],
+        "dropped_content_words": dropped_props["content_words"],
+        "dropped_ends_complete": dropped_props["ends_complete"],
+        "dropped_disfluencies": dropped_props["disfluencies"],
         "kept_start": round(float(cut.kept_start), 2),
         "kept_end": round(float(cut.kept_end), 2),
         "kept_text": (cut.kept_text or "").strip(),
@@ -1961,6 +2057,10 @@ def take_cut_context(cut: "Cut", transcript: dict) -> dict:
         "kept_position": _span_position(float(cut.kept_start),
                                         float(cut.kept_end),
                                         kept_sentence),
+        "kept_duration_seconds": kept_props["duration_seconds"],
+        "kept_content_words": kept_props["content_words"],
+        "kept_ends_complete": kept_props["ends_complete"],
+        "kept_disfluencies": kept_props["disfluencies"],
         "speaker": cut.speaker,
         "containment": round(float(cut.containment), 3),
         "jaccard": round(float(cut.jaccard), 3),
@@ -1972,6 +2072,9 @@ def take_cut_context(cut: "Cut", transcript: dict) -> dict:
         "seam_gap_seconds": (round(min(later) - float(cut.dropped_end), 3)
                              if later else None),
     }
+    if (thesis or "").strip():
+        context["thesis"] = thesis.strip()
+    return context
 
 
 #: A retelling suspect needs this many content words a side. Below it
@@ -9056,10 +9159,17 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # different reels.
             moment_cuts, moment_insisted = moment_cuts_and_insistences(
                 moment, transcript, keep_exclusions, keep_insistences)
-            for _cut, _ident in withdraw_insisted_cuts(
-                    redundant_takes(moment.timeline_start,
-                                    moment.timeline_end, transcript),
-                    moment_insisted)[1]:
+            # ONE spelling of the candidate cuts: `redundant_takes` is
+            # pure over its arguments, so computing it once and sharing
+            # it across the insistence withdrawal, the judge and the
+            # applied-cut report below cannot drift - three computations
+            # of the same list was three chances to report one thing
+            # and build another.
+            _moment_take_cuts = redundant_takes(
+                moment.timeline_start, moment.timeline_end, transcript)
+            _insisted_kept, _insisted_withdrawn = withdraw_insisted_cuts(
+                _moment_take_cuts, moment_insisted)
+            for _cut, _ident in _insisted_withdrawn:
                 print(f"  keep insistence {_ident} WITHDRAWS the take cut "
                       f"at {_cut.dropped_start:.2f}-{_cut.dropped_end:.2f}s "
                       f"({_cut.speaker}): those words stay in - "
@@ -9070,18 +9180,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             # see is a content change nobody can see. Judged past the
             # insistences, the same order `reel_ranges` applies, so a
             # recorded insistence is never hidden behind one of these.
-            _insisted_kept, _ = withdraw_insisted_cuts(
-                redundant_takes(moment.timeline_start,
-                                moment.timeline_end, transcript),
-                moment_insisted)
-            for _refused in judge_take_cuts(
-                    _insisted_kept, moment.timeline_start,
-                    moment.timeline_end, transcript)[1]:
+            _judged_kept, _judged_withdrawn = judge_take_cuts(
+                _insisted_kept, moment.timeline_start,
+                moment.timeline_end, transcript)
+            for _refused in _judged_withdrawn:
                 _cut = _refused["cut"]
                 print(f"  take judge WITHDRAWS the take cut at "
                       f"{_cut.dropped_start:.2f}-{_cut.dropped_end:.2f}s "
                       f"({_cut.speaker}): {_refused['why']} "
                       f"[{_refused['reason']}]", flush=True)
+            # And what the cutter REMOVES, with the reason each cut
+            # carries: a removed telling whose basis nobody can read is
+            # a content change nobody can judge.
+            for _cut in _judged_kept:
+                print(f"  take cut drops {_cut.dropped_start:.2f}-"
+                      f"{_cut.dropped_end:.2f}s ({_cut.speaker}), keeps "
+                      f"{_cut.kept_start:.2f}-{_cut.kept_end:.2f}s: "
+                      f"{_cut.basis or 'the later take - a retake exists '
+                      'because the first was flubbed'}", flush=True)
             # A repetition this build is LEAVING IN, and why, said where the
             # operator is already looking. Silence here is what let reel 03
             # be rebuilt worse at the open than the timeline it replaced.

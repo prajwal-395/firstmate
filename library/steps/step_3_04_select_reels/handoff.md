@@ -251,9 +251,9 @@ The build removes a repeated run WHOLE or not at all. It pairs each
 repeated line with its later reading, and where one line of a run cannot
 be paired safely the whole run is kept - because removing part of a take
 strands the rest where its own opening used to be. So a run with
-`build_removes_it: false` is speech the reel WILL play twice, whatever
-you write in `takes_dropped`. `why` says which lines paired and which
-did not.
+`build_removes_it: false` is speech the reel WILL play twice unless
+you strike it in `takes_dropped` or draw the span clear of one take.
+`why` says which lines paired and which did not.
 
 The boundary is the only thing that changes that, and this step is the
 only place it can be moved. Drawing a span clear of one take is an
@@ -265,10 +265,27 @@ Each run's `cuts` carry what you need to judge them: each telling's own
 sentence and where it sits in it (`dropped_position` - a `tail` cut
 orphans the head it was cut from, an `onset` is a fresh start),
 whether the repeat crosses a turn, and `novel_words` (what the second
-telling adds). A `possible_retellings` entry is a repeat the build will
-NOT remove - the same speaker twice across another speaker's turn,
+telling adds). Each telling also carries its measured properties -
+how long it runs, how many content words it says, whether it ends
+complete, and the disfluency inside it - because keeping the telling
+that reads more concisely and clearly is your call and those are what
+it reads. Each cut's `judge` says whether the build removes it: where
+it does not, `reason` says why and `recommended_action` names the
+redraw that would. A `possible_retellings` entry is a repeat the build
+will NOT remove - the same speaker twice across another speaker's turn,
 reworded past the cut bars - with both sentences and the turn between
 them. Redraw past one telling, or keep both on purpose.
+
+A `retake_candidates` entry is an abandoned telling the cut lane never
+paired at all: a false start (a flubbed run-up and its restart, inside
+one segment or across two) or a paraphrase (the same point twice in
+new words). Each carries both tellings with the same measured
+properties as a run cut, its `basis`, and a `recommended_action` with
+exact seconds. Nothing removes these but a verdict - yours, in
+`takes_dropped`, or the captain's later. A single-word stutter inside
+an otherwise complete sentence is below the detector's floor and is
+said to be where it happens: point at the span in your reason rather
+than striking words you cannot bound.
 
 ### What to emit
 
@@ -283,7 +300,7 @@ For each stretch you choose:
 | `hook` | The opening line, and why it earns the next five seconds |
 | `close` | How it ends, and whether that ending is a CTA |
 | `cta` | Optional. `{start, end, note}` — the spoken closer this reel ends on, taken from anywhere in the episode and played after the body. Omit it when the stretch already closes on one of its own. `note` is one line on why you chose that closer |
-| `takes_dropped` | Any repeated take you are choosing not to play, with its timecode |
+| `takes_dropped` | Any repeated take you are choosing not to play: `{start, end, reason}` per take, with the seconds and one line on why the other telling plays instead. A verdict here STICKS - it is recorded as a keep exclusion and stays out of every regeneration, so name exact seconds and mean them. A strike with no reason, outside the timeline, or covering the whole moment is refused and reported rather than recorded |
 
 Also emit `considered`: stretches you looked at and did NOT choose, with
 one line each on why. A selection nobody can see the alternatives to

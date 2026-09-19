@@ -41,21 +41,29 @@ correction that stopped matching, and that is reported, not hidden.
 Keep-range corrections
 ----------------------
 The same store, a second shape. A keep exclusion names timeline
-seconds the captain struck ("so what do they ... feels like a
-mistake") and is enforced TWICE, at the two layers that each own
-their half. At SELECTION time, deterministically in step 3.04's
-post-bridge: an exclusion at a moment's edge TRIMS it, an exclusion
-in its middle DROPS the moment with the reason - splitting one reel
-into two would be a new editorial decision, not an enforcement, and
-this module never invents taste (AGENTS.md 10.5). At BUILD time, as
-cuts inside the approved moment's own keep ranges
-(`exclusion_cuts_for_span`, applied by `reel_build.reel_ranges`):
-selection never rewrites an approved range under its approval, and
-the build never re-decides one - it only stops playing seconds the
-captain struck, which is obedience rather than re-decision. A strike
-the build cannot honour (the whole body gone) skips the reel with
-the reason rather than building an empty timeline, and the no-split
-rule holds at both layers: one reel in, one reel out, fewer seconds.
+seconds that stay out of every reel - struck by the CAPTAIN ("so what
+do they ... feels like a mistake"), or VERDICTED by the model at
+selection time (`takes_dropped` on a chosen moment, recorded by step
+3.04's post-bridge with the model's reason). Both are enforced TWICE,
+at the two layers that each own their half. At SELECTION time,
+deterministically in step 3.04's post-bridge: an exclusion at a
+moment's edge TRIMS it, an exclusion in its middle DROPS the moment
+with the reason - splitting one reel into two would be a new editorial
+decision, not an enforcement, and this module never invents taste
+(AGENTS.md 10.5). At BUILD time, as cuts inside the approved moment's
+own keep ranges (`exclusion_cuts_for_span`, applied by
+`reel_build.reel_ranges`): selection never rewrites an approved range
+under its approval, and the build never re-decides one - it only stops
+playing seconds struck or verdicted, which is obedience rather than
+re-decision. A strike the build cannot honour (the whole body gone)
+skips the reel with the reason rather than building an empty timeline,
+and the no-split rule holds at both layers: one reel in, one reel out,
+fewer seconds.
+
+Who decided is ON the record, not in the reader's head: `source`
+carries `author` - `captain` for a strike, `model` for a selection
+verdict with the reel slug and the reason in `detail`. A verdict that
+turns out wrong retires like any learning, with the reason.
 
 And its INVERSE, a third shape
 ------------------------------
@@ -213,8 +221,14 @@ def record_spelling(project_folder: str, heard: str, correct: str,
 
 
 def record_keep_exclusion(project_folder: str, start: float, end: float,
-                          reason: str) -> dict:
-    """Timeline seconds the captain struck stay out of every reel."""
+                           reason: str, author: str = "captain") -> dict:
+    """Timeline seconds that stay out of every reel.
+
+    `author` is who decided: the captain striking seconds, or the
+    model verdiciting a take at selection time. Recorded on the
+    record either way, because a reader who cannot tell a captain's
+    strike from a model's verdict cannot judge either.
+    """
     start, end = float(start), float(end)
     if not end > start:
         raise learned_context.LearnedContextError(
@@ -223,15 +237,21 @@ def record_keep_exclusion(project_folder: str, start: float, end: float,
         raise learned_context.LearnedContextError(
             "a keep exclusion with no reason is refused, for the same "
             "cause a reasonless spelling correction is.")
+    if author not in ("captain", "model"):
+        raise learned_context.LearnedContextError(
+            f"a keep exclusion authored by {author!r} names nobody "
+            f"accountable: 'captain' or 'model'.")
+    who = ("the captain struck" if author == "captain"
+           else "the selection model verdicted")
     return learned_context.record(
         project_folder, kind=learned_context.CORRECTION,
         statement=(
             f'Keep exclusion: timeline {start:.2f}..{end:.2f}s is struck - '
             f'no reel keeps it. Trim a moment past it, or drop the moment '
-            f'when the struck seconds sit in its middle.'),
+            f'when the struck seconds sit in its middle. ({who}.)'),
         read_by=list(KEEP_READERS),
         source={"correction_type": KEEP_EXCLUSION, "start": start,
-                "end": end},
+                "end": end, "author": author},
         detail=reason.strip())
 
 
@@ -412,6 +432,8 @@ def keep_exclusions(project_folder: str) -> list:
             continue
         exclusions.append({"id": learning.get("id", ""), "start": start,
                            "end": end,
+                           "author": str(source.get("author")
+                                        or "captain"),
                            "reason": str(learning.get("detail") or "")})
     return exclusions
 

@@ -172,13 +172,16 @@ def test_a_word_stream_cut_covering_whole_segments_survives():
 
 
 def test_a_cross_speaker_word_stream_cut_is_withdrawn():
-    """Mic bleed / simultaneous speech: the dropped span's own words are
-    spoken by more than one speaker, so it is not one telling."""
+    """Genuine simultaneous speech: the dropped span's own words are
+    spoken by two voices saying DIFFERENT things, so it is not one
+    telling. Same words at the same instant are bleed, not a second
+    voice - see the Reel 08 tests below - so this fixture's second
+    speaker says something else at the same seconds."""
     transcript = {"segments": [
         _seg("Craig", "yeah so ai is actually better", 1200.588,
              [1200.70, 1200.90, 1201.10, 1201.30, 1201.50, 1201.70],
              uid="c"),
-        _seg("Akshita", "yeah so ai is actually better", 1200.633,
+        _seg("Akshita", "quite another point being made now", 1200.633,
              [1200.75, 1200.95, 1201.15, 1201.35, 1201.45, 1201.55],
              uid="a"),
     ]}
@@ -301,3 +304,59 @@ def test_the_build_no_longer_duplicates_seconds():
     for (a, b), (c, d) in zip(ranges, ranges[1:]):
         assert b <= c, f"overlapping ranges play seconds twice: {ranges}"
     assert ranges == sorted(ranges)
+
+
+# ── Reel 08: mic bleed is one mic, not two voices ──
+
+def _reel08_transcript(craig_text="Yeah, so ranking tells Google."):
+    """Reel 08's marked telling, real texts and real word timings.
+
+    Akshita says "Yeah, so ranking tells Google," twice running; the
+    second telling adds "that you exist." Craig's track carries her
+    first telling's words at her own seconds - his mic hearing her,
+    not a second voice. `craig_text` swaps his words for the control.
+    """
+    return {"segments": [
+        _seg("Akshita", "Mm-hmm.", 613.64, [614.57], uid="a0"),
+        _seg("Akshita", "Yeah, so ranking tells Google,", 614.72,
+             [614.91, 615.09, 615.44, 615.85, 616.48], uid="a1"),
+        _seg("Craig", craig_text, 614.77,
+             [614.97, 615.15, 615.48, 615.88, 616.48], uid="c1"),
+        _seg("Akshita", "ranking tells Google that you exist.", 616.51,
+             [616.79, 617.03, 617.35, 617.48, 617.62, 618.12], uid="a2"),
+    ]}
+
+
+def test_bleed_of_the_same_words_is_not_a_second_voice():
+    """Reel 08's shape, stated input: the pair scan's cut drops
+    Akshita's first telling (containment 0.750, Jaccard 0.600) and the
+    judge used to withdraw it as cross_speaker on Craig's bleed. One
+    telling heard on two mics is one telling, so the cut survives."""
+    transcript = _reel08_transcript()
+    cut = reel_build.Cut(
+        dropped_start=614.72, dropped_end=616.48,
+        dropped_text="Yeah, so ranking tells Google,",
+        kept_start=616.51, kept_end=618.12,
+        kept_text="ranking tells Google that you exist.",
+        speaker="Akshita", containment=0.750, jaccard=0.600)
+    kept, withdrawn = reel_build.judge_take_cuts(
+        [cut], 588.258, 622.375, transcript)
+    assert withdrawn == []
+    assert kept == [cut]
+
+
+def test_a_genuine_second_voice_still_refuses_the_cut():
+    """The control: Craig saying DIFFERENT words at the same seconds
+    is an interruption, not bleed, and the cut is still withdrawn."""
+    transcript = _reel08_transcript(
+        craig_text="Right, that lands well today.")
+    cut = reel_build.Cut(
+        dropped_start=614.72, dropped_end=616.48,
+        dropped_text="Yeah, so ranking tells Google,",
+        kept_start=616.51, kept_end=618.12,
+        kept_text="ranking tells Google that you exist.",
+        speaker="Akshita", containment=0.750, jaccard=0.600)
+    kept, withdrawn = reel_build.judge_take_cuts(
+        [cut], 588.258, 622.375, transcript)
+    assert kept == []
+    assert [w["reason"] for w in withdrawn] == ["cross_speaker"]

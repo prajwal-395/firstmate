@@ -107,6 +107,7 @@ def resolve(llm_output: dict, data: dict) -> dict:
 
     moments: List[ReelMoment] = []
     dropped: List[dict] = []
+    survivors: list = []
     for index, entry in enumerate(chosen, 1):
         try:
             start = float(entry["start"])
@@ -175,6 +176,7 @@ def resolve(llm_output: dict, data: dict) -> dict:
                 moments[i] = replace(existing, reason=existing.reason + warning2)
 
         moments.append(enriched)
+        survivors.append((entry, start, end, enriched.slug))
 
     from dataclasses import replace
     moments = [replace(m, number=idx) for idx, m in enumerate(moments, 1)]
@@ -236,6 +238,22 @@ def resolve(llm_output: dict, data: dict) -> dict:
         validate_proposal(moments, transcript, duration or furthest,
                           pinned_cta_reels=pinned)
 
+    # The model's take verdicts (`takes_dropped` on the surviving
+    # moments) are RECORDED as keep exclusions, with the model's reason
+    # and the reel that verdicted them - so a struck take stays out of
+    # every regeneration, not just this one. Recorded past validation:
+    # a verdict for a moment that failed validation would strike
+    # seconds for a reel that does not exist. Refusals print loudly
+    # and never break the batch.
+    horizon = float(duration or 0.0)
+    if moments and not horizon:
+        horizon = max(
+            max(m.timeline_end,
+                m.call_to_action.timeline_end if m.call_to_action else 0.0)
+            for m in moments)
+    take_recorded, take_refused = record_take_verdicts(
+        survivors, transcript, project_folder, horizon)
+
     considered = (
         llm_output.get("considered")
         or (llm_output.get("reel_selection") or {}).get("considered")
@@ -287,6 +305,181 @@ def _respelt_selection(selection: dict, project_folder: str) -> dict:
     apply_post_pass(selection, project_folder or "",
                     "select_reels post-bridge (reel_selection)")
     return selection
+
+
+def _parse_take_verdict(item) -> tuple:
+    """One `takes_dropped` entry as `(start, end, reason)`.
+
+    The handoff asks for `{start, end, reason}` dicts, and the field's
+    own history shows the model also writes them as `"300.0-312.04 -
+    reason"` strings. Both parse; anything else is refused with the
+    reason rather than guessed at. Returns `(start, end, reason)` with
+    floats, or `(None, None, refusal)`.
+    """
+    import re
+
+    if isinstance(item, dict):
+        try:
+            start = float(item["start"])
+            end = float(item["end"])
+        except (KeyError, TypeError, ValueError):
+            return None, None, f"names a take with no usable start/end: {str(item)[:120]!r}"
+        reason = str(item.get("reason") or item.get("why")
+                     or item.get("note") or "").strip()
+        return start, end, reason
+    if isinstance(item, str):
+        match = re.match(
+            r"\s*(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*"
+            r"(?:[:–-]\s*(.*))?$", item.strip())
+        if not match:
+            return None, None, f"does not parse as 'start-end - reason': {item[:120]!r}"
+        return float(match.group(1)), float(match.group(2)), (match.group(3) or "").strip()
+    return None, None, f"is neither a span dict nor a 'start-end - reason' line: {str(item)[:120]!r}"
+
+
+def _speech_in(start: float, end: float, transcript: dict) -> bool:
+    """Do bound segments carry speech inside this span?"""
+    from library.tools.reel_proposal import _speech_within, bound_segments
+    return bool(_speech_within(bound_segments(transcript or {}), start, end))
+
+
+def _edge_through_word(edge: float, transcript: dict) -> bool:
+    """Does this second land strictly inside a timed word?"""
+    from library.tools.reel_build import _timed_word_edges
+    return any(word_start < edge < word_end
+               for word_start, word_end in _timed_word_edges(transcript))
+
+
+def record_take_verdicts(surviving: list, transcript: dict,
+                         project_folder: str,
+                         timeline_duration: float) -> tuple:
+    """Record the model's take verdicts as keep exclusions.
+
+    `surviving` is `[(entry, start, end, slug), ...]` for moments that
+    passed every check - a dropped moment's verdicts die with it, so
+    only survivors verdict. Each `takes_dropped` entry is validated
+    structurally, never editorially: parseable seconds, inside the
+    timeline, real speech inside, edges on timed-word boundaries, a
+    reason given, and never the whole moment (rejecting the moment is
+    `considered`'s job, not a take drop's). An exact-span duplicate of
+    a recorded exclusion is reported, not re-recorded. Failures refuse
+    LOUDLY on stderr and never break the batch: a verdict the store
+    cannot take is a verdict the next run cannot see, and that must
+    read as refused rather than as absent.
+
+    Returns `(recorded, refused)` - recorded `{"id", "start", "end",
+    "slug"}` and refused `{"verdict", "slug", "reason"}` - for the
+    run to say what it did.
+    """
+    import sys
+
+    from library.tools import transcript_corrections as _tc
+
+    recorded, refused = [], []
+    if not project_folder:
+        for entry, start, end, slug in surviving:
+            for item in entry.get("takes_dropped") or []:
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": "no project_folder on this run: "
+                                          "the verdict was held, not recorded"})
+                print(f"  WARNING: reel {slug}'s take verdict {str(item)[:80]!r} "
+                      f"held (no project store) - not recorded.",
+                      file=sys.stderr)
+        return recorded, refused
+
+    try:
+        existing = _tc.keep_exclusions(project_folder)
+    except Exception as exc:  # noqa: BLE001 - verdicts never break selection
+        existing = []
+        print(f"  WARNING: keep exclusions unreadable ({exc}); take "
+              f"verdicts will be checked against an empty store.",
+              file=sys.stderr)
+
+    for entry, start, end, slug in surviving:
+        raw = entry.get("takes_dropped") or []
+        items = raw if isinstance(raw, list) else [raw]
+        for item in items:
+            v_start, v_end, reason = _parse_take_verdict(item)
+            if v_start is None:
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": reason})
+                print(f"  take verdict REFUSED on reel {slug}: {reason}",
+                      file=sys.stderr)
+                continue
+            if not v_end > v_start:
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"drops {v_start:.2f}-{v_end:.2f}s, "
+                                          f"which is backwards or empty"})
+                print(f"  take verdict REFUSED on reel {slug}: not a range.",
+                      file=sys.stderr)
+                continue
+            if v_start < 0 or v_end > timeline_duration + 0.001:
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"drops {v_start:.2f}-{v_end:.2f}s, "
+                                          f"outside the 0-{timeline_duration:.2f}s timeline"})
+                print(f"  take verdict REFUSED on reel {slug}: outside the timeline.",
+                      file=sys.stderr)
+                continue
+            if not _speech_in(v_start, v_end, transcript):
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"drops {v_start:.2f}-{v_end:.2f}s "
+                                          f"where the transcript measured no speech"})
+                print(f"  take verdict REFUSED on reel {slug}: no speech measured inside.",
+                      file=sys.stderr)
+                continue
+            bad_edge = next((edge for edge in (v_start, v_end)
+                             if _edge_through_word(edge, transcript)), None)
+            if bad_edge is not None:
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"drops to {bad_edge:.2f}s inside "
+                                          f"a timed word - re-record on word edges"})
+                print(f"  take verdict REFUSED on reel {slug}: edge through a word.",
+                      file=sys.stderr)
+                continue
+            if not (reason or "").strip():
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"drops {v_start:.2f}-{v_end:.2f}s "
+                                          f"with no reason: say which telling "
+                                          f"plays instead and why"})
+                print(f"  take verdict REFUSED on reel {slug}: no reason given.",
+                      file=sys.stderr)
+                continue
+            if v_start <= start and v_end >= end:
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"drops {v_start:.2f}-{v_end:.2f}s, "
+                                          f"the whole moment - reject the "
+                                          f"moment in `considered` instead"})
+                print(f"  take verdict REFUSED on reel {slug}: covers the whole moment.",
+                      file=sys.stderr)
+                continue
+            if any(round(e["start"], 2) == round(v_start, 2)
+                   and round(e["end"], 2) == round(v_end, 2)
+                   for e in existing):
+                print(f"  take verdict on reel {slug} already recorded at "
+                      f"{v_start:.2f}-{v_end:.2f}s - not duplicated.",
+                      file=sys.stderr)
+                continue
+            try:
+                learning = _tc.record_keep_exclusion(
+                    project_folder, v_start, v_end,
+                    f"model take verdict (select_reels, reel '{slug}'): "
+                    f"{reason.strip()} [drops {v_start:.2f}-{v_end:.2f}s "
+                    f"of the chosen {start:.2f}-{end:.2f}s]",
+                    author="model")
+            except Exception as exc:  # noqa: BLE001 - verdicts never break selection
+                refused.append({"verdict": item, "slug": slug,
+                                "reason": f"the store refused it: {exc}"})
+                print(f"  take verdict REFUSED on reel {slug}: {exc}",
+                      file=sys.stderr)
+                continue
+            recorded.append({"id": learning.get("id", ""),
+                             "start": v_start, "end": v_end, "slug": slug})
+            existing.append({"start": v_start, "end": v_end})
+            print(f"  take verdict RECORDED on reel {slug}: "
+                  f"{learning.get('id', '')} strikes {v_start:.2f}-"
+                  f"{v_end:.2f}s - {reason.strip()[:100]}",
+                  file=sys.stderr)
+    return recorded, refused
 
 
 def main():
