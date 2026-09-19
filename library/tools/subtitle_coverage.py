@@ -184,10 +184,11 @@ def played_words_from_transcript(
     land in reel time through the span that contains their source time.
 
     Returns `{words, stretched, undetermined}`: `words` are
-    `{word, norm, reel_start, reel_end, source_file, source_time}`;
+    `{word, norm, reel_start, reel_end, source_file, source_time,
+    speaker}`;
     Returns `{words, stretched, undetermined, slivers, serialized}`:
     `words` are `{word, norm, reel_start, reel_end, source_file,
-    source_time}`; `stretched` are words longer than `max_word_seconds`
+    source_time, speaker}`; `stretched` are words longer than `max_word_seconds`
     (aligner bridging silence - excluded and reported); `undetermined`
     are rows that could not be mapped at all (unbound, untimed -
     reported, never counted); `slivers` are words touching a placed
@@ -297,6 +298,12 @@ def played_words_from_transcript(
                 "source_file": seg_file,
                 "source_time": src,
                 "degenerate": index in degenerate,
+                # The row's speaker travels so the verifier can apply
+                # the same display suppressions the caption planner
+                # applies per block (F25): an anchored suppression
+                # names its speaker, and a diff without it fails
+                # captions that correctly hide a recorded token.
+                "speaker": segment.get("speaker"),
             })
         # A pile-up row that plays nothing on this reel is not this
         # reel's problem: only rows contributing words here are named.
@@ -595,6 +602,7 @@ def check_word_coverage(
     cards: Sequence[dict],
     spine: Optional[Sequence[dict]] = None,
     edge_spill_seconds: float = EDGE_SPILL_SECONDS,
+    suppressed: Optional[Sequence[dict]] = None,
 ) -> dict:
     """Diff played, captioned and (optionally) spine at word level.
 
@@ -622,6 +630,19 @@ def check_word_coverage(
     within `edge_spill_seconds` of a card boundary counts as the
     neighbour card's spill rather than a missing or extra word.
 
+    `suppressed` are played-word entries (the same objects as in
+    `played`) an active recorded display suppression hides from
+    captions (`transcript_corrections.suppressions`, the store the
+    caption planner enforces per block in step 4.01). The planner
+    drops them from what is drawn while the audio still plays them,
+    so the identity diff skips them the way the planner did - while
+    the coverage legs above still count them, because a suppressed
+    word is still speech with a card over it, and a card over only
+    suppressed words is still a card over speech. The skip is a
+    warning finding naming the words and the suppression ids, never
+    silent; without it the gate fails captions that obey a recorded
+    correction (AGENTS.md 10.4).
+
     Returns `{findings, meta}`. `meta` carries the counts plus whether
     each leg ran - a decision to leave the spine out appears here, not
     in silence.
@@ -629,6 +650,7 @@ def check_word_coverage(
     findings: list = []
     played = sorted(played or [],
                     key=lambda w: (w["reel_start"], w["reel_end"]))
+    suppressed_ids = {id(word) for word in suppressed or []}
     captioned = sorted(captioned or [],
                        key=lambda w: (w["reel_start"], w["reel_end"]))
     cards = sorted(cards or [],
@@ -754,9 +776,15 @@ def check_word_coverage(
         if overlaps_degenerate(card):
             skipped_cards.append(card["card"])
             continue
+        # Suppressed words sit out the identity diff only: the
+        # planner hid them from this card by recorded correction, so
+        # "missing" here is the plan, not a loss. Coverage above ran
+        # on the unfiltered list, so nothing about their audibility
+        # was waved through with them.
         in_card = [w for w in played
-                   if _covers(card["reel_start"], card["reel_end"],
-                              _midpoint(w))]
+                   if id(w) not in suppressed_ids
+                   and _covers(card["reel_start"], card["reel_end"],
+                               _midpoint(w))]
         card_words = sorted(
             [w for w in captioned if w.get("card") == card["card"]],
             key=lambda w: (w["reel_start"], w["reel_end"]))
@@ -886,11 +914,41 @@ def check_word_coverage(
                     },
                 })
 
+    # ── Suppressed words, said not waved ──
+    #
+    # Entries the identity diff skipped above. Each names the recorded
+    # suppression that hid it, so a suppression that stopped matching
+    # (or one recorded against the wrong anchor) reads as a warning
+    # carrying its id rather than as silence.
+    suppressed_words = [w for w in played if id(w) in suppressed_ids]
+    if suppressed_words:
+        raws = [w["word"] for w in suppressed_words]
+        ids = sorted({str(w.get("suppression") or "?")
+                      for w in suppressed_words})
+        findings.append({
+            "kind": "suppressed",
+            "severity": "warning",
+            "message": (
+                f"{len(suppressed_words)} played word(s) hidden from "
+                f"captions by recorded display suppression(s) "
+                f"({', '.join(ids)}) - the audio plays them by design: "
+                f"{' '.join(raws)[:160]}"),
+            "detail": {
+                "words": [
+                    {"word": w["word"],
+                     "reel_start": round(w["reel_start"], 3),
+                     "reel_end": round(w["reel_end"], 3),
+                     "suppression": str(w.get("suppression") or "")}
+                    for w in suppressed_words],
+            },
+        })
+
     # ── The spine leg: what the proposal says belongs there ──
     meta = {
         "played_words": len(played),
         "captioned_words": len(captioned),
         "cards": len(cards),
+        "suppressed_words": len(suppressed_words),
         # An empty spine is no spine: with no proposal spans every
         # played word would read as "added by the build".
         "spine_compared": bool(spine),

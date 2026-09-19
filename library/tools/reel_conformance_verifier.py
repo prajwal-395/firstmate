@@ -4312,7 +4312,8 @@ def check_subtitle_word_coverage(reel_name: str,
         word_coverage.get("captioned", []),
         word_coverage.get("cards", []),
         spine=word_coverage.get("spine"),
-        edge_spill_seconds=_coverage.EDGE_SPILL_SECONDS)
+        edge_spill_seconds=_coverage.EDGE_SPILL_SECONDS,
+        suppressed=word_coverage.get("suppressed"))
     for entry in result["findings"]:
         severity = entry["severity"]
         if severity not in ("error", "warning"):
@@ -4404,6 +4405,61 @@ def check_subtitle_word_coverage(reel_name: str,
     return findings
 
 
+def _suppressed_played_words(read_played, project_folder: str = "") -> list:
+    """Played words an active display suppression hides from captions.
+
+    The planner's half of this contract is step 4.01
+    `_apply_transcript_corrections`: recorded suppressions drop
+    pronounced-but-unread tokens from the caption words while the
+    audio still plays them. A verifier diffing played against drawn
+    without the same step fails captions that obey the store
+    (measured 2026-09-19 on Reel 09: Akshita's false-start "re",
+    hidden by lc-0061, read as a dropped word).
+
+    The match runs the planner's own predicate
+    (`transcript_corrections.suppression_matches`) over maximal
+    same-speaker runs of the read-space played words - the planner
+    applies `filter_words` per spine block, and a block carries one
+    speaker, so neighbours are read off the run the way the planner
+    reads them off its block. Each skipped entry is stamped with its
+    suppression id for the report (entries are verifier-local copies,
+    so the stamp travels nowhere else). No project folder, no active
+    suppressions, or an unreadable store marks nothing - the diff
+    then reads exactly as before, never refused on a missing store.
+    """
+    ordered = list(read_played or [])
+    if not ordered or not project_folder:
+        return []
+    try:
+        from library.tools import transcript_corrections as _tc
+        active = _tc.suppressions(project_folder)
+    except Exception:  # noqa: BLE001 - absence, never a refusal
+        return []
+    if not active:
+        return []
+    runs: list = []
+    for entry in ordered:
+        speaker = (entry.get("speaker") or "").strip().lower()
+        if runs and runs[-1][0] == speaker:
+            runs[-1][1].append(entry)
+        else:
+            runs.append((speaker, [entry]))
+    out: list = []
+    for speaker, run in runs:
+        cores = [_tc.word_core(entry.get("word", "")) for entry in run]
+        for index, entry in enumerate(run):
+            prev_core = cores[index - 1] if index > 0 else ""
+            next_core = cores[index + 1] if index + 1 < len(cores) else ""
+            for suppression in active:
+                if _tc.suppression_matches(
+                        entry.get("word", ""), speaker or None,
+                        prev_core, next_core, suppression):
+                    entry["suppression"] = str(suppression.get("id", ""))
+                    out.append(entry)
+                    break
+    return out
+
+
 def _derive_word_coverage(reel_snapshot,
                           reel_timeline: "ReelTimeline",
                           transcript: Optional[dict],
@@ -4431,6 +4487,18 @@ def _derive_word_coverage(reel_snapshot,
     project's recorded spellings where a project folder is known;
     without one it reads exactly as before, and a store that cannot be
     read is absence, never a refusal.
+
+    Display suppressions travel the same road: the planner hides
+    recorded tokens from what is drawn (step 4.01
+    `_apply_transcript_corrections`), so played words under an active
+    suppression are marked for the identity diff to skip - the SAME
+    predicate the planner runs (`transcript_corrections.filter_words`
+    per same-speaker run, mirroring its per-block application), with
+    the matched suppression id stamped on each skipped entry for the
+    report. Coverage still counts them: a suppressed word is played
+    speech with a card over it. Without a project folder, or with an
+    unreadable store, nothing is marked and the diff reads exactly as
+    before.
 
     None when there is nothing to diff (no transcript, no audio on the
     reel): the caller says the check did not run rather than passing
@@ -4462,6 +4530,7 @@ def _derive_word_coverage(reel_snapshot,
             corrections = None
     read_played = _coverage.read_words_for_comparison(
         played["words"], corrections)
+    suppressed = _suppressed_played_words(read_played, project_folder)
     cards = [{
         "clip_path": item.source_file or item.name,
         "reel_start_frame": item.start_frame,
@@ -4494,6 +4563,7 @@ def _derive_word_coverage(reel_snapshot,
             "captioned": captioned["words"],
             "cards": captioned["cards"],
             "spine": read_spine,
+            "suppressed": suppressed,
             "unreadable": captioned["unreadable"],
             "undetermined": played["undetermined"],
             "stretched": played["stretched"],
