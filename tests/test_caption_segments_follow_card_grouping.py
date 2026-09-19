@@ -264,25 +264,37 @@ def _card_bounded_frames(entries, fps):
     return out
 
 
-def test_trimmed_join_keeps_every_word_bounded_to_its_card():
-    """The join that already exists on Reel 26: no word dropped or
-    duplicated across it (same text sequence, each exactly once),
-    onsets never move, and no word displays past its segment. Reverts
-    red if the renderer drops a word (sequence differs), shifts an
-    onset (start differs), duplicates (sequence longer), or stops
-    bounding words to the card (end past the edge). The overhanging
-    'it.' tail is cut at the card edge - the craft's own trim, which
-    the earlier card yielded; the card text still shows the word, only
-    its highlight cannot outlive the card."""
+def test_trimmed_join_refuses_the_overhanging_word_loudly(capsys):
+    """The join that already exists on Reel 26: the earlier card yields
+    at 31.74 but its last word ('it.', spoken 31.78-31.90) starts past
+    that edge, so the card bound leaves it no width. It is SKIPPED with
+    a loud record - an honest absence - rather than clamped into an
+    inverted window (startFrame 35 endFrame 34) whose sweep could never
+    move. Everything else is kept: no word dropped or duplicated across
+    the join (each exactly once), onsets never move, and no kept word
+    displays past its segment. Reverts red if the renderer draws the
+    overhang dead again (sequence gains 'it.' with end <= start),
+    shifts an onset (start differs), duplicates (sequence longer), or
+    stops bounding kept words to the card (end past the edge)."""
     plan = _trimmed_join_plan()
     entries = plan["subtitle_entries"]
     fps = 24000 / 1001
     props = generate_subtitle_props_per_block(
         plan, fps=fps, width=1080, height=1920)
     assert len(props) == 2
-    assert _rendered_frames(props) == _card_bounded_frames(entries, fps)
-    assert [w for w, _, _ in _rendered_frames(props)] == [
-        w["word"] for e in entries for w in e["words"]]
+    rendered = _rendered_frames(props)
+    expected = [row for row in _card_bounded_frames(entries, fps)
+                if row[0] != "it."]
+    assert rendered == expected
+    assert [w for w, _, _ in rendered] == [
+        w["word"] for e in entries for w in e["words"] if w["word"] != "it."]
+    for word, start, end in rendered:
+        assert end > start, (
+            f"{word!r} renders {start} -> {end}: a dead sweep")
+    err = capsys.readouterr().err
+    assert "it." in err, (
+        "the refused overhang is never named - the clamp is silent "
+        "about the window it turned into nothing")
     for p in props:
         content_end = round(
             (p["_timeline_end"] - (p["_timeline_start"] - min(

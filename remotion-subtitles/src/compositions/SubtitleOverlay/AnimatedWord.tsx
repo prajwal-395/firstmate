@@ -21,6 +21,20 @@ export const AnimatedWord: React.FC<AnimatedWordProps> = ({
   style,
 }) => {
   const frame = useCurrentFrame();
+
+  // A highlight window with no width can never sweep: the accent phase
+  // below (`frame >= startFrame && frame < endFrame`) is unsatisfiable,
+  // so the word would sit permanently unspoken while the sweep travels
+  // past it. That is the dead karaoke Reel 05 shipped at frame 241 -
+  // seven windows across three cards, from aligner pile-up stamps the
+  // props builder used to clamp silently. Skip the window rather than
+  // drawing a dead sweep; the props side omits these words with a loud
+  // record, and this guards stale props that still carry them. The
+  // absence is honest either way: no timing is invented here.
+  if (endFrame <= startFrame) {
+    return null;
+  }
+
   const hasSpoken = frame >= endFrame;
   const isSpokenNow = frame >= startFrame && frame < endFrame;
 
