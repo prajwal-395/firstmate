@@ -927,27 +927,35 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                 if w["end"] > block_start - 0.05
                 and w["start"] < block_end + 0.05
             ]
+            # Recorded transcript corrections FIRST: they carry the
+            # record's own casing ("Google Business Profile"), which the
+            # caption contract below does not declare - a correction
+            # applied after case and reading kept that casing onto the
+            # card and tripped the reading gate for the whole reel
+            # (Reel 09, lc-0046). Matching is case-insensitive, so the
+            # order changes nothing matched; what it changes is that
+            # every corrected word still passes through the transforms.
+            # The spine's words are a second ASR product (step 1.04 over
+            # source audio), so a "C RMs" fixed in the transcript still
+            # captions "c rms" without this. Spelling merges phrases
+            # across entries without inventing timings; suppression
+            # drops pronounced-but-unread tokens (audio and spine
+            # untouched - entries are partitioned, never retimed).
+            timeline_words = _apply_transcript_corrections(
+                timeline_words, block_speaker, project_folder)
             # Case, then reading, BEFORE grouping: the fit is measured
             # on what is drawn, so "SEO 2.0" groups at its own width
             # rather than at "seo two point oh"'s. See
-            # library/tools/caption_reading.py.
+            # library/tools/caption_reading.py. And because corrections
+            # ran first, this is also what conforms a correction's
+            # recorded casing to the caption contract the verification
+            # below asserts - the record stands in transcript prose,
+            # captions keep house style.
             timeline_words = [
                 {**w, "word": apply_caption_case(w["word"], caption_case)}
                 for w in timeline_words
             ]
             timeline_words = apply_caption_reading(timeline_words)
-            # Recorded transcript corrections, enforced on the timed
-            # words the transcript text pass cannot reach: the spine's
-            # words are a second ASR product (step 1.04 over source
-            # audio), so a "C RMs" fixed in the transcript still
-            # captions "c rms" without this. Spelling merges phrases
-            # across entries without inventing timings; suppression
-            # drops pronounced-but-unread tokens (audio and spine
-            # untouched - entries are partitioned, never retimed).
-            # Runs BEFORE grouping so the fit is measured on what is
-            # drawn, for the same reason case and reading run first.
-            timeline_words = _apply_transcript_corrections(
-                timeline_words, block_speaker, project_folder)
             groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
@@ -1040,6 +1048,12 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     if w["end"] > seg_tl_start - 0.05
                     and w["start"] < seg_tl_end + 0.05
                 ]
+                # Corrections before case and reading, like the hook
+                # branch above: a correction's recorded casing is
+                # conformed to the caption contract by the transforms,
+                # so it can never trip the reading gate below.
+                timeline_words = _apply_transcript_corrections(
+                    timeline_words, block_speaker, project_folder)
                 # Case, then reading, BEFORE grouping - the same reason
                 # as the hook branch above: the fit is measured on what
                 # is drawn (library/tools/caption_reading.py).
@@ -1048,8 +1062,6 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
                     for w in timeline_words
                 ]
                 timeline_words = apply_caption_reading(timeline_words)
-                timeline_words = _apply_transcript_corrections(
-                    timeline_words, block_speaker, project_folder)
                 groups = split_into_groups(
                 timeline_words, fits_fn=fits_fn,
                 display_until=block_end)
