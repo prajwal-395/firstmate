@@ -168,7 +168,10 @@ if "DaVinciResolveScript" not in sys.modules:
 # would make the suite queue behind - or ahead of - the captain's live
 # session for nothing.  So the whole session declares itself the sole
 # writer, which is TRUE for a mocked Resolve and is recorded as a
-# reason rather than assumed.
+# reason rather than assumed.  `resolve_lease` honours the declaration
+# by yielding without touching the real instance (no captain wait, no
+# flock, no lease file); `assert_current_timeline` honours it through
+# `held()`.
 #
 # The tests that reach a REAL Resolve are the other case, and they are
 # a writer nobody counted: four full-suite runs at once wedged at 0%
@@ -196,15 +199,26 @@ def resolve_session():
     its own duration rather than dropping it between tests and letting
     a build in halfway through a fixture's teardown.  Any test that
     connects to a live Resolve takes this.
+
+    A test ABOUT the guard has to stand outside the session's
+    sole-writer declaration (`unguarded` in test_resolve_lock.py does
+    the same): this fixture drives the LIVE instance, so the lease it
+    takes must be real - contention, captain wait and all - and it
+    SKIPS naming the holder rather than waiting.
     """
     from library.tools import resolve_lock
+    previous = resolve_lock._sole_writer_reason
+    resolve_lock._sole_writer_reason = None
     try:
-        with resolve_lock.resolve_lease(
-                "pytest: a test that drives the live Resolve",
-                exclusive=True, timeout=5.0) as lease:
-            yield lease
-    except resolve_lock.ResolveBusy as busy:
-        pytest.skip(str(busy))
+        try:
+            with resolve_lock.resolve_lease(
+                    "pytest: a test that drives the live Resolve",
+                    exclusive=True, timeout=5.0) as lease:
+                yield lease
+        except resolve_lock.ResolveBusy as busy:
+            pytest.skip(str(busy))
+    finally:
+        resolve_lock._sole_writer_reason = previous
 
 
 # ── Stubbing DaVinciResolveScript without evicting the import graph ──

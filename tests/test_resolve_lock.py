@@ -95,7 +95,7 @@ class FakeProject:
 
 # ── The per-write check: the two refusals ───────────────────────────
 
-def test_assert_current_timeline_fails_on_mismatch(lock_dir):
+def test_assert_current_timeline_fails_on_mismatch(lock_dir, unguarded):
     expected = FakeTimeline("Reel 03", uid="a")
     project = FakeProject(current=expected)
     # The mutator: the cursor is something else by the time it is read.
@@ -105,7 +105,7 @@ def test_assert_current_timeline_fails_on_mismatch(lock_dir):
             assert_current_timeline(project, expected)
 
 
-def test_assert_current_timeline_passes_on_match(lock_dir):
+def test_assert_current_timeline_passes_on_match(lock_dir, unguarded):
     expected = FakeTimeline("Reel 03", uid="a")
     project = FakeProject(current=expected)
     with resolve_lease("test", timeout=1.0):
@@ -136,21 +136,21 @@ def test_the_lease_satisfies_the_refusal(lock_dir, unguarded):
 
 # ── The lease ───────────────────────────────────────────────────────
 
-def test_the_lease_is_reentrant_within_a_process(lock_dir):
+def test_the_lease_is_reentrant_within_a_process(lock_dir, unguarded):
     with resolve_lease("outer", timeout=1.0):
         with resolve_lease("inner", timeout=1.0):
             assert resolve_lock.held()
         assert resolve_lock.held()
 
 
-def test_a_shared_holder_may_not_upgrade_in_place(lock_dir):
+def test_a_shared_holder_may_not_upgrade_in_place(lock_dir, unguarded):
     with resolve_lease("read", exclusive=False, timeout=1.0):
         with pytest.raises(ResolveBusy, match="cannot upgrade in place"):
             with resolve_lease("write", exclusive=True, timeout=1.0):
                 pass
 
 
-def test_the_lease_names_its_holder_on_disk(lock_dir):
+def test_the_lease_names_its_holder_on_disk(lock_dir, unguarded):
     with resolve_lease("build reels", owner="lane-12", timeout=1.0):
         recorded = json.loads(
             resolve_lock.lease_path().read_text(encoding="utf-8"))
@@ -284,7 +284,8 @@ def test_a_fence_nobody_disturbed_passes_and_reports_nothing(lock_dir):
 
 # ── The human, who never queues ─────────────────────────────────────
 
-def test_the_captains_button_does_not_queue_behind_a_build(lock_dir):
+def test_the_captains_button_does_not_queue_behind_a_build(lock_dir,
+                                                           unguarded):
     holder = _spawn(_HOLDER.format(repo=REPO_ROOT, seconds=3.0), lock_dir)
     assert holder.stdout.readline().strip() == "HELD"
     try:
@@ -301,7 +302,8 @@ def test_the_captains_button_does_not_queue_behind_a_build(lock_dir):
         holder.communicate(timeout=30)
 
 
-def test_the_captains_button_takes_the_lease_when_it_is_free(lock_dir):
+def test_the_captains_button_takes_the_lease_when_it_is_free(lock_dir,
+                                                              unguarded):
     with prefer_lease("capture a frame for firstmate", timeout=1.0) as got:
         assert got is not None
         assert got.purpose == "capture a frame for firstmate"
@@ -330,7 +332,8 @@ _CHILD = textwrap.dedent("""
 """)
 
 
-def test_a_child_the_holder_spawned_inherits_the_lease(lock_dir):
+def test_a_child_the_holder_spawned_inherits_the_lease(lock_dir,
+                                                           unguarded):
     """`resolve_build_timeline` holds it and launches `apply_fusion_comps`.
 
     The parent is blocked waiting on the child, so a child that queued
@@ -523,7 +526,8 @@ def test_an_excursion_still_refuses_without_a_lease(lock_dir, unguarded):
 # bypasses it because a human-initiated action never queues behind its
 # own owner's hold.
 
-def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir):
+def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir,
+                                                               unguarded):
     """Set signal, acquire in a thread, prove it waits, clear it, proceed.
 
     Fails on the old shape, where no signal exists to wait on: the
@@ -559,7 +563,8 @@ def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir):
         waiter.join(timeout=30)
 
 
-def test_absent_signal_leaves_acquisition_exactly_as_today(lock_dir):
+def test_absent_signal_leaves_acquisition_exactly_as_today(lock_dir,
+                                                             unguarded):
     """No signal, no change: the lease behaves as it always has.
 
     Passes on the old shape too - that is the point. The new gear adds
@@ -575,7 +580,8 @@ def test_absent_signal_leaves_acquisition_exactly_as_today(lock_dir):
     assert time.time() - started < 5.0
 
 
-def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir):
+def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir,
+                                                               unguarded):
     """The stale decision: bounded wait, then a refusal that names the hold.
 
     Fails on the old shape, where the acquisition would take the lease
@@ -600,7 +606,7 @@ def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir):
         resolve_lock.captain_release()
 
 
-def test_a_held_lease_is_never_revoked_by_the_signal(lock_dir):
+def test_a_held_lease_is_never_revoked_by_the_signal(lock_dir, unguarded):
     """The holder finishes its section; finishing is not clearing.
 
     A half-written timeline is worse than a delayed one, so the signal
@@ -619,7 +625,8 @@ def test_a_held_lease_is_never_revoked_by_the_signal(lock_dir):
         resolve_lock.captain_release()
 
 
-def test_the_captains_button_never_queues_behind_their_signal(lock_dir):
+def test_the_captains_button_never_queues_behind_their_signal(lock_dir,
+                                                                 unguarded):
     """`prefer_lease` is the human-initiated path: it does not wait."""
     resolve_lock.captain_hold("editing by hand")
     try:

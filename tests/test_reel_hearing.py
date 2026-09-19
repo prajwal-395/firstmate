@@ -448,7 +448,9 @@ def test_the_fixture_carries_no_real_project_path():
     holds the fixtures to that one enumeration rather than a second
     spelling of it - which is also why this file cannot write them out.
     """
-    from test_tests_never_reach_real_projects import HOME_ABSOLUTE_PREFIXES
+    from tests.test_tests_never_reach_real_projects import (
+        HOME_ABSOLUTE_PREFIXES,
+    )
 
     for name in ("reel26.timeline.json", "reel26.transcript.json",
                  "reel26.heard.json"):

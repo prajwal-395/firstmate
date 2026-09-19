@@ -537,6 +537,17 @@ def resolve_lease(purpose: str, exclusive: bool = True,
     signal, its age, and how to clear it.
     """
     global _depth, _mode
+    if _sole_writer_reason is not None:
+        # A declared sole writer has no instance to contend for - a test
+        # whose Resolve is a mock - so there is nothing to wait on, no
+        # flock to take, and no lease file to write. Yielding here is
+        # what keeps such a caller from queueing behind the captain's
+        # live session for nothing: without it every fake-Resolve test
+        # through an `@under_lease` entry point wedged for the full
+        # acquisition timeout whenever the captain's signal stood, and
+        # the suite hung instead of failing (2026-09-19).
+        yield holder()
+        return
     inherited = inherited_holder()
     if _depth == 0 and inherited is not None:
         _depth, _mode = 1, "inherited"
