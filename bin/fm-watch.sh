@@ -1917,6 +1917,37 @@ signal_files_actionable() {  # <status-file> ...
   return "$found"
 }
 
+# 0 when every signaled *.status file's newly classified span holds nothing but
+# suppressed bare secondmate child facts (and at least one such file was
+# checked). The span boundaries are the same classified endpoints
+# signal_files_actionable just committed to FM_SIGNAL_SURFACE_ENDPOINTS, so this
+# agrees with that classification byte for byte. A solely-facts batch is
+# recorded and presented but needs no supervision turn: the caller absorbs it
+# exactly like a benign no-verb wake (markers advance, no queue entry). Strict
+# like the classifier: a span mixing a fact with any other line, an
+# unclassifiable file, or a batch with no checkable status file returns 1, so
+# doubt still wakes. Non-.status arguments are skipped; a skipped-only batch
+# returns 1.
+signal_spans_only_child_facts() {  # <status-file> ...
+  local f start endpoint checked=0 ef eend eident
+  [ "$#" -gt 0 ] || return 1
+  for f in "$@"; do
+    case "$f" in *.status) ;; *) continue ;; esac
+    [ -e "$f" ] || [ -L "$f" ] || continue
+    endpoint=
+    while IFS=$(printf '\t') read -r ef eend eident; do
+      if [ "$ef" = "$f" ]; then endpoint=$eend; break; fi
+    done <<EOF
+$FM_SIGNAL_SURFACE_ENDPOINTS
+EOF
+    [ -n "$endpoint" ] || return 1
+    start=$(fm_wake_signal_seen_size "$STATE" "$f")
+    status_span_only_suppressed_child_facts "$f" "$start" "$endpoint" || return 1
+    checked=$((checked + 1))
+  done
+  [ "$checked" -gt 0 ]
+}
+
 # Surfaced-marker bookkeeping for the heartbeat backstop is owned by
 # fm-push-transition-lib.sh because push and poll paths must write one format.
 # Mark each actionable status log through the endpoint captured by the heartbeat
@@ -2479,6 +2510,12 @@ EOF
     #     (even via an interactive menu that wrote no done: status), waiting on a
     #     decision, or wedged. Absorbing such a turn-end is exactly the
     #     swallowed-finish this change guards against.
+    # A span holding nothing but suppressed bare secondmate child facts
+    # (bin/fm-classify-lib.sh owns the shape) is the one
+    # further benign case: recorded and presented, but needing no supervision
+    # turn. It absorbs even though a secondmate channel is never provably
+    # working, exactly like the benign path below (markers advance, no queue
+    # entry), while any mixed span keeps today's verdict and still wakes.
     # Positive evidence is either an authoritative provably-working verdict or, in a
     # home that opts in with config/turnend-churn-absorb and for a BARE turn-end
     # alone, a pane that rendered something since the previous poll
@@ -2509,7 +2546,7 @@ EOF
     # bin/fm-supervise-daemon.sh).
     # shellcheck disable=SC2086  # same space-separated status-path list
     if afk_present || [ "$signal_actionable" -eq 0 ] \
-      || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
+      || { ! signal_spans_only_child_facts $files && ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
         file_reason="$reason"

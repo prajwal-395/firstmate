@@ -171,6 +171,76 @@ status_is_captain_relevant() {
   printf '%s' "$line" | grep -qiE "${FM_CAPTAIN_RE:-$FM_CLASSIFY_CAPTAIN_RE_DEFAULT}"
 }
 
+# --- script-published secondmate child-lifecycle facts ----------------------
+#
+# Delivery and WAKING are separate. A secondmate's captain-facing outcomes are
+# published to the parent channel BY SCRIPTS (docs/secondmate-parent-channel.md),
+# so delivery never depends on the model remembering to write there. That design
+# is correct and stays exactly as it is: every line below is still appended to
+# the channel, still appears in the session-start digest, still surfaces in the
+# wake drain's UNREAD STATUS, and still reaches bearings.
+#
+# What changes is WAKING only, and only for the BARE facts. The parent-channel
+# publishers fall in two structural shapes, separated by whether the published
+# line can carry anything beyond the lifecycle event itself:
+#   - bare, fully publisher-templated, no free-text slot and no report
+#     pointer: `child-pr-<id>` (bin/fm-pr-check.sh: `child <id> PR ready:
+#     <url>` plus mode/yolo from meta) and `merged-<id>`
+#     (bin/fm-merge-outcome-lib.sh: `merged <id> <url>` plus an authority
+#     word). These say only that a step happened.
+#   - note-carrying: `child-outcome-<id>-<state>-<fp8>`
+#     (bin/fm-inactive-reconcile.sh) always embeds the child's own terminal
+#     note and, for scout children, a `report=data/<id>/report.md` pointer. A
+#     real `child-outcome-...-done-...` line carried a measurement the captain
+#     had personally asked to see ("closer fit measured: 8 of 28 misfit ...;
+#     nothing re-cut"), so the outcome key is not a proxy for "no payload"
+#     and outcome lines keep waking on every verb, done included.
+# A line is therefore RECORDED and PRESENTED but wake-suppressed when its key
+# shape AND its task kind agree it is a bare fact on a kind=secondmate task.
+# Suppression is never on verb alone: failed:, needs-decision:, and blocked:
+# always wake, from a mate or anything else, and so does anything the mate
+# writes itself (no script key), any note-carrying outcome, and any done: line
+# on a task that is not a secondmate. No new status vocabulary is introduced,
+# and no note prose is ever inspected, so nothing depends on the model
+# remembering and nothing sniffs content.
+#
+# This is a fail-open shape - a bug here makes the fleet quieter, which looks
+# like success - so the regression must assert the suppressed line is still
+# delivered AND still presented, never only that it stopped waking.
+
+# 0 if a status line has the bare script-published child-fact shape: a `done:`
+# verb carrying a `child-pr-` or `merged-` key, the two namespaces whose
+# publishers own every byte and offer no free-text note or report pointer.
+# Pure line read, no task context; callers add the kind=secondmate scope below.
+status_line_is_bare_child_fact() {  # <status-line>
+  local line=$1 verb
+  [ -n "$line" ] || return 1
+  verb=$(status_line_verb "$line")
+  [ "$verb" = "done" ] || return 1
+  case "$line" in
+    *'[key=child-pr-'*']'*|*'[key=merged-'*']'*) return 0 ;;
+  esac
+  return 1
+}
+
+# 0 if <task-id> is a secondmate channel in <state-dir> (kind=secondmate in its
+# meta). A missing or unreadable meta reads as not-a-secondmate, so suppression
+# only ever fires on positive evidence and an unregistered task keeps waking.
+status_task_is_secondmate() {  # <state-dir> <task-id>
+  [ -n "${1:-}" ] && [ -n "${2:-}" ] || return 1
+  grep -q '^kind=secondmate$' "$1/$2.meta" 2>/dev/null
+}
+
+# 0 if a status line is a bare script-published child-lifecycle fact on a
+# kind=secondmate task: recorded and presented, but raising no supervision
+# wake. The single conjunction every suppression and presentation path shares,
+# so the two can never disagree on which lines it covers.
+status_is_suppressed_child_fact() {  # <state-dir> <task-id> <status-line>
+  [ "$#" -eq 3 ] || return 1
+  status_task_is_secondmate "$1" "$2" || return 1
+  status_line_is_bare_child_fact "$3"
+}
+
 # 0 if a status line's leading verb is the pause verb (paused: <reason>). A pure
 # read of the line itself, so the daemon's classify_stale can reuse the last line
 # it already read without a fm-crew-state.sh call. Matches only the verb before the
@@ -1375,11 +1445,17 @@ $fully_presented
       # contiguous cursor may advance through the captured endpoint. Routine
       # lines remain unacknowledged only while they are the sole unread content,
       # preserving delayed signal annotations without replaying a handled note
-      # that happened to follow a routine line.
+      # that happened to follow a routine line. Suppressed child facts count as
+      # informational here: their UNREAD STATUS presentation is their one
+      # acknowledgement, so they are never replayed and never strand the cursor.
       while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
           *[![:space:]]*)
-            if status_line_is_unread_surface "$line"; then safe=true; break; fi
+            if status_line_is_unread_surface "$line" \
+              || status_is_suppressed_child_fact "$state" "$task" "$line"; then
+              safe=true
+              break
+            fi
             ;;
         esac
       done <<EOF
@@ -1618,6 +1694,9 @@ EOF
 # the replacement log unread at byte 0. Informational `note:` lines and
 # reserved-key pending-reply resolutions are the fleet-wide unread surface;
 # they are not open decisions and are not persisted in the folded open-set.
+# Suppressed script-published child-lifecycle facts join that surface, so a
+# line that raises no wake is still presented exactly once: the
+# recorded-and-presented half of the delivery/waking split.
 
 # Read the legacy per-task open-decisions cursor used to seed the presentation
 # offset before the fleet manifest exists. A fold-version mismatch, identity
@@ -1749,9 +1828,9 @@ status_line_is_unread_surface() {  # <status-line>
 }
 
 # Fleet-wide unread informational lines: one "<task>\t<status-line>" row per
-# still-unread `note:` or pending-reply resolution, in glob (task id) order.
-# Prints nothing when none are unread. Directory scan rejects status symlinks
-# the same way scan_open_decisions does.
+# still-unread `note:`, pending-reply resolution, or suppressed child fact, in
+# glob (task id) order. Prints nothing when none are unread. Directory scan
+# rejects status symlinks the same way scan_open_decisions does.
 scan_unread_surface_lines() {  # <state>
   local state=$1 f task lines line
   for f in "$state"/*.status; do
@@ -1761,7 +1840,9 @@ scan_unread_surface_lines() {  # <state>
     [ -n "$lines" ] || continue
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      status_line_is_unread_surface "$line" || continue
+      status_line_is_unread_surface "$line" \
+        || status_is_suppressed_child_fact "$state" "$task" "$line" \
+        || continue
       printf '%s\t%s\n' "$task" "$line"
     done <<EOF
 $lines
@@ -1779,7 +1860,9 @@ scan_unread_surface_snapshot() {  # <state> <task-and-endpoint-snapshot>
     [ -n "$lines" ] || continue
     while IFS= read -r line; do
       [ -n "$line" ] || continue
-      status_line_is_unread_surface "$line" || continue
+      status_line_is_unread_surface "$line" \
+        || status_is_suppressed_child_fact "$state" "$task" "$line" \
+        || continue
       printf '%s\t%s\n' "$task" "$line"
     done <<EOF
 $lines
@@ -1925,6 +2008,7 @@ _fm_status_open_decision_origins() {  # <status-file>
 status_span_first_actionable_record() {  # <status-file> <start-offset> [record-var] [needs-decision-var]
   local f=$1 start=${2:-0} output_var=${3-} needs_var=${4-} size ident cur_ident scratch chunk_file full_file prefix_file result
   local line verb key origins='' folded=0 rc=1 failed=0 prefix_lines=0 line_number=0 live_line='' events='' _line _key _fm_span_needs_decision=0
+  local span_state span_task span_secondmate=0
   [ -e "$f" ] || { [ -L "$f" ] && return 2; return 1; }
   [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 2
   ident=$(_fm_open_decisions_file_ident "$f") || return 2
@@ -1933,6 +2017,19 @@ status_span_first_actionable_record() {  # <status-file> <start-offset> [record-
   case "$size" in ''|*[!0-9]*) return 2 ;; esac
   case "$start" in ''|*[!0-9]*) start=0 ;; esac
   [ "$start" -le "$size" ] || start=0
+  # The wake-suppression scope for script-published child facts, resolved once
+  # per span from the status file's own path: a sibling meta reading
+  # kind=secondmate plus the fact key shape. One meta read per classification,
+  # and any unresolvable path keeps waking (suppression needs positive proof).
+  span_state=${f%/*}; [ "$span_state" != "$f" ] || span_state=.
+  span_task=${f##*/}
+  case "$span_task" in
+    *.status) span_task=${span_task%.status} ;;
+    *) span_task='' ;;
+  esac
+  if [ -n "$span_task" ] && status_task_is_secondmate "$span_state" "$span_task"; then
+    span_secondmate=1
+  fi
   if [ "$start" -ge "$size" ]; then
     result="${size}"$'\t'"${ident}"
     if [ -n "$output_var" ]; then
@@ -1962,6 +2059,15 @@ status_span_first_actionable_record() {  # <status-file> <start-offset> [record-
       continue
     fi
     status_is_captain_relevant "$line" || continue
+    # A bare script-published child fact on a kind=secondmate task is
+    # recorded and presented but never wake-actionable: it joins no event text
+    # and sets no side-band. Every other captain-relevant line - a
+    # note-carrying child outcome on any verb, failed:, needs-decision:,
+    # blocked:, mate-written judgement, a main home's own crewmate done: -
+    # flows on exactly as before.
+    if [ "$span_secondmate" -eq 1 ] && status_line_is_bare_child_fact "$line"; then
+      continue
+    fi
     verb=$(status_line_verb "$line")
     case "$verb" in
       needs-decision|blocked)
@@ -2037,6 +2143,54 @@ status_span_first_actionable() {  # <status-file> <start-offset>
 
 status_span_has_actionable() {  # <status-file> <start-offset>
   status_span_first_actionable_record "$1" "${2:-0}" > /dev/null
+}
+
+# 0 when the status span in [<start-offset>, <end-offset>) holds at least one
+# non-blank line and EVERY such line is a suppressed bare child fact for that
+# file's own kind=secondmate task. The watcher's signal triage uses this to
+# absorb a batch that delivered facts and nothing else: the .seen markers
+# still advance, presentation still happens through UNREAD STATUS, but no
+# supervision wake is queued. Strict by design - a span mixing a fact with any other line (a working: note, let alone judgement) is
+# not solely facts, so mixed content keeps today's verdict and the supervisor
+# still reads it. Any unreadable, unresolvable, or empty span returns 1, so
+# doubt always wakes rather than absorbs.
+status_span_only_suppressed_child_facts() {  # <status-file> <start-offset> [<end-offset>]
+  local f=$1 start=${2:-0} end=${3-} size ident cur_ident scratch chunk_file line found=0
+  local span_state span_task span_ok=1
+  [ -f "$f" ] && [ -r "$f" ] && [ ! -L "$f" ] || return 1
+  ident=$(_fm_open_decisions_file_ident "$f") || return 1
+  size=$(_fm_status_file_size "$f") || return 1
+  size=${size//[[:space:]]/}
+  case "$size" in ''|*[!0-9]*) return 1 ;; esac
+  case "$start" in ''|*[!0-9]*) start=0 ;; esac
+  [ "$start" -le "$size" ] || start=0
+  if [ -n "$end" ]; then
+    case "$end" in ''|*[!0-9]*) return 1 ;; esac
+    [ "$end" -le "$size" ] || return 1
+    [ "$start" -le "$end" ] || return 1
+    size=$end
+  fi
+  [ "$start" -lt "$size" ] || return 1
+  span_state=${f%/*}; [ "$span_state" != "$f" ] || span_state=.
+  span_task=${f##*/}
+  case "$span_task" in
+    *.status) span_task=${span_task%.status} ;;
+    *) return 1 ;;
+  esac
+  status_task_is_secondmate "$span_state" "$span_task" || return 1
+  scratch=$(_fm_status_span_scratch "$f") || return 1
+  chunk_file="${scratch}.factspan"
+  _fm_status_read_span "$f" "$start" "$((size - start))" > "$chunk_file" 2>/dev/null \
+    || { rm -f "$chunk_file"; return 1; }
+  cur_ident=$(_fm_open_decisions_file_ident "$f") || { rm -f "$chunk_file"; return 1; }
+  [ "$cur_ident" = "$ident" ] || { rm -f "$chunk_file"; return 1; }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in *[![:space:]]*) ;; *) continue ;; esac
+    status_line_is_bare_child_fact "$line" || { span_ok=0; break; }
+    found=1
+  done < "$chunk_file"
+  rm -f "$chunk_file"
+  [ "$span_ok" -eq 1 ] && [ "$found" -eq 1 ]
 }
 
 # Classify WHY an idle/stale crew MIGHT be safely absorbed instead of surfaced,
