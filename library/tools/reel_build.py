@@ -3930,9 +3930,18 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
 
     proposal_path = str(_proposal_path(project_folder))
     moments = read_proposal(proposal_path)
+    from library.tools.reel_ledger import stored_windows as _ask_stored
+    stored_siblings: dict = {}
+    repair_moves_by_number: dict = {}
+    for moment in moments:
+        stored_siblings[int(moment.number)] = {
+            "body": _ask_stored(moment)[0],
+            "closer": _ask_stored(moment)[1],
+        }
     repaired = []
     for moment in moments:
         fixed, moves = snap_moment_to_speech(moment, transcript)
+        repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
             word = (f" through '{move['through']}'"
                     if move.get("through") else "")
@@ -3951,6 +3960,7 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
             f"captain_edits cannot be read: {exc}. A recorded pin the "
             f"ask cannot read must refuse, never ask silently past "
             f"it.") from exc
+    _pin_applied: list = []
     if any(e.get("kind") == "redraw_closer" for e in _pin_edits):
         moments, _pin_applied, _pin_held, _pin_stale = \
             _edits.apply_closer_redraws(moments, transcript, _pin_edits)
@@ -3986,6 +3996,7 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
 
     reel_asks = []
     skipped_by_exclusion = []
+    skipped_out_of_window = []
     for moment in building:
         name = staging_name(built_name(moment, name_suffix or ""))
         moment_cuts, moment_insisted = moment_cuts_and_insistences(
@@ -4005,6 +4016,61 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
                                          "number": moment.number,
                                          "reason": reason})
             continue
+        # The window audit, same seam as the build loop: an ask for
+        # seconds no declaration covers is a question about another
+        # reel, so it is skipped WITH the reason before anything is
+        # answered. The ledger is filed either way.
+        try:
+            from library.tools import reel_ledger as _ask_ledger
+            _ask_stored_windows = stored_siblings[int(moment.number)]
+            _ask_ledger_entry = _ask_ledger.audit_ranges(
+                number=int(moment.number), staging=name,
+                final=destage(name),
+                stored_body=_ask_stored_windows["body"],
+                stored_closer=_ask_stored_windows["closer"],
+                repaired_body=(float(moment.timeline_start),
+                               float(moment.timeline_end)),
+                repaired_closer=cta_range(moment),
+                ranges=ranges,
+                sibling_windows=stored_siblings,
+                repair_moves=repair_moves_by_number.get(
+                    int(moment.number), ()),
+                pin_records=[
+                    record for record in _pin_applied
+                    if int(record.get("reel", -1)) == int(moment.number)],
+                trim_records={},
+                ending=_ending_decl)
+        except _ask_ledger.OutOfWindowRange as out_of_window:
+            reason = str(out_of_window)
+            print(f"  SKIPPING {name}: {reason}", flush=True)
+            try:
+                _ask_ledger.file_reel_ledger(
+                    project_folder, destage(name),
+                    out_of_window.ledger or {})
+            except Exception:
+                pass
+            skipped_out_of_window.append({"reel": name,
+                                          "number": moment.number,
+                                          "reason": reason})
+            continue
+        _ask_ledger.file_reel_ledger(
+            project_folder, destage(name), _ask_ledger_entry)
+        for _row in _ask_ledger_entry.get("ranges") or []:
+            _over = (_row.get("overhang_seconds") or {})
+            if not (_over.get("before") or _over.get("after")):
+                continue
+            _invaded = ", ".join(
+                f"reel {hit['reel']}'s declared {hit['window']} "
+                f"({hit['seconds'][0]:.2f}-{hit['seconds'][1]:.2f}s)"
+                for hit in (_row.get("invades") or [])) or (
+                "no other reel's declared pool")
+            print(f"  {name}: {_row['origin']} range "
+                  f"{_row['master'][0]:.2f}-{_row['master'][1]:.2f}s "
+                  f"reaches "
+                  f"{_over.get('before', 0):.2f}s before / "
+                  f"{_over.get('after', 0):.2f}s past its declared "
+                  f"{_row['origin']} window - overlapping "
+                  f"{_invaded}", flush=True)
         paths = write_visual_asks(
             moment, transcript, ranges, master_clips,
             project_folder, fps, name, cards, reel_look_decl)
@@ -4013,7 +4079,8 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
                           "reel_span": paths["reel_span"],
                           "reel_motion": paths["reel_motion"]})
     return {"reel_asks": reel_asks,
-            "skipped_by_exclusion": skipped_by_exclusion}
+            "skipped_by_exclusion": skipped_by_exclusion,
+            "skipped_out_of_window": skipped_out_of_window}
 
 
 
@@ -8362,9 +8429,24 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         decision_lines,
         snap_moment_to_speech,
     )
+    from library.tools.reel_ledger import stored_windows as _stored_windows
     repaired = []
+    # The DECLARED windows, captured BEFORE the repair below moves
+    # anything: the snap widens boundaries outward, so after it the
+    # moment no longer says what was declared - and the window audit
+    # (`reel_ledger.audit_ranges`) checks final ranges against the
+    # declaration, never the repair. Keyed by reel number, with the
+    # repair moves beside them for the ledger.
+    stored_siblings: dict = {}
+    repair_moves_by_number: dict = {}
+    for moment in moments:
+        stored_siblings[int(moment.number)] = {
+            "body": _stored_windows(moment)[0],
+            "closer": _stored_windows(moment)[1],
+        }
     for moment in moments:
         fixed, moves = snap_moment_to_speech(moment, transcript)
+        repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
             word = (f" through '{move['through']}'"
                     if move.get("through") else "")
@@ -8801,6 +8883,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     overlay_records = {}
     track_plans = {}
     skipped_by_exclusion: list = []
+    # Reels this call deliberately did NOT build because a final range
+    # touches no declared window of its own (`reel_ledger.audit_ranges`
+    # raising `OutOfWindowRange`): the per-reel shape of a refusal,
+    # beside `skipped_by_exclusion` above. Whatever the captain
+    # approved stays exactly as it is, WITH the reason on the record.
+    skipped_out_of_window: list = []
     # Per-reel facts for the build summary (`reel_phase_log`), keyed
     # by STAGING name and grown through the loop: derivation facts
     # after the decision, placement facts after the build returns,
@@ -9068,6 +9156,91 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     decision_reason=f"skipped by exclusion: {reason}")
                 current_staging = None
                 continue
+
+            # ── The window audit ──
+            # `library/tools/reel_ledger.py`: every final range must
+            # touch the reel's DECLARED body or its declared closer -
+            # what the stored file says, before the repair above moves
+            # anything. A range touching neither is refused for THIS
+            # reel only (the `ExclusionWipesBody` shape above): whatever
+            # the captain approved stays exactly as it is, WITH the
+            # reason, and the other reels build untouched. A range that
+            # touches but reaches PAST its window is kept and said
+            # loudly with the invaded reel named: refusing those would
+            # break legitimate word-edge cover (Reel 02's closer end
+            # moved 0.22s to cover its closing word), so the audit
+            # names them instead of stopping them. Either way the
+            # ledger is filed under the FINAL name, so the WHY is on
+            # disk whether this reel places or not.
+            try:
+                from library.tools import reel_ledger as _reel_ledger
+                # Directly indexed: captured above from the same moment
+                # list this loop walks, so a missing key is a programming
+                # error and reads as one rather than as a window verdict.
+                _stored = stored_siblings[int(moment.number)]
+                _window_ledger = _reel_ledger.audit_ranges(
+                    number=int(moment.number), staging=name,
+                    final=destage(name),
+                    stored_body=_stored["body"],
+                    stored_closer=_stored["closer"],
+                    repaired_body=(float(moment.timeline_start),
+                                   float(moment.timeline_end)),
+                    repaired_closer=cta_range(moment),
+                    ranges=ranges,
+                    sibling_windows=stored_siblings,
+                    repair_moves=repair_moves_by_number.get(
+                        int(moment.number), ()),
+                    pin_records=[
+                        record for record in _pin_applied
+                        if int(record.get("reel", -1))
+                        == int(moment.number)],
+                    trim_records=_trim_records,
+                    ending=_ending_decl)
+            except _reel_ledger.OutOfWindowRange as out_of_window:
+                reason = str(out_of_window)
+                print(f"  SKIPPING {name}: {reason}", flush=True)
+                try:
+                    _reel_ledger.file_reel_ledger(
+                        project_folder, destage(name),
+                        out_of_window.ledger or {})
+                except Exception:
+                    pass
+                skipped_out_of_window.append({"reel": name,
+                                              "number": moment.number,
+                                              "reason": reason})
+                try:
+                    from library.tools import reel_phase_log as _skip_log
+                    _skip_log.log_wait(
+                        project_folder, moment.number, name,
+                        f"skipped out of window: {reason}")
+                except Exception:
+                    pass
+                _file_reel_summary(
+                    project_folder,
+                    number=summary_facts[name]["number"], name=name,
+                    facts=summary_facts[name],
+                    outcome="skipped_out_of_window",
+                    decision_reason=f"skipped out of window: {reason}")
+                current_staging = None
+                continue
+            _reel_ledger.file_reel_ledger(
+                project_folder, destage(name), _window_ledger)
+            for _row in _window_ledger.get("ranges") or []:
+                _over = (_row.get("overhang_seconds") or {})
+                if not (_over.get("before") or _over.get("after")):
+                    continue
+                _invaded = ", ".join(
+                    f"reel {hit['reel']}'s declared {hit['window']} "
+                    f"({hit['seconds'][0]:.2f}-{hit['seconds'][1]:.2f}s)"
+                    for hit in (_row.get("invades") or [])) or (
+                    "no other reel's declared pool")
+                print(f"  {name}: {_row['origin']} range "
+                      f"{_row['master'][0]:.2f}-{_row['master'][1]:.2f}s "
+                      f"reaches "
+                      f"{_over.get('before', 0):.2f}s before / "
+                      f"{_over.get('after', 0):.2f}s past its declared "
+                      f"{_row['origin']} window - overlapping "
+                      f"{_invaded}", flush=True)
 
 
             # Full-frame elements FIRST, because a head card decides where
@@ -10181,6 +10354,12 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # captain approved stays exactly as it is. A reader that wants
         # to know what was held back reads this, never silence.
         "skipped_by_exclusion": skipped_by_exclusion,
+        # Reels this call deliberately did NOT build because a final
+        # range touches no declared window of its own
+        # (`reel_ledger.OutOfWindowRange`): the per-reel shape of a
+        # refusal, beside `skipped_by_exclusion` above. Whatever the
+        # captain approved stays exactly as it is, WITH the reason.
+        "skipped_out_of_window": skipped_out_of_window,
         # Final -> staging while anything is staged, `{}` once
         # promotion renamed them. The `verify_reels` node grades
         # `timelines_built` and promotes off this mapping; absent on

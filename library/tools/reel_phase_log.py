@@ -199,10 +199,11 @@ OUTCOME_PROMOTED = "promoted"
 OUTCOME_LEFT_ALONE = "left_alone"
 OUTCOME_VERIFY_REFUSED = "verify_refused"
 OUTCOME_SKIPPED = "skipped_by_exclusion"
+OUTCOME_OUT_OF_WINDOW = "skipped_out_of_window"
 OUTCOME_PLACED = "placed_unverified"
 
 OUTCOMES = (OUTCOME_PROMOTED, OUTCOME_LEFT_ALONE, OUTCOME_VERIFY_REFUSED,
-            OUTCOME_SKIPPED, OUTCOME_PLACED)
+            OUTCOME_SKIPPED, OUTCOME_OUT_OF_WINDOW, OUTCOME_PLACED)
 """How a reel's story ended on the build that files the summary. Closed
 so a typo cannot file a new outcome nothing reads."""
 
