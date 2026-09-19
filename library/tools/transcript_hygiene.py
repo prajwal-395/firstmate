@@ -57,11 +57,15 @@ evidence and their provenance (`proposed_by="model"`, kind
 `mistake_fix`): the same routing, the same retirement, an honest
 `said_by`. A wrong model guess retires rather than wearing the
 captain's name, and `learned_context.correct` promotes a confirmed
-one. Both classes auto-apply - a stated-term respell because the
-project already said so, a disfluency suppression because the captain
-asked for the cleanup and reviewing thirty single-letter tokens by
-hand is the treadmill he is trying to get off. Each record's detail
-says which evidence class proposed it and why.
+one. A CONFIDENT proposal auto-applies - a stated-term respell because
+the project already said so, a judged disfluency suppression because
+the captain asked for the cleanup and reviewing thirty single-letter
+tokens by hand is the treadmill he is trying to get off. A proposal
+whose own `why` flags uncertainty (`is_uncertain`) records PENDING
+instead: held, never enforced, until a human promotes it - because on
+2026-09-19 four such rows recorded ACTIVE anyway and one rewrote
+"Sheehan" to "she even". Each record's detail says which evidence
+class proposed it and why.
 
 `tests/test_transcript_hygiene.py`.
 """
@@ -81,6 +85,46 @@ import sys
 #: judge. A fraction, never milliseconds.
 DURATION_FRACTION = 0.5
 
+#: The model's own uncertainty vocabulary, as it wrote it unprompted
+#: on 2026-09-19 ("NEEDS CAPTAIN CONFIRMATION", "LOW CONFIDENCE",
+#: "BORDERLINE" - each recorded ACTIVE anyway, and one rewrote a name).
+#: A verdict row whose `why` carries one of these is recorded PENDING,
+#: never applied, until a human promotes it. This is not a word list
+#: deciding a creative outcome (AGENTS.md 10.5's ban): it decides
+#: nothing about what the subtitle says, only whether a proposal the
+#: model itself flagged as unsure may act before a human confirms it.
+#: The judge prompt below declares the contract - "say so plainly in
+#: `why` when you are unsure" - so the vocabulary is read off the
+#: model's own admissions, not imposed on its prose. Matching is
+#: case-insensitive substring on the row's `why` ONLY, never on the
+#: composed record: the scanner's own statement template says "retire
+#: it if wrong", which must not read as uncertainty.
+UNCERTAIN_MARKERS = (
+    "needs captain confirmation",
+    "needs confirmation",
+    "low confidence",
+    "not confident",
+    "borderline",
+    "unsure",
+    "not sure",
+    "uncertain",
+    "not certain",
+)
+
+
+def is_uncertain(why: str) -> bool:
+    """Whether a verdict row's `why` flags its own uncertainty.
+
+    Pure: the held-for-confirmation decision in one predicate, so the
+    scan and its tests cannot disagree about which rows wait for a
+    human. Empty or non-string reasons are certain - silence is not an
+    admission, and a row with no reason at all is refused upstream in
+    `_dispose_batch` rather than guessed about here.
+    """
+    if not isinstance(why, str) or not why.strip():
+        return False
+    lowered = why.lower()
+    return any(marker in lowered for marker in UNCERTAIN_MARKERS)
 #: The two one-letter English words. A single-character token that is
 #: one of these is never nominated: excluding them is a dictionary
 #: fact, not taste. Everything else one letter long is a fragment's
@@ -350,6 +394,7 @@ Each line below is one spoken sentence; tokens are numbered (position: surface) 
 - SUPPRESS a token when it is a disfluency or filler ("um", "uh"), a stray phoneme fragment ("qu", "s", "f"), or a false-start repeat the reader does not need ("I I", "company company"). The audio keeps playing it - only the read text drops it. Say "scope": "global" ONLY when the token never carries meaning in any sentence; otherwise "anchored" (this occurrence only).
 - RESPELL a token span when it is a misheard or mis-cased proper noun, acronym, brand or product name: give the heard surface ("jim and i", "aics", "la fitnesses") and the correct reading ("Gemini", "AI sees", "LA Fitnesses").
 - KEEP (omit from both lists) everything the reader needs: placeholders ("X, Y and Z"), letters standing for options ("B produces", "C gives"), discourse markers that carry meaning, numbers, repeated words for emphasis, and ordinary short words.
+- When you are unsure about a row, say so plainly in `why` (for example LOW CONFIDENCE or NEEDS CAPTAIN CONFIRMATION): an unsure proposal is held for human confirmation instead of being applied.
 
 {chr(10).join(rows)}
 
@@ -504,16 +549,22 @@ def scan(project_folder: str, document: dict, judge=None,
     `apply` (the default), stated-term respells record with
     stated-term evidence and judged suppressions/respells record as
     `mistake_fix` with their measurements and the model's reason -
-    both auto-applying, per the module docstring. With `apply=False`
-    nothing is recorded and the report is the preview. Returns the
-    full report: per-class counts plus every proposal, because the
-    proposal LIST is the reviewable artefact, not its count.
+    confident ones auto-applying, per the module docstring, while a
+    row whose own `why` flags uncertainty (`is_uncertain`) records
+    PENDING: held for a human, never enforced, until promoted. With
+    `apply=False` nothing is recorded and the report is the preview.
+    Returns the full report: per-class counts plus every proposal,
+    because the proposal LIST is the reviewable artefact, not its
+    count. `report["pending"]` names the held ids - a subset of
+    `report["recorded"]`, listed apart so the review queue is read off
+    the run, not reconstructed from the store.
     """
+    from library.tools import learned_context as _lc
     from library.tools import transcript_corrections as _tc
 
     report: dict = {"candidates": 0, "stated_term": [],
                     "suppress": [], "respell": [],
-                    "unevaluated": [], "recorded": []}
+                    "unevaluated": [], "recorded": [], "pending": []}
     candidates = nominate(document)
     report["candidates"] = len(candidates)
     terms = stated_terms(project_folder)
@@ -537,12 +588,18 @@ def scan(project_folder: str, document: dict, judge=None,
         # where else it was misheard.
         report["recorded"].append(learning["id"])
     for respell in report["respell"]:
+        held = is_uncertain(respell["why"])
         learning = _tc.record_spelling(
             project_folder, respell["heard"], respell["correct"],
             f"model judgement over the transcript sentence: "
             f"{respell['why']} ({alignment_note(document)})",
-            proposed_by="model")
+            proposed_by="model",
+            status=_lc.PENDING if held else _lc.ACTIVE)
         report["recorded"].append(learning["id"])
+        if held:
+            # The model flagged this row unsure: recorded, never
+            # enforced, until a human promotes it.
+            report["pending"].append(learning["id"])
     for suppression in report["suppress"]:
         scope = (None if suppression["scope"] == "global" else
                  {"speaker": suppression.get("speaker") or "?",
@@ -554,12 +611,14 @@ def scan(project_folder: str, document: dict, judge=None,
         # sentence-edge fragment is refused here and returns to
         # unevaluated, loudly, rather than widening to global.
         try:
+            held = is_uncertain(str(suppression.get("why") or ""))
             learning = _tc.record_display_suppression(
                 project_folder, str(suppression.get("word") or ""),
                 f"model judgement: {suppression.get('why') or ''} "
                 f"({_evidence_for(document, suppression.get('seg', -1),
                                   suppression.get('index', -1))})",
-                scope=scope, proposed_by="model")
+                scope=scope, proposed_by="model",
+                status=_lc.PENDING if held else _lc.ACTIVE)
         except Exception as exc:  # noqa: BLE001 - record refuses loudly
             print(f"  hygiene: suppression of "
                   f"\"{suppression.get('word')}\" refused ({exc}); "
@@ -567,6 +626,8 @@ def scan(project_folder: str, document: dict, judge=None,
             report["unevaluated"].append(suppression)
             continue
         report["recorded"].append(learning["id"])
+        if held:
+            report["pending"].append(learning["id"])
     return report
 
 
@@ -613,6 +674,7 @@ def main(argv=None) -> int:
               f"\"{respell['correct']}\": {respell['why']}")
     print(f"unevaluated: {len(report['unevaluated'])}")
     print(f"recorded: {report['recorded']}")
+    print(f"pending (held for confirmation): {report['pending']}")
     return 0
 
 

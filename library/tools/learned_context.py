@@ -42,6 +42,15 @@ is an account of what the project believed and when, not an
 append-only pile of stale conclusions. Only `active` learnings reach
 a prompt.
 
+A learning the model is UNSURE about is recorded PENDING, never
+active: `pending` means proposed, not decided - it reaches no prompt
+and no deterministic pass until a human PROMOTES it (`promote()`,
+with the confirmation as the reason). A pending learning the human
+rejects retires straight from pending. The transcript hygiene
+scanner (`library/tools/transcript_hygiene.py`) is the writer that
+uses this: a model verdict that flags its own uncertainty is held for
+confirmation instead of auto-applying.
+
 Storage
 -------
 `<project>/learned_context/learnings.json` - one JSON list, written
@@ -76,8 +85,14 @@ SAID_BY = {
 }
 
 ACTIVE = "active"
+PENDING = "pending"
 RETIRED = "retired"
 SUPERSEDED = "superseded"
+
+#: Statuses `record()` may mint. A learning starts `active` (decided,
+#: enforced) or `pending` (proposed, held for a human) - never retired
+#: or superseded, which are endings, not beginnings.
+RECORDABLE = (ACTIVE, PENDING)
 
 #: `read_by: ["*"]` - a settled fact every planning step should know
 #: (the series this video is - or is not - in).
@@ -181,9 +196,24 @@ def _check_readers(read_by) -> list:
 
 
 def record(project_folder: str, kind: str, statement: str, read_by,
-           source: dict | None = None, detail: str = "") -> dict:
-    """Record what this run learned. Returns the learning as stored."""
+           source: dict | None = None, detail: str = "",
+           status: str = ACTIVE) -> dict:
+    """Record what this run learned. Returns the learning as stored.
+
+    `status` is `active` (the default: decided, enforced on the next
+    run) or `pending` (proposed, held: it reaches no prompt and no
+    pass until `promote()` confirms it). Pending is for a proposal
+    whose own evidence says it is unsure - a model verdict flagging
+    its own uncertainty - never for a captain's verdict, which is
+    confirmed by being said."""
     _check_kind(kind)
+    if status not in RECORDABLE:
+        raise LearnedContextError(
+            f"a learning recorded as {status!r} starts neither decided "
+            f"nor proposed. One of {list(RECORDABLE)}: a record opens "
+            f"active or pending, and only `retire`, `correct` or "
+            f"`promote` moves it after that."
+        )
     readers = _check_readers(read_by)
     text = (statement or "").strip()
     if not text:
@@ -201,7 +231,7 @@ def record(project_folder: str, kind: str, statement: str, read_by,
         "kind": kind,
         "statement": text,
         "read_by": readers,
-        "status": ACTIVE,
+        "status": status,
         "said_by": SAID_BY[kind],
         "source": dict(source or {}),
         "created_at": _now(),
@@ -225,7 +255,11 @@ def _find(learnings: list, learning_id: str) -> dict:
 
 
 def retire(project_folder: str, learning_id: str, reason: str) -> dict:
-    """Retire a learning that turned out wrong. Recorded, not deleted."""
+    """Retire a learning that turned out wrong. Recorded, not deleted.
+
+    Retires from `active` or from `pending`: a held proposal the
+    human rejects never needs promoting first - promoting in order to
+    retire would write a confirmation that never happened."""
     if not (reason or "").strip():
         raise LearnedContextError(
             f"retiring {learning_id!r} with no reason is refused: a "
@@ -234,10 +268,11 @@ def retire(project_folder: str, learning_id: str, reason: str) -> dict:
         )
     learnings = _load(project_folder)
     learning = _find(learnings, learning_id)
-    if learning.get("status") != ACTIVE:
+    if learning.get("status") not in (ACTIVE, PENDING):
         raise LearnedContextError(
             f"learning {learning_id!r} is already "
-            f"{learning.get('status')}. Only an active learning retires."
+            f"{learning.get('status')}. Only an active or pending "
+            f"learning retires."
         )
     learning["status"] = RETIRED
     learning.setdefault("history", []).append(
@@ -266,8 +301,10 @@ def correct(project_folder: str, learning_id: str, new_statement: str,
     old = _find(learnings, learning_id)
     if old.get("status") != ACTIVE:
         raise LearnedContextError(
-            f"learning {learning_id!r} is already "
-            f"{old.get('status')}. Only an active learning is corrected."
+            f"learning {learning_id!r} is "
+            f"{old.get('status')}. Only an active learning is corrected - "
+            f"a pending one is promoted first, so the confirmation is on "
+            f"the record rather than smuggled inside a correction."
         )
     new = record(
         project_folder, kind=old["kind"], statement=text,
@@ -294,12 +331,54 @@ def correct(project_folder: str, learning_id: str, new_statement: str,
     return new
 
 
+def promote(project_folder: str, learning_id: str, reason: str) -> dict:
+    """Confirm a pending proposal: pending becomes active, enforced
+    from the next run. The reason is the confirmation itself - the
+    captain's words, or what evidence settled it - because a promotion
+    nobody explained reads as auto-apply with extra steps, which is
+    the defect pending exists to prevent. Only a pending learning
+    promotes: an active one is already decided, and a retired or
+    superseded one stays ended."""
+    if not (reason or "").strip():
+        raise LearnedContextError(
+            f"promoting {learning_id!r} with no reason is refused: the "
+            f"reason IS the confirmation, and without it the next pass "
+            f"cannot tell a confirmed proposal from one that slipped "
+            f"through."
+        )
+    learnings = _load(project_folder)
+    learning = _find(learnings, learning_id)
+    if learning.get("status") != PENDING:
+        raise LearnedContextError(
+            f"learning {learning_id!r} is "
+            f"{learning.get('status')}. Only a pending learning promotes."
+        )
+    learning["status"] = ACTIVE
+    learning.setdefault("history", []).append(
+        {"at": _now(), "event": "promoted",
+         "reason": reason.strip()})
+    _save(project_folder, learnings)
+    return learning
+
+
+def pending(project_folder: str) -> list:
+    """Every pending learning, in record order: the human's review
+    queue. Pending reaches no prompt and no pass - this listing is the
+    only surface that carries it, so a proposal held for confirmation
+    is found here rather than fading."""
+    return [learning for learning in _load(project_folder)
+            if isinstance(learning, dict)
+            and learning.get("status") == PENDING]
+
+
 def active_for_step(project_folder: str, node_id: str) -> list:
     """Every active learning this step is routed. `read_by: ["*"]`
     reaches every step; anything else reaches only the steps it names.
-    Retired and superseded learnings never travel - a prompt that
+    Retired, superseded and pending learnings never travel - a prompt that
     carries a conclusion the project already withdrew is the stale pile
-    the captain complained about, arriving one run later. `node_id`
+    the captain complained about, arriving one run later, and a prompt
+    that carries a proposal nobody confirmed is the Sheehan defect of
+    2026-09-19, applying a guess the model itself flagged. `node_id`
     `"*"` is the whole active file (the captain-facing report, not a
     routing)."""
     mine = []
@@ -389,6 +468,10 @@ def main(argv=None) -> int:
     cor.add_argument("learning_id")
     cor.add_argument("--new-statement", required=True)
     cor.add_argument("--reason", required=True)
+    pro = sub.add_parser("promote", help="Confirm a pending proposal.")
+    pro.add_argument("learning_id")
+    pro.add_argument("--reason", required=True)
+    sub.add_parser("pending", help="Print every pending learning.")
     sub.add_parser("list", help="Print every learning, active or not.")
     args = parser.parse_args(argv)
     if args.command == "record":
@@ -406,6 +489,13 @@ def main(argv=None) -> int:
                                  new_statement=args.new_statement,
                                  reason=args.reason),
                          indent=2, ensure_ascii=False))
+    elif args.command == "promote":
+        print(json.dumps(promote(args.project, args.learning_id,
+                                 reason=args.reason),
+                         indent=2, ensure_ascii=False))
+    elif args.command == "pending":
+        print(json.dumps(pending(args.project), indent=2,
+                         ensure_ascii=False))
     else:
         print(json.dumps(_load(args.project), indent=2, ensure_ascii=False))
     return 0

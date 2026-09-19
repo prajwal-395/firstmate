@@ -181,13 +181,19 @@ def _kind_for(proposed_by: str) -> str:
             f"proposed it cannot be retired on purpose.") from None
 
 def record_spelling(project_folder: str, heard: str, correct: str,
-                    reason: str, proposed_by: str = "captain") -> dict:
+                    reason: str, proposed_by: str = "captain",
+                    status: str = learned_context.ACTIVE) -> dict:
     """The transcriber hears `heard`; the captain hears `correct`.
 
     `proposed_by` is who said so - "captain" for a note, "model" for the
     hygiene scanner's judgement (`library/tools/transcript_hygiene.py`)
     - and decides the learning kind, never the routing: both route
     `read_by: ["*"]` and both retire the same way.
+
+    `status` is `active`, or `pending` for a model proposal that
+    flagged its own uncertainty: pending is recorded, never enforced,
+    until a human promotes it. A captain's note is confirmed by being
+    said, so pending with `proposed_by="captain"` is refused.
     """
     heard = (heard or "").strip()
     correct = (correct or "").strip()
@@ -199,6 +205,12 @@ def record_spelling(project_folder: str, heard: str, correct: str,
         raise learned_context.LearnedContextError(
             "a spelling correction with no reason is refused: the next "
             "run cannot tell a captain's verdict from tidying.")
+    if status == learned_context.PENDING and proposed_by != "model":
+        raise learned_context.LearnedContextError(
+            f"a pending spelling correction proposed by "
+            f"{proposed_by!r} is refused: pending holds an UNCERTAIN "
+            f"model proposal for confirmation, and the captain saying "
+            f"it IS the confirmation.")
     kind = _kind_for(proposed_by)
     statement = (
         f'Transcript spelling: the audio this project transcribed as '
@@ -211,13 +223,19 @@ def record_spelling(project_folder: str, heard: str, correct: str,
             f'transcribed as "{heard}" reads as "{correct}". Write '
             f'"{correct}" in every caption, motion graphic and plan '
             f'that quotes these words.')
+    if status == learned_context.PENDING:
+        statement = (
+            f'Model-proposed transcript spelling (UNCERTAIN - recorded '
+            f'pending, applies only if the captain confirms it): the '
+            f'audio this project transcribed as "{heard}" reads as '
+            f'"{correct}".')
     return learned_context.record(
         project_folder, kind=kind,
         statement=statement,
         read_by=list(SPELLING_READERS),
         source={"correction_type": SPELLING, "heard": heard,
                 "correct": correct, "proposed_by": proposed_by},
-        detail=reason.strip())
+        detail=reason.strip(), status=status)
 
 
 def record_keep_exclusion(project_folder: str, start: float, end: float,
@@ -300,7 +318,8 @@ def record_keep_insistence(project_folder: str, start: float, end: float,
 
 def record_display_suppression(project_folder: str, heard: str,
                                reason: str, scope: dict | None = None,
-                               proposed_by: str = "captain") -> dict:
+                               proposed_by: str = "captain",
+                               status: str = learned_context.ACTIVE) -> dict:
     """A pronounced token the reader never sees: mark, don't strike.
 
     `heard` is the single transcribed token ("um", "qu", "s") - one
@@ -324,6 +343,11 @@ def record_display_suppression(project_folder: str, heard: str,
     a captain's note is a correction, the scanner's judgement a
     mistake_fix with its evidence, so a wrong model guess retires
     rather than wearing the captain's name.
+
+    `status` is `active`, or `pending` for a model proposal that
+    flagged its own uncertainty - recorded, never enforced, until a
+    human promotes it. Pending with `proposed_by="captain"` is refused
+    for the same cause `record_spelling` refuses it.
     """
     heard = (heard or "").strip()
     if not heard or len(heard.split()) != 1:
@@ -358,6 +382,12 @@ def record_display_suppression(project_folder: str, heard: str,
                 "surface or neighbour is refused: it would match "
                 "nothing and report zero, which reads as absence.")
     kind = _kind_for(proposed_by)
+    if status == learned_context.PENDING and proposed_by != "model":
+        raise learned_context.LearnedContextError(
+            f"a pending display suppression proposed by "
+            f"{proposed_by!r} is refused: pending holds an UNCERTAIN "
+            f"model proposal for confirmation, and the captain saying "
+            f"it IS the confirmation.")
     where = ("everywhere it is transcribed" if anchor is None else
              f"where {anchor['speaker']} says it between "
              f"\"{anchor['prev']}\" and \"{anchor['next']}\"")
@@ -371,13 +401,19 @@ def record_display_suppression(project_folder: str, heard: str,
             f'the captain - retire it if wrong): the transcribed token '
             f'"{heard}" {where} is pronounced and stays in the audio - '
             f'hide it from captions and quoted copy.')
+    if status == learned_context.PENDING:
+        statement = (
+            f'Model-proposed display suppression (UNCERTAIN - recorded '
+            f'pending, applies only if the captain confirms it): the '
+            f'transcribed token "{heard}" {where} is pronounced and '
+            f'stays in the audio.')
     return learned_context.record(
         project_folder, kind=kind,
         statement=statement,
         read_by=list(SPELLING_READERS),
         source={"correction_type": DISPLAY_SUPPRESSION, "heard": heard,
                 "scope": anchor, "proposed_by": proposed_by},
-        detail=reason.strip())
+        detail=reason.strip(), status=status)
 
 
 # ── Reading ───────────────────────────────────────────────────────────

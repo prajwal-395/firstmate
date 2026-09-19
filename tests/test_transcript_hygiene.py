@@ -170,7 +170,6 @@ def test_scan_preview_records_nothing(tmp_path):
     from library.tools import learned_context as lc
     assert lc.active_for_step(project, "*") == []
 
-
 def test_keyless_judge_returns_unevaluated(tmp_path, monkeypatch):
     project = _project(tmp_path)
     for var in ("GEMINI_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
@@ -180,3 +179,67 @@ def test_keyless_judge_returns_unevaluated(tmp_path, monkeypatch):
     assert verdict["suppress"] == [] and verdict["respell"] == []
     # Placeholders plus the duplicate: nominated, never guessed.
     assert len(verdict["unevaluated"]) == 4
+
+
+def test_is_uncertain_reads_the_models_own_admissions():
+    assert hy.is_uncertain("MODEL, NEEDS CAPTAIN CONFIRMATION: parallel "
+                           "take settles it, retire if a name")
+    assert hy.is_uncertain("low confidence: reads as a false start")
+    assert hy.is_uncertain("BORDERLINE: keep if emphasis")
+    assert hy.is_uncertain("unsure whether this is a name")
+    assert not hy.is_uncertain("stray phoneme the reader does not need")
+    assert not hy.is_uncertain("")
+    assert not hy.is_uncertain(None)
+    # The scanner's own composed template says "retire it if wrong" -
+    # detection reads the row's `why`, never that template, so a
+    # confident row wearing the template must not read as unsure.
+    assert not hy.is_uncertain(
+        "Model-proposed transcript spelling (not yet confirmed by the "
+        "captain - retire it if wrong): reads as she even")
+
+
+def test_scan_holds_uncertain_rows_pending_and_applies_confident(tmp_path):
+    """The 2026-09-19 default, corrected end to end: the four rows the
+    model flagged unsure record PENDING (held, never enforced) while
+    the confident row beside them keeps auto-applying."""
+    from library.tools import learned_context as lc
+    from library.tools import transcript_corrections as tc
+
+    project = _project(tmp_path)
+
+    def stub_judge(view, candidates, terms, project_folder):
+        return {"suppress": [
+                    {"seg": 0, "index": 2, "word": "qu",
+                     "speaker": "Akshita", "prev": "niche",
+                     "next": "niche", "scope": "anchored",
+                     "why": "BORDERLINE: stray phoneme, keep if "
+                            "emphasis"},
+                    {"seg": 2, "index": 1, "word": "I",
+                     "speaker": "Craig", "prev": "I", "next": "think",
+                     "scope": "anchored",
+                     "why": "false-start repeat the reader does not "
+                            "need"}],
+                "respell": [{"heard": "Sheehan", "correct": "she even",
+                             "why": "NEEDS CAPTAIN CONFIRMATION: "
+                                    "parallel take reads she even"}],
+                "unevaluated": [], "refused": []}
+
+    report = hy.scan(project, _doc(), judge=stub_judge, apply=True)
+    assert len(report["recorded"]) == 3
+    assert len(report["pending"]) == 2
+    held = {l["id"]: l for l in lc.pending(project)}
+    assert set(report["pending"]) == set(held)
+    # Held rows enforce nothing: the words stand on the next pass.
+    assert tc.spelling_corrections(project) == []
+    assert [s["heard"] for s in tc.suppressions(project)] == ["I"]
+    doc = _doc()
+    tc.apply_to_document(doc, project)
+    assert doc["segments"][0]["text"].split()[2] == "qu"
+    # The confident row beside them applied as before.
+    assert len(lc.active_for_step(project, "*")) == 1
+    # Promotion enforces the held rows from the next run.
+    for held_id in report["pending"]:
+        lc.promote(project, held_id, reason="Captain: keep.")
+    assert len(tc.spelling_corrections(project)) == 1
+    assert sorted(s["heard"] for s in tc.suppressions(project)) == [
+        "I", "qu"]

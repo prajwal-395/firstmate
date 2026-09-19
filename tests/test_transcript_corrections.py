@@ -168,6 +168,7 @@ def test_transcribe_forwards_bias_arguments():
         sys.modules["torch"] = fake_torch
     try:
         from importlib import reload
+
         import library.tools.timeline_transcript as tt
         reload(tt)
         tt.transcribe_audio(
@@ -313,6 +314,7 @@ def test_correction_reaches_the_motion_graphics_planner_prompt(tmp_path):
     spells it right. 4.06 declares the input; the runner restores it by
     name into every prompt."""
     import json
+
     from library.tools import learned_context as lc
     from library.tools import transcript_corrections as tc
     tc.record_spelling(
@@ -419,3 +421,67 @@ def test_the_repair_does_not_invent_the_confidence_the_hybrid_lacks(tmp_path):
     tc.apply_to_document(doc, str(tmp_path))
     assert all("avg_logprob" not in row or row["avg_logprob"] is None
                for row in doc["segments"])
+
+
+def test_an_uncertain_model_proposal_records_pending_not_applied(tmp_path):
+    """The Sheehan default, corrected: an unsure model proposal is
+    recorded for review, never enforced - no prompt, no pass, no bias
+    - until a human promotes it."""
+    from library.tools import learned_context as lc
+    from library.tools import transcript_corrections as tc
+
+    rec = tc.record_spelling(
+        str(tmp_path), heard="Sheehan", correct="she even",
+        reason="MODEL, NEEDS CAPTAIN CONFIRMATION: parallel take reads "
+        "she even; retire if a client name",
+        proposed_by="model", status=lc.PENDING)
+    assert rec["status"] == "pending"
+    assert rec["kind"] == "mistake_fix"
+    assert tc.spelling_corrections(str(tmp_path)) == []
+    doc = _doc_with_lucy()
+    report = tc.apply_to_document(doc, str(tmp_path))
+    assert report["replacements"] == 0
+    prompt, hotwords = tc.bias_strings(str(tmp_path))
+    assert (prompt, hotwords) == ("", "")
+    assert tc.render_for_model(str(tmp_path)) == ""
+    # Promotion enforces it from the next run.
+    lc.promote(str(tmp_path), rec["id"],
+               reason="Captain: it's not a name, keep the fix.")
+    assert [c["correct"] for c in tc.spelling_corrections(
+        str(tmp_path))] == ["she even"]
+
+
+def test_a_pending_suppression_hides_nothing_until_promoted(tmp_path):
+    from library.tools import learned_context as lc
+    from library.tools import transcript_corrections as tc
+
+    rec = tc.record_display_suppression(
+        str(tmp_path), "different",
+        reason="MODEL, BORDERLINE: reduplication; retire if emphasis",
+        scope={"speaker": "Akshita", "surface": "different",
+               "prev": "different", "next": "sources"},
+        proposed_by="model", status=lc.PENDING)
+    assert rec["status"] == "pending"
+    assert tc.suppressions(str(tmp_path)) == []
+    lc.promote(str(tmp_path), rec["id"],
+               reason="Captain: confirmed, it is a false start.")
+    assert len(tc.suppressions(str(tmp_path))) == 1
+
+
+def test_pending_is_refused_a_captains_name(tmp_path):
+    """A captain's note IS the confirmation - recording it pending
+    would hold a decided verdict for a review that already happened."""
+    import pytest
+
+    from library.tools import learned_context as lc
+    from library.tools import transcript_corrections as tc
+
+    with pytest.raises(lc.LearnedContextError):
+        tc.record_spelling(
+            str(tmp_path), heard="lucy", correct="Lucie",
+            reason="captain marker", proposed_by="captain",
+            status=lc.PENDING)
+    with pytest.raises(lc.LearnedContextError):
+        tc.record_display_suppression(
+            str(tmp_path), "um", reason="captain marker",
+            proposed_by="captain", status=lc.PENDING)
