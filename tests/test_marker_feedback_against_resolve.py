@@ -29,6 +29,7 @@ from library.tools.marker_feedback import (  # noqa: E402
     MarkerWriteError,
     ResolveUnavailable,
     UnpulledMarkers,
+    _pull_all,
     assert_markers_pulled,
     connect_resolve,
     frames_to_timecode,
@@ -606,3 +607,26 @@ def test_an_answered_question_comes_off_and_is_judged_by_the_read_back(
     # And the reply may then take the frame the question had.
     place_reply_clip_marker(item, key, "Green", "reply: done", "answered")
     assert (item.GetMarkers() or {})[key]["color"] == "Green"
+
+
+def test_pull_all_reads_every_timeline_without_switching(
+        tmp_path, resolve_project, scratch_timeline):
+    """`pull --all` carries a batch in one invocation: every timeline in
+    the project gets its own pull file, and the open timeline is never
+    switched to do it. Measured 2026-09-19, when the captain's 37
+    markers sat across 26 of 31 timelines and the open-timeline-only
+    pull could not carry them in one invocation."""
+    _, project, _ = resolve_project
+    open_before = project.GetCurrentTimeline().GetName()
+    assert scratch_timeline.AddMarker(
+        0, "Blue", "feedback", "pull-all probe", 1) is True
+    assert _pull_all(str(tmp_path), project) == 0
+    names = {payload.get("timeline")
+             for _, payload in pulled_files(str(tmp_path))}
+    assert scratch_timeline.GetName() in names
+    assert len(names) == project.GetTimelineCount()
+    assert project.GetCurrentTimeline().GetName() == open_before
+    probe = [n for _, payload in pulled_files(str(tmp_path))
+             for n in payload["notes"]
+             if n.get("note") == "pull-all probe"]
+    assert len(probe) == 1 and probe[0]["name"] == "feedback"

@@ -1133,6 +1133,31 @@ def _render(notes: list) -> str:
     return "\n".join(lines)
 
 
+def _pull_all(project_folder, project) -> int:
+    """Pull every timeline in the open Resolve project. Read-only.
+
+    Timelines are enumerated by index and each is read in place through
+    `pull`, which takes a shared (non-exclusive) lease per timeline.
+    The open timeline is never switched, so a read taken this way does
+    not disturb whoever has the project open. Every timeline gets its
+    own timestamped pull file - including ones with no notes, whose
+    file is the dated record that there was nothing to collect.
+    """
+    count = project.GetTimelineCount() or 0
+    total = 0
+    for index in range(1, count + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if not timeline:
+            continue
+        result = pull(project_folder, timeline, project)
+        notes = result["notes"]
+        total += len(notes)
+        print(f"✓ {timeline.GetName()}: {len(notes)} note(s) "
+              f"-> {result['path']}")
+    print(f"{total} note(s) across {count} timeline(s)")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(
         prog="python3 -m library.tools.marker_feedback",
@@ -1144,6 +1169,14 @@ def main(argv=None) -> int:
         "pull", help="collect every note into <project>/marker_feedback/")
     p_pull.add_argument("--project", required=True,
                         help="the project folder to write the record into")
+    p_pull.add_argument(
+        "--all", action="store_true",
+        help="pull every timeline in the open Resolve project, not just "
+             "the open timeline. Read-only: timelines are enumerated by "
+             "index and read in place; the open timeline is never "
+             "switched. Measured 2026-09-19: the captain's 37 markers "
+             "sat across 26 of 31 timelines, and the open-timeline-only "
+             "pull could not carry them in one invocation.")
 
     p_show = sub.add_parser(
         "show", help="print the notes without writing anything")
@@ -1158,6 +1191,17 @@ def main(argv=None) -> int:
     p_check.add_argument("--project", required=True)
 
     args = parser.parse_args(argv)
+
+    if args.command == "pull" and args.all:
+        try:
+            resolve = connect_resolve()
+            project = resolve.GetProjectManager().GetCurrentProject()
+            if not project:
+                raise ResolveUnavailable("Resolve has no project open.")
+        except ResolveUnavailable as exc:
+            print(f"✗ {exc}", file=sys.stderr)
+            return 3
+        return _pull_all(args.project, project)
 
     try:
         timeline, project = current_timeline()

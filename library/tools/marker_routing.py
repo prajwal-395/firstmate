@@ -281,7 +281,42 @@ STEP_DECISIONS = (
         DELIVERY_PROMPT,
         terms=("passage", "passages", "script", "what he says",
                "what she says", "what they say", "the order", "speech",
-               "spoken", "talking", "narration"),
+               "spoken", "talking", "narration",
+               # The captain's own word for a recorded attempt - four of
+               # his 2026-09-19 notes say "two takes", "bad take" and
+               # nothing else in this table. A take that must go is a
+               # passage that must go, which is this step's decision.
+               "take", "takes",
+               # His 2026-09-19 words for cutting speech: audio "cut
+               # off" mid-word (Reels 09, 29), an answer "cut out"
+               # (Reel 10). Where each passage is cut from is this
+               # step's own owns-sentence, and no other step's terms
+               # name a cut boundary.
+               "cut off", "cut out",
+               # "says the same things over ... consolidated" (Reel 11)
+               # and "repitition of words" (Reel 08) - repetition the
+               # reel must lose is passage selection. Both of his
+               # misspellings are terms too, verbatim: the table matches
+               # his words, and his words include "repitition" and
+               # "repition".
+               "repetition", "repetitive", "repitition", "repition",
+               "consolidate", "consolidated", "consolidation",
+               # "fluf to remove where akshita messes up and recovers"
+               # (Reel 03) - a stumbled passage she re-says. "fluf" is
+               # his spelling, verbatim; "flub" is the general case. The
+               # verb forms stay narrow on purpose: "messed up" describes
+               # broken OUTPUT ("the subtitles are messed up", Reels 05
+               # and 29 - owned by whatever is broken), while "messes
+               # up" with a speaker recovering describes the ATTEMPT,
+               # which is this step's decision.
+               "flub", "fluf", "messes up", "recover", "recovers",
+               # "no value add in the reel" (Reel 04), "no value prop
+               # given" (Reel 14). A reel's proposition is carried by
+               # what is said, so its absence is passage selection -
+               # with the Reel 04 demote-or-archive conditional left to
+               # the lane's judgement, since reel lifecycle is no DAG
+               # step's decision.
+               "value add", "value prop", "value proposition"),
     ),
     StepDecision(
         "music_selection", "2.04",
@@ -295,7 +330,13 @@ STEP_DECISIONS = (
         "each block's declared music behaviour",
         DELIVERY_PROMPT,
         terms=("pacing", "pace", "spine", "gap", "gaps", "silence",
-               "duck", "ducking", "too long", "too short", "drags"),
+               "duck", "ducking", "too long", "too short", "drags",
+               # "this whole segment seems to be mistakenly placed here"
+               # (Reel 13, 2026-09-19). Block order is this step's own
+               # owns-sentence; "segment" alone stays out on purpose,
+               # since subtitle and audio notes say it too. "mistakely"
+               # is his spelling on that note, verbatim.
+               "misplaced", "mistakenly placed", "mistakely placed"),
     ),
     StepDecision(
         "select_broll", "3.02",
@@ -317,7 +358,15 @@ STEP_DECISIONS = (
         "style the project and the template resolve to",
         DELIVERY_REPORT, _NO_PROMPT,
         terms=("subtitle", "subtitles", "caption", "captions",
-               "caption card", "caption cards"),
+               "caption card", "caption cards",
+               # Seven of his 2026-09-19 notes are about the words on
+               # screen - "CEO and CMO should be capitalized", "LA
+               # Fitness is a proper noun", a "qu" the transcript should
+               # filter out - without ever saying subtitle or caption.
+               # The transcript is what the captions are grouped from,
+               # so a note about its words is this step's decision.
+               "transcript", "capitalized", "capitalised",
+               "proper noun", "proper nouns"),
     ),
     StepDecision(
         "plan_transitions", "4.02",
@@ -363,7 +412,18 @@ STEP_DECISIONS = (
         terms=("overlay", "overlays", "motion graphic", "motion graphics",
                "lower third", "lower thirds", "label graphic", "name tag",
                "timed text", "text card", "end card", "intro card",
-               "outro card"),
+               "outro card",
+               # His 2026-09-19 words for the same layer: "can we use
+               # this animation in all of the CTA's", "this animation
+               # looks funny", "the bullets are mis-sized" (three reels).
+               # No other step's decision is about animations or bullets,
+               # so these name this one exactly. The CTA is this layer's
+               # element (Reel 09's note asks for its animation), so its
+               # name routes here too - including Reel 27's "this CTA
+               # doesn't make sense here", which questions the element's
+               # fit rather than the reel's words.
+               "animation", "animations", "bullet", "bullets",
+               "cta", "ctas", "call to action"),
     ),
     StepDecision(
         "color_grade", "5.01",
@@ -380,7 +440,14 @@ STEP_DECISIONS = (
         "own gain",
         DELIVERY_REPORT, _NO_PROMPT,
         terms=("volume", "levels", "the mix", "too loud", "too quiet",
-               "inaudible", "clipping"),
+               "inaudible", "clipping",
+               # His 2026-09-19 Reel 15 note: "only use the main audio
+               # channel" with "the other 3 audio channels bleeding".
+               # The bare word "channel" is refused on purpose - the
+               # motion-graphics roster owns a `channel_bug`, and a note
+               # about that overlay must not land on the mix. The full
+               # phrase names this step's decision and nothing else's.
+               "audio channel", "audio channels"),
     ),
     StepDecision(
         "compile_manifest", "5.04",
@@ -956,22 +1023,33 @@ def _pull_payloads(project_folder) -> list:
     return marker_feedback.pulled_files(project_folder)
 
 
-def route_project(project_folder) -> list:
+def route_project(project_folder, timelines=None) -> list:
     """Every collected note of this project, routed, oldest pull first.
 
     Deduplicated on the same identity `marker_feedback` uses for "have I
     already collected this" - the text, where it was typed and what is
     attached - so a note collected by three pulls is one routed note and
     the LATEST reading of it wins.
+
+    `timelines` scopes the routing to pull files from those timeline
+    names (exact match, AGENTS.md 5). Omitted, every pull file ever
+    written routes - including ones from staged, backed-up and archived
+    containers no timeline carries any more. Measured 2026-09-19: 94
+    pull files routed to 63 notes, of which 26 sat on dead containers
+    and 37 on the 31 live timelines. A rebuild wave acting on the
+    unscoped record works ghosts alongside the captain's current words.
     """
     from library.tools.marker_feedback import _attachment_identity
 
+    wanted = set(timelines or [])
     # Read once for the whole project: the ledger is one file and every
     # note is looked up in the same one.
     ledger = timeline_decisions.read_ledger(project_folder)
     seen: dict = {}
     order: list = []
     for path, payload in _pull_payloads(project_folder):
+        if wanted and payload.get("timeline", "") not in wanted:
+            continue
         for raw in payload.get("notes", []):
             identity = (
                 raw.get("source", ""), raw.get("name", ""),
@@ -1181,8 +1259,9 @@ def undelivered(routed_notes) -> list:
 
 # ── The durable record, and what the captain reads ──────────────────
 
-def routing_record(project_folder, routed_notes=None) -> dict:
-    routed_notes = (route_project(project_folder) if routed_notes is None
+def routing_record(project_folder, routed_notes=None, timelines=None) -> dict:
+    routed_notes = (route_project(project_folder, timelines=timelines)
+                    if routed_notes is None
                     else routed_notes)
     by_step: dict = {}
     for note in routed_notes:
@@ -1196,6 +1275,7 @@ def routing_record(project_folder, routed_notes=None) -> dict:
     return {
         "format": ROUTING_FORMAT,
         "routed_at": datetime.now(timezone.utc).isoformat(),
+        "timelines": sorted(timelines or []),
         "note_count": len(routed_notes),
         "counts": counts,
         "by_step": by_step,
@@ -1203,16 +1283,18 @@ def routing_record(project_folder, routed_notes=None) -> dict:
     }
 
 
-def write_record(project_folder, routed_notes=None) -> dict:
+def write_record(project_folder, routed_notes=None, timelines=None) -> dict:
     """Write the routing record and the report the captain reads.
 
     Both live beside the pull files in `<project>/marker_feedback/`.  The
     record is timestamped and never overwritten, for the same reason a
     pull file is not; the report is one file, regenerated, and says so.
+    `timelines` scopes both to those timeline names - see `route_project`.
     """
-    routed_notes = (route_project(project_folder) if routed_notes is None
-                    else routed_notes)
-    record = routing_record(project_folder, routed_notes)
+    if routed_notes is None:
+        routed_notes = route_project(project_folder, timelines=timelines)
+    record = routing_record(project_folder, routed_notes,
+                            timelines=timelines)
     layout = ProjectLayout(project_folder)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     path = layout.write_path(Area.MARKER_FEEDBACK,
@@ -1226,8 +1308,9 @@ def write_record(project_folder, routed_notes=None) -> dict:
     path.write_text(json.dumps(record, indent=2, ensure_ascii=False),
                     encoding="utf-8")
     report = layout.write_path(Area.MARKER_FEEDBACK, REPORT_FILENAME)
-    report.write_text(render_report(project_folder, routed_notes),
-                      encoding="utf-8")
+    report.write_text(
+        render_report(project_folder, routed_notes, timelines=timelines),
+        encoding="utf-8")
     return {"record": str(path), "report": str(report), "payload": record}
 
 
@@ -1354,10 +1437,10 @@ def _where(note: RoutedNote) -> str:
     return f"at a moment on the timeline, over: {names}"
 
 
-def render_report(project_folder, routed_notes=None) -> str:
+def render_report(project_folder, routed_notes=None, timelines=None) -> str:
     """The markdown the captain reads.  Generated; never hand-edited."""
-    routed_notes = (route_project(project_folder) if routed_notes is None
-                    else routed_notes)
+    if routed_notes is None:
+        routed_notes = route_project(project_folder, timelines=timelines)
     delivered = {}
     reached_nobody = {}
     for entry in deliveries(project_folder):
@@ -1384,6 +1467,12 @@ def render_report(project_folder, routed_notes=None) -> str:
         f"{len(routed_notes)} collected note(s).",
         "",
     ]
+    if timelines:
+        lines += [
+            f"Scoped to {len(timelines)} timeline(s); pulls from any other "
+            f"timeline name are not in this report.",
+            "",
+        ]
     if not routed_notes:
         lines.append("No notes have been collected. Run "
                      "`python3 -m library.tools.marker_feedback pull "
@@ -1539,21 +1628,32 @@ def main(argv=None) -> int:
     p_report = sub.add_parser(
         "report", help="print the routing, writing nothing")
     p_report.add_argument("--project", required=True)
+    p_report.add_argument(
+        "--timeline", action="append", default=[],
+        help="route only pulls from this timeline name (exact match, "
+             "repeatable). Left out, every pull file ever written routes, "
+             "including ones from timelines that no longer exist.")
     p_write = sub.add_parser(
         "write", help="write the routing record and ROUTED-NOTES.md")
     p_write.add_argument("--project", required=True)
+    p_write.add_argument(
+        "--timeline", action="append", default=[],
+        help="scope the record and the report to these timeline names "
+             "(exact match, repeatable).")
 
     args = parser.parse_args(argv)
     if args.command == "steps":
         _print_steps()
         return 0
 
-    routed = route_project(args.project)
+    scoped = list(args.timeline or [])
+    routed = route_project(args.project, timelines=scoped or None)
     if args.command == "report":
         _print_report(args.project, routed)
         return 0
 
-    result = write_record(args.project, routed)
+    result = write_record(args.project, routed,
+                          timelines=scoped or None)
     _print_report(args.project, routed)
     print()
     print(f"  -> {result['record']}")

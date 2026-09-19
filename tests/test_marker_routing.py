@@ -901,3 +901,165 @@ def test_route_project_hands_the_timelines_measurements_through(tmp_path):
     assert routed[0].timeline_start_frame == 108000
     assert marker_routing.note_span_seconds(routed[0]) == (
         pytest.approx(0.867, abs=0.002), pytest.approx(1.867, abs=0.002))
+
+
+# ── The 2026-09-19 batch: the captain's repeated words ────────────────
+
+def test_the_captains_september_words_route_to_their_steps():
+    """37 markers across 26 reels; 15 of them named no term in the table
+    while being plainly about a known step - seven about caption words
+    without ever saying subtitle or caption, four about takes, three
+    about animations and bullets, one about audio channels. Their own
+    phrasings, verbatim in shape, now name exactly one step each."""
+    for note, expected in (
+        ("CEO and CMO should be capitalized", "plan_subtitles"),
+        ("LA Fitness is a proper noun, please fix this", "plan_subtitles"),
+        ("the qu is pronounced in the audio but for the transcript it "
+         "should be filtered out", "plan_subtitles"),
+        ("two takes occur here saying the same thing", "speech_sequence"),
+        ("this area is a bad take, she says it more concisely in the "
+         "next clip", "speech_sequence"),
+        ("can we use this animation in all of the CTAs",
+         "render_motion_graphics"),
+        ("the bullets are mis-sized, please fix", "render_motion_graphics"),
+        ("only use the main audio channel, the other 3 audio channels "
+         "are bleeding", "audio_mix"),
+    ):
+        matched = marker_routing.matched_terms(note)
+        assert set(matched) == {expected}, (
+            f"{note!r} matched {sorted(matched)}")
+
+
+def test_the_september_terms_steal_no_other_steps_notes():
+    """A term added to one step must not start catching another's. The
+    bare word `channel` stays out on purpose - the motion-graphics
+    roster owns a `channel_bug`, and a note about that overlay must not
+    land on the mix; only the full phrase `audio channel` routes."""
+    for note, expected in (
+        ("that passage is repetitive", "speech_sequence"),
+        ("the captions drift", "plan_subtitles"),
+        ("the channel bug overlay never shows", "render_motion_graphics"),
+        ("the grade is too warm", "color_grade"),
+    ):
+        matched = marker_routing.matched_terms(note)
+        assert set(matched) == {expected}, (
+            f"{note!r} matched {sorted(matched)}")
+
+
+def test_take_plus_music_is_an_ambiguity_not_a_choice():
+    """`take the music down a touch` names two steps' decisions - the
+    verb this batch added to speech_sequence, and music_selection's own
+    noun. Ambiguous is the correct output here, not a tie-break."""
+    matched = marker_routing.matched_terms("take the music down a touch")
+    assert set(matched) == {"speech_sequence", "music_selection"}
+
+
+# ── Scoping a routing to the timelines that still exist ──────────────
+
+def _timeline_project(tmp_path, timelines):
+    layout = ProjectLayout(tmp_path)
+    for name, text in timelines:
+        path = layout.write_path(
+            Area.MARKER_FEEDBACK,
+            f"{name}.20260919T000000Z{PULL_FILE_SUFFIX}")
+        path.write_text(json.dumps({
+            "format": "marker_feedback/1", "timeline": name,
+            "notes": [dict(MOMENT_NOTE, name="feedback", note=text,
+                           text=text)],
+        }), encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_routing_scopes_to_named_timelines(tmp_path):
+    """94 pull files routed to 63 notes on 2026-09-19, of which 26 sat
+    on staged, backed-up and archived containers no timeline carries
+    any more. The unscoped record works ghosts alongside the captain's
+    current words; the scope keeps history on disk while routing the
+    live set."""
+    project = _timeline_project(tmp_path, [
+        ("Reel 01", "the live note"),
+        ("Reel 01 (batch-1050)", "the ghost note"),
+    ])
+    assert len(marker_routing.route_project(project)) == 2
+    scoped = marker_routing.route_project(project, timelines=["Reel 01"])
+    assert len(scoped) == 1
+    assert scoped[0].timeline == "Reel 01"
+    assert "the live note" in scoped[0].text
+
+
+def test_the_write_command_scopes_its_record_and_report(tmp_path):
+    project = _timeline_project(tmp_path, [
+        ("Reel 01", "the live note"),
+        ("Reel 01 (batch-1050)", "the ghost note"),
+    ])
+    assert marker_routing.main(
+        ["write", "--project", project, "--timeline", "Reel 01"]) == 0
+    directory = ProjectLayout(project).read_dir(Area.MARKER_FEEDBACK)
+    records = [p for p in directory.iterdir()
+               if p.name.endswith(marker_routing.ROUTING_FILE_SUFFIX)]
+    assert len(records) == 1
+    record = json.loads(records[0].read_text(encoding="utf-8"))
+    assert record["timelines"] == ["Reel 01"]
+    assert record["note_count"] == 1
+    report = (directory / marker_routing.REPORT_FILENAME).read_text(
+        encoding="utf-8")
+    assert "Scoped to 1 timeline(s)" in report
+    assert "the live note" in report
+    assert "the ghost note" not in report
+
+
+# ── The 2026-09-19 batch, second pass: the ten the table missed ───────
+
+def test_the_september_speech_cuts_route_to_speech_sequence():
+    """Ten of the 37 current notes came out UNROUTED; eight of them are
+    plainly about a known step. The speech cuts: audio "cut off"
+    mid-word, an answer "cut out", a stumbled "fluf", repetition to
+    consolidate, a reel with no value prop. All passage selection."""
+    for note, expected in (
+        ("there is some fluf to remove from here where akshita messes "
+         "up and recovers", "speech_sequence"),
+        ("the end of akshita's audio is cut off here, can you fix this",
+         "speech_sequence"),
+        ("there was an answer from akshita here that was cut out and it "
+         "makes the jump to craig feel wrong", "speech_sequence"),
+        ("akshita seems to kinda say the same things over in this span, "
+         "so it needs to be consolidated down properly",
+         "speech_sequence"),
+        ("there is not value add in the reel, this needs to be fixed",
+         "speech_sequence"),
+        ("there is like no value prop given in this reel",
+         "speech_sequence"),
+    ):
+        matched = marker_routing.matched_terms(note)
+        assert set(matched) == {expected}, (
+            f"{note!r} matched {sorted(matched)}")
+
+
+def test_the_september_spine_and_cta_notes_route():
+    """A "mistakenly placed" segment is block order (mesh_spine); a CTA
+    that "doesn't make sense here" questions this layer's element
+    (render_motion_graphics, per the Reel 09 CTA-animation precedent)."""
+    for note, expected in (
+        ("this whole segment seems to be mistakenly placed here, please "
+         "investigate and fix", "mesh_spine"),
+        ("i feel like this CTA technically doesn't make sense here",
+         "render_motion_graphics"),
+    ):
+        matched = marker_routing.matched_terms(note)
+        assert set(matched) == {expected}, (
+            f"{note!r} matched {sorted(matched)}")
+
+
+def test_the_september_leftovers_stay_unrouted_for_a_reason():
+    """Two of the 37 cannot be answered from vocabulary, and the table
+    must keep saying so rather than guessing. 'same "aics" problem
+    here' names its referent only by pointing at another note
+    (coreference, which no term can resolve); 'it's "Gemini" not "jim
+    and i"' is a bare quoted word-correction with no hook at all."""
+    for note in (
+        'same "aics" problem here',
+        '- it\'s "Gemini" not "jim and i"',
+    ):
+        assert marker_routing.matched_terms(note) == {}, (
+            f"{note!r} matched "
+            f"{sorted(marker_routing.matched_terms(note))}")
