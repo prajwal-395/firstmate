@@ -347,6 +347,28 @@ def enforce_min_duration(groups, min_dur=MIN_DISPLAY_DURATION):
 OVERLAP_EPSILON_SECONDS = 0.001
 
 
+def _ends_sentence(word: str) -> bool:
+    """Whether the word ends a sentence: terminal punctuation, last.
+
+    Narrower than the `_ends_a_thought` tiebreak the optimizer reads
+    (commas and colons split clauses a card routinely carries - Reel
+    12's "things to say, which" - while a period ends what the reader
+    may see). A card break is invisible timing; a period mid-card is a
+    visible defect (Reel 17, 2026-09-20), so the rule fires on sentence
+    terminals only and accepts the extra breaks it makes at
+    abbreviations ("e.g.") - each is handled by the same duration
+    remedy every short card already gets.
+    """
+    return bool(re.search(r"[.!?]$", word or ""))
+
+
+def _ends_sentence_text(text: str) -> bool:
+    """`_ends_sentence` on a card's last token, the only one that can
+    end what the card says."""
+    tokens = (text or "").rstrip().split()
+    return bool(tokens) and _ends_sentence(tokens[-1])
+
+
 def resolve_caption_overlaps(entries: list) -> dict:
     """One track, one card at a time - across the whole plan, not per block.
 
@@ -378,18 +400,27 @@ def resolve_caption_overlaps(entries: list) -> dict:
     nothing.  The later card keeps its timing exactly and only gains
     words, so one forward pass suffices - trimming shrinks an end and
     merging never moves a start, and neither can open a new overlap
-    with a card already walked past.
+    with a card already walked past.  The backward merge is the one
+    exception with the same property argued above: the joined card is
+    trimmed to the next card's start, removing exactly the overlap, so
+    the walk never revisits a pair.
 
     Returns what it did, so a run says so rather than doing it
-    invisibly.  A no-op on any plan whose cards already abut - which is
-    every master and every reel without a talk-over.
+    invisibly - `merged_backward` counts the sentence-final runts that
+    joined the card before them.  A no-op on any plan whose cards
+    already abut - which is every master and every reel without a
+    talk-over.
     """
     ordered = sorted(entries,
                      key=lambda e: (e["timeline_start"], e["timeline_end"]))
     trimmed = 0
     merged = 0
+    merged_backward = 0
     doomed: set = set()
-    for earlier, later in zip(ordered, ordered[1:]):
+    index = 0
+    while index < len(ordered) - 1:
+        earlier, later = ordered[index], ordered[index + 1]
+        index += 1
         if id(earlier) in doomed:
             continue
         overlap = earlier["timeline_end"] - later["timeline_start"]
@@ -397,31 +428,61 @@ def resolve_caption_overlaps(entries: list) -> dict:
             continue
         earlier["timeline_end"] = round(later["timeline_start"], 3)
         if (earlier["timeline_end"] - earlier["timeline_start"]
-                < MIN_CAPTION_FLASH_SECONDS):
-            later["text"] = f"{earlier['text']} {later['text']}".strip()
-            later["words"] = (list(earlier.get("words", []))
-                              + list(later.get("words", [])))
-            later["word_count"] = len(later["text"].split())
-            later["emphasis_words"] = identify_emphasis_words(later["text"])
-            # A card covers the words it carries: the merged card opens
-            # where its first word does - measured 2026-09-20 on Reel
-            # 06, where "Not at all." joined the next card but the card
-            # kept the later start and "Not" played with no caption
-            # over it. Same speaker only: one voice mistimed across two
-            # blocks is alignment slop, and its card is one voice. A
-            # mixed card keeps the later start, and the gates refuse
-            # the collision one track cannot serialize.
-            if (earlier.get("speaker") is not None
-                    and earlier.get("speaker") == later.get("speaker")):
-                later["timeline_start"] = min(later["timeline_start"],
-                                              earlier["timeline_start"])
+                >= MIN_CAPTION_FLASH_SECONDS):
+            trimmed += 1
+            continue
+        # A card that ends a thought must not join the sentence after
+        # it: forward-merging "the time." into "like what ..." puts
+        # the period mid-card (Reel 17, 2026-09-20). It joins the card
+        # before it instead, whose end is already at or before this
+        # card's start - so trimming the joined card to the next
+        # card's start removes exactly the overlap and opens no new
+        # one behind it. Only where that trim leaves a readable card
+        # and the voices match; otherwise the forward merge below.
+        previous = ordered[index - 2] if index >= 2 else None
+        if (
+            previous is not None
+            and id(previous) not in doomed
+            and _ends_sentence_text(earlier.get("text", ""))
+            and previous.get("speaker") == earlier.get("speaker")
+            and (later["timeline_start"] - previous["timeline_start"]
+                 >= MIN_CAPTION_FLASH_SECONDS)
+        ):
+            previous["text"] = (
+                f"{previous['text']} {earlier['text']}".strip())
+            previous["words"] = (list(previous.get("words", []))
+                                 + list(earlier.get("words", [])))
+            previous["timeline_end"] = round(later["timeline_start"], 3)
+            previous["word_count"] = len(previous["text"].split())
+            previous["emphasis_words"] = identify_emphasis_words(
+                previous["text"])
             doomed.add(id(earlier))
             merged += 1
-        else:
-            trimmed += 1
+            merged_backward += 1
+            continue
+        later["text"] = f"{earlier['text']} {later['text']}".strip()
+        later["words"] = (list(earlier.get("words", []))
+                          + list(later.get("words", [])))
+        later["word_count"] = len(later["text"].split())
+        later["emphasis_words"] = identify_emphasis_words(later["text"])
+        # A card covers the words it carries: the merged card opens
+        # where its first word does - measured 2026-09-20 on Reel
+        # 06, where "Not at all." joined the next card but the card
+        # kept the later start and "Not" played with no caption
+        # over it. Same speaker only: one voice mistimed across two
+        # blocks is alignment slop, and its card is one voice. A
+        # mixed card keeps the later start, and the gates refuse
+        # the collision one track cannot serialize.
+        if (earlier.get("speaker") is not None
+                and earlier.get("speaker") == later.get("speaker")):
+            later["timeline_start"] = min(later["timeline_start"],
+                                          earlier["timeline_start"])
+        doomed.add(id(earlier))
+        merged += 1
     if doomed:
         entries[:] = [entry for entry in entries if id(entry) not in doomed]
-    return {"trimmed": trimmed, "merged": merged}
+    return {"trimmed": trimmed, "merged": merged,
+            "merged_backward": merged_backward}
 
 
 def _clamp_stretched_words(words: list, min_display: float) -> list:
@@ -544,6 +605,17 @@ def split_into_groups(
             # draws that card smaller. This is the base case that makes a
             # partition always exist.
             return True
+        # A card ends where a thought ends, or mid-thought - never
+        # mid-new-thought. A word ending a sentence must end its card,
+        # so no partition the optimizer can choose carries a period
+        # mid-card (Reel 17, 2026-09-20). The runt this forces ("the
+        # time." at 0.21s) is the duration remedy's business, not a
+        # reason to straddle: `enforce_min_duration` extends it and the
+        # overlap pass joins it backward. Only sentence terminals
+        # constrain - commas split clauses a card routinely carries.
+        for k in range(i, j - 1):
+            if _ends_sentence(words[k]["word"]):
+                return False
         for k in range(i + 1, j):
             if words[k]["start"] - words[k - 1]["end"] > max_gap:
                 return False
@@ -625,8 +697,13 @@ def _merge_target(group: list, entry: dict, kept: list):
 
     Forward first, because a card clamped to nothing is almost always at
     the head of a block, and its words are the START of the sentence the
-    next card continues.
+    next card continues. Backward for a card that ends a thought:
+    forward-joining "time." onto "like what ..." puts the period
+    mid-card (Reel 17, 2026-09-20), while the previous card is the
+    sentence it closes.
     """
+    if kept and _ends_sentence_text(entry.get("text", "")):
+        return kept[-1]
     index = group.index(entry)
     for later in group[index + 1:]:
         if later.get("timeline_end", 0) - later.get("timeline_start", 0) \
@@ -1221,8 +1298,10 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
         print(
             f"NOTE: resolved {overlap_fix['trimmed']} overlapping caption "
             f"card(s) by ending them at the next card's first word and "
-            f"merged {overlap_fix['merged']} into the next card - two "
-            f"cards cannot cover the same seconds on one track",
+            f"merged {overlap_fix['merged']} - "
+            f"{overlap_fix.get('merged_backward', 0)} of them backward "
+            f"into the sentence they close - two cards cannot cover "
+            f"the same seconds on one track",
             file=sys.stderr,
         )
 

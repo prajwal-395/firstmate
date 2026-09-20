@@ -136,7 +136,7 @@ def test_a_trim_that_would_flash_merges_into_the_next_card():
          "word_count": 2, "spine_block_position": 4},
     ]
     fix = resolve_caption_overlaps(entries)
-    assert fix == {"trimmed": 0, "merged": 1}, fix
+    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0}, fix
     assert len(entries) == 1
     survivor = entries[0]
     assert survivor["id"] == "sub_4_001"
@@ -175,7 +175,7 @@ def test_same_speaker_merge_covers_its_first_word():
         "not at all.", [2.82, 2.97, 3.04], "i have seen", [2.98, 3.28, 3.42],
         2.82, 3.24, 2.98, 4.41, ("akshita", "akshita"))
     fix = resolve_caption_overlaps(entries)
-    assert fix == {"trimmed": 0, "merged": 1}, fix
+    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0}, fix
     assert len(entries) == 1
     survivor = entries[0]
     assert survivor["timeline_start"] == 2.82
@@ -192,7 +192,7 @@ def test_mixed_speaker_merge_keeps_the_later_start():
         "short tail", [14.0, 14.2], "google rewards", [14.2, 14.6],
         14.0, 14.4, 14.2, 16.0, ("akshita", "craig"))
     fix = resolve_caption_overlaps(entries)
-    assert fix == {"trimmed": 0, "merged": 1}, fix
+    assert fix == {"trimmed": 0, "merged": 1, "merged_backward": 0}, fix
     assert entries[0]["timeline_start"] == 14.2
 
 
