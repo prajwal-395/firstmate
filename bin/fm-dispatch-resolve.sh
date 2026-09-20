@@ -35,7 +35,14 @@
 #   floor, the rule's declared `approval` and `floor`, each profile's declared
 #   `provider` and `floor`, the quota rows from ONE quota-axi --json snapshot,
 #   and the spendPriority argmax over the eligible candidates. The model never
-#   sees quota, catalogs, approvals, `why`, or `use`. With no rules, it returns
+#   sees quota, catalogs, approvals, `why`, or `use`.
+#   When NO eligible candidate carries rankable quota, the DECLARED ORDER is the
+#   answer rather than a blocker: the first eligible profile wins and the result
+#   says so. A `use` array is written in rung order, and the spawn-time ladder
+#   gates (fm_agy_ladder_gate, fm_opencode_ladder_gate) own which rung actually
+#   launches and refuse when exhausted, so ranking an unmeasurable ladder here
+#   would override those gates rather than inform them. Escalation is reserved
+#   for no ELIGIBLE candidate at all, which quota evidence can still prove. With no rules, it returns
 #   a non-clear result so firstmate keeps using the existing intake.
 #   docs/configuration.md "Crew dispatch profiles" owns the declared fields and
 #   "Typed dispatch resolution" owns this tool's operator contract.
@@ -49,7 +56,7 @@
 #     profile: --harness <h> [--model <m>] [--effort <e>]     (status clear only)
 #   clear     -> pass the profile line to fm-spawn.sh unless you state a reason to override
 #   ambiguous -> confidence below the floor; decide as today from the probabilities
-#   escalate  -> the rule requires captain approval, no candidate is rankable, or a genuine tie
+#   escalate  -> the rule requires captain approval, no candidate is eligible, or a genuine tie
 #   error     -> API, network, response, or quota-axi failure; decide as today
 #   Every outcome exits 0 so an intake is never blocked by this tool.
 #   Exit 2 only for a usage or configuration error (unreadable brief, an
@@ -419,7 +426,13 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg run
     ($sel.use | map(evaluate(.))) as $cands |
     ([$cands[] | select(.eligible and ((.unranked // false) | not))]) as $elig |
     ([$cands[] | select(.unranked)]) as $unranked |
-    if ($elig | length) == 0 then $ev + {status: "escalate", reason: "no rankable eligible candidate", note: $sel.note, candidates: $cands}
+    ([$cands[] | select(.eligible)]) as $usable |
+    if ($elig | length) == 0 then
+      (if ($usable | length) == 0
+       then $ev + {status: "escalate", reason: "no eligible candidate", note: $sel.note, candidates: $cands}
+       else $ev + {status: "clear", note: $sel.note, candidates: $cands, chosen: ($usable | first),
+                   unranked_note: "no candidate carries rankable quota (\([$usable[].provider] | unique | join(", "))); taking the FIRST DECLARED eligible profile in rung order, which the spawn-time ladder gate then owns"}
+       end)
     else
       ($elig | max_by(.spendPriority)) as $best |
       ([$elig[] | select(.spendPriority == $best.spendPriority)] | length) as $ties |

@@ -514,15 +514,38 @@ assert_contains "$out" '  status: escalate' "tie escalates"
 assert_contains "$out" '  reason: genuine spendPriority tie' "tie is named"
 pass "tie: equal spendPriority never breaks by array order"
 
-# --- nothing rankable escalates -------------------------------------------------
+# --- nothing ELIGIBLE escalates -------------------------------------------------
 reset_log
 NONE="$TMP_ROOT/none.json"
 jq '.providers |= map(if .provider == "cursor" or .provider == "claude" then .quotaSemantics.effectiveAvailability |= map(.runway.status = "exhausted_now") else . end)' "$QUOTA" > "$NONE"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$NONE" run code out err "$BRIEF"
-assert_contains "$out" '  status: escalate' "no rankable candidate escalates"
-assert_contains "$out" '  reason: no rankable eligible candidate' "no-candidate reason"
+assert_contains "$out" '  status: escalate' "no eligible candidate escalates"
+assert_contains "$out" '  reason: no eligible candidate' "no-candidate reason"
 assert_contains "$out" '-> not eligible: runway exhausted_now' "exhausted candidates keep their reason"
-pass "no rankable candidate: the tool escalates instead of guessing"
+assert_not_contains "$out" '  profile:' "an all-ineligible result emits no profile line"
+pass "no eligible candidate: the tool escalates instead of guessing"
+
+# --- eligible but UNRANKABLE resolves in declared rung order --------------------
+# A use array is written in rung order and the spawn-time ladder gates own which
+# rung launches, so unmeasurable quota must not discard the author's order.
+reset_log
+UNRANKED="$TMP_ROOT/unranked.json"
+jq '.providers |= map(.quotaSemantics.status = "unknown" | .quotaSemantics.effectiveAvailability = [])' "$QUOTA" > "$UNRANKED"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$UNRANKED" run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "unrankable but eligible candidates still resolve"
+assert_contains "$out" 'taking the FIRST DECLARED eligible profile in rung order' "the result says why it chose by order"
+assert_contains "$out" '  profile:' "an unrankable resolution still emits a profile line"
+pass "unrankable: declared rung order decides rather than blocking the intake"
+
+# --- an exhausted FIRST rung is skipped, not taken by position ------------------
+# Order decides only among candidates quota has not ruled out.
+reset_log
+FIRSTDEAD="$TMP_ROOT/firstdead.json"
+jq '.providers |= map(if .provider == "claude" then (.quotaSemantics.effectiveAvailability |= map(.runway.status = "exhausted_now")) else (.quotaSemantics.status = "unknown" | .quotaSemantics.effectiveAvailability = []) end)' "$QUOTA" > "$FIRSTDEAD"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$FIRSTDEAD" run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "a dead first rung does not block the rest"
+assert_not_contains "$out" "  profile: --harness 'claude'" "the exhausted first rung is never the chosen profile"
+pass "rung order: a candidate quota has ruled out is skipped, not chosen by position"
 
 # --- quota-axi is read exactly once --------------------------------------------
 reset_log
