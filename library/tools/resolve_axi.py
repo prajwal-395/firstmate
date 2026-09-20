@@ -1,4 +1,4 @@
-"""resolve-axi: agent-ergonomic reads (and one guarded write) over the live Resolve session.
+"""resolve-axi: agent-ergonomic reads (and guarded writes) over the live Resolve session.
 
 The captain's ask: unify the hand-written-script-through-MCP paths that
 drive DaVinci Resolve every day into one command surface, in TOON rather
@@ -12,18 +12,27 @@ refused), `markers` (both marker planes in one call),
 `markers snapshot`/`restore`/`reply` (content round-trip, dry-run
 default), `items` (with `--transforms`), `captions`, `fusion` (comp
 coverage per clip), `cursor` (the global cursor made visible
-and assertable), `frames` (frame counts for drift checks).
+and assertable), `frames` (frame counts for drift checks), `run`
+(the cheap escape hatch: a caller script with ready Resolve names
+in scope, its `result` rendered as TOON rows).
 
 Safety shape, stated once:
 
-- Every command here is READ-ONLY except `markers restore --apply`
-  and `markers reply --apply`.
+- Every command here is READ-ONLY except `markers restore --apply`,
+  `markers reply --apply`, and `run --unsafe`.
 - Nothing here opens or creates a project or timeline, and nothing
   moves the current-timeline cursor: listing and reading go through
   `GetTimelineByIndex`, never `SetCurrentTimeline`. Opening something
   is a write to the captain's session.
-- Reads hold the Resolve lease SHARED (`exclusive=False`); the two
-  writes hold it EXCLUSIVE and assert the cursor first.
+- Reads hold the Resolve lease SHARED (`exclusive=False`); the three
+  writes hold it EXCLUSIVE. `restore --apply` and `reply --apply`
+  refuse unless the cursor already sits on the reel; `run --unsafe`
+  reports the cursor before and after the script instead (an arbitrary
+  script owns its own cursor, so there is nothing to assert it against).
+- `run` without `--unsafe` refuses scripts that call Resolve writers
+  (a prefix rule over mutator verbs, stated at `_RUN_WRITE_PREFIXES`).
+  Reads must still never move the cursor, and the AST test still holds
+  for everything that is not a declared write.
 - `markers restore` defaults to a dry-run diff. `--apply` is the
   explicit flag, and it restores the TIMELINE plane only; clip/pool
   rows are compared but reported as needing a hand pass (see
@@ -48,6 +57,7 @@ Output contract (axi.md principles 1-6, 9-10):
 from __future__ import annotations
 
 import argparse
+import ast
 import csv
 import io
 import json
@@ -55,7 +65,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
 
@@ -1025,6 +1035,242 @@ def _readable(item) -> bool:
         return False
 
 
+# ── run: the cheap escape hatch ──────────────────────────────────
+
+
+#: Resolve mutators refused by `run` unless `--unsafe` is passed.
+#: Reads in this API are `Get*`; every mutator starts with one of
+#: these prefixes, so the rule is a prefix match rather than an
+#: enumeration of an open-ended API: owning the serialization cost
+#: does not require listing what the scripting API can do.
+_RUN_WRITE_PREFIXES = ("Set", "Add", "Create", "Delete", "Import",
+                       "Move", "Update", "Apply", "Replace", "Remove",
+                       "Clear", "Load", "Close", "Open", "Duplicate",
+                       "Start", "Stop", "Copy", "Paste", "Undo", "Save",
+                       "Export", "Render", "Grab")
+
+#: What a `run` script may assume in scope. This list is exact: the
+#: script is `exec`d with exactly these names (plus what Python puts
+#: there itself), so a script that is only the `result = ...` line
+#: needs no boilerplate at all.
+RUN_SCOPE = ("resolve", "manager", "project", "project_name",
+             "timeline", "timeline_name", "is_current",
+             "timeline_names", "by_index", "read_notes")
+
+#: Columns kept when a script returns wide dicts. Past this the table
+#: names the overflow and points at `--json`: a TOON table with fifty
+#: columns is not cheaper than the JSON it replaces.
+RUN_MAX_COLUMNS = 12
+
+
+def _refused_resolve_writes(script: str) -> list:
+    """Mutator attribute names in a `run` script, in first-seen order.
+
+    A `SyntaxError` is an `AxiError` (the script never runs); anything
+    else returns the offending names, possibly empty. String literals
+    never match: only attribute calls (`timeline.AddMarker(...)`) do,
+    so a script that merely MENTIONS a writer in a comment still runs.
+    """
+    try:
+        tree = ast.parse(script)
+    except SyntaxError as exc:
+        raise AxiError(f"script would not parse ({exc}).",
+                       f"{TOOL} run --help") from exc
+    hits = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            name = node.attr
+            if name.startswith(_RUN_WRITE_PREFIXES):
+                if name not in hits:
+                    hits.append(name)
+    return hits
+
+
+def _run_cell(value, full: bool) -> tuple:
+    """One result cell under the same truncation discipline as markers.
+
+    Returns `(text, truncated)`: `text` is already truncated unless
+    `full`, so `table()` quoting is the only further shaping.
+    """
+    text = _cell(value)
+    if full or len(text) <= NOTE_PREVIEW_CHARS:
+        return text, False
+    return (f"{text[:NOTE_PREVIEW_CHARS]}... "
+            f"(truncated, {len(text)} chars total - use --full)"), True
+
+
+def _run_parts(result, full: bool, as_json: bool) -> list:
+    """Render a `run` script's `result` as TOON (or JSON on request)."""
+    if as_json:
+        try:
+            return [json.dumps(result, indent=2, default=str,
+                               ensure_ascii=False)]
+        except (TypeError, ValueError) as exc:
+            raise AxiError(f"result would not serialize to JSON ({exc}).",
+                           f"{TOOL} run --help") from exc
+    if result is None:
+        return ["result: (no result - set `result = ...` in the script)"]
+    if isinstance(result, dict):
+        pairs, truncated = {}, 0
+        for key, value in result.items():
+            text, cut = _run_cell(value, full)
+            pairs[key] = text
+            truncated += cut
+        meta = (f"{truncated} cells truncated - re-run with --full"
+                if truncated and not full else "")
+        return [kv_block("result", pairs), meta]
+    if isinstance(result, (list, tuple)):
+        rows = list(result)
+        if not rows:
+            return ["result: 0 rows"]
+        if all(isinstance(row, dict) for row in rows):
+            cols = []
+            for row in rows:
+                for key in row:
+                    if key not in cols:
+                        cols.append(key)
+            overflow = ""
+            if len(cols) > RUN_MAX_COLUMNS:
+                overflow = (f"+{len(cols) - RUN_MAX_COLUMNS} more "
+                            f"columns ({cols[RUN_MAX_COLUMNS:]}) - "
+                            f"use --json for the wide shape")
+                cols = cols[:RUN_MAX_COLUMNS]
+            shaped, truncated = [], 0
+            for row in rows:
+                shaped_row = {}
+                for col in cols:
+                    text, cut = _run_cell(row.get(col), full)
+                    shaped_row[col] = text
+                    truncated += cut
+                shaped.append(shaped_row)
+            meta = (f"{truncated} cells truncated - re-run with --full"
+                    if truncated and not full else "")
+            return [table("result", shaped, cols), overflow, meta]
+        shaped, truncated = [], 0
+        for value in rows:
+            text, cut = _run_cell(value, full)
+            shaped.append({"value": text})
+            truncated += cut
+        meta = (f"{truncated} cells truncated - re-run with --full"
+                if truncated and not full else "")
+        return [table("result", shaped, ["value"]), meta]
+    text, cut = _run_cell(result, full)
+    return [kv_block("result", {"value": text}),
+            ("re-run with --full for the whole value"
+             if cut and not full else "")]
+
+
+def cmd_run(args) -> int:
+    """Execute a caller script with ready Resolve names, render `result`.
+
+    The point is NOT to enumerate the scripting API: it is that an
+    arbitrary script stops costing arbitrary tokens. The script runs
+    with exactly `RUN_SCOPE` in scope (documented above and in
+    `--help`), and whatever it leaves in `result` renders as TOON rows
+    under the same truncation discipline as every other command
+    (`--full` and `--json` escape it).
+
+    Safety, stated plainly:
+
+    - Default is a READ: the script is AST-scanned for Resolve writers
+      (`_RUN_WRITE_PREFIXES`) and refused loudly when one appears.
+    - `--unsafe` is the declared write path: it skips the refusal,
+      holds the Resolve lease EXCLUSIVE, and reports the cursor before
+      and after (an arbitrary script owns its own cursor, so there is
+      nothing to assert it against). Reads must still never move the
+      cursor, and nothing in this module moves it either way.
+    """
+    if args.script and args.file:
+        return fail("pass --script or --file, not both.",
+                    f"{TOOL} run --help")
+    if args.file:
+        try:
+            with open(args.file, encoding="utf-8") as handle:
+                script = handle.read()
+        except OSError as exc:
+            return fail(f"cannot read script file {args.file!r} ({exc}).",
+                        f"{TOOL} run --script \"result = ...\"")
+    elif args.script:
+        script = args.script
+    else:
+        return fail("run needs a script: --script \"result = ...\" "
+                    "or --file <path>.",
+                    f"{TOOL} run --help")
+    try:
+        refused = _refused_resolve_writes(script)
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    if refused and not args.unsafe:
+        return fail(
+            f"script calls Resolve writers ({', '.join(refused)}) - "
+            f"run is read-only by default.",
+            f"{TOOL} run --timeline \"<name>\" --file <path> --unsafe "
+            f"to declare the write")
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.unsafe):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        from library.tools import marker_feedback
+        from library.tools.marker_feedback import current_timeline
+        try:
+            open_timeline, _ = current_timeline(resolve)
+            cursor_before = open_timeline.GetName()
+        except Exception:
+            cursor_before = "(none open)"
+        scope = {
+            "resolve": resolve,
+            "manager": resolve.GetProjectManager(),
+            "project": project,
+            "project_name": project.GetName(),
+            "timeline": timeline,
+            "timeline_name": timeline.GetName(),
+            "is_current": is_current,
+            "timeline_names": _timeline_names(project),
+            "by_index": project.GetTimelineByIndex,
+            "read_notes": marker_feedback.read_notes,
+        }
+        sandbox = dict(scope)
+        try:
+            exec(compile(script, "<resolve-axi run>", "exec"), sandbox)  # noqa: S102
+        except Exception as exc:
+            return fail(f"script raised {type(exc).__name__}: {exc}.",
+                        f"{TOOL} run --help")
+        result = sandbox.get("result")
+        try:
+            open_after, _ = current_timeline(resolve)
+            cursor_after = open_after.GetName()
+        except Exception:
+            cursor_after = "(none open)"
+        try:
+            rendered = _run_parts(result, args.full, args.json)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+    meta = {"timeline": timeline.GetName() +
+            (" (current)" if is_current else ""),
+            "unsafe": "yes" if args.unsafe else "no"}
+    if args.unsafe:
+        meta["cursor_before"] = cursor_before
+        meta["cursor_after"] = cursor_after
+        meta["cursor_moved"] = ("yes" if cursor_before != cursor_after
+                                else "no")
+    out = [kv_block("run", meta), note] + rendered
+    if args.unsafe and cursor_before != cursor_after:
+        out.append(f"cursor moved: {cursor_before!r} -> "
+                   f"{cursor_after!r}")
+    out.append(help_block([f"{TOOL} timeline list",
+                           f"{TOOL} markers --timeline "
+                           f"\"{timeline.GetName()}\""]))
+    emit(out)
+    return 0
+
+
 # ── setup / update ───────────────────────────────────────────────────
 
 
@@ -1109,7 +1355,8 @@ def build_parser() -> Parser:
   {TOOL} markers --timeline "Reel 13 - moment"
   {TOOL} markers snapshot --timeline "Reel 13 - moment" --out /tmp/m.json
   {TOOL} cursor --expect "Reel 13 - moment"
-  {TOOL} frames --timeline "Reel 13 - moment\"""")
+  {TOOL} frames --timeline "Reel 13 - moment"
+  {TOOL} run --timeline "Reel 29" --script "result = timeline_names\"""")
     subs = parser.add_subparsers(dest="command")
 
     p = subs.add_parser("timeline", help="list timelines or get one by "
@@ -1214,6 +1461,36 @@ def build_parser() -> Parser:
     p = subs.add_parser("frames", help="frame counts for drift checks")
     _add_scope(p, "frames")
     p.set_defaults(func=cmd_frames)
+
+    p = subs.add_parser(
+        "run",
+        help="execute a caller script with ready Resolve names; "
+             "`result` renders as TOON (read-only unless --unsafe)",
+        description=(
+            "The cheap escape hatch: the script runs with exactly "
+            "these names in scope - resolve, manager, project, "
+            "project_name, timeline, timeline_name, is_current, "
+            "timeline_names, by_index, read_notes - and whatever it "
+            "leaves in `result` renders as TOON rows under the same "
+            "truncation discipline as every other command. A list of "
+            "dicts renders as a typed table; --full and --json escape "
+            "the truncation. Without --unsafe the script is AST-scanned "
+            "for Resolve writers and refused when one appears; --unsafe "
+            "declares the write, holds the exclusive lease, and reports "
+            "the cursor before and after."))
+    _add_scope(p, "run")
+    p.add_argument("--script", default="",
+                   help="inline script; set `result = ...`")
+    p.add_argument("--file", default="",
+                   help="read the script from this file")
+    p.add_argument("--full", action="store_true",
+                   help="no per-cell truncation")
+    p.add_argument("--json", action="store_true",
+                   help="emit result as JSON instead of TOON")
+    p.add_argument("--unsafe", action="store_true",
+                   help="allow Resolve writers; holds the exclusive "
+                        "lease and reports cursor before/after")
+    p.set_defaults(func=cmd_run)
 
     p = subs.add_parser("setup", help="session integrations")
     ssubs = p.add_subparsers(dest="setup_command", required=True)

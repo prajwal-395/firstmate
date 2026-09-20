@@ -32,6 +32,7 @@ from library.tools.resolve_axi import (
     cmd_markers_reply,
     cmd_markers_restore,
     cmd_markers_snapshot,
+    cmd_run,
     cmd_timeline_get,
     cmd_timeline_list,
     table,
@@ -653,6 +654,160 @@ def test_reply_apply_refuses_foreign_cursor(patched, notes, monkeypatch,
     assert cmd_markers_reply(_reply_ns(apply=True)) == 1
     assert "cursor sits on" in capsys.readouterr().out
     assert patched["timeline"].added == []
+
+
+# ── run: the cheap escape hatch ────────────────────────────────────
+
+
+def _run_ns(**over):
+    base = {"project": "", "timeline": "Reel 29 - salvage",
+            "script": "", "file": "", "full": False, "json": False,
+            "unsafe": False}
+    base.update(over)
+    return _ns(**base)
+
+
+def test_run_renders_list_of_dicts_as_table(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="result = [{\"name\": n} for n in timeline_names]"
+    )) == 0
+    out = capsys.readouterr().out
+    assert "result[2]{name}:" in out
+    assert "Reel 29 - salvage" in out
+
+
+def test_run_scope_names(patched, notes, monkeypatch, capsys):
+    """The preamble is exactly RUN_SCOPE: no boilerplate in the script."""
+    import library.tools.marker_feedback as feedback
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        note="hi")]
+    reel = patched["timeline"]
+    monkeypatch.setattr(feedback, "current_timeline",
+                        lambda resolve=None: (reel, patched["project"]))
+    assert cmd_run(_run_ns(
+        timeline="",
+        script="result = {" 
+               "\"project\": project_name, "
+               "\"timeline\": timeline_name, "
+               "\"current\": is_current, "
+               "\"notes\": len(read_notes(timeline)), "
+               "\"second\": by_index(2).GetName()}"
+    )) == 0
+    out = capsys.readouterr().out
+    assert "project: Podcast (field test)" in out
+    assert "timeline: Reel 29 - salvage" in out
+    assert "current: true" in out
+    assert "notes: 1" in out
+    assert "Reel 29 - salvage (rebuild staging)" in out
+    # The scope the script saw is exactly the documented one.
+    assert set(resolve_axi.RUN_SCOPE) == {
+        "resolve", "manager", "project", "project_name",
+        "timeline", "timeline_name", "is_current",
+        "timeline_names", "by_index", "read_notes"}
+
+
+def test_run_no_result_says_so(patched, capsys):
+    assert cmd_run(_run_ns(script="x = 1")) == 0
+    assert "no result" in capsys.readouterr().out
+
+
+def test_run_truncation_names_escape_hatch(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="result = [{\"note\": \"x\" * 600}]")) == 0
+    out = capsys.readouterr().out
+    assert "(truncated, 600 chars total - use --full)" in out
+    assert cmd_run(_run_ns(
+        script="result = [{\"note\": \"x\" * 600}]", full=True)) == 0
+    out = capsys.readouterr().out
+    assert "(truncated," not in out
+    assert "x" * 100 in out
+
+
+def test_run_json_escapes_to_json(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="result = [{\"name\": timeline_name}]",
+        json=True)) == 0
+    out = capsys.readouterr().out
+    assert '"Reel 29 - salvage"' in out
+    # JSON shape, not a TOON table.
+    assert "result[1]" not in out
+
+
+def test_run_refuses_writers_by_default(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="timeline.AddMarker(20, 'Blue', 'n', 'w', 1, '')\n"
+               "result = {'placed': True}")) == 1
+    out = capsys.readouterr().out
+    assert "AddMarker" in out
+    assert "--unsafe" in out
+    # Nothing was written on the refusal path.
+    assert patched["timeline"].added == []
+
+
+def test_run_mention_is_not_a_call(patched, capsys):
+    """A string that NAMES a writer is not a writer call."""
+    assert cmd_run(_run_ns(
+        script="result = [{'note': 'AddMarker is mentioned'}]")) == 0
+    assert "AddMarker is mentioned" in capsys.readouterr().out
+
+
+def test_run_syntax_error_fails_loud(patched, capsys):
+    assert cmd_run(_run_ns(script="result = [")) == 1
+    assert "would not parse" in capsys.readouterr().out
+
+
+def test_run_exception_fails_loud(patched, capsys):
+    assert cmd_run(_run_ns(script="raise ValueError('boom')")) == 1
+    assert "ValueError: boom" in capsys.readouterr().out
+
+
+def test_run_unsafe_writes_under_exclusive_lease(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="timeline.AddMarker(20, 'Blue', 'note', 'new words', 1, '')\n"
+               "result = {'placed': True}",
+        unsafe=True)) == 0
+    out = capsys.readouterr().out
+    assert "unsafe: yes" in out
+    assert "cursor_before: Reel 29 - salvage" in out
+    assert "cursor_after: Reel 29 - salvage" in out
+    assert "cursor_moved: no" in out
+    assert patched["timeline"].added == [
+        (20, "Blue", "note", "new words", 1, "")]
+
+
+def test_run_unsafe_reports_cursor_movement(patched, monkeypatch, capsys):
+    import library.tools.marker_feedback as feedback
+    other = _Timeline("Reel 16 - other")
+    monkeypatch.setattr(feedback, "current_timeline",
+                        lambda resolve=None: (other, None))
+    # A read-only script under --unsafe still reports the (foreign)
+    # cursor it ran beside.
+    assert cmd_run(_run_ns(
+        script="result = [{'name': timeline_name}]",
+        unsafe=True)) == 0
+    out = capsys.readouterr().out
+    assert "cursor_before: Reel 16 - other" in out
+
+
+def test_run_wide_dicts_point_at_json(patched, capsys):
+    wide = ", ".join(f"\"k{i}\": {i}" for i in range(15))
+    assert cmd_run(_run_ns(
+        script="result = [{" + wide + "}]")) == 0
+    out = capsys.readouterr().out
+    assert "+3 more columns" in out
+    assert "--json" in out
+
+
+def test_run_needs_a_script(patched, capsys):
+    assert cmd_run(_run_ns()) == 1
+    assert "--script" in capsys.readouterr().out
+
+
+def test_run_main_routes_with_scope_flags(patched, capsys):
+    assert resolve_axi.main([
+        "run", "--timeline", "Reel 29 - salvage",
+        "--script", "result = timeline_names"]) == 0
+    assert "result[2]{value}:" in capsys.readouterr().out
 
 
 # ── Output format ────────────────────────────────────────────────────
