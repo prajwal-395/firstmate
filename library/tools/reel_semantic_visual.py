@@ -405,6 +405,16 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
                     "segments": []}
     reel_seconds = sum(max(0.0, end - start) for start, end in (ranges or []))
     brand_style, brand_effect = _brand_slots(project_folder)
+    from library.tools import reel_cta_treatment as cta_rx
+    # The captain's declared CTA treatment (external/reel_cta.json),
+    # normalised into the answer BEFORE resolve_plan times and validates
+    # it - so a re-rendered card keeps the plan's own copy and timing
+    # and only the treatment is unified. No declaration, no CTA, an
+    # out-of-scope CTA, or no positionable card entry passes the answer
+    # through untouched.
+    answer, cta_report = cta_rx.apply(
+        answer, moment, collect_word_windows(spine), project_folder)
+    cta_rx.report(name, cta_report)
     from library.tools.brand_palette import roles_from_palette
     safe_area = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
