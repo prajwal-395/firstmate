@@ -120,46 +120,10 @@ def _render(out_dir):
 
 
 def _body_heights(png_path):
-    """One body height per text line, in pixels.
+    """One body height per text line, in pixels (see mg_bullet_measure)."""
+    from library.tools.mg_bullet_measure import body_heights
 
-    Lit rows group into bands (one per item); within a band each
-    connected ink component is one glyph, and the x-height glyphs are
-    the numerous short ones - caps, ascenders and descenders are the
-    tall minority. The median of the lower half of component heights
-    is the size the eye reads, robust to which letters each item
-    happens to contain.
-    """
-    import numpy as np
-    from PIL import Image
-    from scipy import ndimage
-
-    image = np.asarray(Image.open(png_path).convert("RGB")).astype(int)
-    lit = image.sum(axis=2) > 300
-    rows = lit.any(axis=1)
-    bands = []
-    start = None
-    for y, hit in enumerate(rows):
-        if hit and start is None:
-            start = y
-        elif not hit and start is not None:
-            if y - start >= 3:
-                bands.append((start, y - 1))
-            start = None
-    if start is not None:
-        bands.append((start, len(rows) - 1))
-    bodies = []
-    for low, high in bands:
-        band = lit[low : high + 1, :]
-        labels, _ = ndimage.label(band)
-        found = ndimage.find_objects(labels)
-        heights = sorted(
-            (box[0].stop - box[0].start)
-            for box in found
-            if (labels[box] > 0).sum() >= 15
-        )
-        assert heights, f"no glyphs in band {low}-{high}"
-        bodies.append(heights[len(heights) // 2])
-    return bodies
+    return body_heights(png_path)
 
 
 @pytest.fixture(scope="module")
