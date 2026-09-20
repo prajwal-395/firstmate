@@ -403,6 +403,13 @@ def place_overlay_segment(media_pool, timeline, pool_item,
     note)`: `placed` is False only when `AppendToTimeline` itself
     fails; a refused transform still places, with the refusal in
     `note` for the caller to warn on.
+
+    `source_out_frame` is EXCLUSIVE - the frame count past
+    `source_in_frame`, not the last played frame. `GetSourceEndFrame`
+    reports the INCLUSIVE last frame, so re-placing a clip from its
+    own read-back needs `+ 1` (measured 2026-09-20: re-placing
+    [0, 167] played 167f, not 168). The build passes
+    `source_out_frame=seg_frames` for the same reason.
     """
     name = label or "overlay"
     try:
