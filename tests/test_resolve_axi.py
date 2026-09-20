@@ -661,8 +661,8 @@ def test_reply_apply_refuses_foreign_cursor(patched, notes, monkeypatch,
 
 def _run_ns(**over):
     base = {"project": "", "timeline": "Reel 29 - salvage",
-            "script": "", "file": "", "full": False, "json": False,
-            "unsafe": False}
+            "script": "", "script_pos": "", "file": "", "full": False,
+            "json": False, "unsafe": False}
     base.update(over)
     return _ns(**base)
 
@@ -807,6 +807,63 @@ def test_run_main_routes_with_scope_flags(patched, capsys):
     assert resolve_axi.main([
         "run", "--timeline", "Reel 29 - salvage",
         "--script", "result = timeline_names"]) == 0
+    assert "result[2]{value}:" in capsys.readouterr().out
+
+
+def test_run_bare_positional_script(patched, capsys):
+    """`run "result = ..."` is the obvious shape - it works."""
+    assert resolve_axi.main([
+        "run", "--timeline", "Reel 29 - salvage",
+        "result = timeline_names"]) == 0
+    assert "result[2]{value}:" in capsys.readouterr().out
+
+
+def test_run_positional_and_flag_conflict(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="result = 1", script_pos="result = 2")) == 1
+    assert "not both" in capsys.readouterr().out
+
+
+def test_run_refusal_echoes_the_form_used(patched, capsys):
+    """The --unsafe fix names the form the caller actually used."""
+    writer = ("timeline.AddMarker(20, 'Blue', 'n', 'w', 1, '')\n"
+              "result = {'placed': True}")
+    assert cmd_run(_run_ns(script=writer)) == 1
+    out = capsys.readouterr().out
+    assert "--script" in out
+    assert "--file" not in out
+    assert cmd_run(_run_ns(script_pos=writer)) == 1
+    out = capsys.readouterr().out
+    assert "--unsafe" in out
+    assert "--script" not in out and "--file" not in out
+
+
+def test_run_refusal_echoes_file_form(patched, tmp_path, capsys):
+    script_file = tmp_path / "q.py"
+    script_file.write_text(
+        "timeline.AddMarker(20, 'Blue', 'n', 'w', 1, '')\n"
+        "result = {'placed': True}", encoding="utf-8")
+    assert cmd_run(_run_ns(file=str(script_file))) == 1
+    out = capsys.readouterr().out
+    assert f"--file {script_file}" in out
+    assert "--script" not in out
+
+
+@pytest.mark.parametrize("command", ["markers", "items", "captions",
+                                     "frames", "fusion"])
+def test_positional_primary_args(patched, notes, command, capsys):
+    """The class, not the instances: every command taking one obvious
+    primary argument - a reel name for the reads, a script for `run` -
+    accepts it positionally. A future command built without a
+    positional fails here instead of on first real use."""
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        note="hi")]
+    assert resolve_axi.main([command, "Reel 29 - salvage"]) == 0
+    out = capsys.readouterr().out
+    assert "Reel 29 - salvage" in out
+    assert resolve_axi.main(
+        ["run", "--timeline", "Reel 29 - salvage",
+         "result = timeline_names"]) == 0
     assert "result[2]{value}:" in capsys.readouterr().out
 
 

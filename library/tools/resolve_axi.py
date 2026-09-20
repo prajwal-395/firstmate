@@ -52,6 +52,15 @@ Output contract (axi.md principles 1-6, 9-10):
   `--full` escape hatch.
 - `-v` / `-V` / `--version` answer from this leaf module before any
   heavy import runs.
+
+Command-shape rule (the round-2 lesson, stated as a rule after round 5
+broke it again): any command taking one obvious primary argument
+accepts it positionally. A bare timeline name routes onto `--timeline`
+for the read commands (`_BARE_TIMELINE_COMMANDS`, via `_normalize`);
+a bare script IS the script for `run`. `--timeline`/`--script`/`--file`
+keep working as the explicit forms. `test_positional_primary_args`
+enumerates the commands and asserts the shape, so the next command
+built without a positional fails here instead of on first real use.
 """
 
 from __future__ import annotations
@@ -1183,6 +1192,10 @@ def cmd_run(args) -> int:
     if args.script and args.file:
         return fail("pass --script or --file, not both.",
                     f"{TOOL} run --help")
+    if args.script_pos and (args.script or args.file):
+        return fail("pass the script positionally or with --script/--file,"
+                    " not both.",
+                    f"{TOOL} run --help")
     if args.file:
         try:
             with open(args.file, encoding="utf-8") as handle:
@@ -1190,21 +1203,28 @@ def cmd_run(args) -> int:
         except OSError as exc:
             return fail(f"cannot read script file {args.file!r} ({exc}).",
                         f"{TOOL} run --script \"result = ...\"")
+        unsafe_form = f"--file {args.file}"
     elif args.script:
         script = args.script
+        unsafe_form = "--script \"...\""
+    elif args.script_pos:
+        script = args.script_pos
+        unsafe_form = "\"...\""
     else:
-        return fail("run needs a script: --script \"result = ...\" "
-                    "or --file <path>.",
+        return fail("run needs a script: `run \"result = ...\"`, --script "
+                    "\"result = ...\", or --file <path>.",
                     f"{TOOL} run --help")
     try:
         refused = _refused_resolve_writes(script)
     except AxiError as exc:
         return fail(str(exc), exc.fix)
     if refused and not args.unsafe:
+        timeline_flag = (f"--timeline \"{args.timeline}\" "
+                         if args.timeline else "")
         return fail(
             f"script calls Resolve writers ({', '.join(refused)}) - "
             f"run is read-only by default.",
-            f"{TOOL} run --timeline \"<name>\" --file <path> --unsafe "
+            f"{TOOL} run {timeline_flag}{unsafe_form} --unsafe "
             f"to declare the write")
     try:
         resolve = _connect()
@@ -1356,7 +1376,8 @@ def build_parser() -> Parser:
   {TOOL} markers snapshot --timeline "Reel 13 - moment" --out /tmp/m.json
   {TOOL} cursor --expect "Reel 13 - moment"
   {TOOL} frames --timeline "Reel 13 - moment"
-  {TOOL} run --timeline "Reel 29" --script "result = timeline_names\"""")
+  {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
+  {TOOL} run --timeline "Reel 29" "result = timeline_names\"""")
     subs = parser.add_subparsers(dest="command")
 
     p = subs.add_parser("timeline", help="list timelines or get one by "
@@ -1479,6 +1500,8 @@ def build_parser() -> Parser:
             "declares the write, holds the exclusive lease, and reports "
             "the cursor before and after."))
     _add_scope(p, "run")
+    p.add_argument("script_pos", nargs="?", default="",
+                   help="the script itself (positional); sets `result = ...`")
     p.add_argument("--script", default="",
                    help="inline script; set `result = ...`")
     p.add_argument("--file", default="",

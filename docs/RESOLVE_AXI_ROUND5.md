@@ -63,14 +63,24 @@ round 1's caption finding, per shape rather than as an average.
 
 ### Recount (checkable, not competing)
 
-The brief measured 128 distinct files touching the Resolve API. Our
-recount at the same head, pattern `.(Get|Set|Create|Delete|Add|Import|
-Move|Update|Append|Duplicate|Load|Close|Open)[A-Za-z]*\(` over shipped
-code (`library/`, `resolve_scripts/`, `resolve_workflow_integration/`,
-`bin/`): **63 files**. Repo-wide including `tests/` and `docs/`: 113.
-The gap is scope (tests carry fakes plus nine live `*_against_resolve`
-suites; docs quote calls in prose), not disagreement about the shape:
-the fragmentation is internal, and the six hot methods confirm it.
+Three numbers exist; they differ by denominator, and each is stated
+with its own so the next reader can choose:
+
+- **63**: shipped code only (`library/`, `resolve_scripts/`,
+  `resolve_workflow_integration/`, `bin/`), pattern
+  `.(Get|Set|Create|Delete|Add|Import|Move|Update|Append|Duplicate|
+  Load|Close|Open)[A-Za-z]*\(`. This is the inventory's denominator:
+  it counts what can move the captain's session, which is what the
+  consolidation answers.
+- **113**: the same pattern repo-wide, adding `tests/` (fakes plus
+  nine live `*_against_resolve` suites) and `docs/` (prose quoting
+  calls). Useful for "where is this method mentioned", wrong for
+  "what can break a build".
+- **128** (round-3 audit): a wider sweep across the worktree that also
+  caught tests and vendored trees. Same shape, broader net - the
+  fragmentation claim holds under every denominator; the 63 is the
+  better figure for scoping the fix because it excludes code that
+  never touches a live session.
 
 ### Groups: shared layer exists-and-bypassed, partial, or genuinely none
 
@@ -143,3 +153,23 @@ fragmentation - the caution from the round-3 audit, kept.
   the firstmate repo, outside this worktree's isolation boundary. The
   PR body carries the exact ledger row and report-delta text for the
   supervisor to apply.
+
+## C. Round-5b: the steer (bare positional, the rule, the echoed form)
+
+Firstmate's live verification caught the round-2 defect recurring as
+the pattern rather than the instance: `run` shipped without a bare
+positional, so the obvious invocation failed at argparse. Fixed as the
+class, not a third instance:
+
+1. `run "result = ..."` works; `--script`/`--file` stay as the
+   explicit forms. Live-verified against the captain's project:
+   `run "result = timeline_names"` rendered `result[32]{value}` first
+   try, cursor unmoved.
+2. The lesson is now a RULE in the module docstring ("any command
+   taking one obvious primary argument accepts it positionally") with
+   `test_positional_primary_args` enumerating all five read commands
+   plus `run` and asserting the shape - the next command built without
+   a positional fails in tests instead of on first real use.
+3. The writer refusal echoes the form the caller used (`--script
+   "..."`, `--file <path>`, or the bare `"..."`), never suggesting a
+   form they did not reach for.
