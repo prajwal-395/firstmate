@@ -1645,6 +1645,98 @@ def check_caption_coverage(reel_name: str,
     return findings
 
 
+#: F5 refuses NEW violations, not ALL (vep-f5-should-refuse-new-violations-not-all).
+#:
+#: A rebuild that strictly improves a reel was refused for an F5 violation
+#: the live final already ships (Reel 08's 0.6s untimed "Mm-hmm",
+#: 2026-09-20): the gate compared the staging against perfection rather
+#: than against what the captain already approved. Seconds are compared
+#: at the 0.1s rounding `check_caption_coverage` reports, so a staging
+#: that merely re-times the same uncaptioned speech must not read as a
+#: new violation; anything above this over the live final's own seconds
+#: is new speech the rebuild left uncovered and still refuses.
+F5_NEW_VIOLATION_TOLERANCE_SECONDS = 0.05
+
+
+def f5_straddling_seconds(findings: Sequence[Finding]) -> float:
+    """Uncaptioned straddling seconds across F5 ERROR findings.
+
+    The error quantum F5 refuses on: `check_caption_coverage` emits at
+    most one error per reel, carrying `straddling_seconds`, but the sum
+    keeps this honest if that ever changes. Warnings (envelope fallback,
+    stretched words) are not violations and never count.
+    """
+    total = 0.0
+    for finding in findings or ():
+        if finding.finding_class != FindingClass.F5:
+            continue
+        if finding.severity != "error":
+            continue
+        detail = finding.detail or {}
+        total += float(detail.get("straddling_seconds", 0.0) or 0.0)
+    return total
+
+
+def rewrite_f5_against_live_final(staging_name: str,
+                                  staging_findings: Sequence[Finding],
+                                  final_name: str,
+                                  final_findings: Sequence[Finding],
+                                  ) -> List[Finding]:
+    """F5 on a staging, judged against what the live final already ships.
+
+    Returns the staging's findings with each F5 ERROR rewritten: to a
+    WARNING naming both seconds when the rebuild introduces nothing new
+    (pre-existing - reported loudly, but promotion is not blocked), or
+    to an ERROR naming only the NEW seconds when it does. Every other
+    finding passes through untouched - this comparison is F5's alone,
+    and no other class is softened by what the final ships.
+
+    Pure: the caller grades both timelines and compares here, so this
+    decision is testable without Resolve
+    (`tests/test_f5_refuses_new_violations_not_all.py`).
+    """
+    staging_seconds = f5_straddling_seconds(staging_findings)
+    final_seconds = f5_straddling_seconds(final_findings)
+    new_seconds = staging_seconds - final_seconds
+    rewritten: List[Finding] = []
+    for finding in staging_findings:
+        if finding.finding_class != FindingClass.F5 or \
+                finding.severity != "error":
+            rewritten.append(finding)
+            continue
+        detail = dict(finding.detail or {})
+        detail["live_final"] = final_name
+        detail["staging_straddling_seconds"] = round(staging_seconds, 1)
+        detail["live_final_straddling_seconds"] = round(final_seconds, 1)
+        if new_seconds <= F5_NEW_VIOLATION_TOLERANCE_SECONDS:
+            detail["preexisting"] = True
+            rewritten.append(dataclasses.replace(
+                finding,
+                severity="warning",
+                message=(
+                    f"PRE-EXISTING uncaptioned speech, also on live "
+                    f"final {final_name}: {finding.message} - staging "
+                    f"carries {staging_seconds:.1f}s, the live final "
+                    f"ships {final_seconds:.1f}s. Reported, not "
+                    f"blocking: the rebuild introduces no new "
+                    f"uncaptioned speech."),
+                detail=detail,
+            ))
+        else:
+            detail["preexisting"] = False
+            detail["new_straddling_seconds"] = round(new_seconds, 1)
+            rewritten.append(dataclasses.replace(
+                finding,
+                message=(
+                    f"{new_seconds:.1f}s of NEW uncaptioned speech the "
+                    f"rebuild introduces (live final {final_name} "
+                    f"ships {final_seconds:.1f}s, staging carries "
+                    f"{staging_seconds:.1f}s): {finding.message}"),
+                detail=detail,
+            ))
+    return rewritten
+
+
 def check_caption_overlaps(reel_name: str,
                            caption_cards: Sequence[dict],
                            fps: float,
@@ -6468,10 +6560,14 @@ def run_verification(
         print("  REFUSED: skipping all reel checks (plan mismatch).",
               file=err)
     else:
-        for tl in reel_timelines:
-            name = tl.GetName()
-            snap = snapshots[name]
+        def grade_one(name, snap):
+            """Grade one timeline snapshot against the matched moment.
 
+            The per-reel body, spelled once: the main loop grades what
+            the build placed, and the F5 live-final baseline below
+            grades the approved timeline the same way, so the two
+            readings cannot drift apart.
+            """
             # Parse reel number from name "Reel 01 - slug"
             reel_number = 0
             m = re_mod.match(r"Reel\s+(\d+)", name)
@@ -6536,7 +6632,7 @@ def run_verification(
                     moment.source_spans if moment else None,
                     master_snapshot, caption_props_dir,
                     project_folder=project_folder)
-            result = verify_reel(
+            return verify_reel(
                 plan, reel_tl,
                 transcript_segments=(transcript or {}).get("segments"),
                 master_holes=master_holes,
@@ -6558,10 +6654,86 @@ def run_verification(
                 expected_frame=expected_frame,
                 draw_gain=draw_gain,
                 word_coverage=word_coverage)
+
+        for tl in reel_timelines:
+            name = tl.GetName()
+            result = grade_one(name, snapshots[name])
             reel_results.append(result)
             status = "FAIL" if result.errors else "ok"
             print(f"  {name}: {status} ({len(result.errors)} errors, "
                   f"{len(result.warnings)} warnings)", file=err)
+
+        # ── F5 refuses NEW violations, not ALL ─────────────────────
+        #
+        # vep-f5-should-refuse-new-violations-not-all: a staging graded
+        # above carries F5 errors - uncaptioned speech its placed cards
+        # do not cover. Where the live final it would replace ships the
+        # same seconds, refusing the rebuild holds the captain's fix
+        # hostage to a defect he already approved (Reel 08's 0.6s
+        # untimed "Mm-hmm", 2026-09-20). So each staging with F5 errors
+        # is judged against its live final, graded here through the
+        # same `grade_one` above: pre-existing seconds are REPORTED
+        # loudly as warnings, and only NEW seconds refuse. A staging
+        # with no live final, or one whose baseline cannot be read,
+        # keeps its errors - fail-closed, said on stderr either way.
+        # `verify_waivers.json` is deliberately NOT read here: it is
+        # dead config no engine code reads, and a reader for it would
+        # be a bypass rather than this comparison.
+        from library.tools.resolve_bin_layout import (
+            STAGING_TIMELINE_SUFFIX as _STAGING_SUFFIX)
+        live_by_name = {t.GetName(): t for t in all_timelines}
+        for result in reel_results:
+            staging_f5 = [
+                f for f in result.findings
+                if f.finding_class == FindingClass.F5
+                and f.severity == "error"]
+            if not staging_f5:
+                continue
+            if not result.reel_name.endswith(_STAGING_SUFFIX):
+                continue
+            final_name = result.reel_name[: -len(_STAGING_SUFFIX)]
+            final_tl = live_by_name.get(final_name)
+            if final_tl is None:
+                print(f"  {result.reel_name}: F5 baseline: no live "
+                      f"timeline named exactly {final_name!r} - "
+                      f"keeping {len(staging_f5)} F5 error(s) "
+                      f"(fail-closed: no baseline to compare against).",
+                      file=err)
+                continue
+            try:
+                final_snap = snapshot_timeline(final_tl, project_name)
+                final_result = grade_one(final_name, final_snap)
+            except Exception as exc:  # noqa: BLE001 - baseline, never a gate
+                print(f"  {result.reel_name}: F5 baseline: could not "
+                      f"grade live final {final_name!r} ({exc}) - "
+                      f"keeping {len(staging_f5)} F5 error(s) "
+                      f"(fail-closed).", file=err)
+                continue
+            rewritten = rewrite_f5_against_live_final(
+                result.reel_name, list(result.findings),
+                final_name, list(final_result.findings))
+            still_errors = sum(
+                1 for f in rewritten
+                if f.finding_class == FindingClass.F5
+                and f.severity == "error")
+            new_seconds = (
+                f5_straddling_seconds(rewritten)
+                - f5_straddling_seconds(final_result.findings))
+            if still_errors:
+                print(f"  {result.reel_name}: F5 baseline: live final "
+                      f"{final_name!r} ships "
+                      f"{f5_straddling_seconds(final_result.findings):.1f}s "
+                      f"uncaptioned; the rebuild ADDS "
+                      f"{max(0.0, new_seconds):.1f}s - "
+                      f"{still_errors} F5 error(s) stand.", file=err)
+            else:
+                print(f"  {result.reel_name}: F5 baseline: "
+                      f"{len(staging_f5)} F5 error(s) are pre-existing "
+                      f"(live final {final_name!r} ships "
+                      f"{f5_straddling_seconds(final_result.findings):.1f}s) "
+                      f"- reported as warnings, promotion not blocked.",
+                      file=err)
+            result.findings = rewritten
 
     # ── The captain's four qualities ─────────────────────────────────
     #
