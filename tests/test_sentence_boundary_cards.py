@@ -1,0 +1,120 @@
+"""Why Reel 17's period sits mid-card, and what the planner prefers.
+
+Reel 17, clip marker at timeline frame 222 (captain's note: "there is a
+period in the middle of the subtitles here that i don't think should
+belong there"). The placed card reads "all the time. like what are some
+of the" - a period mid-card followed by a lowercase continuation.
+
+The diagnosis, measured rather than assumed. The transcript carries two
+real sentences - seg284 "We talk about it all the time." (source
+3127.42-3128.63) and seg285 "Like what are some of the first steps
+these businesses should be doing?" (source 3128.39-3131.42) - and an
+independent second opinion (small.en ASR on the card's audio slice)
+hears the same boundary ("...all the time," then "like what are some
+of..."), so it is real speech, not a transcription artefact. The period is
+real punctuation, so no correction-store shape reaches it: a display
+suppression hides whole tokens (nothing here is hidden - every word is
+spoken and wanted) and a spelling correction that deleted the period
+would falsify the sentence the microphone caught. The fix belongs in
+caption planning, and planning currently CHOOSES the straddle on
+purpose: ending cards on punctuation is only the FOURTH tiebreak in
+`split_into_groups` (after flashing, under-floor and longest-shortest),
+and splitting the run at "time." would leave a card on screen for the
+gap to "like" - 0.21s, under the 0.5s flash floor the manifest
+validator fails a build on. The optimizer picks a straddled sentence
+over a flashing card. That tradeoff is a planner decision, fleet-wide,
+so this lane reports it rather than re-tuning the optimizer: the note
+needs a planner rule plus a Reel 17 caption rebuild, and neither is a
+correction-store entry or a caption swap.
+
+What these tests pin, and what they do NOT. They pin the two halves of
+the mechanism above - the flash-floor arithmetic that makes the split
+expensive, and the tiebreak that keeps the preference weak - so a
+future optimizer rewrite cannot drop either silently. They do NOT
+reproduce Reel 17: the reproduction feeds the word run below to
+`split_into_groups` with the real pixel fitter and asserts no emitted
+card matches `[.!?]\\s+\\S` mid-card, and it FAILS on current code (the
+second card comes out "the time. like what"). That failing shape is
+the planner lane's specification, kept here so it cannot drift from
+the mechanism it constrains. No test reaches a real project: every
+number below is frozen off transcript segments 284/285.
+"""
+
+import os
+import sys
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from library.steps.step_4_01_plan_subtitles.step import (
+    MIN_CAPTION_FLASH_SECONDS,
+    split_into_groups,
+)
+
+# seg284 tail + seg285 head, transcript seconds, reading-lowercased -
+# the exact run the Reel 17 card straddles.
+WORDS = [
+    ("we", 1415.29, 1415.42),
+    ("talk", 1415.42, 1415.66),
+    ("about", 1415.66, 1415.86),
+    ("it", 1415.86, 1415.92),
+    ("all", 1415.92, 1416.05),
+    ("the", 1416.05, 1416.13),
+    ("time.", 1416.13, 1416.50),
+    ("like", 1416.26, 1416.67),
+    ("what", 1416.67, 1416.79),
+    ("are", 1416.79, 1416.86),
+    ("some", 1416.86, 1417.04),
+    ("of", 1417.04, 1417.08),
+    ("the", 1417.08, 1417.14),
+    ("first", 1417.14, 1417.51),
+    ("steps", 1417.51, 1417.87),
+    ("these", 1417.87, 1418.11),
+    ("businesses", 1418.11, 1418.64),
+    ("should", 1418.64, 1418.81),
+    ("be", 1418.81, 1418.91),
+    ("doing?", 1418.91, 1419.29),
+]
+
+
+def test_splitting_at_the_sentence_costs_a_flashing_card():
+    """The arithmetic behind the straddle: a card ending on "time."
+    stays up only until "like" starts, and that gap is under the hard
+    floor - so the optimizer reads the honest split as a defect and
+    the straddle as the cheaper partition."""
+    the_start = WORDS[5][1]  # "the" before "time."
+    like_start = WORDS[7][1]  # "like" opens the next sentence
+    gap = round(like_start - the_start, 2)
+    assert gap == 0.21
+    assert gap < MIN_CAPTION_FLASH_SECONDS, (
+        "the honest split no longer costs a flashing card - the "
+        "tradeoff this module documents has moved, update it"
+    )
+
+
+def test_punctuation_end_is_a_tiebreak_not_a_rule():
+    """The preference exists, weakly: among partitions equal on
+    flashing, floor and balance, the one ending cards on punctuation
+    wins - and a cheaper flashing count overrules it, which is the
+    Reel 17 outcome."""
+    words = [
+        {"word": w, "start": s, "end": e}
+        for w, s, e in [
+            ("all", 0.0, 0.2),
+            ("day.", 0.2, 0.6),
+            ("every", 0.6, 0.8),
+            ("day", 0.8, 1.4),
+        ]
+    ]
+    even = split_into_groups(
+        words, fits_fn=lambda text: len(text) <= 12, display_until=1.4
+    )
+    # "all day." (ends on the period) must beat "all day. every"'s
+    # rival arrangement wherever flashing and floor tie - the
+    # preference the planner lane will promote to a rule.
+    assert even, "the split found no partition at all"
+    joined = " | ".join(g["text"] for g in even)
+    assert joined == "all day. | every day", (
+        f"the punctuation tiebreak stopped preferring sentence ends: {joined}"
+    )
