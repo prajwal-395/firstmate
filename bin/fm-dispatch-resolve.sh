@@ -5,16 +5,29 @@
 # Usage:
 #   fm-dispatch-resolve.sh <brief-file> [--project <name>]
 #
-# Opt-in gate: TYPESAFE_API_KEY non-empty in this process environment, else a
-#   TYPESAFE_API_KEY= line in $FM_HOME/.env read with fmx_env_get, the same
-#   accessor as FMX_PAIRING_TOKEN (bin/fm-env-lib.sh). The environment wins.
-#   Absent in both: one "dispatch-resolve: off" line on stderr, nothing on
-#   stdout, exit 0, no network call, so firstmate dispatches exactly as today.
-#   The key lives in one shell variable and reaches curl as a header read from
-#   a file descriptor, never on argv; nothing logs or writes it.
+# Opt-in gate: TYPESAFE_API_KEY or AI_GATEWAY_API_KEY non-empty in this process
+#   environment, else a matching KEY= line in $FM_HOME/.env read with
+#   fmx_env_get, the same accessor as FMX_PAIRING_TOKEN (bin/fm-env-lib.sh).
+#   The environment wins. Absent in both places for both keys: one
+#   "dispatch-resolve: off" line on stderr, nothing on stdout, exit 0, no
+#   network call, so firstmate dispatches exactly as today. Each key lives in
+#   one shell variable and reaches curl as a header read from a file
+#   descriptor, never on argv; nothing logs or writes either key.
 #
-# What it does when on with at least one rule: one POST to
-#   https://api.typesafe.ai/v1/systemone with the project name and the whole brief as
+# Ladder: with both keys present the tool tries the free Vercel AI Gateway
+#   rung first and falls back to the captain's typesafe.ai key once, in the
+#   same invocation, when the gateway answers 429 or 401/403. The fallback is
+#   per request with no persisted rung record, so every call re-derives the
+#   answer. With one key present the tool uses that rung only.
+#
+# What it does when on with at least one rule: one POST asking the Jev
+#   question, answered by whichever rung serves it. Gateway rung: model
+#   typesafe-ai/jev at https://ai-gateway.vercel.sh/typesafe/v1/systemone.
+#   Typesafe rung: model jev-latest at https://api.typesafe.ai/v1/systemone,
+#   what the tool did before the ladder. Both rungs accept the same request
+#   and response shapes; only the base URL, model, and key change. The free
+#   tier answers 429 when exhausted, which descends the ladder with auth
+#   failures (401/403). The project name and the whole brief travel as
 #   state and ONE Choice question whose
 #   options are every rule's `when` from config/crew-dispatch.json plus one
 #   fixed generic none option. Jev returns the matched rule, a probability per
@@ -30,7 +43,7 @@
 # Output (stdout, TOON-style block):
 #   dispatch-resolve:
 #     status: clear | ambiguous | escalate | error
-#     model/latency_ms/tokens, rule (when excerpt) and confidence, probabilities
+#     model/latency_ms/tokens, rung (gateway | typesafe), rule (when excerpt) and confidence, probabilities
 #     reason: <why the status is not clear>
 #     candidate: <harness>:<model> provider=.. scope=.. remaining=..% spendPriority=.. runway=.. -> eligible | eligible, unranked: <reason> | not eligible: <reason>
 #     profile: --harness <h> [--model <m>] [--effort <e>]     (status clear only)
@@ -44,7 +57,9 @@
 #   actionable, never selected around.
 #
 # Environment:
-#   TYPESAFE_API_KEY is the only resolver-specific environment setting.
+#   TYPESAFE_API_KEY and AI_GATEWAY_API_KEY are the resolver-specific
+#   environment settings. Either one opts the tool in; both together arm the
+#   gateway-first ladder.
 #
 # Authority: this tool never replaces firstmate's judgment, quota-array-dispatch,
 #   the captain-approval gate, or fm-spawn.sh validation; it publishes one
@@ -54,6 +69,9 @@ set -u
 TYPESAFE_API_KEY_PRIVATE=${TYPESAFE_API_KEY:-}
 export -n TYPESAFE_API_KEY_PRIVATE 2>/dev/null || true
 unset TYPESAFE_API_KEY
+AI_GATEWAY_API_KEY_PRIVATE=${AI_GATEWAY_API_KEY:-}
+export -n AI_GATEWAY_API_KEY_PRIVATE 2>/dev/null || true
+unset AI_GATEWAY_API_KEY
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
@@ -72,6 +90,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 CONFIDENCE_FLOOR=0.6
 TS_MODEL=jev-latest
 TS_BASE=https://api.typesafe.ai
+GW_MODEL=typesafe-ai/jev
+GW_BASE=https://ai-gateway.vercel.sh/typesafe
 TS_TIMEOUT=5
 DEFAULT_WHEN="No listed rule applies to this task."
 
@@ -102,8 +122,11 @@ done
 if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
   TYPESAFE_API_KEY_PRIVATE=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
 fi
-if [ -z "$TYPESAFE_API_KEY_PRIVATE" ]; then
-  echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env)" >&2
+if [ -z "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
+  AI_GATEWAY_API_KEY_PRIVATE=$(fmx_env_get AI_GATEWAY_API_KEY "$FM_HOME/.env")
+fi
+if [ -z "$TYPESAFE_API_KEY_PRIVATE" ] && [ -z "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
+  echo "dispatch-resolve: off (TYPESAFE_API_KEY absent from the environment and $FM_HOME/.env; AI_GATEWAY_API_KEY absent too)" >&2
   exit 0
 fi
 
@@ -220,8 +243,11 @@ RESP_FILE=$(mktemp) || die "mktemp failed"
 QUOTA=$(mktemp) || { rm -f "$RESP_FILE"; die "mktemp failed"; }
 trap 'rm -f "$RULES" "$RESP_FILE" "$QUOTA"' EXIT
 LAT_MS=null
+RUNG=''
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
-  REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$TS_MODEL" \
+post_rung() { # <base-url> <model> <key>: one Jev POST; sets HTTP and LAT_MS
+  local base=$1 model=$2 key=$3
+  REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$model" \
     --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '
     ($rules[0]) as $cfg |
     ($cfg.rules | to_entries | map({key: ("rule_" + ((.key + 1) | tostring)), value: .value.when}) | from_entries) as $criteria |
@@ -238,12 +264,38 @@ command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
     }')
   T0=$(fm_timing_now_ms)
   HTTP=$(printf '%s' "$REQUEST" | curl -sS --max-time "$TS_TIMEOUT" -o "$RESP_FILE" -w '%{http_code}' \
-    -X POST "$TS_BASE/v1/systemone" -H 'Content-Type: application/json' \
-    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$TYPESAFE_API_KEY_PRIVATE") \
+    -X POST "$base/v1/systemone" -H 'Content-Type: application/json' \
+    -H @/dev/fd/3 3< <(printf 'Authorization: Bearer %s\n' "$key") \
     --data-binary @- 2>/dev/null) || HTTP=000
   T1=$(fm_timing_now_ms)
   LAT_MS=$(( T1 - T0 ))
+}
+gateway_declined() { # <http>: 429 or auth failure means "not available now"
+  case "$1" in 429|401|403) return 0 ;; *) return 1 ;; esac
+}
+if [ -n "$AI_GATEWAY_API_KEY_PRIVATE" ]; then
+  post_rung "$GW_BASE" "$GW_MODEL" "$AI_GATEWAY_API_KEY_PRIVATE"
+  if [ "$HTTP" = 200 ]; then
+    RUNG=gateway
+  elif gateway_declined "$HTTP" && [ -n "$TYPESAFE_API_KEY_PRIVATE" ]; then
+    GW_HTTP=$HTTP
+    GW_LAT_MS=$LAT_MS
+    GW_HEAD=$(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')
+    post_rung "$TS_BASE" "$TS_MODEL" "$TYPESAFE_API_KEY_PRIVATE"
+    if [ "$HTTP" = 200 ]; then
+      RUNG=typesafe
+    else
+      emit_error "gateway http $GW_HTTP after ${GW_LAT_MS} ms (${GW_HEAD}), then typesafe http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+    fi
+  else
+    [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+    RUNG=gateway
+  fi
+else
+  post_rung "$TS_BASE" "$TS_MODEL" "$TYPESAFE_API_KEY_PRIVATE"
   [ "$HTTP" = 200 ] || emit_error "http $HTTP after ${LAT_MS} ms: $(head -c 200 "$RESP_FILE" 2>/dev/null | tr '\n' ' ')"
+  RUNG=typesafe
+fi
 jq -e --slurpfile rules "$RULES" '
     (($rules[0].rules | to_entries | map("rule_" + ((.key + 1) | tostring))) + ["default"] | sort) as $choices |
     (.answers.rule.choice | type) == "string" and
@@ -265,7 +317,7 @@ quota-axi --json > "$QUOTA" 2>/dev/null || emit_error "quota-axi --json failed"
 fm_quota_json_valid < "$QUOTA" || emit_error "quota-axi --json returned an invalid snapshot"
 
 # ---- resolution: declared gates + quota evidence + argmax, all in jq ------------
-RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
+RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg rung "$RUNG" --arg none_criterion "$DEFAULT_WHEN" --argjson pmap "$PMAP" \
   --slurpfile resp "$RESP_FILE" --slurpfile rules "$RULES" --slurpfile quota "$QUOTA" '
   ($resp[0]) as $r | ($rules[0]) as $cfg | ($quota[0]) as $q | ($r.answers.rule) as $a |
   def profiles($v): if ($v | type) == "array" then $v elif ($v | type) == "object" then [$v] else [] end;
@@ -352,7 +404,7 @@ RESULT=$(jq -n --arg floor "$CONFIDENCE_FLOOR" --argjson lat "$LAT_MS" --arg non
      then {source: "default", use: profiles($cfg.default // null), note: "rule \($choice) floor \($rule.floor.scope) below \($rule.floor.min_percent)%: fall through to default"}
    else {source: $choice, use: profiles($rule.use), note: "rule matched"} end) as $sel |
   {
-    model: $r.model, latency_ms: $lat, tokens: ($r.usage // null),
+    model: $r.model, latency_ms: $lat, rung: $rung, tokens: ($r.usage // null),
     rule: $choice,
     rule_when: (if $rule == null then $none_criterion else $rule.when end | .[0:60]),
     confidence: $a.confidence, probabilities: $a.probabilities
@@ -387,6 +439,7 @@ TEXT=$(jq -r '
   "dispatch-resolve:",
   "  status: \(.status | flat)",
   "  model: \(show(.model))   latency_ms: \(show(.latency_ms))   tokens: \(show(.tokens.input_tokens))/\(show(.tokens.output_tokens))",
+  "  rung: \(.rung | flat)",
   "  rule: \(.rule | flat) (\(.rule_when | flat))   confidence: \(.confidence | flat)",
   "  probabilities: \([.probabilities | to_entries[] | "\(.key | flat)=\(.value | flat)"] | join(" "))",
   (if .reason then "  reason: \(.reason | flat)" else empty end),
