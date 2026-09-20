@@ -21,7 +21,9 @@
 # is indistinguishable from an absent key at read time and fails silently.
 #
 # The file is created mode 0600 and rewritten atomically through a temporary
-# file in the same directory. $FM_HOME/.env is gitignored and stays local.
+# file in the same directory, removed on every exit path so an interrupted write
+# cannot leave a key-bearing file behind. $FM_HOME/.env and its siblings
+# (.env.*) are gitignored, so neither the file nor a temporary can be committed.
 #
 # Verification (default on for the two dispatch keys) makes one live request to
 # that key's own rung and reports what the service said. The key reaches curl as
@@ -91,6 +93,9 @@ env_write() {
   esac
   ( umask 077
     tmp=$(mktemp "$ENV_FILE.XXXXXX") || exit 1
+    # The temporary holds the secret until the rename. Remove it on ANY exit
+    # path, so an interrupted write never leaves a key-bearing file behind.
+    trap 'rm -f "$tmp"' EXIT HUP INT TERM
     if [ -f "$ENV_FILE" ]; then
       grep -vE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true
       # Keep a trailing newline so the appended line is never glued to the last.
@@ -108,6 +113,7 @@ env_remove() { # <key>
   [ -f "$ENV_FILE" ] || { printf 'fm-set-key: %s holds no keys yet.\n' "$ENV_FILE"; return 0; }
   ( umask 077
     tmp=$(mktemp "$ENV_FILE.XXXXXX") || exit 1
+    trap 'rm -f "$tmp"' EXIT HUP INT TERM
     grep -vE "^[[:space:]]*(export[[:space:]]+)?${key}=" "$ENV_FILE" > "$tmp" 2>/dev/null || true
     chmod 600 "$tmp"
     mv -f "$tmp" "$ENV_FILE"
