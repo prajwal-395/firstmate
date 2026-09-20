@@ -412,6 +412,67 @@ def apply_pins(segments, pins, fps: float) -> tuple:
     return out, applied, short, stale
 
 
+# ── The grading side: spans, shifted back to the unpinned frame ──
+
+def grade_spans(spans, pins, fps: float, timeline: str = "") -> list:
+    """Card spans in the frame the conformance gate grades them in.
+
+    The build moves pinned cards (`apply_pins`); the word-level gate
+    (F25) compares placed cards against strict word timings and knows
+    no pins, so it refuses the shift as dropped/added words. Measured
+    2026-09-20 on Reel 13: the captain's 09-11 hand move (+7 frames on
+    the closing cards) reads as ten word_mismatch errors on a reel
+    whose words and cards agree exactly. A gate that fails the
+    captain's recorded decision is no more coverage than one that
+    cannot fail (AGENTS.md 10.4) - so pinned spans grade where they
+    would sit unpinned, matched with the owner's own `matches` over
+    the cards' recorded bindings, the same predicate the build moved
+    them with. A reel cannot be built to one rule and checked
+    against another.
+
+    `spans` are `{card, reel_start, reel_end, binding?}` in reel
+    seconds; `binding` is the card's recorded placement record
+    (`subtitle_segment_id.SEGMENT_BINDING_KEYS` - the props artefact
+    behind the placed card carries them) without the timeline, which
+    `timeline` supplies: the reel being graded, final name, since a
+    pin scopes the placement the hand edit was measured on and
+    `_timeline_match` reads through the build's parenthesised
+    staging tail. Returns copies; the input is never mutated.
+
+    Only the span moves: the karaoke windows keep their placed times,
+    so a finding that remains (a genuine drop past the pins) still
+    reports where the viewer sees it. A card no pin matches grades
+    exactly where it sits; a pin that matches no card changes
+    nothing here (the build already reports it stale).
+    """
+    if not pins or not spans:
+        return [dict(span) for span in spans or []]
+    out = []
+    for span in spans:
+        binding = dict(span.get("binding") or {})
+        binding["timeline"] = timeline or None
+        probe = {"binding": binding}
+        start_shift = 0
+        end_shift = 0
+        for pin in pins or []:
+            scope = (pin.get("scope") or {}) if isinstance(pin, dict) \
+                else {}
+            if not matches(probe, scope):
+                continue
+            offset = int(pin.get("offset_frames") or 0)
+            head = int(pin.get("head_frames") or 0)
+            tail = int(pin.get("tail_frames") or 0)
+            start_shift += offset + head
+            end_shift += offset - tail
+        graded = dict(span)
+        if start_shift:
+            graded["reel_start"] = span["reel_start"] - start_shift / fps
+        if end_shift:
+            graded["reel_end"] = span["reel_end"] - end_shift / fps
+        out.append(graded)
+    return out
+
+
 # ── The plan side: entries, joined to the spine that timed them ────
 
 def block_bindings(spine, timeline: str = "") -> dict:

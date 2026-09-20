@@ -4539,6 +4539,27 @@ def _derive_word_coverage(reel_snapshot,
     } for item in reel_timeline.caption_items]
     captioned = _coverage.captioned_words_from_placed_cards(
         cards, props_dir, reel_timeline.fps or _fps())
+    # Declared caption timing moves cards off strict word alignment
+    # (`caption_timing.apply_pins` at build time), so the identity
+    # and coverage legs grade pinned spans where they would sit
+    # unpinned - matched with the owner's own predicate, the same
+    # rule the build moved them with. Without this the gate refuses
+    # the captain's recorded hand placement as dropped/added words
+    # (measured 2026-09-20 on Reel 13: +7 frames, ten findings, words
+    # and cards in exact agreement). A store that cannot be read is
+    # absence, never a refusal: an unreadable declaration refuses the
+    # BUILD, so any timeline standing here predates it.
+    try:
+        from library.tools import caption_timing as _pins
+        pin_list = _pins.load_pins(project_folder) if project_folder \
+            else []
+    except Exception:  # noqa: BLE001 - absence, never a refusal
+        pin_list = []
+    if pin_list:
+        captioned["cards"] = _pins.grade_spans(
+            captioned["cards"], pin_list,
+            reel_timeline.fps or _fps(),
+            timeline=reel_timeline.reel_name or "")
     spine = _coverage.spine_words_from_spans(
         transcript_segments, source_spans or [])
     read_spine = _coverage.read_words_for_comparison(
@@ -6569,7 +6590,8 @@ def run_verification(
             # which nothing in this repository writes - is why coherence
             # and value read UNJUDGED on every verification ever run.
             judgement, judgement_source = _bar.read_judgement(project_folder)
-        bar_report = _bar.judge(moments, transcript, judgement)
+        bar_report = _bar.judge(moments, transcript, judgement,
+                                project_folder=project_folder)
         unattached = attach_quality_bar(bar_report, reel_results)
         if unattached:
             print(f"Quality bar: {len(unattached)} planned reel(s) have no "

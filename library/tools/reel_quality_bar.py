@@ -787,6 +787,92 @@ def _frame_tolerance(transcript: dict) -> float:
     return 1.0 / fps if fps > 0 else 1001.0 / 24000.0
 
 
+def thesis_reading(moment, transcript: dict,
+                   ending: Optional[dict]) -> Optional[dict]:
+    """A reel the project declares ends on its own thesis, measured.
+
+    The fourth source beside `cta_reading`'s three, and the one that
+    stops that check firing on a re-cut the captain authorised: Reel
+    27 (2026-09-19) ends Q->A on "...recommended later on." with its
+    shared website-checkout closer deleted as topically alien, and no
+    own-thread replacement in the episode. `declared`/`in_body` cannot
+    express that - a closer inside its own body is refused as a double
+    play - so "ends on a call to action" would fail a reel that ends
+    exactly where it was told to.
+
+    - `thesis` - a HAND-WRITTEN entry from `external/reel_ending.json`
+      (`library/tools/reel_ending.py`: word-anchored, reasoned, one
+      reel), matched by the same prefix rule the build honours. An
+      inherited ending never reaches here: `cta_default_ending`
+      returns None where the plan names no closer, so any entry for a
+      closer-less reel is written, not derived.
+    - MEASURED, not taken on faith: the anchor's words must tail-match
+      the reel's played speech (the reel ENDS on those words), and the
+      run must occur in timed transcript words inside the played
+      ranges (the span is evidence, recorded). A declaration whose
+      anchor is not the reel's tail reads ABSENT exactly as before -
+      fail closed.
+
+    Returns the reading (`source: "thesis"`, `is_the_ending: True`),
+    or None where there is no declaration or it is not honoured.
+    """
+    anchor = ((ending or {}).get("ends_on") or {}).get("anchor_phrase")
+    want = _words(anchor) if isinstance(anchor, str) else []
+    if not want:
+        return None
+    said = _words(reel_text(moment, transcript))
+    if len(said) < len(want) or said[-len(want):] != want:
+        return None
+    ranges, _ = playable_ranges(moment, transcript)
+    if not ranges:
+        return None
+    segments = sorted((transcript.get("segments") or []),
+                      key=lambda s: float(s.get("timeline_start") or 0.0))
+    timed: list = []
+    for segment in segments:
+        start = float(segment.get("timeline_start") or 0.0)
+        end = float(segment.get("timeline_end") or 0.0)
+        if not any(s0 < end and s1 > start for s0, s1 in ranges):
+            continue
+        for word in (segment.get("words") or []):
+            try:
+                w0, w1 = float(word["start"]), float(word["end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if w1 <= w0:
+                continue
+            tokens = _words(word.get("word") or "")
+            if not tokens:
+                continue
+            timed.append((tokens[0], w0, w1,
+                          segment.get("speaker")))
+    resolutions: list = []
+    for index in range(len(timed) - len(want) + 1):
+        if [t[0] for t in timed[index:index + len(want)]] == want:
+            resolutions.append(timed[index:index + len(want)])
+    if not resolutions:
+        return None
+    # THE LAST telling, not the first: the build truncates to the
+    # anchor shot, so the occurrence that plays last is the evidence.
+    run = max(resolutions, key=lambda occurrence: occurrence[-1][2])
+    return {
+        "source": "thesis",
+        "span": [round(run[0][1], 2), round(run[-1][2], 2)],
+        "text": str(anchor).strip(),
+        "speaker": run[-1][3],
+        "shared_with": [],
+        "closes_reels": 0,
+        "in_own_body": False,
+        "outside_episode": False,
+        "silent": False,
+        "incomplete": False,
+        "unwritten_words": [],
+        "opens_mid_sentence": False,
+        "opening_head": "",
+        "is_the_ending": True,
+    }
+
+
 def declared_closers(moments: Sequence) -> Dict[Tuple[float, float], List[int]]:
     """Every span the batch itself calls a call to action, and who names it.
 
@@ -852,7 +938,8 @@ def cta_opening_head(transcript: dict, cta_start: float,
 
 
 def cta_reading(moment, transcript: dict,
-                closers: Dict[Tuple[float, float], List[int]]) -> dict:
+                closers: Dict[Tuple[float, float], List[int]],
+                thesis: Optional[dict] = None) -> dict:
     """What closes this reel, where it came from, and who else uses it.
 
     Three sources, and the difference between the first two is the one
@@ -949,6 +1036,14 @@ def cta_reading(moment, transcript: dict,
                and end <= range_end + tolerance
                for range_start, range_end in ranges)]
     if not contained:
+        # No closer anywhere in what the reel plays. A project-declared
+        # thesis ending (`external/reel_ending.json`, captain-authorised
+        # re-cut) is the fourth answer: the reel ends on its own words
+        # and the declaration names them. Undeclared, or declared but
+        # not honoured, reads ABSENT exactly as before.
+        thesis_reading_result = thesis_reading(moment, transcript, thesis)
+        if thesis_reading_result is not None:
+            reading.update(thesis_reading_result)
         return reading
     # THE LAST one, not the first.  A reel can contain several - reel 03
     # of the field test plays one closer at 321.6 and ends on a different
@@ -969,6 +1064,7 @@ def cta_reading(moment, transcript: dict,
 
 def exact_findings(moment, transcript: dict,
                    closers: Dict[Tuple[float, float], List[int]],
+                   thesis: Optional[dict] = None,
                    ) -> List[BarFinding]:
     """Everything the two EXACT qualities have to say about one reel."""
     name = moment.timeline_name
@@ -979,7 +1075,7 @@ def exact_findings(moment, transcript: dict,
     # reason `reel_ranges` refuses to lay the reel out; naming it as the
     # first is what stops the second swallowing it.  Its declared half
     # needs no ranges, so it survives a plan nothing can build.
-    cta = cta_reading(moment, transcript, closers)
+    cta = cta_reading(moment, transcript, closers, thesis=thesis)
     out.extend(_cta_findings(moment, name, cta, closers))
 
     duration = duration_reading(moment, transcript)
@@ -1658,7 +1754,8 @@ class BarReport:
 
 
 def judge(moments: Sequence, transcript: dict,
-          judgement: Optional[dict] = None) -> BarReport:
+          judgement: Optional[dict] = None,
+          project_folder: Optional[str] = None) -> BarReport:
     """The bar, over a whole batch.
 
     `judgement` is the model's readings - `{"readings": [...]}` - or
@@ -1666,6 +1763,14 @@ def judge(moments: Sequence, transcript: dict,
     JUDGEMENT qualities read UNJUDGED; that is deliberate, because
     duration and the closer are properties of the plan and are worth
     holding whether or not anyone has been asked to read the reels yet.
+
+    `project_folder` supplies the project's hand-written thesis
+    endings (`external/reel_ending.json`): a closer-less reel one
+    declares and honours reads `thesis`, never ABSENT. Absent (every
+    existing caller without a project in hand) reads exactly what it
+    read before - an unreadable endings file REFUSES rather than
+    reading as undeclared, because quiet non-application is the
+    defect `load_endings` exists to end.
     """
     closers = declared_closers(moments)
     entries = {}
@@ -1675,12 +1780,28 @@ def judge(moments: Sequence, transcript: dict,
         except (TypeError, ValueError):
             continue
 
+    theses: Dict[int, dict] = {}
+    if project_folder:
+        from library.tools import reel_ending as _endings
+        endings = _endings.load_endings(project_folder)
+        by_number = {}
+        for moment in moments:
+            by_number.setdefault(str(moment.timeline_name),
+                                 int(moment.number))
+        for ending in endings:
+            for name, number in by_number.items():
+                if name == ending["reel"] or name.startswith(
+                        ending["reel"]):
+                    theses[number] = ending
+
     report = BarReport(judged=bool(entries))
     for moment in moments:
         number = int(moment.number)
-        findings = exact_findings(moment, transcript, closers)
+        thesis = theses.get(number)
+        findings = exact_findings(moment, transcript, closers,
+                                  thesis=thesis)
         duration = duration_reading(moment, transcript)
-        cta = cta_reading(moment, transcript, closers)
+        cta = cta_reading(moment, transcript, closers, thesis=thesis)
 
         reading = None
         entry = entries.get(number)
@@ -1968,7 +2089,8 @@ def main(argv=None) -> int:
     else:
         print(f"reading these reels from {source}\n", file=sys.stderr)
 
-    report = judge(moments, transcript, judgement)
+    report = judge(moments, transcript, judgement,
+                   project_folder=project)
     if args.json:
         print(json.dumps(report.as_dict(), indent=2))
     else:

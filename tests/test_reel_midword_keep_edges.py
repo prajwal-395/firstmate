@@ -165,3 +165,51 @@ def test_a_same_text_restatement_by_another_speaker_is_not_cut():
     )
     from library.tools.reel_build import redundant_takes
     assert redundant_takes(0.0, 60.0, tx) == []
+
+
+def test_float_dust_on_a_word_edge_is_not_a_midword_cut():
+    """Reel 14 (2026-09-20): a take-cut edge at 1158.3199999999997s
+    against the word start 1158.32s - 2.8e-13s of JSON float dust on
+    the same instant - refused the quality bar's playable_ranges and
+    emptied the reel text, failing a correct reel. Edges canonicalise
+    to 6dp keys; words now canonicalise the same way, so dust is not
+    a cut word while a genuine interior edge still fires."""
+    from library.tools.reel_build import Cut, midword_keep_edges
+    tx = _tx(
+        _seg("Akshita", "setup words here", 1138.0, 1140.0, "u1",
+             words=[_w("here", 1139.0, 1139.50)]),
+        _seg("Akshita", "If you run ads", 1158.32, 1160.0, "u2",
+             words=[_w("If", 1158.3199999999997, 1158.48),
+                    _w("you", 1158.48, 1158.60)]),
+        _seg("Akshita", "take two kept", 1168.0, 1170.0, "u3",
+             words=[_w("kept", 1169.0, 1169.50)]),
+    )
+    cuts = [Cut(
+        dropped_start=1158.3199999999997, dropped_end=1164.0,
+        dropped_text="If you run ads", kept_start=1168.0,
+        kept_end=1170.0, kept_text="take two kept", speaker="Akshita",
+        containment=1.0, jaccard=1.0, basis="test dust")]
+    assert midword_keep_edges(1138.0, 1170.0, tx, cuts) == []
+
+
+def test_a_genuine_interior_edge_still_fires():
+    """The dust canonicalisation must not swallow a real cut: an edge
+    a full frame inside the word still refuses."""
+    from library.tools.reel_build import Cut, midword_keep_edges
+    tx = _tx(
+        _seg("Akshita", "setup words here", 1138.0, 1140.0, "u1",
+             words=[_w("here", 1139.0, 1139.50)]),
+        _seg("Akshita", "If you run ads", 1158.32, 1160.0, "u2",
+             words=[_w("If", 1158.32, 1158.48),
+                    _w("you", 1158.48, 1158.60)]),
+        _seg("Akshita", "take two kept", 1168.0, 1170.0, "u3",
+             words=[_w("kept", 1169.0, 1169.50)]),
+    )
+    cuts = [__import__("library.tools.reel_build", fromlist=["x"]).Cut(
+        dropped_start=1158.36, dropped_end=1164.0,
+        dropped_text="If you run ads", kept_start=1168.0,
+        kept_end=1170.0, kept_text="take two kept", speaker="Akshita",
+        containment=1.0, jaccard=1.0, basis="test interior")]
+    found = midword_keep_edges(1138.0, 1170.0, tx, cuts)
+    assert len(found) == 1
+    assert found[0]["word"] == "If"

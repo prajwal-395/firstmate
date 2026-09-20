@@ -486,6 +486,19 @@ def captioned_words_from_placed_cards(
             unreadable.append({"card": name, "reason": f"no-props: {exc}"[:160]})
             continue
         card_words: list = []
+        # Every norm the card DRAWS, timed or not: a pile-up stamp can
+        # leave a rendered word with no karaoke window (measured
+        # 2026-09-20 on Reel 27: the card reads "5-star reviews, AI
+        # does see that." while its timed words start at "reviews," -
+        # the transcript stamps 'five-star' at 20ms inside 'reviews,').
+        # The coverage spill rule consults these so a degenerate-timing
+        # word the viewer can read is timing, never a missing caption.
+        text_norms: set = set()
+        for sub in props.get("subtitles") or []:
+            for token in str(sub.get("text") or "").split():
+                normed = normalize_word(token)
+                if normed:
+                    text_norms.add(normed)
         for sub in props.get("subtitles") or []:
             for word in sub.get("words") or []:
                 raw = word.get("word", "")
@@ -514,8 +527,24 @@ def captioned_words_from_placed_cards(
         except (KeyError, TypeError, ValueError):
             # Card words already carry reel SECONDS; back to frames.
             reel_end_f = max(w["reel_end"] for w in card_words) * fps
+        # The card's recorded placement record
+        # (`subtitle_segment_id.SEGMENT_BINDING_KEYS`), for the pin
+        # owner (`caption_timing.matches`) to address it with: a pin
+        # scopes the SPEECH a card captions, and the props artefact
+        # behind the placed card is where that speech is recorded.
+        # Absent on legacy renders - such a card matches nothing
+        # (fail-closed), exactly as the build treats a segment whose
+        # binding names no placement.
+        binding = {
+            "speaker": props.get("_speaker"),
+            "source_clip_id": props.get("_source_clip_id"),
+            "source_start": props.get("_source_start"),
+            "source_end": props.get("_source_end"),
+        }
         spans.append({"card": name, "reel_start": span_start,
-                      "reel_end": reel_end_f / fps})
+                      "reel_end": reel_end_f / fps,
+                      "text_norms": sorted(text_norms),
+                      "binding": binding})
     words.sort(key=lambda w: (w["reel_start"], w["reel_end"]))
     spans.sort(key=lambda c: (c["reel_start"], c["reel_end"]))
     return {"words": words, "cards": spans, "unreadable": unreadable}
@@ -603,6 +632,7 @@ def check_word_coverage(
     spine: Optional[Sequence[dict]] = None,
     edge_spill_seconds: float = EDGE_SPILL_SECONDS,
     suppressed: Optional[Sequence[dict]] = None,
+    frame_seconds: float = 1001.0 / 24000.0,
 ) -> dict:
     """Diff played, captioned and (optionally) spine at word level.
 
@@ -636,12 +666,15 @@ def check_word_coverage(
     caption planner enforces per block in step 4.01). The planner
     drops them from what is drawn while the audio still plays them,
     so the identity diff skips them the way the planner did - while
-    the coverage legs above still count them, because a suppressed
-    word is still speech with a card over it, and a card over only
-    suppressed words is still a card over speech. The skip is a
-    warning finding naming the words and the suppression ids, never
-    silent; without it the gate fails captions that obey a recorded
-    correction (AGENTS.md 10.4).
+    a card over only suppressed words is still a card over speech
+    (the silence leg below reads unfiltered speech). The uncovered
+    computation skips them too: demanding a card where the record
+    says draw nothing would caption against the captain's recorded
+    decision (measured 2026-09-20 on Reel 10, where the globally
+    suppressed "um" strands in a card hole, lc-0049). Every skip is
+    a warning finding naming the words and the suppression ids,
+    never silent; without it the gate fails captions that obey a
+    recorded correction (AGENTS.md 10.4).
 
     Returns `{findings, meta}`. `meta` carries the counts plus whether
     each leg ran - a decision to leave the spine out appears here, not
@@ -693,13 +726,22 @@ def check_word_coverage(
         return None
 
     uncovered: list = []
+    text_spilled: list = []
     card_norms: list = []
     for card in cards:
         card_norms.append((
             card,
             {w["norm"] for w in captioned
-             if w.get("card") == card["card"]}))
+             if w.get("card") == card["card"]},
+            set(card.get("text_norms") or [])))
     for word in played:
+        if id(word) in suppressed_ids:
+            # Recorded decision, not caption content: the planner hid
+            # this token and the "suppressed" warning below names it
+            # with its suppression id. Coverage demands a card over
+            # speech the reel wants captioned; demanding one here
+            # would draw what the record says not to.
+            continue
         if covering_card(_midpoint(word)) is None:
             # A word straddling a card edge is placement arithmetic,
             # not a lost word - but only where the neighbour card
@@ -707,15 +749,32 @@ def check_word_coverage(
             # a word the next card drops (measured: Reel 29's "If" at
             # 50.05s, one frame past the previous card's end, missing
             # from the card starting at 50.18s).
+            #
+            # A pile-up word (aligner timings contradicting their
+            # neighbours - `degenerate_indices`) carries no position
+            # to cover, so the timed norms cannot carry it even where
+            # the card draws it: the RENDERED TEXT is consulted instead
+            # (measured 2026-09-20 on Reel 27: 'five-star' stamped at
+            # 20ms inside 'reviews,', drawn untimed on the card reading
+            # "5-star reviews, AI does see that."). Timed words keep
+            # the strict rule - a cleanly timed word the planner drew
+            # but mistimed is a real defect, not dust.
             spill = False
-            for card, norms in card_norms:
-                if word["norm"] not in norms:
+            for card, norms, text_norms in card_norms:
+                if word["norm"] in norms:
+                    drawn = True
+                elif (word.get("degenerate")
+                        and word["norm"] in text_norms):
+                    drawn = False
+                else:
                     continue
                 if (abs(word["reel_start"] - card["reel_end"])
                         <= edge_spill_seconds
                         or abs(word["reel_end"] - card["reel_start"])
                         <= edge_spill_seconds):
                     spill = True
+                    if not drawn:
+                        text_spilled.append((word, card))
                     break
             if not spill:
                 uncovered.append(word)
@@ -756,6 +815,38 @@ def check_word_coverage(
             },
         })
 
+    # A degenerate-timing word the adjacent card DRAWS but does not
+    # time is placement dust the viewer never sees: the word is on
+    # screen while it is spoken, a card edge away from its stamped
+    # instant. Forgiven above, REPORTED here - one warning naming the
+    # words and the cards, never silence.
+    if text_spilled:
+        seen: list = []
+        seen_ids: set = set()
+        for word, card in text_spilled:
+            if id(word) in seen_ids:
+                continue
+            seen_ids.add(id(word))
+            seen.append((word, card))
+        findings.append({
+            "kind": "degenerate_text_spill",
+            "severity": "warning",
+            "message": (
+                f"{len(seen)} pile-up-timed played word(s) sit beside "
+                f"(not under) the card drawing them, reel "
+                f"{seen[0][0]['reel_start']:.2f}-"
+                f"{seen[-1][0]['reel_end']:.2f}s: "
+                f"{' '.join(w['word'] for w, _ in seen)[:160]}"),
+            "detail": {
+                "words": [
+                    {"word": w["word"],
+                     "reel_start": round(w["reel_start"], 3),
+                     "reel_end": round(w["reel_end"], 3),
+                     "card": c["card"]}
+                    for w, c in seen],
+            },
+        })
+
     # ── Per-card alignment: identity inside covered spans ──
     #
     # Cards overlapping a degenerate played word (aligner pile-up -
@@ -767,6 +858,7 @@ def check_word_coverage(
     degenerate_spans = [(w["reel_start"], w["reel_end"])
                         for w in played if w.get("degenerate")]
     skipped_cards: list = []
+    untimed_drawn: list = []
 
     def overlaps_degenerate(card: dict) -> bool:
         return any(s0 < card["reel_end"] and s1 > card["reel_start"]
@@ -833,15 +925,32 @@ def check_word_coverage(
             # Boundary spill: the "missing" word sits at the card edge
             # and the neighbour card carries it (or vice versa for an
             # "extra" word) - placement arithmetic, not a lost word.
+            # Untimed-but-drawn: the planner skips a highlight window
+            # with no width (`generate_remotion_props._clamp_word_window`
+            # - a sub-frame stamp rounds to zero frames and no sweep can
+            # cross it) while still drawing the word in the card text.
+            # Measured 2026-09-20 on Reel 10: 'are' stamped at 30ms, the
+            # card reads "so what's happening, what are you" but times
+            # from "what" to "you". Forgiven with a warning naming the
+            # word and the card - never silence - and ONLY below one
+            # frame: a word long enough to sweep that the card does not
+            # time is a real planner defect, never dust.
+            card_text_norms = set(card.get("text_norms") or [])
             if tag == "delete":
-                real = [
-                    w for w in missing
-                    if not (
-                        w["norm"] in neighbour_norms
-                        and (abs(w["reel_start"] - card["reel_start"])
-                             <= edge_spill_seconds
-                             or abs(w["reel_end"] - card["reel_end"])
-                             <= edge_spill_seconds))]
+                real = []
+                for w in missing:
+                    if (w["norm"] in neighbour_norms
+                            and (abs(w["reel_start"] - card["reel_start"])
+                                 <= edge_spill_seconds
+                                 or abs(w["reel_end"] - card["reel_end"])
+                                 <= edge_spill_seconds)):
+                        continue
+                    if (w["norm"] in card_text_norms
+                            and 0 < w["reel_end"] - w["reel_start"]
+                            < frame_seconds):
+                        untimed_drawn.append((w, card))
+                        continue
+                    real.append(w)
                 if real:
                     raws = [w["word"] for w in real]
                     findings.append({
@@ -917,6 +1026,38 @@ def check_word_coverage(
     # ── Suppressed words, said not waved ──
     #
     # Entries the identity diff skipped above. Each names the recorded
+    # Drawn but untimed: sub-frame played words the planner's karaoke
+    # cannot sweep and the card text still shows. The viewer reads
+    # them while they are spoken; the highlight skips them. Forgiven
+    # above, REPORTED here - one warning naming the words and cards,
+    # never silence.
+    if untimed_drawn:
+        seen: list = []
+        seen_ids: set = set()
+        for word, card in untimed_drawn:
+            if id(word) in seen_ids:
+                continue
+            seen_ids.add(id(word))
+            seen.append((word, card))
+        findings.append({
+            "kind": "untimed_drawn",
+            "severity": "warning",
+            "message": (
+                f"{len(seen)} sub-frame played word(s) are drawn on "
+                f"their card but carry no highlight window, reel "
+                f"{seen[0][0]['reel_start']:.2f}-"
+                f"{seen[-1][0]['reel_end']:.2f}s: "
+                f"{' '.join(w['word'] for w, _ in seen)[:160]}"),
+            "detail": {
+                "words": [
+                    {"word": w["word"],
+                     "reel_start": round(w["reel_start"], 3),
+                     "reel_end": round(w["reel_end"], 3),
+                     "card": c["card"]}
+                    for w, c in seen],
+            },
+        })
+
     # suppression that hid it, so a suppression that stopped matching
     # (or one recorded against the wrong anchor) reads as a warning
     # carrying its id rather than as silence.

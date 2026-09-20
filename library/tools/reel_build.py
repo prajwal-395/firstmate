@@ -2534,12 +2534,18 @@ def midword_keep_edges(start: float, end: float, transcript: dict,
     ranges = keep_ranges(start, end, cuts)
     if len(ranges) < 2:
         return []
+    # Both sides canonicalised to microseconds: the edges below are
+    # rounded to 6dp for stable keys, and an unrounded word time on
+    # the same instant (measured 2026-09-20: cut edge
+    # 1158.3199999999997s against word start 1158.32s, 2.8e-13s of
+    # JSON float dust) would otherwise read as strictly inside. A
+    # genuine cut lands frames inside a word; dust is not a cut word.
     words: List[Tuple[float, float, str]] = []
     for segment in transcript.get("segments") or ():
         for word in segment.get("words") or ():
             try:
-                word_start = float(word["start"])
-                word_end = float(word["end"])
+                word_start = round(float(word["start"]), 6)
+                word_end = round(float(word["end"]), 6)
             except (KeyError, TypeError, ValueError):
                 continue
             if word_end > word_start:
