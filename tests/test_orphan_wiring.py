@@ -135,6 +135,45 @@ def test_retime_ranges_keeps_play_order_with_early_master_cta():
     assert ranges == [(33.0, 40.0), (10.0, 12.0)]
 
 
+def test_retime_ranges_leaves_untouched_range_bounds_bit_identical():
+    """A trim on one span must not move another span's edge by dust.
+
+    Measured on Reel 16 (2026-09-19): a body head trim rebuilt the
+    untouched closer head 1168.2899999999997s as 1168.292s (probe
+    frame-quantisation plus ms-rounding), and the opening "if" whose
+    start the snap had landed exactly on the head fell outside every
+    range and lost its caption while the audio still plays it.
+    """
+    closer = (1168.2899999999997, 1177.69)
+    transcript = {"segments": [
+        {"text": "alpha beta gamma delta",
+         "timeline_start": 30.0, "timeline_end": 32.0,
+         "source_start": 130.0, "source_file": "/v/a.mov",
+         "words": _words("alpha", "beta", "gamma", "delta",
+                         start=30.0)},
+        {"text": "if you run loud",
+         "timeline_start": 1168.2899999999997,
+         "timeline_end": 1170.0,
+         "source_start": 2533.6122916666664,
+         "source_file": "/v/b.mov",
+         "words": [
+             {"word": "if", "start": 1168.2899999999997,
+              "end": 1168.44, "timed": True},
+             {"word": "you", "start": 1168.44,
+              "end": 1168.55, "timed": True},
+         ]},
+    ]}
+    spans = [{"master": (30.0, 40.0)}, {"master": closer}]
+    edits = [{"kind": "span_retime", "anchor_phrase": "beta gamma",
+              "edge": "head", "reason": "untouched-bound test"}]
+    ranges, applied, _, stale = captain_edits.retime_ranges(
+        [(30.0, 40.0), closer], spans, transcript, edits, fps=24.0)
+    assert not stale and len(applied) == 1
+    assert ranges[0] == (30.5, 40.0)
+    assert ranges[1][0] == closer[0] and ranges[1][1] == closer[1]
+    assert ranges[1][0] == 1168.2899999999997
+
+
 def test_builder_threading_names_ranges():
     """`build_reel_timeline` takes precomputed (trimmed) ranges instead
     of recomputing them from the moment - the static half of the seam

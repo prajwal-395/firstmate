@@ -291,6 +291,20 @@ def verify_reels(data: dict) -> dict:
             master_timeline_name=master_timeline_name,
             plan_path=plan_path,
             transcript_path=str(transcript_path(project_folder)))
+        # A promotion that leaves other stagings pending says so: the
+        # holds file is the pending-promotion record, and a build that
+        # stages but never promotes otherwise sits protected and
+        # invisible (measured on Reel 16, 2026-09-19). Reported, never
+        # a gate - the reels above already landed.
+        try:
+            from library.tools import staging_holds as _holds
+            _pending_report = _holds.report_pending(project_folder)
+        except Exception:
+            _pending_report = ""
+        if _pending_report:
+            import sys as _sys_pending
+            print(f"  {_pending_report}", file=_sys_pending.stderr,
+                  flush=True)
     else:
         timelines_verified = list(timelines_built)
 

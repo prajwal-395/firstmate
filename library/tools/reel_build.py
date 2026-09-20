@@ -11217,7 +11217,31 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "kind_defaults": [],
         }
 
+    # ── PENDING PROMOTIONS: a build that stages but never promotes ──
+    # The holds file knows every staging still awaiting promotion
+    # (`library/tools/staging_holds.py`), and until this report ran a
+    # build that left one said nothing: Reel 16's 2026-09-19 staging
+    # sat protected and invisible while its lane's PR read as done.
+    # REPORTED, never a gate (a suffix verification build waits on a
+    # human by design), and carried on the record beside
+    # `staged_timelines` so a later reader need not re-derive it.
+    # Never fatal: an unreadable holds file must not fail a build
+    # whose reels already landed.
+    try:
+        from library.tools import staging_holds as _holds
+        pending_promotions = _holds.pending_promotions(project_folder)
+        pending_report = _holds.report_pending(project_folder)
+    except Exception as pending_unreadable:  # noqa: BLE001
+        pending_promotions = []
+        pending_report = ""
+        print(f"  pending promotions unreadable ({pending_unreadable}) - "
+              f"the reels are unaffected; inspect staging_holds.json",
+              file=sys.stderr, flush=True)
+    if pending_report:
+        print(f"  {pending_report}", file=sys.stderr, flush=True)
+
     return {
+        "pending_promotions": pending_promotions,
         "timelines_built": built_reel_names,
         # Reels this call deliberately did NOT build: a recorded strike
         # covers the whole body, so the reel is dropped WITH the reason

@@ -280,3 +280,61 @@ def refusal_message(staging_name: str, entry: dict) -> str:
         f"(run in the project folder)")
     lines.append("  Nothing was removed.")
     return "\n".join(lines)
+
+
+def pending_promotions(project_folder: str) -> list:
+    """Every staging still awaiting promotion, oldest first.
+
+    The holds file IS the pending-promotion record (a hold is taken
+    at STAGE time and released at promotion or discard), but until
+    2026-09-20 nothing ever READ it that way: the sweep reads holds
+    only to refuse deletion, so a build that stages but never
+    promotes sits protected and invisible - Reel 16's 2026-09-19
+    staging sat a day while two lanes stepped around it as debris
+    and the captain found it himself. A run that ends with entries
+    here says so (see `report_pending`); an empty list is no pending
+    work, never an unreadable file (which raises `HoldsUnreadable`
+    rather than reading as empty).
+    """
+    holds = read_holds(project_folder)
+    out = []
+    for name, entry in holds.items():
+        entry = entry if isinstance(entry, dict) else {}
+        out.append({
+            "staging": name,
+            "awaiting": entry.get("awaiting"),
+            "taken_at": entry.get("taken_at", ""),
+            "age": hold_age(entry),
+            "taken_by": entry.get("taken_by", ""),
+            "reason": entry.get("reason", ""),
+        })
+    out.sort(key=lambda row: row["taken_at"])
+    return out
+
+
+def report_pending(project_folder: str) -> str:
+    """Pending promotions as a run-end warning, or "" when none.
+
+    Loud about WHAT is pending and HOW LONG, because a staging that
+    is never promoted is finished work the captain never sees: name
+    the staging, the final it awaits, and the hold's age. Quiet (not
+    silent - the empty string, which callers print only when
+    non-empty) when nothing is pending.
+    """
+    pending = pending_promotions(project_folder)
+    if not pending:
+        return ""
+    lines = [f"UNPROMOTED STAGING: {len(pending)} staged timeline(s) "
+             f"still awaiting promotion - finished work no timeline "
+             f"carries yet:"]
+    for row in pending:
+        awaiting = row["awaiting"]
+        waits = (f"-> {awaiting!r}" if awaiting
+                 else "(no automatic promotion will take it - a human "
+                      "promotes it explicitly or releases the hold)")
+        lines.append(f"  {row['staging']!r} {waits} "
+                     f"(held {row['age']}, by {row['taken_by'] or '?'})")
+    lines.append("  Promote it, discard it, or release the hold "
+                 "explicitly - a staging that sits is a fix the "
+                 "captain cannot watch.")
+    return "\n".join(lines)

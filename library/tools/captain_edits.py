@@ -1229,6 +1229,15 @@ def retime_ranges(ranges: list, spans: list, transcript: dict,
     an interior gap SPLITS the range rather than bridging it, so
     removed seconds stay removed. No pins, or pins matching nothing
     trimmable, returns the ranges unchanged.
+
+    Only edges a trim moved come back from the probe: every other
+    bound is the input range's own, bit-identical. The probe masters
+    are frame-quantised placement arithmetic, so rebuilding untouched
+    edges from them moves words across the edge by dust - measured on
+    Reel 16 (2026-09-19): a body trim rebuilt the untouched closer
+    head 1168.2899999999997s as 1168.292s, and the opening "If" whose
+    start the snap had landed exactly on the head fell outside every
+    range and lost its caption while the audio still plays it.
     """
     retimes = [e for e in (edits or [])
                if e.get("kind") == "span_retime"]
@@ -1282,16 +1291,61 @@ def retime_ranges(ranges: list, spans: list, transcript: dict,
 
     ordered: list = []
     claimed = [False] * len(merged)
+    groups: list = []
     for want in ranges or []:
+        group = []
         for index, interval in enumerate(merged):
             if not claimed[index] and _overlaps(interval, want):
-                ordered.append(interval)
+                group.append(interval)
                 claimed[index] = True
-    for index, interval in enumerate(merged):
-        if not claimed[index]:
-            ordered.append(interval)
-    return ([(round(start, 3), round(end, 3)) for start, end in ordered],
-            applied, held, stale)
+        if group:
+            groups.append((want, group))
+    leftovers = [interval for index, interval in enumerate(merged)
+                 if not claimed[index]]
+    # Which group edges did trims actually move? An applied trim carries
+    # its new edge (`now`, a transcript word time): a group head moves
+    # exactly when a head trim landed on it, a group tail when a tail
+    # trim did - proximity within the merge epsilon, the scale on which
+    # this function already refuses to tell two edges apart. Every
+    # other bound below is the input range's own, bit-identical, never
+    # rebuilt from the frame-quantised probe. An interior trim whose
+    # span merely overlaps the group lands nowhere near its outer
+    # edges and must never take them with it.
+    head_nows: list = []
+    tail_nows: list = []
+    for record in applied:
+        try:
+            now = (float(record["now"][0]), float(record["now"][1]))
+        except (TypeError, ValueError, IndexError):
+            continue
+        if record.get("edge") == "head":
+            head_nows.append(now[0])
+        else:
+            tail_nows.append(now[1])
+    for want, group in groups:
+        try:
+            bounds = (float(want[0]), float(want[1]))
+        except (TypeError, ValueError, IndexError):
+            ordered.extend(tuple(interval) for interval in group)
+            continue
+        first, last = group[0], group[-1]
+        head_hit = [now for now in head_nows
+                    if abs(now - float(first[0])) <= epsilon]
+        head = min(head_hit) if head_hit else bounds[0]
+        tail_hit = [now for now in tail_nows
+                    if abs(now - float(last[1])) <= epsilon]
+        tail = max(tail_hit) if tail_hit else bounds[1]
+        if len(group) == 1:
+            ordered.append((head, tail))
+        else:
+            # A trim-opened interior gap: the split stands (removed
+            # seconds stay removed) and only the outer edges consult
+            # trims; interior edges are the merged intervals' own.
+            ordered.append((head, first[1]))
+            ordered.extend(tuple(interval) for interval in group[1:-1])
+            ordered.append((last[0], tail))
+    ordered.extend(tuple(interval) for interval in leftovers)
+    return (ordered, applied, held, stale)
 
 
 # ── The captain reads what is in force ───────────────────────────────

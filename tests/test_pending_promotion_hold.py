@@ -540,3 +540,65 @@ def test_discard_releases_the_hold(project_dir):
     discard_staged_reels(project, str(project_dir), [staging], None)
     assert [t.GetName() for t in project.timelines] == []
     assert holds.read_holds(str(project_dir)) == {}
+
+
+# ── Pending promotions report themselves (Reel 16, 2026-09-19) ──────
+# A build that stages but never promotes left its staging protected
+# and invisible: the holds file knew, and nothing ever read it as
+# unfinished work. These pin the reader a run-end report is built
+# on: oldest first, empty when nothing is pending, loud about what
+# and how long - and a corrupt holds file still refuses rather than
+# reading as "nothing pending".
+
+def _backdate(project_dir, staging, taken_at):
+    from pathlib import Path
+    path = Path(holds.holds_path_for(str(project_dir)))
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    doc["holds"][staging]["taken_at"] = taken_at
+    path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+
+def test_pending_promotions_lists_stagings_oldest_first(project_dir):
+    from library.tools.reel_build import STAGING_SUFFIX
+    first = "Reel 16 - why-ai-trusts-one-brand-over-another" + STAGING_SUFFIX
+    second = "Reel 04 - google-gave-a-list-from-2023" + STAGING_SUFFIX
+    holds.take_hold(str(project_dir), first,
+                    awaiting="Reel 16 - why-ai-trusts-one-brand-over-another",
+                    taken_by="rebuild_reels_in_project")
+    holds.take_hold(str(project_dir), second,
+                    awaiting="Reel 04 - google-gave-a-list-from-2023",
+                    taken_by="rebuild_reels_in_project")
+    _backdate(project_dir, first, "2026-09-19T15:36:20+00:00")
+    _backdate(project_dir, second, "2026-09-19T20:20:33+00:00")
+    pending = holds.pending_promotions(str(project_dir))
+    assert [row["staging"] for row in pending] == [first, second]
+    assert pending[0]["awaiting"] == \
+        "Reel 16 - why-ai-trusts-one-brand-over-another"
+    assert pending[0]["taken_by"] == "rebuild_reels_in_project"
+    assert pending[0]["age"] not in ("", "unknown age")
+
+
+def test_report_pending_is_empty_when_nothing_pending(project_dir):
+    assert holds.pending_promotions(str(project_dir)) == []
+    assert holds.report_pending(str(project_dir)) == ""
+
+
+def test_report_pending_names_staging_awaiting_and_age(project_dir):
+    from library.tools.reel_build import STAGING_SUFFIX
+    staging = "Reel 16 - why-ai-trusts-one-brand-over-another" + STAGING_SUFFIX
+    holds.take_hold(str(project_dir), staging,
+                    awaiting="Reel 16 - why-ai-trusts-one-brand-over-another",
+                    taken_by="rebuild_reels_in_project")
+    report = holds.report_pending(str(project_dir))
+    assert "UNPROMOTED STAGING" in report
+    assert staging in report
+    assert "Reel 16 - why-ai-trusts-one-brand-over-another" in report
+    assert "held 0m" in report or "held 1m" in report
+
+
+def test_pending_promotions_refuses_an_unreadable_holds_file(project_dir):
+    from pathlib import Path
+    path = Path(holds.holds_path_for(str(project_dir)))
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(holds.HoldsUnreadable):
+        holds.pending_promotions(str(project_dir))
