@@ -1,0 +1,21 @@
+#!/bin/sh
+# bin/resolve-axi: agent-ergonomic reads over the live Resolve session.
+#
+# Resolves its own location through symlinks (so a symlink on PATH
+# works), then runs the CLI under this pipeline's interpreter via
+# bin/vep - the same ladder `scripts/full_suite_gate.sh` uses, never
+# the ambient python3.
+#
+# Install on PATH with one symlink from the primary checkout:
+#   ln -s <checkout>/bin/resolve-axi /opt/homebrew/bin/resolve-axi
+set -u
+SRC="$0"
+while [ -L "$SRC" ]; do
+  LINK="$(readlink "$SRC")"
+  case "$LINK" in
+    /*) SRC="$LINK" ;;
+    *) SRC="$(dirname "$SRC")/$LINK" ;;
+  esac
+done
+ROOT="$(cd "$(dirname "$SRC")/.." && pwd -P)"
+exec "$ROOT/bin/vep" "$ROOT/library/tools/resolve_axi.py" "$@"
