@@ -72,6 +72,7 @@ import math
 import os
 import re
 import sys
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -1733,6 +1734,174 @@ def rewrite_f5_against_live_final(staging_name: str,
                     f"ships {final_seconds:.1f}s, staging carries "
                     f"{staging_seconds:.1f}s): {finding.message}"),
                 detail=detail,
+            ))
+    return rewritten
+
+
+#: Which F25 findings the live-final baseline may soften: `word_mismatch`
+#: and `empty_window` (vep-f5-should-refuse-new-violations-not-all,
+#: extended to F25 on 2026-09-20 for Reel 03's pre-existing 30ms
+#: "that.", an overlap artifact the live final ships by construction).
+#: Every other F25 kind - `played_not_captioned`,
+#: `captioned_not_played`, `unreadable`, the basis warnings - keeps its
+#: severity whatever the final ships. A baseline that softened "a card
+#: over silence" because the final has one too would be a waiver, not
+#: a comparison. A third kind is a fresh decision, not an extension.
+F25_BASELINED_KINDS = ("word_mismatch", "empty_window")
+
+
+def _f25_surfaces(detail: dict) -> list:
+    """The word surfaces one baselined F25 finding turns on.
+
+    `word_mismatch` names them under dropped/added/played/captioned;
+    `empty_window` names the one word its card gives no time. Anything
+    else is not a baselined kind and carries no surface.
+    """
+    if (detail or {}).get("kind") == "empty_window":
+        word = (detail or {}).get("word")
+        return [word] if word is not None else []
+    surfaces: list = []
+    for key in ("dropped", "added", "played", "captioned"):
+        for entry in (detail or {}).get(key) or ():
+            word = (entry or {}).get("word")
+            if word is not None:
+                surfaces.append(word)
+    return surfaces
+
+
+def f25_mismatch_words(findings: Sequence[Finding]) -> Counter:
+    """The word surfaces behind baselined F25 ERRORS, as a multiset.
+
+    The comparison quantum for the F25 baseline: word surface ONLY,
+    never the card. Measured 2026-09-20 on Reel 03: the live render
+    (2fb0d46d) and the rebuild render (881e055c) carry byte-identical
+    text while differing in one highlight entry, so the same overlap
+    dust reads as `empty_window` on cardA live and `word_mismatch` on
+    cardB staged - card identity does not survive a rebuild and cannot
+    be the match key. Counts are per surface (two dropped "the" are
+    two), so fixing one occurrence while breaking another still
+    refuses. Only ERROR findings of baselined kinds count; warnings
+    and other kinds never do.
+    """
+    counts: Counter = Counter()
+    for finding in findings or ():
+        if finding.finding_class != FindingClass.F25:
+            continue
+        if finding.severity != "error":
+            continue
+        if (finding.detail or {}).get("kind") not in F25_BASELINED_KINDS:
+            continue
+        for word in _f25_surfaces(finding.detail or {}):
+            counts[word] += 1
+    return counts
+
+
+def f25_mismatch_cards(findings: Sequence[Finding]) -> Dict[str, list]:
+    """Where each mismatched surface was read, for the report.
+
+    Never matched on - card identity is the unstable half (see
+    `f25_mismatch_words`) - but always NAMED: a comparison that cannot
+    say which cards it compared is not loud enough to trust.
+    """
+    cards: Dict[str, list] = {}
+    for finding in findings or ():
+        if finding.finding_class != FindingClass.F25:
+            continue
+        if finding.severity != "error":
+            continue
+        detail = finding.detail or {}
+        if detail.get("kind") not in F25_BASELINED_KINDS:
+            continue
+        card = detail.get("card", "")
+        for word in _f25_surfaces(detail):
+            cards.setdefault(word, [])
+            if card not in cards[word]:
+                cards[word].append(card)
+    return cards
+
+
+def rewrite_f25_against_live_final(staging_name: str,
+                                   staging_findings: Sequence[Finding],
+                                   final_name: str,
+                                   final_findings: Sequence[Finding],
+                                   ) -> List[Finding]:
+    """Baselined F25 findings on a staging, judged against the live final.
+
+    The F5 comparison's sibling, on word surfaces rather than seconds:
+    each staging finding's words are consumed against the live final's
+    multiset in order. A finding whose every word the final already
+    carries becomes a WARNING naming the final and BOTH cards (the
+    staging's and the final's - card is reported, never matched).
+    A finding with words the final does not carry keeps its ERROR,
+    naming only the NEW words. Findings of any other class or kind
+    pass through untouched.
+
+    The warning carries the known hole in plain words: matching is by
+    surface only, so a rebuild that fixed W here and broke the same W
+    elsewhere with equal counts would also read as pre-existing. What
+    makes that survivable is the counts: any imbalance still refuses.
+
+    Pure, like its F5 sibling, for the same reason: the decision is
+    testable without Resolve
+    (`tests/test_f25_refuses_new_word_mismatch_not_all.py`).
+    """
+    remaining = f25_mismatch_words(final_findings)
+    final_cards = f25_mismatch_cards(final_findings)
+    rewritten: List[Finding] = []
+    for finding in staging_findings:
+        detail = finding.detail or {}
+        if finding.finding_class != FindingClass.F25 or \
+                finding.severity != "error" or \
+                detail.get("kind") not in F25_BASELINED_KINDS:
+            rewritten.append(finding)
+            continue
+        words = _f25_surfaces(detail)
+        new_words: list = []
+        for word in words:
+            if remaining.get(word, 0) > 0:
+                remaining[word] -= 1
+            else:
+                new_words.append(word)
+        out_detail = dict(detail)
+        out_detail["live_final"] = final_name
+        staging_card = detail.get("card", "")
+        named_final_cards = sorted({
+            card for word in words
+            for card in final_cards.get(word, [])})
+        out_detail["live_final_cards"] = named_final_cards
+        if not new_words:
+            out_detail["preexisting"] = True
+            word_list = ", ".join(sorted(set(words)) or ["(none named)"])
+            rewritten.append(dataclasses.replace(
+                finding,
+                severity="warning",
+                message=(
+                    f"PRE-EXISTING caption word finding, also on live "
+                    f"final {final_name}: {finding.message} - staging "
+                    f"card {staging_card} against live final "
+                    f"card(s) {named_final_cards}. Reported, not "
+                    f"blocking: the rebuild introduces no new "
+                    f"mismatched words. Known hole, stated plainly: "
+                    f"matching is by word surface only (card identity "
+                    f"does not survive re-renders), so a rebuild that "
+                    f"fixed {word_list} here and broke the same "
+                    f"word(s) elsewhere with equal counts would also "
+                    f"read as pre-existing; the counts matched here, "
+                    f"so no such relocation is measured."),
+                detail=out_detail,
+            ))
+        else:
+            out_detail["preexisting"] = False
+            out_detail["new_words"] = list(new_words)
+            rewritten.append(dataclasses.replace(
+                finding,
+                message=(
+                    f"NEW mismatched word(s) the rebuild introduces "
+                    f"{sorted(set(new_words))} on staging card "
+                    f"{staging_card} (live final {final_name} carries "
+                    f"none of these unmatched - its cards there are "
+                    f"{named_final_cards}): {finding.message}"),
+                detail=out_detail,
             ))
     return rewritten
 
@@ -6663,19 +6832,23 @@ def run_verification(
             print(f"  {name}: {status} ({len(result.errors)} errors, "
                   f"{len(result.warnings)} warnings)", file=err)
 
-        # ── F5 refuses NEW violations, not ALL ─────────────────────
+        # ── Refuse NEW violations, not ALL (F5 + F25) ─────────────
         #
         # vep-f5-should-refuse-new-violations-not-all: a staging graded
         # above carries F5 errors - uncaptioned speech its placed cards
         # do not cover. Where the live final it would replace ships the
         # same seconds, refusing the rebuild holds the captain's fix
         # hostage to a defect he already approved (Reel 08's 0.6s
-        # untimed "Mm-hmm", 2026-09-20). So each staging with F5 errors
-        # is judged against its live final, graded here through the
-        # same `grade_one` above: pre-existing seconds are REPORTED
-        # loudly as warnings, and only NEW seconds refuse. A staging
-        # with no live final, or one whose baseline cannot be read,
-        # keeps its errors - fail-closed, said on stderr either way.
+        # untimed "Mm-hmm", 2026-09-20). F25 word_mismatch joined on
+        # 2026-09-20 for the same shape (Reel 03's pre-existing 30ms
+        # "that.", an overlap artifact the live final ships by
+        # construction - same card file, same audio, same transcript).
+        # So each staging with F5 or F25-word_mismatch errors is judged
+        # against its live final, graded here through the same
+        # `grade_one` above: pre-existing findings are REPORTED loudly
+        # as warnings, and only NEW ones refuse. A staging with no live
+        # final, or one whose baseline cannot be read, keeps its errors
+        # - fail-closed, said on stderr either way.
         # `verify_waivers.json` is deliberately NOT read here: it is
         # dead config no engine code reads, and a reader for it would
         # be a bypass rather than this comparison.
@@ -6687,52 +6860,78 @@ def run_verification(
                 f for f in result.findings
                 if f.finding_class == FindingClass.F5
                 and f.severity == "error"]
-            if not staging_f5:
+            staging_f25 = [
+                f for f in result.findings
+                if f.finding_class == FindingClass.F25
+                and f.severity == "error"
+                and (f.detail or {}).get("kind")
+                in F25_BASELINED_KINDS]
+            if not staging_f5 and not staging_f25:
                 continue
             if not result.reel_name.endswith(_STAGING_SUFFIX):
                 continue
+            baselined = ("F5" if staging_f5 else "") + (
+                "+F25" if staging_f5 and staging_f25
+                else ("F25" if staging_f25 else ""))
+            kept = len(staging_f5) + len(staging_f25)
             final_name = result.reel_name[: -len(_STAGING_SUFFIX)]
             final_tl = live_by_name.get(final_name)
             if final_tl is None:
-                print(f"  {result.reel_name}: F5 baseline: no live "
-                      f"timeline named exactly {final_name!r} - "
-                      f"keeping {len(staging_f5)} F5 error(s) "
-                      f"(fail-closed: no baseline to compare against).",
-                      file=err)
+                print(f"  {result.reel_name}: {baselined} baseline: no "
+                      f"live timeline named exactly {final_name!r} - "
+                      f"keeping {kept} error(s) (fail-closed: no "
+                      f"baseline to compare against).", file=err)
                 continue
             try:
                 final_snap = snapshot_timeline(final_tl, project_name)
                 final_result = grade_one(final_name, final_snap)
             except Exception as exc:  # noqa: BLE001 - baseline, never a gate
-                print(f"  {result.reel_name}: F5 baseline: could not "
-                      f"grade live final {final_name!r} ({exc}) - "
-                      f"keeping {len(staging_f5)} F5 error(s) "
+                print(f"  {result.reel_name}: {baselined} baseline: "
+                      f"could not grade live final {final_name!r} "
+                      f"({exc}) - keeping {kept} error(s) "
                       f"(fail-closed).", file=err)
                 continue
             rewritten = rewrite_f5_against_live_final(
                 result.reel_name, list(result.findings),
                 final_name, list(final_result.findings))
-            still_errors = sum(
+            rewritten = rewrite_f25_against_live_final(
+                result.reel_name, rewritten,
+                final_name, list(final_result.findings))
+            still_f5 = sum(
                 1 for f in rewritten
                 if f.finding_class == FindingClass.F5
                 and f.severity == "error")
+            still_f25 = sum(
+                1 for f in rewritten
+                if f.finding_class == FindingClass.F25
+                and f.severity == "error"
+                and (f.detail or {}).get("kind")
+                in F25_BASELINED_KINDS)
             new_seconds = (
                 f5_straddling_seconds(rewritten)
                 - f5_straddling_seconds(final_result.findings))
-            if still_errors:
-                print(f"  {result.reel_name}: F5 baseline: live final "
-                      f"{final_name!r} ships "
+            if still_f5 or still_f25:
+                new_words = sorted({
+                    w for f in rewritten
+                    if f.finding_class == FindingClass.F25
+                    and f.severity == "error"
+                    for w in ((f.detail or {}).get("new_words") or [])})
+                print(f"  {result.reel_name}: {baselined} baseline: "
+                      f"live final {final_name!r} ships "
                       f"{f5_straddling_seconds(final_result.findings):.1f}s "
-                      f"uncaptioned; the rebuild ADDS "
-                      f"{max(0.0, new_seconds):.1f}s - "
-                      f"{still_errors} F5 error(s) stand.", file=err)
-            else:
-                print(f"  {result.reel_name}: F5 baseline: "
-                      f"{len(staging_f5)} F5 error(s) are pre-existing "
-                      f"(live final {final_name!r} ships "
-                      f"{f5_straddling_seconds(final_result.findings):.1f}s) "
-                      f"- reported as warnings, promotion not blocked.",
+                      f"uncaptioned and "
+                      f"{sum(f25_mismatch_words(final_result.findings).values())} "
+                      f"mismatched word(s); the rebuild ADDS "
+                      f"{max(0.0, new_seconds):.1f}s"
+                      f"{' and word(s) ' + str(new_words) if new_words else ''} - "
+                      f"{still_f5} F5 + {still_f25} F25 error(s) stand.",
                       file=err)
+            else:
+                print(f"  {result.reel_name}: {baselined} baseline: "
+                      f"{len(staging_f5)} F5 + {len(staging_f25)} F25 "
+                      f"error(s) are pre-existing (live final "
+                      f"{final_name!r} ships them) - reported as "
+                      f"warnings, promotion not blocked.", file=err)
             result.findings = rewritten
 
     # ── The captain's four qualities ─────────────────────────────────
