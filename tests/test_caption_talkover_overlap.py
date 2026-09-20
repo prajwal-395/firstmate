@@ -146,6 +146,56 @@ def test_a_trim_that_would_flash_merges_into_the_next_card():
         "short", "tail", "google"]
 
 
+def _merge_entries(earlier_text, earlier_words, later_text, later_words,
+                   earlier_start, earlier_end, later_start, later_end,
+                   speaker):
+    def _w(text, starts):
+        return [{"word": w, "start": s, "end": s + 0.2}
+                for w, s in zip(text.split(), starts)]
+    return [
+        {"id": "sub_1_001", "timeline_start": earlier_start,
+         "timeline_end": earlier_end, "text": earlier_text,
+         "words": _w(earlier_text, earlier_words),
+         "word_count": len(earlier_text.split()),
+         "spine_block_position": 1, "speaker": speaker[0]},
+        {"id": "sub_2_001", "timeline_start": later_start,
+         "timeline_end": later_end, "text": later_text,
+         "words": _w(later_text, later_words),
+         "word_count": len(later_text.split()),
+         "spine_block_position": 2, "speaker": speaker[1]},
+    ]
+
+
+def test_same_speaker_merge_covers_its_first_word():
+    """Reel 06, 2026-09-20: "Not at all." joined the next card, which
+    kept the later start - "Not" played 2.79-2.93s with no caption
+    over it (F25). One voice mistimed across two blocks is alignment
+    slop, so the merged card opens where its first word does."""
+    entries = _merge_entries(
+        "not at all.", [2.82, 2.97, 3.04], "i have seen", [2.98, 3.28, 3.42],
+        2.82, 3.24, 2.98, 4.41, ("akshita", "akshita"))
+    fix = resolve_caption_overlaps(entries)
+    assert fix == {"trimmed": 0, "merged": 1}, fix
+    assert len(entries) == 1
+    survivor = entries[0]
+    assert survivor["timeline_start"] == 2.82
+    first = survivor["words"][0]
+    assert (first["word"], first["start"]) == ("not", 2.82)
+    assert survivor["timeline_start"] <= first["start"]
+
+
+def test_mixed_speaker_merge_keeps_the_later_start():
+    """A genuine talk-over is a collision one track cannot serialize:
+    the merged card keeps the later timing and the gates refuse what
+    it cannot cover, exactly as before."""
+    entries = _merge_entries(
+        "short tail", [14.0, 14.2], "google rewards", [14.2, 14.6],
+        14.0, 14.4, 14.2, 16.0, ("akshita", "craig"))
+    fix = resolve_caption_overlaps(entries)
+    assert fix == {"trimmed": 0, "merged": 1}, fix
+    assert entries[0]["timeline_start"] == 14.2
+
+
 # ── The gate: unchanged, and still refuses the genuinely bad case ──
 
 def _planned(start, end, text, block):

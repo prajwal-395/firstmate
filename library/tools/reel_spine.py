@@ -401,6 +401,91 @@ def _covering_range_end(master_start: float,
     return None
 
 
+def _split_runs_at_removed_spans(kept: list,
+                                 ranges: Sequence[tuple[float, float]]
+                                 ) -> list[list]:
+    """Split kept words where a removed span sits between two of them.
+
+    Membership is read exactly the way `reel_time` reads it - an end
+    the closing way, a start the half-open way - so the boundary that
+    splits here is the same boundary the picture was cut on. Across a
+    word gap the reel must advance by exactly what the master does;
+    advancing less means the reel removed something in between. An
+    overlapping word pair (the aligner's own slop, which the caption
+    gate already reads as sequential) never splits here: nothing was
+    removed between two words that overlap.
+    """
+    from library.tools.reel_build import reel_time
+
+    runs: list[list] = []
+    current: list = []
+    for word in kept:
+        start = word.get("start")
+        if current and start is not None:
+            prev_end = current[-1].get("end")
+            if prev_end is not None and float(start) >= float(prev_end):
+                head = reel_time(float(prev_end), ranges, at_end=True)
+                tail = reel_time(float(start), ranges)
+                if (head is None or tail is None
+                        or tail < head - CONTIGUITY_TOLERANCE_SECONDS):
+                    runs.append(current)
+                    current = []
+        current.append(word)
+    if current:
+        runs.append(current)
+    return runs
+
+
+def _split_segments_at_removed_spans(segments: list,
+                                     ranges: Sequence[tuple[float, float]]
+                                     ) -> list:
+    """One row per contiguous play span, never one across a cut.
+
+    A keep exclusion (the captain's struck take) can cut the MIDDLE
+    out of one transcript row: the words on both sides survive, and
+    narrowing the row to its kept words still spans the hole - Reel
+    21, 2026-09-20, where lc-0095 left 5.36s of source on 2.03s of
+    reel and the caption plan refused the block no 1x word mapping
+    can cross. Each run of words with no removed span inside becomes
+    its own row, carrying the row's binding narrowed to the run: the
+    source clock is 1:1 with the master inside one row, the same
+    binding assumption the row's own placement already makes. A row
+    nothing cuts passes through untouched, and a row fully cut keeps
+    its shape for the loop below, which still reports it as dropped
+    speech rather than an empty split.
+    """
+    from library.tools.reel_build import reel_time
+
+    split: list = []
+    for segment in segments:
+        words = segment.get("words") or []
+        kept = [w for w in words
+                if w.get("start") is not None
+                and reel_time(float(w["start"]), ranges) is not None]
+        if len(kept) == len(words):
+            split.append(segment)
+            continue
+        if not kept:
+            split.append(segment)
+            continue
+        seg_t0 = segment.get("timeline_start")
+        seg_s0 = segment.get("source_start")
+        for run in _split_runs_at_removed_spans(kept, ranges):
+            run_start = float(run[0]["start"])
+            run_end = float(run[-1]["end"])
+            sub = dict(segment, words=run,
+                       timeline_start=run_start, timeline_end=run_end)
+            if seg_s0 is not None and seg_t0 is not None:
+                run_source_start = float(seg_s0) + (
+                    run_start - float(seg_t0))
+                sub["source_start"] = run_source_start
+                if segment.get("source_end") is not None:
+                    sub["source_end"] = (run_source_start
+                                         + (run_end - run_start))
+            split.append(sub)
+    return split
+
+
 def spine_for_reel(moment, transcript: dict,
                    ranges: Sequence[tuple[float, float]] | None = None,
                    lead_seconds: float = 0.0,
@@ -455,7 +540,10 @@ def spine_for_reel(moment, transcript: dict,
     unanchored_seconds = 0.0
     dropped_rows: list[tuple] = []
 
-    for segment in sorted(segments, key=lambda s: s.get("timeline_start", 0.0)):
+    segments = _split_segments_at_removed_spans(
+        sorted(segments, key=lambda s: s.get("timeline_start", 0.0)),
+        ranges)
+    for segment in segments:
         master_start = segment.get("timeline_start")
         master_end = segment.get("timeline_end")
         if master_start is None or master_end is None:

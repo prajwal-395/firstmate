@@ -30,7 +30,6 @@ sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 from library.tools.caption_reading import (
     apply_caption_reading,
-    apply_caption_reading_text,
 )
 from library.tools.render_fonts import measurable_font_path
 from library.tools.safe_area import resolve_safe_area
@@ -404,6 +403,18 @@ def resolve_caption_overlaps(entries: list) -> dict:
                               + list(later.get("words", [])))
             later["word_count"] = len(later["text"].split())
             later["emphasis_words"] = identify_emphasis_words(later["text"])
+            # A card covers the words it carries: the merged card opens
+            # where its first word does - measured 2026-09-20 on Reel
+            # 06, where "Not at all." joined the next card but the card
+            # kept the later start and "Not" played with no caption
+            # over it. Same speaker only: one voice mistimed across two
+            # blocks is alignment slop, and its card is one voice. A
+            # mixed card keeps the later start, and the gates refuse
+            # the collision one track cannot serialize.
+            if (earlier.get("speaker") is not None
+                    and earlier.get("speaker") == later.get("speaker")):
+                later["timeline_start"] = min(later["timeline_start"],
+                                              earlier["timeline_start"])
             doomed.add(id(earlier))
             merged += 1
         else:
@@ -1271,19 +1282,42 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
     # answer than the cards carry (see
     # library/tools/caption_reading.py).
     if caption_case != "as_written":
+        # Every drawn word went through the declared reading, checked
+        # the way the planner applies it: to each block's whole word
+        # stream BEFORE grouping, with words as the unit. The reading
+        # is context-sensitive - a rank marker keeps "top three"
+        # words while a bare "three" reads "3" - so checking a card's
+        # text, or one word, in isolation fails correct output
+        # wherever a rank phrase sits on or splits across cards
+        # (measured 2026-09-20 on Reel 08: "the top three" planned,
+        # then refused on isolated "three"). Each card is therefore
+        # re-read with its own block-predecessor's last word as left
+        # context, and only the card's own words are compared.
+        # Merged-away cards are already out of this list, so the
+        # predecessor is exact. One residual: a cross-block overlap
+        # merge glues two blocks' words onto one card, and the seam is
+        # adjacency the reading never saw - if that ever refuses, the
+        # card it names is the whole diagnosis.
+        prev_last_word: dict = {}
         for sub in subtitle_entries:
-            assert apply_caption_reading_text(
-                sub["text"],
-                corrections=reading_corrections) == sub["text"], \
+            words = sub.get("words", [])
+            context = prev_last_word.get(sub.get("spine_block_position"), "")
+            sequence = (
+                ([{"word": context, "start": 0.0, "end": 0.0}] if context
+                 else [])
+                + [{"word": w["word"], "start": w.get("start", 0.0),
+                    "end": w.get("end", 0.0)} for w in words]
+            )
+            reread = apply_caption_reading(
+                sequence, corrections=reading_corrections)
+            card_reread = reread[1:] if context else reread
+            assert [w["word"] for w in card_reread] == \
+                [w["word"] for w in words], \
                 f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} " \
                 f"is not the declared reading of itself: {sub['text']}"
-            for word in sub.get("words", []):
-                assert apply_caption_reading_text(
-                    word["word"],
-                    corrections=reading_corrections) == word["word"], \
-                    f"Subtitle {sub.get('entry_id', sub.get('id', '?'))} " \
-                    f"word is not the declared reading of " \
-                    f"itself: {word['word']}"
+            drawn = [w["word"] for w in words]
+            if drawn:
+                prev_last_word[sub.get("spine_block_position")] = drawn[-1]
 
     # Word count warnings
     for sub in subtitle_entries:

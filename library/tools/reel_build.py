@@ -2330,6 +2330,116 @@ def absorb_wordless_take_gaps(
     return out
 
 
+def absorb_wordless_clip_edge_dust(ranges: Sequence[Tuple[float, float]],
+                                   master_clips: Sequence,
+                                   transcript: dict,
+                                   fps: float) -> List[Tuple[float, float]]:
+    """Snap keep-range edges to master-clip boundaries across wordless dust.
+
+    `placements` rounds range edges and clip edges to frames
+    independently: a master clip starting 1 frame before a word-timed
+    cut edge leaves a 1-frame picture+audio item the F7 floor refuses
+    (measured 2026-09-20 on Reel 08: LC4932/LCATL0013 start 614.697,
+    the take cut starts 614.720). The range-level remnant rule
+    (`absorb_wordless_remnants`) cannot see it - the RANGE is 26s, the
+    nub is one clip's head inside it.
+
+    For each placed piece under the F7 floor sitting on a range edge,
+    shrink the range to the clip boundary when the dust between them
+    is wordless and under `ABSORB_REMNANT_SECONDS`: the same policy as
+    the range rule (silence moves, speech refuses), at clip
+    granularity. Wordless means no timed word AND no text-carrying
+    transcript row overlaps the strip - an untimed "Mm-hmm" is audible
+    speech the timed scan cannot see. A piece mid-range, dust carrying
+    speech, or dust over the limit is left for the gate: shrinking
+    there would delete speech or invent footage.
+
+    Returns adjusted ranges; the input is untouched. Recompute
+    placements from what this returns - every range edge moves at
+    most half a second, and only over silence.
+    """
+    import math
+    import sys
+
+    from library.tools.manifest_validator import MIN_CAPTION_DISPLAY_SECONDS
+
+    ranges = [(float(a), float(b)) for a, b in (ranges or [])]
+    if not ranges or not master_clips:
+        return ranges
+    floor_frames = int(math.ceil(MIN_CAPTION_DISPLAY_SECONDS * float(fps)))
+    # (range index, side) -> extreme clip boundary. Behind-dust takes
+    # the MINIMUM (furthest back fixes every track at once); ahead-dust
+    # takes the MAXIMUM. The wordless check covers the full strip the
+    # extreme implies, so one snap fixes all tracks simultaneously.
+    adjustments: dict = {}
+    for index, (range_start, range_end) in enumerate(ranges):
+        range_start_f = int(round(range_start * fps))
+        range_end_f = int(round(range_end * fps))
+        for clip in master_clips:
+            try:
+                clip_start = float(clip.timeline_start)
+                clip_end = float(clip.timeline_end)
+            except (AttributeError, TypeError, ValueError):
+                continue
+            overlap_start_f = max(int(round(clip_start * fps)),
+                                  range_start_f)
+            overlap_end_f = min(int(round(clip_end * fps)), range_end_f)
+            if not 0 < overlap_end_f - overlap_start_f < floor_frames:
+                continue
+            at_start = overlap_start_f == range_start_f
+            at_end = overlap_end_f == range_end_f
+            if at_start == at_end:
+                # The whole range is sub-floor, or the piece sits
+                # mid-range: no edge to snap, leave it for the gate.
+                continue
+            if at_end:
+                # The clip's head sticks past the range end.
+                if not range_start < clip_start < range_end:
+                    continue
+                if not clip_end > range_end:
+                    continue
+                key = (index, "end")
+                adjustments[key] = min(
+                    adjustments.get(key, range_end), clip_start)
+            else:
+                # The clip's tail sticks past the range start.
+                if not range_start < clip_end < range_end:
+                    continue
+                if not clip_start < range_start:
+                    continue
+                key = (index, "start")
+                adjustments[key] = max(
+                    adjustments.get(key, range_start), clip_end)
+    out = [list(pair) for pair in ranges]
+    for (index, side), edge in sorted(adjustments.items()):
+        range_start, range_end = out[index]
+        dust = (edge, range_end) if side == "end" else (range_start, edge)
+        if not 0 < dust[1] - dust[0] <= ABSORB_REMNANT_SECONDS:
+            continue
+        spoken = _remnant_has_timed_words(dust[0], dust[1], transcript)
+        if spoken is not None:
+            continue
+        for segment in (transcript or {}).get("segments") or ():
+            if not (segment.get("text") or "").strip():
+                continue
+            try:
+                seg_start = float(segment["timeline_start"])
+                seg_end = float(segment["timeline_end"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if seg_start < dust[1] and seg_end > dust[0]:
+                spoken = (segment.get("text") or "").strip()[:40]
+                break
+        if spoken is not None:
+            continue
+        out[index][1 if side == "end" else 0] = float(edge)
+        print(f"  clip-edge dust: range {range_start:.2f}-{range_end:.2f}s "
+              f"{side} snapped to {edge:.3f}s "
+              f"({dust[1] - dust[0]:.3f}s of wordless room tone dropped)",
+              file=sys.stderr, flush=True)
+    return [(a, b) for a, b in out]
+
+
 class ExclusionWipesBody(ReelBuildError):
     """A recorded strike covers this reel's whole body.
 
@@ -4485,6 +4595,13 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
     ranges = reel_ranges(moment, transcript,
                          extra_cuts=moment_cuts,
                          insisted_spans=moment_insisted)
+    # Clip-edge dust the range rules cannot see: a master clip starting
+    # a frame before a word-timed cut edge places a sub-floor head the
+    # F7 floor refuses (Reel 08, 2026-09-20). Snapped here, before
+    # trims, ending and cards derive from the ranges, so picture and
+    # captions read one shape.
+    ranges = absorb_wordless_clip_edge_dust(ranges, master_clips,
+                                            transcript, fps)
     # The captain's recorded trims (`span_retime`,
     # `library/tools/captain_edits.py`): applied to the RANGES, before
     # cards derive from them. Trimming placements after captions were
@@ -11916,6 +12033,12 @@ def build_reel_variants(project_slug: str, reel_number: int,
         moment, transcript, extra_cuts=moment_cuts,
         insisted_spans=_tc.insisted_spans_for_span(
             moment.timeline_start, moment.timeline_end, keep_insistences))
+    # Clip-edge dust, same seam as the rebuild loop: a variant is cut
+    # from the same ranges the approved reel was built from, and a
+    # sub-floor clip head the approved build absorbed must not come
+    # back on the variant.
+    ranges = absorb_wordless_clip_edge_dust(ranges, master_clips,
+                                            transcript, fps)
 
     # The captain's recorded trims, same seam as the rebuild loop:
     # variants compare seams, so every variant is cut from the same

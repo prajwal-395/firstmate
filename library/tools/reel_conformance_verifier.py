@@ -5278,6 +5278,19 @@ def _derive_plan_from_master(
         closer = (float(call_to_action[0]), float(call_to_action[1]))
         kr = list(kr) + [closer]
 
+    # Wordless clip-edge dust, absorbed HERE too, in the same place the
+    # build absorbs it (`derive_reel_ranges_and_cards`, right after the
+    # ranges and before trims): a reel cannot be built to one rule and
+    # checked against another, and without this every absorbed frame
+    # reads as a changed card grouping (NO-REFERENCE) plus a frame of
+    # plan mismatch. ALL snapshot clips, not picture only - the build
+    # snaps against the same set, and a boundary on one audio track
+    # snaps the edge for every track at once.
+    from library.tools.reel_build import (
+        absorb_wordless_clip_edge_dust as _absorb_clip_dust)
+    kr = _absorb_clip_dust(list(kr), list(master_snapshot.clips),
+                           transcript or {}, fps)
+
     # Compute placements from master clips
     master_clips = master_snapshot.picture_clips()
 

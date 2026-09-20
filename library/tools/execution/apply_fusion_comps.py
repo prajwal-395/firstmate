@@ -176,6 +176,53 @@ def verify_destination(resolve, expected_project, expected_timeline):
     return project, timeline
 
 
+def assert_destination(resolve, expected_project, expected_timeline):
+    """Set the cursor to the expected timeline, then verify it.
+
+    The subprocess is handed its destination across the process
+    boundary, and whatever the current timeline happens to be when it
+    starts is ambient shared state - a sibling lane's final, the
+    captain's hand, another tool's scratch. Depending on it stalls
+    every concurrent wave on a refusal (measured 2026-09-20: a
+    duplicate-take rebuild died on a sibling's Reel 05). Under the
+    caller's exclusive lease, ASSERT the cursor to the timeline this
+    pass is about to composite, then read it back with
+    `verify_destination` - the read-back stays, because against a
+    mutator that never agreed to any lock the only protection is
+    verify-immediately-before-mutation and refuse.
+
+    The project is never switched, only the timeline within it: a
+    wrong project refuses exactly as before.
+    """
+    pm = resolve.GetProjectManager()
+    project = pm.GetCurrentProject()
+    if not project:
+        raise DestinationMismatchError(
+            "No Resolve project is open. Expected project "
+            f"{expected_project!r}, timeline {expected_timeline!r}."
+        )
+    if project.GetName() != expected_project:
+        raise DestinationMismatchError(
+            f"Wrong Resolve project: expected {expected_project!r}, "
+            f"got {project.GetName()!r}. Refusing to move the cursor "
+            f"onto another project's timeline."
+        )
+    target = None
+    for index in range(1, project.GetTimelineCount() + 1):
+        candidate = project.GetTimelineByIndex(index)
+        if candidate and candidate.GetName() == expected_timeline:
+            target = candidate
+            break
+    if target is None:
+        raise DestinationMismatchError(
+            f"Timeline {expected_timeline!r} not found in project "
+            f"{expected_project!r}: the staging this pass was to "
+            f"composite is gone, so there is nothing to assert onto."
+        )
+    project.SetCurrentTimeline(target)
+    return verify_destination(resolve, expected_project, expected_timeline)
+
+
 def _map_clips_to_items(clips, items):
     """Match one track's manifest clip specs to the items really placed.
 
@@ -216,13 +263,15 @@ def apply_fusion_comps(manifest, project_folder,
         return False
 
     # ── Destination guard ──
-    # Verify IMMEDIATELY before the first mutation.  The subprocess is
-    # handed its expected destination across the process boundary; if what
-    # Resolve reports does not match, refuse loudly rather than writing
-    # comps onto the captain's rough cut.
+    # ASSERT the cursor under this pass's exclusive lease, then verify
+    # IMMEDIATELY before the first mutation. Depending on ambient
+    # current-timeline state stalls every concurrent wave on a refusal
+    # (2026-09-20: a rebuild died on a sibling lane's final); the
+    # read-back stays because against a mutator that never agreed to
+    # any lock the only protection is verify-and-refuse.
     if expected_project and expected_timeline:
         try:
-            project, timeline = verify_destination(
+            project, timeline = assert_destination(
                 resolve, expected_project, expected_timeline)
         except DestinationMismatchError as exc:
             print(f"DESTINATION MISMATCH: {exc}", file=sys.stderr)

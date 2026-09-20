@@ -20,6 +20,7 @@ import pytest
 # tests/conftest.py, which owns every non-root sys.path entry.
 from library.tools.execution.apply_fusion_comps import (  # noqa: E402
     DestinationMismatchError,
+    assert_destination,
     verify_destination,
     _map_clips_to_items,
 )
@@ -39,9 +40,12 @@ class MockTimeline:
 
 
 class MockProject:
-    def __init__(self, name, timeline=None):
+    def __init__(self, name, timeline=None, timelines=None):
         self._name = name
         self._timeline = timeline
+        self._timelines = (list(timelines) if timelines is not None
+                           else ([timeline] if timeline is not None else []))
+        self.set_calls = []
 
     def GetName(self):
         return self._name
@@ -50,8 +54,17 @@ class MockProject:
         return self._timeline
 
     def SetCurrentTimeline(self, tl):
+        self.set_calls.append(tl.GetName() if tl else None)
         self._timeline = tl
         return True
+
+    def GetTimelineCount(self):
+        return len(self._timelines)
+
+    def GetTimelineByIndex(self, index):
+        if 1 <= index <= len(self._timelines):
+            return self._timelines[index - 1]
+        return None
 
 
 class MockProjectManager:
@@ -230,3 +243,84 @@ class TestSubprocessCLI:
         ])
         assert args.expected_project == "Podcast"
         assert args.expected_timeline == "Pipeline_Edit_20260901_45s"
+
+
+# ── assert_destination tests ─────────────────────────────────────
+
+class TestAssertDestination:
+    """The cursor is ASSERTED under lease, then read back - never assumed.
+
+    2026-09-20: a duplicate-take rebuild died at its Fusion pass with
+    a sibling lane's final current. Depending on ambient cursor state
+    stalls every concurrent wave on a refusal; asserting it (exact
+    name, same project) serialises lanes through the exclusive lease
+    instead, while the read-back still refuses a mutator that never
+    agreed to any lock.
+    """
+
+    def _project(self, current, *timelines):
+        proj = MockProject("Podcast", timeline=current,
+                           timelines=list(timelines))
+        return proj, MockResolve(MockProjectManager(project=proj))
+
+    def test_sibling_timeline_current_asserts_onto_staging(self):
+        """The measured incident: sibling's final current, staging set."""
+        sibling = MockTimeline("Reel 05 - ai-cant-form-a-clear-picture-of-you")
+        staging = MockTimeline("Reel 06 - size-doesnt-matter (rebuild staging)")
+        proj, resolve = self._project(sibling, sibling, staging)
+        returned_project, returned_timeline = assert_destination(
+            resolve, "Podcast",
+            "Reel 06 - size-doesnt-matter (rebuild staging)")
+        assert returned_project is proj
+        assert returned_timeline is staging
+        assert proj.GetCurrentTimeline() is staging
+        assert proj.set_calls == [staging.GetName()]
+
+    def test_already_current_is_a_no_op_assert(self):
+        """Idempotent: asserting the timeline already current still verifies."""
+        staging = MockTimeline("Reel 06 - size-doesnt-matter (rebuild staging)")
+        proj, resolve = self._project(staging, staging)
+        _, returned_timeline = assert_destination(
+            resolve, "Podcast", staging.GetName())
+        assert returned_timeline is staging
+
+    def test_missing_staging_refuses_and_leaves_cursor(self):
+        """The staging is gone - refuse, and do not move the cursor."""
+        sibling = MockTimeline("Reel 05 - ai-cant-form-a-clear-picture-of-you")
+        proj, resolve = self._project(sibling, sibling)
+        with pytest.raises(DestinationMismatchError, match="not found"):
+            assert_destination(resolve, "Podcast", "Reel 06 - gone staging")
+        assert proj.GetCurrentTimeline() is sibling
+        assert proj.set_calls == []
+
+    def test_wrong_project_never_moves_cursor(self):
+        """Another project open - refuse before touching anything."""
+        tl = MockTimeline("Reel 06 - size-doesnt-matter (rebuild staging)")
+        proj = MockProject("Some Other Project", timeline=tl,
+                           timelines=[tl])
+        resolve = MockResolve(MockProjectManager(project=proj))
+        with pytest.raises(DestinationMismatchError,
+                           match="Wrong Resolve project"):
+            assert_destination(resolve, "Podcast", tl.GetName())
+        assert proj.set_calls == []
+
+    def test_mutator_between_set_and_verify_still_refuses(self):
+        """The read-back stays: a move inside the assert-verify window fails.
+
+        A mutator that never agreed to any lock cannot be serialised -
+        the verify-immediately-before-mutation is what protects that
+        write, and the assert must not swallow it.
+        """
+        staging = MockTimeline("Reel 06 - size-doesnt-matter (rebuild staging)")
+        intruder = MockTimeline("Rough Cut v3")
+
+        class RacyProject(MockProject):
+            def SetCurrentTimeline(self, tl):
+                super().SetCurrentTimeline(tl)
+                self._timeline = intruder  # moved again before the read-back
+
+        proj = RacyProject("Podcast", timeline=intruder,
+                           timelines=[intruder, staging])
+        resolve = MockResolve(MockProjectManager(project=proj))
+        with pytest.raises(DestinationMismatchError, match="Wrong timeline"):
+            assert_destination(resolve, "Podcast", staging.GetName())
