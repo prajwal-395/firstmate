@@ -1679,7 +1679,7 @@ so, because a recorded absence that is no longer true reads as coverage.
 
 
 UNREAD_BUDGET: Dict[str, int] = {
-    "DOC@conformance_report": 203,
+    "DOC@conformance_report": 194,
     "DOC@gate_feedback": 0,
     "DOC@gate_snapshot": 12,
     "DOC@gate_status": 2,
@@ -1716,7 +1716,7 @@ UNREAD_BUDGET: Dict[str, int] = {
     "DOC@vision_profile": 16,
     "OUT@assign_aroll": 13,
     "OUT@audio_mix": 41,
-    "OUT@build_reels": 5,
+    "OUT@build_reels": 4,
     "OUT@catalog": 12,
     "OUT@color_grade": 40,
     "OUT@compile_manifest": 171,

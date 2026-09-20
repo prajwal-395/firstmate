@@ -58,6 +58,15 @@ RHYTHM_KEYS = {
     "beat_grid",
 }
 
+# Every key `measure_structure_track` is allowed to emit: the labelled
+# spans of the track, measured per candidate at choice time by 2.06's own
+# code (option (b) route: the section decision is made from these). Rows
+# are labels in file seconds, not levels - level and spread per span
+# already travel as `track_sections`.
+STRUCTURE_KEYS = {
+    "song_structure", "song_structure_note",
+}
+
 # The two emitted keys that are not a number or a curve of numbers.
 SECTION_ROW_KEYS = {"start_seconds", "end_seconds", "mean_dbfs", "spread_db"}
 
@@ -220,6 +229,17 @@ def test_nothing_emitted_is_a_taste_label(tmp_path):
                      "recommendation", "rank", "score", "preferred"):
         assert declined not in rhythm
 
+    # The structure pass is held to the same bar: labels and their spans
+    # are measurements, never a ranking of which span is best.
+    structure = mm.measure_structure_track(str(track))
+    assert set(structure) <= STRUCTURE_KEYS, set(structure) - STRUCTURE_KEYS
+    for row in structure["song_structure"]:
+        assert set(row) == {"type", "start", "end"}, row
+    for declined in ("genre", "mood",
+                     "recommendation", "rank", "score", "preferred",
+                     "prefer_chorus", "best_section"):
+        assert declined not in structure
+
 
 def test_the_inventory_names_every_key_that_is_emitted(tmp_path):
     """A measurement missing from the inventory escapes the import guard.
@@ -232,7 +252,7 @@ def test_the_inventory_names_every_key_that_is_emitted(tmp_path):
 
     for key in measured:
         assert key in mm.MEASURED_KEYS, key
-    assert set(mm.MEASURED_KEYS) == EMITTED_KEYS | RHYTHM_KEYS
+    assert set(mm.MEASURED_KEYS) == EMITTED_KEYS | RHYTHM_KEYS | STRUCTURE_KEYS
 
 
 def test_the_prompt_defines_every_key_that_reaches_it(tmp_path):

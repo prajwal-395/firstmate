@@ -69,16 +69,20 @@ Output: { "music_candidates": {
                               "tempo_beat_count", "tempo_downbeat_count",
                               "tempo_stable", "tempo_note",
                               "musical_key", "key_method", "key_strength",
-                              "key_note", "beat_grid",
-                              "duplicate_of", "duplicate_deltas",
-                              "source_url", "provenance" }],
-        } }
+                               "key_note", "beat_grid",
+                               "song_structure", "song_structure_note",
+                               "duplicate_of", "duplicate_deltas",
+                               "source_url", "provenance" }],
+         } }
 
-`beat_grid` ({beats, downbeats} in file seconds) is stored on the
-candidate for code to read and dropped from the model's prompt in this
-step's manifest - AGENTS.md 10.1 forbids raw value lists in prompts, and
-the tempo_* scalars are the choice-time reading of rhythm.
-"""
+ `beat_grid` ({beats, downbeats} in file seconds) is stored on the
+ candidate for code to read and dropped from the model's prompt in this
+ step's manifest - AGENTS.md 10.1 forbids raw value lists in prompts, and
+ the tempo_* scalars are the choice-time reading of rhythm.
+ `song_structure` is NOT dropped: a handful of labelled spans, not a raw
+ value list, and it is the choice-time reading the section decision is
+ made from.
+ """
 import json
 import os
 import subprocess
@@ -98,6 +102,7 @@ if str(REPO_ROOT) not in sys.path:
 from library.tools.music_measurement import (  # noqa: E402
     measure_candidates,
     measure_rhythm_candidates,
+    measure_structure_candidates,
 )
 from library.tools.music_duplicates import (  # noqa: E402
     duplicate_groups,
@@ -455,6 +460,42 @@ def run(inputs: dict) -> dict:
             f"  rhythm pass: {rhythm_seconds:.1f}s over "
             f"{len(rhythmed)} track(s) "
             f"({rhythm_seconds / len(rhythmed):.1f}s each)",
+            file=sys.stderr,
+        )
+
+    # Song structure, AT CHOICE TIME, by 2.06's own segmenter.  The
+    # section the bed starts on is the model's decision and the labels
+    # it is decided from only exist downstream of it: step 2.06 runs
+    # `analyze_structure` on the CHOSEN track, so the model has been
+    # naming sections with no notion of where the chorus is.  The 2.06
+    # output cannot reach this prompt - this step runs BEFORE it, and an
+    # edge back would be a DAG cycle - so the measurement moves here the
+    # way tempo and key did (captain's decision 2026-09-07, option (a)):
+    # same function, per candidate, labels in file seconds, which is the
+    # clock `section.source_in` and `splices` are named in.  MEASUREMENTS,
+    # not preferences: no label is ranked, preferred or defaulted
+    # (AGENTS.md 10.5).  Key rides nothing new - `musical_key`/`key_*`
+    # already travel per candidate from the rhythm pass above.
+    structure_started = time.monotonic()
+    measured = measure_structure_candidates(measured)
+    structure_seconds = time.monotonic() - structure_started
+    for row in measured:
+        if not row.get("measured"):
+            continue
+        labels = row.get("song_structure") or []
+        kinds = ",".join(l.get("type", "?") for l in labels[:6])
+        print(
+            f"    structure {row['title'][:48]}: "
+            f"{len(labels)} labelled span(s)"
+            + (f" ({kinds})" if kinds else
+               f" ({row.get('song_structure_note') or 'unlabelled'})"),
+            file=sys.stderr,
+        )
+    if rhythmed:
+        print(
+            f"  structure pass: {structure_seconds:.1f}s over "
+            f"{len(rhythmed)} track(s) "
+            f"({structure_seconds / len(rhythmed):.1f}s each)",
             file=sys.stderr,
         )
 

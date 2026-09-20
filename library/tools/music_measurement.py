@@ -205,6 +205,24 @@ FFMPEG_TIMEOUT_SECONDS = 900
 # the librosa path (~5.3s per 90s), sequential, one whole-track decode
 # each.  Key is null with a stated note wherever essentia is not
 # installed - an absent measurement is stated, never defaulted.
+#
+# Song structure (the `song_structure` / `song_structure_note` keys) joined
+# the same pass for the same reason: the section the bed starts on is the
+# model's decision (`library/tools/music_section.py`), and until now the
+# model named it with no notion of where the chorus is - 2.06 labels the
+# chosen track's bridge/chorus/verse downstream of the choice.  Measured
+# per candidate by the SAME function 2.06 uses (`analyze_structure`),
+# called from :func:`measure_structure_candidates`.  Measured cost on the
+# captain's machine: ~2.8s per 65s track, sequential, one more
+# whole-track decode each - the same order as the rhythm pass it rides
+# with.  Labels travel in FILE seconds, because that is the clock the
+# section decision uses: `section.source_in` and `splices` are seconds OF
+# THE TRACK, and no timeline offset exists before the choice.  A timeline
+# mapping pre-placement would be file time minus an offset nobody has
+# named yet; `beat_grid.py` maps beats the other way because its readers
+# snap cuts onto a placed bed.  Every section is carried whole - there is
+# no used window to drop one against, and dropping an inaudible-looking
+# label would be deciding audibility, which is the model's call.
 MEASURED_KEYS = frozenset({
     "integrated_lufs",
     "loudness_range_lu",
@@ -229,6 +247,8 @@ MEASURED_KEYS = frozenset({
     "key_strength",
     "key_note",
     "beat_grid",
+    "song_structure",
+    "song_structure_note",
 })
 
 # Measurements that were considered for this table and left out, with the
@@ -327,6 +347,18 @@ WITHHELD_FROM_THE_SELECTION = {
         "see it - step 2.04's own manifest drops it, and the model's "
         "choice-time reading of rhythm is the tempo_* scalars, which do "
         "travel."
+    ),
+    "song_structure": (
+        "One row per labelled span of the track (intro, verse, chorus, "
+        "bridge, outro, build), in file seconds. The table exists so the "
+        "model can name which section plays "
+        "(library/tools/music_section.py), and the pick is already made "
+        "by the time this would travel - the same reason the section "
+        "table stays behind."
+    ),
+    "song_structure_note": (
+        "Says why the structure labels are absent; it travels with the "
+        "table it qualifies, or with neither."
     ),
 }
 
@@ -950,6 +982,90 @@ def measure_rhythm_track(audio_path: str) -> Dict[str, object]:
     else:
         out["key_note"] = ""
 
+    return out
+
+
+def measure_structure_track(audio_path: str) -> Dict[str, object]:
+    """Song-structure labels for one candidate, by 2.06's own code.
+
+    Calls `analyze_structure` from
+    `library/tools/analysis/music_pipeline.py` - the function step 2.06
+    runs on the chosen track - and reduces it to one row per labelled
+    span: `{type, start, end}` in FILE seconds.  The rows are what the
+    model names a section from; the producer's per-section energy numbers
+    stay behind, because level and spread per span already travel as
+    `track_sections` and duplicating them here would hand the model two
+    level readings to reconcile.
+
+    What a label IS: boundaries come from a self-similarity novelty
+    curve, and the TYPE is an energy-profile guess - a loud span reads as
+    "chorus", a quiet opening as "intro".  It is a measurement of where
+    the track changes and how loud each part is relative to the whole,
+    not a ground-truth chorus stamp.  Step 2.04's `handoff.md` says this
+    where the model reads it, the way it already warns that librosa
+    doubles or halves some tempi.
+
+    Never raises: a segmentation that cannot answer is a stated absence
+    (AGENTS.md 10.3), never an empty claim that the track has no parts.
+    Nothing here thresholds, ranks or prefers a label (AGENTS.md 10.5):
+    no "prefer the chorus", no tiebreak, no default.
+    """
+    from library.tools.analysis.music_pipeline import analyze_structure
+
+    try:
+        structure = analyze_structure(audio_path or "")
+    except Exception as exc:
+        structure = {"method": None, "sections": [],
+                     "error": str(exc)}
+
+    sections = (structure or {}).get("sections")
+    if not isinstance(sections, list):
+        sections = []
+
+    rows = []
+    for entry in sections:
+        if not isinstance(entry, dict):
+            continue
+        label = entry.get("type")
+        start, end = entry.get("start"), entry.get("end")
+        try:
+            start_f, end_f = float(start), float(end)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(label, str) or not label.strip():
+            continue
+        if end_f <= start_f or start_f < 0:
+            continue
+        rows.append({
+            "type": label.strip(),
+            "start": round(start_f, 2),
+            "end": round(end_f, 2),
+        })
+
+    if rows:
+        return {"song_structure": rows, "song_structure_note": ""}
+    cause = (structure or {}).get("error") or (structure or {}).get("note") \
+        or "the segmenter did not answer"
+    return {"song_structure": [],
+            "song_structure_note": f"no structure labels: {cause}"}
+
+
+def measure_structure_candidates(candidates: List[dict]) -> List[dict]:
+    """Every measured candidate, carrying its structure labels.
+
+    Runs with `measure_rhythm_candidates`, under the same scoping: only
+    candidates the ffmpeg pass measured are opened - a candidate already
+    out on duration carries its stated absence and no structure keys.
+    Returns new dicts; the input list is not mutated.
+    """
+    out = []
+    for candidate in candidates:
+        enriched = dict(candidate)
+        if candidate.get("measured") and \
+                (candidate.get("audio_path") or "").strip():
+            enriched.update(
+                measure_structure_track(candidate["audio_path"]))
+        out.append(enriched)
     return out
 
 

@@ -12,14 +12,12 @@ Delegates to library/tools/analysis/music_pipeline.py for the actual
 analysis, wrapping it in the step interface (JSON stdin → JSON stdout).
 
 Consumed by step 4.04 (plan_sfx), which snaps SFX to bar boundaries
-(post_bridge.py:344).
-
-The DAG also wires this output into 2.05 (mesh_spine) and 4.02
-(plan_transitions), and neither reads it. plan_transitions synthesises its
-own uniform grid from BPM instead (bridge.py:24-33), so its cuts snap to a
-grid starting at t=0 rather than to the track's actual beats. Do not add
-"consumed by" lines here for edges that exist only in the DAG; see
-docs/PIPELINE_PLAN.md.
+(post_bridge.py:483, `beat_grid.downbeat_positions`), and by step 4.02
+(plan_transitions), whose bridge (bridge.py:27-33) and post-bridge
+(post_bridge.py:212-219) both read the real grid through
+`library/tools/beat_grid.py`. Step 2.05 (mesh_spine) declares the whole
+analysis in context minus the raw lists. `structure` and `key` are
+measured and carried, and no step reads them in code yet.
 
 Classification: Deterministic / Data Transformation
 Idempotent: Yes (same track → same analysis)

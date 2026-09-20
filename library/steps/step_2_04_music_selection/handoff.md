@@ -94,6 +94,25 @@ Harmony:
   from it is your call.
 - `key_note`: Why there is no key, when `musical_key` is `None`.
 
+Song structure:
+
+- `song_structure`: The labelled spans of the track - `intro`, `verse`,
+  `chorus`, `bridge`, `outro`, `build` - each with `start` and `end` in
+  seconds OF THE TRACK, from the same segmenter step 2.06 runs. Every span
+  is carried whole: there is no played window yet, so a label past the
+  edit's length is still a place the bed could start, and dropping one
+  would be deciding what you get to hear.
+- `song_structure_note`: Why there are no labels, when the list is empty.
+- What a label IS: span boundaries come from a self-similarity novelty
+  curve - where the track audibly changes - and the TYPE is an
+  energy-profile guess on top of them: a loud span reads as `chorus`, a
+  quiet opening as `intro`. A verse that hits harder than its chorus will
+  wear the wrong name. Read the boundaries as measured and the names as
+  advisory; what to conclude from either is your call.
+- No label is ranked, preferred or defaulted anywhere in this pipeline.
+  Which span the bed starts on is your decision (`section` below), and
+  nothing here says which one is best.
+
 **Two things are measured and deliberately do NOT reach you**: the
 per-second envelope curve and the full beat/downbeat arrays. Raw value
 lists do not go in a prompt (AGENTS.md 10.1); the scalars above are the
@@ -194,7 +213,9 @@ two completely different beds depending on where it starts.
 
 `resolve_section` REFUSES a section that does not fit rather than sliding it
 back, because moving the start is choosing which part plays. The beat grid
-moves with your offset; you do not adjust for it.
+moves with your offset; you do not adjust for it. `song_structure` above
+is the measured input to this decision: where the labelled spans sit, in
+the same track seconds `source_in` is named in.
 
 ### The second pass: you are asked again with the shape in front of you
 
