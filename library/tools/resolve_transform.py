@@ -29,7 +29,9 @@ scale Resolve draws the clip at BEFORE the user zoom:
 
 Positive Tilt moves the clip UP; positive Pan moves it RIGHT. **The
 user `ZoomX`/`ZoomY` does not enter it** - measured: Pan 100 moved the
-picture 100 px at zoom 1.0 and at zoom 2.307 alike.
+picture 100 px at zoom 1.0 and at zoom 2.307 alike (09-11 calibration;
+200 px under today's gain - the numbers below are the zoom proof,
+not the gain).
 
 There is NO "draw gain". `MEASURED_OVERLAY_CASES` and
 `MEASURED_PICTURE_CASES` below are the evidence, and

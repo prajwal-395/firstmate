@@ -33,6 +33,18 @@ from library.steps.step_6_01_render.resolve_build_timeline import (
 from library.schemas.brand_template import BrandTemplate, StyleSlots
 
 
+# ── The one measured Pan/Tilt law, driven directly ──
+from library.tools.resolve_transform import (
+    fit_base_scale,
+    units_for_shift,
+)
+
+# 3840x2160 at fit in a 1080x1920 frame: the geometry every renderer
+# test below converts through.  The factor is exactly 1 on Pan (the
+# fit is width-bound), so the conversion IS the measured draw gain.
+_FIT_3840_TO_1080x1920 = fit_base_scale(3840, 2160, 1080, 1920)
+
+
 # ── Shared fixtures ──
 
 # A 16:9 landscape clip (1920x1080) in a 9:16 vertical timeline (1080x1920).
@@ -175,21 +187,27 @@ class TestFramingEndToEnd:
         assert item.properties["ZoomX"] == 2.0
         assert item.properties["ZoomY"] == 2.0
         # 50 delivery pixels, in the Pan UNIT the one measured law gives
-        # for 3840x2160 into 1080x1920: the fit is width-bound, so one
-        # unit is exactly one pixel on this axis and the number is
-        # unchanged.  It is unchanged because it was CONVERTED, not
-        # because a pixel is a unit - see the Tilt case below.
-        assert item.properties["Pan"] == 50.0
+        # for 3840x2160 into 1080x1920: the fit is width-bound, so the
+        # geometry factor is exactly 1 and the conversion IS the
+        # measured draw gain - 50 px is Pan 25.  It is 25 because it
+        # was CONVERTED, not because a pixel is a unit - see the Tilt
+        # case below.  Driven against the law rather than restated, so
+        # the next calibration moves this with the code.
+        assert item.properties["Pan"] == pytest.approx(
+            units_for_shift(50.0, 3840, 1080, _FIT_3840_TO_1080x1920),
+            abs=0.01)
+        assert item.properties["Pan"] == pytest.approx(25.0, abs=0.01)
         assert not results["warnings"]
 
     def test_renderer_uses_tilt_for_vertical_pan(self):
         """And converts the pixel offset into the Tilt UNIT.
 
         A landscape source conformed into a vertical frame draws
-        `(2160/1920) * (1080/3840) = 0.3164` pixels per Tilt unit, so
-        -25 delivery pixels is Tilt -79.012.  Passing the pixel value
-        straight through moved the picture 25 * 0.3164 = 7.9px - the
-        3.16x under-aim this test exists to pin.
+        `(2160/1920) * (1080/3840) * draw_gain = 0.6328` pixels per
+        Tilt unit under the measured gain, so -25 delivery pixels is
+        Tilt -39.506.  Passing the pixel value straight through moved
+        the picture 25 * 0.3164 = 7.9px under the old gain - the
+        under-aim this test exists to pin, now stated at today's.
         """
         item = FakeTimelineItem(source_size=(3840, 2160))
         results = {"warnings": []}
@@ -198,7 +216,10 @@ class TestFramingEndToEnd:
             "framing_pan_y": -25.0, "label": "test_clip",
         }, results, frame_size=(1080, 1920))
         assert item.refused == []
-        assert item.properties["Tilt"] == pytest.approx(-79.012, abs=0.01)
+        assert item.properties["Tilt"] == pytest.approx(
+            units_for_shift(-25.0, 2160, 1920, _FIT_3840_TO_1080x1920),
+            abs=0.01)
+        assert item.properties["Tilt"] == pytest.approx(-39.506, abs=0.01)
         assert not results["warnings"]
 
     def test_a_pan_that_could_not_be_converted_says_so(self):

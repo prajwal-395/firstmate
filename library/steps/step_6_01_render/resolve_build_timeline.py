@@ -304,12 +304,15 @@ def _apply_conform(timeline_item, clip: dict, results: dict,
     # Pan/Tilt: the MANIFEST carries a pixel offset from centre, computed
     # by compile_manifest from a normalised -1..1 value. Resolve's Pan and
     # Tilt are NOT pixels - one unit moves the clip
-    # `source_dim / frame_dim * fit` pixels, the one measured law in
-    # `library/tools/resolve_transform.py`. For a delivery that shares the
-    # source's aspect the factor is exactly 1 on both axes, which is why a
-    # pixel value passed straight through has always looked right; for a
-    # landscape source conformed into a vertical frame it is 1.0 on Pan
-    # and 0.316 on Tilt, and the vertical aim is then under-applied 3.16x.
+    # `source_dim / frame_dim * fit * draw_gain` pixels, the one measured law in
+    # `library/tools/resolve_transform.py` (per-build probe measurement,
+    # `FALLBACK_DRAW_GAIN` when the probe cannot measure). For a delivery
+    # that shares the source's aspect the geometry factor is exactly 1 on
+    # both axes, so the factor IS the gain; for a landscape source
+    # conformed into a vertical frame it is 2.0 on Pan and 0.633 on Tilt
+    # under the fallback gain. A pixel value passed straight through is
+    # therefore off by the gain even where the geometry coincides, and
+    # the vertical aim is under-applied 3.16x further by the geometry.
     # Only applied when non-zero so projects that never set them are
     # byte-identical.
     pan_x = clip.get("framing_pan_x")

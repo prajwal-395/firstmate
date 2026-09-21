@@ -305,6 +305,11 @@ def test_the_pan_reaches_a_property_resolve_accepts():
     from library.steps.step_6_01_render.resolve_build_timeline import (
         _apply_conform,
     )
+    from library.tools.resolve_transform import (
+        FALLBACK_DRAW_GAIN,
+        fit_base_scale,
+        units_for_shift,
+    )
 
     clip = conform(framing_intent=1.0, subject_center_x=0.30)
     clip["label"] = "subject_tracked"
@@ -316,10 +321,16 @@ def test_the_pan_reaches_a_property_resolve_accepts():
 
     assert item.refused == [], f"Resolve would refuse {item.refused}"
     # The manifest carries delivery pixels; Resolve takes units.  On a
-    # 3840x2160 source in a 1080x1920 frame the Pan unit is exactly one
-    # pixel (the fit is width-bound), so the number is unchanged here -
-    # having been converted, not assumed.
-    assert item.properties["Pan"] == pytest.approx(clip["framing_pan_x"],
-                                                   abs=0.01)
+    # 3840x2160 source in a 1080x1920 frame the geometry factor is
+    # exactly 1 (the fit is width-bound), so the conversion IS the
+    # measured draw gain: 682.67 px is Pan 341.335, not 682.67.
+    # Driven against the law rather than restated, so the next
+    # calibration moves this with the code instead of against it.
+    base = fit_base_scale(3840, 2160, 1080, 1920)
+    assert item.properties["Pan"] == pytest.approx(
+        units_for_shift(clip["framing_pan_x"], 3840, 1080, base),
+        abs=0.01)
+    assert item.properties["Pan"] == pytest.approx(
+        clip["framing_pan_x"] / FALLBACK_DRAW_GAIN, abs=0.01)
     assert item.properties["ZoomX"] == clip["fill_zoom"]
     assert not results["warnings"]
