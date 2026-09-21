@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import sys
 
-from library.tools.reel_build import rebuild_reels_in_project
+from library.tools.reel_build import STAGING_SUFFIX, rebuild_reels_in_project
 
 MASTER = "GEO Podcast - Synced"
 
@@ -154,7 +154,18 @@ def test_rebuild_reels_defective_build_fails(mock_run_verif, mock_resolve_style,
     json_path = mock_project_env / "pipeline_output" / "review" / "conformance_report.json"
     json_path.write_text(json.dumps({
         "has_errors": True,
-        "findings": [{"severity": "error", "finding_class": "F1", "message": "Hole found"}]
+        "findings": [{"severity": "error", "finding_class": "F1", "message": "Hole found"}],
+        # The rows name the STAGED container with its error count -
+        # the shape the real gate writes - so the refusal attributes
+        # to the reel that failed. A report with no rows attributes
+        # nothing and discards nothing.
+        "reels": [{"reel_name": "Reel 01" + STAGING_SUFFIX,
+                   "reel_number": 1,
+                   "errors": 1,
+                   "warnings": 0,
+                   "captions": "0/0",
+                   "findings": [{"finding_class": "F1",
+                                 "severity": "error"}]}],
     }))
     
     with pytest.raises(RuntimeError, match="Reel build produced a defective timeline") as exc_info:

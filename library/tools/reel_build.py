@@ -1158,6 +1158,26 @@ class ReelBuildError(RuntimeError):
     """A reel could not be built safely."""
 
 
+class ReelVerificationRefused(RuntimeError):
+    """The conformance gate graded the staging and refused named reels.
+
+    A `RuntimeError` subclass, so callers that only knew the old raise
+    still catch it - but it carries `failed_reels`: the staging names
+    whose own report rows hold error findings. A verify-refusal path
+    may discard exactly those names and nothing else; a refusal that
+    names none (the gate crashed, the report is unreadable) discards
+    NOTHING. That is the whole point: an `except Exception` that
+    discards every staging in flight turns one refusing reel into a
+    batch of destroyed siblings (measured 2026-09-20: attempts 4-6
+    plus the build9 fatal each took down clean siblings), while a
+    typed refusal cannot discard a reel it was not told about.
+    """
+
+    def __init__(self, message: str, failed_reels=()) -> None:
+        super().__init__(message)
+        self.failed_reels = list(failed_reels or ())
+
+
 @dataclass(frozen=True)
 class Cut:
     """One take removed, and the one kept in its place."""
@@ -8661,9 +8681,24 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # still awaits a human promotion decision, and only an explicit
     # release (or a later promotion naming it as staging) ends it.
     from library.tools import staging_holds as _holds
-    _holds.release_holds(
-        project_folder,
-        [staged_to_final[final] for final in ok_finals])
+    _promoted_staging = [staged_to_final[final] for final in ok_finals]
+    _released = _holds.release_holds(project_folder, _promoted_staging)
+    _unheld = [name for name in _promoted_staging
+               if name not in set(_released.get("released") or ())]
+    if _unheld:
+        # A reel that promoted with no hold behind it: the staging
+        # survived unprotected between stage and promotion - either it
+        # was staged without a hold, or a concurrent holds-file writer
+        # dropped it. The promotion already landed and is unaffected;
+        # what is said here is the protection gap, naming the staging
+        # and the file, so no later lane infers a cause from timing.
+        import sys as _sys_unheld
+        print(f"  HOLD ABSENT at promotion: {sorted(_unheld)} - no "
+              f"hold was held for these staging name(s) in "
+              f"{_holds.holds_path_for(project_folder)}. Either they "
+              f"were staged without a hold, or a concurrent writer "
+              f"dropped it. The reels above are promoted and "
+              f"unaffected.", file=_sys_unheld.stderr)
 
     # ── STAMP THE ROUND ──────────────────────────────────────────
     # The version object (`library/tools/round_version.py`). The rows
@@ -8869,8 +8904,9 @@ def _organise_after_refusal(project, project_folder: str,
 
 
 def discard_staged_reels(project, project_folder: str,
-                         staging_names,
-                         master_timeline_name: str | None = None) -> None:
+                          staging_names,
+                          master_timeline_name: str | None = None,
+                          expect_holds: bool = True) -> None:
     """Delete refused staging containers and forget their baselines.
 
     The gate-fail path, called before the refusal propagates: the
@@ -8887,6 +8923,13 @@ def discard_staged_reels(project, project_folder: str,
     staging imported do not stay loose in whatever bin was current.
     `None` keeps the old behaviour (discard only) for callers that do
     not name the master.
+
+    `expect_holds` is True on the rebuild lifecycle, which takes a
+    hold for every staging up front: a discarded name with no hold is
+    then said loudly (a lifecycle bug or a dropped hold - either way
+    attributable, never inferred later). The variant lifecycle takes
+    no holds, so its caller passes False and an absent hold there is
+    expected, not evidence.
     """
     import os
 
@@ -8907,7 +8950,24 @@ def discard_staged_reels(project, project_folder: str,
     # staged is a no-op release, so variant-final names reaching this
     # path cannot unprotect anything.
     from library.tools import staging_holds as _holds
-    _holds.release_holds(project_folder, staging)
+    _released = _holds.release_holds(project_folder, staging)
+    _unheld = [name for name in staging
+               if name not in set(_released.get("released") or ())]
+    if _unheld and expect_holds:
+        # A staging discarded with no hold is either a name this call
+        # staged without ever taking one (a lifecycle bug) or a hold a
+        # concurrent holds-file writer dropped (the 2026-09-20 lane
+        # inferred the wrong cause from a sibling's timing because
+        # nothing said this). Either way it is said HERE, naming the
+        # staging and the file - never left for a later lane to infer.
+        import sys as _sys
+        print(f"  HOLD ABSENT at discard: {sorted(_unheld)} - no hold "
+              f"was held for these staging name(s) in "
+              f"{_holds.holds_path_for(project_folder)}. Either they "
+              f"were staged without a hold, or a concurrent writer "
+              f"dropped it. The timelines above are still discarded; "
+              f"their pending-promotion protection is what is "
+              f"unaccounted for.", file=_sys.stderr)
     review_dir = os.path.join(project_folder, "pipeline_output", "review")
     from library.tools.plan_provenance import drop_reel_entries
     drop_reel_entries(review_dir, staging)
@@ -11104,16 +11164,25 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     transcript_path=os.path.join(project_folder, "pipeline_output/scratch/timeline_transcript/transcript.json"),
                     only_reels=list(built_reel_names),
                 )
-        except Exception as gate_refused:
-            # The gate refused: the staging containers and their
-            # baselines go, the approved timelines were never named.
-            # Reel 5's F17+F8 is exactly this path - and the reel the
-            # captain approved is still in the project afterwards.
-            # The pool is filed too, so the refused staging's caption
+        except ReelVerificationRefused as gate_refused:
+            # The gate refused NAMED reels: exactly those staging
+            # containers and their baselines go - never the batch.
+            # One refusing reel used to discard every staging in
+            # flight (measured 2026-09-20: attempts 4-6 plus the
+            # build9 fatal each destroyed clean siblings), so the
+            # discard below is scoped to `failed_reels` intersected
+            # with what this call staged. Siblings stay staged with
+            # their holds, and the raise names who refused and who
+            # survived. The approved timelines were never named. The
+            # pool is filed too, so a refused staging's caption
             # imports do not stay loose where ImportMedia left them.
+            _failed = [name for name in gate_refused.failed_reels
+                       if name in set(built_reel_names)]
+            _surviving = [name for name in built_reel_names
+                          if name not in set(_failed)]
             try:
                 from library.tools import reel_phase_log as _gate_log
-                for _staged in built_reel_names:
+                for _staged in _failed:
                     _gate_log.log_wait(
                         project_folder,
                         _staged_numbers.get(_staged, 0), _staged,
@@ -11130,7 +11199,7 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     project_folder)
             except Exception:
                 _refused_rows = {}
-            for _staged in built_reel_names:
+            for _staged in _failed:
                 _facts = summary_facts.get(_staged, {})
                 try:
                     _refusal = str(gate_refused)
@@ -11153,9 +11222,41 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     gain_record=gain_record)
             # The refused staging goes under an EXCLUSIVE hold - a
             # delete is a write even where the cursor never moves.
-            with resolve_lease("discard refused staging", exclusive=True):
-                discard_staged_reels(project, project_folder, built_reel_names,
-                                     master_timeline_name)
+            # Scoped to the reels the gate named: a refusal that names
+            # none, or names only timelines this call did not stage,
+            # discards NOTHING - the stagings stay with their holds
+            # and the raise below says so.
+            if _failed:
+                with resolve_lease("discard refused staging",
+                                   exclusive=True):
+                    discard_staged_reels(project, project_folder, _failed,
+                                         master_timeline_name)
+            else:
+                print(f"  gate refused but named no reel this run "
+                      f"staged - discarding nothing; "
+                      f"{len(_surviving)} staging(s) stay with their "
+                      f"holds: {sorted(_surviving)}",
+                      file=sys.stderr, flush=True)
+            if _surviving:
+                raise ReelVerificationRefused(
+                    f"{gate_refused}\nRefused staging(s) discarded: "
+                    f"{sorted(_failed)}. Still staged with holds, "
+                    f"untouched by this refusal: "
+                    f"{sorted(_surviving)}.",
+                    failed_reels=list(_failed))
+            raise
+        except Exception as gate_broken:
+            # Verification never graded - a connect failure, a missing
+            # transcript, a fatal the gate itself raised. There is no
+            # verdict, so there is nothing to discard: every staging
+            # stays with its hold and the failure propagates naming
+            # that. Discarding here is what turned an infra flake into
+            # destroyed siblings.
+            print(f"  verification never graded ({gate_broken}) - "
+                  f"discarding nothing; "
+                  f"{len(built_reel_names)} staging(s) stay with "
+                  f"their holds: {sorted(built_reel_names)}",
+                  file=sys.stderr, flush=True)
             raise
         try:
             from library.tools import reel_phase_log as _verified_log
@@ -12550,10 +12651,11 @@ def build_reel_variants(project_slug: str, reel_number: int,
         # discard. `None` for the master keeps the discard to the
         # timelines - a variant refusal must not file the shared pool
         # as a side effect; stray caption imports stay loose and the
-        # error says so.
+        # error says so. `expect_holds=False`: the variant lifecycle
+        # takes no holds, so an absent hold here is expected.
         discard_staged_reels(project, project_folder, list(built)
                              + [f for f in finals if f not in built],
-                             None)
+                             None, expect_holds=False)
         raise
     return {"reel": moment.timeline_name,
             "resolve_project_name": resolve_name,
@@ -12659,6 +12761,38 @@ def sweep_all_reels_informational(project_folder: str,
     return {"exit_code": exit_code, "report": sweep_path}
 
 
+def _refused_reel_names(project_folder: str, only_reels=None) -> list:
+    """The staging names whose own report rows hold error findings.
+
+    Read off the conformance report the gate just wrote - `reel_name`
+    is the container the gate graded, `errors` its count - never
+    parsed out of the raise message. Best-effort []: an unreadable or
+    row-less report attributes nothing, and a refusal that names no
+    reel discards no staging. Scoped to what the gate graded, so a
+    row for a timeline this run did not stage can never authorise its
+    discard.
+    """
+    from library.tools import reel_phase_log as _rows_log
+    try:
+        rows = _rows_log.conformance_rows(project_folder)
+    except Exception:
+        return []
+    if not isinstance(rows, dict):
+        return []
+    scope = set(only_reels) if only_reels is not None else None
+    failed = []
+    for name, row in rows.items():
+        if not isinstance(row, dict):
+            continue
+        try:
+            errored = (row.get("errors") or 0) > 0
+        except TypeError:
+            errored = False
+        if errored and (scope is None or str(name) in scope):
+            failed.append(str(name))
+    return sorted(failed)
+
+
 def verify_built_reels(project_folder: str, resolve_project_name: str, master_timeline_name: str, plan_path: str, transcript_path: str, only_reels=None, draw_gain: float = None) -> None:
     """Run the reel conformance verifier as a quality gate after building reels.
 
@@ -12669,8 +12803,12 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
     that grades nothing and passes is the gate that cannot fail
     (AGENTS.md 10.4).
 
-    If the verifier finds ANY errors, this raises a RuntimeError with the findings,
-    failing the build. The raw JSON and human-readable table are preserved in
+    If the verifier finds ANY errors, this raises
+    `ReelVerificationRefused` (a `RuntimeError`) carrying the refused
+    staging names in `failed_reels` - the ONLY names a discard path
+    may remove. A refusal that names none, and any failure where the
+    gate never graded (fatal error, runner crash), discards nothing.
+    The raw JSON and human-readable table are preserved in
     the project's pipeline_output/review directory.
     """
     if only_reels is not None and not list(only_reels):
@@ -12719,6 +12857,42 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
                     findings_msg = json.dumps(errors, indent=2)
             except Exception:
                 pass
-        raise RuntimeError(f"Reel build produced a defective timeline. Verification failed with findings:\n{findings_msg}")
+        # Which reels refused, read off the report rows the gate just
+        # wrote (`reel_name` is the graded container, errors its count)
+        # rather than parsed out of the message: the discard paths may
+        # remove exactly these stagings and nothing else. Scoped to
+        # what this call graded, so a whole-project row can never send
+        # a scoped discard at a timeline this run did not stage.
+        failed_reels = _refused_reel_names(
+            project_folder,
+            only_reels=None if only_reels is None else list(only_reels))
+        message = (f"Reel build produced a defective timeline. "
+                   f"Verification failed with findings:\n{findings_msg}")
+        if failed_reels:
+            message += (f"\nRefused reel(s): {failed_reels} - only "
+                        f"these stagings may be discarded; every other "
+                        f"staging stays with its hold.")
+        else:
+            message += (
+                "\nNo reel row in conformance_report.json carries error "
+                "findings, so the refusal names no reel and NO staging "
+                "is discarded - the stagings stay with their holds "
+                "until an operator reads the report and discards "
+                "deliberately.")
+        raise ReelVerificationRefused(message, failed_reels=failed_reels)
     elif exit_code == 2:
-        raise RuntimeError("Reel conformance verifier encountered a fatal error (e.g. timeline changed during verification).")
+        # The gate never graded (a scoped name matched nothing, the
+        # master is gone, a read-only violation): discarding any
+        # staging in response would destroy work the gate never looked
+        # at - including a staging something OUTSIDE this run already
+        # deleted, whose absence is exactly what this names. Nothing
+        # is discarded; the FATAL line on stderr names what is missing.
+        scope = (f"scoped to {sorted(set(only_reels))}"
+                 if only_reels is not None else "whole-project scope")
+        raise RuntimeError(
+            "Reel conformance verifier encountered a fatal error "
+            f"({scope}; e.g. a staged timeline was deleted outside "
+            "this run, so a scoped name matches nothing in Resolve). "
+            "Verification never graded, so NO staging is discarded - "
+            "the FATAL line above names what is missing and the "
+            f"report (if any) is at {json_path}.")

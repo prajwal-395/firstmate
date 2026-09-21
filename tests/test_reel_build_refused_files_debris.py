@@ -309,6 +309,20 @@ def test_refused_build_files_its_caption_imports(project_dir):
                 {"severity": "error", "finding_class": "F8",
                  "message": "end cuts mid-word"},
             ],
+            # The rows name the STAGED container with its error
+            # count - the shape the real gate writes - so the
+            # refusal attributes to the reel that failed.
+            "reels": [
+                {"reel_name": STAGING,
+                 "reel_number": 5,
+                 "errors": 2,
+                 "warnings": 0,
+                 "captions": "0/0",
+                 "findings": [
+                     {"finding_class": "F17", "severity": "error"},
+                     {"finding_class": "F8", "severity": "error"},
+                 ]},
+            ],
         }), encoding="utf-8")
 
     _gate_failed_report()

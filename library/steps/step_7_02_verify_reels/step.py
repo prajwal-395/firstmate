@@ -57,7 +57,8 @@ def verify_reels(data: dict) -> dict:
             "`python3 -m library.tools.timeline_transcript <project> "
             "--write`.")
 
-    from library.tools.reel_build import verify_built_reels
+    from library.tools.reel_build import (
+        ReelVerificationRefused, verify_built_reels)
     from library.tools.timeline_transcript import transcript_path
 
     # Every address comes off the BUILD'S OWN RECORD, never re-derived
@@ -160,34 +161,70 @@ def verify_reels(data: dict) -> dict:
             # it is not composed by hand outside reel_build.py).
             transcript_path=str(transcript_path(project_folder)),
             only_reels=timelines_built)
-    except Exception as gate_refused:
-        # The gate refused: the staging containers and their baselines
-        # go before the refusal propagates, or the next build would
-        # refuse on this run's debris. The approved timelines were
-        # never named and are still in the project. A discard that
-        # itself fails is said, never silent - but it never stops the
-        # gate's own refusal, which is the verdict that matters.
+    except ReelVerificationRefused as gate_refused:
+        # The gate refused NAMED reels: exactly those staging
+        # containers and their baselines go before the refusal
+        # propagates, or the next build would refuse on this run's
+        # debris - never the batch. One refusing reel used to discard
+        # every staging in flight (measured 2026-09-20); the discard
+        # below is scoped to the refused names intersected with what
+        # this run staged. Surviving siblings stay staged with their
+        # holds. The approved timelines were never named and are still
+        # in the project. A discard that itself fails is said, never
+        # silent - but it never stops the gate's own refusal, which is
+        # the verdict that matters.
+        _staged_set = set(staged.values())
+        _failed = [name for name in gate_refused.failed_reels
+                   if name in _staged_set]
+        _surviving = [name for name in staged.values()
+                      if name not in set(_failed)]
         try:
             from library.tools import reel_phase_log as _phase_log
-            for _staged in timelines_built:
+            for _staged in _failed:
                 _phase_log.log_wait(
                     project_folder, _staging_numbers.get(_staged, 0),
                     _staged,
                     f"verification refused: {gate_refused}")
         except Exception:
             pass
-        if staged:
+        if _failed:
             from library.tools.reel_build import discard_staged_record
             try:
                 discard_staged_record(
                     project_folder, resolve_project_name,
-                    list(staged.values()), master_timeline_name)
+                    _failed, master_timeline_name)
             except Exception as cleanup_failed:
                 import sys as _sys
                 print(f"verify_reels: gate refused AND staging cleanup "
                       f"failed ({cleanup_failed}) - clear the staging "
-                      f"timelines {sorted(staged.values())} in Resolve "
+                      f"timelines {sorted(_failed)} in Resolve "
                       f"before re-running", file=_sys.stderr)
+        else:
+            import sys as _sys
+            print(f"verify_reels: gate refused but named no reel this "
+                  f"run staged - discarding nothing; "
+                  f"{len(_surviving)} staging(s) stay with their "
+                  f"holds: {sorted(_surviving)}", file=_sys.stderr)
+        if _surviving:
+            raise ReelVerificationRefused(
+                f"{gate_refused}\nRefused staging(s) discarded: "
+                f"{sorted(_failed)}. Still staged with holds, "
+                f"untouched by this refusal: {sorted(_surviving)}.",
+                failed_reels=list(_failed))
+        raise
+    except Exception as gate_broken:
+        # Verification never graded - a connect failure, a fatal the
+        # gate itself raised (a scoped staging deleted outside this
+        # run), a missing transcript. There is no verdict, so there is
+        # nothing to discard: every staging stays with its hold and
+        # the failure propagates naming that. Discarding here is what
+        # turned an infra flake into destroyed siblings.
+        import sys as _sys_broken
+        print(f"verify_reels: verification never graded "
+              f"({gate_broken}) - discarding nothing; "
+              f"{len(list(staged.values()))} staging(s) stay with "
+              f"their holds: {sorted(staged.values())}",
+              file=_sys_broken.stderr)
         raise
 
     # The gate passed: when verification ran, per reel, at the moment

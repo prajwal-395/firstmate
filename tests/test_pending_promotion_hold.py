@@ -602,3 +602,52 @@ def test_pending_promotions_refuses_an_unreadable_holds_file(project_dir):
     path.write_text("{not json", encoding="utf-8")
     with pytest.raises(holds.HoldsUnreadable):
         holds.pending_promotions(str(project_dir))
+
+
+def test_concurrent_takes_keep_every_hold(project_dir):
+    """The 2026-09-20 lane lost a hold between two interleaved writers:
+    take/release were atomic-rename writes but unlocked
+    read-modify-write, so each writer read the same set and wrote back
+    only its own entry. Takes now run under an exclusive file lock, so
+    N barrier-synchronised takers keep all N entries.
+
+    The sleep widens the real read-to-write window (it delays only,
+    the logic is untouched) so the pre-lock code drops entries on
+    nearly every run - verified by reverting `staging_holds.py` alone
+    and watching this fail - while the locked code passes with it.
+    """
+    import threading
+    import time
+    from unittest.mock import patch
+
+    threads = 8
+    per_thread = 20
+    folder = str(project_dir)
+    real_write = holds._write_holds
+
+    def slow_write(project_folder, data):
+        time.sleep(0.002)
+        real_write(project_folder, data)
+
+    barrier = threading.Barrier(threads)
+
+    def take_many(tid):
+        barrier.wait()
+        for index in range(per_thread):
+            holds.take_hold(
+                folder, f"Reel {tid:02d} - lane-{tid} take-{index}",
+                awaiting=f"Reel {tid:02d} - lane-{tid}",
+                taken_by="rebuild_reels_in_project")
+
+    with patch.object(holds, "_write_holds", side_effect=slow_write):
+        workers = [threading.Thread(target=take_many, args=(tid,))
+                   for tid in range(threads)]
+        for worker in workers:
+            worker.start()
+        for worker in workers:
+            worker.join(timeout=120)
+
+    kept = holds.held_names(folder)
+    assert len(kept) == threads * per_thread, (
+        f"concurrent takes lost {threads * per_thread - len(kept)} "
+        f"hold(s) - an interleaved writer dropped them")

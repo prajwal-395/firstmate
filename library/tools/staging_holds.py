@@ -78,9 +78,11 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 HOLDS_FILENAME = "staging_holds.json"
+LOCK_FILENAME = "staging_holds.lock"
 
 VERSION = 1
 
@@ -98,6 +100,44 @@ def holds_path_for(project_folder: str) -> str:
     """
     return os.path.join(project_folder, "pipeline_output", "review",
                         HOLDS_FILENAME)
+
+
+def lock_path_for(project_folder: str) -> str:
+    """Where the holds file's lock lives: beside the file it guards."""
+    return os.path.join(project_folder, "pipeline_output", "review",
+                        LOCK_FILENAME)
+
+
+@contextmanager
+def _holds_lock(project_folder: str, *, shared: bool = False):
+    """Hold the holds file's lock while the caller reads or writes.
+
+    The atomic rename in `_write_holds` keeps a reader from seeing a
+    torn file, but two lanes staging at once interleave read-modify-
+    write: each reads the same set, each writes back only its own
+    entry, and one lane's hold silently vanishes (measured 2026-09-20
+    as a hold dropped from the file between two writers, unprotecting
+    a live staging from a future prune). The lock closes that: every
+    take and release runs its read-modify-write under an EXCLUSIVE
+    lock, and readers take it SHARED. Same shape as the render
+    ledger's lock (`library/tools/caption_asset_gc.py`), and likewise
+    a no-op where `fcntl` is unavailable rather than a refusal.
+    """
+    try:
+        import fcntl  # noqa: PLC0415 - platform seam, not a dependency
+    except ImportError:
+        yield
+        return
+    path = lock_path_for(project_folder)
+    parent = os.path.dirname(path)
+    os.makedirs(parent, exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(),
+                    fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 def _parse_taken_at(raw: str) -> datetime | None:
@@ -122,6 +162,21 @@ def read_holds(project_folder: str) -> dict:
     empty: an unreadable hold set reads exactly like "nothing is
     protected" and would condemn every held staging, so the sweep
     keeps refusing until an operator inspects or clears it.
+
+    Reads under the SHARED lock, so a take or release mid-read cannot
+    hand back a set that is already stale.
+    """
+    with _holds_lock(project_folder, shared=True):
+        return _read_holds_unlocked(project_folder)
+
+
+def _read_holds_unlocked(project_folder: str) -> dict:
+    """`read_holds` without the lock: for callers already holding it.
+
+    `take_hold` and the releases run read-modify-write under one
+    EXCLUSIVE lock, so they must not re-acquire it mid-cycle (a second
+    `flock` on another descriptor of the same file contends with the
+    first, even in the same process).
     """
     path = holds_path_for(project_folder)
     if not os.path.isfile(path):
@@ -157,6 +212,10 @@ def _write_holds(project_folder: str, holds: dict) -> None:
     Two lanes stage at once often enough (Reel 13 and Reel 28 ran in
     parallel the day this was written) that a torn write must not be
     expressible. A reader never sees a half-written file.
+
+    The rename alone does not stop two interleaved writers losing
+    each other's entries - callers run read-modify-write under
+    `_holds_lock`, and this stays the write half of that cycle.
     """
     path = holds_path_for(project_folder)
     parent = os.path.dirname(path)
@@ -189,39 +248,46 @@ def take_hold(project_folder: str, staging_name: str, *,
     Taking is an upsert stamped NOW: a rebuild re-takes the same
     name and the pending window restarts, so a stale entry from a
     crashed run cannot outlive the run that replaced it.
+
+    The read-modify-write runs under the EXCLUSIVE holds lock, so a
+    concurrent take or release cannot interleave between the read and
+    the write and silently drop this entry.
     """
     if not staging_name:
         raise ValueError("take_hold needs a staging timeline name.")
-    holds = read_holds(project_folder)
-    entry = {"awaiting": awaiting,
-             "taken_at": _now().isoformat(),
-             "reason": reason,
-             "taken_by": taken_by}
-    holds[staging_name] = entry
-    _write_holds(project_folder, holds)
+    with _holds_lock(project_folder):
+        holds = _read_holds_unlocked(project_folder)
+        entry = {"awaiting": awaiting,
+                 "taken_at": _now().isoformat(),
+                 "reason": reason,
+                 "taken_by": taken_by}
+        holds[staging_name] = entry
+        _write_holds(project_folder, holds)
     return dict(entry)
 
 
 def release_hold(project_folder: str, staging_name: str) -> bool:
     """Release one hold. True when an entry was removed."""
-    holds = read_holds(project_folder)
-    if staging_name not in holds:
-        return False
-    del holds[staging_name]
-    _write_holds(project_folder, holds)
+    with _holds_lock(project_folder):
+        holds = _read_holds_unlocked(project_folder)
+        if staging_name not in holds:
+            return False
+        del holds[staging_name]
+        _write_holds(project_folder, holds)
     return True
 
 
 def release_holds(project_folder: str, staging_names) -> dict:
     """Release every named hold. Returns the names released."""
-    holds = read_holds(project_folder)
-    released = [name for name in (staging_names or ())
-                if name in holds]
-    if not released:
-        return {"released": []}
-    for name in released:
-        del holds[name]
-    _write_holds(project_folder, holds)
+    with _holds_lock(project_folder):
+        holds = _read_holds_unlocked(project_folder)
+        released = [name for name in (staging_names or ())
+                    if name in holds]
+        if not released:
+            return {"released": []}
+        for name in released:
+            del holds[name]
+        _write_holds(project_folder, holds)
     return {"released": released}
 
 

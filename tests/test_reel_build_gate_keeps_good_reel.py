@@ -221,7 +221,13 @@ def _patched_build(resolve_project, project_dir, gate_result):
 
 
 def _gate_failed_report(project_dir):
-    """Reel 5's shape: planning findings, not placement ones."""
+    """Reel 5's shape: planning findings, not placement ones.
+
+    The rows name the STAGED container with its error count - the
+    shape the real gate writes - so the refusal attributes to the
+    reel that failed. A report with no rows attributes nothing and
+    discards nothing.
+    """
     path = (project_dir / "pipeline_output" / "review"
             / "conformance_report.json")
     path.write_text(json.dumps({
@@ -233,6 +239,17 @@ def _gate_failed_report(project_dir):
             {"severity": "error", "finding_class": "F8",
              "message": "END at 413.85s cuts Craig mid-speech, "
                         "through the word 'about'"},
+        ],
+        "reels": [
+            {"reel_name": TARGET + STAGING_SUFFIX,
+             "reel_number": 3,
+             "errors": 2,
+             "warnings": 0,
+             "captions": "0/0",
+             "findings": [
+                 {"finding_class": "F17", "severity": "error"},
+                 {"finding_class": "F8", "severity": "error"},
+             ]},
         ],
     }), encoding="utf-8")
 

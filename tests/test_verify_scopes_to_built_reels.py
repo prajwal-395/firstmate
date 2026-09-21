@@ -464,11 +464,14 @@ def test_the_step_discards_staging_when_the_gate_refuses():
     """A refused gate on the DAG path still removes the staging before
     the refusal propagates - the approved timelines are never named."""
     module = _verify_step_module()
+    from library.tools.reel_build import ReelVerificationRefused
 
     final = "Reel 03 - moment-3"
     staged = _staging(final)
     with patch("library.tools.reel_build.verify_built_reels",
-               side_effect=RuntimeError("F8 end cuts mid-word")), \
+               side_effect=ReelVerificationRefused(
+                   f"F8 end cuts mid-word on {staged}",
+                   failed_reels=[staged])), \
             patch("library.tools.reel_build.discard_staged_record") as discard, \
             patch("library.tools.reel_build.promote_staged_reels") as promote, \
             patch("library.tools.timeline_transcript.transcript_path",
@@ -487,4 +490,38 @@ def test_the_step_discards_staging_when_the_gate_refuses():
         })
 
     assert discard.call_args[0][1:] == ("Mock Project", [staged], MASTER)
+    assert not promote.called
+
+
+def test_the_step_discards_nothing_it_was_not_told_about():
+    """The other direction of the same contract: a gate failure that
+    names no reel (the gate never graded - a connect failure, a fatal
+    on a staging deleted outside the run) discards NOTHING. The old
+    `except Exception` discarded every staging in flight, turning one
+    refusing reel - or one infra flake - into destroyed siblings."""
+    module = _verify_step_module()
+
+    final_a, final_b = "Reel 03 - moment-3", "Reel 04 - moment-4"
+    staged_a, staged_b = _staging(final_a), _staging(final_b)
+    with patch("library.tools.reel_build.verify_built_reels",
+               side_effect=RuntimeError("Resolve connection refused")), \
+            patch("library.tools.reel_build.discard_staged_record") as discard, \
+            patch("library.tools.reel_build.promote_staged_reels") as promote, \
+            patch("library.tools.timeline_transcript.transcript_path",
+                  return_value="/tmp/project/transcript.json"), \
+            pytest.raises(RuntimeError, match="Resolve connection refused"):
+        module.verify_reels({
+            "project_folder": "/tmp/project",
+            "reel_build": {
+                "timelines_built": [staged_a, staged_b],
+                "staged_timelines": {final_a: staged_a,
+                                     final_b: staged_b},
+                "resolve_project_name": "Mock Project",
+                "master_timeline_name": MASTER,
+                "plan_path": "/tmp/project/plan.json",
+            },
+            "timeline_transcript": {"segments": []},
+        })
+
+    assert not discard.called
     assert not promote.called
