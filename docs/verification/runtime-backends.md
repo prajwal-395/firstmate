@@ -214,6 +214,41 @@ The classifier was not at fault: the guard resolved the harness through a generi
 That binary exits immediately, leaving a bare shell in the pane.
 The guard now asks `fm_cursor_resolve_binary` first for `cursor`, which is the same verified owner `bin/fm-spawn.sh` uses, so the probe launches `cursor-agent` and the editor CLI can no longer masquerade as the harness.
 
+### 2026-09-21 drift refresh on the captain's macOS home
+
+Re-ran on 2026-09-21 on macOS 26 (Darwin 25.3.0) arm64 with tmux 3.7c, checking the three harnesses installed on that machine:
+
+```sh
+bin/fm-test-run.sh tests/fm-harness-liveness-drift-live-e2e.test.sh
+```
+
+```text
+# claude 2.1.267 (Claude Code): title='claude' foreground=[/opt/homebrew/bin/claude ]
+ok - harness liveness: claude 2.1.267 (Claude Code) classifies alive
+# claude 2.1.267 (Claude Code): ancestry verdicts=[comm claude]
+ok - harness detection: claude 2.1.267 (Claude Code) is identified by the ancestry walk at comm strength
+# skip: codex is not installed on this machine, so its classification is unverified here
+# opencode 1.18.31: title='opencode' foreground=[/Users/prajwal/.local/bin/opencode ]
+ok - harness liveness: opencode 1.18.31 classifies alive
+# opencode 1.18.31: ancestry verdicts=[comm opencode]
+ok - harness detection: opencode 1.18.31 is identified by the ancestry walk at comm strength
+# pi 0.85.1: title='node' foreground=[pi ]
+ok - harness liveness: pi 0.85.1 classifies alive
+# pi 0.85.1: ancestry verdicts=[comm pi]
+ok - harness detection: pi 0.85.1 is identified by the ancestry walk at comm strength
+# skip: pi-signed is not installed on this machine, so its classification is unverified here
+# skip: grok is not installed on this machine, so its classification is unverified here
+# skip: kimi is not installed on this machine, so its classification is unverified here
+# skip: cursor is not installed on this machine, so its classification is unverified here
+# skip: muse is not installed on this machine, so its classification is unverified here
+# unverified on this machine (not installed): codex pi-signed grok kimi cursor muse
+# checked 3 installed harness(es)
+```
+
+agy 1.2.7 was installed on that machine but is NOT covered by this guard, whose loop is `claude codex opencode pi pi-signed grok kimi cursor muse`.
+The 2026-09-15 hand probe that classified agy 1.2.2 alive predates the installed 1.2.7, so agy is unguarded on the installed version and this table must not be read as covering it.
+codex, pi-signed, grok, kimi, cursor, and muse were not installed on that machine and are unverified by this run.
+
 Bounded output from the 2026-08-03 run that produced the first table above:
 
 ```text
@@ -1093,6 +1128,17 @@ tests/fm-backend-herdr.test.sh
 ```
 
 Observed guarantees: every measured release classifies as the table records; either the protocol or the version signal alone carries an at-or-above verdict, and each divergent pair flips once the carrying signal is removed; client and running selected-session server verdicts compose conservatively, an unreadable server-running state and losing both release signals report indeterminate and fall back flat, the default is rechecked after server ensure before projection publication, an unconfigured home is projected only at or above the floor, an explicit `on`, including the historical empty opt-in file, is honored below it, and the below-floor warning is emitted once per home per detected release rather than once per spawn.
+
+Re-ran on 2026-09-21 on macOS arm64 against installed herdr 0.9.1 protocol 22, which classifies above the floor.
+All three pinned releases re-verified with digests identical to the guard's pins, so the release mapping above is unchanged:
+
+```text
+ok - installed herdr 0.9.1 protocol 22 classifies above the presentation floor
+ok - herdr v0.7.5: version 0.7.5 protocol 17 classifies below the presentation floor (sha256 37350546b0012555943b92eaf962665de4e264395baeb44227b8015e8ff5b0d6)
+ok - herdr preview-2026-07-29-44b3adb12552: version 0.7.5-preview.2026-07-29-44b3adb12552 protocol 18 classifies below the presentation floor (sha256 99941b4a40e852c8f21694c7ec1e96f85abd4f764d9f667757c65fae6e4b065b)
+ok - herdr v0.8.0: version 0.8.0 protocol 19 classifies above the presentation floor (sha256 d53a9f93fccfdfcc55632927bf51002f5add0aa7990bcdf508ffbd84ac658178)
+evidence: asset=herdr-macos-aarch64 releases_checked=4 installed=0.9.1 protocol=22
+```
 
 The whole real-Herdr lane was run on 2026-08-05 against both the CI-pinned Herdr 0.7.4 protocol 16, which is below the floor, and Herdr 0.8.0 protocol 19, which is at it:
 
