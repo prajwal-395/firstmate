@@ -4,8 +4,16 @@ Resolve's scripting API offers `MediaPool.AppendToTimeline` (place) and
 `Timeline.DeleteClips` (delete) and nothing else for picture: no trim,
 no move, no ripple, no `SetMediaPoolItem`.  Changing an item therefore
 means deleting it and placing a new one, and the new one is a **new
-object** carrying none of the old one's state.  Rebuilding the reel
-instead costs ~112 s of Resolve time; the composition costs ~2 s.
+object** carrying none of the old one's state.  What that costs against
+a rebuild is MEASURED, not quoted: the composition mechanism alone
+(delete, place, restore) holds at ~2 s, but staging (copy + conform)
+measured 8.9-25.9 s and step 7 re-derivation 17.8-37.4 s, for composed
+totals of 44.1 s and 54.9 s against rebuilds of 24.0 s and 59.2 s on
+the two measured length-changing cases (`docs/RULE_EVIDENCE.md`,
+"What it costs, and it is not the spike's figure").  The spike's
+~112 s rebuild figure predates both the re-derivation condition below
+and the PR 1217 lease split, and is not used as a comparison anywhere
+in this module.
 
 This module is that composition, and it is **seven steps**.  Each one
 exists because something measurably failed without it (spike report

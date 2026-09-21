@@ -479,3 +479,16 @@ def test_the_seven_steps_are_all_present_and_named():
                  "restore_item", "assert_rederivation_reachable",
                  "assert_rederived"):
         assert f"def {step}(" in source, f"step {step} is gone"
+
+
+def test_the_module_quotes_no_stale_spike_ratio():
+    """The spike's ~112 s / 50x ratio predates the re-derivation
+    condition and the PR 1217 lease split, and post-condition
+    measurement superseded it (44.1 s / 54.9 s composed against
+    24.0 s / 59.2 s rebuilds).  The module may disclaim the old
+    figure; it may not present it as the rebuild cost."""
+    source = MODULE.read_text(encoding="utf-8")
+    assert "50x" not in source
+    assert "costs ~112" not in source
+    assert "~112 s of Resolve time" not in source
+    assert "What it costs, and it is not the spike's figure" in source
