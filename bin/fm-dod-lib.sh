@@ -10,9 +10,35 @@
 # mode is refused rather than silently rendered as the pipeline contract.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
-# This file is the one owner of the no-mistakes `--intent` contract: only the
-# brief's `## Captain's intent` subsection plus later captain words, never
-# `## Firstmate spec` and never the worker's own tradeoffs.
+# This file is also the single owner of the brief scope-discipline contract
+# (AGENTS.md section 11): `## Captain's intent` carries the captain's own ask
+# and is treated as acceptance criteria, so it must not be widened into a
+# general goal or an enumerated coverage list; `## Firstmate spec` carries only
+# the build instructions that ask requires. bin/fm-brief.sh --check,
+# bin/fm-spawn.sh, and bin/fm-promote.sh all gate through fm_brief_scope_check
+# below, so the three never hold separate opinions about what a dispatchable
+# brief is. The 2026-09-15 base reset removed the previous mechanism
+# (fm-brief-lib.sh with its four scope fields); this contract is re-implemented
+# here against the current two-subsection scaffold instead of reverted, because
+# the scaffold moved under it. The full-suite-run rule is deliberately not part
+# of this gate: related, separate, and not asked for.
+# The gate refuses shapes, never quality, in the same fail-closed spirit as the
+# placeholder and content backstops above. An enumerated coverage list in the
+# intent is refused at three or more list items: one or two items can be the
+# ask's own structure, while three is the coverage-list shape of a widened ask.
+# A spec line is refused only when it carries a sweep shape from the closed set
+# below (the generalization / consistency-sweep / extra-hardening shapes the
+# contract names) without a prohibition or out-of-scope cue on the same line:
+# "Do NOT sweep the repo" is the guardrail working, not the defect.
+# Deliberately not caught: a brief that broadens the ask in plain prose with
+# neither list nor sweep shape ("make the pipeline robust while you are there").
+# Judging that would refuse legitimate briefs, and prose breadth is firstmate
+# judgment at intake, not a mechanical verdict. The limits are stated here so
+# they are on the record rather than discovered later.
+# A refusal always points the same way the captain did on 2026-09-05 ("at least
+# if you have a problem escalate it to me"): narrow the brief to the ask, and
+# carry the wider scope as follow-up work or escalate it, rather than widening
+# the ask here.
 # The string passed must be self-sufficient - it plus the codebase reconstructs
 # roughly the same specification - so a report, decision, or PR the intent
 # refers to is written into it as substance, never left as a pointer.
@@ -179,6 +205,86 @@ fm_brief_task_content_valid() {  # <file>
   fi
   task=$(fm_brief_heading_body "$file" "# Task")
   [ -n "$(printf '%s' "$task" | tr -d '[:space:]')" ]
+}
+
+# Count the list items in ## Captain's intent, outside fenced blocks. Bulleted
+# (-, *, +) and numbered (N. / N)) items each count one; a fenced code sample
+# listing commands is illustration, not acceptance criteria, so fenced lines
+# never count.
+fm_brief_intent_list_count() {  # <file> -> prints the count
+  fm_brief_task_heading_body "$1" "## Captain's intent" | awk '
+    /^[[:space:]]*(`{3,}|~{3,})/ { fenced = !fenced; next }
+    fenced { next }
+    /^[[:space:]]*[-*+][[:space:]][[:space:]]*[^[:space:]]/ { n++; next }
+    /^[[:space:]]*[0-9]+[.)][[:space:]][[:space:]]*[^[:space:]]/ { n++ }
+    END { print n+0 }
+  '
+}
+
+# Print the first ## Firstmate spec line (original case) that widens the brief
+# beyond the ask, or nothing. Lines carrying a prohibition or out-of-scope cue
+# are skipped first so naming the boundary never reads as crossing it. Only
+# the closed sweep set below is a demand: the consistency-sweep phrase, a
+# generalize/generalize-family word, a repo-wide scope token, across-the-scope
+# phrasing, every/all call-site phrasing, an entire-scope noun, and hardening
+# with a universal quantifier on the same line. Deliberately not caught: other
+# broad verbs in plain prose ("refactor the auth module"), which pass so the
+# gate never refuses a legitimate brief on a hunch.
+fm_brief_spec_sweep_line() {  # <file> -> prints the line or nothing
+  fm_brief_task_heading_body "$1" "## Firstmate spec" | awk '
+    /^[[:space:]]*(`{3,}|~{3,})/ { fenced = !fenced; next }
+    fenced { next }
+    {
+      line = $0
+      folded = tolower(line)
+      if (folded ~ /do not|does not|never|avoid|must not|without|cannot|out of scope|not in scope|follow-?up|not asked|refus|stop and|defer|escalate/) next
+      if (folded ~ /consistency sweep/) { print line; exit }
+      if (folded ~ /generali[sz]/) { print line; exit }
+      if (folded ~ /repo-wide|codebase-wide|fleet-wide|blanket/) { print line; exit }
+      if (folded ~ /across the (repo|codebase|fleet|suite)/) { print line; exit }
+      if (folded ~ /(every|all) (caller|call site|call-site|callsite)/) { print line; exit }
+      if (folded ~ /entire (repo|codebase|fleet)/) { print line; exit }
+      if (folded ~ /harden/ && folded ~ /(all|every|entire|across)/) { print line; exit }
+    }
+  '
+}
+
+# Gate one brief on the scope-discipline contract. Returns 0 when dispatch may
+# proceed, 1 naming the widening otherwise. <what> names the action being gated
+# so the refusal reads in the caller's own terms. A brief with no # Task
+# section at all (a secondmate charter) carries no ask and passes vacuously; a
+# legacy brief with a # Task body but no subsections predates the contract,
+# warns once, and proceeds under the content backstop above. Only shape is
+# judged, never whether the scope is wise.
+fm_brief_scope_check() {  # <brief-path> <what>
+  local brief=$1 what=$2 count sweep has_intent=0 has_spec=0
+  [ -f "$brief" ] && [ -r "$brief" ] || { echo "error: no brief at $brief" >&2; return 1; }
+  fm_brief_task_heading_present "$brief" "## Captain's intent" && has_intent=1
+  fm_brief_task_heading_present "$brief" "## Firstmate spec" && has_spec=1
+  if [ "$has_intent" -eq 0 ] && [ "$has_spec" -eq 0 ]; then
+    if fm_brief_heading_present "$brief" "# Task"; then
+      echo "warning: $brief carries no intent/spec contract (scaffolded before briefs recorded one); $what proceeds without scope discipline - confirm the ask is not widened yourself" >&2
+    fi
+    return 0
+  fi
+  [ "$has_intent" -eq 1 ] && [ "$has_spec" -eq 1 ] || return 0
+  count=$(fm_brief_intent_list_count "$brief")
+  if [ "${count:-0}" -ge 3 ]; then
+    echo "error: $brief widens ## Captain's intent into an enumerated coverage list ($count list items), so $what is refused:" >&2
+    echo "       The intent is the acceptance criteria the run is held to - record the captain's own" >&2
+    echo "       ask plus only the context needed to read it there, and carry wider coverage as" >&2
+    echo "       follow-up work or escalate it to the captain rather than widening the ask here." >&2
+    return 1
+  fi
+  sweep=$(fm_brief_spec_sweep_line "$brief")
+  if [ -n "$sweep" ]; then
+    echo "error: $brief widens ## Firstmate spec beyond the ask ('${sweep}'), so $what is refused:" >&2
+    echo "       The spec carries only the build instructions this ask requires - a generalization," >&2
+    echo "       consistency sweep, or extra hardening the captain did not ask for is follow-up work" >&2
+    echo "       to note (or to escalate to the captain), not scope to add here." >&2
+    return 1
+  fi
+  return 0
 }
 
 fm_ask_user_escalation_block() {  # <data-dir> <task-id>

@@ -2526,6 +2526,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     echo "error: $BRIEF must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before spawn" >&2
     exit 1
   fi
+  fm_brief_scope_check "$BRIEF" "this spawn" || exit 1
   if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
     if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
       CAPTAIN_INTENT=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent")
