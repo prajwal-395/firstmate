@@ -938,7 +938,213 @@ test_worker_role_scope() {
   pass "fm-brief: scaffolds leave the worker role scope to the launch boundary and keep the secondmate contract"
 }
 
+# --from-task renders the two `# Task` subsections from the task record so the
+# same content is composed once at filing instead of re-typed into the brief.
+# These tests seed a markdown backlog file directly (the backend reads it with
+# no write round-trip) and render through the real tasks-axi binary, skipping
+# cleanly where it is absent.
+from_task_home() {
+  local home=$1
+  mkdir -p "$home/data"
+  cat > "$home/data/backlog.md" <<'EOF'
+## Queued
+
+## In flight
+- [ ] render-src - Shrink the dispatch payload to its task section (repo: firstmate) (kind: ship) (since 2026-09-21)
+  Ship on firstmate, mode=direct-PR yolo=on per registry standing posture (no deviation). Follow-up to a merged rule-match task.
+
+  Captain intent (verbatim 2026-09-21): trim the payload to the task-relating part - more efficient, and less clutter should mean more accuracy.
+
+  Direction: send the Task section only and measure both payload shapes. Out of scope: quota work, ladder order, AGENTS.md wording. Fork rule: PR against prajwal-395/firstmate with explicit -R, never upstream.
+- [ ] render-single - One-line filing with posture and ask together (repo: firstmate) (kind: ship) (since 2026-09-21)
+  Ship on firstmate, mode=direct-PR yolo=on per registry (no deviation). Captain-approved (verbatim 2026-09-21): stop re-typing intent and spec twice; compose once at filing, render mechanically.
+- [ ] render-structured - Explicitly sectioned filing (repo: firstmate) (kind: scout) (since 2026-09-21)
+  Ship on firstmate, mode=direct-PR yolo=on per registry (no deviation).
+  ## Captain's intent
+  Map the render contract before any code.
+  Keep the second paragraph of the ask too.
+  ## Firstmate spec
+  Add the render path with tests.
+  Out of scope: dispatch rules.
+- [ ] render-empty - A record with no body filed yet (repo: firstmate) (kind: ship) (since 2026-09-21)
+- [ ] render-quiet - A record with no captain markers (repo: firstmate) (kind: ship) (since 2026-09-21)
+  Ship on firstmate, mode=direct-PR yolo=on per registry (no deviation).
+
+  Direction: do the quiet thing. Out of scope: nothing else.
+- [ ] render-tokens - A record naming the placeholders literally (repo: firstmate) (kind: ship) (since 2026-09-21)
+  Ship on firstmate, mode=direct-PR yolo=on per registry (no deviation).
+
+  Captain intent (verbatim 2026-09-21): keep literal `{TASK}` examples intact in the docs.
+
+  Direction: keep literal `{FIRSTMATE_SPEC}` examples intact as well.
+
+## Done
+EOF
+  printf '%s\n' "$home"
+}
+
+from_task_skip_unless_tasks_axi() {
+  command -v tasks-axi >/dev/null 2>&1 || { pass "$1 (skip: tasks-axi absent)"; return 1; }
+  return 0
+}
+
+test_render_from_task_legacy_bodies() {
+  from_task_skip_unless_tasks_axi "fm-brief.sh: --from-task renders legacy bodies" || return 0
+  local home brief intent_body
+  home="$TMP_ROOT/from-task-legacy-home"
+  from_task_home "$home" >/dev/null
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-ship some-proj --mode direct-PR --from-task=render-src >/dev/null 2>&1 \
+    || fail "ship --from-task=render-src should exit 0"
+  brief="$home/data/render-ship/brief.md"
+  assert_present "$brief" "rendered ship brief was not written"
+  if grep -qxF -e '{TASK}' -e '{FIRSTMATE_SPEC}' "$brief"; then
+    fail "rendered ship brief kept a placeholder fill site"
+  fi
+  assert_grep "Shrink the dispatch payload to its task section" "$brief" \
+    "rendered intent lost the record title"
+  assert_grep "trim the payload to the task-relating part" "$brief" \
+    "rendered intent lost the captain-verbatim paragraph"
+  assert_grep "Delivery contract: mode=direct-PR" "$brief" \
+    "rendered ship brief lost its machine-readable delivery contract"
+  assert_grep "Verify isolation before anything else" "$brief" \
+    "rendered ship brief lost the worktree-isolation assertion"
+  assert_grep "# Herdr lifecycle declaration - NOT ENABLED" "$brief" \
+    "rendered ship brief lost the unguarded Herdr declaration"
+  intent_body=$(awk '$0 == "## Captain'"'"'s intent" { emit=1; next } emit && /^## / { exit } emit { print }' "$brief")
+  assert_contains "$intent_body" "trim the payload" \
+    "intent subsection is missing the captain paragraph"
+  assert_not_contains "$intent_body" "Direction:" \
+    "intent subsection leaked the Firstmate direction paragraph"
+  assert_grep "Direction: send the Task section only" "$brief" \
+    "spec lost the filed direction"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-src some-proj --scout --from-task >/dev/null 2>&1 \
+    || fail "bare scout --from-task should render from the same id"
+  brief="$home/data/render-src/brief.md"
+  if grep -qxF -e '{TASK}' -e '{FIRSTMATE_SPEC}' "$brief"; then
+    fail "rendered scout brief kept a placeholder fill site"
+  fi
+  assert_grep "SCOUT task" "$brief" "rendered scout brief lost its scout contract"
+  assert_grep "trim the payload to the task-relating part" "$brief" \
+    "rendered scout brief lost the captain paragraph"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-single-copy some-proj --mode direct-PR --from-task=render-single >/dev/null 2>&1 \
+    || fail "single-line --from-task should exit 0"
+  brief="$home/data/render-single-copy/brief.md"
+  intent_body=$(awk '$0 == "## Captain'"'"'s intent" { emit=1; next } emit && /^## / { exit } emit { print }' "$brief")
+  assert_contains "$intent_body" "stop re-typing intent and spec twice" \
+    "single-line render lost the captain tail"
+  assert_not_contains "$intent_body" "Ship on firstmate" \
+    "single-line render leaked the delivery posture into the intent"
+  assert_grep "Ship on firstmate, mode=direct-PR" "$brief" \
+    "single-line render lost the delivery posture from the spec"
+  pass "fm-brief.sh: --from-task renders legacy bodies into intent and spec"
+}
+
+test_render_from_task_structured_markers() {
+  from_task_skip_unless_tasks_axi "fm-brief.sh: --from-task renders sectioned filings" || return 0
+  local home brief intent_body spec_body
+  home="$TMP_ROOT/from-task-structured-home"
+  from_task_home "$home" >/dev/null
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-structured-copy some-proj --scout --from-task=render-structured >/dev/null 2>&1 \
+    || fail "sectioned --from-task should exit 0"
+  brief="$home/data/render-structured-copy/brief.md"
+  if grep -qxF -e '{TASK}' -e '{FIRSTMATE_SPEC}' "$brief"; then
+    fail "sectioned render kept a placeholder fill site"
+  fi
+  intent_body=$(awk '$0 == "## Captain'"'"'s intent" { emit=1; next } emit && /^## / { exit } emit { print }' "$brief")
+  spec_body=$(awk '$0 == "## Firstmate spec" { emit=1; next } emit && /^# / { exit } emit { print }' "$brief")
+  assert_contains "$intent_body" "Map the render contract before any code." \
+    "sectioned render lost the first intent paragraph"
+  assert_contains "$intent_body" "Keep the second paragraph of the ask too." \
+    "sectioned render lost the second intent paragraph"
+  assert_not_contains "$intent_body" "Add the render path" \
+    "sectioned render leaked spec material into the intent"
+  assert_contains "$spec_body" "Add the render path with tests." \
+    "sectioned render lost the filed spec"
+  assert_contains "$spec_body" "Ship on firstmate, mode=direct-PR" \
+    "sectioned render lost the unmarked filing context from the spec"
+  assert_not_contains "$spec_body" "Map the render contract" \
+    "sectioned render leaked intent material into the spec"
+  pass "fm-brief.sh: --from-task honours explicitly sectioned filings"
+}
+
+test_render_hand_edit_after_render() {
+  from_task_skip_unless_tasks_axi "fm-brief.sh: rendered briefs stay hand-editable" || return 0
+  local home brief
+  home="$TMP_ROOT/from-task-handedit-home"
+  from_task_home "$home" >/dev/null
+  # shellcheck source=bin/fm-dod-lib.sh
+  . "$ROOT/bin/fm-dod-lib.sh"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-edit some-proj --mode direct-PR --from-task=render-quiet >/dev/null 2>&1 \
+    || fail "render of a marker-free record should exit 0 with a title-only intent"
+  brief="$home/data/render-edit/brief.md"
+  awk '$0 == "## Firstmate spec" { print; print "Hand note: keep the render mechanical."; next } { print }' \
+    "$brief" > "$brief.hand" && mv "$brief.hand" "$brief"
+  fm_brief_task_placeholders_present "$brief" \
+    && fail "hand-edited render still reads as placeholder"
+  fm_brief_task_content_valid "$brief" \
+    || fail "hand-edited render failed the spawn/promote content backstop"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-mentions some-proj --mode direct-PR --from-task=render-tokens >/dev/null 2>&1 \
+    || fail "render of a record naming placeholders should exit 0"
+  brief="$home/data/render-mentions/brief.md"
+  fm_brief_task_placeholders_present "$brief" \
+    && fail "a rendered brief that merely mentions placeholder tokens reads as unfilled"
+  fm_brief_task_content_valid "$brief" \
+    || fail "a rendered brief that merely mentions placeholder tokens failed content validation"
+
+  awk '$0 == "## Firstmate spec" { emit=1; next } emit { next } { print }' \
+    "$brief" > "$brief.gutted" && mv "$brief.gutted" "$brief"
+  fm_brief_task_content_valid "$brief" \
+    && fail "a render gutted to an empty spec passed the content backstop"
+  pass "fm-brief.sh: rendered briefs stay hand-editable under the placeholder backstop"
+}
+
+test_render_refusals_write_nothing() {
+  from_task_skip_unless_tasks_axi "fm-brief.sh: --from-task refusals" || return 0
+  local home out status
+  home="$TMP_ROOT/from-task-refusal-home"
+  from_task_home "$home" >/dev/null
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-nope some-proj --mode direct-PR --from-task 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "render from an unknown record should exit non-zero"
+  assert_contains "$out" "render-nope" "unknown-record refusal did not name the record"
+  assert_absent "$home/data/render-nope/brief.md" "unknown-record render still wrote a brief"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-empty some-proj --mode direct-PR --from-task 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "render from an empty body should exit non-zero"
+  assert_contains "$out" "body is empty" "empty-body refusal did not explain the contract"
+  assert_absent "$home/data/render-empty/brief.md" "empty-body render still wrote a brief"
+
+  out=$(FM_HOME="$home" FM_SECONDMATE_CHARTER='x' "$ROOT/bin/fm-brief.sh" render-sm --secondmate --no-projects --from-task 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "--from-task on a secondmate charter should exit non-zero"
+  assert_contains "$out" "--from-task applies only to ship or scout briefs" \
+    "charter refusal did not explain the untouched charter path"
+  assert_absent "$home/data/render-sm/brief.md" "charter render still wrote a brief"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-clash some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "plain placeholder scaffold should exit 0"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" render-clash some-proj --mode direct-PR --from-task=render-src 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "render over an existing brief should exit non-zero"
+  assert_contains "$out" "already exists" "existing-brief render did not refuse to overwrite"
+  assert_grep "{TASK}" "$home/data/render-clash/brief.md" \
+    "existing-brief render overwrote the hand-fill scaffold"
+  pass "fm-brief.sh: --from-task refusals write nothing"
+}
+
 test_worker_role_scope
+test_render_from_task_legacy_bodies
+test_render_from_task_structured_markers
+test_render_hand_edit_after_render
+test_render_refusals_write_nothing
 test_decision_key_position_is_taught
 test_script_parses
 test_no_heredoc_in_command_substitution
