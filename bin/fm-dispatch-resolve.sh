@@ -27,7 +27,8 @@
 #   what the tool did before the ladder. Both rungs accept the same request
 #   and response shapes; only the base URL, model, and key change. The free
 #   tier answers 429 when exhausted, which descends the ladder with auth
-#   failures (401/403). The project name and the whole brief travel as
+#   failures (401/403). The project name and the Task section of the brief
+#   (Captain's intent plus Firstmate spec) travel as
 #   state and ONE Choice question whose
 #   options are every rule's `when` from config/crew-dispatch.json plus one
 #   fixed generic none option. Jev returns the matched rule, a probability per
@@ -136,6 +137,12 @@ fi
 # ---- inputs --------------------------------------------------------------------
 [ -n "$BRIEF" ] || die "brief file required (see --help)"
 [ -r "$BRIEF" ] || die "brief file not readable: $BRIEF"
+# Jev matches dispatch rules from the task, not the scaffold: only the Task
+#   section travels, never the whole file, so constant boilerplate cannot
+#   clutter the match signal. A brief with no Task section falls back to the
+#   whole brief, so an unfamiliar shape never breaks the intake.
+BRIEF_TEXT=$(awk 'BEGIN{f=0} /^# Task([ \t]|$)/{f=1;print;next} f==1 && /^# /{exit} f==1{print}' "$BRIEF")
+[ -n "$BRIEF_TEXT" ] || BRIEF_TEXT=$(cat "$BRIEF")
 [ -e "$RULES_PATH" ] || [ -L "$RULES_PATH" ] || no_rules
 [ -r "$RULES_PATH" ] || die "rules file not readable: $RULES_PATH"
 command -v jq >/dev/null 2>&1 || die "jq required"
@@ -250,7 +257,7 @@ RUNG=''
 command -v curl >/dev/null 2>&1 || emit_error "curl not installed"
 post_rung() { # <base-url> <model> <key>: one Jev POST; sets HTTP and LAT_MS
   local base=$1 model=$2 key=$3
-  REQUEST=$(jq -n --rawfile brief "$BRIEF" --arg project "$PROJECT" --arg model "$model" \
+  REQUEST=$(jq -n --arg brief "$BRIEF_TEXT" --arg project "$PROJECT" --arg model "$model" \
     --arg none_criterion "$DEFAULT_WHEN" --slurpfile rules "$RULES" '
     ($rules[0]) as $cfg |
     ($cfg.rules | to_entries | map({key: ("rule_" + ((.key + 1) | tostring)), value: .value.when}) | from_entries) as $criteria |

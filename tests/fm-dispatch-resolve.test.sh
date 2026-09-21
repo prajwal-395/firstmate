@@ -29,8 +29,23 @@ for command_name in bash chmod cp dirname jq mktemp rm; do
 done
 
 cat > "$BRIEF" <<'MD'
+You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human. PREAMBLE-SENTINEL stays home.
+
 # Task
+## Captain's intent
 Fix the off-by-one in the pager: root cause is the `<=` on line 40 of pager.sh, expected behavior is one page per call.
+
+## Firstmate spec
+Small defined fix with a regression test. SPEC-SENTINEL travels with the task.
+
+# Herdr lifecycle declaration - NOT ENABLED
+HERDR-SENTINEL stays home.
+
+# Setup
+SETUP-SENTINEL stays home.
+
+# Rules
+RULES-SENTINEL stays home.
 MD
 
 cat > "$BASE_RULES" <<'JSON'
@@ -257,7 +272,12 @@ assert_equals $'curl:clean\nquota-axi:clean' "$(cat "$LOG/child-env")" "the API 
 body=$(cat "$LOG/body")
 assert_equals 'jev-latest' "$(jq -r .model <<<"$body")" "default model is jev-latest"
 assert_equals 'pager' "$(jq -r .state.task.project <<<"$body")" "project rides in the state"
-assert_contains "$(jq -r .state.task.brief <<<"$body")" 'off-by-one in the pager' "the whole brief rides in the state"
+assert_contains "$(jq -r .state.task.brief <<<"$body")" 'off-by-one in the pager' "the Captain's intent rides in the state"
+assert_contains "$(jq -r .state.task.brief <<<"$body")" 'SPEC-SENTINEL travels with the task' "the Firstmate spec rides in the state"
+assert_not_contains "$(jq -r .state.task.brief <<<"$body")" 'PREAMBLE-SENTINEL' "the preamble scaffold stays home"
+assert_not_contains "$(jq -r .state.task.brief <<<"$body")" 'HERDR-SENTINEL' "the Herdr declaration stays home"
+assert_not_contains "$(jq -r .state.task.brief <<<"$body")" 'SETUP-SENTINEL' "the Setup scaffold stays home"
+assert_not_contains "$(jq -r .state.task.brief <<<"$body")" 'RULES-SENTINEL' "the Rules scaffold stays home"
 assert_equals '["rule"]' "$(jq -c '.questions | keys' <<<"$body")" "only the rule Choice is asked"
 assert_equals '["default","rule_1","rule_2","rule_3","rule_4"]' "$(jq -c '.questions.rule.criteria | keys' <<<"$body")" "one option per rule plus default"
 assert_equals 'No listed rule applies to this task.' "$(jq -r '.questions.rule.criteria.default' <<<"$body")" "the fixed generic none criterion is the default option"
@@ -266,6 +286,20 @@ assert_not_contains "$body" 'SECRET-WHY-TEXT' "why text never leaves the machine
 assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
 pass "clear: one rule Choice request, key on the fd header only, declared rung order over every candidate"
+
+# --- a brief with no Task section falls back to the whole file ---------------
+TASKLESS="$TMP_ROOT/taskless.md"
+cat > "$TASKLESS" <<'MD'
+# Charter
+Own the Lucie Content client domain end to end. CHARTER-SENTINEL travels whole.
+MD
+reset_log
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY run code out err "$TASKLESS" --project lucie
+expect_code 0 "$code" "taskless brief exits 0"
+assert_contains "$out" '  status: clear' "a brief with no Task section still resolves"
+assert_contains "$(jq -r .state.task.brief < "$LOG/body")" 'CHARTER-SENTINEL travels whole' "an unfamiliar shape falls back to the whole brief"
+pass "no Task section: the whole brief travels so the intake never breaks"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
