@@ -517,7 +517,8 @@ def test_restore_dry_run_diffs_without_writing(patched, tmp_path,
              "duration": 1, "customData": ""}}
     assert cmd_markers_restore(
         _ns(project="", timeline="Reel 29 - salvage",
-            in_file=str(in_file), apply=False)) == 0
+            in_file=str(in_file), apply=False,
+            allow_partial=True)) == 0
     out = capsys.readouterr().out
     assert "already_present: 1" in out
     # Dry run writes nothing to Resolve.
@@ -531,7 +532,8 @@ def test_restore_refuses_foreign_timeline(patched, tmp_path, capsys):
     in_file.write_text(json.dumps(payload), encoding="utf-8")
     assert cmd_markers_restore(
         _ns(project="", timeline="Reel 29 - salvage (rebuild staging)",
-            in_file=str(in_file), apply=False)) == 1
+            in_file=str(in_file), apply=False,
+            allow_partial=False)) == 1
     assert "refusing to restore" in capsys.readouterr().out
 
 
@@ -547,12 +549,166 @@ def test_restore_apply_writes_missing_only(patched, tmp_path, capsys):
                           "duration_frames": 1, "custom_data_raw": ""}]}
     in_file = tmp_path / "markers.json"
     in_file.write_text(json.dumps(payload), encoding="utf-8")
+    # No --allow-partial passed (False, exactly as argparse leaves it):
+    # a fully timeline-plane snapshot restores silently, as before.
     assert cmd_markers_restore(
         _ns(project="", timeline="Reel 29 - salvage",
-            in_file=str(in_file), apply=True)) == 0
+            in_file=str(in_file), apply=True,
+            allow_partial=False)) == 0
     assert patched["timeline"].added == [
         (20, "Blue", "note", "new words", 1, "")]
     assert "restored: 1" in capsys.readouterr().out
+
+
+# ── Snapshot refusal + frame fields (round-trip fixtures) ──────────
+#
+# These tests never hand-write snapshot JSON. The fixture is built by
+# the REAL `marker_feedback.read_notes` over a fake timeline and the
+# REAL `_snapshot_payload` writer - a reader's output is not the file
+# format, and a tool quote must never become a fixture. The clip note
+# below sits at source frame 1026 playing at timeline frame 426, so
+# the two frame numbers cannot agree by accident.
+
+
+def _field_timeline(with_clip_note=True):
+    marked = _Item("LC0024.MXF", 400, 450,
+                   pool=_Pool("/footage/LC0024.MXF"),
+                   markers=({1026: {"color": "Blue", "name": "sub fix",
+                                    "note": "caption drops a word",
+                                    "duration": 1, "customData": ""}}
+                            if with_clip_note else {}))
+    return _Timeline(
+        "Reel 24 - field",
+        markers={40: {"color": "Green", "name": "feedback",
+                      "note": "good take", "duration": 1,
+                      "customData": ""}},
+        tracks={("video", 1): {"name": "V1", "items": [marked]},
+                ("audio", 1): {"name": "A1", "items": []}},
+        start=0, end=499)
+
+
+@pytest.fixture()
+def field_reel(monkeypatch):
+    timeline = _field_timeline()
+    project = _Project("Podcast (field test)", [timeline],
+                       current=timeline)
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    return {"timeline": timeline, "project": project}
+
+
+def _write_round_trip_snapshot(timeline, project_name, path):
+    """A snapshot file exactly as the tool would write it live."""
+    from library.tools import marker_feedback
+    notes = marker_feedback.read_notes(timeline)
+    payload = resolve_axi._snapshot_payload(project_name,
+                                            timeline.GetName(), notes)
+    Path(path).write_text(json.dumps(payload, indent=2, sort_keys=True,
+                                     default=str) + "\n",
+                          encoding="utf-8")
+    return payload
+
+
+def test_snapshot_names_both_frames_per_plane(field_reel, tmp_path,
+                                              capsys):
+    out_file = str(tmp_path / "reel24.json")
+    assert cmd_markers_snapshot(
+        _ns(project="", timeline="Reel 24 - field",
+            out=out_file)) == 0
+    assert "deprecated:" in capsys.readouterr().out
+    payload = json.loads(Path(out_file).read_text(encoding="utf-8"))
+    assert "frame_in_timeline_space" in payload["deprecated_fields"]
+    by_source = {n["source"]: n for n in payload["notes"]}
+    clip = by_source["clip_marker"]
+    assert (clip["timeline_frame"], clip["source_frame"]) == (426, 1026)
+    assert (clip["frame"], clip["frame_in_timeline_space"]) == (426, 1026)
+    moment = by_source["timeline_marker"]
+    assert moment["timeline_frame"] == 40
+    assert moment["source_frame"] is None
+    assert (moment["frame"],
+            moment["frame_in_timeline_space"]) == (40, 40)
+
+
+def test_restore_refuses_snapshot_with_clip_notes(field_reel, tmp_path,
+                                                  capsys):
+    in_file = tmp_path / "reel24.json"
+    _write_round_trip_snapshot(field_reel["timeline"],
+                               "Podcast (field test)", str(in_file))
+    for apply in (False, True):
+        assert cmd_markers_restore(
+            _ns(project="", timeline="Reel 24 - field",
+                in_file=str(in_file), apply=apply,
+                allow_partial=False)) == 1
+        out = capsys.readouterr().out
+        assert "holds 1 note(s)" in out
+        assert "clip_marker: 1" in out
+        assert "CLIP-ANCHORED-MARKERS-2026-09-19.md" in out
+        assert "--allow-partial" in out
+    # The refusal lands before any Resolve contact: nothing written.
+    assert field_reel["timeline"].added == []
+
+
+def test_restore_allow_partial_dry_run_shows_skipped(field_reel,
+                                                     tmp_path, capsys):
+    in_file = tmp_path / "reel24.json"
+    _write_round_trip_snapshot(field_reel["timeline"],
+                               "Podcast (field test)", str(in_file))
+    # Live holds nothing yet, so the timeline-plane note reads missing.
+    field_reel["timeline"]._markers = {}
+    assert cmd_markers_restore(
+        _ns(project="", timeline="Reel 24 - field",
+            in_file=str(in_file), apply=False,
+            allow_partial=True)) == 0
+    out = capsys.readouterr().out
+    assert "to_restore: 1" in out
+    assert "skipped[1]{plane,frame,name,note}:" in out
+    assert "clip_marker" in out
+    assert "CLIP-ANCHORED-MARKERS-2026-09-19.md" in out
+    assert field_reel["timeline"].added == []
+
+
+def test_restore_allow_partial_apply_writes_timeline_plane_only(
+        field_reel, tmp_path, capsys):
+    in_file = tmp_path / "reel24.json"
+    _write_round_trip_snapshot(field_reel["timeline"],
+                               "Podcast (field test)", str(in_file))
+    # Live holds nothing yet, so the timeline-plane note is missing.
+    field_reel["timeline"]._markers = {}
+    assert cmd_markers_restore(
+        _ns(project="", timeline="Reel 24 - field",
+            in_file=str(in_file), apply=True,
+            allow_partial=True)) == 0
+    out = capsys.readouterr().out
+    assert field_reel["timeline"].added == [
+        (40, "Green", "feedback", "good take", 1, "")]
+    assert "restored: 1" in out
+    assert "skipped: 1" in out
+    assert "CLIP-ANCHORED-MARKERS-2026-09-19.md" in out
+
+
+def test_fully_restorable_round_trip_restores_silently(monkeypatch,
+                                                       tmp_path, capsys):
+    timeline = _field_timeline(with_clip_note=False)
+    project = _Project("Podcast (field test)", [timeline],
+                       current=timeline)
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    in_file = tmp_path / "reel24.json"
+    _write_round_trip_snapshot(timeline, "Podcast (field test)",
+                               str(in_file))
+    timeline._markers = {}
+    assert cmd_markers_restore(
+        _ns(project="", timeline="Reel 24 - field",
+            in_file=str(in_file), apply=True,
+            allow_partial=False)) == 0
+    out = capsys.readouterr().out
+    assert "restored: 1" in out
+    assert "skipped" not in out
+    assert "cannot write" not in out
 
 
 # ── Fusion inventory ───────────────────────────────────────────────

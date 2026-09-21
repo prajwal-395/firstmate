@@ -34,9 +34,10 @@ Safety shape, stated once:
   Reads must still never move the cursor, and the AST test still holds
   for everything that is not a declared write.
 - `markers restore` defaults to a dry-run diff. `--apply` is the
-  explicit flag, and it restores the TIMELINE plane only; clip/pool
-  rows are compared but reported as needing a hand pass (see
-  `RESTORE_SCOPE`).
+  explicit flag, and it restores the TIMELINE plane only; a snapshot
+  holding clip/pool-plane rows is REFUSED unless `--allow-partial`
+  acknowledges the gap (the refusal names the count, the planes, and
+  the recovery file - see `RESTORE_SCOPE`, `CLIP_PLANE_RECOVERY`).
 
 Output contract (axi.md principles 1-6, 9-10):
 
@@ -89,6 +90,36 @@ NOTE_PREVIEW_CHARS = 500
 #: this repo (no caller writes them today), so they are compared in the
 #: dry run and reported, never guessed at.
 RESTORE_SCOPE = "timeline-plane"
+
+#: Where the clip-plane notes a snapshot cannot restore actually live.
+#: A refused restore prints this, the way the ambiguous-prefix refusal
+#: prints its disambiguating command: a caller who is refused needs the
+#: recovery path, not just the gap. The file carries every clip-anchored
+#: field-test note with track, anchor item, clip-local and timeline
+#: frames, and the captain's verbatim words.
+CLIP_PLANE_RECOVERY = (
+    "/Users/prajwal/.treehouse/firstmate-8bf1b0/3/firstmate/data/"
+    "vep-field-test-feedback/CLIP-ANCHORED-MARKERS-2026-09-19.md"
+)
+
+#: Snapshot fields that name each frame number for what it IS.
+#: `frame_in_timeline_space` is the inverted legacy name: for a clip
+#: note it holds the clip-local SOURCE frame, not a timeline position.
+#: It stays in the payload (restore and older readers key on it) but
+#: new callers must read `timeline_frame` / `source_frame` instead.
+TIMELINE_FRAME_FIELD = "timeline_frame"
+SOURCE_FRAME_FIELD = "source_frame"
+DEPRECATED_FRAME_FIELD = "frame_in_timeline_space"
+DEPRECATED_FRAME_NOTE = (
+    f"{DEPRECATED_FRAME_FIELD} is misnamed: for clip notes it holds "
+    f"the clip-local source frame - read {SOURCE_FRAME_FIELD} for that "
+    f"and {TIMELINE_FRAME_FIELD} for the timeline position"
+)
+
+# NOTE: there is deliberately no allowlist of restorable planes beside
+# `timeline_marker` itself. The restore filter below refuses anything
+# whose source is not the timeline plane, so a future plane fails
+# closed rather than slipping through an enumeration nobody updated.
 
 
 # ── TOON output ──────────────────────────────────────────────────────
@@ -528,13 +559,18 @@ def cmd_markers(args) -> int:
 
 
 def _snapshot_payload(project_name: str, timeline_name: str,
-                      notes) -> dict:
+                       notes) -> dict:
     payload_notes = []
     for note in notes:
+        raw_key = note.frame_in_timeline_space
         payload_notes.append({
             "source": note.source,
             "frame": note.frame,
-            "frame_in_timeline_space": note.frame_in_timeline_space,
+            "frame_in_timeline_space": raw_key,
+            "timeline_frame": note.frame,
+            "source_frame": (raw_key if note.source in
+                             ("clip_marker", "media_pool_marker")
+                             else None),
             "timecode": note.timecode,
             "color": note.color,
             "name": note.name,
@@ -549,6 +585,9 @@ def _snapshot_payload(project_name: str, timeline_name: str,
         "project": project_name,
         "timeline": timeline_name,
         "read_at": datetime.now(timezone.utc).isoformat(),
+        "deprecated_fields": {
+            DEPRECATED_FRAME_FIELD: DEPRECATED_FRAME_NOTE,
+        },
         "notes": payload_notes,
     }
 
@@ -585,9 +624,54 @@ def cmd_markers_snapshot(args) -> int:
               "out": args.out,
           }),
           note,
+          f"deprecated: {DEPRECATED_FRAME_NOTE}",
           help_block([f"{TOOL} markers restore --in {args.out} "
                       f"--timeline \"{timeline.GetName()}\""])])
     return 0
+
+
+def _skipped_planes(notes: list) -> dict:
+    """Count of snapshot notes restore cannot write, by plane.
+
+    Anything outside the timeline plane is unrestorable (see
+    RESTORE_SCOPE): the check is `!= "timeline_marker"`, never a
+    membership list, so a future plane fails closed.
+    """
+    counts: dict = {}
+    for row in notes or []:
+        if (row.get("source") or "") != "timeline_marker":
+            plane = row.get("source") or "(unknown plane)"
+            counts[plane] = counts.get(plane, 0) + 1
+    return counts
+
+
+def _refuse_partial_snapshot(in_file: str, timeline_name, skipped: dict,
+                             apply: bool) -> int:
+    """Refuse a snapshot holding notes restore cannot write.
+
+    The refusal IS the safety: "snapshot" reads as a backup, and a
+    caller using it as a pre-rebuild safety net must learn before the
+    rebuild - not after - that the clip half is not in this file. It
+    names how many notes and in which plane, prints where the clip
+    half actually lives, and teaches the acknowledgement flag, the
+    way the ambiguous-prefix refusal teaches the full name.
+    """
+    total = sum(skipped.values())
+    planes = ", ".join(f"{plane}: {count}"
+                       for plane, count in sorted(skipped.items()))
+    verb = "would leave" if not apply else "leaves"
+    emit([f"error: snapshot {in_file!r} holds {total} note(s) restore "
+          f"cannot write ({planes}) - restore covers the timeline "
+          f"plane ({RESTORE_SCOPE}) only, so restoring it "
+          f"{verb} the clip half behind",
+          f"recovery: the clip-plane notes live outside this file, at "
+          f"{CLIP_PLANE_RECOVERY} (track, anchor item, clip-local and "
+          f"timeline frames, verbatim words)",
+          f"help: {TOOL} markers restore --in {in_file} --timeline "
+          f"\"{timeline_name}\""
+          f"{' --apply' if apply else ''} --allow-partial to proceed "
+          f"with the timeline plane only"])
+    return 1
 
 
 def _snapshot_key(row: dict):
@@ -610,8 +694,16 @@ def cmd_markers_restore(args) -> int:
                     f"{TOOL} markers snapshot --timeline \"<name>\" "
                     f"--out {args.in_file}")
     wanted_name = args.timeline or snapshot.get("timeline")
+    skipped = _skipped_planes(snapshot.get("notes", []))
+    if skipped and not args.allow_partial:
+        # Before any Resolve contact: no lease, no cursor assertion,
+        # no write. The file's content alone decides this.
+        return _refuse_partial_snapshot(args.in_file, wanted_name,
+                                        skipped, args.apply)
     wanted = [n for n in snapshot.get("notes", [])
               if n.get("source") == "timeline_marker"]
+    skipped_rows = [n for n in snapshot.get("notes", [])
+                    if (n.get("source") or "") != "timeline_marker"]
     try:
         resolve = _connect()
     except AxiError as exc:
@@ -646,7 +738,7 @@ def cmd_markers_restore(args) -> int:
         missing = [row for row in wanted
                    if _snapshot_key(row) not in live_keys]
         if not args.apply:
-            emit([kv_block("restore_plan", {
+            parts = [kv_block("restore_plan", {
                       "timeline": timeline.GetName(),
                       "snapshot_notes": len(wanted),
                       "already_present": len(wanted) - len(missing),
@@ -658,11 +750,24 @@ def cmd_markers_restore(args) -> int:
                       "name": r.get("name") or "",
                       "note": preview(r.get("note") or "", False),
                   } for r in missing],
-                  ["frame", "color", "name", "note"]),
+                  ["frame", "color", "name", "note"])]
+            if skipped_rows:
+                parts.append(table("skipped", [{
+                    "plane": r.get("source") or "",
+                    "frame": r.get(TIMELINE_FRAME_FIELD),
+                    "name": r.get("name") or "",
+                    "note": preview(r.get("note") or "", False),
+                } for r in skipped_rows],
+                ["plane", "frame", "name", "note"]))
+                parts.append(f"recovery: the skipped notes live outside "
+                             f"this file, at {CLIP_PLANE_RECOVERY}")
+            parts.extend([
                   f"dry run - pass --apply to write under the Resolve lease",
                   help_block([f"{TOOL} markers restore --in {args.in_file} "
                               f"--timeline \"{timeline.GetName()}\" "
-                              f"--apply"])])
+                              f"--apply"
+                              f"{' --allow-partial' if skipped_rows else ''}"])])
+            emit(parts)
             return 0
         restored, refused = 0, []
         for row in missing:
@@ -681,17 +786,24 @@ def cmd_markers_restore(args) -> int:
             else:
                 refused.append((row, "occupied frame - one marker per "
                                      "frame"))
-    out = [kv_block("restore", {
+    summary = {
         "timeline": timeline.GetName(),
         "restored": restored,
         "refused": len(refused),
-    }), note]
+    }
+    if skipped_rows:
+        summary["skipped"] = len(skipped_rows)
+    out = [kv_block("restore", summary), note]
     if refused:
         out.append(table("refused", [{
             "frame": r.get("frame_in_timeline_space"),
             "name": r.get("name") or "",
             "reason": reason,
         } for r, reason in refused], ["frame", "name", "reason"]))
+    if skipped_rows:
+        out.append(f"skipped: {len(skipped_rows)} clip-plane note(s) left "
+                   f"behind by --allow-partial - recovery: "
+                   f"{CLIP_PLANE_RECOVERY}")
     out.append(help_block(
         [f"{TOOL} markers --timeline \"{timeline.GetName()}\""]))
     emit(out)
@@ -1424,6 +1536,11 @@ def build_parser() -> Parser:
     p.add_argument("--apply", action="store_true",
                    help="write the missing timeline-plane markers under "
                         "the Resolve lease (default is a dry-run diff)")
+    p.add_argument("--allow-partial", action="store_true",
+                   help="acknowledge that the snapshot holds clip-plane "
+                        "notes restore cannot write, and proceed with "
+                        "the timeline plane only (without it, such a "
+                        "snapshot is refused before any Resolve contact)")
     p.set_defaults(func=cmd_markers_restore)
 
     p = msubs.add_parser("reply", help="record our answer as a marker, "
