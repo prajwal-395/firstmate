@@ -146,6 +146,10 @@ PR_PATH=$FM_PR_PATH
 PR_OWNER=$FM_PR_OWNER
 PR_REPO=$FM_PR_REPO
 PR_NUMBER=$FM_PR_NUMBER
+# The captain's standing never-upstream ruling is enforced before any argument
+# handling or state is touched: an upstream firstmate PR can never be merged
+# through this fleet, whatever a brief's prose says.
+fm_pr_never_upstream_refuse || exit 1
 # glab resolves the instance from the project URL passed to -R, so the host is
 # rebuilt from the parsed identity rather than read from any ambient default.
 PROJECT_URL="https://$FM_PR_HOST/$FM_PR_PATH"
