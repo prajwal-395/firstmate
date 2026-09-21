@@ -1,0 +1,7 @@
+# Checked-in modern-bash baseline for the stock macOS Bash CI lane.
+# The lane (.github/workflows/ci.yml) runs tests/fm-bearings-snapshot.test.sh once under stock Bash.
+# It requires the suite's '^ok - ' count to equal the count below.
+# Refresh with bin/fm-stock-bash-baseline.sh after adding or removing tests.
+# Never hand-edit the count.
+# A mismatch fails loudly so a stale baseline cannot hide a stock-bash regression.
+count=60

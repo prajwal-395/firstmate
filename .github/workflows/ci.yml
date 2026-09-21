@@ -403,6 +403,12 @@ jobs:
   macos-stock-bash:
     name: Stock macOS Bash snapshot compatibility
     runs-on: macos-latest
+    # Hang tripwire, not a target. The lane runs each snapshot suite once
+    # under stock Bash (about 260s total: setup plus one fleet run plus one
+    # Bearings run), so the 10-minute ceiling keeps more than 2x headroom for
+    # hosted-runner variance. Do not raise it without a fresh segment
+    # measurement: the previous ceiling was reached because every suite ran
+    # twice, and a bigger number alone would only move that failure.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
@@ -412,6 +418,7 @@ jobs:
           PATH: /bin:/usr/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin
         run: |
           set -eu
+          lane_start=$SECONDS
           case "$BASH_VERSION" in
             3.2.57*) ;;
             *) echo "::error::expected stock macOS Bash 3.2.57, got $BASH_VERSION"; exit 1 ;;
@@ -419,6 +426,7 @@ jobs:
           /bin/bash --version | head -1
           command -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }
 
+          t0=$SECONDS
           shell_inventory="$RUNNER_TEMP/fm-shell-inventory"
           bin/fm-lint.sh --list-files > "$shell_inventory"
           parse_fail=0
@@ -426,56 +434,67 @@ jobs:
             /bin/bash -n "$f" || { echo "::error::stock macOS Bash 3.2 failed to parse $f"; parse_fail=1; }
           done < "$shell_inventory"
           [ "$parse_fail" -eq 0 ] || { echo "::error::stock macOS Bash 3.2 parse sweep failed"; exit 1; }
+          echo "segment: stock-bash parse sweep ($((SECONDS - t0))s)"
 
+          t0=$SECONDS
           command -v npm >/dev/null || { echo "::error::npm is required to install tasks-axi"; exit 1; }
           npm install -g tasks-axi@0.2.5 >/dev/null
           PATH="$(npm prefix -g)/bin:$PATH"
           export PATH
           command -v tasks-axi >/dev/null || { echo "::error::tasks-axi is required for the stock Bash regressions"; exit 1; }
+          echo "segment: tasks-axi toolchain ($((SECONDS - t0))s)"
 
-          if modern_bash=$(brew --prefix 2>/dev/null)/bin/bash && [ -x "$modern_bash" ]; then
-            : # found via brew
-          elif [ -x /opt/homebrew/bin/bash ]; then
-            modern_bash=/opt/homebrew/bin/bash
-          elif [ -x /usr/local/bin/bash ]; then
-            modern_bash=/usr/local/bin/bash
-          else
-            echo "Installing modern bash via Homebrew..."
-            brew install bash || { echo "::error::failed to install modern bash"; exit 1; }
-            modern_bash=$(brew --prefix)/bin/bash
-          fi
+          # Each suite runs ONCE here, under stock Bash. The expected ok-counts
+          # are checked-in modern-bash baselines (tests/*.stock-bash-baseline)
+          # refreshed with bin/fm-stock-bash-baseline.sh when the suites change,
+          # so a stock-only regression still fails loudly without paying for a
+          # second full execution of each suite on every run.
+          read_baseline() { # <baseline-file>
+            local count
+            count=$(grep -E '^count=[0-9]+$' "$1" | cut -d= -f2)
+            case "$count" in
+              ''|*[!0-9]*)
+                echo "::error::unreadable baseline $1; refresh it with bin/fm-stock-bash-baseline.sh"
+                exit 1
+                ;;
+            esac
+            printf '%s\n' "$count"
+          }
+          refresh_hint="if you added or removed snapshot tests, refresh the baselines with bin/fm-stock-bash-baseline.sh"
 
-          # Isolate baseline runs to prevent any stateful fixture collisions
-          mkdir -p "$RUNNER_TEMP/baseline_fleet" "$RUNNER_TEMP/baseline_bearings"
-
-          expected_snapshot=$(TMPDIR="$RUNNER_TEMP/baseline_fleet" "$modern_bash" tests/fm-fleet-snapshot-view.test.sh | grep -c '^ok - ')
+          t0=$SECONDS
+          expected_snapshot=$(read_baseline tests/fm-fleet-snapshot-view.stock-bash-baseline)
           snapshot_output=$(/bin/bash tests/fm-fleet-snapshot-view.test.sh)
           printf '%s\n' "$snapshot_output"
           snapshot_count=$(printf '%s\n' "$snapshot_output" | grep -c '^ok - ')
           [ "$snapshot_count" -eq "$expected_snapshot" ] || {
-            echo "::error::expected $expected_snapshot snapshot/fleet-view tests (modern-bash baseline), got $snapshot_count"
+            echo "::error::expected $expected_snapshot snapshot/fleet-view tests (checked-in baseline), got $snapshot_count; $refresh_hint"
             exit 1
           }
           printf '%s\n' "$snapshot_output" | grep -q '^ALL TESTS COMPLETED$' || {
             echo "::error::snapshot/fleet-view tests did not complete"
             exit 1
           }
+          echo "segment: fleet snapshot stock-bash ($((SECONDS - t0))s, $snapshot_count ok)"
 
-          expected_bearings=$(TMPDIR="$RUNNER_TEMP/baseline_bearings" "$modern_bash" tests/fm-bearings-snapshot.test.sh | grep -c '^ok - ')
+          t0=$SECONDS
+          expected_bearings=$(read_baseline tests/fm-bearings-snapshot.stock-bash-baseline)
           bearings_output=$(/bin/bash tests/fm-bearings-snapshot.test.sh)
           printf '%s\n' "$bearings_output"
           bearings_count=$(printf '%s\n' "$bearings_output" | grep -c '^ok - ')
           [ "$bearings_count" -eq "$expected_bearings" ] || {
-            echo "::error::expected $expected_bearings Bearings tests (modern-bash baseline), got $bearings_count"
+            echo "::error::expected $expected_bearings Bearings tests (checked-in baseline), got $bearings_count; $refresh_hint"
             exit 1
           }
           printf '%s\n' "$bearings_output" | grep -q '^ALL TESTS COMPLETED$' || {
             echo "::error::Bearings tests did not complete"
             exit 1
           }
+          echo "segment: bearings snapshot stock-bash ($((SECONDS - t0))s, $bearings_count ok)"
 
           # The full public-followup suite is not a stock-bash snapshot; run only
           # the empty-lock register regression under real /bin/bash 3.2.
+          t0=$SECONDS
           pf_output=$(FM_TEST_ONLY=test_first_register_succeeds_with_empty_lock_list_under_bash32 \
             /bin/bash tests/fm-public-followup.test.sh)
           printf '%s\n' "$pf_output"
@@ -484,6 +503,8 @@ jobs:
             echo "::error::expected 1 public-followup bash 3.2 register regression, got $pf_count"
             exit 1
           }
+          echo "segment: public-followup bash32 regression ($((SECONDS - t0))s)"
+          echo "lane total: $((SECONDS - lane_start))s"
 
   invariants:
     name: Repo invariants
