@@ -94,6 +94,22 @@ printf 'stale: fixture-win actionable\n'
 exit 0
 SH
       ;;
+    actionable-no-episode)
+      # An actionable arm close with no recovery episode on disk: no queued
+      # wake ever published pending:downtime, so the rewake commit has no
+      # generation to bind and must refuse. Real watcher cycles cannot produce
+      # this shape (every reason line follows a queue append that publishes
+      # the marker); only a stale fixture can. The hook goes silent and the
+      # ledger stays open at arming, which a later firing supersedes once the
+      # claimant has exited.
+      cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
+#!/usr/bin/env bash
+echo "$$" >> "$FM_HOME/state/arm-ran"
+printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
+printf 'stale: fixture-win actionable without episode\n'
+exit 0
+SH
+      ;;
     failed)
       cat > "$dir/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
@@ -412,6 +428,28 @@ test_actionable_close_rewakes_with_reason() {
   [ ! -e "$dir/state/.claude-autoarm.lock" ] || fail "owner lock must be released after the cycle"
   [ -e "$dir/state/arm-ran" ] || fail "hook never foregrounded the arm wrapper"
   pass "auto-arm: actionable close translates to exactly one exit-2 rewake with reason"
+}
+
+test_actionable_close_without_recovery_episode_refuses_silently() {
+  local dir status
+  dir=$(make_primary_dir "$TMP_ROOT/actionable-no-episode")
+  : > "$dir/state/task.meta"
+  write_arm_fixture "$dir" actionable-no-episode
+  # Separated streams: the hook composes its banner on stderr before the
+  # commit decision, but exit 0 makes the harness discard it, so stdout must
+  # stay empty and nothing is delivered.
+  printf '%s\n' '{"session_id":"sess-autoarm","stop_hook_active":false}' \
+    | FM_HOME="$dir" "$FAKE_CLAUDE" -c '
+        printf "%s\n" "$$" > "$FM_HOME/state/.lock"
+        "$FM_HOME/bin/fm-claude-stop-autoarm.sh"
+      ' >"$dir/hook.stdout" 2>"$dir/hook.stderr" || status=$?
+  status=${status:-0}
+  expect_code 0 "$status" "a refused rewake commit must go silent so the harness delivers nothing"
+  [ ! -s "$dir/hook.stdout" ] || fail "a refused generation must print nothing to stdout: $(cat "$dir/hook.stdout")"
+  [ "$(epoch_outcome "$dir")" = arming ] || fail "a refused commit must leave the open claim for supersession, got: $(epoch_outcome "$dir")"
+  [ ! -e "$dir/state/.claude-autoarm-failure-notified" ] || fail "a refused commit must not consume the once-per-episode failure notice"
+  [ -e "$dir/state/arm-ran" ] || fail "hook never foregrounded the arm wrapper"
+  pass "auto-arm: actionable close without a recovery episode refuses silently and stays open at arming"
 }
 
 test_actionable_close_with_live_successor_rewakes_once() {
@@ -1227,6 +1265,7 @@ test_stale_lock_recovery_preserves_afk_and_need_gates
 test_resolves_outermost_claude_pid_in_nested_bgspare_chain
 test_inert_when_fleet_idle
 test_actionable_close_rewakes_with_reason
+test_actionable_close_without_recovery_episode_refuses_silently
 test_actionable_close_with_live_successor_rewakes_once
 test_failed_close_rewakes_with_failure_banner
 test_failed_cycles_notify_once_and_keep_retrying
