@@ -139,6 +139,9 @@ fi
 # array in that config is the dispatch profile set and is read here only as a
 # legacy fallback for a home whose config predates the agy_ladder field; it is
 # NOT where the rung order is set, so agy rows must not be added back to it.
+# A home still on that fallback keeps resolving exactly as before, and
+# fm_agy_ladder_legacy_notice names it at session start so the coupled read is
+# reported rather than silent.
 #
 # THE FLOOR is a property of the MODEL, not of the rung position. When the
 # captain moved Opus from rung 1 to rung 2, the 25 percent reserve must travel
@@ -351,6 +354,32 @@ EOF
     return 1
   fi
   return 0
+}
+
+# fm_agy_ladder_legacy_notice: one line when <config-file> states its ladder
+# order only through the legacy "default" field, and nothing at all otherwise.
+# Always succeeds: the notice is advisory, never a verdict.
+#
+# WHY THIS EXISTS BESIDE fm_agy_ladder_config_problem. That function reports a
+# ladder this gate cannot enforce. A legacy file IS enforceable - the loader
+# derives its order from the default dispatch profiles - but the same field
+# then carries two meanings at once: reordering the rungs also reorders
+# default dispatch, so the order cannot be set on its own and nothing says so.
+# This function names that coupled read at session start, where a person is
+# reading, while the loader keeps resolving the file exactly as before. A
+# file with an agy_ladder field, a file with no agy rung at all, a missing or
+# malformed file, and a file the problem check already reports are all silent
+# here: each of those already has its owner.
+fm_agy_ladder_legacy_notice() {  # <config-file>
+  local file=${1:-} ladder legacy
+  [ -n "$file" ] && [ -f "$file" ] || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  jq -e . "$file" >/dev/null 2>&1 || return 0
+  ladder=$(jq -r '.agy_ladder[]? | select(. != null and . != "")' "$file" 2>/dev/null) || return 0
+  [ -z "$ladder" ] || return 0
+  legacy=$(jq -r '.default[]? | select(.harness == "agy" and .model != null and .model != "") | .model' "$file" 2>/dev/null) || return 0
+  [ -n "$legacy" ] || return 0
+  printf '%s' 'the ladder order is read from the legacy default dispatch profiles (no agy_ladder field), so setting the order there also changes default dispatch - move the order to agy_ladder so the two set independently'
 }
 
 # Load the ladder on source. This runs once per shell that sources this file.
