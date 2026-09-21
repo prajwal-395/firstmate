@@ -156,31 +156,41 @@ class TestCaptionedNotPlayed:
 #
 # Reel 12 card sub_craig_..._1774344-1780764_9c0ba988: the props give
 # 'twenty' startFrame 12 endFrame 6 - the word ends before its own
-# card begins, so the renderer clamps it inverted and karaoke can
-# never highlight it. Pure artefact self-contradiction: no transcript
-# needed, so the finding fires even where the words match.
+# card begins, so the clamp inverts it and the sweep travels past it.
+# The word IS drawn (the renderer draws every entry in `words` -
+# omitting it deleted Reel 05's numbers), only the highlight skips
+# it: a warning naming the word and the card, never an error. Pure
+# artefact self-contradiction: no transcript needed, so the finding
+# fires even where the words match.
 
 class TestEmptyWindow:
-    def test_inverted_window_is_an_error(self):
+    def test_inverted_window_warns_never_errors(self):
         captioned = [_w("twenty", 11.428, 11.178, card="late.mov"),
                      _w("percent.", 11.428, 11.637, card="late.mov")]
         result = sc.check_word_coverage(
             [], captioned, [_card("late.mov", 11.428, 12.511)])
-        errors = [f for f in result["findings"]
+        warned = [f for f in result["findings"]
                   if f["kind"] == "empty_window"]
-        assert len(errors) == 1
-        assert "twenty" in errors[0]["message"]
+        assert len(warned) == 1
+        assert warned[0]["severity"] == "warning"
+        assert "twenty" in warned[0]["message"]
 
-    def test_zero_width_pile_up_word_is_an_error(self):
+    def test_zero_width_pile_up_word_warns_never_errors(self):
         # Reel 05 card "shop, you're a 50-person shop,": the transcript
         # stamped '50-person' onto a 0.02s pile-up and the props carry
-        # it at 31 -> 31 - no time on screen.
+        # it at 31 -> 31 - drawn on screen, never highlighted.
+        played = [_w("shop,", 11.135, 11.385),
+                  _w("50-person", 11.923, 11.943, degenerate=True)]
         captioned = [_w("shop,", 11.135, 11.385, card="c.mov"),
                      _w("50-person", 11.927, 11.927, card="c.mov")]
         result = sc.check_word_coverage(
-            [], captioned, [_card("c.mov", 11.135, 11.927)])
+            played, captioned, [_card("c.mov", 11.135, 11.927)])
         assert [f for f in result["findings"]
-                if f["kind"] == "empty_window"]
+                if f["severity"] == "error"] == []
+        warned = [f for f in result["findings"]
+                  if f["kind"] == "empty_window"]
+        assert len(warned) == 1
+        assert "50-person" in warned[0]["message"]
 
     def test_healthy_words_stay_silent(self):
         captioned = [_w("shop,", 11.135, 11.385, card="c.mov")]

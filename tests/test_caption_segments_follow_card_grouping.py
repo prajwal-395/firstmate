@@ -264,18 +264,20 @@ def _card_bounded_frames(entries, fps):
     return out
 
 
-def test_trimmed_join_refuses_the_overhanging_word_loudly(capsys):
+def test_trimmed_join_draws_the_overhanging_word_unswept(capsys):
     """The join that already exists on Reel 26: the earlier card yields
     at 31.74 but its last word ('it.', spoken 31.78-31.90) starts past
-    that edge, so the card bound leaves it no width. It is SKIPPED with
-    a loud record - an honest absence - rather than clamped into an
-    inverted window (startFrame 35 endFrame 34) whose sweep could never
-    move. Everything else is kept: no word dropped or duplicated across
-    the join (each exactly once), onsets never move, and no kept word
-    displays past its segment. Reverts red if the renderer draws the
-    overhang dead again (sequence gains 'it.' with end <= start),
-    shifts an onset (start differs), duplicates (sequence longer), or
-    stops bounding kept words to the card (end past the edge)."""
+    that edge, so the card bound leaves it no width. It is DRAWN
+    UNSWEPT with a loud record - the card text carries it and the
+    renderer draws `words`, so omitting it would delete it from the
+    captions (Reel 05 frame 241: the numbers). Everything else is kept:
+    no word dropped or duplicated across the join (each exactly once),
+    onsets never move, and no word displays past its segment. Reverts
+    red if the renderer drops the overhang again (sequence loses
+    'it.'), shifts an onset (start differs), duplicates (sequence
+    longer), widens the overhang into invented timing (end > start on
+    a word with no sweepable width), or stops bounding words to the
+    card (end past the edge)."""
     plan = _trimmed_join_plan()
     entries = plan["subtitle_entries"]
     fps = 24000 / 1001
@@ -283,18 +285,22 @@ def test_trimmed_join_refuses_the_overhanging_word_loudly(capsys):
         plan, fps=fps, width=1080, height=1920)
     assert len(props) == 2
     rendered = _rendered_frames(props)
-    expected = [row for row in _card_bounded_frames(entries, fps)
-                if row[0] != "it."]
-    assert rendered == expected
+    assert rendered == _card_bounded_frames(entries, fps)
     assert [w for w, _, _ in rendered] == [
-        w["word"] for e in entries for w in e["words"] if w["word"] != "it."]
+        w["word"] for e in entries for w in e["words"]]
+    overhang = [(w, s, e) for w, s, e in rendered if w == "it."]
+    assert len(overhang) == 1 and overhang[0][2] <= overhang[0][1], (
+        "the overhang must arrive collapsed (drawn unswept), never "
+        "widened into invented timing and never omitted")
     for word, start, end in rendered:
+        if word == "it.":
+            continue
         assert end > start, (
             f"{word!r} renders {start} -> {end}: a dead sweep")
     err = capsys.readouterr().err
     assert "it." in err, (
-        "the refused overhang is never named - the clamp is silent "
-        "about the window it turned into nothing")
+        "the unswept overhang is never named - the clamp is silent "
+        "about the window it collapsed")
     for p in props:
         content_end = round(
             (p["_timeline_end"] - (p["_timeline_start"] - min(

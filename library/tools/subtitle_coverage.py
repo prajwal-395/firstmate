@@ -691,25 +691,29 @@ def check_word_coverage(
 
     # ── Empty karaoke windows, read off the artefact itself ──
     #
-    # A caption word with no time on screen (end <= start) can never
-    # highlight: the renderer clamps out-of-card timings with max/min
+    # A caption word with no sweepable time on screen (end <= start)
+    # is drawn UNSWEPT, never highlighted: the renderer draws every
+    # entry in `words` and its accent phase needs a window with width
     # (`generate_remotion_props`), so a word the card starts after, or
     # a pile-up stamp of zero width, arrives as startFrame >= endFrame
-    # and draws permanently unspoken. No transcript needed - the props
-    # contradict themselves - so this fires even where the words match.
+    # and the sweep travels past it. No transcript needed - the props
+    # contradict the sweep - so this fires even where the words match.
     # Measured: Reel 05's "10-man"/"50-person"/"shop," (pile-up stamps)
     # and Reel 12's "twenty" (12 -> 6: the word ends before its card
-    # begins, so the clamp inverts it).
+    # begins, so the clamp inverts it). A warning, never an error: the
+    # word IS on screen while its card plays (omitting it deleted Reel
+    # 05's numbers from the captions entirely), only the highlight
+    # skips it - the same dust class as `untimed_drawn` below.
     for word in captioned:
         if word["reel_end"] <= word["reel_start"]:
             findings.append({
                 "kind": "empty_window",
-                "severity": "error",
+                "severity": "warning",
                 "message": (
-                    f"caption {word.get('card', '?')[:48]} gives "
-                    f"{word['word']!r} no time on screen "
+                    f"caption {word.get('card', '?')[:48]} draws "
+                    f"{word['word']!r} with no highlight window "
                     f"(reel {word['reel_start']:.2f}-{word['reel_end']:.2f}s) "
-                    f"- karaoke can never highlight it"),
+                    f"- the word is on screen, karaoke skips it"),
                 "detail": {
                     "card": word.get("card"),
                     "word": word["word"],

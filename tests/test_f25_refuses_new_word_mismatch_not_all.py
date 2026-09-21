@@ -215,16 +215,22 @@ def test_mismatch_cards_are_reported_never_matched():
     assert f25_mismatch_cards(findings) == {"that.": ["a.mov"]}
 
 
-# ── empty_window: the same defect in the artefact's own words ──────────
+# ── empty_window: drawn without a sweep, warned never refused ─────
 #
 # Reel 03, 2026-09-20: the live render gives the overlapped "that." a
-# zero-width highlight window (empty_window on cardA) while the rebuild
-# render carries no highlight entry for it at all (word_mismatch on
-# cardB). Same text drawn, same audio, same transcript. Both kinds both
-# directions, through the real instrument.
+# zero-width highlight window while the rebuild render carries no
+# highlight entry for it at all. Same text drawn, same audio, same
+# transcript. Under the 2026-09-19 contract both were errors (a sweep
+# that could never move read as a defect); the 2026-09-21 rewrite of
+# the Reel 05 marker showed that contract deleting numbers from the
+# captions. A collapsed window is now drawn unswept - the word is on
+# screen, only the highlight skips it - so both sides warn and neither
+# refuses. A word the props drop entirely (from `words` AND `text`)
+# still refuses, through played_not_captioned/word_mismatch, which the
+# tests above pin.
 
 def _empty_window_findings(zero_width=True):
-    """A real empty_window error: a captioned word with no time on screen."""
+    """A real empty_window warning: a captioned word drawn unswept."""
     that = (1.335, 1.335) if zero_width else (1.3, 1.6)
     played = [_w("hello", 1.0, 1.3), _w("that.", 1.3, 1.6),
               _w("world", 1.7, 2.0)]
@@ -237,30 +243,19 @@ def _empty_window_findings(zero_width=True):
         {"played": played, "captioned": captioned, "cards": cards})
     return [f for f in findings
             if f.finding_class == "F25"
-            and f.severity == "error"
             and (f.detail or {}).get("kind") == "empty_window"]
 
 
-def test_preexisting_empty_window_promotes():
-    """Both sides give 'that.' no time: the same defect, not a new one."""
-    from library.tools.reel_conformance_verifier import (
-        rewrite_f25_against_live_final)
-
-    staging = _empty_window_findings()
-    assert len(staging) == 1, "the fixture must truly misfire first"
-    final = _empty_window_findings()
-
-    rewritten = rewrite_f25_against_live_final(
-        "Reel 03 - x (rebuild staging)", list(staging),
-        "Reel 03 - x", list(final))
-
-    assert [f for f in rewritten if f.severity == "error"] == []
-    assert any((f.detail or {}).get("preexisting") is True
-               for f in rewritten)
+def test_collapsed_window_warns_never_errors():
+    """Both sides give 'that.' no sweep: the same dust, not a defect."""
+    findings = _empty_window_findings()
+    assert len(findings) == 1, "the fixture must truly misfire first"
+    assert findings[0].severity == "warning"
+    assert "that." in findings[0].message
 
 
-def test_new_empty_window_still_refuses():
-    """Staging strands a word the final times properly: error stands."""
+def test_collapsed_window_never_refuses_against_timed_final():
+    """Staging draws 'that.' unswept where the final times it: no refusal."""
     from library.tools.reel_conformance_verifier import (
         rewrite_f25_against_live_final)
 
@@ -272,9 +267,7 @@ def test_new_empty_window_still_refuses():
         "Reel 03 - x (rebuild staging)", list(staging),
         "Reel 03 - x", list(final))
 
-    errors = [f for f in rewritten if f.severity == "error"]
-    assert len(errors) == 1
-    assert errors[0].detail["new_words"] == ["that."]
+    assert [f for f in rewritten if f.severity == "error"] == []
 
 
 def test_empty_window_matches_word_mismatch_across_kinds():

@@ -35,18 +35,20 @@ SUBTITLE_RENDER_BUFFER_S = 0.5
 
 def _clamp_word_window(raw_start: int, raw_end: int,
                        card_start: int, card_end: int):
-    """Bound one word's highlight window to its card, or refuse it loudly.
+    """Bound one word's highlight window to its card, or refuse the sweep loudly.
 
     Returns `(startFrame, endFrame)`, or `(None, reason)` where the bound
     window has no width. A window with no width can never sweep - the
     renderer's accent phase (`frame >= startFrame && frame < endFrame`)
-    is unsatisfiable - so drawing it is drawing a dead sweep (Reel 05
+    is unsatisfiable - so the word is DRAWN WITHOUT A SWEEP (Reel 05
     frame 241: seven across three cards, from aligner pile-up stamps
-    step 4.01 grouped without validating). The word is SKIPPED, never
-    re-timed: the pile-up is an honest measurement of what the
-    microphone caught, and the pipeline renders it honestly rather than
-    smoothing it. The reason names which way the window collapsed, so
-    the run says what it did not draw and why.
+    step 4.01 grouped without validating). The word is KEPT, never
+    re-timed and never omitted: the renderer draws every entry in
+    `words`, so omitting one deletes it from the captions entirely -
+    which is how "10-man"/"50-person"/"hundred" vanished from Reel 05
+    after the 2026-09-19 lane skipped these windows. The reason names
+    which way the window collapsed, so the run says what it drew
+    unswept and why.
     """
     start = max(card_start, raw_start)
     end = min(card_end, raw_end)
@@ -55,33 +57,35 @@ def _clamp_word_window(raw_start: int, raw_end: int,
     if raw_end <= raw_start:
         reason = (
             f"aligner stamp has no width ({raw_start} -> {raw_end}) - "
-            f"pile-up timings the card cannot sweep")
+            f"pile-up timings no sweep can cross")
     else:
         reason = (
             f"word sits outside its card "
             f"(raw {raw_start} -> {raw_end}, card {card_start} -> "
-            f"{card_end}) - the card bound leaves it no width")
+            f"{card_end}) - the card bound leaves no sweepable width")
     return (None, reason)
 
 
-def _say_skipped_words(skipped: list, block_pos, card_index) -> None:
-    """The loud record for words the card bound refused.
+def _say_unswept_words(unswept: list, block_pos, card_index) -> None:
+    """The loud record for words the card bound left with no sweep.
 
-    One NOTE per card, naming every word, because a timing this step
-    declined to draw and did not report is a measurement it falsified
+    One NOTE per card, naming every word, because a word this step
+    declined to highlight and did not report is a sweep it falsified
     quietly - the same discipline as step 4.01's stretched-word clamp.
+    The words ARE drawn (omitting them deleted Reel 05's numbers);
+    only the highlight skips them.
     """
-    if not skipped:
+    if not unswept:
         return
     listed = ", ".join(
-        f"{text!r} [{reason}]" for text, reason in skipped[:7])
-    if len(skipped) > 7:
-        listed += f", +{len(skipped) - 7} more"
+        f"{text!r} [{reason}]" for text, reason in unswept[:7])
+    if len(unswept) > 7:
+        listed += f", +{len(unswept) - 7} more"
     print(
-        f"NOTE: card (block {block_pos}, card {card_index}) skips "
-        f"{len(skipped)} word(s) whose highlight window has no width - "
-        f"no sweep can cross them, so they are absent rather than drawn "
-        f"dead: {listed}",
+        f"NOTE: card (block {block_pos}, card {card_index}) draws "
+        f"{len(unswept)} word(s) with no highlight window - the sweep "
+        f"cannot cross them, so they render unswept, never highlighted "
+        f"and never re-timed: {listed}",
         file=sys.stderr,
     )
 
@@ -220,55 +224,70 @@ def generate_subtitle_props_per_block(
 
             # Build per-word timing
             word_timings = []
-            skipped_words = []
+            unswept_words = []
             entry_words = entry.get('words', [])
 
             if entry_words:
                 # Use actual per-word timing from plan_subtitles (step 4.01),
                 # converting timeline seconds to render-relative frames.
-                # A word the card bound leaves with no width is SKIPPED
-                # with a loud record, never drawn as a dead sweep and
-                # never re-timed (see _clamp_word_window).
+                # Every planned word is KEPT: the renderer draws `words`,
+                # never the card `text`, so omitting one deletes it from
+                # the captions (Reel 05 frame 241: the numbers vanished).
+                # A word the card bound leaves with no width is drawn
+                # UNSWEPT with a loud record, never re-timed
+                # (see _clamp_word_window).
                 for wi, w in enumerate(entry_words):
                     w_start_s = w['start'] - render_start
                     w_end_s = w['end'] - render_start
                     word_text = w['word']
+                    raw_start = round(w_start_s * fps)
+                    raw_end = round(w_end_s * fps)
                     (bounded, reason) = _clamp_word_window(
-                        round(w_start_s * fps), round(w_end_s * fps),
-                        start_frame, end_frame)
+                        raw_start, raw_end, start_frame, end_frame)
                     if bounded is None:
-                        skipped_words.append((word_text, reason))
+                        unswept_words.append((word_text, reason))
+                        word_timings.append({
+                            "word": word_text,
+                            "startFrame": max(start_frame, raw_start),
+                            "endFrame": min(end_frame, raw_end),
+                        })
                         continue
                     word_timings.append({
                         "word": word_text,
                         "startFrame": bounded[0],
                         "endFrame": bounded[1],
                     })
-                _say_skipped_words(skipped_words, block_pos, _card_index)
+                _say_unswept_words(unswept_words, block_pos, _card_index)
             else:
                 # Fallback: distribute words evenly across the subtitle
                 # duration when per-word timing is not available. The
-                # same guard applies: on a sub-frame card the even split
-                # collapses, and a collapsed window is skipped loudly
-                # rather than drawn dead.
+                # same rule applies: on a sub-frame card the even split
+                # collapses, and a collapsed window is drawn unswept and
+                # reported loudly rather than omitted.
                 text_words = entry['text'].split()
                 duration_frames = end_frame - start_frame
                 per_word = max(1, duration_frames // max(len(text_words), 1))
                 for wi, tw in enumerate(text_words):
                     word_text = tw
+                    raw_start = start_frame + wi * per_word
+                    raw_end = min(start_frame + (wi + 1) * per_word,
+                                  end_frame)
                     (bounded, reason) = _clamp_word_window(
-                        start_frame + wi * per_word,
-                        min(start_frame + (wi + 1) * per_word, end_frame),
-                        start_frame, end_frame)
+                        raw_start, raw_end, start_frame, end_frame)
                     if bounded is None:
-                        skipped_words.append((word_text, reason))
+                        unswept_words.append((word_text, reason))
+                        word_timings.append({
+                            "word": word_text,
+                            "startFrame": max(start_frame, raw_start),
+                            "endFrame": min(end_frame, raw_end),
+                        })
                         continue
                     word_timings.append({
                         "word": word_text,
                         "startFrame": bounded[0],
                         "endFrame": bounded[1],
                     })
-                _say_skipped_words(skipped_words, block_pos, _card_index)
+                _say_unswept_words(unswept_words, block_pos, _card_index)
 
             # Detect emphasis words
             emphasis_words = entry.get('emphasis_words', [])
