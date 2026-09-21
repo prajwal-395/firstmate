@@ -1140,11 +1140,297 @@ test_render_refusals_write_nothing() {
   pass "fm-brief.sh: --from-task refusals write nothing"
 }
 
+# Scope-discipline contract (AGENTS.md section 11, single owner
+# bin/fm-dod-lib.sh): ## Captain's intent carries the captain's own ask as the
+# acceptance criteria, ## Firstmate spec only the build instructions that ask
+# requires. bin/fm-brief.sh --check reports readiness while bin/fm-spawn.sh
+# and bin/fm-promote.sh enforce the identical gate, so every test below pins
+# both the --check verdict and the library verdict the launch paths consume.
+scope_fill_ship_brief() {  # <brief> <intent-line> <spec-line>
+  local brief=$1 intent=$2 spec=$3
+  awk -v intent="$intent" -v spec="$spec" '
+    $0 == "{TASK}" { print intent; next }
+    $0 == "{FIRSTMATE_SPEC}" { print spec; next }
+    { print }
+  ' "$brief" > "$brief.filled" && mv "$brief.filled" "$brief"
+}
+
+test_scope_check_ready_brief_passes() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-ready-home"
+  mkdir -p "$home/data"
+  id="scope-ready"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "ship scaffold failed"
+  brief="$home/data/$id/brief.md"
+  scope_fill_ship_brief "$brief" \
+    "Fix the retry detector the captain reported." \
+    "Patch bin/fm-opencode-retry.sh with a regression test."
+  # shellcheck source=bin/fm-dod-lib.sh
+  . "$ROOT/bin/fm-dod-lib.sh"
+  fm_brief_scope_check "$brief" "this spawn" \
+    || fail "a narrow brief failed the library scope gate the spawn consumes"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "a narrow filled brief should pass --check (got: $out)"
+  assert_contains "$out" "ready:" "--check did not report the ready case"
+  pass "fm-brief.sh: --check passes a narrow filled brief"
+}
+
+test_scope_check_refuses_unfilled_brief() {
+  local home id out status
+  home="$TMP_ROOT/scope-unfilled-home"
+  mkdir -p "$home/data"
+  id="scope-unfilled"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1 \
+    || fail "ship scaffold failed"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check passed a brief that still carries placeholders"
+  assert_contains "$out" "{TASK}" "--check did not name the unfilled placeholder"
+  pass "fm-brief.sh: --check refuses a brief that still carries placeholders"
+}
+
+test_scope_check_refuses_intent_coverage_list() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-coverage-home"
+  mkdir -p "$home/data"
+  # shellcheck source=bin/fm-dod-lib.sh
+  . "$ROOT/bin/fm-dod-lib.sh"
+  id="scope-coverage-bullets"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Rebuild the brief system:
+- Rewrite the scaffold
+- Redesign spawn
+- Rework promotion
+- Document everything
+
+## Firstmate spec
+Add the check with tests.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(fm_brief_scope_check "$brief" "this spawn" 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "the library gate passed a four-item intent coverage list"
+  assert_contains "$out" "enumerated coverage list" "the library refusal did not name the coverage list"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check passed a four-item intent coverage list"
+  assert_contains "$out" "enumerated coverage list" "--check did not name the coverage list"
+  id="scope-coverage-numbered"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Fix the three lanes the captain named:
+1. Redesign spawn
+2. Rework promotion
+3. Document everything
+
+## Firstmate spec
+Add the check with tests.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check passed a three-item numbered intent coverage list"
+  assert_contains "$out" "enumerated coverage list" "--check did not name the numbered coverage list"
+  pass "fm-brief.sh: --check refuses an intent widened into a coverage list"
+}
+
+test_scope_check_allows_short_intent_structure() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-short-home"
+  mkdir -p "$home/data"
+  id="scope-short"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Fix the retry detector the captain reported:
+- Detect the idle-after-cap lane
+- Keep the sidecar-only lane working
+
+## Firstmate spec
+Patch bin/fm-opencode-retry.sh with a regression test.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "a two-item intent structure should pass --check (got: $out)"
+  pass "fm-brief.sh: --check allows the ask's own short structure"
+}
+
+test_scope_check_allows_item_references() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-refs-home"
+  mkdir -p "$home/data"
+  id="scope-refs"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Do items 1, 2 and 7 of the queued-lane report: shrink the dispatch payload to its task section.
+
+## Firstmate spec
+Send the Task section only and measure both payload shapes.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "an inline item reference should pass --check (got: $out)"
+  pass "fm-brief.sh: --check allows inline item references that point at the ask"
+}
+
+test_scope_check_ignores_fenced_lists() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-fence-home"
+  mkdir -p "$home/data"
+  id="scope-fence"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Fix the retry detector the captain reported. The failing output looks like:
+```
+- lane one reads OPEN
+- lane two reads OPEN
+- lane three reads OPEN
+- lane four reads OPEN
+```
+
+## Firstmate spec
+Patch bin/fm-opencode-retry.sh with a regression test.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "a fenced illustration should pass --check (got: $out)"
+  pass "fm-brief.sh: --check does not count fenced illustration lines as a coverage list"
+}
+
+test_scope_check_refuses_spec_sweep() {
+  local home id brief out status n=0 phrase
+  home="$TMP_ROOT/scope-sweep-home"
+  mkdir -p "$home/data"
+  while IFS='^' read -r phrase; do
+    [ -n "$phrase" ] || continue
+    n=$((n + 1))
+    id="scope-sweep-$n"
+    mkdir -p "$home/data/$id"
+    cat > "$home/data/$id/brief.md" <<EOF
+# Task
+## Captain's intent
+Fix the retry detector the captain reported.
+
+## Firstmate spec
+$phrase
+EOF
+    brief="$home/data/$id/brief.md"
+    out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+    [ "$status" -ne 0 ] || fail "--check passed a spec sweep ('$phrase')"
+    assert_contains "$out" "## Firstmate spec" "--check did not name the widened spec ('$phrase')"
+  done <<'ROWS'
+Generalize the detector across every caller of the ladder.
+Run a consistency sweep of the retry handling before shipping.
+Roll the fix out repo-wide in the same change.
+Harden all inputs on every endpoint in this task.
+ROWS
+  pass "fm-brief.sh: --check refuses a spec widened beyond the ask"
+}
+
+test_scope_check_allows_guarded_scope_language() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-guarded-home"
+  mkdir -p "$home/data"
+  id="scope-guarded"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Fix the retry detector the captain reported.
+
+## Firstmate spec
+Patch bin/fm-opencode-retry.sh with a regression test.
+Do NOT run a consistency sweep of the repo; that is follow-up work.
+Out of scope: fleet-wide rollout, which the captain did not ask for.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "a spec that names its boundary should pass --check (got: $out)"
+  pass "fm-brief.sh: --check allows a spec that names its boundary"
+}
+
+# The gate refuses list and sweep shapes only, never prose breadth: a brief
+# that broadens the ask in plain sentences passes, and that limit is pinned
+# here so it stays a recorded decision rather than a later discovery.
+test_scope_check_documents_its_blind_spot() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-blind-home"
+  mkdir -p "$home/data"
+  id="scope-blind"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+## Captain's intent
+Make the pipeline robust and fast while you are there.
+
+## Firstmate spec
+Refactor the auth module for clarity along the way.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "plain-prose breadth should pass --check (got: $out)"
+  pass "fm-brief.sh: --check deliberately does not judge plain-prose breadth"
+}
+
+test_scope_check_legacy_brief_warns_and_passes() {
+  local home id brief out status
+  home="$TMP_ROOT/scope-legacy-home"
+  mkdir -p "$home/data"
+  id="scope-legacy"
+  mkdir -p "$home/data/$id"
+  cat > "$home/data/$id/brief.md" <<'EOF'
+# Task
+Fix the retry detector the captain reported, with a regression test.
+EOF
+  brief="$home/data/$id/brief.md"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" --check 2>&1); status=$?
+  expect_code 0 "$status" "a legacy brief should still dispatch (got: $out)"
+  assert_contains "$out" "warning:" "--check did not warn that the legacy brief skips scope discipline"
+  pass "fm-brief.sh: --check warns once for a legacy brief and still dispatches"
+}
+
+test_check_takes_only_a_task_id() {
+  local home out status
+  home="$TMP_ROOT/check-args-home"
+  mkdir -p "$home/data"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" missing --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check on a missing brief should exit non-zero"
+  assert_contains "$out" "no brief at" "--check did not name the missing brief"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" x some-proj --mode direct-PR --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check with --mode should exit non-zero"
+  assert_contains "$out" "takes no --mode" "--check did not refuse the mode flag"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" x some-proj --scout --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check with --scout should exit non-zero"
+  assert_contains "$out" "takes no --scout" "--check did not refuse the scout flag"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" --check 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "--check with no task id should exit non-zero"
+  assert_contains "$out" "exactly one task id" "--check did not demand exactly one task id"
+  pass "fm-brief.sh: --check inspects exactly one existing brief"
+}
+
 test_worker_role_scope
 test_render_from_task_legacy_bodies
 test_render_from_task_structured_markers
 test_render_hand_edit_after_render
 test_render_refusals_write_nothing
+test_scope_check_ready_brief_passes
+test_scope_check_refuses_unfilled_brief
+test_scope_check_refuses_intent_coverage_list
+test_scope_check_allows_short_intent_structure
+test_scope_check_allows_item_references
+test_scope_check_ignores_fenced_lists
+test_scope_check_refuses_spec_sweep
+test_scope_check_allows_guarded_scope_language
+test_scope_check_documents_its_blind_spot
+test_scope_check_legacy_brief_warns_and_passes
+test_check_takes_only_a_task_id
 test_decision_key_position_is_taught
 test_script_parses
 test_no_heredoc_in_command_substitution

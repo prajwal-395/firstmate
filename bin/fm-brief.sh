@@ -15,6 +15,14 @@
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--from-task[=<record-id>]] [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--from-task[=<record-id>]] [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
+#        fm-brief.sh <task-id> --check
+#   --check reports whether an already-filled brief is ready to dispatch: it
+#   refuses while a Task placeholder below is still unfilled, while either
+#   Task subsection below is still empty, and while the filled subsections
+#   widen the ask against the scope-discipline contract. bin/fm-spawn.sh and
+#   bin/fm-promote.sh run the identical gates before launching, so a brief
+#   this reports ready is a brief the spawn accepts. bin/fm-dod-lib.sh owns
+#   every gate and its wording.
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
 #   It offers the Lavish review loop only when `fm-bootstrap.sh lavish-compatible`
@@ -149,6 +157,7 @@ fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
+CHECK=0
 FROM_TASK=0
 FROM_TASK_ID=
 MODE=
@@ -170,6 +179,7 @@ for a in "$@"; do
   case "$a" in
     --scout) KIND=scout ;;
     --secondmate) KIND=secondmate ;;
+    --check) CHECK=1 ;;
     --herdr-lab) HERDR_LAB=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
@@ -184,6 +194,33 @@ for a in "$@"; do
   esac
 done
 [ -z "$want_value" ] || { echo "error: --$want_value requires a value" >&2; exit 1; }
+
+# --check inspects a brief that already exists, so it takes neither a delivery
+# mode nor a scaffold kind. bin/fm-dod-lib.sh owns every verdict and its
+# wording; this branch only resolves the path and reports the ready case. The
+# three gates run in the same order as bin/fm-spawn.sh: unfilled placeholders
+# first, then empty subsections, then the scope-discipline contract.
+if [ "$CHECK" -eq 1 ]; then
+  [ "$MODE_SET" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --mode" >&2; exit 1; }
+  [ "$KIND" = ship ] || { echo "error: --check inspects an existing brief and takes no --scout or --secondmate" >&2; exit 1; }
+  [ "$HERDR_LAB" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --herdr-lab" >&2; exit 1; }
+  [ "$NO_PROJECTS" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --no-projects" >&2; exit 1; }
+  [ "$FROM_TASK" -eq 0 ] || { echo "error: --check inspects an existing brief and takes no --from-task" >&2; exit 1; }
+  [ "${#POS[@]}" -eq 1 ] || { echo "error: --check takes exactly one task id" >&2; exit 1; }
+  CHECK_BRIEF="$DATA/${POS[0]}/brief.md"
+  [ -f "$CHECK_BRIEF" ] || { echo "error: no brief at $CHECK_BRIEF" >&2; exit 1; }
+  if fm_brief_task_placeholders_present "$CHECK_BRIEF"; then
+    echo "error: $CHECK_BRIEF still contains {TASK} or {FIRSTMATE_SPEC}; fill ## Captain's intent and ## Firstmate spec before dispatch" >&2
+    exit 1
+  fi
+  if ! fm_brief_task_content_valid "$CHECK_BRIEF"; then
+    echo "error: $CHECK_BRIEF must contain nonempty ## Captain's intent and ## Firstmate spec subsections (or a nonempty legacy # Task body) before dispatch" >&2
+    exit 1
+  fi
+  fm_brief_scope_check "$CHECK_BRIEF" "dispatch" || exit 1
+  echo "ready: $CHECK_BRIEF (intent and spec are filled and scope-disciplined)"
+  exit 0
+fi
 
 # Ship delivery mode is an explicit per-task decision (AGENTS.md section 7). A
 # missing or invalid value stops the scaffold rather than silently defaulting.
