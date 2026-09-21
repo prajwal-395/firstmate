@@ -309,8 +309,8 @@
 # plus a per-task registry entry - the same shape as grok and Kimi - carrying
 # both its turn-end notification and its semantic busy source, and driving the
 # agy ladder tick and the point-of-spend gate. Its brief rides the launch
-# command. This home trusts its worktree root already, so the folder-trust
-# dialog the adapter would otherwise defend against does not fire here, and
+# command. agy matches trustedWorkspaces by exact path, so a broad parent entry
+# never covers a fresh pool worktree and the folder-trust dialog fires there;
 # firstmate deliberately does NOT pre-register the worktree in agy's own trust
 # store (bin/fm-agy-trust.sh is not called): the post-launch gate still answers
 # the dialog first if it ever renders, then waits for a busy turn before
@@ -1681,8 +1681,9 @@ launch_template() {
     # auto-approves every tool call, which an unattended crewmate needs.
     # Every task worktree is a fresh path, so agy would show a folder-trust
     # dialog ("Do you trust the contents of this project?") and no launch flag
-    # suppresses it (agy 1.2.0 --help lists none). This home trusts its
-    # worktree root already, so the dialog does not fire here, and firstmate
+    # suppresses it (agy 1.2.0 --help lists none). agy matches
+    # trustedWorkspaces by exact path, so a broad parent entry never covers a
+    # fresh pool worktree and the dialog fires there, and firstmate
     # deliberately does NOT pre-register the worktree in
     # ~/.gemini/antigravity-cli/settings.json trustedWorkspaces
     # (bin/fm-agy-trust.sh is not called). The post-launch gate
@@ -3653,8 +3654,9 @@ fi
 # endpoint stays for its owner and keeps the inspectable-window message.
 # agy gates a fresh worktree behind its own folder-trust dialog, but firstmate
 # deliberately does NOT pre-register the worktree in agy's trust store
-# (bin/fm-agy-trust.sh is not called): this home trusts its worktree root
-# already, so the dialog does not fire here, and editing the operator's agy
+# (bin/fm-agy-trust.sh is not called): agy matches trustedWorkspaces by exact
+# path, so a broad parent entry never covers a fresh pool worktree and the
+# dialog fires there, and editing the operator's agy
 # settings file is not a write firstmate takes on. Unlike claude's dialog,
 # agy's preselects the safe answer, so the post-launch gate
 # (agy_wait_for_working) answers the dialog itself if it ever renders and, on
@@ -3662,21 +3664,29 @@ fi
 # is crewmate/scout only (refused above for secondmate), so only the worktree
 # shape applies.
 AGY_TRUST_COVERED=0
-# agy_workspace_trusted: 0 when agy's own settings already trust <dir> or a
-# parent of it, so no folder-trust dialog will park the launch. Read-only: it
-# never writes the store, it only reports what is there. Anything unreadable -
-# a missing store, no jq, malformed JSON - is a refusal, which keeps the
-# post-launch gate on its strict path (busy counts only after the dialog is
-# seen and answered) rather than assuming a trust that was never shown.
+# agy_workspace_trusted: 0 when agy's own settings already trust <dir> by
+# EXACT path, so no folder-trust dialog will park the launch. agy matches
+# trustedWorkspaces entries by exact path, never by parent prefix: a broad
+# /Users/<name> entry does not cover a fresh pool worktree beneath it, and
+# treating it as cover let the post-launch gate below count Herdr's native
+# busy verdict as ready before the dialog ever painted. Both the logical and
+# the resolved form of <dir> are accepted, because agy compares the pane's
+# logical working directory and bin/fm-agy-trust.sh records both forms when
+# they differ. Read-only: it never writes the store, it only reports what is
+# there. Anything unreadable - a missing store, no jq, malformed JSON - is a
+# refusal, which keeps the post-launch gate on its strict path (busy counts
+# only after the dialog is seen and answered) rather than assuming a trust
+# that was never shown.
 agy_workspace_trusted() {  # <dir>
-  local dir store covered
+  local dir store covered logical
   dir=$(cd -P -- "$1" 2>/dev/null && pwd -P) || return 1
+  logical=$(cd -- "$1" 2>/dev/null && pwd -L) || logical=$dir
   [ -n "${HOME:-}" ] || return 1
   store="$HOME/.gemini/antigravity-cli/settings.json"
   [ -f "$store" ] || return 1
   command -v jq >/dev/null 2>&1 || return 1
-  covered=$(jq --arg dir "$dir" -r \
-    '(.trustedWorkspaces // []) | map(select(type == "string")) | any(. as $e | $dir == $e or ($dir | startswith($e + "/")))' \
+  covered=$(jq --arg dir "$dir" --arg logical "$logical" -r \
+    '(.trustedWorkspaces // []) | map(select(type == "string")) | any(. as $e | $e == $dir or $e == $logical)' \
     "$store" 2>/dev/null) || return 1
   [ "$covered" = true ]
 }
@@ -3729,8 +3739,9 @@ case "$HARNESS" in
     fi
     ;;
 esac
-# agy reads its trust the same way: when the worktree is already covered by the
-# operator's own trustedWorkspaces, no dialog will render and a busy turn may
+# agy reads its trust the same way: when the worktree itself is already covered
+# by an exact-path entry in the operator's own trustedWorkspaces, no dialog
+# will render and a busy turn may
 # be counted at once. This check only READS that store - the write half above
 # is claude's alone, and bin/fm-agy-trust.sh stays uncalled.
 if [ "$HARNESS" = agy ] && [ "$KIND" != secondmate ]; then
