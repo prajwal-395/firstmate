@@ -207,6 +207,24 @@ fm_pr_url_parse() {
   FM_PR_NUMBER=${BASH_REMATCH[3]}
 }
 
+# The captain's standing never-upstream ruling for the firstmate repo: fleet
+# work always targets the fork prajwal-395/firstmate, never kunchenguid/firstmate.
+# fm_pr_never_upstream_refuse reads the identity fm_pr_url_parse just set and
+# refuses the upstream firstmate repo with a diagnostic naming the ruling and
+# the fork, returning 1 with no side effect; every other identity returns 0.
+# GitHub owner and repository names are case-insensitive, so the comparison
+# folds case rather than trusting the URL's spelling.
+# There is deliberately no flag, environment override, or brief-prose bypass:
+# a genuine upstream contribution needs a human to change this function.
+fm_pr_never_upstream_refuse() {
+  local folded
+  [ "$FM_PR_PROVIDER" = github ] && [ "$FM_PR_HOST" = github.com ] || return 0
+  folded=$(printf '%s' "$FM_PR_PATH" | tr '[:upper:]' '[:lower:]') || return 0
+  [ "$folded" = kunchenguid/firstmate ] || return 0
+  echo "error: PR refused: ${FM_PR_URL} targets the upstream firstmate repo kunchenguid/firstmate; the captain's standing never-upstream ruling sends every fleet PR to the fork prajwal-395/firstmate, and no brief prose overrides this refusal" >&2
+  return 1
+}
+
 fm_pr_head_valid() {
   local head=${1-}
   local LC_ALL=C

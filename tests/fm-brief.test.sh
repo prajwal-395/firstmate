@@ -372,6 +372,53 @@ test_no_mistakes_dod_wording() {
   pass "fm-brief.sh: no-mistakes DOD keeps its apostrophe prose and bans --yes outright"
 }
 
+# The captain's standing never-upstream ruling reaches the worker from the
+# scaffold itself: both PR-creating delivery contracts carry the fork target
+# automatically, so no brief author has to remember it. Modes that never open a
+# PR carry no PR-target prose.
+test_ship_pr_modes_carry_never_upstream_rule() {
+  local home id brief
+  home="$TMP_ROOT/fork-rule-home"
+  mkdir -p "$home/data"
+  id="brief-fork-direct-b2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode direct-PR >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "direct-PR brief was not scaffolded"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'pass `-R prajwal-395/firstmate` on every PR command' "$brief" \
+    "direct-PR brief lost the fork target"
+  assert_grep 'kunchenguid/firstmate' "$brief" \
+    "direct-PR brief must name the refused upstream repo"
+  assert_grep 'standing never-upstream ruling' "$brief" \
+    "direct-PR brief must name the standing ruling behind the refusal"
+  assert_grep 'no brief prose overrides that refusal' "$brief" \
+    "direct-PR brief must say the refusal is not overridable by prose"
+  id="brief-fork-nm-b2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "no-mistakes brief was not scaffolded"
+  # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
+  assert_grep 'must target the fork `prajwal-395/firstmate`, never upstream `kunchenguid/firstmate`' "$brief" \
+    "no-mistakes brief lost the fork target"
+  assert_grep 'standing never-upstream ruling' "$brief" \
+    "no-mistakes brief must name the standing ruling behind the refusal"
+  assert_grep 'blocked: PR targets upstream, not the fork' "$brief" \
+    "no-mistakes brief must tell the worker to stop instead of reporting an upstream PR done"
+  assert_grep 'no brief prose overrides that refusal' "$brief" \
+    "no-mistakes brief must say the refusal is not overridable by prose"
+  id="brief-fork-local-b2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --mode local-only >/dev/null 2>&1
+  assert_no_grep 'prajwal-395/firstmate' "$home/data/$id/brief.md" \
+    "local-only brief must carry no PR target: it never opens a PR"
+  assert_no_grep 'never-upstream' "$home/data/$id/brief.md" \
+    "local-only brief must carry no upstream-refusal prose: it never opens a PR"
+  id="brief-fork-scout-b2"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" some-proj --scout >/dev/null 2>&1
+  assert_no_grep 'never-upstream' "$home/data/$id/brief.md" \
+    "scout brief must carry no upstream-refusal prose: it never opens a PR"
+  pass "fm-brief.sh: PR-creating ship briefs carry the never-upstream fork rule from the scaffold"
+}
+
 test_ask_user_escalation_format() {
   local home id brief mode other_id other_brief
   home="$TMP_ROOT/ask-user-home"
@@ -1441,6 +1488,7 @@ test_ship_mode_is_explicit_not_registry
 test_delivery_flags_are_refused_where_they_do_not_apply
 test_faster_paths_use_configured_authority_without_stacked_review
 test_no_mistakes_dod_wording
+test_ship_pr_modes_carry_never_upstream_rule
 test_ask_user_escalation_format
 test_ship_project_memory_wording
 test_herdr_lab_contract_is_explicit_and_complete

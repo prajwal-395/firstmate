@@ -39,6 +39,11 @@
 # if you have a problem escalate it to me"): narrow the brief to the ask, and
 # carry the wider scope as follow-up work or escalate it, rather than widening
 # the ask here.
+# This file is also the one owner of the never-upstream PR-target rule: the
+# PR-creating modes carry the fork target automatically, so every ship brief and
+# every promoted scout receives it from the scaffold rather than from whoever
+# writes the brief remembering it. The mechanical refusal lives in
+# bin/fm-pr-lib.sh and is enforced by bin/fm-pr-check.sh and bin/fm-pr-merge.sh.
 # The string passed must be self-sufficient - it plus the codebase reconstructs
 # roughly the same specification - so a report, decision, or PR the intent
 # refers to is written into it as substance, never left as a pointer.
@@ -306,6 +311,8 @@ Delivery contract: mode=direct-PR
 This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
 When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then look at the PR's check rollup before reporting done.
+When this task works on the firstmate repo, that PR targets the fork, never upstream: pass \`-R prajwal-395/firstmate\` on every PR command, and read the returned URL back before reporting it.
+The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
 When the PR has checks, wait until every check reaches a completed conclusion: all green means append \`done: PR {url} checks complete\` and stop; any failure means diagnose and fix on the same branch, push, and wait for the next verdict, repeating until green. A conflicting branch is not a verdict - resolve it first and wait on the new head.
 When the repo runs no checks for the PR (no workflow in \`.github/workflows\` fires on pull requests for this branch), there is no verdict to wait for: append \`done: PR {url}\` and stop. Never wait on checks that do not exist.
 Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
@@ -354,6 +361,8 @@ Two firstmate-specific rules layer on top of that guidance:
   It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
 
 After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append \`done: PR {url} checks green\` and stop. You are finished.
+When this task works on the firstmate repo, that PR must target the fork \`prajwal-395/firstmate\`, never upstream \`kunchenguid/firstmate\`: read the returned URL back before reporting it, and if it names the upstream repo, append \`blocked: PR targets upstream, not the fork\` instead of done.
+The fleet refuses any PR against \`kunchenguid/firstmate\` under the captain's standing never-upstream ruling, and no brief prose overrides that refusal.
 EOF
       ;;
     *)
