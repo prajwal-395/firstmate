@@ -134,42 +134,35 @@ class TestSubjectCenterRefusesToGuess:
 
 
 class TestSubjectCentersByClip:
+    """The join reads the per-clip index FILES, never pipeline state.
 
-    def test_reads_a_flat_index(self):
-        idx = {"clip_001": {"face_presence": face_track([0.3] * 10)}}
-        assert "clip_001" in subject_centers_by_clip(idx)
+    An earlier spelling of `subject_centers_by_clip` walked the in-state
+    `full_indices` mapping while step 1.04 emits a LIST, so it returned
+    `{}` on every real run while tests fed it invented mappings and
+    passed. These tests therefore build the on-disk index the step
+    really writes and read it back - no invented state shapes.
+    """
 
-    def test_reads_a_nested_index(self):
-        idx = {"indices": {"clip_001": {"face_presence": face_track([0.3] * 10)}}}
-        assert "clip_001" in subject_centers_by_clip(idx)
+    @staticmethod
+    def _index_dir(tmp_path):
+        d = (tmp_path / "pipeline_output" / "steps"
+             / "1_04_temporal_index" / "index")
+        d.mkdir(parents=True)
+        return d
 
-    def test_entries_without_face_presence_are_skipped(self):
-        idx = {"clip_001": {"energy": {}}, "clip_002": "not a dict"}
-        assert subject_centers_by_clip(idx) == {}
+    @staticmethod
+    def _write_clip(index_dir, name, entry):
+        import json
+        (index_dir / name).write_text(json.dumps(entry), encoding="utf-8")
 
-    def test_empty_input(self):
-        assert subject_centers_by_clip({}) == {}
-        assert subject_centers_by_clip(None) == {}
-
-    def test_reads_the_shape_step_1_04_actually_emits(self):
-        """`temporal_event_indices` is a LIST, and it is the only shape a real run
-        produces (library/steps/step_1_04_temporal_index/step.py).
-
-        Every test above this one feeds an invented mapping, so this
-        function returned `{}` on every real project while passing its
-        whole suite - and with no face track there is no pan, which makes
-        a fill a blind centre crop.
-        """
-        idx = {
-            "temporal_event_indices": [
-                {"clip_id": "clip_011",
-                 "source_file": "/footage/IMG_1816.MOV",
-                 "face_presence": face_track([0.3] * 10)},
-            ],
-            "total_indexed": 1,
-            "index_dir": "/tmp",
-        }
-        got = subject_centers_by_clip(idx)
+    def test_reads_the_files_step_1_04_writes(self, tmp_path):
+        index_dir = self._index_dir(tmp_path)
+        self._write_clip(index_dir, "clip_011.json", {
+            "clip_id": "clip_011",
+            "source_file": "/footage/IMG_1816.MOV",
+            "face_presence": face_track([0.3] * 10),
+        })
+        got = subject_centers_by_clip(str(tmp_path))
         assert "clip_011" in got
         # Keyed by file stem too, because the temporal index and the
         # catalog disagree about which is the id - the same split
@@ -177,9 +170,16 @@ class TestSubjectCentersByClip:
         assert "IMG_1816" in got
         assert subject_center_x(got["clip_011"], 0.0, 2.0) == pytest.approx(0.3)
 
-    def test_list_entries_without_face_presence_are_skipped(self):
-        idx = {"temporal_event_indices": [{"clip_id": "clip_001"}, "not a dict"]}
-        assert subject_centers_by_clip(idx) == {}
+    def test_entries_without_face_presence_are_skipped(self, tmp_path):
+        index_dir = self._index_dir(tmp_path)
+        self._write_clip(index_dir, "clip_001.json",
+                         {"clip_id": "clip_001", "energy": {}})
+        (index_dir / "clip_002.json").write_text("not json{",
+                                                 encoding="utf-8")
+        assert subject_centers_by_clip(str(tmp_path)) == {}
+
+    def test_missing_index_dir_is_empty(self, tmp_path):
+        assert subject_centers_by_clip(str(tmp_path)) == {}
 
 
 # ─────────────────────────────────────────────────────────

@@ -57,7 +57,7 @@ and points here.
 **Subject position comes from `face_center_x`, not from the vision pass.**
 `vision_pipeline_v3` measures shot size, identity and time ranges - never a position - and `object_segmentation`/`ocr_extraction` produce boxes but are not in the DAG.
 `step_1_04_temporal_index.compute_face_presence` emits the horizontal centre of the largest detected face at 5Hz; `library/tools/subject_framing.py` reduces it per clip and returns a POSITION; `compile_manifest._conform_fields` owns the one copy of the geometry that turns it into a pan.
-- The join is `subject_centers_by_clip`. Step 1.04's real output shape is `{"temporal_event_indices": [...], "full_indices": [...]}` - a LIST of per-clip dicts, not a mapping. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
+- The join is `subject_centers_by_clip`, and it reads the per-clip index FILES, not pipeline state. An earlier spelling walked the in-state `full_indices` mapping while step 1.04 emits a LIST, so it returned `{}` on every real run while its tests - all fed invented mappings - passed. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
 - **None means "frame centred" - do not replace it with a fabricated 0.5.**
   That None is two facts - measured-centred and unmeasurable - and
   :func:`subject_center_reading` tells them apart. [why](docs/RULE_EVIDENCE.md#subject-centers-by-clip-read-only-a-mapping)
@@ -287,18 +287,25 @@ def subject_center_x(
         face_presence, source_in, source_out).position
 
 
-def load_face_tracks_from_files(project_dir: str) -> Dict[str, dict]:
+def subject_centers_by_clip(project_dir: str) -> Dict[str, dict]:
     """Per-clip face_presence blocks, loaded from the per-clip index FILES.
 
     This reads ``pipeline_output/steps/1_04_temporal_index/index/clip_*.json``
     directly - the same files ``vision_pipeline_v3.load_temporal_index`` reads
-    and every other temporal-index consumer already takes.  It replaces the
-    in-state ``full_indices`` path that ``subject_centers_by_clip`` used to
-    walk, so the 2.35 MB state copy is no longer needed for subject framing.
+    and every other temporal-index consumer already takes.
+
+    An earlier spelling of this function read the in-state ``full_indices``
+    copy out of ``pipeline_data.json`` instead. That path was dead: step 1.04
+    emits a LIST of per-clip dicts while the reader walked a MAPPING, so on
+    every real run it matched nothing and returned ``{}`` - and its tests
+    passed because they fed it invented mappings. The in-state copy is gone
+    and so is the mapping reader; this file-backed read is the only join.
 
     Returns a dict mapping both ``clip_id`` and the source-file stem to the
-    clip's ``face_presence`` block, matching the shape
-    ``subject_centers_by_clip`` returns.
+    clip's ``face_presence`` block, because the temporal index is keyed by
+    clip id in some runs and by file stem in others - the same split
+    ``semantic_index`` exists to bridge. Both spellings are returned so the
+    caller can look up either without a ``.get()`` fallback chain.
     """
     from library.tools.project_layout import Area, ProjectLayout
 
@@ -328,67 +335,12 @@ def load_face_tracks_from_files(project_dir: str) -> Dict[str, dict]:
         if clip_id:
             out[clip_id] = face
 
-        # Also key by source-file stem, the same way
-        # subject_centers_by_clip does for the in-state path.
+        # Also key by source-file stem.
         src = entry.get("source_file") or entry.get("path")
         if src:
             stem = os.path.splitext(os.path.basename(src))[0]
             if stem:
                 out[stem] = face
-
-    return out
-
-
-def subject_centers_by_clip(
-    temporal_index: dict,
-) -> dict:
-    """Per-clip `face_presence` blocks, keyed however the index keys them.
-
-    `compile_manifest` joins on clip id, and the temporal index is keyed
-    by clip id in some runs and by file stem in others - the same split
-    `semantic_index` exists to bridge. Both spellings are returned so the
-    caller can look up either without a `.get()` fallback chain.
-
-    **The shape step 1.04 really emits is a LIST.** Its return value is
-    ``{"temporal_event_indices": [...], "full_indices": [...], ...}``,
-    where `full_indices` carries the whole per-clip index - `face_presence`
-    included - as a list of dicts each naming its own `clip_id`. This
-    function used to read only a mapping (`indices`, or the top level
-    keyed by clip), so on every real run it matched nothing and returned
-    `{}`: the pan was never computed, and a `framing_intent` of 1.0 would
-    have been the blind centre crop the whole mechanism exists to avoid.
-    Its tests all fed it invented mappings, so it passed. Same class as
-    every other key-name mismatch in this pipeline: nothing raised.
-    """
-    out = {}
-    if not temporal_index:
-        return out
-
-    def _record(key, entry):
-        if not isinstance(entry, dict):
-            return
-        face = entry.get("face_presence")
-        if isinstance(face, dict) and key:
-            out[key] = face
-
-    for listing in ("full_indices", "indices", "temporal_event_indices"):
-        entries = temporal_index.get(listing)
-        if isinstance(entries, list):
-            for entry in entries:
-                if isinstance(entry, dict):
-                    _record(entry.get("clip_id"), entry)
-                    src = entry.get("source_file") or entry.get("path")
-                    if src:
-                        stem = os.path.splitext(os.path.basename(src))[0]
-                        _record(stem, entry)
-        elif isinstance(entries, dict):
-            for key, entry in entries.items():
-                _record(key, entry)
-
-    # A bare mapping of clip_id -> index, which is how the tests and some
-    # older exports spell it.
-    for key, entry in temporal_index.items():
-        _record(key, entry)
 
     return out
 
