@@ -32,6 +32,87 @@ from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
 from library.tools.brand_registry import DEFAULT_TIMELINE_NAME  # noqa: E402
 
 
+def _perceptual_watch_enabled() -> bool:
+    """Whether this build draws watch strips of its export.
+
+    The same switch `visual_qa_router.perceptual_qa_enabled()` reads,
+    repeated inline - with the same accepted values - so the check
+    costs nothing and never imports the vision stack on a run that
+    leaves the flag off. If the accepted values ever change there,
+    this must follow.
+    """
+    return os.environ.get(
+        "PIPELINE_PERCEPTUAL_QA", "").strip().lower() in (
+            "1", "true", "yes", "on")
+
+
+def _render_watch_block(video_path: str, project_folder: str) -> str:
+    """Draw the strips the LLM review WATCHES, and map them for the prompt.
+
+    The same route `step_6_02_validate_output`'s bridge takes, off the
+    file this step exported rather than off the timeline: the strips
+    are of the COMPOSITE - everything drawn over everything else -
+    which exists only once the export is on disk. Drawing is
+    measurement, not judgement, and it runs only when
+    `PIPELINE_PERCEPTUAL_QA` is set; the flag stays off by default, so
+    a default build attaches nothing and the handoff says the picture
+    was not seen.
+
+    Returns "" when nothing could be drawn. Best-effort throughout: a
+    watch that breaks must not break a render.
+    """
+    if not _perceptual_watch_enabled():
+        return ""
+    if not video_path or not os.path.exists(video_path):
+        return ""
+    if not project_folder:
+        print("  No project_folder: no watch frames drawn", file=sys.stderr)
+        return ""
+    try:
+        from library.tools import render_watch
+        frames_dir, _record_path = render_watch.watch_paths(
+            project_folder, video_path)
+        drawn = render_watch.draw_watch_strips(
+            video_path, frames_dir, label="render")
+        print(f"  {len(drawn['rows'])} watch strip(s) at {frames_dir}"
+              + (f"; {len(drawn['missing'])} span(s) not drawn"
+                 if drawn["missing"] else ""), file=sys.stderr)
+        if not drawn["rows"]:
+            return ""
+        return render_watch.build_watch_block(
+            drawn["directory"], drawn["rows"], drawn["missing"],
+            subject="the exported render this step just built",
+            duration=drawn["duration"])
+    except Exception as exc:  # noqa: BLE001 - drawing is best-effort
+        print(f"  ⚠ Render watch unavailable: {exc}", file=sys.stderr)
+        return ""
+
+
+def _visual_qa_prompt_addition(visual_qa) -> str:
+    """The text that replaces `<!-- VISUAL_QA_INSTRUCTIONS -->`.
+
+    Always returns a replacement, so the marker never reaches a prompt
+    raw. When the grabs ran it describes the table; when they did not -
+    the default, with the flag off - it records that absence, so the
+    review is never instructed to use a table that is not there.
+    """
+    if visual_qa:
+        return (
+            "### Visual QA Findings\n\n"
+            "The `visual_qa` table contains observations from a local vision model "
+            "that watched the render. Use these findings to evaluate visual correctness, "
+            "such as framing, subject visibility, and transition boundaries."
+        )
+    return (
+        "### Visual QA Findings\n\n"
+        "No frame-grab pass ran on this build (`PIPELINE_PERCEPTUAL_QA` "
+        "unset): there is no `visual_qa` table. The "
+        "`render_watch_frames` section states whether strips of the "
+        "export were drawn - judge the picture from those, or say it "
+        "was not seen."
+    )
+
+
 def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     """Render the built timeline to a file and return the render report.
 
@@ -169,14 +250,27 @@ def run(inputs: dict) -> dict:
 
         if "visual_qa" in result and result["visual_qa"]:
             output_payload["visual_qa"] = result["visual_qa"]
-            output_payload["__prompt_additions"] = {
-                "<!-- VISUAL_QA_INSTRUCTIONS -->": (
-                    "### Visual QA Findings\n\n"
-                    "The `visual_qa` table contains observations from a local vision model "
-                    "that watched the render. Use these findings to evaluate visual correctness, "
-                    "such as framing, subject visibility, and transition boundaries."
-                )
-            }
+        output_payload["__prompt_additions"] = {
+            "<!-- VISUAL_QA_INSTRUCTIONS -->": _visual_qa_prompt_addition(
+                output_payload.get("visual_qa"))
+        }
+
+        # ── The frames the LLM review WATCHES ──
+        #
+        # Emitted as its own key rather than folded into the verdict:
+        # the deterministic half MEASURES and this block is what the
+        # review SEES. Absent on a run that drew none - the flag off,
+        # no export, or a failed draw - and the handoff then says the
+        # picture was not seen rather than claiming it was. The same
+        # shape `step_6_02_validate_output` carries as
+        # `render_watch_frames`, so the runner's withholding for a
+        # harness with no eyes (`window_frames.FRAME_INPUTS`) covers
+        # this key with no runner change.
+        watch_block = _render_watch_block(
+            export.get("output_path", ""),
+            inputs.get("project_folder", ""))
+        if watch_block:
+            output_payload["render_watch_frames"] = watch_block
 
         return output_payload
         

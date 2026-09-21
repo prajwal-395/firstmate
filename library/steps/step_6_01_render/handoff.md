@@ -103,4 +103,22 @@ sharing the same interface contract.
 
 
 
+## Watching this render
+
+`render_watch_frames` is the PICTURE: frame strips drawn off the
+exported file itself - everything drawn over everything else, exactly
+as a viewer sees it. It is the only thing in this context that is a
+picture; everything else describes what was PLANNED. **Open every
+strip it names.** A clean span is a real answer - say it is clean.
+
+`visual_qa`, when the instructions below name its table, is the prose
+half: verdicts from frame grabs and segment checks run behind
+`PIPELINE_PERCEPTUAL_QA`. Read them against the strips, not instead
+of them.
+
+**When `render_watch_frames` is absent, NOTHING HAS WATCHED THIS RENDER.**
+The export was built but no strip was drawn - the flag was off, or the draw failed. Say so in your answer and judge from the
+manifest and the measurements alone. Do not write a visual verdict
+you did not look at.
+
 <!-- VISUAL_QA_INSTRUCTIONS -->

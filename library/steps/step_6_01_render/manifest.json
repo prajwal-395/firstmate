@@ -24,6 +24,18 @@
         "name": "render_output",
         "type": "object",
         "description": "State output: render_output"
+      },
+      {
+        "name": "render_watch_frames",
+        "type": "string",
+        "required": false,
+        "description": "A map of the frame strips drawn off the EXPORTED FILE, with the directory holding them, the sampling resolution, the questions a still can answer and the boundary of what it cannot. Prompt-only: it is what makes this step's review see the rendered picture. See library/tools/render_watch.build_watch_block. Drawn only when PIPELINE_PERCEPTUAL_QA is set - the flag stays off by default - and absent otherwise, when the handoff says the picture was not seen rather than claiming it was. The same shape step_6_02_validate_output carries, so it is withheld from a harness that cannot be shown a picture (window_frames.FRAME_INPUTS) with no runner change."
+      },
+      {
+        "name": "visual_qa",
+        "type": "array",
+        "required": false,
+        "description": "Frame-grab and segment-check verdicts the build produced behind PIPELINE_PERCEPTUAL_QA, emitted only when non-empty and absent on a default run. Read by this step's own LLM review through the VISUAL_QA_INSTRUCTIONS addition, which records the absence when there is no table. See library/tools/visual_qa_router.py."
       }
     ]
   },
