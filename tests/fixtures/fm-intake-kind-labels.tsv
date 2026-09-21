@@ -1,0 +1,29 @@
+# Hand-labeled intake set for bin/fm-intake-kind.sh offline verification.
+#
+# Pipe-separated columns (pipes collapse no fields, unlike tabs under IFS):
+#   intake text | scripted model answer | scripted confidence |
+#   expected status | expected kind (empty when escalate emits none) |
+#   expected gate line fragment (empty when no gate fires) |
+#   expected note fragment (empty when no note is emitted)
+#
+# The scripted answer is the model-plausible reply, deliberately wrong on the
+# gate-override rows so the run proves the code gate corrects it. Rows 13-16
+# pin the asymmetric low-confidence rule at and below the 0.6 floor.
+Fix the off-by-one in the pager: root cause is the `<=` on line 40 of pager.sh.|ship|0.9|clear|ship||
+Add a retry flag to the deploy script and cover it with a test.|ship|0.85|clear|ship||
+Refactor the auth module to remove the deprecated token path.|ship|0.8|clear|ship||
+I plan to fix the pager bug tomorrow; implement the bounds check.|ship|0.88|clear|ship||
+Investigate why the pager slows down on large files.|scout|0.9|clear|scout|explicit-knowledge-request|
+Write up the quarterly reliability report for the pager service.|ship|0.95|clear|scout|explicit-knowledge-request|
+Audit the retry path and propose safer defaults.|scout|0.87|clear|scout|explicit-knowledge-request|
+Look into the flaky deploy and summarize the options.|ship|0.7|clear|scout|explicit-knowledge-request|
+What does the pager do on empty input?|scout|0.9|clear|scout||existing-evidence check
+The scout report on the pager slowdown is attached.|ship|0.92|escalate||diagnostic-evidence|
+Per the diagnosis, the cache header is wrong.|ship|0.9|escalate||diagnostic-evidence|
+The review recommends a new retry default.|ship|0.85|escalate||diagnostic-evidence|
+Tighten the pager loop.|ship|0.41|ambiguous|ship||uncertain ship still passes
+Reproduce the pager slowdown on a large file.|scout|0.41|clear|scout||uncertain scout stays scout
+Migrate the deploy script to the new runner.|ship|0.55|ambiguous|ship||uncertain ship still passes
+How should we cut deploy times in half?|scout|0.5|clear|scout||uncertain scout stays scout
+Send me your findings on the pager slowdown.|ship|0.8|clear|scout|explicit-knowledge-request|
+Diagnose the deploy flake.|ship|0.75|clear|scout|explicit-knowledge-request|
