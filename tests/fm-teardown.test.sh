@@ -3714,8 +3714,62 @@ test_post_return_failure_is_loud_and_wakes() {
   pass "a post-return teardown failure exits non-zero with a named reason and one wake-path record"
 }
 
+# The turn-end auth tail used to fail silently: a token file that exists but
+# yields no token (an interrupted mint leaves it empty, a permission break
+# leaves it unreadable) made remove_*_turnend_auth return 1 with no message,
+# and the bare `|| exit 1` kept that silence - exit 1, finished work, record
+# retained, nothing on stderr naming the step. Every retry failed identically,
+# so the stranded meta read as live work and fired a watcher wake every cycle.
+# The failure is now named on stderr beside the one wake-path record, and
+# clearing the broken token lets the retry retire the record.
+test_post_return_turnend_auth_failure_is_loud_and_wakes() {
+  local case_dir rc blocked_lines
+  case_dir=$(make_case post-return-turnend-loud)
+  write_meta "$case_dir" local-only ship
+  wt_commit "$case_dir" "fix the thing"
+  add_fork_with_pushed_branch "$case_dir"
+  : > "$case_dir/state/task-x1.grok-turnend-token"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "turnend-loud: teardown must exit non-zero when turn-end auth cleanup fails"
+  assert_present "$case_dir/state/task-x1.meta" \
+    "turnend-loud: teardown removed the record it could not finish"
+  assert_contains "$(cat "$case_dir/stderr")" "grok turn-end auth cleanup failed for task-x1" \
+    "turnend-loud: the failure should name its reason on stderr"
+  assert_present "$case_dir/state/task-x1.status" \
+    "turnend-loud: teardown left no wake-path record for its stranded record"
+  assert_contains "$(cat "$case_dir/state/task-x1.status")" "blocked: teardown exited 1 after cleanup started" \
+    "turnend-loud: the wake-path record should name the failed teardown"
+  # A refused rerun must not stack another identical line: one wake, not one
+  # per attempt.
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "turnend-loud: the retry must still fail while the token file is broken"
+  blocked_lines=$(grep -c '^blocked: teardown ' "$case_dir/state/task-x1.status")
+  [ "$blocked_lines" = 1 ] \
+    || fail "turnend-loud: expected one wake-path line after two failures, found $blocked_lines"
+  # Clearing the broken token lets the retry finish: the record retires, so no
+  # stale meta remains to fire watcher wakes for finished work.
+  rm -f "$case_dir/state/task-x1.grok-turnend-token"
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "turnend-loud: the retry must complete once the token file is cleared"
+  assert_absent "$case_dir/state/task-x1.meta" \
+    "turnend-loud: the retry left a stale record behind after the work finished"
+  pass "a turn-end auth tail failure exits non-zero with a named reason, one wake-path record, and a retry that retires the record"
+}
+
 test_local_only_fork_remote_allows
 test_post_return_failure_is_loud_and_wakes
+test_post_return_turnend_auth_failure_is_loud_and_wakes
 test_teardown_closes_the_backlog_item_itself
 test_teardown_manual_backend_leaves_the_backlog_to_the_operator
 test_local_only_truly_unpushed_refuses

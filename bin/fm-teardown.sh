@@ -3552,9 +3552,18 @@ if [ "$KIND" = secondmate ]; then
     || { echo "error: receiver wake cleanup failed; preserving the secondmate route for retry" >&2; exit 1; }
   remove_secondmate_registry_entry "$ID"
 fi
-remove_grok_turnend_auth "$STATE" "$ID" || exit 1
-remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
-remove_agy_turnend_auth "$STATE" "$ID" || exit 1
+remove_grok_turnend_auth "$STATE" "$ID" || {
+  echo "error: grok turn-end auth cleanup failed for $ID; retaining every durable task record" >&2
+  exit 1
+}
+remove_kimi_turnend_auth "$STATE" "$ID" || {
+  echo "error: kimi turn-end auth cleanup failed for $ID; retaining every durable task record" >&2
+  exit 1
+}
+remove_agy_turnend_auth "$STATE" "$ID" || {
+  echo "error: agy turn-end auth cleanup failed for $ID; retaining every durable task record" >&2
+  exit 1
+}
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
