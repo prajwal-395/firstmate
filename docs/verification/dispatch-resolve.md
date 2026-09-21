@@ -53,6 +53,23 @@ The maximum latency was one outlier; the next slowest request was 309 ms.
 The differing clear result was a synthetic small tweak that matched the simple-bug-fix rule at 0.90 and selected `cursor-grok-4.6-medium` instead of the hand-labeled `cursor-grok-4.6-high`: the tweak exemption removed from the none-option text belongs in that rule's own `when` text.
 Two default-labeled briefs became ambiguous.
 
+## Task-section payload comparison
+
+Run 2026-09-21 with the home key, model `jev-latest`, confidence floor 0.6, and one `quota-axi --json` snapshot for the whole run.
+Rules: the captain's live two-rule file (genuinely unshaped work, Lucie work) with the opencode free-first default and no approval rule.
+Briefs: 14 recent real briefs from this home plus 4 synthetic edge cases (unshaped work, Lucie work, defined firstmate-repo work, approval-gated design), each hand-labeled against the live rules and each run three times against the unmodified tool (full file, Task section, and Captain's-intent-only as temp files).
+
+| Payload | Rule agreement with full | Hand-label accuracy | Input tokens over all 54 runs |
+| --- | --- | --- | --- |
+| Full file | 18 of 18 | 17 of 18 | 59,710 |
+| Task section | 18 of 18 | 17 of 18 | 25,744 |
+| Captain's intent only | 17 of 18 | 18 of 18 on rule | 15,894 |
+
+The Task section averaged 29 percent of each file's bytes and matched the full file on rule, status, and outcome for all 18 briefs, which is why the shipped tool sends the project name plus the Task section.
+Captain's-intent-only matched the hand label on the rule for all 18 but changed one outcome from clear to ambiguous (0.42 against the 0.6 floor) and reported lower confidence on three further briefs, so the spec subsection carries real match signal rather than only routing-hint noise.
+The one brief the full file missed is genuinely ambiguous work the hand label itself flagged, and the one rule where intent-only differed from full is that same brief.
+Shipped 2026-09-21: project name plus Task section, with whole-brief fallback when a brief carries no Task section.
+
 ## Offline behavior
 
 `tests/fm-dispatch-resolve.test.sh` drives the public interface with a fake `curl` that records argv, the request body, the header read from file descriptor 3, and whether the secret reached its environment, plus a fake `quota-axi` that performs the same environment check.
@@ -61,7 +78,7 @@ It proves the absent key (environment and `.env`) prints one stderr line, nothin
 It proves absent, default-only, and empty-rules files return `no rules to match` without a model or quota request, while a broken rules-file symlink exits 2 as unreadable.
 It proves the documented starter configuration resolves its Pi default through the declared Claude provider, a `.env` key turns the tool on, and the environment wins over it.
 It proves the key is absent from child environments, never appears on `curl` argv, and arrives only as the bearer header on the descriptor.
-It proves the request uses the fixed endpoint and model, carries only the project, brief, and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
+It proves the request uses the fixed endpoint and model, carries only the project, the Task section of the brief, and rule Choice with one option per rule plus the fixed neutral none option, and never carries `why`, `use`, or quota.
 It proves the clear, fixed-floor ambiguous with candidate evidence, escalate (approval with candidate evidence, unverifiable rule floor, no eligible candidate at all), known rule-floor fall-through, known and unverifiable profile-floor evidence, explicit-provider and provider-ID enforcement, authoritative Agy and explicit-provider Gemini routing, partial providers, eligible unranked candidates and their clear-result note, concrete quota vetoes and profile-floor shortfalls taking precedence over uncertainty, and account-wide quota vetoes behave as the contract states.
 It proves declared rung order always decides among the eligible candidates: an exhausted first rung is skipped rather than chosen by position, a free-first default still names the free rung when the paid rung reports better quota, equal quota resolves by order instead of tying, and an all-ineligible result escalates with no profile line.
 It proves missing-curl and quota-axi failures, HTTP 429 and 500, transport failure, malformed usage, zero-mass or malformed probabilities or confidence, malformed or duplicate profile, invalid selector, removed-option rejection, and out-of-range rule ID paths behave as the contract states, with configuration errors exiting 2 before any network call.
