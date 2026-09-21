@@ -237,6 +237,59 @@ is about. A visual on every noun is clutter, not coverage - whether a
 span earns one is your judgement, not a quota, and the engine states no
 count either way.
 
+## A graphic may depict its subject, not restate the sentence
+
+The layer's job is to show what the captions and the picture do not.
+A graphic that restates a sentence the captions are already showing
+earns nothing - two renderings of one sentence is clutter, not
+emphasis. The roster says this on `title_lockup`'s own `never` column
+(a title must distill, never transcribe) and the collision rule under
+Rules gives it teeth. The positive half is yours to choose: where the
+speech states a magnitude, a count, a comparison or a sequence, draw
+the THING - bars at proportional length, a figure that moves, a
+position in a declared sequence - rather than the words that said it.
+
+### Which payloads you may state from the speech
+
+The `data` axis's `resolved_against` line reads as though every
+payload is somebody else's to measure. For the depicting elements it
+is yours to state, from the words in `timeline_context_toon`:
+
+- `comparison_bars`: the labelled magnitudes, where the speech states
+  both sides of a comparison. Labels go in `copy`, magnitudes in
+  `data.values`.
+- `counter_roll`: the start and end of a stated change, in
+  `data.start_value` / `data.end_value`. The change must be stated -
+  growth, a countdown, an elapsed quantity.
+- `review_panel`: the score, the count and the rows the speech points
+  at, in `data.rating` / `data.count` / `data.rows`, plus the palette
+  of the place they were written on in `data.palette`. Drawn, never
+  fetched: the engine never reads the web, so what is on the card is
+  what you state.
+- `step_counter`: the position and the total of a sequence the piece
+  genuinely declares, in `data.position` / `data.total`.
+- `pointer_annotation`: where in the frame the visible referent sits,
+  as a plan-side declaration in `data`. It must be visible in the
+  shot it is drawn over.
+
+What you may NOT state: a per-frame track for `tracked_label`
+(nothing measures one for this layer - such an entry is dropped); a
+page capture or a mark file for `website_panel` / `channel_bug`
+(the file is the project's, out of `brand_assets/`, or the entry is
+dropped).
+
+### Two payload shapes that drop the entry
+
+- Equal pairs. `data.values` of [3,3], or a roll from 5 to 5, means
+  nothing as a comparison and violates the roster's own `never`
+  rules. Such an entry is dropped by name
+  (`data_states_no_difference` in
+  `library/tools/motion_graphics_plan.py`).
+- Data no element draws. `data` on an entry whose element declares no
+  `data` axis - every copy element - reaches no node in the
+  composition. Such an entry is dropped by name
+  (`data_no_element_draws`).
+
 ## Rules
 
 - How many graphics this video gets is a creative decision, not a quota.
@@ -261,6 +314,11 @@ count either way.
 - An element whose roster entry declares the `asset` axis must name a file the
   project really has. No file, or a file that is not on disk, and the entry is
   dropped rather than drawn as an empty box.
+- `data` belongs on an element whose roster axes include `data`, and a
+  payload whose values are all equal states no relation and no change.
+  Both drop the entry by name - `data_no_element_draws` and
+  `data_states_no_difference` in
+  `library/tools/motion_graphics_plan.py` - rather than drawing junk.
 - Keep every element inside the safe area. `motion_graphics_frame.safe_area_px`
   is the platform's keep-clear band, and the anchors already respect it. If
   `motion_graphics_frame` says the frame is unknown, the delivery format was
@@ -280,6 +338,8 @@ both timings:
   "anchor": "one of motion_graphics_frame.anchors",
   "row": 0,
   "copy": {"display": "...", "supporting": "...", "micro": "..."},
+  "data": {"values": [...]},
+  "asset": "a file in the project's brand_assets/",
   "color": "#RRGGBB",
   "colour_role": "text | outline | accent",
   "entrance": "cut | fade | slide | scale | mask | draw | blur | typewriter | glitch | flip",
@@ -299,6 +359,8 @@ both timings:
   "anchor": "one of motion_graphics_frame.anchors",
   "row": 0,
   "copy": {"display": "...", "supporting": "...", "micro": "..."},
+  "data": {"values": [...]},
+  "asset": "a file in the project's brand_assets/",
   "color": "#RRGGBB",
   "colour_role": "text | outline | accent",
   "entrance": "cut | fade | slide | scale | mask | draw | blur | typewriter | glitch | flip",
@@ -309,8 +371,31 @@ both timings:
 }
 ```
 
-`copy` is omitted for an element the roster marks `copy: none`. `footprint`
+`data` is carried only by an element whose roster axes include `data`,
+and `asset` only by one that declares `asset` (`channel_bug`,
+`website_panel`). Both are omitted otherwise. `copy` is omitted for an
+element the roster marks `copy: none`. `footprint`
 and `emphasis` are optional; omit them and the element is drawn as the
 composition draws it, which is not a size anybody chose for this video.
+
+A depicting entry, in full - the bars are the argument, the labels
+only say what they are:
+
+```json
+{
+  "element": "comparison_bars",
+  "subject": "the cost gap between paid ads and organic reach",
+  "anchor_phrase": "three times what we spent",
+  "hold_seconds": 3.0,
+  "anchor": "centre",
+  "row": 0,
+  "copy": {"display": "AD SPEND", "supporting": "ORGANIC"},
+  "data": {"values": [3000, 1000]},
+  "color": "#RRGGBB",
+  "entrance": "slide",
+  "exit": "fade",
+  "why": "the speech compares two quantities and the relation is the point - a ratio is hard to hear and immediate to see"
+}
+```
 
 <!-- OUTPUT_SCHEMA: auto-injected from manifest.json -->

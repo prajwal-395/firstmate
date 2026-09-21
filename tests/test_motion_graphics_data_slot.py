@@ -1,0 +1,200 @@
+"""The answer schema carries `data` and `asset`, and junk payloads are refused.
+
+Captain's intent 2026-09-21 (the cheap half of
+vep-motion-graphics-are-type-not-graphics): the answer schema handed to
+the motion-graphics planner enumerates an entry's fields as
+element/anchor/row/copy/color-or-colour_role/entrance/exit/why. `data`
+and `asset` are not in that list, and the seven roster elements that
+draw a THING rather than words carry their content in exactly those two
+fields. Measured consequence: comparison_bars, counter_roll,
+digit_counter, pointer_annotation, step_counter, website_panel and
+channel_bug were proposed ZERO times each across all 145 entries ever
+planned.
+
+The proof lane (vep-mg-schema-data-slot-proof) showed the slot alone
+invites junk: equal-pair payloads ([3,3], [5,5]) that mean nothing as
+comparisons, and `data` copied onto entries whose element never draws
+it. So the schema surface AND the two refusals are pinned here
+together: a planner CAN choose a depicting element, and the two junk
+shapes are dropped by name.
+"""
+
+import json
+import os
+import re
+from types import SimpleNamespace
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+from library.tools import motion_graphics_plan as mgp
+from library.tools import reel_semantic_visual as sem_vis
+
+HANDOFF = os.path.join(
+    PROJECT_ROOT, "library", "steps", "step_4_06_render_motion_graphics",
+    "handoff.md")
+MANIFEST = os.path.join(
+    PROJECT_ROOT, "library", "steps", "step_4_06_render_motion_graphics",
+    "manifest.json")
+
+FPS = 30
+DURATION = 12.0
+
+
+def _entry(**kw):
+    base = {
+        "element": "title_lockup",
+        "start_seconds": 0.5,
+        "duration_seconds": 2.0,
+        "anchor": "top_left",
+        "copy": {"display": "A NAME"},
+        "color": "#F5F5F0",
+    }
+    base.update(kw)
+    return base
+
+
+def _resolve(plan):
+    return mgp.resolve_plan(plan, timeline_duration=DURATION, fps=FPS,
+                            palette_roles={})
+
+
+def _bars(values):
+    return _entry(
+        element="comparison_bars", anchor="centre",
+        copy={"display": "THIS YEAR", "supporting": "LAST YEAR"},
+        data={"values": list(values)})
+
+
+def _roll(start, end):
+    return _entry(
+        element="counter_roll", anchor="centre",
+        copy={"display": "SIGNUPS"},
+        data={"start_value": start, "end_value": end})
+
+
+# ── the schema surface: data and asset exist wherever a planner learns
+# what an entry may contain ────────────────────────────────────────────
+
+def test_manifest_llm_outputs_names_data_and_asset():
+    with open(MANIFEST, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    outputs = manifest["interface"]["llm_outputs"]
+    plan = next(o for o in outputs if o["name"] == "motion_graphics_plan")
+    assert "data" in plan["description"]
+    assert "asset" in plan["description"]
+
+
+def _answer_blocks():
+    with open(HANDOFF, encoding="utf-8") as handle:
+        text = handle.read()
+    start = text.index("## Your answer")
+    return re.findall(r"```json(.*?)```", text[start:], re.S)
+
+
+def test_handoff_answer_examples_carry_data_and_asset_slots():
+    blocks = _answer_blocks()
+    assert blocks, "no worked examples under 'Your answer'"
+    joined = "\n".join(blocks)
+    assert '"data"' in joined
+    assert '"asset"' in joined
+
+
+def test_handoff_shows_a_worked_depicting_example():
+    """At least one example is a depicting element, not a copy element.
+
+    Every example today is a copy element, which is part of why every
+    answer is one. A planner that has never SEEN a comparison_bars
+    entry with a data payload does not write one.
+    """
+    blocks = _answer_blocks()
+    assert any("comparison_bars" in block and '"data"' in block
+               for block in blocks), (
+        "no worked example plans a depicting element with a data payload")
+
+
+def _moment():
+    return SimpleNamespace(
+        number=9,
+        timeline_name="Reel 09 - plays with his mind",
+        timeline_start=10.0, timeline_end=18.0)
+
+
+def _transcript():
+    return {"segments": [
+        {"timeline_start": 10.0, "timeline_end": 14.0,
+         "resolve_item_id": "item1", "source_file": "clip_a.mov",
+         "source_start": 100.0, "source_end": 104.0,
+         "words": [
+             {"word": "he", "start": 10.5, "end": 10.7, "timed": True},
+             {"word": "plays", "start": 11.0, "end": 11.4, "timed": True},
+             {"word": "mind", "start": 12.5, "end": 13.0,
+              "timed": True}]},
+        {"timeline_start": 14.0, "timeline_end": 18.0,
+         "resolve_item_id": "item2", "source_file": "clip_a.mov",
+         "source_start": 104.0, "source_end": 108.0,
+         "words": [
+             {"word": "again", "start": 14.2, "end": 14.6,
+              "timed": True}]}]}
+
+
+def test_reel_expected_schema_names_data_and_asset(tmp_path):
+    project = str(tmp_path / "proj")
+    os.makedirs(os.path.join(project, "pipeline_output", "review"))
+    path = sem_vis.write_request(
+        _moment(), _transcript(), [(10.0, 18.0)], project, FPS)
+    with open(path, encoding="utf-8") as handle:
+        request = json.load(handle)
+    assert "data" in request["expected_schema"]
+    assert "asset" in request["expected_schema"]
+
+
+# ── the refusals: the proof lane's two junk shapes ────────────────────
+
+def test_equal_pair_bars_are_dropped_by_name():
+    """[3,3] means nothing as a comparison and violates the roster's own
+    `never` rules. Dropped, not drawn as two identical bars."""
+    resolved = _resolve([_bars([3, 3])])
+    assert not resolved.moments
+    (dropped,) = resolved.dropped
+    assert dropped.reason in mgp.DROP_REASONS
+
+
+def test_a_roll_that_goes_nowhere_is_dropped_by_name():
+    """A counter_roll whose start is its end is a static figure with
+    animation for its own sake - the roster names stat_callout for that."""
+    resolved = _resolve([_roll(5, 5)])
+    assert not resolved.moments
+    (dropped,) = resolved.dropped
+    assert dropped.reason in mgp.DROP_REASONS
+
+
+def test_data_on_an_element_that_draws_none_is_dropped_by_name():
+    """A copy element carrying `data` is the proof lane's copy-everywhere
+    shape: the payload reaches no node in the composition and would
+    otherwise travel silently on the moment."""
+    resolved = _resolve([_entry(data={"values": [3, 9]})])
+    assert not resolved.moments
+    (dropped,) = resolved.dropped
+    assert dropped.reason in mgp.DROP_REASONS
+
+
+# ── the licence survives: real depicting payloads still resolve ───────
+
+def test_distinct_bars_resolve_and_carry_their_payload():
+    resolved = _resolve([_bars([3, 9])])
+    assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
+    (moment,) = resolved.moments
+    assert moment["data"] == {"values": [3, 9]}
+
+
+def test_a_roll_with_a_real_change_resolves():
+    resolved = _resolve([_roll(0, 100)])
+    assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
+    assert resolved.moments[0]["data"] == {
+        "start_value": 0, "end_value": 100}
+
+
+def test_a_copy_entry_without_data_is_untouched():
+    resolved = _resolve([_entry()])
+    assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
+    assert resolved.moments[0]["data"] == {}

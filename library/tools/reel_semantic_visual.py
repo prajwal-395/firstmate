@@ -293,9 +293,15 @@ def write_request(moment, transcript: dict, ranges, project_folder: str,
             '"hold_seconds": 2.0, '
             '"anchor": "one of motion_graphics_frame.anchors", '
             '"row": 0, "copy": {"display": "..."}, '
+            '"data": {"values": [3, 9]} on an element whose roster '
+            'axes include data, omitted otherwise, '
+            '"asset": "a file in the project brand_assets/ on an '
+            'element whose axes include asset, omitted otherwise", '
             '"color": "#RRGGBB", "why": "..."}]}. '
             'An empty list plans no visuals. Quote anchor_phrase ONLY '
-            'from words the timeline_context_toon table shows.'),
+            'from words the timeline_context_toon table shows. A data '
+            'payload whose values are all equal, or data on an element '
+            'that draws none, drops the entry by name.'),
         "project_folder": project_folder,
         "timestamp": datetime.datetime.now(
             datetime.timezone.utc).isoformat(),

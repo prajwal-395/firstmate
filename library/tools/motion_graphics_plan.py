@@ -243,6 +243,22 @@ DROP_REASONS: Dict[str, str] = {
         "review, a palette - and the engine supplies none of them "
         "(AGENTS.md 10.5)."
     ),
+    "data_no_element_draws": (
+        "The entry carries a `data` payload and its element's roster "
+        "axes do not include `data`. No node in the composition reads "
+        "it, so it would travel silently on the moment and change "
+        "nothing on screen. A payload belongs on an element that draws "
+        "it, or nowhere."
+    ),
+    "data_states_no_difference": (
+        "The payload's values are all equal, so the drawing would show "
+        "no relation and no change: identical bars are not a "
+        "comparison, and a roll from a value to itself is a static "
+        "figure with animation for its own sake. The roster refuses "
+        "both shapes in prose - comparison_bars must be comparable "
+        "magnitudes, counter_roll only where the change is the point - "
+        "and this is that refusal with teeth."
+    ),
 }
 
 #: Elements whose `data` payload IS their content, and the callable that
@@ -519,6 +535,53 @@ def _number(raw) -> Optional[float]:
 
 def _text(raw) -> str:
     return str(raw).strip() if isinstance(raw, (str, int, float)) else ""
+
+
+def _payload_number(raw) -> Optional[float]:
+    """A numeric payload value, or None. Booleans are not magnitudes."""
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    return None
+
+
+def _data_states_no_difference(key: str, data: Any) -> str:
+    """Why a depicting payload draws no relation and no change, or `""`.
+
+    The proof lane for the `data` slot (2026-09-21) found the model
+    inventing equal-pair payloads - [3,3], [5,5] - which mean nothing as
+    comparisons and violate the roster's own `never` rules. Asked only
+    of the two elements whose drawing IS a relation or a change:
+    comparison_bars (labelled magnitudes at proportional length) and
+    counter_roll (a figure animating from one value to another).
+    Anything else carrying `data` - step_counter, pointer_annotation,
+    review_panel, digit_counter - is read on its own terms elsewhere,
+    and a position equalling its total is a real state (the last step),
+    not an empty one.
+    """
+    if not isinstance(data, dict):
+        return ""
+    if key == "comparison_bars":
+        values = data.get("values")
+        if not isinstance(values, list):
+            return ""
+        magnitudes = [_payload_number(v) for v in values]
+        magnitudes = [m for m in magnitudes if m is not None]
+        if len(magnitudes) >= 2 and len(set(magnitudes)) < 2:
+            return (f"`data.values` states {len(magnitudes)} magnitudes "
+                    f"and all are {magnitudes[0]}. Identical bars are "
+                    f"not a comparison the speech made.")
+        return ""
+    if key == "counter_roll":
+        start = _payload_number(data.get("start_value"))
+        end = _payload_number(data.get("end_value"))
+        if start is not None and end is not None and start == end:
+            return (f"`data` rolls from {start} to {end}. A figure that "
+                    f"does not change is stat_callout's entry, not a "
+                    f"roll.")
+        return ""
+    return ""
 
 
 def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
@@ -814,6 +877,22 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
             if why:
                 drop(entry, key, "data_the_element_draws_from_is_absent", why)
                 continue
+
+        # A payload no node draws, and a payload that draws nothing.
+        # Asked before the colour for the same reason: neither is a
+        # colour question. An empty `data` is no payload at all - a
+        # planner echoing the slot with `{}` refuses nothing.
+        data_payload = entry.get("data")
+        if data_payload and "data" not in element.axes:
+            drop(entry, key, "data_no_element_draws",
+                 f"{key!r} declares no `data` axis "
+                 f"({', '.join(element.axes)}), so the payload reaches "
+                 f"no node in the composition")
+            continue
+        no_difference = _data_states_no_difference(key, data_payload)
+        if no_difference:
+            drop(entry, key, "data_states_no_difference", no_difference)
+            continue
 
         colour, colour_basis = resolve_colour(
             entry, palette_roles, palette_source)
