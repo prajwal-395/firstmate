@@ -206,7 +206,13 @@ EOF
     "an unclaimed actionable result never reached the wake queue"
 
   : > "$home/state/.wake-queue"
-  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='MISSING: some-tool (install: brew install some-tool)' \
+  # A deliberately DIFFERENT finding from the one the manual run above already
+  # announced: identical reports are announced exactly once per content (see
+  # test_one_completed_result_produces_exactly_one_row_across_a_restart), so
+  # reusing the same output here would assert the old duplicate, not the dead
+  # claim. What this segment owns is that a dead session's stale claim does not
+  # swallow a NEW actionable result.
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='MISSING: dead-claim-tool (install: brew install dead-claim-tool)' \
     run_stage "$home" "$root" start --locked 0 --harvest-pid 999999999
   run_stage "$home" "$root" wait 30 >/dev/null || fail "the dead-claim worker never published"
   wait_for_startup_network_wake "$home" || fail "the dead-claim worker never settled delivery"
@@ -343,6 +349,58 @@ EOF
     "an actionable result did not reach the wake queue"
 
   pass "fm-startup-network: an actionable state=done report still queues a wake"
+}
+
+# Input: one static actionable bootstrap report, published twice via
+# `run --locked 0` with a drain plus acknowledgement between - the shape of a
+# restart re-deriving the identical deferred result a day later. Invocation is
+# the two publications below. It fails (a second row, sequence 2) when the
+# wake path announces without consulting what it already announced, which is
+# exactly the pre-fix behavior; the changed-report tail proves the same test
+# still wakes for genuinely new content, so it cannot pass by never waking.
+test_one_completed_result_produces_exactly_one_row_across_a_restart() {
+  local rec home root log seq generation err last_seq
+  rec=$(new_world restart-dedup)
+  IFS='|' read -r home root log <<EOF
+$rec
+EOF
+  queued_rows() { grep -c $'check\tstartup-network' "$home/state/.wake-queue" 2>/dev/null || true; }
+
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='MISSING: some-tool (install: brew install some-tool)' \
+    run_stage "$home" "$root" run --locked 0
+  [ "$(queued_rows)" -eq 1 ] \
+    || fail "the first completed actionable result queued $(queued_rows) rows, want exactly 1"
+
+  err="$home/drain.err"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" >/dev/null 2> "$err"
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  [ -n "$seq" ] && [ -n "$generation" ] \
+    || fail "the first announcement could not be acknowledged"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" \
+    --ack-through "$seq" --recovery-generation "$generation" >/dev/null
+
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='MISSING: some-tool (install: brew install some-tool)' \
+    run_stage "$home" "$root" run --locked 0
+  [ "$(queued_rows)" -eq 0 ] \
+    || fail "the identical result re-derived across a restart queued a second row"
+  last_seq=$(cat "$home/state/.wake-queue.seq" 2>/dev/null || printf '0')
+  [ "$last_seq" -eq 1 ] \
+    || fail "the identical result appended a second durable row (sequence $last_seq)"
+
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='MISSING: other-tool (install: brew install other-tool)' \
+    run_stage "$home" "$root" run --locked 0
+  [ "$(queued_rows)" -eq 1 ] \
+    || fail "a changed report did not wake again (queued $(queued_rows) rows)"
+  last_seq=$(cat "$home/state/.wake-queue.seq" 2>/dev/null || printf '0')
+  [ "$last_seq" -eq 2 ] \
+    || fail "a changed report did not append its announcement (sequence $last_seq)"
+
+  FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_OUT='MISSING: other-tool (install: brew install other-tool)' \
+    run_stage "$home" "$root" run --locked 0
+  [ "$(queued_rows)" -eq 1 ] \
+    || fail "a repeat publication while its row was still queued appended a duplicate"
+  pass "fm-startup-network: one completed result produces exactly one row across a restart"
 }
 
 test_deferred_invalid_secondmate_markers_queue_durable_findings() {
@@ -766,6 +824,7 @@ test_a_claimant_crash_after_publish_still_queues_the_wake
 test_a_report_publication_failure_is_failed_and_still_wakes
 test_a_successful_result_never_queues_a_wake
 test_an_actionable_successful_result_still_queues_a_wake
+test_one_completed_result_produces_exactly_one_row_across_a_restart
 test_deferred_invalid_secondmate_markers_queue_durable_findings
 test_mutating_sweeps_are_refused_when_the_lock_changed_hands
 test_the_stage_bound_is_reported_not_swallowed

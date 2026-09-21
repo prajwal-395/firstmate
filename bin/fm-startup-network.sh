@@ -34,10 +34,14 @@
 #     other than its explicit BOOTSTRAP_INFO no-action record;
 #     report_requires_wake owns that transport test). A late-finishing clean run is not captain-facing progress
 #     (AGENTS.md section 8) and never becomes a wake row; it is still durable
-#     in the report file for `... report` to read on demand. Only a durable
-#     acknowledgement written after harvest prints the finished result
-#     suppresses the wake, so a claimant that exits first cannot lose the
-#     result. While the worker is still running the digest states by name what
+#     in the report file for `... report` to read on demand. A finished result
+#     is announced exactly once per report content: harvest printing it inline
+#     records a durable acknowledgement that suppresses its wake, and either
+#     announcement channel records the report hash, so a later generation that
+#     re-derives the identical report (a persistent finding across a restart)
+#     queues no second row - only a changed report wakes again. A claimant that
+#     exits first therefore cannot lose the result, and a result that arrives
+#     late cannot be announced twice. While the worker is still running the digest states by name what
 #     is not yet confirmed.
 #   - Mutation authority is leased. The worker outlives the command that launched
 #     it, so it takes the same acquisition lease a new session must hold before
@@ -90,6 +94,15 @@
 #                             a durable acknowledgement that harvest printed the
 #                             current finished result; only this suppresses its
 #                             wake.
+#   .startup-network.announced
+#                             the hash of the last published report that was
+#                             announced through either channel - a queued
+#                             `check: startup-network` wake row, or harvest
+#                             printing the finished result inline. A later
+#                             generation that re-derives the identical report
+#                             (for example a persistent finding across a
+#                             restart) announces nothing new, so it queues no
+#                             second row; only a changed report wakes again.
 #   .startup-network.timings  per-step elapsed times for the last run, in
 #                             bin/fm-timing-lib.sh's tab-separated format: the
 #                             stage total, one record per network phase (gh auth,
@@ -118,6 +131,7 @@ STATUS_FILE="$STATE/.startup-network.status"
 REPORT_FILE="$STATE/.startup-network.report"
 CLAIM_FILE="$STATE/.startup-network.claim"
 DELIVERED_FILE="$STATE/.startup-network.delivered"
+ANNOUNCED_FILE="$STATE/.startup-network.announced"
 TIMINGS_FILE="$STATE/.startup-network.timings"
 PUBLISH_LOCK="$STATE/.startup-network.lock"
 
@@ -329,6 +343,67 @@ report_requires_wake() {  # <state>
     "$REPORT_FILE" 2>/dev/null
 }
 
+# The published report hashed for announcement dedup. Empty when the report is
+# missing or unreadable; callers treat that as "cannot dedup by content" and
+# fall back to the queued-key check, so an undeterminable hash wakes rather
+# than risks losing a finding.
+report_hash() {
+  [ -f "$REPORT_FILE" ] && [ ! -L "$REPORT_FILE" ] || return 0
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$REPORT_FILE" 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$REPORT_FILE" 2>/dev/null | awk '{print $1}'
+  else
+    cksum "$REPORT_FILE" 2>/dev/null | awk '{print $1":"$2}'
+  fi
+}
+
+announced_hash() {
+  [ -f "$ANNOUNCED_FILE" ] && [ ! -L "$ANNOUNCED_FILE" ] || return 0
+  sed -n '1p' "$ANNOUNCED_FILE" 2>/dev/null | tr -d '\r\n '
+}
+
+record_announced() {  # <hash> - remember that this report content was announced
+  local hash=$1
+  [ -n "$hash" ] || return 0
+  printf '%s\n' "$hash" | write_atomic "$ANNOUNCED_FILE" || true
+}
+
+# Queue the `check: startup-network` wake for a finished generation exactly
+# once per report content. Must be called holding PUBLISH_LOCK, like the rest
+# of await_delivery; it takes FM_WAKE_QUEUE_LOCK briefly inside, which keeps
+# the established PUBLISH-then-QUEUE order the previous inline append used,
+# and an order the drain never inverts (it never takes PUBLISH_LOCK).
+#
+# Three suppressions, each closing a different duplicate:
+#   - DELIVERED exists: harvest already printed this generation inline. Checked
+#     by the caller before reaching here.
+#   - the key is already queued: an earlier generation's row is still awaiting
+#     handling, and the row is a pointer at the on-demand report, so it already
+#     delivers whatever the current report says. The current hash is still
+#     recorded, so draining that row counts as having announced it.
+#   - the hash matches the last announced report: the identical result was
+#     already announced (as a now-drained row, or inline by an earlier
+#     harvest) and re-deriving it across a restart is not news. Only a changed
+#     report - a fixed-then-rebroken finding, a new diagnostic - wakes again.
+maybe_queue_startup_wake() {  # <state>
+  local state=$1 hash announced
+  report_requires_wake "$state" || return 0
+  hash=$(report_hash)
+  if fm_wake_queued_keys check 2>/dev/null | grep -Fxq startup-network; then
+    record_announced "$hash"
+    return 0
+  fi
+  announced=$(announced_hash)
+  if [ -n "$hash" ] && [ -n "$announced" ] && [ "$hash" = "$announced" ]; then
+    return 0
+  fi
+  fm_wake_append check startup-network \
+    "check: startup-network: deferred startup network checks finished ($state); read them with $FM_ROOT/bin/fm-startup-network.sh report" \
+    || return 0
+  record_announced "$hash"
+}
+
 await_delivery() {  # <generation> <state>
   local generation=$1 state=$2 limit waited=0 claim_record claim_generation claim_pid claim_live
   limit=$(( $(delivery_budget) * 10 ))
@@ -357,11 +432,7 @@ EOF
       [ "$claim_live" -eq 1 ] || rm -f "$CLAIM_FILE" 2>/dev/null || true
     fi
     if [ "$claim_live" -eq 0 ]; then
-      if report_requires_wake "$state"; then
-        fm_wake_append check startup-network \
-          "check: startup-network: deferred startup network checks finished ($state); read them with $FM_ROOT/bin/fm-startup-network.sh report" \
-          || true
-      fi
+      maybe_queue_startup_wake "$state"
       fm_lock_release "$PUBLISH_LOCK"
       return 0
     fi
@@ -374,11 +445,7 @@ EOF
     fm_lock_release "$PUBLISH_LOCK"
     return 0
   fi
-  if report_requires_wake "$state"; then
-    fm_wake_append check startup-network \
-      "check: startup-network: deferred startup network checks finished ($state); read them with $FM_ROOT/bin/fm-startup-network.sh report" \
-      || true
-  fi
+  maybe_queue_startup_wake "$state"
   fm_lock_release "$PUBLISH_LOCK"
 }
 
@@ -609,9 +676,16 @@ EOF
   state=$(status_get state)
   print_state
   case "$state" in
-    done|timeout|failed) [ "$(status_get report_published)" = 0 ] || write_atomic "$DELIVERED_FILE" <<EOF || true
+    done|timeout|failed)
+      if [ "$(status_get report_published)" != 0 ] && write_atomic "$DELIVERED_FILE" <<EOF
 delivered
 EOF
+      then
+        # The digest just printed this finished result inline, which announces
+        # it exactly as a wake row would: a later generation re-deriving the
+        # identical report must not queue a second announcement for it.
+        record_announced "$(report_hash)"
+      fi
       ;;
   esac
   fm_lock_release "$PUBLISH_LOCK"
