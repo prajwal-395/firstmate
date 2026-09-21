@@ -38,8 +38,9 @@
 #      says the evidence was unbound.
 #  11. The gate sits on the ordinary dispatch path: a real bin/fm-spawn.sh
 #      launch with a proven free cap carries the Go model id, and a real
-#      launch with no model at all carries the free id - pinned through a
-#      fake tmux pane, so no real harness ever starts.
+#      launch with no model at all carries the free id - pinned to the tmux
+#      transport with the herdr binary refused, so no real backend is ever
+#      reached.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -296,9 +297,17 @@ test_unbound_cap_falls_through() {
 # --- 11. the dispatch path ------------------------------------------------------
 #
 # A real bin/fm-spawn.sh launch with a fake tmux pane, so the assertions pin
-# the command firstmate would run without starting any real harness.
+# the command firstmate would run without starting any real harness. The fleet
+# runs on herdr now, so a tmux stub alone no longer covers the backend a real
+# spawn resolves: ambient FM_BACKEND=herdr wins over TMUX in fm_backend_name,
+# and HERDR_ENV=1 wins when TMUX is unset, and either route reached the real
+# herdr binary and minted workspaces in the live session. The fakebin below
+# therefore refuses `herdr` outright - a herdr-routed spawn fails loudly here
+# instead of leaking a workspace - and the spawn env pins FM_BACKEND=tmux, the
+# same pin the harness suites carry. Refusal is structural: it holds when the
+# test aborts mid-run, where a teardown cleanup would not.
 
-spawn_fakebin() {  # <dir> -> fakebin with tmux/treehouse/timeout stubs
+spawn_fakebin() {  # <dir> -> fakebin with tmux/treehouse/timeout stubs, herdr refused
   local fakebin
   fakebin=$(fm_fakebin "$1")
   cat > "$fakebin/tmux" <<'SH'
@@ -350,11 +359,26 @@ shift
 exec "$@"
 SH
   chmod +x "$fakebin/timeout"
+  # The fleet's live backend is herdr, so the real `herdr` binary must never be
+  # reached no matter which backend a spawn resolves. This stub refuses loudly
+  # and records the attempt: a herdr-routed spawn fails the test instead of
+  # minting a workspace in the live session, including on an aborted run where
+  # no teardown ever executes.
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ -n "${FM_FAKE_HERDR_CALL_LOG:-}" ]; then
+  printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CALL_LOG"
+fi
+echo "fm-opencode-ladder fixture: real herdr must never be reached" >&2
+exit 1
+SH
+  chmod +x "$fakebin/herdr"
   printf '%s\n' "$fakebin"
 }
 
 # spawn_opencode <dir> <id> [model]: a REAL bin/fm-spawn.sh opencode launch.
-# Prints "<launch-log> <home>". Model empty means no --model flag at all.
+# Prints "<launch-log> <herdr-call-log> <home>". Model empty means no --model flag at all.
 spawn_opencode() {  # <dir> <id> [model]
   local dir=$1 id=$2 model=${3:-} home proj wt fakebin
   home="$dir/home"
@@ -374,6 +398,7 @@ spawn_opencode() {  # <dir> <id> [model]
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
+      FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
       "$SPAWN" "$id" "$proj" \
       --harness opencode --model "$model" --mode no-mistakes --yolo off >/dev/null 2>&1
   else
@@ -381,19 +406,22 @@ spawn_opencode() {  # <dir> <id> [model]
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
+      FM_BACKEND=tmux FM_FAKE_HERDR_CALL_LOG="$dir/herdr-calls.log" \
       "$SPAWN" "$id" "$proj" \
       --harness opencode --mode no-mistakes --yolo off >/dev/null 2>&1
   fi
-  printf '%s %s\n' "$dir/launch.log" "$home"
+  printf '%s %s %s\n' "$dir/launch.log" "$dir/herdr-calls.log" "$home"
 }
 
 test_spawn_falls_through_on_proven_cap() {
-  local dir="$TMP_ROOT/spawn-go" log home launch log_home
+  local dir="$TMP_ROOT/spawn-go" log herdr_calls home launch log_home
   mkdir -p "$dir/home/state"
   "$HELPER" record "$dir/home/state" lane1 3 "$(ms_from_now 78840)" "$FREE" "ses_lane1" \
     || fail "record refused fixture"
   log_home=$(spawn_opencode "$dir" task-go "$FREE")
-  log=${log_home%% *}; home=${log_home#* }
+  log=${log_home%% *}; log_home=${log_home#* }
+  herdr_calls=${log_home%% *}; home=${log_home#* }
+  assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
   launch=$(cat "$log")
   assert_contains "$launch" "$GO" "a proven free cap routes the real launch to Go"
@@ -403,10 +431,12 @@ test_spawn_falls_through_on_proven_cap() {
 }
 
 test_spawn_defaults_to_free() {
-  local dir="$TMP_ROOT/spawn-free" log home launch log_home
+  local dir="$TMP_ROOT/spawn-free" log herdr_calls home launch log_home
   mkdir -p "$dir"
   log_home=$(spawn_opencode "$dir" task-free)
-  log=${log_home%% *}; home=${log_home#* }
+  log=${log_home%% *}; log_home=${log_home#* }
+  herdr_calls=${log_home%% *}; home=${log_home#* }
+  assert_absent "$herdr_calls" "the spawn must never reach the herdr binary"
   [ -f "$log" ] || fail "spawn wrote no launch command"
   launch=$(cat "$log")
   assert_contains "$launch" "$FREE" "a modelless opencode spawn carries the free id"
