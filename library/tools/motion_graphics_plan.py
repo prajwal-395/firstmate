@@ -546,6 +546,31 @@ def _payload_number(raw) -> Optional[float]:
     return None
 
 
+def _data_is_drawn_without_an_axis(key: str, data: Any) -> bool:
+    """Whether a `data` payload on an element with no `data` axis is
+    still drawn, because the composition reads it.
+
+    The one case is `lower_third`'s staged construction: the
+    composition's `lower_third` arm reads `data.construction` (and
+    `mg_tight_box` sizes the same key), so the payload selects which
+    of the arm's two drawings reaches the frame. That directive is
+    written by the deterministic speaker path
+    (`speaker_identity.entry_for`) - no model prompt names the key, so
+    a payload carrying it did not come from the bare `data` slot the
+    `data_no_element_draws` drop was written for (2026-09-21, PR
+    #1258), which dropped every speaker card the night it landed.
+
+    Presence, not shape: the engine may add keys to its own directive
+    (`truncated_for_next` arrived after `construction`) and a subset
+    list would drop the card again the day it does. A payload carrying
+    the directive alongside depicting magnitudes keeps both - no
+    producer writes that shape, and refusing half a payload is
+    rewriting, not refusing.
+    """
+    return (key == "lower_third" and isinstance(data, dict)
+            and data.get("construction") == "staged_rule")
+
+
 def _data_states_no_difference(key: str, data: Any) -> str:
     """Why a depicting payload draws no relation and no change, or `""`.
 
@@ -881,9 +906,14 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
         # A payload no node draws, and a payload that draws nothing.
         # Asked before the colour for the same reason: neither is a
         # colour question. An empty `data` is no payload at all - a
-        # planner echoing the slot with `{}` refuses nothing.
+        # planner echoing the slot with `{}` refuses nothing. And a
+        # `lower_third` carrying the staged-construction directive is
+        # drawn despite declaring no `data` axis - the composition's
+        # own arm reads it - so it never reaches this drop.
         data_payload = entry.get("data")
-        if data_payload and "data" not in element.axes:
+        if (data_payload and "data" not in element.axes
+                and not _data_is_drawn_without_an_axis(key,
+                                                       data_payload)):
             drop(entry, key, "data_no_element_draws",
                  f"{key!r} declares no `data` axis "
                  f"({', '.join(element.axes)}), so the payload reaches "

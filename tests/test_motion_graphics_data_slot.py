@@ -178,7 +178,50 @@ def test_data_on_an_element_that_draws_none_is_dropped_by_name():
     assert dropped.reason in mgp.DROP_REASONS
 
 
-# ── the licence survives: real depicting payloads still resolve ───────
+# ── the exception: the engine's own lower-third directive ──────────
+
+def _lower_third(**kw):
+    base = _entry(
+        element="lower_third", anchor="bottom_left",
+        copy={"display": "ADA LOVELACE", "supporting": "Analyst"},
+        color="#11FFAA",
+        data={"construction": "staged_rule",
+              "speaker": "Ada",
+              "colour_basis": "effect.speaker_lower_thirds"})
+    base.update(kw)
+    return base
+
+
+def test_the_staged_construction_directive_resolves():
+    """PR #1258's `data_no_element_draws` drop read the roster axes as
+    the whole of what the composition draws and dropped every speaker
+    card the night it landed - the only motion graphics the captain
+    kept. `lower_third` declares no `data` axis and correctly so (the
+    axis is a measured payload; the directive is engine-written), but
+    the composition's own arm reads `data.construction`. The entry the
+    deterministic speaker path writes - including the post-truncation
+    shape - resolves and carries its payload."""
+    entry = _lower_third(data={
+        "construction": "staged_rule",
+        "speaker": "Ada",
+        "colour_basis": "effect.speaker_lower_thirds",
+        "truncated_for_next": {"hold_seconds": 3.5,
+                               "duration_seconds": 3.23,
+                               "next_starts_at": 3.23}})
+    resolved = _resolve([entry])
+    assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
+    (moment,) = resolved.moments
+    assert moment["data"]["construction"] == "staged_rule"
+
+
+def test_bare_data_on_a_lower_third_still_drops():
+    """The exemption is the directive, not the element: depicting
+    magnitudes on a `lower_third` reach no node in the composition and
+    still drop by name."""
+    resolved = _resolve([_lower_third(data={"values": [3, 9]})])
+    assert not resolved.moments
+    (dropped,) = resolved.dropped
+    assert dropped.reason == "data_no_element_draws"
 
 def test_distinct_bars_resolve_and_carry_their_payload():
     resolved = _resolve([_bars([3, 9])])

@@ -287,7 +287,9 @@ dropped).
   `library/tools/motion_graphics_plan.py`).
 - Data no element draws. `data` on an entry whose element declares no
   `data` axis - every copy element - reaches no node in the
-  composition. Such an entry is dropped by name
+  composition, with one exception you never author: `lower_third`'s
+  staged-construction directive, which the engine writes and the
+  composition reads. Such an entry is dropped by name
   (`data_no_element_draws`).
 
 ## Rules
@@ -316,6 +318,8 @@ dropped).
   dropped rather than drawn as an empty box.
 - `data` belongs on an element whose roster axes include `data`, and a
   payload whose values are all equal states no relation and no change.
+  (The one `data` you never write is `lower_third`'s
+  staged-construction directive - the engine's, not the plan's.)
   Both drop the entry by name - `data_no_element_draws` and
   `data_states_no_difference` in
   `library/tools/motion_graphics_plan.py` - rather than drawing junk.
@@ -373,7 +377,9 @@ both timings:
 
 `data` is carried only by an element whose roster axes include `data`,
 and `asset` only by one that declares `asset` (`channel_bug`,
-`website_panel`). Both are omitted otherwise. `copy` is omitted for an
+`website_panel`). Both are omitted otherwise - and `lower_third`
+carries no `data` from the plan at all: its staged-construction
+directive is written by the engine, never by this answer. `copy` is omitted for an
 element the roster marks `copy: none`. `footprint`
 and `emphasis` are optional; omit them and the element is drawn as the
 composition draws it, which is not a size anybody chose for this video.
