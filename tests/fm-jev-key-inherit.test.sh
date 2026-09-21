@@ -198,11 +198,13 @@ test_remote_transfer_never_carries_keys() {
 
   home="$TMP_ROOT/remote-receiver"
   mkdir -p "$home/config"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" put .env 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1)
-  [ $? -ne 0 ] || fail "remote receiver accepted a .env path"
+  if out=$(FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" put .env 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1); then
+    fail "remote receiver accepted a .env path"
+  fi
   assert_contains "$out" "not inherited material" "receiver should refuse .env as non-inherited material"
-  out=$(FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" put config/TYPESAFE_API_KEY 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1)
-  [ $? -ne 0 ] || fail "remote receiver accepted a secret key path"
+  if out=$(FM_HOME="$home" "$ROOT/bin/fm-remote-inherit.sh" put config/TYPESAFE_API_KEY 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 1 < /dev/null 2>&1); then
+    fail "remote receiver accepted a secret key path"
+  fi
   assert_contains "$out" "not inherited material" "receiver should refuse keys as non-inherited material"
   pass "remote transfer structurally excludes keys and .env paths"
 }
