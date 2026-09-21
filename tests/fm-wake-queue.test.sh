@@ -1843,18 +1843,23 @@ test_live_presentation_holder_is_deadlined_without_weakening_ack() {
 }
 
 test_malformed_presentation_lock_reports_acquire_failure() {
-  local dir state status out err
+  local dir state status out err second_out second_err
   dir=$(make_case malformed-presentation-lock)
   state="$dir/state"
   status="$state/task.status"
   out="$dir/drain.out"
   err="$dir/drain.err"
+  second_out="$dir/drain-second.out"
+  second_err="$dir/drain-second.err"
 
   printf 'needs-decision [key=fixture]: malformed lock remains retriable\n' > "$status"
   append_wake "$state" signal task.status "signal: $status" \
     || fail "could not seed the malformed-lock wake"
   : > "$state/.status-presentation-lock"
 
+  # The refusal is fail-fast, never a timeout race: a non-lock file at the
+  # lock path is malformed rather than mid-acquire freshness, so this drain
+  # quarantines it aside and refuses the presentation immediately.
   FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
     "$DRAIN" > "$out" 2> "$err" || fail "malformed-lock drain failed"
   grep -F 'wake drain: status presentation lock could not be acquired safely' "$err" >/dev/null \
@@ -1864,6 +1869,19 @@ test_malformed_presentation_lock_reports_acquire_failure() {
   fi
   grep "$(printf '\tsignal\t')" "$out" >/dev/null \
     || fail "malformed presentation lock dropped the durable wake row"
+  if grep -F 'task.status: needs-decision [key=fixture]' "$out" >/dev/null; then
+    fail "refused presentation emitted status content without its cursor lock"
+  fi
+
+  # The refusal is safe: the malformed file is quarantined aside, so the next
+  # drain retries and surfaces the skipped status instead of wedging.
+  FM_STATE_OVERRIDE="$state" FM_STATUS_PRESENTATION_LOCK_TIMEOUT=1 \
+    "$DRAIN" > "$second_out" 2> "$second_err" || fail "presentation retry after quarantine failed"
+  if grep -F 'could not be acquired safely' "$second_err" >/dev/null; then
+    fail "quarantined malformed lock kept failing after its evidence was moved aside"
+  fi
+  grep -F 'task.status: needs-decision [key=fixture]: malformed lock remains retriable' "$second_out" >/dev/null \
+    || fail "the next presentation pass did not surface the skipped status"
   pass "malformed presentation locks report acquire failure instead of contention"
 }
 
