@@ -115,6 +115,56 @@ remote_endpoint_require() {
   remote_endpoint_load "$1" || die "$REMOTE_ENDPOINT_ERROR"
 }
 
+# The executable names a remote-secondmate harness launches, first one primary.
+# Used to name the concrete missing requirement when no agent starts: the
+# bare-name harnesses (claude, codex, opencode, grok) get no resolution inside
+# bin/fm-spawn.sh - the launch command is typed into the pane unchecked - so a
+# host missing the binary reports SUCCESS over the empty pane left behind
+# unless the launch proves an agent below.
+remote_harness_binaries() { # <harness>
+  case "$1" in
+    cursor) printf 'cursor-agent agent\n' ;;
+    kimi) printf 'kimi\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
+}
+
+# Prove an agent process actually started in the fresh endpoint before the
+# launch reports success. A starting agent reads `dead` exactly like one
+# that will never come up, so every non-alive read waits out the start and
+# only the timeout verdict fails: loudly, naming the harness binary that
+# likely never started. The endpoint record stays as a truthful dead
+# endpoint for recovery, while the agent-less pane itself is closed.
+remote_launch_wait_agent() { # <id> <target> <worktree> <harness> <binary>
+  local id=$1 target=$2 worktree=$3 harness=$4 binary=$5
+  local wait waited=0 state=unknown
+  case "${FM_REMOTE_LAUNCH_WAIT:-60}" in
+    ''|*[!0-9]*) wait=60 ;;
+    *) wait=${FM_REMOTE_LAUNCH_WAIT:-60} ;;
+  esac
+  while [ "$waited" -lt "$wait" ]; do
+    state=$(fm_backend_agent_state herdr "$target" "fm-$id" "$worktree" 2>/dev/null || printf 'unreadable\n')
+    case "$state" in alive) return 0 ;; esac
+    sleep 2
+    waited=$((waited + 2))
+  done
+  state=$(fm_backend_agent_state herdr "$target" "fm-$id" "$worktree" 2>/dev/null || printf 'unreadable\n')
+  case "$state" in
+    alive) return 0 ;;
+    missing)
+      die "remote secondmate $id launch failed: its endpoint $target is gone after launch; nothing is coming up there"
+      ;;
+    dead)
+      fm_backend_kill herdr "$target" 2>/dev/null || true
+      die "remote secondmate $id launch failed: no agent started in $target after ${wait}s (endpoint reads 'dead'); the '$binary' command for harness '$harness' likely did not start on this host - install '$binary' there or select a different verified harness"
+      ;;
+    *)
+      fm_backend_kill herdr "$target" 2>/dev/null || true
+      die "remote secondmate $id launch failed: no running agent could be confirmed in $target after ${wait}s (endpoint reads '$state'); check that '$binary' for harness '$harness' starts on this host, or select a different verified harness"
+      ;;
+  esac
+}
+
 state_value() { # <id>; prints recovery-grade state
   local id=$1 meta
   meta=$(meta_path "$id")
@@ -158,7 +208,7 @@ cmd_route() {
 
 cmd_launch() {
   local id=$1 harness=$2 model=$3 effort=$4 selected_backend=$5 traceparent=${6:-}
-  local current meta out herdr_session
+  local current meta out herdr_session launch_binary
 
   validate_id "$id"
   validate_home "$id"
@@ -213,6 +263,13 @@ cmd_launch() {
   herdr_session=$(fm_meta_get "$meta" herdr_session)
   [ "$herdr_session" = "$REMOTE_HERDR_SESSION" ] \
     || die "remote launch recorded Herdr session '${herdr_session:-missing}', expected '$REMOTE_HERDR_SESSION'"
+  # The success line below is a claim that an agent is running, so prove it:
+  # read the fresh endpoint's own state and refuse loudly while it shows none.
+  remote_endpoint_require "$id"
+  launch_binary=$(remote_harness_binaries "$harness")
+  launch_binary=${launch_binary%% *}
+  remote_launch_wait_agent "$id" "$REMOTE_ENDPOINT_TARGET" \
+    "$(fm_meta_get "$REMOTE_ENDPOINT_META" worktree)" "$harness" "$launch_binary"
   print_route "$id"
 }
 

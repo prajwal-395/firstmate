@@ -442,6 +442,7 @@ fm-remote-herdr-guard.test.sh secondmate
 fm-remote-job-orphan-reap.test.sh secondmate
 fm-remote-job.test.sh secondmate
 fm-remote-reply.test.sh secondmate
+fm-remote-secondmate-launch-verify.test.sh standalone
 fm-remote-secondmate-lifecycle-e2e.test.sh secondmate
 fm-remote-secondmate-parent-binding.test.sh standalone
 fm-remote-secondmate-trace-context.test.sh secondmate
@@ -884,6 +885,7 @@ tests/fm-remote-herdr-guard.test.sh 1500
 tests/fm-remote-job-orphan-reap.test.sh 2972
 tests/fm-remote-job.test.sh 59603
 tests/fm-remote-reply.test.sh 101690
+tests/fm-remote-secondmate-launch-verify.test.sh 14737
 tests/fm-remote-secondmate-lifecycle-e2e.test.sh 209631
 tests/fm-remote-secondmate-parent-binding.test.sh 29562
 tests/fm-remote-secondmate-trace-context.test.sh 67096
