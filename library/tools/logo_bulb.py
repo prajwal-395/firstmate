@@ -149,22 +149,65 @@ tail does not actually descend is REFUSED
 (:data:`TAIL_CEILING`, :class:`SourceNotClosed`) rather than being given
 an ending the engine made up.
 
-Looking at it
--------------
-The last version of this asset was judged from an isolated side-by-side
-and then rejected on sight in a reel. So this module renders both, and
-:func:`over_tail` is the one that matters: the real closing frames of a
-real reel, then this animation where it will sit.
+ Looking at it
+ -------------
+ The last version of this asset was judged from an isolated side-by-side
+ and then rejected on sight in a reel. So this module renders both, and
+ :func:`over_tail` is the one that matters: the real closing frames of a
+ real reel, then this animation where it will sit.
 
-    python3 -m library.tools.logo_bulb --source <in.mov> --out <out.mov>
-        [--ground-from-template library/templates/lucie_client.yaml]
-    python3 -m library.tools.logo_bulb --source <in.mov> \\
-        --contact-sheet <sheet.png>
-    python3 -m library.tools.logo_bulb --source <in.mov> \\
-        --in-reel <reel.mp4> <out.mp4> --keep 40.5 43.42
+     python3 -m library.tools.logo_bulb --source <in.mov> --out <out.mov>
+         [--ground-from-template library/templates/lucie_client.yaml]
+     python3 -m library.tools.logo_bulb --source <in.mov> \\
+         --contact-sheet <sheet.png>
+     python3 -m library.tools.logo_bulb --source <in.mov> \\
+         --in-reel <reel.mp4> <out.mp4> --keep 40.5 43.42
 
-``tests/test_logo_bulb.py``.
-"""
+ ``tests/test_logo_bulb.py``.
+
+ The two-line variant
+ --------------------
+ The captain, 2026-09-21, on the animation above: keep it exactly as it
+ is, and make a second version carrying two lines of type at the bottom -
+ ``See your brand the way AI does`` and ``luciecontent.com`` - so both
+ versions are at his disposal. LENGTH stays 72 frames and LINES stays the
+ two he named (his ruling, same minute; the VISIBILITY SYSTEM line from
+ his own picture is not wanted).
+
+ Everything listed as unchanged in the spec above is unchanged: the two
+ lines are the ONLY difference, and an empty :class:`ClosingText`
+ renders today's animation pixel for pixel (pinned in the tests, not
+ claimed here).
+
+ Where the lines come from: :func:`lines_from_brand_template` reads
+ ``content.closing_lockup`` - lines plus the colour they are set in -
+ from the same brand template the ground already comes from. It is a new
+ key, not ``end_card.props``: that headline and tagline belong to the
+ ``LucieEndCard`` composition and are stale relative to his current
+ lockup, so reading them here would silently couple two surfaces. A
+ template declaring no ``closing_lockup`` gets no type, which is the
+ "including none" half of the rule that the engine renders whatever
+ text it is handed.
+
+ When the type arrives, and why it needs no timing of its own: after
+ the mark lands there are ten frames before the fade starts, and two
+ lines cannot be introduced in that gap and read. So the type is part
+ of the ground - up with the cut on frame 0, holding through the
+ flash, and leaving on beat 5's own fade (:func:`picture_fade`), the
+ same numbers the mark and the field ride. There is no second arrival
+ to tune and no second slope to get wrong, for the same reason beat 5
+ is one gesture.
+
+ What is measured, as numbers: :func:`text_contrast_report` reads the
+ type's separation from the ground at its worst full-presence frame
+ against :data:`TEXT_CONTRAST_FLOOR`, and :func:`describe` reports how
+ long the type stands at full legibility against
+ :data:`READ_TIME_FLOOR_SECONDS` and how long the full lockup - mark
+ complete AND type full - holds. Both are REPORTED, not gated, the
+ same way :func:`separation_report` reports against
+ :data:`SEPARATION_FLOOR`: the captain judges the render, and the
+ numbers are what he judges it with.
+ """
 from __future__ import annotations
 
 import argparse
@@ -315,13 +358,106 @@ already reads at the peak of the flash.** A number off a perception
 table would have been a guess about his screen; this one is off his own
 asset.
 
-The floor is checked where the mark is FULLY PRESENT. Past that the
-mark is deliberately going out (beat 4), and a base that still read
-there would be the fade failing."""
+ The floor is checked where the mark is FULLY PRESENT. Past that the
+ mark is deliberately going out (beat 4), and a base that still read
+ there would be the fade failing."""
+
+
+LINE1_PX = 52
+LINE2_PX = 44
+"""How big the two lines are set, in pixels on the 1080x1920 frame.
+
+His picture sets the family (Montserrat, the one face this repository
+can deliver - :mod:`library.tools.render_fonts`) and the weight
+(bold, the template's own declared typography weight), but its
+relative scale does not survive the trip from a white lockup card to
+the bottom of a navy closing animation. So these are solved for the
+frame they sit on: line 1, ``See your brand the way AI does``,
+measures 865 px wide at 52 - inside the safe margins with a hundred
+pixels to spare each side - and 64 would put it at 1059, off the
+frame's manners if not off the frame. Line 2 steps down to 44, the
+hierarchy his own lockup draws between the sentence and the URL.
+"""
+
+LINE1_CENTER_Y = 1485
+LINE2_CENTER_Y = 1578
+"""Where the two lines sit, as centre heights on the 1920-tall frame.
+
+Measured against the completed mark on ``logo_reveal_23976.mov``,
+whose ink (with its authored halo) ends at y 1172: line 1 spans
+roughly 1460-1510, so nearly 300 px of clear navy stand between the
+mark and the type, and line 2 ends near 1600, leaving 320 px of navy
+below it. The type clears the mark by daylight and the frame by
+daylight, and the two lines sit closer to each other (47 px) than to
+anything else, which is what makes them one lockup.
+"""
+
+TEXT_SAFE_MARGIN_PX = 90
+"""How close a line may come to the frame's edge, in pixels each side.
+
+A line wider than the frame minus twice this is REFUSED
+(:func:`text_layer`), not shrunk: a shrunken line is a layout this
+module authored on the declaration's behalf, and a clipped one is a
+worse version of the same decision.
+"""
+
+MAX_TEXT_LINES = 2
+"""How many lines the bottom of this animation has a layout for.
+
+The captain asked for two. A third line has no position, no size and
+no spacing decided for it, and inventing one is the same class of
+authorship as inventing the ending - so a declaration carrying more
+than two is REFUSED (:func:`lines_from_brand_template`).
+"""
+
+TEXT_CONTRAST_FLOOR = 30.0
+"""How far the type must sit from the ground around it, as CIE76 dE.
+
+The base needs 8.5 (:data:`SEPARATION_FLOOR`) and it is a large
+silhouette; small type needs clearly more, because its strokes are
+thinner than any silhouette and there are two dozen of them to tell
+apart. Thirty is an order above the just-noticeable difference and
+three times the base's floor, and the declared pairing -
+``#F5F5F5`` on ``#253746`` - measures in the seventies, so the
+declared answer clears it with its margin intact and a wrong-colour
+declaration (navy on navy) fails it outright. Checked where the type
+is FULLY PRESENT, like the base's floor, and REPORTED rather than
+gated, like the base's floor.
+"""
+
+READ_TIME_FLOOR_SECONDS = 2.0
+"""How long the type must stand at full legibility to be read.
+
+Seven words at an unhurried three and a half words a second - the
+sentence is the thing being read, and the URL is scanned, not
+sounded out. The type is up with the cut and full until the fade,
+so on the 72-frame asset it stands 60 frames, 2.503 seconds, which
+clears this with half a second to spare. If a future source ever
+shortens that stand below this floor, :func:`describe` says so in
+numbers and the asset is not lengthened on this module's authority -
+length is the captain's ruling to revise.
+"""
 
 
 class SourceNotClosed(ValueError):
     """The source cannot carry the closing animation asked of it."""
+
+
+@dataclass(frozen=True)
+class ClosingText:
+    """The two lines at the bottom, as declared data.
+
+    Lines plus the colour they are set in, exactly as
+    :func:`lines_from_brand_template` read them off the template - this
+    class carries a declaration, never a default anyone chose. Empty
+    lines mean no type at all, which is today's animation; a colour
+    with no lines is unused, and lines with no colour are REFUSED
+    where the layer is built, because the engine states no colour of
+    its own (AGENTS.md 14).
+    """
+
+    lines: tuple[str, ...] = ()
+    color: tuple[float, float, float] | None = None
 
 
 @dataclass(frozen=True)
@@ -345,6 +481,13 @@ class ClosingProfile:
     field_spread: float = FIELD_SPREAD
     field_lift: float = FIELD_LIFT
     separation_floor: float = SEPARATION_FLOOR
+    line1_px: int = LINE1_PX
+    line2_px: int = LINE2_PX
+    line1_center_y: int = LINE1_CENTER_Y
+    line2_center_y: int = LINE2_CENTER_Y
+    text_safe_margin_px: int = TEXT_SAFE_MARGIN_PX
+    text_contrast_floor: float = TEXT_CONTRAST_FLOOR
+    read_time_floor_seconds: float = READ_TIME_FLOOR_SECONDS
 
     def with_ground(self, ground: Tuple[float, float, float]
                     ) -> "ClosingProfile":
@@ -392,6 +535,60 @@ def ground_from_brand_template(path: str) -> Tuple[float, float, float]:
             f"{path} declares no content.bookends.end_card.props.bgColor, "
             "so it states no ground to close on")
     return parse_ground(str(declared))
+
+
+def lines_from_brand_template(path: str) -> ClosingText:
+    """The lines at the bottom, as the brand template declares them.
+
+    ``content.closing_lockup`` - ``lines`` plus the ``color`` they are
+    set in. A template declaring no ``closing_lockup`` hands back
+    empty lines, which is today's logo-only animation - the "including
+    none" half of the rule, and the reason this is a read rather than
+    a requirement. What IS refused is a declaration that declares half
+    a thing: lines with no colour (the engine states none of its own),
+    a colour with no lines, lines that are not strings, and more lines
+    than :data:`MAX_TEXT_LINES` has a layout for.
+
+    Deliberately NOT ``end_card.props``: that headline and tagline
+    belong to the ``LucieEndCard`` composition and are stale relative
+    to the captain's current lockup. Reading them here would couple
+    two surfaces to one edit, so this bookend declares what it needs
+    under its own key.
+    """
+    import yaml
+
+    with open(path, encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    lockup = ((data.get("content") or {}).get("closing_lockup") or {})
+    if not isinstance(lockup, dict):
+        raise SourceNotClosed(
+            f"{path} declares content.closing_lockup as "
+            f"{type(lockup).__name__}, not a mapping of lines and color")
+    if not lockup:
+        return ClosingText()
+    raw_lines = lockup.get("lines") or []
+    if not isinstance(raw_lines, list) or not raw_lines:
+        raise SourceNotClosed(
+            f"{path} declares a closing_lockup with no lines: a bookend "
+            "that states no copy states no bookend")
+    if len(raw_lines) > MAX_TEXT_LINES:
+        raise SourceNotClosed(
+            f"{path} declares {len(raw_lines)} closing lines and this "
+            f"animation has a layout for {MAX_TEXT_LINES}: deciding where "
+            "a third line sits is authorship, not rendering")
+    for entry in raw_lines:
+        if not isinstance(entry, str) or not entry.strip():
+            raise SourceNotClosed(
+                f"{path} declares a closing line of "
+                f"{type(entry).__name__}, which sets nothing")
+    declared_color = lockup.get("color")
+    if not declared_color:
+        raise SourceNotClosed(
+            f"{path} declares closing lines with no color: the engine "
+            "states no colour of its own, so uncoloured type is refused "
+            "rather than set in one")
+    return ClosingText(lines=tuple(entry.strip() for entry in raw_lines),
+                       color=parse_ground(str(declared_color)))
 
 
 # ── The four beats, as measurements ──────────────────────────────────
@@ -624,9 +821,89 @@ def field_pool(ink_alpha: np.ndarray, spread: float, normaliser: float
 
 # ── One frame ────────────────────────────────────────────────────────
 
+def text_layer(text: ClosingText, width: int, height: int,
+               profile: ClosingProfile) -> np.ndarray | None:
+    """The declared lines as one straight-alpha RGBA layer, or None.
+
+    None means no type: empty lines render today's animation, and the
+    caller skips the composite entirely rather than compositing
+    nothing. What is refused, by name: lines with no colour, a third
+    line, a line too wide for the frame, a missing Montserrat file,
+    and a weight that will not set. That last one matters because the
+    failure it prevents is silent: Pillow opening a variable font
+    without setting a variation sets Regular, and Regular where Bold
+    was declared is a different lockup nobody chose.
+
+    The layer is set ink: solid colour, anti-aliased only at its own
+    edges, catching none of the mark's light. It arrives with the cut
+    on frame 0 and its alpha is ridden by the caller on
+    :func:`picture_fade`'s own numbers, so it leaves on beat 5 with
+    everything else.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    from library.tools.render_fonts import measurable_font_path
+
+    if not text.lines:
+        return None
+    if text.color is None:
+        raise SourceNotClosed(
+            "closing lines with no color: the engine states no colour "
+            "of its own, so uncoloured type is refused rather than set "
+            "in one")
+    if len(text.lines) > MAX_TEXT_LINES:
+        raise SourceNotClosed(
+            f"{len(text.lines)} closing lines and this animation has a "
+            f"layout for {MAX_TEXT_LINES}")
+
+    font_path = measurable_font_path("Montserrat")
+    if font_path is None:
+        raise SourceNotClosed(
+            "Montserrat is declared but its file is not measurable here: "
+            "measuring in one face and drawing in another is the webfont "
+            "race with an extra step, so this renders nothing instead")
+    sizes = [profile.line1_px, profile.line2_px]
+    seats = [profile.line1_center_y, profile.line2_center_y]
+    fonts = []
+    for size in sizes[:len(text.lines)]:
+        try:
+            font = ImageFont.truetype(font_path, size)
+            font.set_variation_by_name("Bold")
+        except (OSError, ValueError) as exc:
+            raise SourceNotClosed(
+                f"Montserrat at {size}px would not set Bold ({exc}): "
+                "the template declares the bold weight, so Regular is "
+                "a substitution and substitutions raise") from exc
+        fonts.append(font)
+
+    limit = width - 2 * profile.text_safe_margin_px
+    for line, font in zip(text.lines, fonts):
+        left, _, right, _ = font.getbbox(line)
+        if right - left > limit:
+            raise SourceNotClosed(
+                f"closing line {line!r} measures {right - left}px and "
+                f"the frame allows {limit}: shrinking it would be a "
+                "layout this module authored on the declaration's behalf")
+
+    mask = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask)
+    # One line sits in the senior line's seat: a single line has no
+    # second position decided for it, so it takes the first.
+    for line, font, center_y in zip(text.lines, fonts,
+                                   seats[:len(text.lines)]):
+        draw.text((width / 2, center_y), line, font=font, fill=255,
+                  anchor="mm")
+    alpha = np.asarray(mask, dtype=np.float64) / 255.0
+    layer = np.empty((height, width, 4), dtype=np.float64)
+    layer[..., :3] = np.asarray(text.color, dtype=np.float64)
+    layer[..., 3] = alpha
+    return layer
+
 def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
                profile: ClosingProfile, standing: float = 1.0,
-               pool: np.ndarray | None = None) -> np.ndarray:
+               pool: np.ndarray | None = None,
+               text: np.ndarray | None = None,
+               text_present: float = 1.0) -> np.ndarray:
     """One source frame in, one OPAQUE closing frame out.
 
     The order is the whole point. The ink is composited OVER the ground
@@ -641,6 +918,13 @@ def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
     (:func:`field_pool`), which MULTIPLIES the ground rather than
     mixing anything into it, so the declared colour's hue and
     saturation survive untouched and a black ground stays exactly black.
+
+    ``text`` is the set-ink layer from :func:`text_layer`, composited
+    LAST, over mark and light alike: type occludes, like ink, and it
+    catches none of the flash, because it is not the mark. Its alpha
+    rides ``text_present`` - :func:`picture_fade`'s own numbers, the
+    same curve the mark and the ground ride - so it leaves on beat 5
+    with everything else and there is no second slope.
     """
     ink_rgb, ink_alpha = separate_ink(rgba, profile.light)
     ink_alpha = ink_alpha * present
@@ -665,32 +949,55 @@ def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
     reaching = light * (1.0 - ink_alpha * (1.0 - profile.light.core_light))
     out = np.empty_like(rgba)
     out[..., :3] = np.clip(over + light_rgb * reaching[..., None], 0.0, 1.0)
+    if text is not None:
+        amount = np.clip(text[..., 3] * text_present, 0.0, 1.0)[..., None]
+        out[..., :3] = (text[..., :3] * amount
+                        + out[..., :3] * (1.0 - amount))
     out[..., 3] = 1.0
     return out
 
 
 def bulb_sequence(frames: Sequence[np.ndarray], rate: float,
-                  profile: ClosingProfile) -> List[np.ndarray]:
-    """The whole closing animation, envelope, fade, ground and all."""
+                  profile: ClosingProfile,
+                  text: ClosingText | None = None) -> List[np.ndarray]:
+    """The whole closing animation, envelope, fade, ground and all.
+
+    ``text`` is the declared lines (:class:`ClosingText`), or None for
+    today's logo-only animation. The layer is built ONCE, off the
+    frame geometry, and every frame rides it on :func:`picture_fade`'s
+    own numbers - up with the cut, full through the flash, out on
+    beat 5.
+    """
     areas, levels = mark_measurements(frames, profile)
     completion = completion_index(areas, profile)
     intensities = intensity_envelope(len(frames), completion, rate, profile)
     presence = fade_scale(levels, profile)
     standing = picture_fade(levels, profile)
     spread, normaliser = field_geometry(frames, profile)
+    layer = (text_layer(text, frames[0].shape[1], frames[0].shape[0],
+                        profile)
+             if text is not None and text.lines else None)
 
     out: List[np.ndarray] = []
     for rgba, intensity, present, left in zip(frames, intensities,
                                               presence, standing):
         _, ink_alpha = separate_ink(rgba, profile.light)
         pool = field_pool(ink_alpha * present, spread, normaliser)
-        out.append(bulb_frame(rgba, intensity, present, profile, left, pool))
+        out.append(bulb_frame(rgba, intensity, present, profile, left,
+                              pool, layer, present))
     return out
 
 
 def describe(frames: Sequence[np.ndarray], rate: float,
-             profile: ClosingProfile) -> dict:
-    """What the five beats landed on, for the render receipt."""
+             profile: ClosingProfile,
+             text: ClosingText | None = None) -> dict:
+    """What the five beats landed on, for the render receipt.
+
+    With ``text`` the receipt also carries the two-line variant's own
+    numbers: how long the type stands at full legibility against
+    :data:`READ_TIME_FLOOR_SECONDS`, and how long the FULL lockup -
+    mark complete AND type full - holds before beat 5 takes it.
+    """
     areas, levels = mark_measurements(frames, profile)
     completion = completion_index(areas, profile)
     presence = fade_scale(levels, profile)
@@ -698,7 +1005,7 @@ def describe(frames: Sequence[np.ndarray], rate: float,
     lit = [index for index, value in enumerate(presence)
            if value > 0.0 and levels[index] > 0.0]
     black = [index for index, value in enumerate(standing) if value <= 0.0]
-    return {
+    report = {
         "ground_travel_starts_frame": next(
             (index for index, value in enumerate(standing) if value < 1.0),
             -1),
@@ -721,12 +1028,26 @@ def describe(frames: Sequence[np.ndarray], rate: float,
         "last_lit_frame": lit[-1] if lit else -1,
         "dark_frames_at_the_end": len(frames) - 1 - (lit[-1] if lit else -1),
     }
+    if text is not None and text.lines:
+        full = [index for index, (present, left)
+                in enumerate(zip(presence, standing))
+                if present >= 1.0 - 1e-9 and left >= 1.0 - 1e-9]
+        lockup = [index for index in full if index >= completion]
+        report["lines"] = list(text.lines)
+        report["type_full_frames"] = len(full)
+        report["type_full_seconds"] = round(len(full) / rate, 3)
+        report["type_clears_read_time"] = (
+            len(full) / rate >= profile.read_time_floor_seconds)
+        report["lockup_full_frames"] = len(lockup)
+        report["lockup_full_seconds"] = round(len(lockup) / rate, 3)
+    return report
 
 
 # ── The file ─────────────────────────────────────────────────────────
 
 def render_file(source: str, destination: str,
-                profile: ClosingProfile | None = None) -> dict:
+                profile: ClosingProfile | None = None,
+                text: ClosingText | None = None) -> dict:
     """Render the closing animation from a source reveal, to a new file.
 
     Rate, geometry and frame count come through unchanged - every reel
@@ -734,6 +1055,10 @@ def render_file(source: str, destination: str,
     the ground is part of the asset now, so its alpha plane is 1
     everywhere. The codec stays ProRes 4444 so the swap into a built
     timeline changes nothing but the pixels.
+
+    ``text`` is the declared lines, or None for today's logo-only
+    animation - which is what makes the two versions one module
+    rather than two assets drifting apart.
     """
     profile = profile or ClosingProfile()
     for tool in ("ffmpeg", "ffprobe"):
@@ -746,9 +1071,15 @@ def render_file(source: str, destination: str,
     numerator, _, denominator = before["r_frame_rate"].partition("/")
     rate = float(numerator) / float(denominator or 1)
 
-    report = describe(frames, rate, profile)
-    closed = bulb_sequence(frames, rate, profile)
+    report = describe(frames, rate, profile, text)
+    closed = bulb_sequence(frames, rate, profile, text)
     report["base_separation"] = separation_report(frames, closed, profile)
+    if text is not None and text.lines:
+        _, levels = mark_measurements(frames, profile)
+        report["text_contrast"] = text_contrast_report(
+            text_layer(text, width, height, profile), closed,
+            fade_scale(levels, profile), picture_fade(levels, profile),
+            profile)
 
     encoder = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y",
@@ -990,8 +1321,8 @@ def base_separation(rgba: np.ndarray, closed: np.ndarray,
 
 
 def _lab(rgb: np.ndarray) -> np.ndarray:
-    """sRGB in [0, 1] to CIE L*a*b*, D65. Only :func:`base_separation`
-    needs it: dE is the one scale on which "can you see that edge" is a
+    """sRGB in [0, 1] to CIE L*a*b*, D65. Only the separation readings
+    need it: dE is the one scale on which "can you see that edge" is a
     number rather than an opinion."""
     values = np.asarray(rgb, dtype=np.float64)
     linear = np.where(values <= 0.04045, values / 12.92,
@@ -1035,6 +1366,59 @@ def separation_report(frames: Sequence[np.ndarray],
     }
 
 
+def text_contrast_report(layer: np.ndarray | None,
+                         closed: Sequence[np.ndarray],
+                         presence: Sequence[float],
+                         standing: Sequence[float],
+                         profile: ClosingProfile) -> dict:
+    """:data:`TEXT_CONTRAST_FLOOR`, checked rather than claimed.
+
+    CIE76 dE between the type's INTERIOR and the ground immediately
+    around it, per full-presence frame - the same local-contrast
+    reading :func:`base_separation` makes for the screw base, because
+    the eye reads a stroke against what is next to it rather than
+    against a flat colour. The worst frame is reported, and it is very
+    often a flash frame: the light lifts the ground around unlit type,
+    which is exactly the frame a single-number claim would hide.
+
+    Only where the type is FULLY PRESENT: past that it is going out on
+    beat 5 on purpose, and type that still read there would be the
+    fade failing. With no layer there is no type and nothing to check.
+    REPORTED, never gated - the captain judges the render, and this is
+    one of the numbers he judges it with.
+    """
+    from scipy import ndimage
+
+    if layer is None:
+        return {"type_set": False, "floor": profile.text_contrast_floor}
+    solid = layer[..., 3] >= 0.9
+    if not solid.any():
+        return {"type_set": False, "floor": profile.text_contrast_floor}
+    inside = ndimage.binary_erosion(solid, np.ones((3, 3)))
+    around = (ndimage.binary_dilation(solid, np.ones((17, 17)))
+              & (layer[..., 3] <= 0.0))
+    if not inside.any() or not around.any():
+        return {"type_set": False, "floor": profile.text_contrast_floor}
+    measured = {}
+    for index, frame in enumerate(closed):
+        if presence[index] < 1.0 - 1e-9 or standing[index] < 1.0 - 1e-9:
+            continue
+        gap = float(np.sqrt(np.square(
+            _lab(frame[..., :3][inside].mean(axis=0))
+            - _lab(frame[..., :3][around].mean(axis=0))).sum()))
+        measured[index] = gap
+    if not measured:
+        return {"type_set": False, "floor": profile.text_contrast_floor}
+    worst = min(measured, key=measured.get)
+    return {
+        "type_set": True,
+        "floor": profile.text_contrast_floor,
+        "worst_contrast": round(measured[worst], 2),
+        "worst_contrast_frame": worst,
+        "clears_floor": measured[worst] >= profile.text_contrast_floor,
+    }
+
+
 def _main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--source", required=True)
@@ -1043,6 +1427,10 @@ def _main(argv: Sequence[str] | None = None) -> int:
                         help="#rrggbb or 'black' (the default)")
     parser.add_argument("--ground-from-template", default="",
                         help="a brand template whose end card declares one")
+    parser.add_argument("--lines-from-template", default="",
+                        help=("a brand template whose closing_lockup declares "
+                              "the lines at the bottom; omit for the "
+                              "logo-only animation"))
     parser.add_argument("--contact-sheet")
     parser.add_argument("--frames", default="",
                         help="comma-separated indices for --contact-sheet")
@@ -1062,16 +1450,19 @@ def _main(argv: Sequence[str] | None = None) -> int:
         ground = BLACK
         print("no ground declared: closing on black", file=sys.stderr)
     profile = ClosingProfile().with_ground(ground)
+    text = (lines_from_brand_template(args.lines_from_template)
+            if args.lines_from_template else ClosingText())
 
     if args.out:
-        print(json.dumps(render_file(args.source, args.out, profile),
+        print(json.dumps(render_file(args.source, args.out, profile, text),
                          indent=2))
 
     if args.contact_sheet or args.in_reel:
         meta = probe(args.source)
         numerator, _, denominator = meta["r_frame_rate"].partition("/")
         rate = float(numerator) / float(denominator or 1)
-        frames = bulb_sequence(read_frames(args.source), rate, profile)
+        frames = bulb_sequence(read_frames(args.source), rate, profile,
+                               text)
         if args.contact_sheet:
             picked = ([int(v) for v in args.frames.split(",") if v.strip()]
                       or list(range(0, len(frames),

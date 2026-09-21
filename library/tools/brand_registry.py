@@ -111,6 +111,9 @@ ABSENT_SLOT_READINGS = {
     "effect.timed_text_overlay": (
         "no timed text (library/tools/timed_text_overlay.py)"),
     "content.bookends": "no intro, no outro, no end card (library/tools/bookends.py)",
+    "content.closing_lockup": (
+        "no closing lines: the closing animation renders the logo-only "
+        "version, exactly as before (library/tools/logo_bulb.py)"),
     "content.target_duration_seconds": (
         "no duration zone from the brand; the PROJECT's own "
         "`target_duration_seconds` is the declaration the gates measure "

@@ -77,6 +77,14 @@ class ContentSlots:
     # Fusion .setting macros nothing imported - a full-frame red slate and
     # a "Subscribe!" card the channel spec forbids by name.
     bookends: Optional[Dict[str, Any]] = None
+    # The lines at the bottom of the two-line closing animation
+    # (captain, 2026-09-21). A template declares the copy this bookend
+    # sets - `lines` plus the `color` they are set in - or omits the
+    # key and gets the logo-only animation. Deliberately NOT part of
+    # `bookends`: those slots become spine blocks, and this is not a
+    # card the spine places - it is type inside an asset
+    # `library/tools/logo_bulb.py` renders. Shape and readers: there.
+    closing_lockup: Optional[Dict[str, Any]] = None
     watermark: Dict[str, Any] = field(default_factory=dict)
     # NO READER.  Step 2.04's handoff names `brand_content.music_genre`,
     # but no manifest routes `brand_content` to step 2.04, so the slot
@@ -215,6 +223,14 @@ class BrandTemplate:
                                 for slot in ("intro", "outro", "end_card")
                             },
                             "additionalProperties": False
+                        },
+                        "closing_lockup": {
+                            "type": "object",
+                            "description": "The lines at the bottom of the two-line closing animation. Omit for the logo-only animation. See library/tools/logo_bulb.py.",
+                            "properties": {
+                                "lines": {"type": "array", "items": {"type": "string"}},
+                                "color": {"type": "string"}
+                            }
                         },
                         "watermark": {"type": "object"},
                         "music_genre": {"type": "array", "items": {"type": "string"}},

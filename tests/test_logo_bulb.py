@@ -560,3 +560,229 @@ def test_an_in_reel_preview_with_no_animation_is_refused(tmp_path):
     with pytest.raises(SourceNotClosed, match="no animation"):
         lb.over_tail(reel, [], "24000/1001",
                      str(tmp_path / "out.mp4"), 0.0, 0.1)
+
+
+# ── The two-line variant ─────────────────────────────────────────────
+
+LUCIE_LINES = ("See your brand the way AI does", "luciecontent.com")
+NEAR_WHITE = (0xF5 / 255, 0xF5 / 255, 0xF5 / 255)
+
+
+def _text(lines=LUCIE_LINES, color=NEAR_WHITE) -> lb.ClosingText:
+    return lb.ClosingText(lines=tuple(lines), color=color)
+
+
+def _lockup_template(tmp_path, **keys):
+    content = dict(keys.pop("content", {}))
+    template = tmp_path / "brand.yaml"
+    import yaml
+    template.write_text(
+        yaml.safe_dump({"content": content, **keys}), encoding="utf-8")
+    return str(template)
+
+
+def test_no_lines_is_todays_animation_pixel_identical():
+    """The "including none" half, proved rather than asserted: an empty
+    ClosingText takes the exact code path the logo-only render always
+    took, so every frame must be bit-identical, not just close."""
+    frames = _sequence(size=96)
+    profile = _profile()
+    plain = lb.bulb_sequence(frames, RATE, profile)
+    with_text = lb.bulb_sequence(frames, RATE, profile, lb.ClosingText())
+    assert len(with_text) == len(plain)
+    for closed, opened in zip(with_text, plain):
+        assert np.array_equal(closed, opened)
+
+
+def test_lines_from_brand_template_reads_the_declared_pair(tmp_path):
+    path = _lockup_template(tmp_path, content={
+        "closing_lockup": {
+            "lines": list(LUCIE_LINES), "color": "#F5F5F5"}})
+    assert lb.lines_from_brand_template(path) == _text()
+
+
+def test_absent_closing_lockup_is_no_text(tmp_path):
+    """A template declaring no closing_lockup gets today's animation -
+    which is every template but one."""
+    path = _lockup_template(tmp_path, content={})
+    assert lb.lines_from_brand_template(path) == lb.ClosingText()
+    assert lb.lines_from_brand_template(path).lines == ()
+
+
+def test_end_card_props_are_not_the_lockup(tmp_path):
+    """The stale headline/tagline belong to the LucieEndCard
+    composition. A template carrying them and no closing_lockup sets
+    no type - reading them here would couple two surfaces to one
+    edit."""
+    path = _lockup_template(tmp_path, content={
+        "bookends": {"end_card": {"props": {
+            "headline": "We power what AI knows about you.",
+            "tagline": "Strategic storytelling built for human trust "
+                       "and AI visibility.",
+            "websiteUrl": "luciecontent.com",
+            "bgColor": "#253746"}}}})
+    assert lb.lines_from_brand_template(path).lines == ()
+
+
+@pytest.mark.parametrize("lockup,match", [
+    ({"lines": [], "color": "#F5F5F5"}, "no lines"),
+    ({"lines": ["one", "two", "three"], "color": "#F5F5F5"}, "layout"),
+    ({"lines": ["fine", 7], "color": "#F5F5F5"}, "sets nothing"),
+    ({"lines": list(LUCIE_LINES)}, "no color"),
+    ({"lines": list(LUCIE_LINES), "color": "rebeccapurple"},
+     "ground is #rrggbb"),
+    ({"color": "#F5F5F5"}, "no lines"),
+    ("just a string", "not a mapping"),
+])
+def test_a_half_declared_lockup_is_refused(tmp_path, lockup, match):
+    path = _lockup_template(tmp_path, content={"closing_lockup": lockup})
+    with pytest.raises(SourceNotClosed, match=match):
+        lb.lines_from_brand_template(path)
+
+
+def test_the_layer_sets_two_lines_clear_of_mark_and_margins():
+    """The full-canvas geometry, without the glow path: PIL only, so
+    this runs in milliseconds. The completed mark's ink ends at y
+    1172 on the real source; both lines must sit well below it, well
+    inside the frame, and read as ONE lockup - closer to each other
+    than to anything else."""
+    layer = lb.text_layer(_text(), 1080, 1920, _profile())
+    assert layer is not None
+    assert layer.shape == (1920, 1080, 4)
+    assert np.allclose(layer[..., :3], np.asarray(NEAR_WHITE))
+    rows = np.nonzero(layer[..., 3] > 0.01)[0]
+    columns = np.nonzero(layer[..., 3] > 0.01)[1]
+    assert rows.min() >= 1400, "the type must clear the mark by daylight"
+    assert rows.max() <= 1660, "the type must clear the frame by daylight"
+    assert columns.min() >= 85 and columns.max() <= 995
+    empty = [y for y in range(rows.min(), rows.max() + 1)
+             if not (layer[y, :, 3] > 0.01).any()]
+    assert empty, "two lines must read as two lines, with navy between"
+
+
+def test_a_line_too_wide_for_the_frame_is_refused():
+    """Not shrunk: a shrunken line is a layout authored on the
+    declaration's behalf, and a clipped one is worse."""
+    with pytest.raises(SourceNotClosed, match="allows"):
+        lb.text_layer(_text(), 200, 400, _profile())
+
+
+def test_lines_with_no_color_are_refused_where_the_layer_is_built():
+    with pytest.raises(SourceNotClosed, match="no color"):
+        lb.text_layer(lb.ClosingText(lines=LUCIE_LINES, color=None),
+                      1080, 1920, _profile())
+
+
+def _fake_layer(size=32, color=NEAR_WHITE):
+    layer = np.zeros((size, size, 4), dtype=np.float64)
+    layer[12:20, 8:24, :3] = np.asarray(color)
+    layer[12:20, 8:24, 3] = 1.0
+    return layer
+
+
+def test_text_arrives_with_the_cut_and_leaves_on_the_fade():
+    """Up on frame 0 - the type is part of the ground, so it arrives
+    with the cut and needs no timing of its own - and gone exactly
+    when beat 5 has nothing left: text_present 0.0 must equal no text
+    at all, and halfway must be halfway."""
+    profile = _profile()
+    empty = np.zeros((32, 32, 4), dtype=np.float64)
+    fake = _fake_layer()
+    full = lb.bulb_frame(empty, profile.base_light, 1.0, profile,
+                         text=fake, text_present=1.0)
+    assert np.allclose(full[12:20, 8:24, :3], np.asarray(NEAR_WHITE))
+    gone = lb.bulb_frame(empty, profile.base_light, 0.0, profile,
+                         text=fake, text_present=0.0)
+    assert np.array_equal(
+        gone, lb.bulb_frame(empty, profile.base_light, 0.0, profile))
+    half = lb.bulb_frame(empty, profile.base_light, 1.0, profile,
+                         text=fake, text_present=0.5)
+    ground = np.asarray(LUCIE_GROUND)
+    assert np.allclose(half[12:20, 8:24, :3],
+                       0.5 * np.asarray(NEAR_WHITE) + 0.5 * ground)
+
+
+def test_text_catches_no_flash_light():
+    """Set ink, not the mark: the type's own pixels are its declared
+    colour at the base level AND at the flash peak, because the light
+    is never composited onto them."""
+    profile = _profile()
+    empty = np.zeros((32, 32, 4), dtype=np.float64)
+    fake = _fake_layer()
+    dim = lb.bulb_frame(empty, profile.base_light, 1.0, profile,
+                        text=fake, text_present=1.0)
+    peak = lb.bulb_frame(empty, profile.flash_light, 1.0, profile,
+                         text=fake, text_present=1.0)
+    assert np.allclose(dim[12:20, 8:24, :3], np.asarray(NEAR_WHITE))
+    assert np.array_equal(dim[12:20, 8:24, :3], peak[12:20, 8:24, :3])
+
+
+def test_text_contrast_report_says_yes_as_well_as_no():
+    """A gate that can only say yes reads as coverage without being
+    it: near-white on navy clears, navy on navy does not, and no
+    layer is not a measurement."""
+    profile = _profile()
+    fake = _fake_layer()
+    ground = np.full((32, 32, 4), (*LUCIE_GROUND, 1.0))
+    drawn = ground.copy()
+    drawn[12:20, 8:24, :3] = np.asarray(NEAR_WHITE)
+    present = standing = [1.0]
+    yes = lb.text_contrast_report(fake, [drawn], present, standing,
+                                  profile)
+    assert yes["type_set"] is True
+    assert yes["clears_floor"] is True
+    assert yes["worst_contrast"] >= lb.TEXT_CONTRAST_FLOOR
+    navy_layer = _fake_layer(color=LUCIE_GROUND)
+    no = lb.text_contrast_report(navy_layer, [ground], present, standing,
+                                 profile)
+    assert no["type_set"] is True
+    assert no["clears_floor"] is False
+    assert no["worst_contrast"] < lb.TEXT_CONTRAST_FLOOR
+    assert lb.text_contrast_report(
+        None, [ground], present, standing, profile)["type_set"] is False
+
+
+def test_the_receipt_says_how_long_the_type_stands():
+    """The number the captain judges the 72 frames with: full-type
+    frames, full-lockup frames, and whether the stand clears the
+    read-time floor. On the short synthetic sequence the stand is
+    32 frames - 1.3 seconds - which must NOT clear a 2.0 floor, or
+    the floor is decoration."""
+    report = lb.describe(_sequence(), RATE, _profile(), _text())
+    assert report["lines"] == list(LUCIE_LINES)
+    assert report["type_full_frames"] == DRAW + HOLD
+    assert report["type_full_seconds"] == pytest.approx(
+        (DRAW + HOLD) / RATE, abs=0.01)
+    assert report["type_clears_read_time"] is False
+    assert report["lockup_full_frames"] == DRAW + HOLD - COMPLETION
+    plain = lb.describe(_sequence(), RATE, _profile())
+    assert "lines" not in plain
+    assert "type_full_frames" not in plain
+
+
+def test_every_text_value_is_on_the_profile():
+    """A project that wants a different lockup passes a profile rather
+    than editing a constant, so every constant has to be reachable -
+    the same rule the closing's own values keep."""
+    profile = ClosingProfile()
+    assert profile.line1_px == lb.LINE1_PX
+    assert profile.line2_px == lb.LINE2_PX
+    assert profile.line1_center_y == lb.LINE1_CENTER_Y
+    assert profile.line2_center_y == lb.LINE2_CENTER_Y
+    assert profile.text_safe_margin_px == lb.TEXT_SAFE_MARGIN_PX
+    assert profile.text_contrast_floor == lb.TEXT_CONTRAST_FLOOR
+    assert profile.read_time_floor_seconds == lb.READ_TIME_FLOOR_SECONDS
+
+
+def test_brand_template_from_dict_reads_closing_lockup():
+    """The schema half of the declaration: from_dict must not choke
+    on the new key, and absence must stay absence."""
+    from library.schemas.brand_template import BrandTemplate
+    tmpl = BrandTemplate.from_dict({
+        "series_id": "s",
+        "content": {"closing_lockup": {
+            "lines": list(LUCIE_LINES), "color": "#F5F5F5"}}})
+    assert tmpl.content.closing_lockup == {
+        "lines": list(LUCIE_LINES), "color": "#F5F5F5"}
+    bare = BrandTemplate.from_dict({"series_id": "s"})
+    assert bare.content.closing_lockup is None

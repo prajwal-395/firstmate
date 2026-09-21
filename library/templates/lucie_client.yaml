@@ -79,6 +79,16 @@ content:
         websiteUrl: "luciecontent.com"
         accentColor: "#FFAA4D"
         bgColor: "#253746"
+  # The lines at the bottom of the two-line closing animation
+  # (captain, 2026-09-21): his current lockup's sentence and URL, set
+  # in the palette's near-white on the navy ground. This is the
+  # logo_bulb bookend's own declaration - end_card.props above belong
+  # to the LucieEndCard composition and are not read for this.
+  closing_lockup:
+    lines:
+      - "See your brand the way AI does"
+      - "luciecontent.com"
+    color: "#F5F5F5"
   music_genre: ["ambient", "corporate"]
   target_duration_seconds:
     min: 30
