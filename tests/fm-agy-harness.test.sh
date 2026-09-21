@@ -19,8 +19,9 @@
 #   4. A fresh worktree would park agy on its folder-trust dialog, and
 #      firstmate deliberately does NOT pre-register the worktree in agy's own
 #      trustedWorkspaces store (bin/fm-agy-trust.sh is never called at spawn;
-#      this home trusts its worktree root already). The spawn only READS the
-#      store to decide whether the path is already covered, and the
+#      agy matches entries by exact path, so a broad parent entry never covers
+#      a fresh pool worktree). The spawn only READS the store for an exact-path
+#      entry, and the
 #      post-launch gate is the enforcement: it answers a dialog that renders
 #      exactly once, never counts a busy turn as ready on an uncovered path
 #      until the dialog has been answered (the Herdr native-busy-before-dialog
@@ -804,6 +805,34 @@ test_agy_unregistered_path_ignores_busy_until_the_dialog_is_answered() {
   pass "fm-spawn: on an unregistered path a premature busy verdict waits for the dialog to be answered"
 }
 
+test_agy_parent_store_entry_does_not_cover_the_worktree() {
+  local id rec out rc enters store
+  id="agy-parentcover-z14-$$"
+  rec=$(make_agy_spawn_case parentcover "$id")
+  read_agy_spawn_record "$rec"
+  store="$HOME_DIR/.gemini/antigravity-cli/settings.json"
+  # The regression input: the store trusts only the worktree's PARENT - the
+  # shape a broad /Users/<name> entry takes on a fresh pool - combined with
+  # the Herdr race (a native busy verdict one capture before the dialog
+  # paints). agy matches trustedWorkspaces by exact path, so this entry must
+  # not count as covered: the gate must take its strict path, answer the
+  # dialog, and only then count busy. Against the old parent-prefix coverage
+  # check this invocation reports success after the launch Enter alone while
+  # the pane is still parked on the dialog (1 Enter sent, state file `dialog`).
+  node -e 'const fs=require("node:fs");const j=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));j.trustedWorkspaces=[process.argv[2]];fs.writeFileSync(process.argv[1],JSON.stringify(j)+"\n");' \
+    "$store" "$(dirname "$WT_DIR")" || fail "could not seed a parent-only trust store"
+  out=$(FM_FAKE_AGY_RACE=1 run_agy_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" \
+    "$FAKEBIN_DIR" "$id" --model gemini-3.8-flash-low)
+  rc=$?
+  expect_code 0 "$rc" "an agy spawn under a parent-only store entry should succeed once the dialog is answered"
+  [ "$(cat "$CASE_DIR/agy.state")" = busy ] \
+    || fail "the gate reported ready while the dialog was unanswered (pane state: $(cat "$CASE_DIR/agy.state"))"
+  enters=$(count_enter_sends "$CASE_DIR/tmux-calls.log")
+  [ "$enters" -eq 2 ] \
+    || fail "a parent store entry must not count as covered; expected the launch Enter plus one trust-dialog Enter, got $enters Enter sends"
+  pass "fm-spawn: a parent trustedWorkspaces entry never covers the worktree, so the gate answers the dialog first"
+}
+
 test_agy_unregistered_path_without_a_dialog_fails_the_spawn() {
   local id rec out rc store
   id="agy-nodialog-z12-$$"
@@ -921,6 +950,7 @@ test_agy_trust_refuses_out_of_scope_paths
 test_agy_spawn_never_writes_the_trust_store_and_answers_the_dialog
 test_agy_dialog_on_uncovered_path_is_answered_once
 test_agy_unregistered_path_ignores_busy_until_the_dialog_is_answered
+test_agy_parent_store_entry_does_not_cover_the_worktree
 test_agy_unregistered_path_without_a_dialog_fails_the_spawn
 test_agy_pre_trusted_path_that_never_turns_busy_fails_the_spawn
 test_agy_missing_binary_refuses_before_pane_creation
