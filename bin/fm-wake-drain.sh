@@ -632,6 +632,19 @@ print_status_sections() {
 print_status_presentation() {  # [<deduped-raw-rows>]
   local rows=${1:-} lock="$STATE/.status-presentation-lock" snapshot annotation_manifest fully_presented='' rc=0
   local lock_rc holder_pid
+  # A non-lock file at the presentation lock path is malformed, never a live
+  # holder and never mid-acquire freshness (fm_lock_is_stale_file): quarantine
+  # it aside as evidence and refuse this pass without waiting out the bounded
+  # acquire. Waiting would race the whole-second freshness window against the
+  # presentation deadline - the helper sometimes quarantines and proceeds
+  # silently, sometimes times out and reports - so the refusal must not depend
+  # on that timeout. The next drain finds a free path and retries the skipped
+  # presentation.
+  if fm_lock_is_stale_file "$lock"; then
+    fm_lock_quarantine_stale_file "$lock" || true
+    printf 'wake drain: status presentation lock could not be acquired safely\n' >&2
+    return 1
+  fi
   if fm_lock_acquire_wait_bounded "$lock" "$PRESENTATION_LOCK_TIMEOUT"; then
     :
   else

@@ -912,6 +912,15 @@ fm_recovery_marker_reopen_announced() {
   fm_recovery_transition "$1" reopen-announced
 }
 
+# True when a lock path holds a stale non-lock file: it exists but is neither
+# the symlink nor the directory every acquisition path in this repo creates.
+# No owner can hold such a path, because pid reads and releases both resolve
+# through "$lockdir/pid", so it is malformed, never mid-acquire freshness.
+fm_lock_is_stale_file() {
+  local lockdir=$1
+  [ -e "$lockdir" ] && [ ! -L "$lockdir" ] && [ ! -d "$lockdir" ]
+}
+
 # Move a stale non-lock file found at a lock path into a sibling quarantine
 # directory, mirroring the invalid-marker quarantine in
 # _fm_recovery_marker_arm_check. Returns 0 when the path is clear of anything
@@ -986,7 +995,7 @@ fm_lock_try_acquire() {
   # a stale-lock steal would, and treat the path as free. A live owner is
   # impossible here: no acquisition path in this repo ever creates a bare file,
   # and a release through one is a no-op.
-  if [ -e "$lockdir" ] && [ ! -L "$lockdir" ] && [ ! -d "$lockdir" ]; then
+  if fm_lock_is_stale_file "$lockdir"; then
     if ! fm_lock_quarantine_stale_file "$lockdir"; then
       FM_LOCK_HELD_PID=
       FM_LOCK_OWNER_DIR=
