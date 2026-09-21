@@ -116,6 +116,8 @@ jobs:
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-parallel-1.json"
       - name: Upload shard 1 timing artifact
         if: always()
+        # Timing data only: a failed upload warns, never fails the job.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-portable-parallel-1
@@ -154,6 +156,8 @@ jobs:
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-parallel-2.json"
       - name: Upload shard 2 timing artifact
         if: always()
+        # Timing data only: a failed upload warns, never fails the job.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-portable-parallel-2
@@ -230,6 +234,8 @@ jobs:
             --json "$RUNNER_TEMP/fm-test/fm-test-timing-portable-serial-${FM_SERIAL_SHARD}.json"
       - name: Upload portable serial shard ${{ matrix.shard }} timing artifact
         if: always()
+        # Timing data only: a failed upload warns, never fails the job.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-portable-serial-${{ matrix.shard }}
@@ -350,6 +356,8 @@ jobs:
           }
       - name: Upload Herdr timing and diagnostics
         if: always()
+        # Timing data only: a failed upload warns, never fails the job.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-herdr
@@ -394,6 +402,8 @@ jobs:
             "${inputs[@]}"
       - name: Upload aggregate timing artifact
         if: always()
+        # Timing data only: a failed upload warns, never fails the job.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: fm-test-timing-aggregate
