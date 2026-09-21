@@ -53,9 +53,28 @@
 # other. A local and remote code root that disagree about this list must be
 # reconciled by the ordinary remote sync/update path before the transfer
 # succeeds; there is no separate allowlist version negotiation.
+# The secrets allowlist below (FM_INHERITABLE_SECRETS) is deliberately NOT part
+# of that derived set: remote transfer never consults it, so remote routes
+# cannot receive keys even if configured, and the sender refuses to run when
+# the two declarations ever overlap.
+#
+# Secrets inheritance (FM_INHERITABLE_SECRETS): the primary's gitignored .env
+# is never propagated whole. Exactly the two declared typed-dispatch-resolution
+# keys are copied, line by line, from the primary home's .env into a LOCAL
+# secondmate home's .env, preserving every other line there (Relay tokens, mail
+# credentials, present or future keys). The durable source is the primary .env
+# only, never the process environment, so a one-shot injected key is not
+# persisted downstream and rotation (a changed value, or a removed line)
+# converges on the next push or sync. Destination .env files are created and
+# kept owner-only (0600). A home whose data/charter.md declares a research
+# scope stays keyless: its .env is never written to. Secrets never enter the
+# config-reread instruction surface, which inlines only FM_INHERITABLE_CONFIG
+# items.
 #
 # shellcheck source=bin/fm-startup-memory-budget-lib.sh
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-startup-memory-budget-lib.sh"
+# shellcheck source=bin/fm-env-lib.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-env-lib.sh"
 
 # The one shared data file in this inheritance contract. There is deliberately
 # no shared learnings file.
@@ -94,6 +113,184 @@ fm_config_inherit_items() {
     printf 'config/%s\n' "$item"
   done
   printf '%s\n' "$FM_SHARED_CAPTAIN_REL"
+}
+
+# The declared inheritable SECRETS allowlist (.env key names, space-separated).
+# Exactly these two typed-dispatch-resolution keys propagate to LOCAL
+# secondmate homes; override via the environment only in tests. Remote transfer
+# never consults this list (see the header contract).
+FM_INHERITABLE_SECRETS="${FM_INHERITABLE_SECRETS:-TYPESAFE_API_KEY AI_GATEWAY_API_KEY}"
+FM_SECRETS_FILE_MODE="600"
+
+# True when <dest-home> is a research-style home that must stay keyless: its
+# data/charter.md exists as an ordinary file and declares a research scope.
+fm_secondmate_home_is_keyless() {  # <dest-home>
+  local home=$1 charter
+  [ -n "$home" ] || return 1
+  charter="$home/data/charter.md"
+  [ -f "$charter" ] && [ ! -L "$charter" ] || return 1
+  grep -qi 'research' "$charter" 2>/dev/null
+}
+
+# Classify the primary .env source for secrets: print absent, present, or
+# error. Proven absence mirrors downstream as key removal; inspection errors
+# and nonregular sources must never silently remove an inherited key.
+fm_secrets_source_state() {  # <src-env>
+  local src=$1 present
+  if [ -e "$src" ] || [ -L "$src" ]; then
+    [ -f "$src" ] && [ ! -L "$src" ] || { printf 'error\n'; return 0; }
+    printf 'present\n'
+    return 0
+  fi
+  if ! present=$(fm_config_source_present "$src"); then
+    printf 'error\n'
+    return 0
+  fi
+  if [ "$present" = 1 ]; then
+    printf 'error\n'
+  else
+    printf 'absent\n'
+  fi
+}
+
+# Replace every existing KEY= line in <dest-env> with one trailing KEY=value
+# line, preserving all other lines. Creates the file owner-only when absent.
+write_inheritable_secret() {  # <dest-env> <key> <value>
+  local dest=$1 key=$2 value=$3 parent tmp
+  parent=${dest%/*}
+  [ -n "$parent" ] && [ "$parent" != "$dest" ] || return 1
+  mkdir -p "$parent" 2>/dev/null || return 1
+  tmp=$(mktemp "$parent/.fm-secrets.XXXXXX" 2>/dev/null) || return 1
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    [ -f "$dest" ] && [ ! -L "$dest" ] || { rm -f "$tmp"; return 1; }
+    [ "$(fm_inherit_file_link_count "$dest")" = 1 ] || { rm -f "$tmp"; return 1; }
+    grep -v -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$dest" 2>/dev/null > "$tmp" || true
+  else
+    : > "$tmp" || { rm -f "$tmp"; return 1; }
+  fi
+  printf '%s=%s\n' "$key" "$value" >> "$tmp" || { rm -f "$tmp"; return 1; }
+  chmod "$FM_SECRETS_FILE_MODE" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  mv -f "$tmp" "$dest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+  chmod "$FM_SECRETS_FILE_MODE" "$dest" 2>/dev/null || return 1
+}
+
+# Remove every KEY= line from <dest-env>; remove the file itself when only
+# blank lines remain. Absent destination is a no-op.
+remove_inheritable_secret() {  # <dest-env> <key>
+  local dest=$1 key=$2 parent tmp
+  [ -f "$dest" ] && [ ! -L "$dest" ] || return 0
+  [ "$(fm_inherit_file_link_count "$dest")" = 1 ] || return 1
+  parent=${dest%/*}
+  tmp=$(mktemp "$parent/.fm-secrets.XXXXXX" 2>/dev/null) || return 1
+  grep -v -E "^[[:space:]]*(export[[:space:]]+)?${key}=" "$dest" 2>/dev/null > "$tmp" || true
+  if grep -q '[^[:space:]]' "$tmp" 2>/dev/null; then
+    chmod "$FM_SECRETS_FILE_MODE" "$tmp" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    mv -f "$tmp" "$dest" 2>/dev/null || { rm -f "$tmp"; return 1; }
+    chmod "$FM_SECRETS_FILE_MODE" "$dest" 2>/dev/null || return 1
+  else
+    rm -f "$tmp" 2>/dev/null || true
+    rm -f "$dest" 2>/dev/null || return 1
+  fi
+}
+
+# propagate_secondmate_secrets <src-home> <dest-home>
+# Copy exactly FM_INHERITABLE_SECRETS from the primary home's .env into a LOCAL
+# secondmate home's .env. SILENT on stdout - callers parse stdout, so this
+# writes nothing there; stderr carries guard skips and errors only. A key
+# present in the primary converges byte-exact (idempotent: a re-run never
+# churns the file); a key proven absent in the primary is removed downstream,
+# so rotation and removal converge too. Inspection errors or unsafe artifacts
+# leave the destination unchanged and report an error. A research-charter home
+# is never written to. When FM_CONFIG_INHERIT_REPORT points at a writable
+# file, one tab-separated line per key is appended there (pushed, unchanged,
+# skipped, or error); the config-reread surface ignores these lines because it
+# inlines only FM_INHERITABLE_CONFIG items, so key values never enter an
+# instruction file or message. Returns non-zero only on a real propagation
+# error. Never invoke for a remote route: remote transfer derives only from
+# fm_config_inherit_items, which never contains these keys.
+propagate_secondmate_secrets() {
+  local src_home=$1 dest_home=$2 src_env dest_env state key value current reason rc
+  [ -n "$src_home" ] || return 1
+  [ -n "$dest_home" ] || return 1
+  src_env="$src_home/.env"
+  dest_env="$dest_home/.env"
+  rc=0
+  if fm_secondmate_home_is_keyless "$dest_home"; then
+    reason="research charter stays keyless"
+    echo "fm-config-inherit: warning: skipped secrets for $dest_home: $reason" >&2
+    for key in $FM_INHERITABLE_SECRETS; do
+      record_inheritable_config_result "$key" skipped "$reason"
+    done
+    return 0
+  fi
+  if [ -e "$dest_env" ] || [ -L "$dest_env" ]; then
+    if [ ! -f "$dest_env" ] || [ -L "$dest_env" ] \
+      || [ "$(fm_inherit_file_link_count "$dest_env")" != 1 ]; then
+      reason="unsafe destination .env"
+      echo "fm-config-inherit: error: $reason at $dest_env" >&2
+      for key in $FM_INHERITABLE_SECRETS; do
+        record_inheritable_config_result "$key" error "$reason"
+      done
+      return 1
+    fi
+  fi
+  state=$(fm_secrets_source_state "$src_env")
+  if [ "$state" = error ]; then
+    reason="cannot inspect primary source"
+    echo "fm-config-inherit: error: $reason $src_env" >&2
+    for key in $FM_INHERITABLE_SECRETS; do
+      record_inheritable_config_result "$key" error "$reason"
+    done
+    return 1
+  fi
+  for key in $FM_INHERITABLE_SECRETS; do
+    case "$key" in
+      ''|*[!A-Za-z0-9_]*)
+        reason="invalid secret key name"
+        echo "fm-config-inherit: error: $reason $key" >&2
+        record_inheritable_config_result "$key" error "$reason"
+        rc=1
+        continue
+        ;;
+    esac
+    if [ "$state" = present ]; then
+      value=$(fmx_env_get "$key" "$src_env")
+    else
+      value=""
+    fi
+    case "$value" in
+      *$'\n'*|*$'\r'*)
+        reason="unsafe primary source value"
+        echo "fm-config-inherit: error: $reason for $key" >&2
+        record_inheritable_config_result "$key" error "$reason"
+        rc=1
+        continue
+        ;;
+    esac
+    current=$(fmx_env_get "$key" "$dest_env")
+    if [ -n "$value" ]; then
+      if [ "$current" = "$value" ]; then
+        record_inheritable_config_result "$key" unchanged ""
+      elif write_inheritable_secret "$dest_env" "$key" "$value"; then
+        record_inheritable_config_result "$key" pushed ""
+      else
+        reason="failed to write"
+        echo "fm-config-inherit: error: $reason $key at $dest_env" >&2
+        record_inheritable_config_result "$key" error "$reason"
+        rc=1
+      fi
+    elif [ -z "$current" ]; then
+      record_inheritable_config_result "$key" unchanged ""
+    elif remove_inheritable_secret "$dest_env" "$key"; then
+      record_inheritable_config_result "$key" pushed "mirrored primary absence"
+    else
+      reason="failed to remove"
+      echo "fm-config-inherit: error: $reason $key at $dest_env" >&2
+      record_inheritable_config_result "$key" error "$reason"
+      rc=1
+    fi
+  done
+  return "$rc"
 }
 
 fm_config_source_present() {
@@ -448,6 +645,7 @@ propagate_secondmate_inheritance() {
   rc=0
   propagate_inheritable_config "$src_config" "$dest_home/config" || rc=1
   propagate_shared_captain_preferences "$src_data" "$dest_home/data" || rc=1
+  propagate_secondmate_secrets "$src_home" "$dest_home" || rc=1
   return "$rc"
 }
 

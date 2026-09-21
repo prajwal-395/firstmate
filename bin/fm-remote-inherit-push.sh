@@ -41,6 +41,24 @@ shared_captain_header_valid() {
 [ "$#" -eq 2 ] || { echo "usage: fm-remote-inherit-push.sh <secondmate-id> <generation>" >&2; exit 2; }
 ID=$1
 GENERATION=$2
+# Secrets (FM_INHERITABLE_SECRETS) must never travel this remote transfer: fail
+# closed before any registry, staging, or SSH work when the secrets declaration
+# ever overlaps the derived transfer set, or when a bare .env path appears in
+# it.
+ITEMS=$(fm_config_inherit_items)
+while IFS= read -r rel; do
+  [ -n "$rel" ] || continue
+  case "$rel" in
+    .env|*/.env) die "refusing remote transfer: $rel is not inherited material" ;;
+  esac
+  for secret in $FM_INHERITABLE_SECRETS; do
+    [ "$rel" = "config/$secret" ] || [ "$rel" = "$secret" ] \
+      || continue
+    die "refusing remote transfer: $rel overlaps the local-only secrets allowlist"
+  done
+done <<EOF
+$ITEMS
+EOF
 case "$ID" in ''|*[!A-Za-z0-9._-]*) die "invalid secondmate id: $ID" ;; esac
 case "$GENERATION" in ''|*[!0-9]*) die "generation must be a positive integer" ;; esac
 [ "${#GENERATION}" -le 18 ] && [ "$GENERATION" -ge 1 ] || die "generation is outside the supported range"
@@ -52,7 +70,6 @@ EMPTY="$TMP/empty"
 : > "$EMPTY"
 EMPTY_HASH=$(sha256_file "$EMPTY") || die "cannot hash empty inheritance payload"
 
-ITEMS=$(fm_config_inherit_items)
 while IFS= read -r rel; do
   [ -n "$rel" ] || continue
   if [ "${FM_CONFIG_INHERIT_LIVE:-0}" = 1 ]; then
