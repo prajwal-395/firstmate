@@ -289,7 +289,15 @@ fm_opencode_descent_when() {  # <horizon>
 fm_opencode_descent_cap() {  # <state-dir> <id>
   local state_dir=$1 id=$2 out rec word bound='' horizon='' status='' next=''
   local r_state='' r_source='' r_event='' episode=''
-  local meta lane_model cap_file scan_out
+  local meta lane_model lane_bare cap_file scan_out
+  local free_bare go_bare model_bare
+  # The sidecar's model is the plugin's own vocabulary (model.id, no provider
+  # prefix); the rung constants carry one. Both sides normalise through the
+  # dispatch gate's shared helper, so either form binds the right rung - the
+  # same mismatch PR 129 fixed at dispatch, which this file inherited from the
+  # same port with its own prefixed-only copy.
+  free_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_FREE")
+  go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 1
   [ -x "$_FM_OPENCODE_DESCENT_RETRY" ] || return 1
   if out=$("$_FM_OPENCODE_DESCENT_RETRY" check "$state_dir" "$id" 2>/dev/null); then
@@ -298,9 +306,10 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
         status=*) status=${word#status=} ;;
         horizon_s=*) horizon=${word#horizon_s=} ;;
         model=*)
-          case "${word#model=}" in
-            "$FM_OPENCODE_LADDER_FREE") bound=free ;;
-            "$FM_OPENCODE_LADDER_GO") bound=go ;;
+          model_bare=$(fm_opencode_ladder_bare_model "${word#model=}")
+          case "$model_bare" in
+            "$free_bare") bound=free ;;
+            "$go_bare") bound=go ;;
             *) bound=other ;;
           esac
           ;;
@@ -358,7 +367,8 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
   meta="$state_dir/$id.meta"
   if [ -f "$meta" ]; then
     lane_model=$(fm_meta_get "$meta" model 2>/dev/null) || lane_model=''
-    [ "$lane_model" = "$FM_OPENCODE_LADDER_FREE" ] && bound=free
+    lane_bare=$(fm_opencode_ladder_bare_model "$lane_model")
+    [ "$lane_bare" = "$free_bare" ] && bound=free
   fi
   printf 'unknown %s %s\n' "$bound" "$episode"
 }
@@ -378,8 +388,15 @@ fm_opencode_descent_cap() {  # <state-dir> <id>
 # decision be exercised without the watcher's wake, lock, and recovery graph.
 fm_opencode_descent_tick() {  # <state-dir> [<now>]
   local state_dir=$1 now=${2:-} rc=0
-  local meta id harness model kind cap horizon bound note ctl_out reason
+  local meta id harness model model_bare kind cap horizon bound note ctl_out reason
   local recorded after next rest hold_reason when
+  local free_bare go_bare
+  # The recorded model is the routed tier the way the launch left it, which
+  # may be the plugin's own bare vocabulary when the request named it so; the
+  # governance below normalises through the dispatch gate's shared helper, or
+  # a bare-recorded lane would read as off-ladder and stay silent past its cap.
+  free_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_FREE")
+  go_bare=$(fm_opencode_ladder_bare_model "$FM_OPENCODE_LADDER_GO")
 
   fm_opencode_descent_off "$state_dir" && return 0
   [ -n "$state_dir" ] && [ -d "$state_dir" ] || return 0
@@ -404,8 +421,13 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     case "$harness" in opencode*) ;; *) continue ;; esac
     model=$(fm_meta_get "$meta" model 2>/dev/null) || model=''
     kind=$(fm_meta_get "$meta" kind 2>/dev/null) || kind=''
-    case "$model" in
-      "$FM_OPENCODE_LADDER_FREE"|"$FM_OPENCODE_LADDER_GO"|'') ;;
+    model_bare=$(fm_opencode_ladder_bare_model "$model")
+    case "$model_bare" in
+      "$free_bare"|"$go_bare") ;;
+      # An empty record stays governed (it is refused loudly below, never
+      # moved blind); anything else bare or prefixed outside the pair stays
+      # silent as off-ladder.
+      '') [ -z "$model" ] || { fm_opencode_descent_clear_task "$state_dir" "$id"; continue; } ;;
       *) fm_opencode_descent_clear_task "$state_dir" "$id"; continue ;;
     esac
 
@@ -455,7 +477,7 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
       fi
       continue
     fi
-    if [ "$model" = "$FM_OPENCODE_LADDER_GO" ]; then
+    if [ "$model_bare" = "$go_bare" ]; then
       if fm_opencode_descent_escalate_once "$state_dir" "$id" "$next"; then
         printf 'refused %s is on the Go tier %s and it is capped too (%s); the ladder has no third rung - firstmate decision needed\n' \
           "$id" "$model" "$when"
