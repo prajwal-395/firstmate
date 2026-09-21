@@ -508,6 +508,24 @@ With one key present the tool uses that rung only.
 The resolver fixes the confidence floor at 0.6 and the request timeout at 5 seconds; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
 The live rule-match evidence is recorded in [`verification/dispatch-resolve.md`](verification/dispatch-resolve.md).
 
+## Stow owner resolution (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
+
+`bin/fm-stow-owner-resolve.sh` resolves one stow finding's knowledge owner with typesafe.ai's System One model (Jev), so the owner match the stow pass otherwise reasons out in its own context becomes one short tool turn.
+It is off unless `TYPESAFE_API_KEY` or `AI_GATEWAY_API_KEY` is non-empty in the calling environment or the home's gitignored `.env` holds a matching `KEY=` line; the environment wins, matching the Relay and mail-plane contracts, and the Relay accessor in `bin/fm-env-lib.sh` reads the line.
+Off means one `stow-owner-resolve: off` line on stderr, nothing on stdout, exit 0, and no network call, so the stow pass routes exactly as today.
+This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, and `AGENTS.md` section 6 owns the knowledge-routing table its options come from.
+
+```sh
+bin/fm-stow-owner-resolve.sh <finding-file> [--secondmate-home]   # TOON block on stdout
+```
+
+When on, the tool sends the candidate finding text as state and asks one Choice question whose options are the seven fixed knowledge owners plus the fixed neutral `elsewhere-or-drop` option; the model never sees tier defaults, pinning, or aging.
+Everything after the answer runs in code: the fixed 0.6 confidence floor, then the secondmate read-only reroute (`--secondmate-home` plus a `captain-shared-md` answer writes `route-to-primary`), the project-memory gate (a `project-agents-md` answer writes `via-delivery-path`, never a direct edit), while tier defaults and the session-evidence rule apply after routing exactly as today.
+The result is one of `clear` (an `owner:` line plus its `write:` path), `ambiguous` (confidence below the floor), or `error` (API, network, or response failure), and every one of them exits 0; only a usage or configuration error exits 2.
+Every non-clear result routes manually as today.
+The key handling, gateway-first ladder, fixed floor, and 5-second timeout match the typed dispatch resolver above; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
+The live owner-match evidence is recorded in [`verification/stow-owner-resolve.md`](verification/stow-owner-resolve.md).
+
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.

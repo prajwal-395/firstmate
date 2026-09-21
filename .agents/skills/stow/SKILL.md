@@ -217,6 +217,7 @@ A local skill exists only in this home, so offloading an entry out of `data/capt
 2. **Route each finding using AGENTS.md's knowledge-routing table.**
    AGENTS.md section 6 is the source of truth for destinations.
    Do not re-derive or duplicate that mapping here.
+   When the owner router is opted in, resolve each finding with `bin/fm-stow-owner-resolve.sh <finding-file>` (plus `--secondmate-home` in a secondmate home) and file it under the returned `owner:` through the returned `write:` path; on `off`, `ambiguous`, or `error`, route manually as today.
 3. **Write within the existing boundaries.**
    - Captain preferences and fleet-local operational facts belong in the destination selected by AGENTS.md after the required whole-file curation pass.
      Create `data/learnings.md` only for a genuinely new local learning with no stronger owner.
