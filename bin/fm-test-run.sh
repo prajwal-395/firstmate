@@ -2285,9 +2285,9 @@ fi
 
 # Scrub the inherited Herdr pane identity for the entire suite. A test launched
 # from inside a live Herdr pane inherits HERDR_ENV, HERDR_PANE_ID, etc., and any
-# test that runs fm-bootstrap.sh with a temp FM_HOME will reach the live session
-# through fm-herdr-orphan-reaper.sh, evaluating every live worker pane as
-# unclaimed and closing them. Unsetting these once here makes isolation
+# test that runs fm-bootstrap.sh with a temp FM_HOME would otherwise issue
+# backend calls against the live session, where the recovery and pane-cleanup
+# paths in bin/backends/herdr.sh can evaluate and close live worker panes. Unsetting these once here makes isolation
 # structural: no test inherits the live session identity, and a test that
 # deliberately exercises Herdr behaviour is free to set its own values after.
 # The variable set matches herdr_forget_inherited_pane() in
