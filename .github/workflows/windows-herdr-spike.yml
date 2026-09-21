@@ -427,6 +427,8 @@ jobs:
 
       - name: Upload measurement and diagnostics
         if: always()
+        # Measurement data only: a failed upload warns, never fails the run.
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: windows-herdr-spike-${{ github.run_id }}
