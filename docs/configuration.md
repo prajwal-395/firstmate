@@ -528,6 +528,20 @@ Every non-clear result routes manually as today.
 The key handling, gateway-first ladder, fixed floor, and 5-second timeout match the typed dispatch resolver above; `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only resolver-specific environment settings.
 The live owner-match evidence is recorded in [`verification/stow-owner-resolve.md`](verification/stow-owner-resolve.md).
 
+## Typed intake classification (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
+
+`bin/fm-intake-kind.sh` classifies one intake as ship or scout with typesafe.ai's System One model (Jev), so the deliverable-kind call that fires on every intake stops spending supervisor context.
+It shares the dispatch resolver's opt-in gate, gateway-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `intake-kind: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate classifies exactly as today.
+This section is the single owner of the tool's operator contract; the script header owns its exact flags, output lines, and code-gate word lists, and `AGENTS.md` section 7 owns the ship/scout definitions the question quotes.
+When on, the tool sends the whole intake file (the captain request text plus any report, decision, or PR text the caller concatenated into it) as state and asks one Choice question `kind` with exactly two options, ship (the default: a project change through the selected delivery mode) and scout (knowledge, never a PR).
+Everything after the answer runs in code: an explicit-knowledge-request string gate forces scout regardless of the answer, a diagnostic-evidence gate holds a ship answer whose only basis is a report or finding for authorization, and an existing-evidence advisory flags an informational scout whose answer may already be on disk.
+The confidence floor is asymmetric: an uncertain scout stays scout and never silently becomes code changes, while an uncertain ship returns as `ambiguous` and still passes the existing human-readable checks.
+The result is one of `clear` (a `kind:` line ready for intake routing), `ambiguous` (uncertain ship, back to the manual checks with its lean recorded), `escalate` (evidence held for authorization), or `error` (API, network, or response failure), and every one of them exits 0.
+Response probabilities must contain exactly `scout` and `ship`, use numeric values from 0 through 1, and sum to approximately 1 within 0.01.
+Only a usage or configuration error exits 2: a missing, unreadable, or empty intake file, or missing `jq`, each reported and never selected around.
+Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate classifies as today.
+The offline gate evidence is recorded in [`verification/intake-kind.md`](verification/intake-kind.md); a keyed live run against the same hand-labeled set is still open.
+
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
