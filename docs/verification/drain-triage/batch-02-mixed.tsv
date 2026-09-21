@@ -1,0 +1,4 @@
+1700000000	1	signal	d.status	signal: d.status
+1700000001	2	heartbeat	heartbeat	heartbeat
+1700000002	3	check	d.check.sh	check: d.check.sh: merged: https://example.test/pr/7
+1700000003	4	stale	firstmate:fm-d	stale: firstmate:fm-d

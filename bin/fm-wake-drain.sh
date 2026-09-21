@@ -24,6 +24,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# shellcheck source=bin/fm-env-lib.sh
+. "$SCRIPT_DIR/fm-env-lib.sh"
 
 DRAIN_TMP=
 DRAIN_VIEW_TMP=
@@ -659,6 +661,47 @@ print_status_presentation() {  # [<deduped-raw-rows>]
   return "$rc"
 }
 
+# Observe-only drain triage: one best-effort Jev call classifying the presented
+# rows as suppress-or-wake, counted but never acted on.
+# bin/fm-drain-triage.sh owns the classifier contract; this hook only appends
+# its printed block to state/.drain-triage-counts.log for the week of live
+# observation that must precede any suppression widening. Fail-open and silent
+# by construction: skipped when FM_DRAIN_TRIAGE_OFF=1, when nothing was
+# presented, or when neither triage key is present in the environment or the
+# home .env; every failure inside is discarded. Never changes presented rows,
+# acknowledgement, or exit status; always returns 0.
+observe_drain_triage() { # <presented-rows-text>
+  local rows_text=$1 key_ts key_gw tmp log out bound size
+  case "${FM_DRAIN_TRIAGE_OFF:-0}" in 1|true|yes) return 0 ;; esac
+  [ -n "$rows_text" ] || return 0
+  key_ts=${TYPESAFE_API_KEY:-}
+  [ -n "$key_ts" ] || key_ts=$(fmx_env_get TYPESAFE_API_KEY "$FM_HOME/.env")
+  key_gw=${AI_GATEWAY_API_KEY:-}
+  [ -n "$key_gw" ] || key_gw=$(fmx_env_get AI_GATEWAY_API_KEY "$FM_HOME/.env")
+  { [ -n "$key_ts" ] || [ -n "$key_gw" ]; } || return 0
+  bound=${FM_DRAIN_TRIAGE_TIMEOUT:-12}
+  case "$bound" in ''|*[!0-9]*|0) bound=12 ;; esac
+  tmp=$(mktemp "$STATE/.drain-triage-rows.XXXXXX") || return 0
+  log="$STATE/.drain-triage-counts.log"
+  printf '%s\n' "$rows_text" > "$tmp" || { rm -f -- "$tmp"; return 0; }
+  chmod 0600 "$tmp" || { rm -f -- "$tmp"; return 0; }
+  if out=$(fm_run_timed "$bound" "$SCRIPT_DIR/fm-drain-triage.sh" \
+    --rows-file "$tmp" --actor "$ACTOR" 2>&1); then
+    {
+      printf 'drain-triage-observe ts=%s actor=%s\n' "$(date +%s)" "$ACTOR"
+      printf '%s\n' "$out"
+    } >> "$log" 2>/dev/null || true
+    size=$(wc -c < "$log" 2>/dev/null | tr -d '[:space:]') || size=0
+    case "$size" in ''|*[!0-9]*) size=0 ;; esac
+    if [ "$size" -gt 1048576 ]; then
+      tail -n 2000 "$log" > "$log.tmp" 2>/dev/null && mv -f "$log.tmp" "$log" 2>/dev/null || true
+      rm -f "$log.tmp" 2>/dev/null || true
+    fi
+  fi
+  rm -f -- "$tmp" 2>/dev/null || true
+  return 0
+}
+
 # shellcheck disable=SC2317,SC2329 # Invoked by trap handlers below.
 cleanup() {
   local status=$?
@@ -932,6 +975,7 @@ DRAIN_LOCK_HELD=false
 printf 'WAKE_ACK_REQUIRED: after handling completes run bin/fm-wake-drain.sh --ack-through %s --recovery-generation %s\n' \
   "$ACK_THROUGH" "${RECOVERY_MARKER_TOKEN##*:}" >&2
 
+observe_drain_triage "$RAW_ROWS" || true
 (print_status_presentation "$RAW_ROWS") || true
 assert_watcher_liveness
 exit 0
