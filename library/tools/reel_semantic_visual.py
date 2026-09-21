@@ -416,12 +416,21 @@ def build_for_reel(moment, transcript: dict, ranges, project_folder: str,
         answer, moment, collect_word_windows(spine), project_folder)
     cta_rx.report(name, cta_report)
     from library.tools.brand_palette import roles_from_palette
+    from library.tools.brand_registry import project_template_name
     safe_area = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
+    try:
+        palette_source = project_template_name(project_folder)
+    except Exception:
+        palette_source = ""
     resolved = mg.resolve_plan(
         answer, timeline_duration=reel_seconds, fps=fps,
         palette_roles=roles_from_palette(
             (brand_style or {}).get("color_palette")) or {},
+        # Whose palette answered, so a resolved colour names its
+        # source on its colorBasis - the same provenance step 4.06
+        # records (library/tools/motion_graphics_plan.py).
+        palette_source=palette_source,
         asked=True,
         caption_bands=occupied_bands(
             brand_effect=brand_effect, brand_style=brand_style,

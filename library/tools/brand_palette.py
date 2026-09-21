@@ -102,3 +102,25 @@ def accent_color(
 ) -> str:
     """The brand accent, or `fallback` when the palette has no usable one."""
     return roles_from_palette(palette).get("accent", fallback)
+
+
+def describe_palette_state(palette: Optional[List[str]]) -> dict:
+    """The palette as a run record reads it: entries, roles, accent.
+
+    A palette that resolves `text`/`outline` but no usable `accent` is
+    the shape that drew fifteen unusable graphics on one project: every
+    entry asking for the brand's colour got the lightest entry of a
+    palette nobody chose for that series, and nothing on the run said
+    so before the renders. The state is REPORTED, never a gate - a
+    template refines and does not gate - so this returns facts
+    (`has_usable_accent`, the resolved `roles`) and the caller records
+    them on its own output. `tests/test_motion_graphics_template.py`.
+    """
+    entries = [entry.strip() for entry in (palette or [])
+               if isinstance(entry, str) and hex_to_rgb(entry) is not None]
+    roles = roles_from_palette(palette)
+    return {
+        "entries": entries,
+        "roles": roles,
+        "has_usable_accent": "accent" in roles,
+    }

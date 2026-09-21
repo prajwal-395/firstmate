@@ -206,6 +206,36 @@ def _mg_reuse_key(digest: str, remotion_dir: str) -> str:
     return _content_key(digest, remotion_dir, OVERLAY_CARRIAGE)
 
 
+def _report_palette_state(template_name: str, palette: dict) -> None:
+    """Say whose palette answered, before a render, on every run.
+
+    The loud half of the wrong-palette defect: a palette that resolves
+    `text`/`outline` but has no usable accent is the shape that once
+    drew a whole layer in another series' colour with nothing saying
+    so. REPORTED, never a gate - the template refines and does not
+    gate, so the layer resolves exactly as it always has and this line
+    is what makes the state enumerable rather than silent. The same
+    fact travels machine-readably on the step output's planning_basis.
+    """
+    roles = palette.get("roles") or {}
+    drawn = int(palette.get("moments_drawn_in_palette_colours") or 0)
+    stated = int(palette.get("moments_drawn_in_plan_stated_colours") or 0)
+    if not template_name and not roles:
+        print("  palette: no brand palette supplied - every colour is "
+              "the plan's own", file=sys.stderr)
+        return
+    accent = palette.get("has_usable_accent")
+    print(f"  palette {template_name!r} resolves {roles} "
+          f"(usable accent: {accent}); {drawn} element(s) draw in "
+          f"palette colours, {stated} in plan-stated colours",
+          file=sys.stderr)
+    if accent is False:
+        print(f"  NOTE: palette {template_name!r} has no usable accent - "
+              f"any entry asking for colour_role 'accent' falls back to "
+              f"its own stated colour or is dropped by name",
+              file=sys.stderr)
+
+
 def render_one_segment(planned: dict, out_dir: str,
                        segment_name: str = "",
                        remotion_dir: str = "",
@@ -688,6 +718,14 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
 
     timed_text_overlay = _timed_text_output(timed_text_segments, fps)
 
+    # Whose palette answers colour roles, so a resolved colour names
+    # its source on its colorBasis. The runner injects the resolved
+    # template dict for any step declaring the `brand_template` input
+    # (library/processes/edit_video/run_pipeline.py); "" where the
+    # project named no template, which resolves nothing and changes
+    # nothing downstream.
+    brand_template_name = str(
+        (data.get("brand_template") or {}).get("series_id") or "")
     segments_plan, resolved = generate_motion_props(
         motion_graphics_plan,
         audio_spine,
@@ -696,6 +734,7 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
         # names no template resolves nothing here and its plan states
         # its own colours; the layer is not reduced by the absence.
         brand_style=data.get("brand_style", {}),
+        brand_template_name=brand_template_name,
         # Not a gate: the ONLY thing read out of it here is the caption
         # style's `position`, which says which band the captions own.
         # library/tools/caption_band.py.
@@ -704,6 +743,7 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
         asked=motion_graphics_plan is not None,
     )
     basis = resolved.basis_record()
+    _report_palette_state(brand_template_name, basis["palette"])
 
     for dropped in resolved.dropped:
         print(f"  dropped {dropped.element}: {dropped.reason}"

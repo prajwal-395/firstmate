@@ -13,6 +13,12 @@
         "description": "Timed audio spine for duration and block structure"
       },
       {
+        "name": "brand_template",
+        "type": "object",
+        "required": false,
+        "description": "State input: the resolved brand template dict (injected by the pipeline runner). The post-bridge reads its series_id so every palette-resolved colour names the palette that supplied it on its colorBasis; see library/tools/motion_graphics_plan.py."
+      },
+      {
         "name": "brand_effect",
         "type": "object",
         "required": false,
@@ -111,6 +117,7 @@
         "creative_direction",
         "enhancement_spec",
         "project_fps",
+        "brand_template",
         "brand_style",
         "brand_effect",
         "project_context"

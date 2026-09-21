@@ -27,7 +27,10 @@ from typing import Optional
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
-from library.tools.brand_palette import roles_from_palette
+from library.tools.brand_palette import (
+    describe_palette_state,
+    roles_from_palette,
+)
 from library.tools.motion_graphics_plan import (  # noqa: F401 - re-exported
     PLAN_KEY,
     ResolvedPlan,
@@ -122,6 +125,7 @@ def generate_motion_props(
     height: int,
     brand_style: Optional[dict] = None,
     brand_effect: Optional[dict] = None,
+    brand_template_name: str = "",
     project_folder: str = "",
     asked: bool = True,
 ) -> tuple:
@@ -148,11 +152,26 @@ def generate_motion_props(
     safe_area = resolve_safe_area(
         project_folder or None, width=width, height=height).as_props()
 
+    # The palette as the run records it: whose it is, what it resolved
+    # to, and whether it has a usable accent. A palette answering
+    # `text`/`outline` with no accent is the shape that once drew a
+    # whole layer in another series' colour with nothing saying so -
+    # the state travels onto the resolved plan's own record (REPORTED,
+    # never a gate) and every palette-resolved colour carries the
+    # source name on its colorBasis.
+    palette_state = describe_palette_state(
+        (brand_style or {}).get("color_palette"))
     resolved = resolve_plan(
         motion_graphics_plan,
         timeline_duration=duration,
         fps=fps,
-        palette_roles=brand_palette_roles(brand_style),
+        palette_roles=palette_state["roles"],
+        palette_source=brand_template_name,
+        # Answered only where a palette was actually declared: no
+        # entries means no palette, not a palette with no accent.
+        palette_has_usable_accent=(
+            palette_state["has_usable_accent"]
+            if palette_state["entries"] else None),
         asked=asked,
         caption_bands=occupied_bands(
             brand_effect=brand_effect, brand_style=brand_style,

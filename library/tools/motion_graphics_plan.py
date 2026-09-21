@@ -441,6 +441,36 @@ class ResolvedPlan:
     basis: str = NOT_PLANNED
     proposed: int = 0
     dropped: List[Dropped] = field(default_factory=list)
+    # Where the palette roles came from - the brand template's
+    # `series_id` on a pipeline run, "" where no palette was supplied -
+    # and what that palette is. Recorded rather than read twice: the
+    # run that drew in a palette's colours must say whose they were
+    # before a render, not fifteen silently unusable movies after one.
+    palette_source: str = ""
+    palette_roles: Dict[str, str] = field(default_factory=dict)
+    # Whether the palette has a usable accent (`brand_palette`'s own
+    # rule), or None where the caller did not say. A palette answering
+    # `text`/`outline` with no accent is the shape the repo's own
+    # tests call unreadable, and it is stated here rather than found
+    # on a timeline.
+    palette_has_usable_accent: Optional[bool] = None
+
+    def palette_record(self) -> dict:
+        """The palette state as an enumerable run fact, before any render.
+
+        REPORTED, never a gate: the template refines and does not gate,
+        so a palette with no usable accent still resolves the roles it
+        has and this record is what says so.
+        """
+        drawn = sum(1 for moment in self.moments
+                    if "brand palette" in str(moment.get("colorBasis", "")))
+        return {
+            "source": self.palette_source,
+            "roles": dict(self.palette_roles),
+            "has_usable_accent": self.palette_has_usable_accent,
+            "moments_drawn_in_palette_colours": drawn,
+            "moments_drawn_in_plan_stated_colours": len(self.moments) - drawn,
+        }
 
     def basis_record(self) -> dict:
         """The account that travels onto the step's own output.
@@ -466,6 +496,9 @@ class ResolvedPlan:
             "dropped": [d.as_record() for d in self.dropped],
             # A measurement, never a gate. See `overlapping_pairs`.
             "drawn_through_each_other": overlapping_pairs(self.moments),
+            # Whose palette answered, and how many moments drew in it.
+            # See `palette_record`.
+            "palette": self.palette_record(),
         }
 
 
@@ -545,8 +578,8 @@ def _copy_runs(entry: Dict[str, Any]) -> List[dict]:
     return runs
 
 
-def resolve_colour(entry: Dict[str, Any], palette_roles: Dict[str, str]
-                   ) -> Tuple[str, str]:
+def resolve_colour(entry: Dict[str, Any], palette_roles: Dict[str, str],
+                    palette_source: str = "") -> Tuple[str, str]:
     """The colour an element draws in, and where it came from.
 
     **This is the whole of "the template refines and does not gate".**
@@ -554,6 +587,16 @@ def resolve_colour(entry: Dict[str, Any], palette_roles: Dict[str, str]
     resolves the entry's `colour_role`. A project with no template
     resolves nothing here - and the plan's own `color` then answers,
     because the model is allowed taste and the engine is not.
+
+    `palette_source` names where the roles came from - the brand
+    template's `series_id` on a pipeline run - and a palette-resolved
+    colour carries it, so a props file never says "brand palette"
+    without saying whose. Fifteen graphics once drew in the lightest
+    entry of a palette nobody chose for their series and every one of
+    them read `brand palette role 'text'` with no name attached; the
+    name is what makes the colour traceable to the project's own
+    brand. Empty means no palette was supplied and the basis reads
+    exactly as it always has.
 
     Returns `(colour, basis)` with an empty colour when neither
     answers. There is no third source: a constant here is a house look
@@ -563,6 +606,9 @@ def resolve_colour(entry: Dict[str, Any], palette_roles: Dict[str, str]
     if role in COLOUR_ROLES:
         from_palette = _text(palette_roles.get(role))
         if from_palette:
+            if palette_source:
+                return (from_palette,
+                        f"brand palette role {role!r} of {palette_source!r}")
             return from_palette, f"brand palette role {role!r}"
     stated = _text(entry.get("color") or entry.get("colour"))
     if stated:
@@ -571,8 +617,10 @@ def resolve_colour(entry: Dict[str, Any], palette_roles: Dict[str, str]
 
 
 def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
-                 palette_roles: Optional[Dict[str, str]] = None,
-                 asked: bool = True,
+                  palette_roles: Optional[Dict[str, str]] = None,
+                  palette_source: str = "",
+                  palette_has_usable_accent: Optional[bool] = None,
+                  asked: bool = True,
                  caption_bands: Optional[FrozenSet[str]] = None,
                  captioned_spans: Sequence[Tuple[float, float]] = (),
                  resolve_asset: Optional[Callable[[str], str]] = None,
@@ -586,6 +634,14 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
     `palette_roles` is what a brand template's palette resolved to, or
     `{}` when the project named no template. It REFINES - see
     :func:`resolve_colour` - and its absence drops nothing on its own.
+
+    `palette_source` names where those roles came from - the brand
+    template's `series_id` on a pipeline run - so a palette-resolved
+    colour carries its provenance onto the props file. `""` where no
+    palette was supplied. `palette_has_usable_accent` is
+    `brand_palette`'s own answer for that palette, or None where the
+    caller did not say. Both travel onto :meth:`ResolvedPlan.basis_record`
+    as the `palette` fact, stated before any render.
 
     `caption_bands` and `captioned_spans` are where and when this
     project's captions are on screen, from `library/tools/caption_band.py`.
@@ -612,10 +668,18 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
     not pick one.
     """
     palette_roles = palette_roles or {}
+    resolved = ResolvedPlan(
+        proposed=0,
+        palette_source=palette_source,
+        palette_roles=dict(palette_roles),
+        palette_has_usable_accent=palette_has_usable_accent,
+    )
     if not asked:
-        return ResolvedPlan(basis=NOT_PLANNED)
+        resolved.basis = NOT_PLANNED
+        return resolved
     if plan is None:
-        return ResolvedPlan(basis=NO_ELEMENTS_PLANNED)
+        resolved.basis = NO_ELEMENTS_PLANNED
+        return resolved
     if isinstance(plan, dict):
         plan = plan.get("elements", plan.get(PLAN_KEY, []))
     if not isinstance(plan, list):
@@ -623,7 +687,7 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
             f"{PLAN_KEY} must be a list of entries, got "
             f"{type(plan).__name__}.")
 
-    resolved = ResolvedPlan(proposed=len(plan))
+    resolved.proposed = len(plan)
 
     def drop(entry, key, reason, detail=""):
         if reason not in DROP_REASONS:
@@ -751,7 +815,8 @@ def resolve_plan(plan: Any, *, timeline_duration: float, fps: float,
                 drop(entry, key, "data_the_element_draws_from_is_absent", why)
                 continue
 
-        colour, colour_basis = resolve_colour(entry, palette_roles)
+        colour, colour_basis = resolve_colour(
+            entry, palette_roles, palette_source)
         # Asked of the elements the ROSTER says draw in a colour. An
         # element whose axes do not include `colour_role` draws something
         # else - `channel_bug` draws a project's own file - and demanding

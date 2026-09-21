@@ -270,3 +270,85 @@ def test_the_prompt_states_how_a_colour_is_resolved_and_what_absence_means():
     assert "the entry is dropped" in handoff
     assert "There is no house colour" in handoff
     assert "not a project with a reduced layer" in handoff
+
+
+# ── The palette states whose it is, before a render ──────────────────
+#
+# 2026-09-21: fifteen graphics drew in `#aabbcc` - the lightest entry
+# of a palette nobody chose for their series - and every props file
+# read `brand palette role 'text'` with no name attached, while the
+# run's own record carried no palette state at all. A palette-resolved
+# colour now names the source that supplied it, and the basis record
+# carries the palette fact. REPORTED, never a gate: the layer resolves
+# exactly as it always has.
+
+def text_role_plan(**kw):
+    """One entry naming a colour_role the cinematic palette resolves."""
+    base = {"element": "frame_accents", "start_seconds": 0.5,
+            "duration_seconds": 2.0, "anchor": "centre",
+            "colour_role": "text"}
+    base.update(kw)
+    return [base]
+
+
+def test_palette_drawn_colours_name_the_template_that_supplied_them():
+    segs, _ = generate_motion_props(
+        text_role_plan(), SPINE, fps=30, width=1080, height=1920,
+        brand_style=UNREADABLE_PALETTE,
+        brand_template_name="cinematic_narrative", project_folder="")
+    drawn = _elements(segs)
+    assert drawn, "the text role resolves under this palette"
+    assert all(e["color"] == "#aabbcc" for e in drawn)
+    assert all("cinematic_narrative" in e["colorBasis"] for e in drawn)
+
+
+def test_a_palette_resolved_colour_without_a_source_reads_as_before():
+    """The name is added provenance, not a renamed basis: callers that
+    supply no source - the reel lower-third and explainer paths resolve
+    with `palette_roles={}` - read exactly what they always have."""
+    segs, _ = segments(text_role_plan(), UNREADABLE_PALETTE)
+    assert all(e["colorBasis"] == "brand palette role 'text'"
+               for e in _elements(segs))
+
+
+def test_basis_record_carries_the_palette_fact():
+    _, resolved = generate_motion_props(
+        text_role_plan(), SPINE, fps=30, width=1080, height=1920,
+        brand_style=UNREADABLE_PALETTE,
+        brand_template_name="cinematic_narrative", project_folder="")
+    palette = resolved.basis_record()["palette"]
+    assert palette["source"] == "cinematic_narrative"
+    assert palette["roles"] == {"text": "#aabbcc", "outline": "#111111"}
+    assert palette["has_usable_accent"] is False
+    assert palette["moments_drawn_in_palette_colours"] == 1
+    assert palette["moments_drawn_in_plan_stated_colours"] == 0
+
+
+def test_no_palette_supplied_means_no_source_and_no_accent_claim():
+    """A project that names no template supplies no palette: the record
+    says so rather than reporting a palette with no accent, which
+    would read as a judgement on colours the plan stated itself."""
+    stated = text_role_plan(color="#FF8A3D")
+    del stated[0]["colour_role"]
+    _, resolved = segments(stated, {})
+    palette = resolved.basis_record()["palette"]
+    assert palette["source"] == ""
+    assert palette["roles"] == {}
+    assert palette["has_usable_accent"] is None
+    assert palette["moments_drawn_in_palette_colours"] == 0
+    assert palette["moments_drawn_in_plan_stated_colours"] == 1
+
+
+def test_describe_palette_state_names_the_unreadable_shape():
+    from library.tools.brand_palette import describe_palette_state
+    unreadable = describe_palette_state(
+        UNREADABLE_PALETTE["color_palette"])
+    assert unreadable["roles"]["text"] == "#aabbcc"
+    assert unreadable["has_usable_accent"] is False
+    readable = describe_palette_state(READABLE_PALETTE["color_palette"])
+    assert readable["roles"]["accent"] == "#ff0055"
+    assert readable["has_usable_accent"] is True
+    assert describe_palette_state(None) == {
+        "entries": [], "roles": {}, "has_usable_accent": False}
+    assert describe_palette_state([]) == {
+        "entries": [], "roles": {}, "has_usable_accent": False}
