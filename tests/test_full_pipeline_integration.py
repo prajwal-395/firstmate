@@ -15,7 +15,8 @@ from library.steps.step_5_04_compile_manifest.step import compile_manifest
 from library.processes.edit_video.run_pipeline import gather_step_inputs
 
 def test_full_brand_template_flow():
-    template = load_brand_template("cinematic_narrative")
+    from tests.brand_fixtures import SYNTHETIC_CINEMATIC
+    template = BrandTemplate.from_dict(SYNTHETIC_CINEMATIC)
     assert template is not None
     assert hasattr(template, "style")
     assert hasattr(template, "effect")

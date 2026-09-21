@@ -91,7 +91,10 @@ class SourceConfig:
 @dataclass
 class PipelineConfig:
     """Pipeline-specific configuration for this project."""
-    brand_template: str = "default_brand"  # reference to library/templates/
+    # The brand this project renders under: a NAME the project carries a
+    # `brand.json` for, or "" for none.  The product ships no templates
+    # (captain, 2026-09-21) - an empty declaration loads NOTHING.
+    brand_template: str = ""
     # Per-project override of the frame the product ships in. Empty means
     # "take the brand template's", which in turn defaults to vertical.
     # A name from library/tools/delivery_format.DELIVERY_FORMATS; an
@@ -429,7 +432,7 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
     )
 
     pipeline = PipelineConfig(
-        brand_template=pipeline_data.get("brand_template", "default_brand"),
+        brand_template=pipeline_data.get("brand_template", ""),
         delivery_format=pipeline_data.get("delivery_format", "") or "",
         deliver_preset=pipeline_data.get("deliver_preset"),
         deliver_naming=pipeline_data.get("deliver_naming", "") or "",

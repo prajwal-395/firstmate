@@ -208,8 +208,8 @@ class SubtitleStyle:
 
     `palette_driven` decides whether the template's `color_palette`
     replaces the colours below. It is False for `default_subtitles`
-    because that style exists to reproduce today's output, and
-    `default_brand.yaml`'s palette is three pure RGB primaries - visibly
+    because that style exists to reproduce today's output, and a
+    placeholder palette of three pure RGB primaries is visibly
     a placeholder, and not something to paint captions with.
     """
 
@@ -307,10 +307,10 @@ SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
         font_weight=900,
         outline_width=18,
         derived_from=(
-            "shortform_energetic.yaml: energy_profile high, vfx_intensity "
+            "the shortform brand copy: energy_profile high, vfx_intensity "
             "0.8, dense SFX. Larger and heavier than the legacy look, with a "
-            "thicker outline because the electric_contrast grade pushes "
-            "contrast and a thin outline disappears into it."
+            "thicker outline because a pushed-contrast grade swallows a "
+            "thin outline."
         ),
     ),
     # cinematic_narrative: letterboxed by design, moderate SFX, a warm
@@ -321,9 +321,9 @@ SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
         font_weight=600,
         outline_width=6,
         derived_from=(
-            "cinematic_narrative.yaml: framing_intent 0.0, moderate SFX, the "
-            "warm_filmic look. Smaller, lighter and barely outlined, because "
-            "a heavy caption fights a letterboxed cinematic frame."
+            "the cinematic brand copy: framing_intent 0.0, moderate SFX. "
+            "Smaller, lighter and barely outlined, because a heavy caption "
+            "fights a letterboxed cinematic frame."
         ),
     ),
     # interview_professional: sparse SFX, muted grade. Legible and
@@ -334,9 +334,9 @@ SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
         font_weight=700,
         outline_width=9,
         derived_from=(
-            "interview_professional.yaml: sparse SFX, the muted_editorial "
-            "look. Between the other two on every axis: legible over talking "
-            "heads without reading as shortform."
+            "the interview brand copy: sparse SFX. Between the other two "
+            "on every axis: legible over talking heads without reading "
+            "as shortform."
         ),
     ),
 }

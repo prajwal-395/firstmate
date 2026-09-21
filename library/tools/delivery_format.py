@@ -122,7 +122,9 @@ def delivery_format_name(project_folder: Optional[str] = None,
 
     template_name = (pipeline_block.get("brand_template") or "").strip()
     from library.tools.brand_registry import resolve_project_template
-    template = resolve_project_template(template_name, templates_dir=templates_dir)
+    template = resolve_project_template(
+        template_name, templates_dir=templates_dir,
+        project_folder=project_folder)
     declared = (getattr(template, "delivery_format", "") or "").strip()
     if declared:
         resolve_format_name(declared)  # raise here, naming the template

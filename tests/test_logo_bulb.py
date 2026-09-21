@@ -30,9 +30,9 @@ import pytest
 from library.tools import logo_bulb as lb
 from library.tools.logo_bulb import ClosingProfile, SourceNotClosed
 
-ORANGE = (255 / 255, 170 / 255, 77 / 255)
-NAVY = (39 / 255, 51 / 255, 66 / 255)
-LUCIE_GROUND = (0x25 / 255, 0x37 / 255, 0x46 / 255)
+ORANGE = (232 / 255, 150 / 255, 60 / 255)
+NAVY = (43 / 255, 61 / 255, 79 / 255)
+SYNTHETIC_GROUND = (0x2E / 255, 0x40 / 255, 0x57 / 255)
 
 RATE = 24000 / 1001
 
@@ -113,7 +113,7 @@ COMPLETION = DRAW - 1
 
 
 def _profile(**kwargs) -> ClosingProfile:
-    return ClosingProfile(ground=LUCIE_GROUND, **kwargs)
+    return ClosingProfile(ground=SYNTHETIC_GROUND, **kwargs)
 
 
 # ── Beat 3: one flash, and it lands on the completion frame ──────────
@@ -238,7 +238,7 @@ def test_a_frame_with_no_mark_is_exactly_the_ground():
     profile = _profile()
     empty = np.zeros((32, 32, 4), dtype=np.float64)
     out = lb.bulb_frame(empty, profile.flash_light, 1.0, profile)
-    assert np.allclose(out[..., :3], np.asarray(LUCIE_GROUND))
+    assert np.allclose(out[..., :3], np.asarray(SYNTHETIC_GROUND))
 
 
 def test_the_closing_frame_is_opaque_everywhere():
@@ -264,7 +264,7 @@ def test_the_light_only_ever_brightens_the_ground():
     for frame, source, left in zip(out, frames, standing):
         away = source[..., 3] <= 0.0
         if away.any():
-            ground = np.asarray(LUCIE_GROUND) * left
+            ground = np.asarray(SYNTHETIC_GROUND) * left
             assert (frame[..., :3][away] >= ground - 1e-9).all()
 
 
@@ -328,7 +328,7 @@ def test_a_ground_that_did_not_travel_would_leave_the_navy_standing():
     frames = _sequence(size=96)
     profile = _profile()
     held = lb.bulb_frame(frames[-1], profile.base_light, 0.0, profile)
-    assert np.allclose(held[..., :3], np.asarray(LUCIE_GROUND))
+    assert np.allclose(held[..., :3], np.asarray(SYNTHETIC_GROUND))
 
 
 # ── The base has to stay a base ──────────────────────────────────────
@@ -392,7 +392,7 @@ def test_the_lift_moves_the_ground_s_value_and_not_its_hue():
     behind = (ink <= 0.0) & (pool >= 0.9 * pool.max())
     assert behind.any()
     painted = lifted[..., :3][behind]
-    declared = np.asarray(LUCIE_GROUND)
+    declared = np.asarray(SYNTHETIC_GROUND)
     assert (painted >= declared - 1e-9).all()
     ratio = painted / declared
     assert np.allclose(ratio, ratio[:, :1], atol=1e-9)
@@ -411,7 +411,7 @@ def test_a_black_ground_is_not_lifted_at_all():
 
 def test_the_declared_ground_is_what_the_frame_reads_away_from_the_mark():
     """The pool is BEHIND the lockup, and it dies. The field itself is
-    #253746 - on the real 1080x1920 asset every corner is more than
+    #2e4057 - on the real 1080x1920 asset every corner is more than
     four spreads from the mark, which is what this canvas reproduces."""
     profile = _profile()
     pad = 300
@@ -421,7 +421,7 @@ def test_the_declared_ground_is_what_the_frame_reads_away_from_the_mark():
     spread, normaliser = lb.field_geometry([mark], profile)
     pool = lb.field_pool(ink, spread, normaliser)
     out = lb.bulb_frame(mark, 0.0, 1.0, profile, 1.0, pool)
-    assert np.allclose(out[0, 0, :3], np.asarray(LUCIE_GROUND), atol=1e-4)
+    assert np.allclose(out[0, 0, :3], np.asarray(SYNTHETIC_GROUND), atol=1e-4)
     assert pool.max() == pytest.approx(1.0, abs=1e-9)
 
 
@@ -449,9 +449,9 @@ def test_a_declared_ground_is_read_off_the_brand_template(tmp_path):
     template = tmp_path / "brand.yaml"
     template.write_text(
         "content:\n  bookends:\n    end_card:\n      props:\n"
-        '        bgColor: "#253746"\n', encoding="utf-8")
+        '        bgColor: "#2E4057"\n', encoding="utf-8")
     assert lb.ground_from_brand_template(str(template)) == pytest.approx(
-        LUCIE_GROUND)
+        SYNTHETIC_GROUND)
 
 
 def test_a_template_declaring_no_ground_is_refused_rather_than_defaulted(
@@ -498,8 +498,8 @@ def test_every_declared_value_is_on_the_profile():
     assert profile.field_spread == lb.FIELD_SPREAD
     assert profile.field_lift == lb.FIELD_LIFT
     assert profile.separation_floor == lb.SEPARATION_FLOOR
-    assert profile.with_ground(LUCIE_GROUND).ground == LUCIE_GROUND
-    assert profile.with_ground(LUCIE_GROUND).base_light == lb.BASE_LIGHT
+    assert profile.with_ground(SYNTHETIC_GROUND).ground == SYNTHETIC_GROUND
+    assert profile.with_ground(SYNTHETIC_GROUND).base_light == lb.BASE_LIGHT
 
 
 # ── The file ─────────────────────────────────────────────────────────
@@ -564,11 +564,11 @@ def test_an_in_reel_preview_with_no_animation_is_refused(tmp_path):
 
 # ── The two-line variant ─────────────────────────────────────────────
 
-LUCIE_LINES = ("See your brand the way AI does", "luciecontent.com")
+SYNTHETIC_LINES = ("Stories worth finding", "example.com")
 NEAR_WHITE = (0xF5 / 255, 0xF5 / 255, 0xF5 / 255)
 
 
-def _text(lines=LUCIE_LINES, color=NEAR_WHITE) -> lb.ClosingText:
+def _text(lines=SYNTHETIC_LINES, color=NEAR_WHITE) -> lb.ClosingText:
     return lb.ClosingText(lines=tuple(lines), color=color)
 
 
@@ -597,7 +597,7 @@ def test_no_lines_is_todays_animation_pixel_identical():
 def test_lines_from_brand_template_reads_the_declared_pair(tmp_path):
     path = _lockup_template(tmp_path, content={
         "closing_lockup": {
-            "lines": list(LUCIE_LINES), "color": "#F5F5F5"}})
+            "lines": list(SYNTHETIC_LINES), "color": "#F5F5F5"}})
     assert lb.lines_from_brand_template(path) == _text()
 
 
@@ -610,17 +610,15 @@ def test_absent_closing_lockup_is_no_text(tmp_path):
 
 
 def test_end_card_props_are_not_the_lockup(tmp_path):
-    """The stale headline/tagline belong to the LucieEndCard
-    composition. A template carrying them and no closing_lockup sets
-    no type - reading them here would couple two surfaces to one
-    edit."""
+    """The stale headline/tagline belong to the end-card composition.
+    A template carrying them and no closing_lockup sets no type -
+    reading them here would couple two surfaces to one edit."""
     path = _lockup_template(tmp_path, content={
         "bookends": {"end_card": {"props": {
-            "headline": "We power what AI knows about you.",
-            "tagline": "Strategic storytelling built for human trust "
-                       "and AI visibility.",
-            "websiteUrl": "luciecontent.com",
-            "bgColor": "#253746"}}}})
+            "headline": "Example headline for tests",
+            "tagline": "Example tagline for tests",
+            "websiteUrl": "example.com",
+            "bgColor": "#2E4057"}}}})
     assert lb.lines_from_brand_template(path).lines == ()
 
 
@@ -628,8 +626,8 @@ def test_end_card_props_are_not_the_lockup(tmp_path):
     ({"lines": [], "color": "#F5F5F5"}, "no lines"),
     ({"lines": ["one", "two", "three"], "color": "#F5F5F5"}, "layout"),
     ({"lines": ["fine", 7], "color": "#F5F5F5"}, "sets nothing"),
-    ({"lines": list(LUCIE_LINES)}, "no color"),
-    ({"lines": list(LUCIE_LINES), "color": "rebeccapurple"},
+    ({"lines": list(SYNTHETIC_LINES)}, "no color"),
+    ({"lines": list(SYNTHETIC_LINES), "color": "rebeccapurple"},
      "ground is #rrggbb"),
     ({"color": "#F5F5F5"}, "no lines"),
     ("just a string", "not a mapping"),
@@ -669,7 +667,7 @@ def test_a_line_too_wide_for_the_frame_is_refused():
 
 def test_lines_with_no_color_are_refused_where_the_layer_is_built():
     with pytest.raises(SourceNotClosed, match="no color"):
-        lb.text_layer(lb.ClosingText(lines=LUCIE_LINES, color=None),
+        lb.text_layer(lb.ClosingText(lines=SYNTHETIC_LINES, color=None),
                       1080, 1920, _profile())
 
 
@@ -697,7 +695,7 @@ def test_text_arrives_with_the_cut_and_leaves_on_the_fade():
         gone, lb.bulb_frame(empty, profile.base_light, 0.0, profile))
     half = lb.bulb_frame(empty, profile.base_light, 1.0, profile,
                          text=fake, text_present=0.5)
-    ground = np.asarray(LUCIE_GROUND)
+    ground = np.asarray(SYNTHETIC_GROUND)
     assert np.allclose(half[12:20, 8:24, :3],
                        0.5 * np.asarray(NEAR_WHITE) + 0.5 * ground)
 
@@ -723,7 +721,7 @@ def test_text_contrast_report_says_yes_as_well_as_no():
     layer is not a measurement."""
     profile = _profile()
     fake = _fake_layer()
-    ground = np.full((32, 32, 4), (*LUCIE_GROUND, 1.0))
+    ground = np.full((32, 32, 4), (*SYNTHETIC_GROUND, 1.0))
     drawn = ground.copy()
     drawn[12:20, 8:24, :3] = np.asarray(NEAR_WHITE)
     present = standing = [1.0]
@@ -732,7 +730,7 @@ def test_text_contrast_report_says_yes_as_well_as_no():
     assert yes["type_set"] is True
     assert yes["clears_floor"] is True
     assert yes["worst_contrast"] >= lb.TEXT_CONTRAST_FLOOR
-    navy_layer = _fake_layer(color=LUCIE_GROUND)
+    navy_layer = _fake_layer(color=SYNTHETIC_GROUND)
     no = lb.text_contrast_report(navy_layer, [ground], present, standing,
                                  profile)
     assert no["type_set"] is True
@@ -749,7 +747,7 @@ def test_the_receipt_says_how_long_the_type_stands():
     32 frames - 1.3 seconds - which must NOT clear a 2.0 floor, or
     the floor is decoration."""
     report = lb.describe(_sequence(), RATE, _profile(), _text())
-    assert report["lines"] == list(LUCIE_LINES)
+    assert report["lines"] == list(SYNTHETIC_LINES)
     assert report["type_full_frames"] == DRAW + HOLD
     assert report["type_full_seconds"] == pytest.approx(
         (DRAW + HOLD) / RATE, abs=0.01)
@@ -781,8 +779,8 @@ def test_brand_template_from_dict_reads_closing_lockup():
     tmpl = BrandTemplate.from_dict({
         "series_id": "s",
         "content": {"closing_lockup": {
-            "lines": list(LUCIE_LINES), "color": "#F5F5F5"}}})
+            "lines": list(SYNTHETIC_LINES), "color": "#F5F5F5"}}})
     assert tmpl.content.closing_lockup == {
-        "lines": list(LUCIE_LINES), "color": "#F5F5F5"}
+        "lines": list(SYNTHETIC_LINES), "color": "#F5F5F5"}
     bare = BrandTemplate.from_dict({"series_id": "s"})
     assert bare.content.closing_lockup is None

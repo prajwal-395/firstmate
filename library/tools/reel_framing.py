@@ -38,8 +38,8 @@ black.  That is not a subtle number and nothing could see it.
 
 Why that is not (today) a defect, and why it is still the finding
 ----------------------------------------------------------------
-The project adopts ``cinematic_narrative``, which declares
-``style.framing_intent: 0.0`` - the letterbox is that template's look.
+The project carries a brand copy declaring ``style.framing_intent:
+0.0`` - the letterbox is that brand's look.
 So what is delivered is what is declared, and this module PASSES the
 captain's twenty reels.
 

@@ -44,7 +44,7 @@ def create_mock_project(base_dir: str) -> str:
             "client": "test-client",
             "status": "in_progress",
             "source": {"type": "iphone_mov", "resolution": "1080x1920", "fps": 30},
-            "pipeline": {"brand_template": "default_brand"},
+            "pipeline": {},
             "resolve": {"project_name": "Test Project", "timeline_name": "Main Edit"},
         }
         with open(os.path.join(project_dir, "project.yaml"), "w") as f:

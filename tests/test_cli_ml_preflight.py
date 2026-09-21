@@ -247,7 +247,7 @@ def _write_project(project_dir: Path, slug: str) -> None:
         "slug": slug,
         "status": "in_progress",
         "source": {"type": "iphone_mov", "resolution": "1080x1920", "fps": 30},
-        "pipeline": {"brand_template": "default_brand"},
+        "pipeline": {},
         "resolve": {"project_name": slug, "timeline_name": "Main Edit"},
     }), encoding="utf-8")
     (project_dir / "pipeline_data.json").write_text(

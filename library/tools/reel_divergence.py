@@ -404,7 +404,8 @@ def _template_content(project_folder) -> dict:
         from library.tools.brand_registry import (
             project_template_name, query_slots, resolve_project_template)
         name = project_template_name(str(project_folder))
-        template = resolve_project_template(name, str(project_folder))
+        template = resolve_project_template(
+            name, project_folder=str(project_folder))
         return query_slots(template, "content") or {}
     except Exception:                               # noqa: BLE001
         return {}

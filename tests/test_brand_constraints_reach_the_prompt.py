@@ -10,8 +10,8 @@ transitions with no knowledge of which ones its brand permits.
 Nothing caught it because the one existing test called the function with
 the identifier the function wanted rather than the one its caller sends.
 Every assertion here therefore starts from a fact of the pipeline - the
-node ids in `dag.json`, the templates on disk - rather than from a string
-written in this file.
+node ids in `dag.json`, the synthetic project copies - rather than from
+a string written in this file.
 """
 
 import json
@@ -29,20 +29,17 @@ from library.processes.edit_video.run_pipeline import present_llm_step
 from library.tools import processes
 from library.tools.project_layout import STEP_BY_ID, node_id_for
 from library.tools.template_loader import BRAND_CONSTRAINT_STEPS, TemplateLoader
+from tests.brand_fixtures import ALL_SYNTHETIC, write_brand_json, write_templates_dir
 
 DAG = json.loads((REPO / "library/processes/edit_video/dag.json").read_text())
 DAG_NODE_IDS = {n["id"] for n in DAG["nodes"]}
 
 ALL_NODE_IDS = set(processes.node_owners())
-"""Every process's nodes, not just edit_video's.
-
-`BRAND_CONSTRAINT_STEPS` is checked against `DAG_NODE_IDS` below, and
-that stays edit_video's: `present_llm_step` is edit_video's runner and
-brand constraints reach an LLM step of that pipeline. But `STEP_BY_ID`
-is the WHOLE repository's step table, so "wired" there means some
-process declares a node - `build_reels` and `verify_reels` are wired
-into `library/processes/reels`."""
-TEMPLATES = REPO / "library" / "templates"
+# Every process's nodes, not just edit_video's. `BRAND_CONSTRAINT_STEPS`
+# is checked against `DAG_NODE_IDS`: `present_llm_step` is edit_video's
+# runner and brand constraints reach an LLM step of that pipeline. But
+# `STEP_BY_ID` is the WHOLE repository's step table, so "wired" there
+# means some process declares a node.
 
 
 def _dag_node_id(step_dirname: str) -> str:
@@ -68,7 +65,7 @@ def test_the_constraint_steps_are_named_in_the_dags_vocabulary():
     "step_4_02_plan_transitions",
     "step_4_03_plan_vfx",
 ])
-def test_the_identifier_the_runner_passes_gets_a_real_answer(step_dirname):
+def test_the_identifier_the_runner_passes_gets_a_real_answer(tmp_path, step_dirname):
     """Ask the way the runner asks, and a brand must answer.
 
     This is the regression proper.  `_dag_node_id` reads the identifier
@@ -76,22 +73,25 @@ def test_the_identifier_the_runner_passes_gets_a_real_answer(step_dirname):
     loader about it fails here instead of silently emptying the channel.
     """
     node_id = _dag_node_id(step_dirname)
-    loader = TemplateLoader(str(REPO), str(TEMPLATES))
-    constraints = loader.get_brand_constraints("default_brand", node_id)
+    templates = write_templates_dir(tmp_path / "templates")
+    loader = TemplateLoader(str(tmp_path), templates)
+    constraints = loader.get_brand_constraints("synthetic_default", node_id)
     assert constraints.strip(), (
-        f"default_brand contributes nothing to '{node_id}'. The runner "
+        f"synthetic_default contributes nothing to '{node_id}'. The runner "
         f"passes exactly this identifier."
     )
     assert "Brand Constraints:" in constraints
 
 
-def test_both_spellings_of_a_step_reach_the_same_answer():
+def test_both_spellings_of_a_step_reach_the_same_answer(tmp_path):
     """The manifest id and the node id are one step, so they agree."""
-    loader = TemplateLoader(str(REPO), str(TEMPLATES))
+    templates = write_templates_dir(tmp_path / "templates")
+    loader = TemplateLoader(str(tmp_path), templates)
     for dirname in ("step_2_01_creative_direction", "step_4_02_plan_transitions",
                     "step_4_03_plan_vfx"):
-        by_dir = loader.get_brand_constraints("default_brand", dirname)
-        by_node = loader.get_brand_constraints("default_brand", _dag_node_id(dirname))
+        by_dir = loader.get_brand_constraints("synthetic_default", dirname)
+        by_node = loader.get_brand_constraints(
+            "synthetic_default", _dag_node_id(dirname))
         assert by_dir == by_node != ""
 
 
@@ -108,22 +108,24 @@ def test_node_id_for_translates_only_what_the_step_table_knows():
                for nid in STEP_BY_ID)
 
 
-def test_a_step_with_no_brand_slot_gets_the_empty_string():
+def test_a_step_with_no_brand_slot_gets_the_empty_string(tmp_path):
     """Only three steps have a slot; the rest must stay unaffected."""
-    loader = TemplateLoader(str(REPO), str(TEMPLATES))
+    templates = write_templates_dir(tmp_path / "templates")
+    loader = TemplateLoader(str(tmp_path), templates)
     for node_id in ("mesh_spine", "select_broll", "plan_sfx", "render"):
-        assert loader.get_brand_constraints("default_brand", node_id) == ""
+        assert loader.get_brand_constraints("synthetic_default", node_id) == ""
 
 
-def test_the_templates_on_disk_really_differ_from_one_another():
+def test_the_project_copies_on_file_really_differ_from_one_another(tmp_path):
     """A channel that carries the same thing for every brand is not a channel."""
-    loader = TemplateLoader(str(REPO), str(TEMPLATES))
-    answers = {t.stem: loader.get_brand_constraints(t.stem, "plan_transitions")
-               for t in sorted(TEMPLATES.glob("*.yaml"))}
+    templates = write_templates_dir(tmp_path / "templates")
+    loader = TemplateLoader(str(tmp_path), templates)
+    answers = {name: loader.get_brand_constraints(name, "plan_transitions")
+               for name in sorted(ALL_SYNTHETIC)}
     answers = {k: v for k, v in answers.items() if v}
     assert len(answers) >= 2, f"only {list(answers)} say anything about transitions"
     assert len(set(answers.values())) > 1, (
-        "every brand template permits the identical transition vocabulary, "
+        "every project copy permits the identical transition vocabulary, "
         "which would make the constraint pointless"
     )
 
@@ -158,13 +160,15 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
     """
     project = tmp_path / "project"
     project.mkdir()
-    # The project SELECTS a brand.  It used to declare none and still get
-    # `default_brand`'s constraints, which is the thing that changed: a
-    # template-less project now contributes no brand text at all, so a
-    # test that asserts the brand reaches the prompt has to name one.
+    # The project SELECTS a brand and carries its copy.  It used to
+    # declare none and still get a fallback file's constraints, which is
+    # the thing that changed: a template-less project now contributes no
+    # brand text at all, so a test that asserts the brand reaches the
+    # prompt has to carry one.
     (project / "project.yaml").write_text(
-        "name: t\nslug: t\npipeline:\n  brand_template: default_brand\n",
+        "name: t\nslug: t\npipeline:\n  brand_template: synthetic_default\n",
         encoding="utf-8")
+    write_brand_json(project, "synthetic_default")
     prompt_path = tmp_path / "handoff.md"
     prompt_path.write_text("Plan the transitions.\n", encoding="utf-8")
 
@@ -186,7 +190,7 @@ def test_the_brand_reaches_the_text_handed_to_the_model(tmp_path):
         (project / "pipeline_output" / "llm_requests" / f"{node_id}.json").read_text()
     )
     expected = TemplateLoader(str(project)).get_brand_constraints(
-        "default_brand", node_id)
+        "synthetic_default", node_id)
     assert expected.strip()
     assert request["constraints"] == expected, (
         "the request file does not record what the brand contributed"

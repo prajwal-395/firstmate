@@ -105,7 +105,7 @@ def test_resolve_grade_cdl_project_wins_whole_slot_over_template(
     _write_project(tmp_path, style=project_look, template="series")
     monkeypatch.setattr(
         "library.tools.brand_registry.resolve_project_template",
-        lambda name: SimpleNamespace(
+        lambda name, **kwargs: SimpleNamespace(
             style=SimpleNamespace(series_look=TEST_LOOK)))
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.10)
@@ -116,7 +116,7 @@ def test_resolve_grade_cdl_falls_back_to_the_template(tmp_path, monkeypatch):
     _write_project(tmp_path, template="series")
     monkeypatch.setattr(
         "library.tools.brand_registry.resolve_project_template",
-        lambda name: SimpleNamespace(
+        lambda name, **kwargs: SimpleNamespace(
             style=SimpleNamespace(series_look=TEST_LOOK)))
     cdl = reel_look.resolve_grade_cdl(str(tmp_path))
     assert cdl["slope_r"] == pytest.approx(1.03)

@@ -11,7 +11,6 @@ import pathlib
 import re
 
 import pytest
-import yaml
 
 from library.tools.fusion.effects import DRAWABLE_TRANSITIONS, EffectBlock, fx
 from library.tools.transition_vocabulary import (
@@ -26,10 +25,10 @@ from library.tools.transition_vocabulary import (
     is_drawn,
     withdrawal_reason,
 )
+from tests.brand_fixtures import ALL_SYNTHETIC
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 HANDOFF = REPO / "library/steps/step_4_02_plan_transitions/handoff.md"
-TEMPLATES = sorted((REPO / "library/templates").glob("*.yaml"))
 CLIP_DUR = 90
 #: The source frame every builder below sizes its canvas at. The
 #: builders take no default frame, so each call states it - the same
@@ -94,13 +93,12 @@ def test_the_handoff_offers_every_plannable_type():
     assert _handoff_toolkit_types() == set(PLANNABLE_TYPES)
 
 
-@pytest.mark.parametrize("template", TEMPLATES, ids=lambda p: p.name)
-def test_brand_templates_allow_only_plannable_types(template):
-    data = yaml.safe_load(template.read_text()) or {}
-    types = (data.get("effect") or {}).get("transition_types") or []
+@pytest.mark.parametrize("name", sorted(ALL_SYNTHETIC))
+def test_brand_templates_allow_only_plannable_types(name):
+    types = (ALL_SYNTHETIC[name].get("effect") or {}).get("transition_types") or []
     allowed, rejected = filter_allowed(types)
-    assert not rejected, f"{template.name} lists {rejected}"
-    assert allowed, f"{template.name} would permit no transition at all"
+    assert not rejected, f"{name} lists {rejected}"
+    assert allowed, f"{name} would permit no transition at all"
 
 
 def test_no_template_permits_the_full_vocabulary_without_declaring_it():

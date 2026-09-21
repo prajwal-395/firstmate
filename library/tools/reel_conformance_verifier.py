@@ -4530,7 +4530,8 @@ def _declared_framing(project_folder: Optional[str]) -> Tuple[Optional[float],
         from library.tools.framing_intent import (
             resolve_crop_factor, resolve_framing_intent)
         template = resolve_project_template(
-            project_template_name(project_folder))
+            project_template_name(project_folder),
+            project_folder=project_folder)
         return (resolve_framing_intent(project_folder=project_folder,
                                        template=template),
                 resolve_crop_factor(project_folder=project_folder,

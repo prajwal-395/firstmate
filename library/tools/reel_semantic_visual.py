@@ -209,15 +209,16 @@ def _brand_slots(project_folder: str) -> Tuple[dict, dict]:
 
     Resolved through `resolve_template_reference`, the same function
     the pipeline runner uses to inject `brand_style`/`brand_effect`
-    into step inputs - a project NAME resolves against
-    `library/templates/`, so the reel's planner is told about the same
+    into step inputs - a project NAME resolves against the project's
+    own `brand.json` first, so the reel's planner is told about the same
     palette the master's planner would be told about.
     """
     try:
         from library.tools.brand_registry import (
             project_template_name, query_slots, resolve_template_reference)
         template = resolve_template_reference(
-            project_template_name(project_folder))
+            project_template_name(project_folder),
+            project_folder=project_folder)
         return query_slots(template, "style") or {}, \
             query_slots(template, "effect") or {}
     except Exception:

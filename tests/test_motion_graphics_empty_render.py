@@ -29,7 +29,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 STEP_DIR = REPO / "library" / "steps" / "step_4_06_render_motion_graphics"
@@ -70,9 +69,8 @@ A_PLAN = [
 
 
 def _template(name):
-    with open(REPO / "library" / "templates" / f"{name}.yaml",
-              encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    return dict(ALL_SYNTHETIC[name])
 
 
 # ── The predicate ─────────────────────────────────────────────────────
@@ -187,9 +185,9 @@ def test_a_plan_renders_with_no_brand_template_at_all(tmp_path):
 
 
 def test_a_template_that_declares_nothing_no_longer_empties_the_layer(tmp_path):
-    """`default_brand` declares neither motion flag. It used to be the
+    """The synthetic default declares neither motion flag. It used to be the
     whole decision; now it is not a decision at all."""
-    tmpl = _template("default_brand")
+    tmpl = _template("synthetic_default")
     proc, log = _run_step(tmp_path, _payload(
         tmp_path, motion_graphics_plan=A_PLAN,
         brand_style=tmpl.get("style"), brand_effect=tmpl.get("effect")))

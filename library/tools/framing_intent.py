@@ -43,8 +43,8 @@ window stays centred, which is what ``subject_framing`` returning None has
 always meant.
 
 A series that genuinely wants bars still says so, and one already does:
-``library/templates/cinematic_narrative.yaml`` declares
-``style.framing_intent: 0.0`` because the letterbox is its look.
+a project's own ``brand.json`` declares ``style.framing_intent: 0.0``
+because the letterbox is its look.
 
 Precedence
 ----------

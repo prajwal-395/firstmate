@@ -1452,7 +1452,8 @@ def compile_manifest(out_dir: str) -> dict:
     # malformed template silently degraded to "no framing at all"; a
     # framing declaration that is dropped is a frame the editor believes
     # shipped.
-    _template = resolve_project_template(project_template_name(_project_root))
+    _template = resolve_project_template(
+        project_template_name(_project_root), project_folder=_project_root)
 
     def _resolve_framing(block_or_clip):
         """Return (framing_intent, framing_pan_x, framing_crop_factor) for a clip."""

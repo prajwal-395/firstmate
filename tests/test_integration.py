@@ -13,26 +13,36 @@ from library.steps.step_5_04_compile_manifest.step import compile_manifest
 class TestIntegration(unittest.TestCase):
 
     def test_brand_template_pipeline_integration(self):
-        # 1. Load default_brand.yaml
-        bt_path = "library/templates/default_brand.yaml"
-        bt = load_brand_template(bt_path)
-        self.assertIsInstance(bt, BrandTemplate)
-        self.assertIsNotNone(bt.style)
-        self.assertIsNotNone(bt.effect)
-        self.assertIsNotNone(bt.content)
+        import json as _json
+        import tempfile as _tempfile
 
-        # 2. Verify gather_step_inputs injects slots
-        dag = {"edges": []}
-        state = {"brand_template": bt_path}
+        # 1. Load a synthetic project copy from a path.
+        with _tempfile.NamedTemporaryFile(
+                mode="w", suffix=".json", delete=False) as handle:
+            from tests.brand_fixtures import SYNTHETIC_DEFAULT
+            _json.dump(SYNTHETIC_DEFAULT, handle)
+            bt_path = handle.name
+        try:
+            bt = load_brand_template(bt_path)
+            self.assertIsInstance(bt, BrandTemplate)
+            self.assertIsNotNone(bt.style)
+            self.assertIsNotNone(bt.effect)
+            self.assertIsNotNone(bt.content)
 
-        inputs_5_01 = gather_step_inputs("step_5_01", dag, state, {"interface": {"inputs": [{"name": "brand_style"}]}})
-        self.assertIn("brand_style", inputs_5_01)
+            # 2. Verify gather_step_inputs injects slots
+            dag = {"edges": []}
+            state = {"brand_template": bt_path}
 
-        inputs_4_02 = gather_step_inputs("step_4_02", dag, state, {"interface": {"inputs": [{"name": "brand_effect"}]}})
-        self.assertIn("brand_effect", inputs_4_02)
+            inputs_5_01 = gather_step_inputs("step_5_01", dag, state, {"interface": {"inputs": [{"name": "brand_style"}]}})
+            self.assertIn("brand_style", inputs_5_01)
 
-        inputs_2_01 = gather_step_inputs("step_2_01", dag, state, {"interface": {"inputs": [{"name": "brand_content"}]}})
-        self.assertIn("brand_content", inputs_2_01)
+            inputs_4_02 = gather_step_inputs("step_4_02", dag, state, {"interface": {"inputs": [{"name": "brand_effect"}]}})
+            self.assertIn("brand_effect", inputs_4_02)
+
+            inputs_2_01 = gather_step_inputs("step_2_01", dag, state, {"interface": {"inputs": [{"name": "brand_content"}]}})
+            self.assertIn("brand_content", inputs_2_01)
+        finally:
+            os.remove(bt_path)
 
         # 3. Missing brand_template gracefully returns defaults or doesn't crash
         state_empty = {}

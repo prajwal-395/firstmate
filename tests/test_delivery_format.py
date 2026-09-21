@@ -22,7 +22,6 @@ import yaml
 from library.schemas.brand_template import BrandTemplate
 from library.schemas.project_config import _dict_to_project_config
 from library.tools.brand_registry import (
-    DEFAULT_TEMPLATE_NAME,
     resolve_project_template,
     validate_template,
 )
@@ -34,9 +33,9 @@ from library.tools.delivery_format import (
     resolve_delivery_format,
     resolve_format_name,
 )
+from tests.brand_fixtures import ALL_SYNTHETIC
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATES_DIR = os.path.join(REPO_ROOT, "library", "templates")
 
 
 # ── The enumeration ───────────────────────────────────────────────────
@@ -134,20 +133,14 @@ def test_an_unknown_template_declaration_raises(tmp_path):
         resolve_delivery_format(folder, templates_dir=str(templates))
 
 
-# ── The shipped templates ─────────────────────────────────────────────
+# ── The synthetic project copies ──────────────────────────────────────
 
-SHIPPED = sorted(
-    f for f in os.listdir(TEMPLATES_DIR) if f.endswith((".yaml", ".yml"))
-)
-
-
-@pytest.mark.parametrize("filename", SHIPPED)
-def test_every_shipped_template_declares_a_known_format(filename):
-    with open(os.path.join(TEMPLATES_DIR, filename)) as f:
-        data = yaml.safe_load(f)
+@pytest.mark.parametrize("name", sorted(ALL_SYNTHETIC))
+def test_every_synthetic_copy_declares_a_known_format(name):
+    data = ALL_SYNTHETIC[name]
     declared = data.get("delivery_format", "")
     assert declared, (
-        f"{filename} declares no delivery_format. Every shipped template "
+        f"{name} declares no delivery_format. Every project copy "
         "states the frame its series ships in, so a reviewer can see it "
         "without reading code."
     )
@@ -155,24 +148,22 @@ def test_every_shipped_template_declares_a_known_format(filename):
     assert not validate_template(BrandTemplate.from_dict(data))
 
 
-def test_a_project_with_no_template_declares_no_format_and_gets_the_default():
+def test_a_project_with_no_template_declares_no_format_and_gets_the_default(tmp_path):
     """The frame is a property of the PRODUCT, and it has its own default.
 
-    This used to assert that a template-less project read
-    `default_brand.yaml` off disk. It no longer does - a project that
-    names no brand template declares nothing at all - and the frame is
-    unchanged by that, because `DEFAULT_DELIVERY_FORMAT` is where the
-    vertical default lives and `default_brand.yaml` only ever restated
-    it.
+    This used to assert that a template-less project read a fallback file
+    off disk. It no longer does - a project that names no brand template
+    declares nothing at all - and the frame is unchanged by that,
+    because `DEFAULT_DELIVERY_FORMAT` is where the vertical default
+    lives; no shipped file restates it anymore.
     """
     assert resolve_project_template("").delivery_format == ""
     assert delivery_format_name(None) == DEFAULT_DELIVERY_FORMAT
 
-    with open(os.path.join(TEMPLATES_DIR, f"{DEFAULT_TEMPLATE_NAME}.yaml")) as f:
-        on_disk = yaml.safe_load(f)
-    assert on_disk["delivery_format"] == DEFAULT_DELIVERY_FORMAT, (
-        "default_brand.yaml no longer restates the enumeration's default; "
-        "a project NAMING it would now get a different frame")
+    # A removed name raises rather than resolving: the product ships no
+    # templates, so only the project's own copy answers.
+    with pytest.raises(FileNotFoundError):
+        resolve_project_template("default_brand", templates_dir=str(tmp_path))
 
 
 def test_a_named_template_that_does_not_exist_raises():

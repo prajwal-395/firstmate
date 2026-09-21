@@ -24,7 +24,6 @@ import os
 import sys
 
 import pytest
-import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -49,8 +48,6 @@ from library.tools.spine_contract import (
     validate_spine_blocks,
 )
 
-TEMPLATE_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
-
 END_CARD_DECLARATION = {
     "bookends": {
         "end_card": {
@@ -63,10 +60,10 @@ END_CARD_DECLARATION = {
 COMPOSITION_DECLARATION = {
     "bookends": {
         "intro": {
-            "composition": "LucieLogoAnimation",
-            "source": "compositions/LucieLogoAnimation.tsx",
+            "composition": "ExampleIntro",
+            "source": "compositions/ExampleIntro.tsx",
             "duration_seconds": 3.0,
-            "props": {"accentColor": "#FFAA4D"},
+            "props": {"accentColor": "#E8A33D"},
         }
     }
 }
@@ -82,8 +79,8 @@ def mock_resolve_project_asset(monkeypatch):
     monkeypatch.setattr("library.tools.bookends.resolve_project_asset", fake_resolve)
 
 def _template(name):
-    with open(os.path.join(TEMPLATE_DIR, f"{name}.yaml"), encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    return dict(ALL_SYNTHETIC[name])
 
 
 # ─────────────────────────────────────────────────────────
@@ -111,9 +108,9 @@ def test_an_asset_declaration_normalises():
 def test_a_composition_declaration_normalises():
     (decl,) = declared_bookends(COMPOSITION_DECLARATION)
     assert decl["mode"] == "composition"
-    assert decl["composition"] == "LucieLogoAnimation"
+    assert decl["composition"] == "ExampleIntro"
     assert decl["placement"] == "head"
-    assert decl["props"] == {"accentColor": "#FFAA4D"}
+    assert decl["props"] == {"accentColor": "#E8A33D"}
 
 
 def test_slots_are_emitted_head_then_tail():
@@ -161,8 +158,8 @@ def test_an_engine_composition_needs_no_source():
 
 def test_an_asset_path_resolves_against_the_project():
     (decl,) = declared_bookends(END_CARD_DECLARATION)
-    resolved = resolve_bookend(decl, "/projects/lucie")
-    assert resolved["asset_path"] == "/projects/lucie/assets/end_card.mov"
+    resolved = resolve_bookend(decl, "/projects/example")
+    assert resolved["asset_path"] == "/projects/example/assets/end_card.mov"
     assert resolved["source_path"] == ""
 
 
@@ -170,18 +167,18 @@ def test_an_absolute_asset_path_is_left_alone():
     (decl,) = declared_bookends({"bookends": {
         "end_card": {"asset": "/vol/cards/end.mov", "duration_seconds": 5},
     }})
-    assert resolve_bookend(decl, "/projects/lucie")["asset_path"] == \
+    assert resolve_bookend(decl, "/projects/example")["asset_path"] == \
         "/vol/cards/end.mov"
 
 
 def test_a_composition_renders_to_the_path_the_compiler_reads():
     """One helper owns the filename, so the two steps cannot disagree."""
     (decl,) = declared_bookends(COMPOSITION_DECLARATION)
-    resolved = resolve_bookend(decl, "/projects/lucie")
+    resolved = resolve_bookend(decl, "/projects/example")
     assert resolved["asset_path"] == bookend_render_path(
-        "/projects/lucie", "intro")
+        "/projects/example", "intro")
     assert resolved["source_path"] == \
-        "/projects/lucie/compositions/LucieLogoAnimation.tsx"
+        "/projects/example/compositions/ExampleIntro.tsx"
 
 
 # ─────────────────────────────────────────────────────────
@@ -229,7 +226,7 @@ def _speech_sequence():
 SPEECH_ONLY_TARGET = {"target_duration_seconds": 7.0}
 
 
-def _enriched(brand_content, project_folder="/projects/lucie"):
+def _enriched(brand_content, project_folder="/projects/example"):
     return enrich_spine(
         _speech_spine(), _speech_sequence(), {},
         {"brand_content": brand_content, "project_folder": project_folder,
@@ -345,7 +342,7 @@ def test_a_declared_card_does_not_excuse_an_invented_one():
         enrich_spine(
             spine, _speech_sequence(), {},
             {"brand_content": END_CARD_DECLARATION,
-             "project_folder": "/projects/lucie",
+             "project_folder": "/projects/example",
              "project_config": SPEECH_ONLY_TARGET},
         )
 
@@ -358,7 +355,7 @@ def test_a_card_does_not_spend_the_duration_target():
     """
     data = {
         "brand_content": END_CARD_DECLARATION,
-        "project_folder": "/projects/lucie",
+        "project_folder": "/projects/example",
         # 7.0s of speech against a zone of 6.3-7.7s: the spine hit its
         # target exactly, and the 5s card would blow through the ceiling
         # if it were charged against it.
@@ -379,7 +376,7 @@ def test_a_card_does_not_spend_the_duration_target():
 
 def _valid_card_block():
     (decl,) = declared_bookends(END_CARD_DECLARATION)
-    block = bookend_spine_block(resolve_bookend(decl, "/projects/lucie"))
+    block = bookend_spine_block(resolve_bookend(decl, "/projects/example"))
     block["timeline_start"] = 10.0
     block["timeline_end"] = 15.0
     return block
@@ -622,7 +619,7 @@ def test_the_house_film_look_is_not_painted_over_a_card(tmp_path):
 # ─────────────────────────────────────────────────────────
 
 def _props_digest(decl):
-    resolved = resolve_bookend(decl, "/projects/lucie")
+    resolved = resolve_bookend(decl, "/projects/example")
     payload = json.dumps(
         bookend_props(resolved, 30, 1080, 1920), indent=2, sort_keys=True)
     return hashlib.md5(payload.encode("utf-8")).hexdigest()
@@ -639,10 +636,10 @@ def test_render_props_are_deterministic():
 def test_declared_props_survive_and_frame_geometry_is_added():
     (decl,) = declared_bookends(COMPOSITION_DECLARATION)
     props = bookend_props(resolve_bookend(decl, "/p"), 30, 1080, 1920)
-    assert props["accentColor"] == "#FFAA4D"
+    assert props["accentColor"] == "#E8A33D"
     assert props["durationInFrames"] == 90
     assert props == {
-        "accentColor": "#FFAA4D", "durationInFrames": 90,
+        "accentColor": "#E8A33D", "durationInFrames": 90,
         "fps": 30, "width": 1080, "height": 1920,
     }
 
@@ -657,43 +654,40 @@ def test_a_different_declaration_gives_a_different_card():
 
 def test_the_spine_block_is_deterministic():
     (decl,) = declared_bookends(END_CARD_DECLARATION)
-    resolved = resolve_bookend(decl, "/projects/lucie")
+    resolved = resolve_bookend(decl, "/projects/example")
     first = json.dumps(bookend_spine_block(resolved), sort_keys=True)
     second = json.dumps(bookend_spine_block(resolved), sort_keys=True)
     assert first == second
 
 
 # ─────────────────────────────────────────────────────────
-# The shipped templates
+# The synthetic templates
 # ─────────────────────────────────────────────────────────
 
-def test_every_shipped_template_declares_a_parseable_bookend_set():
-    import glob
-    for path in sorted(glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))):
-        with open(path, encoding="utf-8") as f:
-            template = yaml.safe_load(f) or {}
+def test_every_synthetic_template_declares_a_parseable_bookend_set():
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    for name, template in sorted(ALL_SYNTHETIC.items()):
         declared_bookends(template.get("content") or {})
 
 
 def test_only_the_client_template_declares_a_card():
     """Q7: a general mechanism, nothing by default."""
-    import glob
+    from tests.brand_fixtures import ALL_SYNTHETIC
     declaring = set()
-    for path in sorted(glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))):
-        with open(path, encoding="utf-8") as f:
-            template = yaml.safe_load(f) or {}
+    for name, template in sorted(ALL_SYNTHETIC.items()):
         if declared_bookends(template.get("content") or {}):
-            declaring.add(os.path.basename(path)[:-5])
-    assert declaring == {"lucie_client"}
+            declaring.add(name)
+    assert declaring == {"synthetic_client"}
 
 
 def test_the_client_template_declares_the_kept_compositions():
-    """The captain's premade cards, kept and usable (2026-08-17 scope)."""
+    """Premade cards, kept and usable: the mechanism is general, and the
+    compositions live with the project that owns them, not in the engine."""
     slots = {d["slot"]: d for d in
-             declared_bookends(_template("lucie_client")["content"])}
+             declared_bookends(_template("synthetic_client")["content"])}
     assert set(slots) == {"intro", "end_card"}
-    assert slots["intro"]["composition"] == "LucieLogoAnimation"
-    assert slots["end_card"]["composition"] == "LucieEndCard"
+    assert slots["intro"]["composition"] == "ExampleIntro"
+    assert slots["end_card"]["composition"] == "ExampleEndCard"
     # The compositions live with the client's project, not in the engine.
     for decl in slots.values():
         assert decl["source"].startswith("compositions/")
@@ -703,9 +697,9 @@ def test_the_client_template_declares_the_kept_compositions():
 def test_no_template_names_a_deleted_fusion_title_macro():
     """The red slate and the "Subscribe!" card are gone for good."""
     import glob
-    for path in sorted(glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))):
-        with open(path, encoding="utf-8") as f:
-            content = (yaml.safe_load(f) or {}).get("content") or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    for name, template in sorted(ALL_SYNTHETIC.items()):
+        content = template.get("content") or {}
         assert "intro_template" not in content
         assert "outro_template" not in content
     macros = os.path.join(PROJECT_ROOT, "library", "presets", "fusion-macros")
@@ -814,8 +808,8 @@ def test_a_project_composition_stays_on_the_cli(monkeypatch, tmp_path):
     rather than silently keeping the slow path."""
     source_dir = tmp_path / "compositions"
     source_dir.mkdir()
-    (source_dir / "LucieLogoAnimation.tsx").write_text(
-        "export const LucieLogoAnimation = () => null;\n")
+    (source_dir / "ExampleIntro.tsx").write_text(
+        "export const ExampleIntro = () => null;\n")
     (decl,) = declared_bookends(COMPOSITION_DECLARATION)
     resolved = resolve_bookend(decl, str(tmp_path))
     assert resolved["source_path"] != ""

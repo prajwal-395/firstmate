@@ -220,29 +220,26 @@ def _font_names(node, path=""):
 _primary_family = primary_family
 
 
-def test_templates_name_bundled_or_explicitly_accepted_fonts():
+def test_project_copies_name_bundled_or_explicitly_accepted_fonts():
     """A new unbundled font must not arrive silently.
 
     It renders fine on the machine that added it and substitutes on every
     other one, which is the same class of bug as the webfont race.
     """
     from library.tools.subtitle_style import LEGACY_FONT_FAMILY
+    from tests.brand_fixtures import ALL_SYNTHETIC
     bundled = {LEGACY_FONT_FAMILY}
-    template_dir = os.path.join(PROJECT_ROOT, "library", "templates")
     unknown = []
-    for name in sorted(os.listdir(template_dir)):
-        if not name.endswith(".yaml"):
-            continue
-        with open(os.path.join(template_dir, name), encoding="utf-8") as f:
-            tmpl = yaml.safe_load(f) or {}
+    for name in sorted(ALL_SYNTHETIC):
+        tmpl = ALL_SYNTHETIC[name]
         for where, declared in _font_names(tmpl):
             font = _primary_family(declared)
             if font not in bundled and font not in ACCEPTED_SYSTEM_FONTS:
                 unknown.append((name, where, font))
     assert not unknown, (
-        f"templates name fonts that are neither bundled nor accepted as "
-        f"system fonts: {unknown}. Bundle it in public/fonts/ and load it "
-        f"in src/fonts.ts, or add it to ACCEPTED_SYSTEM_FONTS with the "
+        f"project copies name fonts that are neither bundled nor accepted "
+        f"as system fonts: {unknown}. Bundle it in public/fonts/ and load "
+        f"it in src/fonts.ts, or add it to ACCEPTED_SYSTEM_FONTS with the "
         f"reason it is allowed to be non-deterministic.")
 
 

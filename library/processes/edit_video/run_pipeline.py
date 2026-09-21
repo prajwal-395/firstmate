@@ -535,7 +535,7 @@ def load_pipeline_state(project_dir: str) -> dict:
     # Stored as the NAME the project declared, not a path.  An empty
     # declaration is left OUT of state so a project that names no template
     # keeps resolving through the same empty-reference path as before, and
-    # `resolve_template_reference("")` sends that to default_brand on disk.
+    # `resolve_template_reference("")` answers `no_brand_template()`.
     # The project's own declarations about the PRODUCT.  The whitelist in
     # `gather_step_inputs` broadcasts `project_config` to every step, and
     # nothing had ever put one in state - so the captain's
@@ -1290,7 +1290,9 @@ def gather_step_inputs(node_id: str, dag: dict, state: dict, manifest: dict = No
             # half of the same defect: even once the name reached here, a
             # typo would have printed one line into a log and rendered the
             # in-code default anyway.
-            bt = resolve_template_reference(brand_reference)
+            bt = resolve_template_reference(
+                brand_reference,
+                project_folder=state.get("project_folder"))
             if "brand_template" in step_inputs:
                 inputs["brand_template"] = asdict(bt)
             if "brand_style" in step_inputs:
@@ -1832,8 +1834,9 @@ def present_llm_step(prompt_path: str, inputs: dict, node_id: str, manifest: dic
         )
 
     project_folder = inputs.get("project_folder", "")
-    # TemplateLoader resolves by NAME against library/templates/.  Ask the
-    # PROJECT for the name rather than fishing it out of `inputs`, for the
+    # TemplateLoader resolves by NAME against the project's own
+    # brand.json first, then its templates dir.  Ask the PROJECT for
+    # the name rather than fishing it out of `inputs`, for the
     # same reason delivery_format is a function of the project: a value in
     # flight can be renamed, defaulted and lost, and this one was - the
     # read here was `inputs.get("brand_template", "default_brand")` and the

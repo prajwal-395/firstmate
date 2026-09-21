@@ -14,10 +14,10 @@ The rule, stated so it is arguable rather than magic:
   colour almost always is - but only if it would actually be visible.
 
 That last qualification is the whole subtlety. A dark accent only reads if
-it is vivid. `cinematic_narrative`'s palette is
+it is vivid. A cinematic-style palette like
 `["#223344", "#aabbcc", "#111111"]`, whose most saturated entry is a dark
 muted navy that would sit almost on top of its own near-black outline and
-read as a smudge; `shortform_energetic`'s is `#ff0055`, just as dark by
+read as a smudge; a shortform-style one names `#ff0055`, just as dark by
 luminance and unmistakable on screen. Luminance alone cannot tell those
 apart, which is why vividness is the second term.
 

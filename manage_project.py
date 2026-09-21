@@ -378,7 +378,7 @@ def cmd_new(args):
             slug=args.slug,
             name=args.name or args.slug.replace("-", " ").title(),
             client=args.client or "",
-            template=args.template or "default_brand",
+            template=args.template or "",
             source_type=args.source_type or "iphone_mov",
             resolution=args.resolution or "1080x1920",
             fps=int(args.fps) if args.fps else 30,
@@ -1144,7 +1144,9 @@ def cmd_check(args):
     print("Checking brand template...")
     from library.tools.brand_registry import resolve_template_reference
     try:
-        template = resolve_template_reference(config.pipeline.brand_template)
+        template = resolve_template_reference(
+            config.pipeline.brand_template,
+            project_folder=str(config._project_root))
     except Exception as e:
         print(f"Refusal: Brand template failed to resolve: {e}", file=sys.stderr)
         sys.exit(1)
@@ -1993,7 +1995,7 @@ def main():
     p_new.add_argument("slug", help="Project slug (filesystem-safe identifier)")
     p_new.add_argument("--name", help="Human-readable project name")
     p_new.add_argument("--client", help="Client grouping (creates client/slug/ structure)")
-    p_new.add_argument("--template", help="Brand template name (default: default_brand)")
+    p_new.add_argument("--template", help="Brand template name the project's own brand.json carries (default: none)")
     p_new.add_argument("--source-type", help="Source media type (default: iphone_mov)")
     p_new.add_argument("--resolution", help="Resolution WxH (default: 1080x1920)")
     p_new.add_argument("--fps", help="Frame rate (default: 30)")

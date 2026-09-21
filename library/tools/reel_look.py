@@ -127,7 +127,8 @@ def resolve_look(project_folder: str, frame_width: int = 0,
             config = yaml.safe_load(handle) or {}
         named = ((config.get("pipeline") or {}).get("brand_template") or "")
         if named:
-            template = resolve_project_template(named)
+            template = resolve_project_template(
+                named, project_folder=project_folder)
     look = resolve_tv_frame(project_folder, template)
     if look is not None and frame_width and frame_height:
         assert_frameable(look, frame_width, frame_height)
@@ -151,7 +152,8 @@ def _template_style(project_folder: str):
             config = yaml.safe_load(handle) or {}
         named = ((config.get("pipeline") or {}).get("brand_template") or "")
         if named:
-            template = resolve_project_template(named)
+            template = resolve_project_template(
+                named, project_folder=project_folder)
             style = getattr(template, "style", None)
             if style is not None:
                 return {"series_look": getattr(style, "series_look", None)}

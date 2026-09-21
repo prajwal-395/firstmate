@@ -54,8 +54,7 @@ def test_the_plans_own_pace_is_what_is_held(capsys):
     This read the brand template's `transition_duration_ms` first and
     consulted `duration_feel` only if that came out under a frame, so on
     project 001 a "quick" defocus and a "medium" defocus were both held
-    for 500 ms - the top of a range in `default_brand.yaml`, a template
-    001 never selected.
+    for 500 ms - the top of a range in a brand file 001 never selected.
     """
     plan = [{"cut_point_position": 2, "type": "defocus",
              "duration_feel": "quick"},

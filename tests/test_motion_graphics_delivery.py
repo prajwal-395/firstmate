@@ -38,7 +38,6 @@ import subprocess
 import sys
 
 import pytest
-import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -82,9 +81,8 @@ remotion_available = pytest.mark.skipif(
 
 
 def _template(name):
-    with open(os.path.join(PROJECT_ROOT, "library", "templates",
-                           f"{name}.yaml"), encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    return dict(ALL_SYNTHETIC[name])
 
 
 #: A plan a model could write for `SPINE`. Three elements, all live at
@@ -93,7 +91,7 @@ def _template(name):
 #: rather than asserted in isolation.
 #:
 #: `colour_role: accent` is what makes this the TEMPLATE REFINING the
-#: plan: `#ff0055` is `shortform_energetic`'s own palette accent and is
+#: plan: `#ff0055` is the synthetic shortform palette's own accent and is
 #: not a colour this test picked.
 A_PLAN = [
     {"element": "title_lockup", "start_seconds": 0.0,
@@ -112,10 +110,10 @@ A_PLAN = [
 def _fixture_props():
     """The real resolver, at fixture size, for a plan and a template.
 
-    `shortform_energetic` supplies the palette the plan's `colour_role`
+    The synthetic shortform template supplies the palette the plan's
     resolves against. Nothing here turns an element on: the plan does.
     """
-    tmpl = _template("shortform_energetic")
+    tmpl = _template("synthetic_shortform")
     segments, resolved = generate_motion_props(
         A_PLAN, SPINE,
         fps=FIXTURE_FPS, width=FIXTURE_WIDTH, height=FIXTURE_HEIGHT,
@@ -339,7 +337,7 @@ EMPHASIS_PLAN = [
 ]
 
 def _emphasis_props():
-    tmpl = _template("shortform_energetic")
+    tmpl = _template("synthetic_shortform")
     segments, resolved = generate_motion_props(
         EMPHASIS_PLAN, SPINE,
         fps=FIXTURE_FPS, width=FIXTURE_WIDTH, height=FIXTURE_HEIGHT,

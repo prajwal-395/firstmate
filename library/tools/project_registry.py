@@ -218,7 +218,7 @@ def create_project(
     slug: str,
     name: str,
     client: str = "",
-    template: str = "default_brand",
+    template: str = "",
     source_type: str = "iphone_mov",
     resolution: str = "1080x1920",
     fps: int = 30,

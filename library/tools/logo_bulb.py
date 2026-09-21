@@ -128,15 +128,15 @@ brand colour. The default is BLACK, which is not taste - it is the
 absence of a declared ground (AGENTS.md 10.5), and the captain named it
 as his own second choice.
 
-The Lucie ground comes from the Lucie brand template, by
+The project's ground comes from the project's brand template, by
 :func:`ground_from_brand_template`, which reads
-``content.bookends.end_card.props.bgColor`` - **#253746**. That is the
-right key rather than a near one: it is the ground Lucie's own end card
-sits on, and this is the other bookend of the same brand. The template's
-``style.color_palette`` carries the same value as its third entry. The
-logo artwork's own screw base is #253242, three steps away and NOT the
-declared ground; it is a colour inside the mark, not a field to put the
-mark on.
+``content.bookends.end_card.props.bgColor`` - the project's own navy.
+That is the right key rather than a near one: it is the ground the
+project's own end card sits on, and this is the other bookend of the
+same brand. The template's ``style.color_palette`` carries the same
+value as one of its entries. The artwork's own screw base sat a few
+steps from the declared ground on the asset this was solved against;
+it is a colour inside the mark, not a field to put the mark on.
 
 The fade
 --------
@@ -156,8 +156,8 @@ an ending the engine made up.
  :func:`over_tail` is the one that matters: the real closing frames of a
  real reel, then this animation where it will sit.
 
-     python3 -m library.tools.logo_bulb --source <in.mov> --out <out.mov>
-         [--ground-from-template library/templates/lucie_client.yaml]
+      python3 -m library.tools.logo_bulb --source <in.mov> --out <out.mov>
+          [--ground-from-template <project>/brand.json]
      python3 -m library.tools.logo_bulb --source <in.mov> \\
          --contact-sheet <sheet.png>
      python3 -m library.tools.logo_bulb --source <in.mov> \\
@@ -167,27 +167,25 @@ an ending the engine made up.
 
  The two-line variant
  --------------------
- The captain, 2026-09-21, on the animation above: keep it exactly as it
- is, and make a second version carrying two lines of type at the bottom -
- ``See your brand the way AI does`` and ``luciecontent.com`` - so both
- versions are at his disposal. LENGTH stays 72 frames and LINES stays the
- two he named (his ruling, same minute; the VISIBILITY SYSTEM line from
- his own picture is not wanted).
+  The captain, 2026-09-21, on the animation above: keep it exactly as it
+  is, and make a second version carrying two lines of type at the bottom -
+  a sentence and a URL - so both versions are at his disposal. LENGTH
+  stays 72 frames and LINES stays two (his ruling, same minute).
 
  Everything listed as unchanged in the spec above is unchanged: the two
  lines are the ONLY difference, and an empty :class:`ClosingText`
  renders today's animation pixel for pixel (pinned in the tests, not
  claimed here).
 
- Where the lines come from: :func:`lines_from_brand_template` reads
- ``content.closing_lockup`` - lines plus the colour they are set in -
- from the same brand template the ground already comes from. It is a new
- key, not ``end_card.props``: that headline and tagline belong to the
- ``LucieEndCard`` composition and are stale relative to his current
- lockup, so reading them here would silently couple two surfaces. A
- template declaring no ``closing_lockup`` gets no type, which is the
- "including none" half of the rule that the engine renders whatever
- text it is handed.
+  Where the lines come from: :func:`lines_from_brand_template` reads
+  ``content.closing_lockup`` - lines plus the colour they are set in -
+  from the same brand template the ground already comes from. It is a new
+  key, not ``end_card.props``: that headline and tagline belong to the
+  end-card composition and are stale relative to the project's current
+  lockup, so reading them here would silently couple two surfaces. A
+  template declaring no ``closing_lockup`` gets no type, which is the
+  "including none" half of the rule that the engine renders whatever
+  text it is handed.
 
  When the type arrives, and why it needs no timing of its own: after
  the mark lands there are ten frames before the fade starts, and two
@@ -318,8 +316,8 @@ FIELD_LIFT = 0.30
 the pool behind the mark.
 
 It MULTIPLIES the declared ground, so the hue and the saturation are
-untouched and only the value moves: #253746 reaches (48, 72, 91) dead
-behind the lockup and is exactly #253746 everywhere the pool has died.
+untouched and only the value moves: #2e4057 reaches (60, 83, 113) dead
+behind the lockup and is exactly #2e4057 everywhere the pool has died.
 On a BLACK ground it is exactly zero - nothing times anything is
 nothing - which is right, because a navy base already reads on black
 and is the reason this number exists at all.
@@ -372,11 +370,11 @@ can deliver - :mod:`library.tools.render_fonts`) and the weight
 (bold, the template's own declared typography weight), but its
 relative scale does not survive the trip from a white lockup card to
 the bottom of a navy closing animation. So these are solved for the
-frame they sit on: line 1, ``See your brand the way AI does``,
+frame they sit on: line 1, a sentence of the lockup's length,
 measures 865 px wide at 52 - inside the safe margins with a hundred
 pixels to spare each side - and 64 would put it at 1059, off the
 frame's manners if not off the frame. Line 2 steps down to 44, the
-hierarchy his own lockup draws between the sentence and the URL.
+hierarchy the lockup draws between the sentence and the URL.
 """
 
 LINE1_CENTER_Y = 1485
@@ -417,12 +415,12 @@ The base needs 8.5 (:data:`SEPARATION_FLOOR`) and it is a large
 silhouette; small type needs clearly more, because its strokes are
 thinner than any silhouette and there are two dozen of them to tell
 apart. Thirty is an order above the just-noticeable difference and
-three times the base's floor, and the declared pairing -
-``#F5F5F5`` on ``#253746`` - measures in the seventies, so the
-declared answer clears it with its margin intact and a wrong-colour
-declaration (navy on navy) fails it outright. Checked where the type
-is FULLY PRESENT, like the base's floor, and REPORTED rather than
-gated, like the base's floor.
+three times the base's floor, and the declared pairing - near-white on
+the project's navy - measures in the seventies, so the declared answer
+clears it with its margin intact and a wrong-colour declaration (navy
+on navy) fails it outright. Checked where the type is FULLY PRESENT,
+like the base's floor, and REPORTED rather than gated, like the
+base's floor.
 """
 
 READ_TIME_FLOOR_SECONDS = 2.0
@@ -498,7 +496,7 @@ class ClosingProfile:
 # ── Where the ground comes from ──────────────────────────────────────
 
 def parse_ground(text: str) -> Tuple[float, float, float]:
-    """``"#253746"`` or ``"black"`` to linear-ish RGB in [0, 1].
+    """``"#2e4057"`` or ``"black"`` to linear-ish RGB in [0, 1].
 
     No colour management: the mark's own RGB comes off the file in the
     same encoding, so a hex the brand states and a pixel the artwork
@@ -518,7 +516,7 @@ def parse_ground(text: str) -> Tuple[float, float, float]:
 def ground_from_brand_template(path: str) -> Tuple[float, float, float]:
     """The ground a brand template declares for its own end card.
 
-    ``content.bookends.end_card.props.bgColor`` - the field the client's
+    ``content.bookends.end_card.props.bgColor`` - the field the project's
     other bookend sits on. A template that declares no end-card ground
     is REFUSED rather than defaulted, because this function exists to
     report a declaration and a guess is not one.
@@ -550,10 +548,10 @@ def lines_from_brand_template(path: str) -> ClosingText:
     than :data:`MAX_TEXT_LINES` has a layout for.
 
     Deliberately NOT ``end_card.props``: that headline and tagline
-    belong to the ``LucieEndCard`` composition and are stale relative
-    to the captain's current lockup. Reading them here would couple
-    two surfaces to one edit, so this bookend declares what it needs
-    under its own key.
+    belong to the end-card composition and are stale relative to the
+    project's current lockup. Reading them here would couple two
+    surfaces to one edit, so this bookend declares what it needs under
+    its own key.
     """
     import yaml
 

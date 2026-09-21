@@ -240,7 +240,8 @@ class TestP1FrameOccupancy:
         assert "changes size within one declared framing" in result.detail
 
     def test_a_declared_letterbox_is_exempt_from_the_fill_floor(self):
-        """A series that declares bars gets them - cinematic_narrative does.
+        """A series that declares bars gets them - the synthetic cinematic
+        copy does.
 
         There is no channel-wide number for how much frame a deliberately
         inset picture should occupy, so inventing one here would answer a

@@ -4,15 +4,20 @@
 `default` on the process manifest's `brand_template` input, which has
 none - so `gather_step_inputs` called `load_brand_template("")` for every
 step of every project and handed back the in-code `_get_default_template()`.
-A project.yaml naming `cinematic_narrative`, `lucie_client` or anything
-else rendered with none of that template's effect slots, and the run
-reported SUCCESS.  Nothing errored, nothing warned.
+A project.yaml naming a template rendered with none of that template's
+effect slots, and the run reported SUCCESS.  Nothing errored, nothing
+warned.
 
 Same defect class as the timed-text slot with no reader (CLAUDE.md
 section 14): a declaration nothing reads.  These tests are the reader
 half plus the assertion that the slots actually differ from the default -
 without the second half, "a reader exists" is the empty claim
 `smart_reframe` made for months.
+
+The product ships no templates (captain, 2026-09-21): a project carries
+its own `brand.json`, which the resolvers read FIRST.  Every fixture
+here is synthetic (`tests/brand_fixtures.py`) - no test depends on a
+shipped file or on one client's copy.
 """
 import json
 import os
@@ -24,12 +29,9 @@ import yaml
 from library.processes.edit_video.run_pipeline import (
     gather_step_inputs, load_pipeline_state)
 from library.tools.brand_registry import (
-    DEFAULT_TEMPLATE_NAME, no_brand_template, project_template_name,
+    no_brand_template, project_template_name,
     query_slots, reference_template_name, resolve_template_reference)
-
-TEMPLATES_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "library", "templates")
+from tests.brand_fixtures import SYNTHETIC_CINEMATIC, write_brand_json
 
 # The step that really declares brand_effect.  Discovered rather than
 # spelled out, so a manifest rename fails here instead of quietly
@@ -63,8 +65,8 @@ def _project(tmp_path, name, template_name):
 # ── the declaration is read off project.yaml ────────────────────────
 
 def test_project_template_name_reads_the_declaration(tmp_path):
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
-    assert project_template_name(folder) == "cinematic_narrative"
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    assert project_template_name(folder) == "synthetic_cinematic"
 
 
 def test_project_template_name_is_empty_when_none_declared(tmp_path):
@@ -80,9 +82,9 @@ def test_project_template_name_survives_a_missing_project_yaml(tmp_path):
 
 def test_load_pipeline_state_carries_the_declared_template(tmp_path):
     """The line that was missing.  Fails against the unfixed loader."""
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
     state = load_pipeline_state(folder)
-    assert state["brand_template"] == "cinematic_narrative"
+    assert state["brand_template"] == "synthetic_cinematic"
 
 
 def test_a_project_declaring_none_stays_declaring_none(tmp_path):
@@ -94,23 +96,24 @@ def test_a_project_declaring_none_stays_declaring_none(tmp_path):
 def test_an_existing_declaration_in_state_is_not_overwritten(tmp_path):
     """State already written by an earlier run wins - the same rule
     project_folder and sfx_library follow."""
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
     (tmp_path / "geo" / "pipeline_data.json").write_text(
-        json.dumps({"brand_template": "shortform_energetic"}), encoding="utf-8")
+        json.dumps({"brand_template": "synthetic_shortform"}), encoding="utf-8")
     state = load_pipeline_state(folder)
-    assert state["brand_template"] == "shortform_energetic"
+    assert state["brand_template"] == "synthetic_shortform"
 
 
 # ── and it changes what the step is handed ──────────────────────────
 
 def test_declared_template_supplies_the_effect_slots(tmp_path):
-    """The end of the wire: a project naming cinematic_narrative gets
-    cinematic_narrative's effect slots, not the in-code default's.
+    """The end of the wire: a project whose brand.json carries the
+    cinematic shape gets those effect slots, not the in-code default's.
 
     Against the unfixed loader `state` has no `brand_template` at all and
     both sides of this assertion are `no_brand_template()`.
     """
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    write_brand_json(folder, "synthetic_cinematic")
     state = load_pipeline_state(folder)
     manifest = _manifest_declaring_brand_effect()
 
@@ -118,8 +121,8 @@ def test_declared_template_supplies_the_effect_slots(tmp_path):
         "step_4_01_plan_subtitles", {"edges": []}, state, manifest)
 
     declared = query_slots(
-        resolve_template_reference("cinematic_narrative",
-                                   templates_dir=TEMPLATES_DIR), "effect")
+        resolve_template_reference(
+            "synthetic_cinematic", project_folder=folder), "effect")
     in_code_default = query_slots(no_brand_template(), "effect")
 
     assert inputs["brand_effect"] == declared
@@ -132,12 +135,37 @@ def test_declared_template_supplies_the_effect_slots(tmp_path):
         "hard_cut", "match_cut", "fade_to_black", "defocus"]
 
 
+def test_the_project_copy_wins_over_the_name(tmp_path):
+    """brand.json IS the declaration: the project.yaml name is the record
+    of which brand it is, and the file beside it is what the run reads."""
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    write_brand_json(folder, "synthetic_cinematic")
+    resolved = resolve_template_reference(
+        "synthetic_cinematic", project_folder=folder)
+    assert query_slots(resolved, "effect")["vfx_intensity"] == 0.3
+
+
+def test_a_brand_json_satisfies_a_name_nothing_else_could(tmp_path):
+    """The product ships no templates, so a name resolves ONLY through
+    the project's own copy - and through nothing when it has none."""
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    with pytest.raises(FileNotFoundError):
+        resolve_template_reference(
+            "synthetic_cinematic", templates_dir=str(tmp_path / "empty"),
+            project_folder=folder)
+    write_brand_json(folder, "synthetic_cinematic")
+    resolved = resolve_template_reference(
+        "synthetic_cinematic", templates_dir=str(tmp_path / "empty"),
+        project_folder=folder)
+    assert query_slots(resolved, "effect")["subtitle_style"] == "minimal"
+
+
 def test_a_project_declaring_none_inherits_no_taste(tmp_path):
     """The whole point of `no_brand_template()`.
 
     This used to assert `inputs["brand_effect"]["transition_types"]` was
     non-empty, and it was - because a project that had chosen no brand
-    was handed `default_brand.yaml`'s seven types, its 200-500 ms
+    was handed a fallback template's seven types, its 200-500 ms
     transition range and its 0.5 VFX intensity.  A project that declares
     nothing now gets nothing, and every consumer's reading of an absent
     slot is recorded in `ABSENT_SLOT_READINGS`.
@@ -179,26 +207,10 @@ def test_the_absent_reading_of_every_slot_is_written_down():
                 f"library/tools/brand_registry.ABSENT_SLOT_READINGS.")
 
 
-def test_default_brand_is_still_loadable_by_name(tmp_path):
-    """It stops being the fallback; it does not stop being a template.
-
-    A project that NAMES it has chosen its values, which is what makes
-    them a brand decision rather than one nobody made.
-    """
-    folder = _project(tmp_path, "chose", DEFAULT_TEMPLATE_NAME)
-    state = load_pipeline_state(folder)
-    inputs = gather_step_inputs(
-        "step_4_01_plan_subtitles", {"edges": []}, state,
-        _manifest_declaring_brand_effect())
-    assert inputs["brand_effect"]["transition_duration_ms"] == {
-        "min": 200, "max": 500}
-    assert inputs["brand_style"]["energy_profile"] == "high"
-
-
 # ── a template nobody has raises, rather than rendering a default ───
 
 def test_a_typo_in_the_declaration_raises(tmp_path):
-    folder = _project(tmp_path, "typo", "cinematic_narative")
+    folder = _project(tmp_path, "typo", "synthetic_cinematc")
     state = load_pipeline_state(folder)
     with pytest.raises(FileNotFoundError):
         gather_step_inputs("step_4_01_plan_subtitles", {"edges": []}, state,
@@ -214,19 +226,22 @@ def test_a_missing_path_raises_as_a_path(tmp_path):
 # ── both spellings of the reference resolve ─────────────────────────
 
 def test_a_path_reference_still_loads(tmp_path):
-    path = os.path.join(TEMPLATES_DIR, "cinematic_narrative.yaml")
-    by_path = resolve_template_reference(path)
-    by_name = resolve_template_reference("cinematic_narrative",
-                                         templates_dir=TEMPLATES_DIR)
+    path = tmp_path / "synthetic_cinematic.yaml"
+    path.write_text(yaml.safe_dump(SYNTHETIC_CINEMATIC), encoding="utf-8")
+    by_path = resolve_template_reference(str(path))
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    write_brand_json(folder, "synthetic_cinematic")
+    by_name = resolve_template_reference(
+        "synthetic_cinematic", project_folder=folder)
     assert query_slots(by_path, "effect") == query_slots(by_name, "effect")
 
 
-def test_reference_name_is_the_name_half_of_either_form():
-    path = os.path.join(TEMPLATES_DIR, "cinematic_narrative.yaml")
-    assert reference_template_name(path) == "cinematic_narrative"
-    assert reference_template_name("cinematic_narrative") == "cinematic_narrative"
-    # "" is NOT `default_brand`.  Answering `default_brand` here is what
-    # sent every template-less project the fallback's brand constraints.
+def test_reference_name_is_the_name_half_of_either_form(tmp_path):
+    path = os.path.join(str(tmp_path), "synthetic_cinematic.yaml")
+    assert reference_template_name(path) == "synthetic_cinematic"
+    assert reference_template_name("synthetic_cinematic") == "synthetic_cinematic"
+    # "" names no fallback.  Answering a shipped name here is what
+    # sent every template-less project the fallback template's constraints.
     assert reference_template_name("") == ""
 
 
@@ -246,10 +261,10 @@ def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
     It needs a DICT, so this also pins the type: broadcasting the
     reference string under the same key would crash the step.
 
-    `series_look` is now a DECLARATION rather than a name into a catalogue
-    (the catalogue was removed - see tests/test_series_look.py), and no
-    shipped template declares one, so the route is proved with a
-    declaration this test writes into the project's own template.
+    `series_look` is a DECLARATION rather than a name into a catalogue,
+    and the synthetic template declares none, so the route is proved
+    with the palette the copy does carry: it reaches the step as a
+    value rather than as an absence.
     """
     with open(_COLOR_GRADE, encoding="utf-8") as f:
         manifest = json.load(f)
@@ -257,17 +272,16 @@ def test_a_step_declaring_brand_template_gets_the_resolved_template(tmp_path):
                 manifest.get("interface", {}).get("inputs", [])}
     assert "brand_template" in declared
 
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    write_brand_json(folder, "synthetic_cinematic")
     state = load_pipeline_state(folder)
     inputs = gather_step_inputs(
         "step_5_01_color_grade", {"edges": []}, state, manifest)
 
     template = inputs["brand_template"]
     assert isinstance(template, dict), "step 5.01 calls .get() on this"
-    # The shipped template declares no look, and that is the point: it
-    # reaches the step as an absence rather than as a substitute.
     assert template["style"]["series_look"] is None
-    assert "color_palette" in template["style"], "the template still arrives"
+    assert "color_palette" in template["style"], "the copy still arrives"
 
 
 def test_the_grade_actually_reads_a_declared_look(tmp_path):
@@ -305,7 +319,8 @@ def test_the_grade_actually_reads_a_declared_look(tmp_path):
 def test_a_step_that_does_not_declare_it_is_handed_no_template(tmp_path):
     """It is not broadcast.  A step gets brand slots because its manifest
     asked - the same rule sfx_library follows."""
-    folder = _project(tmp_path, "geo", "cinematic_narrative")
+    folder = _project(tmp_path, "geo", "synthetic_cinematic")
+    write_brand_json(folder, "synthetic_cinematic")
     state = load_pipeline_state(folder)
     inputs = gather_step_inputs(
         "step_2_03_broll_selection", {"edges": []}, state,

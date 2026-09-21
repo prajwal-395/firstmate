@@ -191,10 +191,11 @@ DOCUMENTS: Tuple[Document, ...] = (
         "project root"),
     Document(
         "brand_template", ("brand.json",),
-        "A brand's declared style, effect and content slots. The engine "
-        "ships templates; a project names one or names none (AGENTS.md "
-        "10.1).",
-        "library/templates/ (checked in)", "declaration", "the repository"),
+        "A brand's declared style, effect and content slots. The project "
+        "carries its own brand.json; the product ships no templates "
+        "(AGENTS.md 10.1).",
+        "the captain (declared in the project's own brand.json)",
+        "declaration", "project root"),
     Document(
         "hooks", ("hooks.json",),
         "A project's declared hooks - what runs before and after a "
@@ -1638,8 +1639,8 @@ NOT_OBSERVED: Dict[str, str] = {
     "run_traceback":
         "Markdown, regenerated from the ledgers on every run.",
     "brand_template":
-        "Lives in the REPOSITORY (`library/templates/`), not in a "
-        "project, and `observe` walks a project folder. Its fields "
+        "Lives in the PROJECT (`brand.json`), not in the repository, "
+        "and `observe` walks a project folder. Its fields "
         "reach steps as `brand_style`/`brand_effect`/`brand_content` "
         "(AGENTS.md 10.1).",
     "hooks": "Neither snapshot project declares any.",

@@ -7,11 +7,11 @@ because `generate_remotion_props.py` supplied that as a default for a
 `effect.subtitle_style`, `style.typography` and `style.color_palette`, and
 none of it reached anything.
 
-These tests hold the three ends together: the enumeration, the templates
-that name it, and the Remotion component that reads the props. The same
-contract `test_transition_vocabulary` and `test_series_look` enforce.
+These tests hold the three ends together: the enumeration, the synthetic
+project copies that name it, and the Remotion component that reads the
+props. The same contract `test_transition_vocabulary` and
+`test_series_look` enforce.
 """
-import glob
 import json
 import os
 import re
@@ -39,15 +39,14 @@ from library.tools.subtitle_style import (
     resolve_subtitle_style,
 )
 
-TEMPLATE_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
 OVERLAY_DIR = os.path.join(
     PROJECT_ROOT, "remotion-subtitles", "src", "compositions", "SubtitleOverlay")
 
 
 def _templates():
-    for path in sorted(glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))):
-        with open(path, encoding="utf-8") as f:
-            yield os.path.basename(path), yaml.safe_load(f) or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    for name in sorted(ALL_SYNTHETIC):
+        yield name, ALL_SYNTHETIC[name]
 
 
 # ─────────────────────────────────────────────────────────
@@ -136,7 +135,7 @@ class TestResolution:
             {"subtitle_style": "default_subtitles"}, {}) == resolve_subtitle_style({}, {})
 
     def test_default_subtitles_ignores_a_placeholder_palette(self):
-        """default_brand's palette is three pure RGB primaries.
+        """A placeholder palette of three pure RGB primaries.
 
         Painting captions red because a placeholder palette lists #ff0000
         would be worse than the look it replaced.
@@ -198,7 +197,7 @@ class TestPaletteDerivation:
         assert got["accentColor"].lower() in ("#ff0055", "#00ffcc")
 
     def test_dark_muted_accent_is_rejected(self):
-        """cinematic_narrative's real palette.
+        """The synthetic cinematic palette's shape.
 
         `#223344` is the most saturated entry but it is a dark muted navy
         that would sit on top of its own `#111111` outline and read as a
@@ -213,7 +212,8 @@ class TestPaletteDerivation:
         assert got["outlineColor"] == "#111111"
 
     def test_dark_but_vivid_accent_is_kept(self):
-        """shortform_energetic's `#ff0055` is as dark as `#223344` by
+        """The synthetic shortform palette's `#ff0055` is as dark as
+        `#223344` by
         luminance and unmistakable on screen. Vividness is what tells
         them apart."""
         got = resolve_subtitle_style(
@@ -222,7 +222,7 @@ class TestPaletteDerivation:
         assert got["accentColor"] == "#ff0055"
 
     def test_light_muted_accent_is_kept(self):
-        """interview_professional's warm tan is muted but not dark."""
+        """The synthetic interview palette's warm tan is muted but not dark."""
         got = resolve_subtitle_style(
             {"subtitle_style": "clean_standard"},
             {"color_palette": ["#f5f5f5", "#333333", "#ddab7e"]})
@@ -520,7 +520,7 @@ def test_a_project_declaring_no_speaker_styles_gets_one_look(tmp_path):
     Inventing per-speaker colours here would be inventing taste."""
     from library.tools.subtitle_style import (
         project_speaker_styles, resolve_subtitle_style)
-    folder = _project_with(tmp_path, "pipeline:\n  brand_template: default_brand\n")
+    folder = _project_with(tmp_path, "pipeline:\n")
     assert project_speaker_styles(folder) is None
     a = resolve_subtitle_style(project_folder=folder, speaker="Akshita")
     b = resolve_subtitle_style(project_folder=folder, speaker="Craig")

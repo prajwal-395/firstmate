@@ -224,22 +224,23 @@ def test_compile_manifest_asserts_the_domain():
 # P4.2: pacing, removed rather than left as a number nobody acts on
 # ─────────────────────────────────────────────────────────
 
-def test_no_template_declares_a_pacing_target():
+def test_no_project_copy_declares_a_pacing_target():
     """Pacing config with no reader is the reads-as-coverage problem.
 
-    Three templates spelled it `cuts_per_minute_min`/`_max` and a fourth
-    `min_cuts_per_minute`/`max_cuts_per_minute`, and nothing in the
-    repository read either spelling. If pacing control is wanted it is a
-    re-cut loop and a design job - not a key in a YAML file.
+    The deleted product templates used to spell it
+    `cuts_per_minute_min`/`_max` and `min_cuts_per_minute`/
+    `max_cuts_per_minute`, and nothing in the repository read either
+    spelling. If pacing control is wanted it is a re-cut loop and a
+    design job - not a key in a brand file. The synthetic copies carry
+    neither spelling.
     """
-    import glob
+    import yaml
+    from tests.brand_fixtures import ALL_SYNTHETIC
     offenders = []
-    for path in glob.glob(os.path.join(PROJECT_ROOT, "library", "templates", "*.yaml")):
-        with open(path, encoding="utf-8") as f:
-            code = "\n".join(l for l in f.read().splitlines()
-                             if not l.lstrip().startswith("#"))
+    for name, data in sorted(ALL_SYNTHETIC.items()):
+        code = yaml.safe_dump(data)
         if "cuts_per_minute" in code or "pacing:" in code:
-            offenders.append(os.path.basename(path))
+            offenders.append(name)
     assert not offenders, (
         f"{offenders} declare pacing config again. Nothing reads it; add a "
         f"reader in the same commit or leave it out.")

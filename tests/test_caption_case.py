@@ -259,76 +259,57 @@ class TestEffectSlotsDefault:
         assert bt.effect.caption_case == "lowercase"
 
 
-# ── Shipped templates test ──
+# ── Synthetic project copies test ──
 
-class TestShippedTemplates:
-    def test_all_shipped_templates_specify_lowercase(self):
-        """All four shipped templates set caption_case: lowercase."""
-        try:
-            import yaml
-        except ImportError:
-            pytest.skip("PyYAML not installed")
+class TestSyntheticCopies:
+    def test_all_synthetic_generic_copies_specify_lowercase(self):
+        """Every synthetic generic copy sets caption_case: lowercase."""
+        from tests.brand_fixtures import ALL_SYNTHETIC
 
-        templates_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "library", "templates",
-        )
         expected = [
-            "default_brand.yaml",
-            "shortform_energetic.yaml",
-            "cinematic_narrative.yaml",
-            "interview_professional.yaml",
+            "synthetic_default",
+            "synthetic_shortform",
+            "synthetic_cinematic",
+            "synthetic_interview",
         ]
         for name in expected:
-            path = os.path.join(templates_dir, name)
-            assert os.path.exists(path), f"Missing shipped template: {name}"
-            with open(path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-            effect = data.get("effect", {})
+            effect = ALL_SYNTHETIC[name].get("effect", {})
             assert effect.get("caption_case") == "lowercase", (
-                f"Template {name} should set caption_case: lowercase, "
+                f"Copy {name} should set caption_case: lowercase, "
                 f"got: {effect.get('caption_case')!r}"
             )
 
 
-# ── The shipped library declares its own casing ──
+# ── A project's own copy declares its own casing ──
 # Q5, decided 2026-08-16: caption case is a per-template setting rather
-# than a hidden global, and every shipped template declares its CURRENT
+# than a hidden global, and every project copy declares its CURRENT
 # behaviour so nothing about any existing video changed. The mechanism
-# landed earlier (#102); this pins the four declarations so the decision
+# landed earlier (#102); this pins the declarations so the decision
 # is durable rather than incidental.
 
-import glob
-
-import yaml
-
-_TEMPLATE_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "library", "templates")
-
-# Lowercase everywhere except the client template: lowercase captions are
+# Lowercase everywhere except the client copy: lowercase captions are
 # the channel's voice, and a client's brand is not the channel's.
 EXPECTED_CAPTION_CASE = {
-    "cinematic_narrative": "lowercase",
-    "default_brand": "lowercase",
-    "interview_professional": "lowercase",
-    "lucie_client": "as_written",
-    "shortform_energetic": "lowercase",
+    "synthetic_cinematic": "lowercase",
+    "synthetic_default": "lowercase",
+    "synthetic_interview": "lowercase",
+    "synthetic_client": "as_written",
+    "synthetic_shortform": "lowercase",
 }
 
 
 def _templates():
-    for path in sorted(glob.glob(os.path.join(_TEMPLATE_DIR, "*.yaml"))):
-        with open(path, encoding="utf-8") as f:
-            yield os.path.basename(path)[:-5], yaml.safe_load(f) or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    for name in sorted(ALL_SYNTHETIC):
+        yield name, ALL_SYNTHETIC[name]
 
 
-def test_every_template_is_accounted_for():
+def test_every_copy_is_accounted_for():
     assert {n for n, _ in _templates()} == set(EXPECTED_CAPTION_CASE), (
-        "a template was added or removed without deciding its caption case")
+        "a project copy was added or removed without deciding its caption case")
 
 
-def test_every_template_declares_its_caption_case_explicitly():
+def test_every_copy_declares_its_caption_case_explicitly():
     """A hidden global became a declared choice; keep it declared.
 
     Relying on the default would work, and would put the decision back
@@ -337,8 +318,8 @@ def test_every_template_declares_its_caption_case_explicitly():
     missing = [n for n, t in _templates()
                if "caption_case" not in (t.get("effect") or {})]
     assert not missing, (
-        f"{missing} do not declare effect.caption_case. Every shipped "
-        f"template states its own casing rather than inheriting it.")
+        f"{missing} do not declare effect.caption_case. Every project "
+        f"copy states its own casing rather than inheriting it.")
 
 
 def test_the_declared_values_are_the_approved_ones():

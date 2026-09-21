@@ -105,7 +105,7 @@ def _bare_project(tmp_path, pipeline_block=""):
     root.mkdir()
     (root / "project.yaml").write_text(
         "name: Test\nslug: test\npipeline:\n"
-        f"  brand_template: default_brand\n{pipeline_block}",
+        f"{pipeline_block}",
         encoding="utf-8")
     return str(root)
 

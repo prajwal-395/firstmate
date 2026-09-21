@@ -43,7 +43,7 @@ WITHDRAWN_SCENE_CHANGE_DEFAULTS = {
 def brand_duration_bounds_ms(raw) -> tuple:
     """The (min, max) a brand template PERMITS, or (None, None).
 
-    `default_brand.yaml` writes `transition_duration_ms: {min: 200, max:
+    A project copy writes `transition_duration_ms: {min: 200, max:
     500}`.  A RANGE is a permission, in exactly the way an allow-list of
     transition types is - it says what the brand will accept, not how
     long any one transition should hold.  A SCALAR is a declaration, and

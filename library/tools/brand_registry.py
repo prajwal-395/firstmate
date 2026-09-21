@@ -17,7 +17,9 @@ The key is spelled three ways and they are not interchangeable:
 
 **A project that names no brand template gets NOTHING, and every slot's reading of that absence is written down.**
 `library/tools/brand_registry.no_brand_template` is what an empty declaration resolves to - every creative slot empty - and `ABSENT_SLOT_READINGS` records what each consumer does with it. `describe_brand_absence()` is printed once per run. [why](docs/RULE_EVIDENCE.md#a-template-nobody-chose)
-- **`library/templates/default_brand.yaml` is a template a project must NAME**; an empty declaration does not resolve to it, and naming it is what makes its values a brand decision.
+- **The product ships no templates** (captain, 2026-09-21): a project
+  carries its own `brand.json`, which every resolver below reads FIRST.
+  An empty declaration still resolves to `no_brand_template()`.
 - An absent slot reads as the ABSENCE OF DECORATION, never as a substitute taste: no grade (§12), no exposure normalisation, the whole drawable vocabulary permitted, nothing bounded. Add a slot, add its row. Add a slot, add its row - `tests/test_brand_template_load.py` fails on a slot with no recorded reading.
 - **`effect.caption_case` is the one creative value that survives absence**, recorded as an exception rather than left implicit.
 - Two slots have NO READER and no template value should state one: `content.music_genre` and `effect.sfx_density`.
@@ -211,8 +213,25 @@ TEMPLATES_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates"
 )
 
-# `default_brand` is a template a project may NAME.  It is no longer what
-# a project gets for naming nothing - see `no_brand_template()`.
+# The project-side brand file.  A `brand.json` sitting in the project IS a
+# declaration: it wins over anything in `templates_dir`, the same way
+# `TemplateLoader.load_template` already reads it first.  The product ships
+# no templates (captain, 2026-09-21); a project carries its own copy, so
+# this is the path every resolver below checks before any other.
+BRAND_JSON = "brand.json"
+
+
+def project_brand_path(project_folder: Optional[str]) -> Optional[str]:
+    """The project's own `brand.json`, or None where it has none."""
+    if not project_folder:
+        return None
+    candidate = os.path.join(str(project_folder), BRAND_JSON)
+    return candidate if os.path.exists(candidate) else None
+
+# The name `manage_project.py new` used to stamp onto every project.  The
+# product ships no templates (captain, 2026-09-21), so nothing resolves it
+# anymore; it is kept so the name reads as what it is - a removed file -
+# rather than as a typo.  New projects declare no template.
 DEFAULT_TEMPLATE_NAME = "default_brand"
 
 # The name a template-less project reports.  It is not a template name;
@@ -221,7 +240,9 @@ NO_BRAND_TEMPLATE_NAME = ""
 
 
 def resolve_project_template(template_name: str = "",
-                             templates_dir: Optional[str] = None) -> BrandTemplate:
+                             templates_dir: Optional[str] = None,
+                             project_folder: Optional[str] = None
+                             ) -> BrandTemplate:
     """The BrandTemplate a project runs under, by NAME rather than path.
 
     `load_brand_template` takes a filesystem path, so every caller that
@@ -229,18 +250,27 @@ def resolve_project_template(template_name: str = "",
     rebuild the same `templates/<name>.yaml` join.  There were two copies
     of that join and they could disagree; this is the one.
 
-    An EMPTY name means the project declared none, and it resolves to
-    `no_brand_template()` - no style, no effect, no content.  It used to
-    resolve to `default_brand` on disk, which is how project 001 rendered
-    under a brand nobody chose; see `ABSENT_SLOT_READINGS` above for what
-    each consumer now does with an absent slot.  `default_brand` is still
-    there and is still loadable - by NAME, from a project that asks for
-    it, which is what makes its values a choice.
+    The project's own `brand.json` is read FIRST and wins over any named
+    template - the same precedence `TemplateLoader.load_template` keeps.
+    The product ships no templates (captain, 2026-09-21), so for a real
+    project this is the source that answers; the name is kept as the
+    declaration of record.
 
-    Any name that does not resolve RAISES: a named template that is not
-    there is a typo, and silently substituting a default is how a project
-    renders under a brand nobody chose.
+    An EMPTY name with no `brand.json` means the project declared none,
+    and it resolves to `no_brand_template()` - no style, no effect, no
+    content.  It used to resolve to `default_brand` on disk, which is how
+    project 001 rendered under a brand nobody chose; see
+    `ABSENT_SLOT_READINGS` above for what each consumer now does with an
+    absent slot.
+
+    Any name that resolves nowhere RAISES: a named template with no
+    project-side copy is a typo or a removed file, and silently
+    substituting a default is how a project renders under a brand nobody
+    chose.
     """
+    brand_path = project_brand_path(project_folder)
+    if brand_path is not None:
+        return load_brand_template(brand_path)
     if not template_name:
         return no_brand_template()
     base = templates_dir or TEMPLATES_DIR
@@ -252,7 +282,8 @@ def resolve_project_template(template_name: str = "",
                  if os.path.isdir(base) else [])
     raise FileNotFoundError(
         f"Brand template {template_name!r} not found in {base}. "
-        f"Available: {available}"
+        f"Available: {available}. The product ships no templates - "
+        f"carry the brand in the project's own brand.json."
     )
 
 
@@ -362,7 +393,8 @@ def project_template_name(project_folder: str) -> str:
     reader (section 14 of CLAUDE.md): a declaration nothing reads.
 
     Returns "" when the project declares none, which
-    :func:`resolve_project_template` turns into `default_brand` on disk.
+    :func:`resolve_project_template` turns into `no_brand_template()`
+    unless the project carries its own `brand.json`.
     """
     return (project_pipeline_block(project_folder).get("brand_template") or "").strip()
 
@@ -373,17 +405,22 @@ def _looks_like_path(reference: str) -> bool:
 
 
 def resolve_template_reference(reference: str = "",
-                               templates_dir: Optional[str] = None
+                               templates_dir: Optional[str] = None,
+                               project_folder: Optional[str] = None
                                ) -> BrandTemplate:
     """The BrandTemplate for either a template NAME or a template PATH.
 
     Two callers spell the same thing differently and both are legitimate:
-    a project.yaml declares a NAME (`cinematic_narrative`), while the
-    process manifest's `brand_template` input is documented as a PATH so a
-    template may live outside `library/templates/`.  The two are told
-    apart structurally - a separator or a yaml/json extension means path -
-    rather than by "does it exist", so a mistyped path raises as a
-    mistyped path instead of being retried as a template name.
+    a project.yaml declares a NAME the project's own `brand.json`
+    carries, while the process manifest's `brand_template` input is
+    documented as a PATH so a template may live anywhere.  The two are
+    told apart structurally - a separator or a yaml/json extension means
+    path - rather than by "does it exist", so a mistyped path raises as
+    a mistyped path instead of being retried as a template name.
+
+    The project's own `brand.json` wins over either form - a path the
+    captain typed is honoured, but a NAME resolves against the project's
+    copy first, because the product ships no templates.
 
     Either form MISSING raises.  Falling back to the in-code default is
     how a project renders under a brand nobody chose.
@@ -395,7 +432,8 @@ def resolve_template_reference(reference: str = "",
                 f"Brand template path {ref!r} does not exist."
             )
         return load_brand_template(ref)
-    return resolve_project_template(ref, templates_dir=templates_dir)
+    return resolve_project_template(ref, templates_dir=templates_dir,
+                                    project_folder=project_folder)
 
 
 def reference_template_name(reference: str = "") -> str:

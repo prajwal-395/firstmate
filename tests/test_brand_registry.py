@@ -77,13 +77,32 @@ class TestBrandRegistry(unittest.TestCase):
             os.remove(temp_path)
 
     def test_populated_templates(self):
-        templates_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "library", "templates")
-        
-        for template_name in ["shortform_energetic.yaml", "interview_professional.yaml", "cinematic_narrative.yaml"]:
-            path = os.path.join(templates_dir, template_name)
-            bt = load_brand_template(path)
+        # The product ships no templates, so the populated documents under
+        # test are the synthetic project copies - same shapes the
+        # resolvers validate, with no client's copy among them.
+        from tests.brand_fixtures import ALL_SYNTHETIC
+        from library.schemas.brand_template import BrandTemplate
+
+        for name, data in ALL_SYNTHETIC.items():
+            bt = BrandTemplate.from_dict(data)
             errors = validate_template(bt)
-            self.assertEqual(len(errors), 0, f"Template {template_name} failed validation: {errors}")
+            self.assertEqual(len(errors), 0, f"Template {name} failed validation: {errors}")
+
+    def test_project_brand_json_wins_over_templates_dir(self):
+        import json as _json
+        import tempfile as _tempfile
+        from library.tools.brand_registry import resolve_project_template
+        from tests.brand_fixtures import SYNTHETIC_CINEMATIC
+
+        with _tempfile.TemporaryDirectory() as tmpdir:
+            brand_json = os.path.join(tmpdir, "brand.json")
+            with open(brand_json, "w", encoding="utf-8") as handle:
+                _json.dump(SYNTHETIC_CINEMATIC, handle)
+            bt = resolve_project_template(
+                "any_name_at_all", templates_dir=tmpdir,
+                project_folder=tmpdir)
+            self.assertEqual(
+                query_slots(bt, "effect")["subtitle_style"], "minimal")
 
 if __name__ == '__main__':
     unittest.main()

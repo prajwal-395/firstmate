@@ -98,7 +98,7 @@ def test_a_brand_allowing_a_drawn_type_still_does_not_draw_it_unasked():
 
 
 def test_a_brand_range_is_a_bound_and_not_a_length():
-    """`default_brand.yaml` writes {min, max}, and a RANGE names no length.
+    """A brand file writes {min, max}, and a RANGE names no length.
 
     Answering `max` here is what overruled the plan: project 001's two
     drawn transitions were planned "quick" and "medium" and both were

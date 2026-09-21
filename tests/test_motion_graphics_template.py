@@ -32,7 +32,6 @@ import os
 import sys
 
 import pytest
-import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -60,8 +59,8 @@ SPINE = {
 #: A palette whose most saturated entry would read on screen.
 READABLE_PALETTE = {"color_palette": ["#ff0055", "#ffffff", "#000000"]}
 
-#: `cinematic_narrative`'s shape: the most saturated entry is a dark
-#: muted navy, which 6px brackets would read as a smudge in.
+#: The synthetic cinematic palette's shape: the most saturated entry is
+#: a dark muted navy, which 6px brackets would read as a smudge in.
 UNREADABLE_PALETTE = {"color_palette": ["#223344", "#aabbcc", "#111111"]}
 
 
@@ -81,9 +80,8 @@ def segments(motion_plan, brand_style=None):
 
 
 def _template(name):
-    with open(os.path.join(PROJECT_ROOT, "library", "templates",
-                           f"{name}.yaml"), encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    return dict(ALL_SYNTHETIC[name])
 
 
 def _elements(segs):
@@ -119,13 +117,13 @@ def test_a_palette_with_no_readable_accent_does_not_answer_the_role():
 # ── The template gates nothing ───────────────────────────────────────
 
 def test_the_same_plan_draws_with_a_template_and_without_one():
-    """The regression. `default_brand` declares neither motion flag, and
-    that used to be the whole decision."""
+    """The regression. The synthetic default declares neither motion flag,
+    and that used to be the whole decision."""
     stated = plan(color="#FF8A3D")
     del stated[0]["colour_role"]
 
     without, _ = segments(stated, {})
-    with_default, _ = segments(stated, _template("default_brand").get("style"))
+    with_default, _ = segments(stated, _template("synthetic_default").get("style"))
 
     assert _elements(without), "no template must not empty the layer"
     assert len(_elements(with_default)) == len(_elements(without))
@@ -295,11 +293,11 @@ def test_palette_drawn_colours_name_the_template_that_supplied_them():
     segs, _ = generate_motion_props(
         text_role_plan(), SPINE, fps=30, width=1080, height=1920,
         brand_style=UNREADABLE_PALETTE,
-        brand_template_name="cinematic_narrative", project_folder="")
+        brand_template_name="synthetic_cinematic", project_folder="")
     drawn = _elements(segs)
     assert drawn, "the text role resolves under this palette"
     assert all(e["color"] == "#aabbcc" for e in drawn)
-    assert all("cinematic_narrative" in e["colorBasis"] for e in drawn)
+    assert all("synthetic_cinematic" in e["colorBasis"] for e in drawn)
 
 
 def test_a_palette_resolved_colour_without_a_source_reads_as_before():
@@ -315,9 +313,9 @@ def test_basis_record_carries_the_palette_fact():
     _, resolved = generate_motion_props(
         text_role_plan(), SPINE, fps=30, width=1080, height=1920,
         brand_style=UNREADABLE_PALETTE,
-        brand_template_name="cinematic_narrative", project_folder="")
+        brand_template_name="synthetic_cinematic", project_folder="")
     palette = resolved.basis_record()["palette"]
-    assert palette["source"] == "cinematic_narrative"
+    assert palette["source"] == "synthetic_cinematic"
     assert palette["roles"] == {"text": "#aabbcc", "outline": "#111111"}
     assert palette["has_usable_accent"] is False
     assert palette["moments_drawn_in_palette_colours"] == 1

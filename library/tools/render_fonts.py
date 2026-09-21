@@ -52,10 +52,10 @@ PROJECT_FONT_DIR = "brand"
 # Each is a system font, so its exact shape depends on the render machine.
 ACCEPTED_SYSTEM_FONTS: dict[str, str] = {
     "Helvetica": (
-        "default_brand.yaml names it. Present on macOS, absent on most "
+        "A project copy names it. Present on macOS, absent on most "
         "Linux render hosts, where Chromium will substitute. Accepted "
-        "because default_brand is the fallback template rather than a "
-        "shipped look, but it is not deterministic."
+        "because no project ships it as a look, but it is not "
+        "deterministic."
     ),
 }
 

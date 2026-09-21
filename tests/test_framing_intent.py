@@ -22,7 +22,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from library.schemas.brand_template import BrandTemplate, StyleSlots
-from library.tools.brand_registry import resolve_project_template
 from library.tools.framing_intent import (
     DEFAULT_FRAMING_INTENT,
     FILL,
@@ -34,9 +33,6 @@ from library.tools.framing_intent import (
     template_framing_intent,
     validate_framing_intent,
 )
-
-TEMPLATES_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
-
 
 def write_project(tmp_path, body: str) -> str:
     (tmp_path / "project.yaml").write_text(textwrap.dedent(body))
@@ -109,7 +105,7 @@ class TestPrecedence:
         folder = write_project(tmp_path, """
             name: Silent
             pipeline:
-              brand_template: default_brand
+              brand_template: synthetic_default
         """)
         assert project_framing_intent(folder) is None
 
@@ -156,7 +152,7 @@ class TestTheProjectConfigCarriesIt:
             _dict_to_project_config, project_config_to_dict)
         cfg = _dict_to_project_config({
             "name": "Bars", "slug": "bars",
-            "pipeline": {"brand_template": "default_brand",
+            "pipeline": {"brand_template": "synthetic_default",
                          "framing_intent": 0.0},
         })
         assert cfg.pipeline.framing_intent == 0.0
@@ -168,7 +164,7 @@ class TestTheProjectConfigCarriesIt:
             _dict_to_project_config, project_config_to_dict)
         cfg = _dict_to_project_config({
             "name": "Silent", "slug": "silent",
-            "pipeline": {"brand_template": "default_brand"},
+            "pipeline": {"brand_template": "synthetic_default"},
         })
         assert cfg.pipeline.framing_intent is None
         assert "framing_intent" not in project_config_to_dict(cfg)["pipeline"]
@@ -182,36 +178,37 @@ class TestTheProjectConfigCarriesIt:
         assert any("framing_intent" in e for e in cfg.validate())
 
 
-class TestShippedTemplates:
-    """What each brand template in the repo means, now that silence means
-    fill. Named here so a change to any template is a change to a test."""
+class TestSyntheticCopies:
+    """What each synthetic project copy means, now that silence means
+    fill. Named here so a change to any copy is a change to a test."""
 
-    def test_cinematic_narrative_still_letterboxes(self):
-        tmpl = resolve_project_template("cinematic_narrative", TEMPLATES_DIR)
+    def test_synthetic_cinematic_still_letterboxes(self):
+        from tests.brand_fixtures import SYNTHETIC_CINEMATIC
+        tmpl = BrandTemplate.from_dict(SYNTHETIC_CINEMATIC)
         assert template_framing_intent(tmpl) == LETTERBOX
 
-    def test_shortform_energetic_still_fills(self):
-        tmpl = resolve_project_template("shortform_energetic", TEMPLATES_DIR)
+    def test_synthetic_shortform_still_fills(self):
+        from tests.brand_fixtures import SYNTHETIC_SHORTFORM
+        tmpl = BrandTemplate.from_dict(SYNTHETIC_SHORTFORM)
         assert template_framing_intent(tmpl) == FILL
 
     @pytest.mark.parametrize("name", [
-        "default_brand", "interview_professional", "lucie_client",
+        "synthetic_default", "synthetic_interview", "synthetic_client",
     ])
-    def test_the_silent_templates_now_fill(self, name):
-        tmpl = resolve_project_template(name, TEMPLATES_DIR)
+    def test_the_silent_copies_now_fill(self, name):
+        from tests.brand_fixtures import ALL_SYNTHETIC
+        tmpl = BrandTemplate.from_dict(ALL_SYNTHETIC[name])
         assert template_framing_intent(tmpl) is None
         assert resolve_framing_intent(template=tmpl) == FILL
 
-    def test_every_shipped_template_delivers_vertical(self):
-        """A fill is only the right default because every template in the
-        tree declares a 9:16 product. If one ever declares a landscape
-        format, this default needs revisiting rather than inheriting."""
+    def test_every_synthetic_copy_delivers_vertical(self):
+        """A fill is only the right default because every copy declares a
+        9:16 product. If one ever declares a landscape format, this
+        default needs revisiting rather than inheriting."""
         from library.tools.delivery_format import resolve_format_name
-        for entry in sorted(os.listdir(TEMPLATES_DIR)):
-            name, ext = os.path.splitext(entry)
-            if ext not in (".yaml", ".yml", ".json"):
-                continue
-            tmpl = resolve_project_template(name, TEMPLATES_DIR)
+        from tests.brand_fixtures import ALL_SYNTHETIC
+        for name, data in sorted(ALL_SYNTHETIC.items()):
+            tmpl = BrandTemplate.from_dict(data)
             width, height = resolve_format_name(
                 getattr(tmpl, "delivery_format", "") or "")
             assert height > width, f"{name} is not a vertical product"

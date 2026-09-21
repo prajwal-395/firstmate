@@ -33,7 +33,6 @@ from library.tools.series_look import (
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATES_DIR = os.path.join(REPO_ROOT, "library", "templates")
 
 # A declaration written HERE, in a test, on purpose: the point of the
 # test is that the mechanism delivers whatever a template declares, and
@@ -96,39 +95,44 @@ def test_the_only_numbers_in_the_module_are_identity():
         assert value == expected, f"{key} is not identity"
 
 
-def test_no_shipped_template_declares_a_look():
+def test_no_project_copy_declares_a_look():
     """The catalogue was removed, not relocated.
 
-    If a future template legitimately declares one, this test is the
+    If a future project copy legitimately declares one, this test is the
     place to record that decision - by name, with who made it. Until then
-    a look appearing in a shipped template is the old numbers coming back
-    through the other door.
+    a look appearing in a project copy is the old numbers coming back
+    through the other door. And the product ships no templates at all:
+    a `library/templates` directory coming back is the same return.
     """
-    declaring = []
-    for filename in sorted(os.listdir(TEMPLATES_DIR)):
-        if not filename.endswith((".yaml", ".yml")):
-            continue
-        with open(os.path.join(TEMPLATES_DIR, filename)) as handle:
-            template = yaml.safe_load(handle) or {}
-        if (template.get("style") or {}).get("series_look"):
-            declaring.append(filename)
-
+    import os
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    declaring = [
+        name for name, data in sorted(ALL_SYNTHETIC.items())
+        if (data.get("style") or {}).get("series_look")
+    ]
     assert not declaring, (
-        "shipped templates declare a look: " + ", ".join(declaring) + ". "
+        "project copies declare a look: " + ", ".join(declaring) + ". "
         "That is legitimate only as a stated decision; record it here."
     )
+    assert not os.path.isdir(os.path.join(REPO_ROOT, "library", "templates")), (
+        "library/templates is back. The product ships no templates "
+        "(captain, 2026-09-21); a brand lives in the project's own "
+        "brand.json.")
 
 
-def test_every_shipped_template_says_why_it_declares_none():
-    """Absence has to read as a decision, not as an omission."""
-    for filename in sorted(os.listdir(TEMPLATES_DIR)):
-        if not filename.endswith((".yaml", ".yml")):
-            continue
-        text = open(os.path.join(TEMPLATES_DIR, filename)).read()
-        assert "NO LOOK IS DECLARED" in text, (
-            f"{filename} declares no look and does not say so")
-        assert "series_look" in text, (
-            f"{filename} does not point at the declaration shape")
+def test_every_project_copy_records_why_it_declares_none():
+    """Absence has to read as a decision, not as an omission.
+
+    The deleted files said it in a comment each. The record now lives
+    once, in `ABSENT_SLOT_READINGS`, and every slot's reading is pinned
+    by `test_the_absent_reading_of_every_slot_is_written_down` - so this
+    asserts the copies declare none and the table says what none means.
+    """
+    from library.tools.brand_registry import ABSENT_SLOT_READINGS
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    for name, data in sorted(ALL_SYNTHETIC.items()):
+        assert not (data.get("style") or {}).get("series_look"), name
+    assert "style.series_look" in ABSENT_SLOT_READINGS
 
 
 # ── A declaration reaches the picture ───────────────────────────────────

@@ -22,6 +22,9 @@ if _unknown:
 class TemplateLoader:
     def __init__(self, project_dir: str, templates_dir: str = None):
         self.project_dir = Path(project_dir)
+        # The product ships no templates (captain, 2026-09-21): this
+        # directory is an injectable lookup kept for tests and for a
+        # project-side folder, and a missing one simply resolves nothing.
         if templates_dir:
             self.templates_dir = Path(templates_dir)
         else:

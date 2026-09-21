@@ -34,9 +34,6 @@ from library.steps.step_5_01_color_grade.grade import (
 from library.tools.fusion.comp_builder import build_effect_comp
 from library.tools.series_look import LookDeclarationError, resolve_look
 
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TEMPLATES_DIR = os.path.join(REPO_ROOT, "library", "templates")
-
 # Values written HERE, in a test, standing in for what a brand template
 # would declare. The engine ships none of its own - see
 # tests/test_series_look.py.
@@ -385,17 +382,13 @@ def test_compile_manifest_draws_no_comp_when_no_look_is_declared():
         assert not effects, f"{label} got a comp with nothing declared: {effects}"
 
 
-def test_every_brand_template_parses_and_declares_no_look():
-    """The four looks this engine shipped are gone and were not moved
-    into a template. See tests/test_series_look.py for the standing rule."""
-    template_files = sorted(
-        f for f in os.listdir(TEMPLATES_DIR) if f.endswith((".yaml", ".yml"))
-    )
-    assert template_files, "no brand templates found to check"
+def test_every_project_copy_parses_and_declares_no_look():
+    """No look is declared by any project copy. See
+    tests/test_series_look.py for the standing rule."""
+    from tests.brand_fixtures import ALL_SYNTHETIC
+    assert ALL_SYNTHETIC, "no synthetic project copies found to check"
 
-    for filename in template_files:
-        with open(os.path.join(TEMPLATES_DIR, filename)) as handle:
-            template = yaml.safe_load(handle) or {}
+    for name, template in sorted(ALL_SYNTHETIC.items()):
         declaration = (template.get("style") or {}).get("series_look")
         # Either nothing, or something resolve_look can deliver whole.
         assert resolve_look(declaration) is None or declaration

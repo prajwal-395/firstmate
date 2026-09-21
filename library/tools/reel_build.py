@@ -4482,7 +4482,8 @@ def declared_cards(project_folder: str) -> list:
         named = ((config.get("pipeline") or {}).get("brand_template") or "")
         if named:
             brand_effect = query_slots(
-                resolve_project_template(named), "effect")
+                resolve_project_template(
+                    named, project_folder=project_folder), "effect")
     return declared_elements(resolve_declaration(brand_effect, project_folder))
 
 
@@ -8157,7 +8158,8 @@ def _brand_effect(project_folder: str) -> dict:
         project_template_name, query_slots, resolve_project_template)
     try:
         name = project_template_name(project_folder)
-        template = resolve_project_template(name, project_folder)
+        template = resolve_project_template(
+            name, project_folder=project_folder)
         return query_slots(template, "effect") or {}
     except Exception:
         return {}
