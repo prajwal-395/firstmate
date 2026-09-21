@@ -44,17 +44,31 @@ EOF
 # The remote-route cases drive the real remote job worker, which outlives the
 # command that staged its job. Stop it before the shared fixture cleanup runs,
 # and keep that cleanup (tests/lib.sh owns it) rather than replacing the trap.
-pf_test_cleanup() {
+# The stop must go through the worker's own process-group primitive: worker.pid
+# names the serving child while its restart supervisor sits above it, so a lone
+# `kill $pid` is immediately replaced and the still-writing tree races the
+# fixture removal into `rm: ... Directory not empty`. A stop that cannot finish
+# stays loud on stderr rather than proceeding silently.
+pf_reap_remote_worker() {
   local pid_file="${REMOTE_FIXTURE_JOBS:-$TMP_ROOT/remote-jobs}/worker.pid" pid
+  [ -f "$pid_file" ] || return 0
+  pid=$(cat "$pid_file" 2>/dev/null) || pid=
+  case "$pid" in ''|*[!0-9]*) return 0 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 0
+  # shellcheck source=bin/fm-remote-job-lib.sh
+  # shellcheck disable=SC1091
+  . "$ROOT/bin/fm-remote-job-lib.sh"
+  fm_remote_job_stop_worker_tree "$pid" && return 0
+  printf 'pf_test_cleanup: fixture remote-job worker %s is still alive; fixture removal may race it\n' "$pid" >&2
+  return 1
+}
+pf_test_cleanup() {
   if [ -n "$PF_TEST_LOCK_HOLDER" ]; then
     kill "$PF_TEST_LOCK_HOLDER" 2>/dev/null || true
     wait "$PF_TEST_LOCK_HOLDER" 2>/dev/null || true
     PF_TEST_LOCK_HOLDER=
   fi
-  if [ -f "$pid_file" ]; then
-    pid=$(cat "$pid_file" 2>/dev/null) || pid=
-    [ -z "$pid" ] || kill "$pid" 2>/dev/null || true
-  fi
+  pf_reap_remote_worker || true
   fm_test_cleanup
 }
 trap pf_test_cleanup EXIT
@@ -1467,7 +1481,7 @@ test_typed_records_exclude_raw_public_material() {
 # --- 10. delivery does not close the public loop --------------------------------
 
 test_dropped_baton_now_surfaces_open_loop() {
-  local parent child log
+  local parent child log out
   parent=$(make_home baton-parent)
   child="$TMP_ROOT/baton-child"
   FM_SECONDMATE_CHARTER='Baton repro charter.' FM_HOME="$parent" \
@@ -1486,7 +1500,8 @@ test_dropped_baton_now_surfaces_open_loop() {
     --outcome report-ready --deliverable report_path=data/pi-rearm-loop-repro-s1/report.md \
     --outcome-text 'Reproduced the loop. A bounded fix is scoped and waiting on you, captain.' >/dev/null \
     || fail "emit failed"
-  FAKE_CURL_LOG="$log" run_pf "$parent" consume | grep -q '^ready ' || fail "consume not ready"
+  out=$(FAKE_CURL_LOG="$log" run_pf "$parent" consume) || fail "consume failed: $out"
+  grep -q '^ready ' <<<"$out" || fail "consume not ready: $out"
   FAKE_CURL_LOG="$log" run_pf "$parent" deliver public-final-pi-rearm-repro >/dev/null || fail "deliver failed"
   [ "$(followup_posts "$log")" = 1 ] || fail "expected exactly one closing post"
   assert_present "$parent/state/public-followup/registry/public-final-pi-rearm-repro" \
@@ -1587,8 +1602,9 @@ SH
     --source-home main --work-id ship-b --generation 1 \
     --outcome pr-merged --deliverable pr_url=https://github.com/example/repo/pull/99 \
     --outcome-text 'Shipped: the Pi recovery loop is fixed.' >/dev/null || fail "follow-on emit failed"
-  FAKE_CURL_LOG="$log" run_pf "$parent" consume | grep -q '^ready public-final-b ' \
-    || fail "follow-on consume not ready"
+  out=$(FAKE_CURL_LOG="$log" run_pf "$parent" consume) || fail "follow-on consume failed: $out"
+  grep -q '^ready public-final-b ' <<<"$out" \
+    || fail "follow-on consume not ready: $out"
   FAKE_CURL_LOG="$log" run_pf "$parent" deliver public-final-b >/dev/null || fail "follow-on deliver failed"
   posts=$(followup_posts "$log")
   [ "$posts" = 2 ] || fail "expected exactly two posts in the same thread, got $posts"
@@ -2060,8 +2076,9 @@ test_retire_reason_closes_the_open_loop() {
   emit_terminal "$home" "$home" pf-retire main work-retire >/dev/null || fail "emit failed"
   FAKE_CURL_LOG="$log" run_pf "$home" consume >/dev/null || fail "consume failed"
   FAKE_CURL_LOG="$log" run_pf "$home" deliver pf-retire >/dev/null || fail "deliver failed"
-  run_pf "$home" pending | grep -q '^open-loop pf-retire ' \
-    || fail "pending must show the delivered open loop"
+  out=$(run_pf "$home" pending) || fail "pending failed: $out"
+  grep -q '^open-loop pf-retire ' <<<"$out" \
+    || fail "pending must show the delivered open loop: $out"
   expect_failure "retire without --reason must refuse" run_pf "$home" retire pf-retire
   assert_contains "$EXPECT_OUT" "--reason" "the refusal must name the required reason"
   assert_present "$home/state/public-followup/registry/pf-retire" \
@@ -2918,6 +2935,42 @@ test_stage_in_refuses_ambiguous_or_unusable_homes() {
   pass "staging requires the matching secondmate firstmate home"
 }
 
+# pf_reap_remote_worker must leave no fixture worker alive: a lone kill is
+# replaced by the worker's own restart supervisor, so the still-writing tree
+# races the shared fixture cleanup into `rm: ... Directory not empty`. The fake
+# below carries the real worker's file name because the group stop only signals
+# a group led by that name, and it shuts down slowly on TERM so the reap must
+# genuinely wait rather than merely signal.
+test_cleanup_reaps_fixture_worker_tree() {
+  local jobs fake_worker pid saved_jobs rc=0
+  jobs="$TMP_ROOT/reap-fixture-jobs"
+  mkdir -p "$jobs"
+  fake_worker="$jobs/fm-remote-job-worker.sh"
+  cat > "$fake_worker" <<'SH'
+#!/usr/bin/env bash
+trap 'sleep 0.3; exit 0' TERM
+while :; do : > "$1/.hb.$$"; sleep 0.05; done
+SH
+  chmod +x "$fake_worker"
+  saved_jobs=$REMOTE_FIXTURE_JOBS
+  REMOTE_FIXTURE_JOBS="$jobs"
+  set -m
+  "$fake_worker" "$jobs" &
+  pid=$!
+  set +m
+  printf '%s\n' "$pid" > "$jobs/worker.pid"
+  if ! kill -0 "$pid" 2>/dev/null; then
+    REMOTE_FIXTURE_JOBS=$saved_jobs
+    fail "the fixture worker did not start"
+  fi
+  pf_reap_remote_worker || rc=$?
+  REMOTE_FIXTURE_JOBS=$saved_jobs
+  [ "$rc" -eq 0 ] || fail "the reap must stop the fixture worker tree"
+  kill -0 "$pid" 2>/dev/null \
+    && fail "a reaped fixture worker tree must be gone before fixture removal"
+  pass "cleanup reaps the fixture worker tree before fixture removal"
+}
+
 # The owning home must never quietly report "nothing waiting" when it simply
 # could not reach the work home: the promise stays open and the operator is told
 # which route failed.
@@ -3218,3 +3271,4 @@ test_remote_brief_rejects_traversal_route_paths
 test_local_work_home_emit_path_is_unchanged
 test_remote_collection_is_idempotent
 test_stage_in_refuses_ambiguous_or_unusable_homes
+test_cleanup_reaps_fixture_worker_tree
