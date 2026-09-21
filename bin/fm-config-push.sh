@@ -121,6 +121,9 @@ while IFS='|' read -r id home _window meta; do
   fi
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then
+    # Remote routes never receive .env keys: propagate_secondmate_secrets is
+    # local-only by construction, and fm-remote-inherit-push.sh below derives
+    # its transfer set from fm_config_inherit_items, which never contains them.
     printf 'secondmate %s (%s:%s):\n' "$id" "$remote_host" "$home"
     remote_lock=$(fm_remote_inherit_transaction_lock_path "$STATE" "$id" 2>/dev/null || true)
     if [ -z "$remote_lock" ] || ! fm_lock_acquire_wait "$remote_lock"; then

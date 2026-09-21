@@ -115,6 +115,12 @@ Inheritance copies the literal `config/crew-harness` file, so a secondmate's own
 Inherited `config/backend` becomes that secondmate home's local runtime-backend default for future spawns only; it never retargets, rewrites, migrates, stops, or restarts an already-live worker endpoint.
 A present primary value always converges byte-exact into validated secondmate homes, and primary absence removes the destination so those homes keep runtime auto-detection.
 Explicit per-spawn `--backend` and `FM_BACKEND` remain stronger than every home's local `config/backend`, including an inherited default.
+The two typed-dispatch-resolution keys (`TYPESAFE_API_KEY`, `AI_GATEWAY_API_KEY`) propagate separately from the primary's gitignored `.env` into each LOCAL secondmate home's `.env`, key by key, preserving every other line there.
+The durable source is the primary `.env` only, never the process environment, and a changed or removed primary value converges on the next push or sync.
+Destination `.env` files stay owner-only, and secrets never enter the literal-content config-reread instruction, which inlines only declared `config/*` items.
+Remote routes never receive keys: the remote sender and receiver derive only from `fm_config_inherit_items`, which never contains them, and the sender refuses to run when the declarations ever overlap.
+A home whose `data/charter.md` declares a research scope stays keyless: its `.env` is never written to.
+`bin/fm-config-inherit-lib.sh` owns this secrets mechanics.
 `config/secondmate-harness` is not inherited because it is only the primary's knob for launching secondmate agents.
 `data/captain-shared.md` is main-authoritative in the primary home and read-only in secondmate homes.
 Its primary file header must state that the file is main-authoritative, read-only in secondmate homes, must not be edited there, and that new captain-preference discoveries are routed to the main firstmate through marked status or a document pointer.

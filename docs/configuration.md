@@ -502,6 +502,8 @@ By accepted design, a `clear` result does not enforce catalog/authentication, re
 Firstmate passes its profile line unless it states a reason to override, such as the brief's reasoning class or an eligible-unranked-candidate note; every non-clear result returns to the full existing intake.
 
 The resolver and bootstrap copy an environment-provided key into a non-exported private variable and unset `TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` before launching child processes, so each secret is absent from child environments.
+Each key also flows from the primary home's `.env` into every LOCAL secondmate home's `.env` through the primary-authoritative inheritance contract, so mates resolve with Jev too.
+Remote homes never receive keys, a research-charter home stays keyless, and a changed or removed primary value converges on the next push or sync; the [`secondmate-provisioning` skill](../.agents/skills/secondmate-provisioning/SKILL.md) owns that contract and `bin/fm-config-inherit-lib.sh` owns its mechanics.
 The resolver sends the active rung's key to `curl` only as a header read from a file descriptor, never on argv, and nothing prints, logs, or writes either key.
 With both keys present the tool tries the free Vercel AI Gateway rung first (`typesafe-ai/jev` at `https://ai-gateway.vercel.sh/typesafe/v1/systemone`) and falls back to the captain's typesafe.ai key (`jev-latest` at `https://api.typesafe.ai/v1/systemone`) once in the same call when the gateway answers 429 or 401/403; the fallback is per request with no persisted rung record, and the `rung:` output line names whichever rung answered.
 With one key present the tool uses that rung only.
