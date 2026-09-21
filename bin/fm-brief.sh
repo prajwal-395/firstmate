@@ -12,8 +12,8 @@
 # charters still use a single `{TASK}` charter fill. Firstmate may adjust other
 # sections when the task genuinely deviates (e.g. working an existing external
 # PR instead of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
-#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--from-task[=<record-id>]] [--herdr-lab]
+#        fm-brief.sh <task-id> <repo-name> --scout [--from-task[=<record-id>]] [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
@@ -30,6 +30,34 @@
 #   omitting both still fails loudly so an accidental omission is never silent.
 #   Set FM_SECONDMATE_CHARTER='<charter>' to fill the charter text.
 #   Set FM_SECONDMATE_SCOPE='<scope>' to write a routing scope distinct from the charter text.
+#   --from-task renders the two `# Task` subsections from the task record
+#   instead of leaving `{TASK}` / `{FIRSTMATE_SPEC}` placeholders for hand
+#   editing. A bare `--from-task` renders from the record with the same id;
+#   `--from-task=<other-id>` renders from a named record. There is no
+#   space-separated form: it would be ambiguous with the positional task id.
+#   The record is read through bin/fm-tasks-axi.sh show, so any configured
+#   backlog backend works; only the record's existing title and free-form
+#   body are used, never a tasks-axi field that package does not own.
+#   Filing convention (compose once at filing, render mechanically): file the
+#   body with captain material under a `## Captain's intent` heading (or a
+#   `Captain's intent:` / `Captain intent:` label line) and build material
+#   under `## Firstmate spec` (or a `Firstmate spec:` label); everything
+#   outside the intent block renders into the spec, so nothing filed is
+#   lost. Bodies without those markers fall back to a paragraph heuristic:
+#   paragraphs carrying captain provenance (`captain`, `verbatim`, or `their
+#   words`) render into the intent alongside the title, and the full body
+#   renders into the spec. A body with no such paragraph renders the title
+#   alone as the intent with a warning, for firstmate to enrich by hand.
+#   Render is the default path, not the only path: omitting --from-task
+#   scaffolds today's placeholders for free-form hand editing, and a
+#   rendered brief stays hand-editable exactly as a hand-filled one.
+#   bin/fm-spawn.sh and bin/fm-promote.sh still refuse leftover placeholders
+#   and empty subsections after either path. The scaffold still needs its
+#   explicit --mode (ship) and repo: render never infers the delivery
+#   contract from the record. --from-task is refused on --secondmate
+#   charters, whose charter path is untouched. An unknown record, an empty
+#   body, or a body with no spec material refuses loudly and writes no
+#   brief; a missing tasks-axi names the hand-fill fallback.
 #   --herdr-lab is mandatory when the task will issue Herdr lifecycle commands.
 #   It adds the hard isolation contract backed by bin/fm-herdr-lab.sh.
 #   The flag must be explicit because {TASK} and {FIRSTMATE_SPEC} are filled
@@ -121,6 +149,8 @@ fi
 KIND=ship
 HERDR_LAB=0
 NO_PROJECTS=0
+FROM_TASK=0
+FROM_TASK_ID=
 MODE=
 MODE_SET=0
 POS=()
@@ -144,6 +174,8 @@ for a in "$@"; do
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
+    --from-task) FROM_TASK=1 ;;
+    --from-task=*) FROM_TASK=1; FROM_TASK_ID=${a#--from-task=} ;;
     # yolo never reaches the worker: it is firstmate's merge authority, not a
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
@@ -183,8 +215,285 @@ if [ "$NO_PROJECTS" -eq 1 ] && [ "$KIND" != secondmate ]; then
   exit 1
 fi
 
+if [ "$FROM_TASK" -eq 1 ] && [ "$KIND" = secondmate ]; then
+  echo "error: --from-task applies only to ship or scout briefs; a secondmate charter is filled from FM_SECONDMATE_CHARTER, not a task record" >&2
+  exit 1
+fi
+
+if [ "$FROM_TASK" -eq 1 ] && [ -n "$FROM_TASK_ID" ]; then
+  case "$FROM_TASK_ID" in
+    *[!A-Za-z0-9-]*|"") echo "error: --from-task=<record-id> requires a non-empty task id; use a bare --from-task for the brief's own id" >&2; exit 1 ;;
+  esac
+fi
+
+# Render helpers for --from-task. The record is read through
+# bin/fm-tasks-axi.sh show (any configured backend); the title/body split
+# below parses the record's existing free-form body conventions, never a
+# tasks-axi field that package does not own. All multi-line programs are
+# single-quoted awk arguments, never heredocs in command substitutions
+# (tests/fm-brief.test.sh owns that Bash 3.2 parse-safety guard).
+RENDER_TMP=
+render_cleanup() {
+  if [ -n "$RENDER_TMP" ] && [ -d "$RENDER_TMP" ]; then
+    rm -rf "$RENDER_TMP"
+  fi
+}
+# Parse `tasks-axi show --full` output: write the title to $TITLE_OUT and the
+# body to $BODY_IN. Exits 2/3 when the title/body field is absent; the
+# caller owns the diagnostic. Quoted scalars use \" \\ \n \t \r escapes.
+fm_brief_show_parse() {
+  awk '
+    function unescape(s,   out, i, n, c) {
+      out = ""
+      i = 1
+      n = length(s)
+      while (i <= n) {
+        c = substr(s, i, 1)
+        if (c == "\\" && i < n) {
+          i++
+          c = substr(s, i, 1)
+          if (c == "n") out = out "\n"
+          else if (c == "t") out = out "\t"
+          else if (c == "r") out = out "\r"
+          else if (c == "\\" || c == "\"") out = out c
+          else out = out "\\" c
+        } else {
+          out = out c
+        }
+        i++
+      }
+      return out
+    }
+    function scalar(value) {
+      if (value == "-" || value == "\"-\"") return ""
+      if (substr(value, 1, 1) == "\"" && substr(value, length(value), 1) == "\"" && length(value) >= 2) {
+        return unescape(substr(value, 2, length(value) - 2))
+      }
+      return value
+    }
+    /^  title: / { title = scalar(substr($0, 10)); have_title = 1; next }
+    /^  body: / { body = scalar(substr($0, 9)); have_body = 1; next }
+    END {
+      if (!have_title) exit 2
+      if (!have_body) exit 3
+      printf "%s", title > title_out
+      printf "%s", body > body_out
+    }
+  ' "title_out=$TITLE_OUT" "body_out=$BODY_IN" "$SHOW_OUT"
+}
+# Split the record body in $BODY_IN into an intent part ($INTENT_OUT) and a
+# spec part ($SPEC_OUT). Explicit markers win: a `## Captain's intent`
+# heading opens an intent block that a `## Firstmate spec` heading (or a
+# `Firstmate spec:` label) closes, and a `Captain's intent:` /
+# `Captain intent:` / `Captain-approved ...:` / `Captain ruled ...:` /
+# `..., verbatim:` label (even mid-line, with any text before it staying in
+# the spec) contributes its paragraph. Paragraphs carrying captain
+# provenance (`captain`, `verbatim`, or `their words`) join the intent in
+# either mode. The spec keeps everything outside explicit intent regions,
+# so nothing filed is ever dropped by the render.
+fm_brief_body_split() {
+  awk '
+    function seg(text, sec) {
+      sub(/[ \t]+$/, "", text)
+      if (text == "" && sec != "gap") return
+      nseg++
+      ST[nseg] = text
+      SS[nseg] = sec
+    }
+    function cur() { return (in_heading || in_label_para ? "intent" : "spec") }
+    {
+      folded = tolower($0)
+      if (folded ~ /^##+[ \t]+firstmate[ \t]+spec[ \t]*$/) {
+        seen_marker = 1
+        in_heading = 0
+        in_label_para = 0
+        next
+      }
+      if (folded ~ /^##+[ \t]+captain('\''s)?[ \t]+intent[ \t]*$/) {
+        seen_marker = 1
+        in_heading = 1
+        in_label_para = 0
+        next
+      }
+      if ($0 ~ /^[ \t]*$/) {
+        in_label_para = 0
+        seg("", "gap")
+        next
+      }
+      if (match(folded, /firstmate[ \t]+spec[ \t]*:/)) {
+        seen_marker = 1
+        prefix = substr($0, 1, RSTART - 1)
+        rest = substr($0, RSTART + RLENGTH)
+        sub(/^[ \t]+/, "", rest)
+        if (prefix ~ /[^ \t]/) seg(prefix, cur())
+        in_heading = 0
+        in_label_para = 0
+        if (rest ~ /[^ \t]/) seg(rest, "spec")
+        next
+      }
+      if (match(folded, /captain('\''s|[- ]approved)?[^:]*:/)) {
+        prefix = substr($0, 1, RSTART - 1)
+        marker_at = 0
+        if (prefix ~ /^[ \t]*$/) marker_at = 1
+        else if (prefix ~ /^##+[ \t]*$/) marker_at = 1
+        else if (prefix ~ /(^|[ \t])-[ \t]+$/) marker_at = 1
+        else if (prefix ~ /[.!?;][ \t]+$/) marker_at = 1
+        else if (prefix ~ /\([ \t]*$/) marker_at = 1
+        if (marker_at) {
+          seen_marker = 1
+          rest = substr($0, RSTART)
+          sub(/^[ \t]+/, "", rest)
+          if (prefix ~ /[^ \t]/) seg(prefix, cur())
+          in_heading = 0
+          in_label_para = 1
+          if (rest ~ /[^ \t]/) seg(rest, "intent")
+          next
+        }
+      }
+      seg($0, cur())
+    }
+    END {
+      a = 1
+      while (a <= nseg) {
+        while (a <= nseg && ST[a] == "") a++
+        if (a > nseg) break
+        b = a
+        while (b + 1 <= nseg && ST[b + 1] != "") b++
+        t = ""
+        for (k = a; k <= b; k++) t = (t == "" ? ST[k] : t "\n" ST[k])
+        t = tolower(t)
+        prov = (t ~ /captain/ || t ~ /verbatim/ || t ~ /their words/)
+        has_intent = 0
+        for (k = a; k <= b; k++) if (SS[k] == "intent") has_intent = 1
+        for (k = a; k <= b; k++) {
+          if (SS[k] == "spec") {
+            SSEL[k] = 1
+            if (prov && !has_intent) ISEL[k] = 1
+          } else {
+            ISEL[k] = 1
+          }
+        }
+        a = b + 1
+      }
+      out = ""
+      pend = 0
+      for (m = 1; m <= nseg; m++) {
+        t = ST[m]
+        if (t == "") { if (out != "") pend = 1; continue }
+        if (!ISEL[m]) { if (out != "") pend = 1; continue }
+        if (pend) { out = out "\n"; pend = 0 }
+        out = (out == "" ? t : out "\n" t)
+      }
+      printf "%s", out > intent_out
+      out = ""
+      pend = 0
+      for (m = 1; m <= nseg; m++) {
+        t = ST[m]
+        if (t == "") { if (out != "") pend = 1; continue }
+        if (!SSEL[m]) { if (out != "") pend = 1; continue }
+        if (pend) { out = out "\n"; pend = 0 }
+        out = (out == "" ? t : out "\n" t)
+      }
+      printf "%s", out > spec_out
+    }
+  ' "intent_out=$INTENT_OUT" "spec_out=$SPEC_OUT" "$BODY_IN"
+}
+
+# Splice the rendered sections into a scaffolded brief by replacing the exact
+# placeholder lines. Content passes through awk print, never a shell
+# expansion, so backticks, dollar signs, and quotes in the record survive.
+fm_brief_apply_render() {
+  awk -v intent_f="$INTENT_BODY_FILE" -v spec_f="$SPEC_BODY_FILE" '
+    $0 == "{TASK}" { while ((getline line < intent_f) > 0) print line; next }
+    $0 == "{FIRSTMATE_SPEC}" { while ((getline line < spec_f) > 0) print line; next }
+    { print }
+  ' "$BRIEF" > "$BRIEF.rendered" || return 1
+  mv "$BRIEF.rendered" "$BRIEF" || return 1
+  if grep -qxF -e '{TASK}' -e '{FIRSTMATE_SPEC}' "$BRIEF"; then
+    echo "error: internal failure: rendered brief still carries a placeholder fill site" >&2
+    return 1
+  fi
+}
+
 BRIEF="$DATA/$ID/brief.md"
 [ -e "$BRIEF" ] && { echo "error: $BRIEF already exists" >&2; exit 1; }
+
+# --from-task renders before anything is written, so every refusal below
+# leaves no half-written brief behind.
+RENDERED=0
+RECORD_ID=
+INTENT_BODY_FILE=
+SPEC_BODY_FILE=
+if [ "$FROM_TASK" -eq 1 ]; then
+  trap render_cleanup EXIT
+  RECORD_ID=${FROM_TASK_ID:-$ID}
+  [ -n "$RECORD_ID" ] || { echo "error: --from-task needs a task id: pass a brief task id or --from-task=<record-id>" >&2; exit 1; }
+  command -v tasks-axi >/dev/null 2>&1 || {
+    echo "error: cannot render from task record $RECORD_ID: tasks-axi is not on PATH; scaffold without --from-task and fill ## Captain's intent and ## Firstmate spec by hand" >&2
+    exit 1
+  }
+  RENDER_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-brief-from-task.XXXXXX") || { echo "error: cannot create a render workspace" >&2; exit 1; }
+  SHOW_OUT="$RENDER_TMP/show.txt"
+  TITLE_OUT="$RENDER_TMP/title.txt"
+  BODY_IN="$RENDER_TMP/body.txt"
+  INTENT_OUT="$RENDER_TMP/intent.txt"
+  SPEC_OUT="$RENDER_TMP/spec.txt"
+  # tasks-axi reports failures on stdout, so capture the stream first and only
+  # then publish it for parsing.
+  SHOW_CAPTURED=$("$SCRIPT_DIR/fm-tasks-axi.sh" show "$RECORD_ID" --full 2>&1) || {
+    [ -n "$SHOW_CAPTURED" ] && printf '%s\n' "$SHOW_CAPTURED" >&2
+    echo "error: cannot render from task record $RECORD_ID: the record could not be read; compose ## Captain's intent and ## Firstmate spec by hand" >&2
+    exit 1
+  }
+  printf '%s\n' "$SHOW_CAPTURED" >"$SHOW_OUT"
+  TITLE_OUT="$TITLE_OUT" BODY_IN="$BODY_IN" SHOW_OUT="$SHOW_OUT" fm_brief_show_parse || {
+    status=$?
+    case "$status" in
+      2) echo "error: cannot render from task record $RECORD_ID: the record has no title field" >&2 ;;
+      3) echo "error: cannot render from task record $RECORD_ID: the record has no body field" >&2 ;;
+      *) echo "error: cannot render from task record $RECORD_ID: the record could not be parsed" >&2 ;;
+    esac
+    exit 1
+  }
+  [ -s "$BODY_IN" ] || {
+    echo "error: cannot render from task record $RECORD_ID: its body is empty; compose the intent and spec at filing, or fill ## Captain's intent and ## Firstmate spec by hand" >&2
+    exit 1
+  }
+  INTENT_OUT="$INTENT_OUT" SPEC_OUT="$SPEC_OUT" BODY_IN="$BODY_IN" fm_brief_body_split || {
+    echo "error: cannot render from task record $RECORD_ID: its body could not be split into intent and spec" >&2
+    exit 1
+  }
+  [ -s "$SPEC_OUT" ] || {
+    echo "error: cannot render from task record $RECORD_ID: its body carries no spec material outside ## Captain's intent; file the build instructions, or fill ## Firstmate spec by hand" >&2
+    exit 1
+  }
+  RECORD_SAFE=$(printf '%s' "$RECORD_ID" | tr -d '"')
+  PROVENANCE="<!-- Rendered mechanically from task record \"$RECORD_SAFE\" by bin/fm-brief.sh --from-task; hand edits after render are authoritative. -->"
+  INTENT_BODY_FILE="$RENDER_TMP/intent-body.txt"
+  SPEC_BODY_FILE="$RENDER_TMP/spec-body.txt"
+  if [ -s "$TITLE_OUT" ]; then
+    RENDER_TITLE=$(cat "$TITLE_OUT")
+  else
+    RENDER_TITLE="$RECORD_ID"
+  fi
+  {
+    printf '%s\n' "$RENDER_TITLE"
+    if [ -s "$INTENT_OUT" ]; then
+      printf '\n'
+      cat "$INTENT_OUT"
+      printf '\n'
+    else
+      printf '\n'
+      echo "warning: task record $RECORD_ID carries no captain-provenance paragraph; ## Captain's intent renders the title alone - enrich it by hand when the ask needs more" >&2
+    fi
+    printf '%s\n' "$PROVENANCE"
+  } > "$INTENT_BODY_FILE"
+  {
+    cat "$SPEC_OUT"
+    printf '\n%s\n' "$PROVENANCE"
+  } > "$SPEC_BODY_FILE"
+  RENDERED=1
+fi
 mkdir -p "$DATA/$ID"
 
 ASK_USER_BLOCK=
@@ -425,6 +734,11 @@ Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-li
 When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
 EOF
+if [ "$RENDERED" -eq 1 ]; then
+  fm_brief_apply_render || exit 1
+  echo "scaffolded: $BRIEF (scout; Task sections rendered from record $RECORD_ID)"
+  exit 0
+fi
 echo "scaffolded: $BRIEF (scout; replace {TASK} and {FIRSTMATE_SPEC})"
 exit 0
 fi
@@ -521,4 +835,9 @@ Size the run before you start it: a changed-file selection can be WIDER than a s
 
 $DOD
 EOF
+if [ "$RENDERED" -eq 1 ]; then
+  fm_brief_apply_render || exit 1
+  echo "scaffolded: $BRIEF (ship, mode=$MODE; Task sections rendered from record $RECORD_ID)"
+  exit 0
+fi
 echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"
