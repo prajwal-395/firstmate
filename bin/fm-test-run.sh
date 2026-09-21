@@ -749,6 +749,7 @@ tests/fm-herdr-submit-confirm-live-e2e.test.sh 23
 tests/fm-herdr-version-floor-live-e2e.test.sh 23
 tests/fm-home-summary-refresh.test.sh 34793
 tests/fm-inactive-reconcile.test.sh 74399
+tests/fm-intake-kind.test.sh 3200
 tests/fm-jev-key-inherit.test.sh 1500
 tests/fm-kimi-harness.test.sh 18015
 tests/fm-lint-workflows.test.sh 855
@@ -1462,12 +1463,17 @@ families_for_changed_path() {
     bin/fm-drain-triage.sh)
       printf '%s\n' "__script__:fm-drain-triage.test.sh"
       ;;
+    bin/fm-intake-kind.sh)
+      printf '%s\n' "__script__:fm-intake-kind.test.sh"
+      ;;
     bin/fm-env-lib.sh)
       # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and
-      # bin/fm-dispatch-resolve.sh and bin/fm-drain-triage.sh (TYPESAFE_API_KEY and AI_GATEWAY_API_KEY).
+      # bin/fm-dispatch-resolve.sh, bin/fm-drain-triage.sh, and
+      # bin/fm-intake-kind.sh (TYPESAFE_API_KEY and AI_GATEWAY_API_KEY).
       printf '%s\n' pr-forge
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-drain-triage.test.sh"
+      printf '%s\n' "__script__:fm-intake-kind.test.sh"
       ;;
     .pi/extensions/fm-branch-supervision.ts|.pi/extensions/lib/fm-async-exec.ts|\
     .pi/extensions/lib/fm-branch-dispatch.ts|.pi/extensions/lib/fm-native-contract.ts)
