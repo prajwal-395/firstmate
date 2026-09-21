@@ -174,22 +174,94 @@ def _render_motion_graphics_file(props_path: str, dest_path: str,
     return True
 
 
+# Element props keys that are PLACEMENT or provenance, never pixels.
+# Everything else in an element - `element`, `anchor`, `row`, `runs`,
+# `color`, `entrance`/`exit`, `startFrame`/`durationFrames`, `asset`,
+# `footprint`, `emphasis`, `data` - draws, and stays in the digest.
+#
+# What each excluded key is, so a future plan addition lands on the
+# right side: `timeline_start`/`timeline_end` are absolute timeline
+# bounds, kept beside the frame counts so a reader never divides;
+# `timelineProgressStart`/`timelineProgressEnd` are whole-piece
+# fractions every element carries so a reader never recomputes them,
+# drawn only by `progress_bar` (the one element that keeps them - see
+# `_mg_drawing_element`); `timing_basis`/`subject`/`why`/`colorBasis`
+# are the plan's provenance and the model's reasoning. Duration stays
+# IN: it is the file's frame count, and two reels holding one card
+# for genuinely different lengths must still render twice, because
+# the pixels really differ.
+#
+# A NEW metadata key defaults INTO the digest (safe: it re-renders),
+# and joins this set only by an edit that says why it draws nothing -
+# the same fail direction step 4.05 draws with its own
+# `NON_DRAWING_PROPS_KEYS`.
+#
+# Measured on geo-podcast: 26 of 29 Craig lower thirds and all 27
+# Akshita ones differed only in these keys (the progress fractions
+# move with each reel's length, the bounds with each placing) yet
+# decoded framemd5-identical - 53 renders of 2 pixel-contents, 51 of
+# them wasted. The 3 remaining Craig cards genuinely differed
+# (different durations), and still digest differently.
+MG_NON_DRAWING_ELEMENT_KEYS = frozenset((
+    "timeline_start",
+    "timeline_end",
+    "timing_basis",
+    "subject",
+    "why",
+    "colorBasis",
+    "timelineProgressStart",
+    "timelineProgressEnd",
+))
+"""Element keys that must never decide motion-graphics reuse. Complete,
+and load-bearing."""
+
+
+def _mg_drawing_element(element: dict) -> dict:
+    """One element as the renderer sees it: placement and provenance off.
+
+    See `MG_NON_DRAWING_ELEMENT_KEYS`: the plan carries timeline bounds,
+    whole-piece progress fractions, timing provenance and the model's
+    reasoning on every element so a reader of the props file never has
+    to recompute them (`library/tools/motion_graphics_plan.py`), but
+    the composition (`remotion-subtitles/src/compositions/
+    MotionGraphics/index.tsx`) never reads them - except `progress_bar`,
+    the one element that draws its progress fractions, which keeps
+    them.
+    """
+    drawing = {k: v for k, v in element.items()
+               if k not in MG_NON_DRAWING_ELEMENT_KEYS}
+    if element.get("element") == "progress_bar":
+        for key in ("timelineProgressStart", "timelineProgressEnd"):
+            if key in element:
+                drawing[key] = element[key]
+    return drawing
+
+
 def _mg_drawing_digest(render_props: dict, geometry: str,
                        tight_box: dict | None) -> str:
     """A stable hash of everything about this graphic that draws pixels.
 
     The props actually rendered (the tightened union canvas where a
-    tight carrying verified, the full props otherwise) plus the
-    carrying: the resolved geometry and the tight box's placement and
-    size, or None for a full-canvas draw. Placement - the reel, the
-    index, the absolute timeline span - is never part of it: three
+    tight carrying verified, the full props otherwise) MINUS the
+    placement and provenance keys the plan carries for readers
+    (`_mg_drawing_element`), plus the carrying: the resolved geometry
+    and the tight box's placement and size, or None for a full-canvas
+    draw. Placement - the reel, the index, the absolute timeline span,
+    the whole-piece progress fractions - is never part of it: three
     variants playing the same graphic compute the same digest and
     share the file. Duration stays IN through the props'
     `durationInFrames`: it is the file's frame count, and a graphic
     held for genuinely different lengths must still render twice.
     """
+    drawing_props = dict(render_props)
+    elements = drawing_props.get("elements")
+    if isinstance(elements, list):
+        drawing_props["elements"] = [
+            _mg_drawing_element(item) if isinstance(item, dict) else item
+            for item in elements
+        ]
     return _drawing_digest_of({
-        "props": render_props,
+        "props": drawing_props,
         "geometry": geometry,
         "tight_box": tight_box,
     })
