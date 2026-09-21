@@ -354,9 +354,13 @@ FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh
 Observed output:
 
 ```text
-2.1.219 (Claude Code)
+ 2.1.219 (Claude Code)
 ok - Claude 2.1.219 (Claude Code) live E2E reclaimed a stale session lock through session start, completed two tokenless Stop-owned rewake cycles, and preserved the competing-live-owner boundary
 ```
+
+The row above keeps its 2026-07-24 stamp and is NOT refreshed by what follows.
+Re-run on 2026-09-21 against installed Claude Code 2.1.267 FAILED twice with the identical signature, so the 2.1.219 result must not be trusted across that upgrade: session start still reclaimed the stale dead-owner lock and the model still replied CYCLE0, but the Stop hook fired exactly once, the auto-arm epoch ledger stuck at `outcome=arming`, and the session ended at `end_turn` with zero exit-2 rewakes and zero model wake drains.
+The mechanism is therefore unproven on 2.1.267 by this guard, and that staleness is known rather than silent.
 
 Current entry points:
 
