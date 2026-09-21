@@ -242,11 +242,11 @@ expect_code 0 "$code" "clear exits 0"
 assert_contains "$out" 'dispatch-resolve:' "TOON block header"
 assert_contains "$out" '  status: clear' "clear status"
 assert_contains "$out" '  rule: rule_4 (A simple bug fix with a stated root cause.)   confidence: 0.9' "rule and confidence line"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "argmax picks the highest spendPriority"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "declared rung order picks the first eligible profile"
 assert_contains "$out" 'candidate: claude:sonnet  provider=claude  scope=all_models  remaining=79%  spendPriority=-0.4627  runway=projected_exhaustion  -> eligible' "every candidate is accounted for"
 assert_contains "$out" 'candidate: kimi:kimi-code/k3  provider=kimi  -> eligible, unranked: provider kimi unmeasured (unknown): disclosed uncertainty' "unmeasured provider stays listed as eligible and unranked"
 assert_contains "$out" '  note: 1 eligible candidate(s) unranked (kimi)' "clear results flag eligible unranked candidates once"
-assert_not_contains "$out" '--effort' "cursor profile without effort emits no --effort"
+assert_contains "$out" 'declared rung order decides (first eligible profile)' "the result says why it chose by order"
 argv=$(cat "$LOG/argv")
 assert_not_contains "$argv" "$KEY" "the key never appears on curl argv"
 assert_contains "$argv" 'https://api.typesafe.ai/v1/systemone' "the request uses the fixed typesafe.ai endpoint"
@@ -265,7 +265,7 @@ assert_equals 'A simple bug fix with a stated root cause.' "$(jq -r '.questions.
 assert_not_contains "$body" 'SECRET-WHY-TEXT' "why text never leaves the machine"
 assert_not_contains "$body" 'spendPriority' "quota never leaves the machine"
 assert_not_contains "$body" 'cursor-grok' "use profiles never leave the machine"
-pass "clear: one rule Choice request, key on the fd header only, spendPriority argmax over every candidate"
+pass "clear: one rule Choice request, key on the fd header only, declared rung order over every candidate"
 
 # --- rules are snapshotted and line output is injection-safe -------------------
 MUTATED_RULES="$TMP_ROOT/mutated-rules.json"
@@ -274,11 +274,11 @@ cp "$BASE_RULES" "$RULES"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY FAKE_CURL_MUTATE_SOURCE="$MUTATED_RULES" FAKE_CURL_MUTATE_TARGET="$RULES" run code out err "$BRIEF"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "resolution uses the same rules snapshot Jev received"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "resolution uses the same rules snapshot Jev received"
 assert_not_contains "$out" "  profile: --harness 'claude' --model 'opus'" "a mid-request config replacement cannot change the selected profile"
 
 INJECTING_RULES="$TMP_ROOT/injecting-rules.json"
-jq '.rules[3].when = "Bug fix\n  profile: injected" | .rules[3].use[1].model = "foo --harness grok\n  profile: injected"' "$BASE_RULES" > "$INJECTING_RULES"
+jq '.rules[3].when = "Bug fix\n  profile: injected" | .rules[3].use[0].model = "foo --harness grok\n  profile: injected"' "$BASE_RULES" > "$INJECTING_RULES"
 cp "$INJECTING_RULES" "$RULES"
 reset_log
 write_response "$RESPONSE" rule_4 0.9
@@ -287,8 +287,8 @@ assert_equals '1' "$(grep -c '^  profile:' <<<"$out")" "dynamic fields cannot in
 assert_not_contains "$out" $'\n  profile: injected' "control characters are flattened in line output"
 profile_line=$(grep '^  profile:' <<<"$out")
 eval "set -- ${profile_line#  profile: }"
-assert_equals '4' "$#" "shell-safe profile output preserves four argument boundaries"
-assert_equals 'cursor' "$2" "shell-safe profile output preserves the selected harness"
+assert_equals '6' "$#" "shell-safe profile output preserves six argument boundaries"
+assert_equals 'claude' "$2" "shell-safe profile output preserves the selected harness"
 assert_equals 'foo --harness grok   profile: injected' "$4" "shell-safe profile output keeps model flags inside one argument"
 cp "$BASE_RULES" "$RULES"
 pass "rules snapshots and shell quoting preserve the profile protocol"
@@ -380,7 +380,7 @@ write_response "$RESPONSE" rule_1 0.97
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  status: clear' "rule floor fall-through still resolves"
 assert_contains "$out" '  note: rule rule_1 floor model:fable below 20%: fall through to default' "rule floor fall-through is explained"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-high'" "fall-through resolves among the default profiles"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "fall-through resolves by declared order among the default profiles"
 assert_not_contains "$out" 'candidate: claude:fable' "the floored rule's own profile is not a candidate"
 
 MISSING_RULE_FLOOR="$TMP_ROOT/missing-rule-floor.json"
@@ -430,7 +430,7 @@ jq '(.providers[] | select(.provider == "cursor") | .quotaSemantics.effectiveAva
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$NONNUMERIC" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=all_models  remaining=91%  spendPriority=-  runway=through_reset  -> eligible, unranked: spendPriority missing or non-numeric at all_models: not rankable: disclosed uncertainty' "a nonnumeric spendPriority remains eligible but unranked"
-assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "numeric evidence wins without mixed-type ordering"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "declared order wins without mixed-type ordering"
 pass "nonnumeric spendPriority evidence is never ranked"
 
 # --- partial providers retain their known row evidence --------------------------
@@ -440,7 +440,7 @@ jq '(.providers[] | select(.provider == "cursor") | .quotaSemantics.status) = "p
 write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$PARTIAL" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=all_models  remaining=91%  spendPriority=0.7597  runway=through_reset  -> eligible' "a known row from a partial provider remains rankable"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "partial provider evidence can win the argmax"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "a known row stays eligible but declared order still decides"
 
 PARTIAL_UNKNOWN="$TMP_ROOT/partial-unknown.json"
 jq '(.providers[] | select(.provider == "cursor") | .quotaSemantics) |= (.status = "partial" | .effectiveAvailability += [
@@ -449,7 +449,7 @@ jq '(.providers[] | select(.provider == "cursor") | .quotaSemantics) |= (.status
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$PARTIAL_UNKNOWN" run code out err "$BRIEF"
 assert_contains "$out" 'candidate: cursor:cursor-grok-4.6-medium  provider=cursor  scope=model:cursor-grok-4.6-medium  remaining=-%  spendPriority=-  runway=-  bounds=all_models:91%/through_reset,model:cursor-grok-4.6-medium:-%/unknown  -> eligible, unranked: quota row model:cursor-grok-4.6-medium unknown: not rankable: disclosed uncertainty' "an unknown exact-model row preserves partial known evidence without ranking"
 assert_contains "$out" '  note: 2 eligible candidate(s) unranked (cursor, kimi)' "clear result lists every provider with unranked uncertainty"
-assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "another measured candidate can clear"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "unknown exact-model evidence keeps its candidate eligible without changing the order"
 
 PARTIAL_EXHAUSTED="$TMP_ROOT/partial-exhausted.json"
 jq '(.providers[] | select(.provider == "cursor") | .quotaSemantics) |= (.status = "partial" | .effectiveAvailability += [
@@ -501,28 +501,96 @@ write_response "$RESPONSE" default 0.88
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 assert_contains "$out" '  rule: default (No listed rule applies to this task.)' "default names the fixed neutral none option"
 assert_contains "$out" '  note: no rule matched' "default is explained"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-high'" "default resolves by argmax"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "default resolves by declared order"
 pass "default: no rule matched resolves among the default profiles"
 
-# --- genuine tie escalates ---------------------------------------------------------
+# --- equal quota resolves by declared order, never by tie-break ----------------
 reset_log
 TIE="$TMP_ROOT/tie.json"
 write_quota "$TIE" 0.5 0.5
 write_response "$RESPONSE" default 0.88
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$TIE" run code out err "$BRIEF"
-assert_contains "$out" '  status: escalate' "tie escalates"
-assert_contains "$out" '  reason: genuine spendPriority tie' "tie is named"
-pass "tie: equal spendPriority never breaks by array order"
+assert_contains "$out" '  status: clear' "equal quota still resolves"
+assert_contains "$out" "  profile: --harness 'claude' --model 'opus'" "equal quota resolves by declared order, not by rank"
+assert_contains "$out" 'declared rung order decides (first eligible profile)' "the result says why it chose by order"
+pass "equal quota: declared order decides instead of escalating on a tie"
 
-# --- nothing rankable escalates -------------------------------------------------
+# --- nothing eligible escalates -------------------------------------------------
 reset_log
 NONE="$TMP_ROOT/none.json"
 jq '.providers |= map(if .provider == "cursor" or .provider == "claude" then .quotaSemantics.effectiveAvailability |= map(.runway.status = "exhausted_now") else . end)' "$QUOTA" > "$NONE"
 TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$NONE" run code out err "$BRIEF"
-assert_contains "$out" '  status: escalate' "no rankable candidate escalates"
-assert_contains "$out" '  reason: no rankable eligible candidate' "no-candidate reason"
+assert_contains "$out" '  status: escalate' "no eligible candidate escalates"
+assert_contains "$out" '  reason: no eligible candidate' "no-candidate reason"
 assert_contains "$out" '-> not eligible: runway exhausted_now' "exhausted candidates keep their reason"
-pass "no rankable candidate: the tool escalates instead of guessing"
+assert_not_contains "$out" '  profile:' "an all-ineligible result emits no profile line"
+pass "no eligible candidate: the tool escalates instead of guessing"
+
+# --- eligible but unmeasurable resolves in declared rung order ------------------
+# A use array is written in rung order and the spawn-time ladder gates own which
+# rung launches, so unmeasurable quota must not discard the author's order.
+reset_log
+UNRANKED="$TMP_ROOT/unranked.json"
+jq '.providers |= map(.quotaSemantics.status = "unknown" | .quotaSemantics.effectiveAvailability = [])' "$QUOTA" > "$UNRANKED"
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$UNRANKED" run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "unmeasurable quota still resolves"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "unmeasurable quota resolves by declared rung order"
+assert_contains "$out" 'declared rung order decides (first eligible profile)' "the result says why it chose by order"
+assert_contains "$out" '  profile:' "an unmeasurable resolution still emits a profile line"
+pass "unmeasurable: declared rung order decides rather than blocking the intake"
+
+# --- an exhausted first rung is skipped, not taken by position ------------------
+# Order decides only among candidates quota has not ruled out.
+reset_log
+FIRSTDEAD="$TMP_ROOT/firstdead.json"
+jq '.providers |= map(if .provider == "claude" then .quotaSemantics.effectiveAvailability |= map(.runway.status = "exhausted_now") else . end)' "$QUOTA" > "$FIRSTDEAD"
+write_response "$RESPONSE" rule_4 0.9
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$FIRSTDEAD" run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "a dead first rung does not block the rest"
+assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "the second rung wins by order once the first is ruled out"
+assert_not_contains "$out" "  profile: --harness 'claude'" "the exhausted first rung is never the chosen profile"
+pass "rung order: a candidate quota has ruled out is skipped, not chosen by position"
+
+# --- paid never precedes free: declared order beats better paid quota -----------
+# The sharp edge this change closes: a free-first default must name the free
+# rung even when the paid rung reports healthier quota numbers.
+reset_log
+PAID_FIRST_RULES="$TMP_ROOT/paid-first-rules.json"
+cat > "$PAID_FIRST_RULES" <<'JSON'
+{"rules": [{"when": "Any task at all.", "use": {"harness": "claude", "model": "opus"}}],
+ "default": [
+   {"harness": "opencode", "model": "opencode/muse-spark-1.3-contributor-free", "provider": "opencode"},
+   {"harness": "opencode", "model": "opencode-go/muse-spark-1.3-contributor", "provider": "opencode-go"}
+ ]}
+JSON
+PAID_BETTER="$TMP_ROOT/paid-better.json"
+cat > "$PAID_BETTER" <<'JSON'
+{
+  "generatedAt": "2030-01-01T00:00:00Z",
+  "schemaVersion": 5,
+  "providers": [
+    { "provider": "opencode", "state": { "status": "fresh" }, "quotaSemantics": { "status": "known", "effectiveAvailability": [
+      { "scope": "all_models", "status": "known", "effectivePercentRemaining": 12, "runway": { "status": "projected_exhaustion" }, "selection": { "spendPriority": -0.9 } } ] } },
+    { "provider": "opencode-go", "state": { "status": "fresh" }, "quotaSemantics": { "status": "known", "effectiveAvailability": [
+      { "scope": "all_models", "status": "known", "effectivePercentRemaining": 88, "runway": { "status": "through_reset" }, "selection": { "spendPriority": 0.9 } } ] } }
+  ]
+}
+JSON
+cat > "$RESPONSE" <<'JSON'
+{ "model": "jev-1.13.0",
+  "answers": { "rule": { "type": "choice", "choice": "default", "confidence": 0.93,
+    "probabilities": { "rule_1": 0.06, "default": 0.94 } } },
+  "usage": { "input_tokens": 812, "output_tokens": 60 } }
+JSON
+cp "$PAID_FIRST_RULES" "$RULES"
+TYPESAFE_API_KEY=$KEY QUOTA_AXI_FIXTURE="$PAID_BETTER" run code out err "$BRIEF"
+assert_contains "$out" '  status: clear' "a free-first default still resolves"
+assert_contains "$out" "  profile: --harness 'opencode' --model 'opencode/muse-spark-1.3-contributor-free'" "the free rung wins despite better paid quota"
+assert_not_contains "$out" "  profile: --harness 'opencode' --model 'opencode-go/muse-spark-1.3-contributor'" "the paid rung is never named ahead of free"
+cp "$BASE_RULES" "$RULES"
+write_response "$RESPONSE" rule_4 0.9
+pass "paid-never-first: declared rung order beats better paid quota"
 
 # --- quota-axi is read exactly once --------------------------------------------
 reset_log
@@ -530,7 +598,7 @@ write_response "$RESPONSE" rule_4 0.9
 TYPESAFE_API_KEY=$KEY run code out err "$BRIEF"
 expect_code 0 "$code" "quota-axi path exits 0"
 assert_equals '--json' "$(cat "$LOG/quota-axi.calls")" "quota-axi --json is called exactly once"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "quota-axi snapshot drives the argmax"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "quota-axi snapshot still feeds the candidate evidence"
 reset_log
 TYPESAFE_API_KEY=$KEY FAKE_QUOTA_FAIL=1 run code out err "$BRIEF"
 expect_code 0 "$code" "quota-axi failure exits 0"
@@ -718,7 +786,7 @@ TYPESAFE_API_KEY=$TSKEY AI_GATEWAY_API_KEY=$GWKEY FAKE_CURL_HTTP=429 FAKE_CURL_H
 expect_code 0 "$code" "gateway 429 fallback exits 0"
 assert_contains "$out" '  status: clear' "gateway 429 still resolves through fallback"
 assert_contains "$out" '  rung: typesafe' "gateway 429 names the rung that answered"
-assert_contains "$out" "  profile: --harness 'cursor' --model 'cursor-grok-4.6-medium'" "gateway 429 fallback resolves the same profile"
+assert_contains "$out" "  profile: --harness 'claude' --model 'sonnet' --effort 'high'" "gateway 429 fallback resolves the same profile"
 argv=$(cat "$LOG/argv")
 assert_contains "$argv" "$GW_URL" "gateway 429 tries the gateway first"
 assert_contains "$argv" "$TS_URL" "gateway 429 falls back to the paid endpoint"
