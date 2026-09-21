@@ -78,10 +78,12 @@ for run in <run-id> <run-id> <run-id>; do
   gh run download "$run" -R kunchenguid/firstmate --pattern 'fm-test-timing-portable-serial-*' -D "/tmp/fm-serial/$run"
 done
 jq -r '.scripts[] | [.path, .duration_ms] | @tsv' /tmp/fm-serial/*/*.json \
-  | awk -F'\t' '$2 > m[$1] { m[$1] = $2 } END { for (p in m) print p, m[p] }' \
+  | awk -F'\t' '$2 > m[$1] { m[$1] = $2 } END { for (p in m) print p, m[$1] }' \
   | LC_ALL=C sort
 bin/fm-test-run.sh --check-coverage
 ```
+
+The hint tables and the family table in that runner stay one row per test in `LC_ALL=C` sort order (the pipeline above already emits that order); the coverage guard refuses an unsorted, duplicated, or stale table, so a new row goes at its sort position and parallel lanes adding different tests stop colliding.
 
 A timed-out shard uploads no artifact, so pick runs where every serial shard is green or the lane's slowest scripts go unmeasured in exactly the shard that needs them most.
 Measure native-Windows-only scripts through the focused Git Bash runner and retain that `duration_ms` separately, because the portable CI shards skip them.

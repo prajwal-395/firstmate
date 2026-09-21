@@ -1250,6 +1250,48 @@ test_portable_serial_hint_coverage_is_reported_and_bounded() {
   pass "coverage guard reports and bounds the unmeasured portable serial share"
 }
 
+# Per-test registry rows stay one row per test in LC_ALL=C sort order, so two
+# lanes adding different tests touch different anchors and merge cleanly. An
+# end-appended row is the shape that used to serialize every parallel lane on
+# this file, so the coverage guard must refuse it loudly rather than pass over
+# it.
+test_registry_tables_refuse_an_end_appended_row() {
+  local tmp repo rc out
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-registry.XXXXXX")
+  repo="$tmp/repo"
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  cp "$ROOT/bin/fm-test-isolation-proof.sh" "$repo/bin/"
+  cp "$ROOT/tests/git-config-helpers.sh" "$repo/tests/"
+  cp "$ROOT"/tests/*.test.sh "$repo/tests/"
+  chmod +x "$repo/bin/fm-test-run.sh" "$repo/bin/fm-test-isolation-proof.sh"
+  set +e
+  (cd "$repo" && bin/fm-test-run.sh --check-coverage) >"$tmp/sane.out" 2>"$tmp/sane.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] \
+    || fail "fixture with the checked-in tables must pass --check-coverage, got $rc: $(cat "$tmp/sane.err")"
+  printf '#!/usr/bin/env bash\necho "ok - registry fixture"\n' >"$repo/tests/aaa-registry-fixture.test.sh"
+  chmod +x "$repo/tests/aaa-registry-fixture.test.sh"
+  awk '/^fm-x-mode.test.sh pr-forge$/ { print; print "aaa-registry-fixture.test.sh standalone"; next } 1' \
+    "$repo/bin/fm-test-run.sh" >"$tmp/runner.appended" \
+    || fail "could not append the fixture row"
+  mv "$tmp/runner.appended" "$repo/bin/fm-test-run.sh"
+  chmod +x "$repo/bin/fm-test-run.sh"
+  set +e
+  out=$( (cd "$repo" && bin/fm-test-run.sh --check-coverage) 2>&1 )
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] \
+    || fail "an end-appended family row must fail --check-coverage"
+  printf '%s\n' "$out" | grep -Fq "fm_test_family_table" \
+    || fail "the refusal must name the offending table: $out"
+  printf '%s\n' "$out" | grep -Fq "sort position" \
+    || fail "the refusal must point at the sort-position rule: $out"
+  rm -rf "$tmp"
+  pass "coverage guard refuses an end-appended registry row"
+}
+
 test_portable_serial_shard_lane_refusals() {
   local tmp count rc other
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-shard-lane.XXXXXX")
@@ -1804,6 +1846,7 @@ test_portable_shard_union_and_coverage_guard
 test_portable_parallel_lanes_stay_duration_balanced
 test_portable_serial_shards_partition_the_serial_lane
 test_portable_serial_hint_coverage_is_reported_and_bounded
+test_registry_tables_refuse_an_end_appended_row
 test_portable_serial_shard_lane_refusals
 test_jobs_requires_proven_isolated
 test_jobs_admits_a_concurrent_safe_family
