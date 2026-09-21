@@ -230,6 +230,18 @@ def load_treatment(project_folder: str) -> Optional[dict]:
     return validate_treatment(document)
 
 
+def check_treatment(project_folder: str) -> list:
+    """The declared treatment as a checkable list, for `external_inputs`.
+
+    `check_declaration` reports `len(value)` entries, and the treatment
+    is one ruling rather than N keys - so it travels as a one-item
+    list, `[]` where the project declares none. A declaration the
+    check cannot parse refuses through `load_treatment`, unchanged.
+    """
+    treatment = load_treatment(project_folder)
+    return [] if treatment is None else [treatment]
+
+
 def _contains_run(haystack: List[str], needle: List[str]) -> bool:
     if not needle or len(needle) > len(haystack):
         return False

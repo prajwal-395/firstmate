@@ -196,6 +196,10 @@ PER_REEL_DECLARATION_STEMS = {
         "where a reel ends and what draws over its tail, keyed by reel "
         "- the resolved `ending` is passed to the derivation digest "
         "outright"),
+    "tail_extend_authorizations": (
+        "recorded rulings that one reported tail extends, keyed by "
+        "reel - they move the ranges, and the ranges plus the "
+        "placements derived from them are in the derivation digest"),
 }
 """Declarations under `external/` whose effect on ONE reel is already
 carried by that reel's derivation digest.

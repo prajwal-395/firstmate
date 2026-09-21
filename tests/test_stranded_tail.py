@@ -660,3 +660,105 @@ def test_a_reported_reel_places_as_approved_but_stays_loud():
                            _reel28_transcript(), "")
     assert any("NEEDS DECISION" in line for line in lines)
     assert any("moment_boundary_repairs" in line for line in lines)
+
+
+# ------------------------------------------------- the authorised reel
+#
+# The captain, 2026-09-21, answering the board: "Extend it" - Reel 28
+# lengthens by design, and every other accepted reel keeps reporting.
+# The ruling travels as data
+# (`library/tools/tail_extend_authorization.py`); the predicate,
+# its thresholds and its report verdict are untouched.
+
+
+def _reel28_authorizations():
+    return {28: {"reel": 28,
+                 "reason": "captain 2026-09-21: extend it",
+                 "measured_edge": 2265.6,
+                 "measured_tail_end": 2287.14,
+                 "measured_gap": 0.02}}
+
+
+def test_an_authorised_report_applies_as_an_extension():
+    """Reel 28 with its recorded ruling extends exactly where the
+    predicate would have: the body runs to the sentence end at
+    2287.14s, and the finding, the WHY and the move all name whose
+    decision that was."""
+    repaired, moves = snap_moment_to_speech(
+        _moment(28, 2217.71, 2265.6), _reel28_transcript(),
+        tail_extend_authorizations=_reel28_authorizations())
+    assert repaired.timeline_end == 2287.14
+    extends = [m for m in moves
+               if m.get("attribution") == "tail-extend"]
+    assert len(extends) == 1
+    assert extends[0]["now"] == 2287.14
+    assert (extends[0]["authorized_by"]
+            == "captain 2026-09-21: extend it")
+    assert "captain 2026-09-21" in extends[0]["why"]
+    assert reel_ranges(repaired, _reel28_transcript()) == [
+        (repaired.timeline_start, 2287.14)]
+    assert reel_build.midword_keep_edges(
+        repaired.timeline_start, repaired.timeline_end,
+        _reel28_transcript()) == []
+
+
+def test_an_authorised_reel_is_loud_about_its_new_length():
+    """The 21.54s extension crosses the two-second bar, so the
+    decision lines shout NEEDS DECISION with the pulled-in words -
+    lengthening an accepted reel is never a quiet move."""
+    from library.tools.reel_proposal import preview_snap
+
+    report = preview_snap([_moment(28, 2217.71, 2265.6)],
+                          _reel28_transcript(),
+                          tail_extend_authorizations=(
+                              _reel28_authorizations()))
+    assert report["moved"] == 1
+    assert report["flagged"] == 1
+    lines = decision_lines(28, report["moments"][0]["moves"][0],
+                           _reel28_transcript(), "")
+    assert any("NEEDS DECISION" in line for line in lines)
+
+
+def test_a_sibling_reel_with_the_same_shape_still_reports():
+    """The ruling is per reel, not per shape: Reel 10's identical
+    severed tail, with no entry of its own, keeps the approved bound
+    and reports - the carve-out the captain declined to widen stays
+    closed."""
+    repaired, moves = snap_moment_to_speech(
+        _moment(10, 2217.71, 2265.6), _reel28_transcript(),
+        tail_extend_authorizations=_reel28_authorizations())
+    assert repaired.timeline_end == 2265.6
+    assert [m for m in moves
+            if m.get("attribution") == "tail-report"] != []
+
+
+def test_an_authorised_extension_answers_the_recorded_report(tmp_path):
+    """The ledger stops asking once answered: recording an
+    authorised tail-extend supersedes the same reel and boundary's
+    tail-report entry, and says so - while an UNauthorised extend
+    would leave both standing."""
+    project = tmp_path / "project"
+    review = project / "pipeline_output" / "review"
+    review.mkdir(parents=True)
+    ledger_file = review / "moment_boundary_repairs.json"
+    ledger_file.write_text(json.dumps({
+        "key": "moment_boundary_repairs",
+        "source": "firstmate 2026-09-19",
+        "value": [{"kind": "moment_boundary_repair", "reel": 28,
+                   "boundary": "body_end", "was": 2265.6, "now": 2265.6,
+                   "attribution": "tail-report",
+                   "reason": "reported, never applied",
+                   "source": "firstmate 2026-09-19"}],
+    }), encoding="utf-8")
+    record_tail_repairs(
+        str(project),
+        [(28, {"boundary": "body_end", "was": 2265.6, "now": 2287.14,
+               "attribution": "tail-extend",
+               "why": "applied under captain 2026-09-21: extend it",
+               "authorized_by": "captain 2026-09-21: extend it"})])
+    written = json.loads(ledger_file.read_text(encoding="utf-8"))
+    attributions = [entry["attribution"]
+                    for entry in written["value"]]
+    assert attributions == ["tail-extend"]
+    assert (written["value"][0]["authorized_by"]
+            == "captain 2026-09-21: extend it")

@@ -912,6 +912,9 @@ DECLARATIONS = {
     "placed_assets": ("library.tools.placed_assets", "load_assets"),
     "reel_ending": ("library.tools.reel_ending", "load_endings"),
     "caption_timing": ("library.tools.caption_timing", "load_pins"),
+    "reel_cta": ("library.tools.reel_cta_treatment", "check_treatment"),
+    "tail_extend_authorizations": (
+        "library.tools.tail_extend_authorization", "load_authorizations"),
 }
 
 

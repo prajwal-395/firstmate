@@ -2698,7 +2698,8 @@ def _tail_pace(segment: dict) -> Optional[float]:
 
 def _analyze_tail_edge(edge: float, ranges: Sequence[Tuple[float, float]],
                        transcript: dict,
-                       dropped_spans: Sequence[tuple] = ()) -> dict:
+                       dropped_spans: Sequence[tuple] = (),
+                       authorized_by: str = "") -> dict:
     """What a keep-range END leaves unplayed after it: `clean`,
     `extend`, `hold` or `abstain`.
 
@@ -2740,6 +2741,16 @@ def _analyze_tail_edge(edge: float, ranges: Sequence[Tuple[float, float]],
     - `clean`: everything else, including an edge whose following
       words all play in a later range or fall in a dropped span, or
       whose nearest following speech starts beyond the pace.
+
+    `authorized_by` names the captain's recorded ruling that this one
+    edge may apply its report as an extension
+    (`library/tools/tail_extend_authorization.py`): non-empty only on
+    the moment-end path, where the snap knows which reel the edge
+    belongs to. An interior edge the cutter drew never carries one -
+    anything new inside an authorised span is fresh information and
+    refuses like before. Where no closing sentence can be weighed the
+    authorisation does not apply either: without a measured scale the
+    seconds differ from what was ruled on, so the edge still reports.
 
     REPORTS, never repairs: the caller decides. A moment end the snap
     owns is extended or held by `repair_moment_tail`; an interior
@@ -2888,6 +2899,16 @@ def _analyze_tail_edge(edge: float, ranges: Sequence[Tuple[float, float]],
                 thought_seconds = (float(thought["end"])
                                    - float(thought["start"]))
                 if tail_end - edge > thought_seconds:
+                    if authorized_by:
+                        return {"verdict": "extend", "edge": edge,
+                                "tail_end": tail_end, "gap": gap,
+                                "pace": pace,
+                                "tail_words": sentence_words,
+                                "kind": kind,
+                                "sentence": sentence.get("text", ""),
+                                "pace_from": pace_from,
+                                "inferred": True,
+                                "authorized_by": authorized_by}
                     return {"verdict": "report", "edge": edge,
                             "tail_end": tail_end, "gap": gap,
                             "pace": pace,
@@ -3053,7 +3074,8 @@ def stranded_tail_keep_edges(
 
 def repair_moment_tail(end: float, start: float, transcript: dict,
                        later: Sequence[Tuple[float, float]] = (),
-                       take_cuts: Optional[Sequence["Cut"]] = None
+                       take_cuts: Optional[Sequence["Cut"]] = None,
+                       authorized_by: str = ""
                        ) -> Tuple[float, Optional[dict]]:
     """Extend or hold a STORED moment end that strands its own tail.
 
@@ -3074,7 +3096,11 @@ def repair_moment_tail(end: float, start: float, transcript: dict,
     `later` is ranges the tail may already play
     in (the closing CTA); `take_cuts` lets the caller pass cuts it
     already computed, else they are scanned raw - an unjudged scan
-    over-abstains rather than extending over a take.
+    over-abstains rather than extending over a take. `authorized_by`
+    names the captain's recorded ruling that this edge may apply its
+    report as an extension
+    (`library/tools/tail_extend_authorization.py`); empty keeps the
+    report exactly as before.
     """
     ranges = [(float(start), float(end))]
     ranges.extend((float(first), float(last)) for first, last in later)
@@ -3082,7 +3108,8 @@ def repair_moment_tail(end: float, start: float, transcript: dict,
         take_cuts = redundant_takes(start, end, transcript)
     dropped = [(float(cut.dropped_start), float(cut.dropped_end))
                for cut in take_cuts or ()]
-    outcome = _analyze_tail_edge(float(end), ranges, transcript, dropped)
+    outcome = _analyze_tail_edge(float(end), ranges, transcript, dropped,
+                                 authorized_by=authorized_by)
     verdict = outcome["verdict"]
     if verdict == "clean":
         return float(end), None
@@ -3144,6 +3171,8 @@ def record_tail_repairs(project_folder: str,
             entry["held_for_decision"] = True
         if move.get("reported"):
             entry["reported_for_decision"] = True
+        if move.get("authorized_by"):
+            entry["authorized_by"] = str(move["authorized_by"])
         replaced = False
         for index, existing in enumerate(entries):
             if (isinstance(existing, dict)
@@ -3156,6 +3185,31 @@ def record_tail_repairs(project_folder: str,
                 break
         if not replaced:
             entries.append(entry)
+        if (attribution == "tail-extend" and move.get("authorized_by")
+                and entry["now"] != entry["was"]):
+            # The question the report held is answered: a `tail-report`
+            # entry for the same reel and boundary asked a human to
+            # decide, and the authorised extension IS that decision -
+            # leaving both would keep asking after the answer. The
+            # superseded entry is said on stderr, not deleted in
+            # silence.
+            for index, existing in enumerate(list(entries)):
+                if (isinstance(existing, dict)
+                        and existing.get("kind")
+                        == "moment_boundary_repair"
+                        and existing.get("reel") == entry["reel"]
+                        and existing.get("boundary")
+                        == entry["boundary"]
+                        and existing.get("attribution")
+                        == "tail-report"):
+                    import sys as _sys
+                    print(f"  Reel {entry['reel']:02d}: the recorded "
+                          f"tail-report ({existing.get('now', 0.0):.3f}s) "
+                          f"is answered by the authorised tail-extend "
+                          f"to {entry['now']:.3f}s - superseding it.",
+                          file=_sys.stderr)
+                    del entries[index]
+                    break
     ledger["key"] = "moment_boundary_repairs"
     ledger["value"] = entries
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -4818,8 +4872,21 @@ def write_reel_asks_for_project(project_folder: str, transcript: dict,
             "closer": _ask_stored(moment)[1],
         }
     repaired = []
+    from library.tools.tail_extend_authorization import (
+        AuthorizationError as _TailAuthError,
+        load_authorizations as _load_tail_auths,
+    )
+    try:
+        _tail_auths = _load_tail_auths(project_folder)
+    except _TailAuthError as exc:
+        raise ReelBuildError(
+            f"tail_extend_authorizations cannot be read: {exc}. A "
+            f"recorded yes the ask cannot read must refuse, never ask "
+            f"silently past it.") from exc
     for moment in moments:
-        fixed, moves = snap_moment_to_speech(moment, transcript)
+        fixed, moves = snap_moment_to_speech(
+            moment, transcript,
+            tail_extend_authorizations=_tail_auths)
         repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
             word = (f" through '{move['through']}'"
@@ -9324,8 +9391,20 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
             "closer": _stored_windows(moment)[1],
         }
     tail_repairs: list = []
+    from library.tools.tail_extend_authorization import (
+        AuthorizationError as _TailAuthError,
+        load_authorizations as _load_tail_auths,
+    )
+    try:
+        _tail_auths = _load_tail_auths(project_folder)
+    except _TailAuthError as exc:
+        raise ReelBuildError(
+            f"tail_extend_authorizations cannot be read: {exc}. A "
+            f"recorded yes the build cannot read must refuse, never "
+            f"build silently past it.") from exc
     for moment in moments:
-        fixed, moves = snap_moment_to_speech(moment, transcript)
+        fixed, moves = snap_moment_to_speech(
+            moment, transcript, tail_extend_authorizations=_tail_auths)
         repair_moves_by_number[int(moment.number)] = list(moves)
         for move in moves:
             attribution = move.get("attribution", "")
@@ -11944,7 +12023,19 @@ def build_reel_variants(project_slug: str, reel_number: int,
     with open(transcript_path(project_folder)) as f:
         transcript = json.load(f)
     from library.tools.reel_proposal import snap_moment_to_speech
-    moment, _moves = snap_moment_to_speech(moment, transcript)
+    from library.tools.tail_extend_authorization import (
+        AuthorizationError as _TailAuthError,
+        load_authorizations as _load_tail_auths,
+    )
+    try:
+        _tail_auths = _load_tail_auths(project_folder)
+    except _TailAuthError as exc:
+        raise ReelBuildError(
+            f"tail_extend_authorizations cannot be read: {exc}. A "
+            f"recorded yes the variant cannot read must refuse, never "
+            f"compare silently past it.") from exc
+    moment, _moves = snap_moment_to_speech(
+        moment, transcript, tail_extend_authorizations=_tail_auths)
 
     # The captain's recorded closer pin, on the SAME terms and in the
     # same order as `rebuild_reels_in_project` - snap first, then

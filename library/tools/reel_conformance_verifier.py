@@ -6122,7 +6122,7 @@ def check_plan_provenance(
 
 # ── The full verification pipeline ───────────────────────────────────
 
-def _repair_moments(moments, transcript, err):
+def _repair_moments(moments, transcript, err, authorizations=None):
     """Stored boundaries, repaired the way the build repairs them.
 
     One spelling for the gate and the build
@@ -6132,6 +6132,10 @@ def _repair_moments(moments, transcript, err):
     file. Every moment survives - a moment already clean returns
     itself with no moves, and dropping a moveless moment would grade
     the batch against a smaller plan than the build placed.
+    `authorizations` is the same reel-to-reason map the build hands
+    the snap (`library/tools/tail_extend_authorization.py`): without
+    it the gate would grade an authorised reel against seconds the
+    build no longer plays.
     """
     from library.tools.reel_proposal import (
         decision_lines,
@@ -6140,7 +6144,9 @@ def _repair_moments(moments, transcript, err):
 
     repaired = []
     for moment in moments:
-        fixed, moves = snap_moment_to_speech(moment, transcript)
+        fixed, moves = snap_moment_to_speech(
+            moment, transcript,
+            tail_extend_authorizations=authorizations)
         for move in moves:
             word = (f" through '{move['through']}'"
                     if move.get("through") else "")
@@ -6554,7 +6560,28 @@ def run_verification(
                 # same repair rather than the raw file.  Without this a
                 # stored proposal predating the boundary snap fails here
                 # on seconds the build no longer plays.
-                moments = _repair_moments(moments, transcript, err)
+                #
+                # The captain's recorded tail-extension rulings, for the
+                # same reason as the repair above: the build applies an
+                # authorised report as an extension, so a gate deriving
+                # the un-authorised file grades seconds the build never
+                # placed. A recorded yes the gate cannot read refuses
+                # rather than grading past it.
+                from library.tools.tail_extend_authorization import (
+                    AuthorizationError as _TailAuthError,
+                    load_authorizations as _load_tail_auths,
+                )
+                try:
+                    _tail_auths = _load_tail_auths(
+                        project_folder) if project_folder else {}
+                except _TailAuthError as exc:
+                    raise RuntimeError(
+                        f"tail_extend_authorizations cannot be read: "
+                        f"{exc}. A recorded yes the gate cannot read "
+                        f"must refuse, never grade silently past "
+                        f"it.") from exc
+                moments = _repair_moments(moments, transcript, err,
+                                          authorizations=_tail_auths)
                 # The captain's recorded closer pins, applied for the
                 # same reason as the repair above: the build redraws
                 # approved moments in memory and places the redrawn

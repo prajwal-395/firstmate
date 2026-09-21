@@ -688,12 +688,17 @@ def _tail_why(tail: dict) -> str:
         quoted = " ".join(tail.get("tail_words", [])[:12])
         if len(tail.get("tail_words", [])) > 12:
             quoted += " ..."
-        return (
+        why = (
             f"finishes the {tail.get('kind', 'sentence-tail')} "
             f"({quoted!r}): the first stranded word starts "
             f"{tail.get('gap', 0.0):.2f}s past the bound, inside the "
             f"speaker's pace of {pace_note}, so the thought runs to "
             f"the sentence end at {tail.get('tail_end', 0.0):.2f}s")
+        if tail.get("authorized_by"):
+            why += (f" - applied under the recorded ruling "
+                    f"({tail['authorized_by']}), which accepted the "
+                    f"longer reel")
+        return why
     if verdict == "hold":
         following = ""
         if tail.get("next_gap") is not None:
@@ -720,7 +725,8 @@ def _tail_why(tail: dict) -> str:
 
 
 def snap_moment_to_speech(moment: ReelMoment,
-                          transcript: dict) -> tuple:
+                          transcript: dict,
+                          tail_extend_authorizations=None) -> tuple:
     """Repair a STORED moment's boundaries at build time.
 
     The boundary drawer snaps every boundary OUT of word interiors when
@@ -753,7 +759,15 @@ def snap_moment_to_speech(moment: ReelMoment,
     suppresses the word/segment phases for that boundary, so the held
     value is what the build places.  A tail the pass cannot judge is
     reported as an abstaining move (`was == now`, `abstained: True`)
-    and the span is left for a human to redraw.  Every tail move
+    and the span is left for a human to redraw.  A tail that runs
+    longer than the closing thought is likewise reported (`reported:
+    True`) - unless `tail_extend_authorizations` (a `{reel_number:
+    reason}` map, `library/tools/tail_extend_authorization.py`) names
+    this moment's own number, in which case the recorded ruling
+    applies the report as an extension and the finding, the WHY and
+    the ledger all name whose decision that was.  A reel answers only
+    its own entry; every other reel reports exactly as before.
+    Every tail move
     carries `attribution` (`tail-extend`, `tail-hold`, `tail-abstain`)
     and its WHY, the pin-vs-snap provenance
     `pipeline_output/review/moment_boundary_repairs.json` is built
@@ -762,6 +776,9 @@ def snap_moment_to_speech(moment: ReelMoment,
     are the onset mirror this pass deliberately does not cover.
     """
     from library.tools.reel_build import repair_moment_tail
+    from library.tools.tail_extend_authorization import (
+        authorized_for as _authorized_for,
+    )
 
     moves: List[dict] = []
     stored_start = float(moment.timeline_start)
@@ -774,8 +791,13 @@ def snap_moment_to_speech(moment: ReelMoment,
                           float(cta.timeline_end)))
         except (TypeError, ValueError):
             later = []
+    authorized_entry = _authorized_for(tail_extend_authorizations,
+                                       int(moment.number))
+    authorized_by = str(authorized_entry.get("reason", "")
+                        ) if authorized_entry else ""
     tailed_end, tail = repair_moment_tail(stored_end, stored_start,
-                                          transcript, later=later)
+                                          transcript, later=later,
+                                          authorized_by=authorized_by)
     held_end: Optional[float] = None
     if tail is not None:
         verdict = tail.get("verdict", "")
@@ -796,6 +818,18 @@ def snap_moment_to_speech(moment: ReelMoment,
             record["abstained"] = True
         if verdict == "report":
             record["reported"] = True
+        if tail.get("authorized_by"):
+            # The applied obedience names whose decision it was, and
+            # the applied seconds are weighed against the recorded
+            # ones before anything places them: an authorisation for
+            # materially different seconds refuses here, not on the
+            # timeline.
+            from library.tools.tail_extend_authorization import (
+                check_applied as _check_applied,
+            )
+            _check_applied(int(moment.number), authorized_entry,
+                           tailed_end, tail.get("gap", 0.0))
+            record["authorized_by"] = str(tail["authorized_by"])
         moves.append(record)
         if verdict == "hold":
             held_end = stored_end
@@ -921,7 +955,8 @@ def _opening_words(transcript: dict, when: float, count: int = 6) -> str:
 
 
 def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
-                 threshold: float = SNAP_DECISION_SECONDS) -> dict:
+                 threshold: float = SNAP_DECISION_SECONDS,
+                 tail_extend_authorizations=None) -> dict:
     """Run `snap_moment_to_speech` over moments and report the moves.
 
     Read-only: nothing is repaired, rewritten or re-decided - the
@@ -934,14 +969,18 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
     or when the stranded-tail pass abstains and holds the span for a
     human. Tail moves also carry their `attribution` and WHY, so the
     preview agrees with the build on what was decided, not just how
-    far a boundary moves.
+    far a boundary moves. `tail_extend_authorizations` is the same
+    map the build hands the snap
+    (`library/tools/tail_extend_authorization.py`), so an authorised
+    reel previews extended exactly as the build will place it.
     """
     entries = []
     moved = 0
     flagged = 0
     for moment in moments or []:
-        _repaired, moves = snap_moment_to_speech(moment,
-                                                 transcript or {})
+        _repaired, moves = snap_moment_to_speech(
+            moment, transcript or {},
+            tail_extend_authorizations=tail_extend_authorizations)
         move_reports = []
         for move in moves:
             was, now = float(move["was"]), float(move["now"])
@@ -979,6 +1018,7 @@ def preview_snap(moments: Sequence["ReelMoment"], transcript: dict,
                 # agree on WHY - not just how far the boundary moves.
                 "attribution": move.get("attribution", ""),
                 "why": move.get("why", ""),
+                "authorized_by": move.get("authorized_by", ""),
                 "tail_kind": move.get("tail_kind", ""),
                 "gap": move.get("gap"),
                 "pace": move.get("pace"),
@@ -1923,8 +1963,18 @@ def main(argv=None) -> int:
     except (OSError, ValueError) as exc:
         print(f"REFUSED: no readable transcript: {exc}", file=sys.stderr)
         return 2
+    try:
+        from library.tools.tail_extend_authorization import (
+            AuthorizationError,
+            load_authorizations,
+        )
+        authorizations = load_authorizations(args.project_folder)
+    except AuthorizationError as exc:
+        print(f"REFUSED: {exc}", file=sys.stderr)
+        return 2
     print(render_snap_preview(
-        preview_snap(moments, transcript, args.threshold)))
+        preview_snap(moments, transcript, args.threshold,
+                     tail_extend_authorizations=authorizations)))
     return 0
 
 

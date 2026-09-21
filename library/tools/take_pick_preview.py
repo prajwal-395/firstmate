@@ -117,7 +117,21 @@ def preview_take_pick(project_folder: str, number: int,
     except Exception as exc:  # noqa: BLE001 - the refusal IS the report
         cascade_error = str(exc)
 
-    snap_report = preview_snap([moment], transcript, threshold)
+    # The same authorisations the build hands the snap, so the preview
+    # agrees with the build on what was decided. A file the preview
+    # cannot read is reported as the snap error rather than previewed
+    # past - the caller turns those into a refusal.
+    from library.tools.tail_extend_authorization import (
+        AuthorizationError as _TailAuthError,
+        load_authorizations as _load_tail_auths,
+    )
+    try:
+        _tail_auths = _load_tail_auths(project_folder)
+    except _TailAuthError as exc:
+        raise ValueError(
+            f"tail_extend_authorizations cannot be read: {exc}") from exc
+    snap_report = preview_snap([moment], transcript, threshold,
+                               tail_extend_authorizations=_tail_auths)
     takes = duplicate_takes(body_start, body_end, transcript)
     from library.tools import retake_scan as _retake_scan
     retakes = _retake_scan.scan_span(
