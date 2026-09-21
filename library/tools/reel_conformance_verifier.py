@@ -1646,6 +1646,29 @@ def check_caption_coverage(reel_name: str,
     return findings
 
 
+#: The checker version that produced a finding set
+#: (vep-f5-should-refuse-new-violations-not-all, version pin).
+#:
+#: The F5/F25 live-final baseline compares a staging against the approved
+#: final it would replace - and that comparison is only like-for-like
+#: within one checker version. A tightened instrument false-diffs every
+#: old final: seconds or words the old code never reported read as NEW
+#: violations and refuse a correct rebuild. So every report envelope
+#: (`VerificationReport.as_dict`, hence `conformance_report.json` and
+#: `conformance_sweep_report.json`) carries the version that graded it,
+#: and both `rewrite_*_against_live_final` take the two sides' versions
+#: and FAIL CLOSED on a mismatch (staging errors stand, nothing
+#: softened). A caller comparing against findings loaded off disk passes
+#: the stored report's `checker_version` as the final's side - and says
+#: the skipped comparison on stderr, because the rewrite is pure.
+#:
+#: BUMP THIS when `check_caption_coverage` (F5) or the F25 word-coverage
+#: check changes WHAT THEY REPORT - a new finding, a dropped one, a
+#: changed quantum - never for wording alone. Other classes never feed
+#: the baseline comparison, so their changes do not invalidate it.
+CHECKER_VERSION = 1
+
+
 #: F5 refuses NEW violations, not ALL (vep-f5-should-refuse-new-violations-not-all).
 #:
 #: A rebuild that strictly improves a reel was refused for an F5 violation
@@ -1679,10 +1702,12 @@ def f5_straddling_seconds(findings: Sequence[Finding]) -> float:
 
 
 def rewrite_f5_against_live_final(staging_name: str,
-                                  staging_findings: Sequence[Finding],
-                                  final_name: str,
-                                  final_findings: Sequence[Finding],
-                                  ) -> List[Finding]:
+                                   staging_findings: Sequence[Finding],
+                                   final_name: str,
+                                   final_findings: Sequence[Finding],
+                                   staging_checker_version: Optional[int] = CHECKER_VERSION,
+                                   final_checker_version: Optional[int] = CHECKER_VERSION,
+                                   ) -> List[Finding]:
     """F5 on a staging, judged against what the live final already ships.
 
     Returns the staging's findings with each F5 ERROR rewritten: to a
@@ -1692,10 +1717,26 @@ def rewrite_f5_against_live_final(staging_name: str,
     finding passes through untouched - this comparison is F5's alone,
     and no other class is softened by what the final ships.
 
+    The two version arguments pin the comparison like-for-like
+    (`CHECKER_VERSION`). An omitted side means this code graded it -
+    exactly right for the gate's own call site, where one `grade_one`
+    grades both timelines in-process. A caller comparing against
+    findings loaded off disk (a stored `conformance_sweep_report.json`)
+    passes that report's `checker_version` as the final's side, and
+    None where no version is known. On ANY mismatch - including
+    unknown - the staging is returned UNCHANGED: its errors stand,
+    nothing is softened, and the caller says the skipped comparison on
+    stderr (this function is pure). A tightened checker must never
+    read an old final's silence as a clean bill.
+
     Pure: the caller grades both timelines and compares here, so this
     decision is testable without Resolve
     (`tests/test_f5_refuses_new_violations_not_all.py`).
     """
+    if staging_checker_version is None or \
+            final_checker_version is None or \
+            staging_checker_version != final_checker_version:
+        return list(staging_findings)
     staging_seconds = f5_straddling_seconds(staging_findings)
     final_seconds = f5_straddling_seconds(final_findings)
     new_seconds = staging_seconds - final_seconds
@@ -1707,6 +1748,7 @@ def rewrite_f5_against_live_final(staging_name: str,
             continue
         detail = dict(finding.detail or {})
         detail["live_final"] = final_name
+        detail["live_final_checker_version"] = final_checker_version
         detail["staging_straddling_seconds"] = round(staging_seconds, 1)
         detail["live_final_straddling_seconds"] = round(final_seconds, 1)
         if new_seconds <= F5_NEW_VIOLATION_TOLERANCE_SECONDS:
@@ -1821,10 +1863,12 @@ def f25_mismatch_cards(findings: Sequence[Finding]) -> Dict[str, list]:
 
 
 def rewrite_f25_against_live_final(staging_name: str,
-                                   staging_findings: Sequence[Finding],
-                                   final_name: str,
-                                   final_findings: Sequence[Finding],
-                                   ) -> List[Finding]:
+                                    staging_findings: Sequence[Finding],
+                                    final_name: str,
+                                    final_findings: Sequence[Finding],
+                                    staging_checker_version: Optional[int] = CHECKER_VERSION,
+                                    final_checker_version: Optional[int] = CHECKER_VERSION,
+                                    ) -> List[Finding]:
     """Baselined F25 findings on a staging, judged against the live final.
 
     The F5 comparison's sibling, on word surfaces rather than seconds:
@@ -1836,6 +1880,13 @@ def rewrite_f25_against_live_final(staging_name: str,
     naming only the NEW words. Findings of any other class or kind
     pass through untouched.
 
+    The version arguments pin the comparison like-for-like, exactly as
+    the F5 sibling's do (`CHECKER_VERSION`): omitted means this code
+    graded that side, None means unknown, and ANY mismatch returns the
+    staging UNCHANGED - errors stand, nothing softened. A tightened
+    word-coverage check must never read an old final's silence as a
+    clean bill.
+
     The warning carries the known hole in plain words: matching is by
     surface only, so a rebuild that fixed W here and broke the same W
     elsewhere with equal counts would also read as pre-existing. What
@@ -1845,6 +1896,10 @@ def rewrite_f25_against_live_final(staging_name: str,
     testable without Resolve
     (`tests/test_f25_refuses_new_word_mismatch_not_all.py`).
     """
+    if staging_checker_version is None or \
+            final_checker_version is None or \
+            staging_checker_version != final_checker_version:
+        return list(staging_findings)
     remaining = f25_mismatch_words(final_findings)
     final_cards = f25_mismatch_cards(final_findings)
     rewritten: List[Finding] = []
@@ -1864,6 +1919,7 @@ def rewrite_f25_against_live_final(staging_name: str,
                 new_words.append(word)
         out_detail = dict(detail)
         out_detail["live_final"] = final_name
+        out_detail["live_final_checker_version"] = final_checker_version
         staging_card = detail.get("card", "")
         named_final_cards = sorted({
             card for word in words
@@ -4260,6 +4316,7 @@ class VerificationReport:
         d = {
             "project": self.project_name,
             "master_timeline": self.master_timeline,
+            "checker_version": CHECKER_VERSION,
             "plan_source": self.plan_source,
             "read_only_proof": self.read_only_proof,
             "summary": {
@@ -6876,10 +6933,10 @@ def run_verification(
         # `grade_one` above: pre-existing findings are REPORTED loudly
         # as warnings, and only NEW ones refuse. A staging with no live
         # final, or one whose baseline cannot be read, keeps its errors
-        # - fail-closed, said on stderr either way.
-        # `verify_waivers.json` is deliberately NOT read here: it is
-        # dead config no engine code reads, and a reader for it would
-        # be a bypass rather than this comparison.
+        # - fail-closed, said on stderr either way. No waiver file is
+        # read here by design: a waiver reader would be a bypass around
+        # the gate, where this comparison judges the staging against
+        # the approved final instead.
         from library.tools.resolve_bin_layout import (
             STAGING_TIMELINE_SUFFIX as _STAGING_SUFFIX)
         live_by_name = {t.GetName(): t for t in all_timelines}

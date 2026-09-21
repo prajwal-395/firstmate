@@ -60,8 +60,9 @@ commit, and the build-end drift bracket (`drift build end: Reel NN`).
 A field the build cannot capture honestly is None rather than
 estimated: standalone `drift` runs are a different producer and only
 the build-end bracket for reels this build touched lands here, and
-`verify_waivers.json` is read by no engine code so no waiver fact is
-filed. `assemble_summary` builds the payload from pieces the caller
+no waiver fact is filed: the engine grants no waivers - the gate's
+F5/F25 baseline comparison reports pre-existing findings as warnings,
+and nothing else softens an error. `assemble_summary` builds the payload from pieces the caller
 already holds; `file_build_summary` files it under the same never-fail
 contract as every other line.
 """
