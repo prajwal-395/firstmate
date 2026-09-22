@@ -28,6 +28,10 @@ export function encodeFirstmateOperationalInput(root, kind, content) {
       stderr += chunk.toString();
     });
     child.on("error", reject);
+    // A child that exits before reading stdin makes the write fail with
+    // EPIPE, which is its answer, not this helper's failure: the close
+    // handler below still reports the early exit.
+    child.stdin.on("error", () => {});
     child.on("close", (code) => {
       if (code === 0 && stdout) {
         resolveResult(stdout);

@@ -31,6 +31,9 @@
 #      off it onto a costlier model.
 #   9. When the poll cannot answer, the gate still decides and says which
 #      fallback it took: rung 1 launches, a descent does not.
+#   10. The ladder order is settable on its own through agy_ladder while the
+#      legacy default form keeps resolving exactly as before and is named as
+#      legacy, so the coupled read is reported rather than silent.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -832,6 +835,102 @@ test_a_repeated_rung_is_reported() {
 }
 
 
+# --- 11. The split form sets the order on its own; the old form keeps working -
+#
+# The default dispatch field used to carry two meanings at once: the ladder
+# order (through the legacy derivation) and the default-harness ruling, so the
+# order could not be set without also changing default dispatch, and nothing
+# said so. The order now lives in agy_ladder. These cases pin both halves of
+# that split: an old single-field file still resolves exactly as before, and a
+# split file follows agy_ladder whatever default says.
+
+# ladder_order_and_floor <config-file>: "display1|display2|display3|floor1" as
+# one fresh shell reads it, so each case asserts the enforced order plus the
+# floor the rung-1 model carries.
+ladder_order_and_floor() {  # <config-file>
+  FM_AGY_LADDER_CONFIG="$1" ROOT="$ROOT" bash -c \
+    '. "$ROOT/bin/fm-agy-ladder-lib.sh"; printf "%s|%s|%s|%s\n" "$(fm_agy_ladder_display 1)" "$(fm_agy_ladder_display 2)" "$(fm_agy_ladder_display 3)" "$(fm_agy_ladder_floor 1)"'
+}
+
+test_the_legacy_default_field_still_sets_the_ladder() {
+  local f out rc=0 order
+  # The old single-field form: agy rungs in default, no agy_ladder, Opus first
+  # so the case also proves the reserve travels with the model, not the rung.
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Claude Opus 4.6 (Thinking)","effort":"high"},{"harness":"agy","model":"Gemini 3.1 Pro (High)","effort":"high"},{"harness":"agy","model":"Gemini 3.7 Flash (High)","effort":"high"}]}')
+  order=$(ladder_order_and_floor "$f")
+  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.1 Pro (High)|Gemini 3.7 Flash (High)|25' ] \
+    || fail "the legacy default order must still resolve with the reserve on Opus at rung 1, got '$order'"
+
+  # A usable legacy order is not broken, so the problem check stays silent.
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a usable legacy order must not be reported as broken (rc=$rc)"
+  [ -z "$out" ] || fail "a usable legacy order must print no problem, got '$out'"
+
+  # But the coupled read must be named: setting the order there also changes
+  # default dispatch, which is exactly what the split removes.
+  out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "the legacy notice is advisory and must always succeed (rc=$rc)"
+  assert_contains "$out" "legacy default dispatch profiles" \
+    "the notice must say where the order is being read from"
+  assert_contains "$out" "agy_ladder" \
+    "the notice must say where the order belongs"
+  pass "the old single-field form still resolves, and its coupled read is named as legacy"
+}
+
+test_the_split_form_sets_order_independently_of_default() {
+  local f out rc=0 order
+  # The split form, shaped like the captain's ruling: default dispatches to
+  # the opencode ladder while agy_ladder sets an order the built-in default
+  # does not share, so only the split field can account for the result.
+  f=$(ladder_config '{"default":[{"harness":"opencode","model":"opencode/muse-spark-1.3-contributor-free","provider":"opencode"},{"harness":"opencode","model":"opencode-go/muse-spark-1.3-contributor","provider":"opencode-go"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.1 Pro (High)","Gemini 3.7 Flash (High)"]}')
+  order=$(ladder_order_and_floor "$f")
+  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.1 Pro (High)|Gemini 3.7 Flash (High)|25' ] \
+    || fail "the split order must follow agy_ladder with the reserve on Opus at rung 1, got '$order'"
+
+  out=$(fm_agy_ladder_config_problem "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "a usable split order must not be reported as broken (rc=$rc)"
+  [ -z "$out" ] || fail "a usable split order must print no problem, got '$out'"
+
+  out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
+  [ "$rc" -eq 0 ] || fail "the legacy notice is advisory and must always succeed (rc=$rc)"
+  [ -z "$out" ] || fail "a split file must print no legacy notice, got '$out'"
+  pass "the split form sets the rung order on its own while default keeps its own ruling"
+}
+
+test_agy_ladder_wins_when_both_fields_state_an_order() {
+  local f out rc=0 order
+  # Both fields state an order and they disagree: default's agy rows run
+  # Flash-first while agy_ladder runs Opus-first. The split field decides.
+  f=$(ladder_config '{"default":[{"harness":"agy","model":"Gemini 3.7 Flash (High)"}],"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.1 Pro (High)","Gemini 3.7 Flash (High)"]}')
+  order=$(ladder_order_and_floor "$f")
+  [ "$order" = 'Claude Opus 4.6 (Thinking)|Gemini 3.1 Pro (High)|Gemini 3.7 Flash (High)|25' ] \
+    || fail "agy_ladder must decide when both fields state an order, got '$order'"
+
+  out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
+  [ -z "$out" ] || fail "a file with agy_ladder must print no legacy notice, got '$out'"
+  pass "agy_ladder wins when both fields state an order"
+}
+
+test_the_legacy_notice_stays_silent_outside_the_legacy_form() {
+  local f out rc=0
+  out=$(fm_agy_ladder_legacy_notice "$TMP_ROOT/does-not-exist.json") || rc=$?
+  [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "a missing file must stay silent, got rc=$rc out='$out'"
+
+  f=$(ladder_config '{oops')
+  out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
+  [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "a malformed file must stay silent for the notice, got rc=$rc out='$out'"
+
+  f=$(ladder_config '{"default":[{"harness":"claude","model":"claude-opus-5"}]}')
+  out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
+  [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "a file with no agy rung must stay silent, got rc=$rc out='$out'"
+
+  f=$(ladder_config '{"agy_ladder":["Claude Opus 4.6 (Thinking)","Gemini 3.1 Pro (High)","Gemini 3.7 Flash (High)"]}')
+  out=$(fm_agy_ladder_legacy_notice "$f") || rc=$?
+  [ "$rc" -eq 0 ] && [ -z "$out" ] || fail "an agy_ladder-only file must stay silent, got rc=$rc out='$out'"
+  pass "the legacy notice stays silent outside the legacy form"
+}
+
+
 test_simultaneous_launches_across_homes_are_serialized() {
   local n=10 i allowed refused root="$TMP_ROOT/race-account" dir="$TMP_ROOT/race"
 
@@ -902,4 +1001,8 @@ test_two_homes_cannot_authorize_past_each_other
 test_the_refusal_is_the_shared_ledger_and_not_some_other_rule
 test_a_config_the_ladder_cannot_enforce_is_reported
 test_a_repeated_rung_is_reported
+test_the_legacy_default_field_still_sets_the_ladder
+test_the_split_form_sets_order_independently_of_default
+test_agy_ladder_wins_when_both_fields_state_an_order
+test_the_legacy_notice_stays_silent_outside_the_legacy_form
 test_simultaneous_launches_across_homes_are_serialized

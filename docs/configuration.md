@@ -434,7 +434,8 @@ This section is the single owner of the canonical schema and its per-field seman
   ],
   "default": [
     { "harness": "<adapter>", "model": "<optional model>", "effort": "<optional effort>" }
-  ]
+  ],
+  "agy_ladder": ["<agy display name or kebab id, in rung order>"]
 }
 ```
 
@@ -460,6 +461,10 @@ An omitted model or effort means the selected harness uses its own default for t
 Every profile array is an implicit quota-aware choice resolved through `quota-array-dispatch`.
 Through typed dispatch resolution below, the same arrays resolve in declared rung order instead, with the spawn-time ladder gates owning the rung.
 If no dispatch rule fits, firstmate resolves `default` through the same object-or-array path before falling back to `config/crew-harness`.
+Top-level `agy_ladder` optionally states the agy rung order as display names (or the kebab ids agy accepts), in rung order.
+`bin/fm-agy-ladder-lib.sh` enforces exactly that sequence, with the Opus 4.6 25 percent reserve traveling with the model rather than the rung position.
+`default` then carries only the default dispatch ruling.
+A file without `agy_ladder` whose `default` profiles name agy models keeps resolving through the legacy derivation, and bootstrap names that coupled read as a `CREW_DISPATCH` legacy notice so it is reported rather than silent.
 Except for `ultra`, which refuses unsupported profiles under the native-effort contract above, an effort value the chosen harness does not accept is recorded as `effort=` in task meta for traceability but omitted from the launch flags.
 Bootstrap reports unsupported harness/model/effort combinations as a `CREW_DISPATCH` diagnostic when they are visible in the file.
 See [`docs/examples/crew-dispatch.json`](examples/crew-dispatch.json) for a starting point to copy into local `config/crew-dispatch.json`; its Pi default declares the `claude` provider required for typed resolution of that Anthropic model.

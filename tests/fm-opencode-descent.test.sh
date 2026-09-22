@@ -50,6 +50,14 @@ BUSY="$ROOT/bin/fm-busy-event.sh"
 
 FREE='opencode/muse-spark-1.3-contributor-free'
 GO='opencode-go/muse-spark-1.3-contributor'
+# The plugin's own vocabulary: OpenCode's event stream reports model.id with
+# NO provider prefix, and recordRetry passes it straight through to the
+# sidecar. Production sidecars (2026-09-19) carry these bare forms, so the
+# regressions below speak them - a fixture in the gate's prefixed vocabulary
+# would be blind to a producer-side mismatch by construction. The bare free
+# id is the captured specimen's model token verbatim.
+FREE_BARE='muse-spark-1.3-contributor-free'
+GO_BARE='muse-spark-1.3-contributor'
 
 now_s() { date +%s; }
 ms_from_now() {  # <offset-secs> -> epoch ms
@@ -240,6 +248,72 @@ test_recorded_refusal_relaunches_to_go() {
 
 fm_meta_model() {  # <state-dir> <id> -> recorded model (test reader only)
   sed -n 's/^model=//p' "$1/$2.meta"
+}
+
+# --- 3b. the plugin's bare-model vocabulary binds the same rungs -------------
+# PR 129 normalised the dispatch gate for bare sidecar models but left this
+# file's own prefixed-only copies: a bare free cap bound `other` instead of
+# `free`, and a bare-recorded free lane read as off-ladder and stayed silent
+# past a proven cap. These speak the producer's vocabulary on both halves -
+# the sidecar model and the recorded lane model - so either form moves.
+
+test_plugin_vocabulary_free_cap_binds_free() {
+  local state cap bound
+  state=$(fresh_state barecap)
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  # The captured 2026-09-19 specimen's model token verbatim; the horizon is
+  # recomputed relative to run time through the real record helper because
+  # the specimen's own `next` has since expired.
+  record_cap "$state" lane1 78840 "$FREE_BARE" || fail "record refused the bare-model observation"
+  cap=$(fm_opencode_descent_cap "$state" lane1) || fail "a bare-model free cap must meet the trigger"
+  bound=${cap#* }; bound=${bound%% *}
+  [ "$bound" = free ] || fail "a bare-model free cap must bind free, bound: ${bound:-<empty>} (full verdict: $cap)"
+  pass "a free cap in the plugin's bare-model vocabulary binds free"
+}
+
+test_plugin_vocabulary_bare_free_lane_descends() {
+  local state out
+  state=$(fresh_state barelane)
+  stub_env "$state" 0 1
+  # The lane as a bare-`--model` request records it: the routed tier in the
+  # producer's vocabulary, not the gate's prefixed one.
+  write_meta "$state" lane1 opencode "$FREE_BARE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  record_cap "$state" lane1 78840 "$FREE_BARE" || fail "record refused the bare-model observation"
+  out=$(run_tick "$state") || fail "tick must never fail past the cap"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "a bare-recorded free lane past a bare-model cap must relaunch, said: ${out:-<silent>}" ;;
+  esac
+  stub_called || fail "a bare-recorded free lane must reach the control plane"
+  case "$(stub_calls)" in
+    *'relaunch'*"$GO"*) : ;;
+    *) fail "the move must be a relaunch onto the Go tier, called: $(stub_calls)" ;;
+  esac
+  [ "$(fm_meta_model "$state" lane1)" = "$GO" ] \
+    || fail "the durable record must name Go after the move"
+  [ ! -f "$state/lane1.opencode-retry" ] \
+    || fail "the dead session's sidecar must be cleared after the move"
+  pass "a bare-recorded free lane descends onto Go past a bare-model cap"
+}
+
+test_plugin_vocabulary_bare_go_lane_refused() {
+  local state out
+  state=$(fresh_state barego)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$GO_BARE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  # Stripping the prefix must not collapse the rungs: the bare Go id carries
+  # no `-free` suffix, so this cap is a Go cap and the lane has nowhere to go.
+  record_cap "$state" lane1 78840 "$GO_BARE" || fail "record refused a bare Go-bound cap"
+  out=$(run_tick "$state") || fail "tick must never fail"
+  case "$out" in
+    refused' '*) : ;;
+    *) fail "a bare-recorded Go lane must surface, said: ${out:-<silent>}" ;;
+  esac
+  stub_called && fail "a bare-recorded Go lane has nowhere to move to"
+  pass "a bare-recorded Go lane surfaces instead of moving"
 }
 
 # --- 4. nowhere to move, and nobody to move -----------------------------------
@@ -486,6 +560,9 @@ test_transient_retry_stays
 test_expired_cap_stays
 test_stale_sidecar_needs_latch
 test_recorded_refusal_relaunches_to_go
+test_plugin_vocabulary_free_cap_binds_free
+test_plugin_vocabulary_bare_free_lane_descends
+test_plugin_vocabulary_bare_go_lane_refused
 test_idle_after_cap_relaunches_to_go
 test_idle_healthy_lane_stays
 test_go_lane_surfaces
