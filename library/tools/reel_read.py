@@ -82,6 +82,7 @@ from library.tools.resolve_lock import under_lease
 import argparse
 import json
 import sys
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Mapping, Optional
@@ -693,7 +694,16 @@ def _ink_box(path: str) -> dict:
     NOT do is scale, gain or grade the answer: measured pixels only, no
     intent row. The number that reaches the timeline is the stored
     transform beside this box, reported verbatim from `GetProperty()`.
+
+    Stills decode through PIL; movie artefacts (`.mov`/`.mp4`) decode
+    every frame through `tight_box.extract_frames` and union through
+    `tight_box.ink_union_of_frames` (`_ink_box_movie`) - the same
+    decoder the tight-box path already uses, not a second one. A file
+    that cannot be decoded reads `measured: False` with the reason,
+    never a default presented as measured.
     """
+    if Path(path).suffix.lower() in _MOVIE_SUFFIXES:
+        return _ink_box_movie(path)
     try:
         from PIL import Image
     except ImportError:
@@ -712,6 +722,60 @@ def _ink_box(path: str) -> dict:
                     "ink_box_xyxy": list(bbox)}
     except Exception as unreadable:
         return {"measured": False, "reason": str(unreadable)}
+
+
+#: Suffixes that carry frames, not stills: PIL cannot open them (every
+#: caption and motion-graphic artefact this engine writes is a
+#: QuickTime movie), so they decode through the one ffmpeg frame
+#: extractor rather than `Image.open`.
+_MOVIE_SUFFIXES = (".mov", ".mp4")
+
+
+def _ink_box_movie(path: str) -> dict:
+    """The ink box of a movie artefact, measured off its decoded frames.
+
+    The union of per-frame alpha bboxes across EVERY frame - a reveal
+    that draws on frame 12 only is still ink the timeline shows, so a
+    sampled frame would let drawn ink through as absent. Decode is
+    `tight_box.extract_frames` and the union is
+    `tight_box.ink_union_of_frames`: the pair the tight-box path
+    already measures with (see `mg_tight_box.measure_mg_union` for the
+    same composition), imported lazily so quick mode - and Resolve's
+    scripting host - never loads that chain. An UNDECODABLE file reads
+    `measured: False` with the reason, exactly as the still path does:
+    absent evidence is not empty evidence.
+    """
+    try:
+        from library.tools.tight_box import (
+            TightBoxMismatch,
+            extract_frames,
+            ink_union_of_frames,
+        )
+    except ImportError as exc:
+        return {"measured": False,
+                "reason": f"cannot decode movie artefacts: {exc}"}
+    try:
+        from PIL import Image
+    except ImportError:
+        return {"measured": False,
+                "reason": "PIL is not installed; refusing to guess"}
+    try:
+        with tempfile.TemporaryDirectory(prefix="reel-ink-") as work:
+            frame_paths = extract_frames(path, work)
+            union = ink_union_of_frames(frame_paths)
+            if union is None:
+                return {"measured": False,
+                        "reason": "fully transparent artefact"}
+            with Image.open(frame_paths[0]) as first:
+                canvas = [first.width, first.height]
+            return {"measured": True,
+                    "canvas": canvas,
+                    "ink_box_xyxy": [union.x0, union.y0,
+                                     union.x1, union.y1],
+                    "frames": len(frame_paths),
+                    "inked_frames": union.inked_frames}
+    except (TightBoxMismatch, OSError) as exc:
+        return {"measured": False, "reason": str(exc)}
 
 
 def measure_ink(tracks: list, width: int, height: int,

@@ -8,6 +8,8 @@ marker alongside the timeline-level ones, because its marker half IS
 """
 
 import ast
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -307,22 +309,105 @@ def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
     # the script that derived from it) and must never creep back in: a
     # measurement derived from the value it checks cannot contradict it.
     # (Docstring *mentions* of the prohibition are fine; code uses are not.)
+    # The ink path IS allowed the decode pair - `extract_frames` plus
+    # `ink_union_of_frames` - since teaching `_ink_box` to read a
+    # QuickTime frame reuses that decoder rather than adding a second
+    # one; the refusal it raises (`TightBoxMismatch`) reads as
+    # measured:false, never as a number. Nothing else from that module
+    # may be reached for.
     tree = ast.parse(Path(reel_read.__file__).read_text(encoding="utf-8"))
     code_uses = set()
+    tight_box_names = set()
     for node in ast.walk(tree):
-        if isinstance(node, (ast.Import, ast.ImportFrom)):
+        if isinstance(node, ast.ImportFrom) and (
+                node.module or "").endswith("tight_box"):
             for name in node.names:
-                if "tight_box" in (name.name or ""):
-                    code_uses.add(name.name)
-            if isinstance(node, ast.ImportFrom) and "tight_box" in (
-                    node.module or ""):
-                code_uses.add(node.module)
+                tight_box_names.add(name.name)
         if isinstance(node, ast.Name) and node.id == "draw_gain":
             code_uses.add("draw_gain")
         if (isinstance(node, ast.Attribute)
                 and node.attr == "draw_gain"):
             code_uses.add("draw_gain")
     assert code_uses == set()
+    assert tight_box_names <= {"extract_frames", "ink_union_of_frames",
+                               "TightBoxMismatch"}, tight_box_names
+
+
+NEEDS_FFMPEG = shutil.which("ffmpeg") is None
+FFMPEG_REASON = "needs ffmpeg; runs in CI, which installs it (AGENTS.md 9)"
+
+
+def _encode_mov(frame_paths, mov_path):
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-framerate", "24",
+         "-i", str(frame_paths[0].parent / "movshot-%04d.png"),
+         "-c:v", "qtrle", "-pix_fmt", "argb", str(mov_path)],
+        check=True)
+
+
+def _ink_frame(path, box):
+    from PIL import Image
+
+    frame = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
+    pixels = frame.load()
+    for x in range(box[0], box[2]):
+        for y in range(box[1], box[3]):
+            pixels[x, y] = (255, 255, 255, 255)
+    frame.save(path)
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_full_mode_measures_ink_off_a_quicktime_movie(tmp_path):
+    """A `.mov` artefact measures through the reused frame decoder.
+
+    Measured 2026-09-15: every caption and motion-graphic artefact is a
+    QuickTime movie and PIL cannot open one, so mode=full paid the
+    decode cost and measured nothing - 100 percent of overlay rows
+    came back measured:false on all four reels asked. `_ink_box` now
+    decodes through `tight_box.extract_frames` and unions through
+    `tight_box.ink_union_of_frames`, the pair the tight-box path
+    already measures with. The fixture is a qtrle movie built here
+    (two frames, ink in different places) so the union must span both
+    drawings - a still-image code path passing this off as one frame
+    cannot.
+    """
+    first = tmp_path / "movshot-0000.png"
+    second = tmp_path / "movshot-0001.png"
+    _ink_frame(first, (50, 10, 120, 40))
+    _ink_frame(second, (10, 60, 60, 90))
+    mov = tmp_path / "caption.mov"
+    _encode_mov([first, second], mov)
+
+    ink = reel_read._ink_box(str(mov))
+    assert ink["measured"] is True
+    assert ink["canvas"] == [200, 100]
+    assert ink["ink_box_xyxy"] == [10, 10, 120, 90]
+    assert ink["frames"] == 2
+    assert ink["inked_frames"] == 2
+
+
+@pytest.mark.skipif(NEEDS_FFMPEG, reason=FFMPEG_REASON)
+def test_a_movie_that_drew_nothing_stays_unmeasured_not_default(tmp_path):
+    """The failure direction survives the new decoder: a blank movie
+    reads measured:false (fully transparent), and a file ffmpeg cannot
+    decode reads measured:false with the reason - never a default box
+    presented as measured."""
+    from PIL import Image
+
+    for index in range(2):
+        Image.new("RGBA", (200, 100), (0, 0, 0, 0)).save(
+            str(tmp_path / f"movshot-{index:04d}.png"))
+    blank = tmp_path / "blank.mov"
+    _encode_mov([tmp_path / "movshot-0000.png"], blank)
+    ink = reel_read._ink_box(str(blank))
+    assert ink == {"measured": False,
+                   "reason": "fully transparent artefact"}
+
+    broken = tmp_path / "broken.mov"
+    broken.write_bytes(b"not a quicktime file")
+    ink = reel_read._ink_box(str(broken))
+    assert ink["measured"] is False
+    assert ink["reason"]
 
 
 # ── The currency check: a scaled reading refuses ───────────────────
