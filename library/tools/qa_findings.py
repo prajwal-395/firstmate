@@ -252,6 +252,15 @@ FINDING_READERS: Dict[str, FindingReader] = _rows(
         "its words generates no caption card, no karaoke highlight and "
         "no take boundary, silently. `library/tools/transcript_fit.py` "
         "measures the whole document without a render."),
+    FindingReader(
+        reel_hearing.PAIRING_METRIC, "plan_subtitles",
+        "A caption card paired with speech its own filename does not "
+        "declare - the wrong file in a slot, one speaker's caption over "
+        "another speaker's audio, or the right file at the wrong time. "
+        "The caption plan binds each card to its source span, so it is "
+        "the step that can re-plan the binding or re-place the card; "
+        "needs no render, no audio and no model, only the filename "
+        "against the placement."),
 )
 
 

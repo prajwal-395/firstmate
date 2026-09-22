@@ -6,7 +6,7 @@ What a rendered reel actually SAYS, against what the plan says it says.
 
 The render's audio is transcribed on the machine, the plan's own words
 are resolved out of the timeline transcript through the reel's placed
-clips, and the two are aligned and diffed. It reports four things:
+clips, and the two are aligned and diffed. It reports five things:
 
 - **script divergence** - words the render says that the plan does not,
   and words the plan carries that the render does not say;
@@ -15,16 +15,22 @@ clips, and the two are aligned and diffed. It reports four things:
   past the transcribers' own measured disagreement;
 - **caption coverage** - speech in the delivered file with no caption
   card on screen while it is spoken;
+- **caption pairing** - a caption card placed away from the source span
+  its own FILENAME declares: the wrong file in a slot, one speaker's
+  caption over another speaker's audio, or the right file at the wrong
+  time. Words on screen can be real words, perfectly timed, and still
+  belong to another passage;
 - **transcript row fit** - rows of the plan's own transcript carrying
   text with NO word timing under it. Nothing word-timed can be placed
   over such a row, so it generates no caption card at all - it is the
-  CAUSE of the three above rather than a fourth symptom, which is why
-  it is owned by `temporal_index` and not by the step that placed the
-  cards.
+  CAUSE of the symptoms above rather than another symptom of its own,
+  which is why it is owned by `temporal_index` and not by the step that
+  placed the cards.
 
-The fourth needs no render at all, which is why it is also on its own:
-`python3 -m library.tools.transcript_fit <project>` measures the whole
-transcript before a reel has ever been delivered.
+The last two need no render at all: `python3 -m
+library.tools.transcript_fit <project>` measures the whole transcript
+before a reel has ever been delivered, and caption pairing is arithmetic
+over a filename against a clip placement - no audio, no model.
 
 Nothing else in this pipeline compares HEARD against PLANNED.
 `verify_render` measures the file against itself, `verify_timeline`
@@ -62,8 +68,9 @@ reel nobody listened to.
 
 An **observation**, never a verdict. `findings` carries one row per
 check with its own `passed`, `severity` and the step that owns the
-decision behind it; `divergences`, `drift_runs`, `caption_coverage` and
-`unfitted_transcript_rows` carry the evidence under each.
+decision behind it; `divergences`, `drift_runs`, `caption_coverage`,
+`caption_pairing` and `unfitted_transcript_rows` carry the evidence
+under each.
 
 **This one REPORTS. It gates nothing** - `library/tools/reel_hearing.py`
 sets `GATES = False`, no build reads its record, and a `passed: false`

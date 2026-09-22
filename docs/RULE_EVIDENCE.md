@@ -7835,3 +7835,11 @@ over a filename and a clip placement. It has nothing to fire on because
 the only delivered reel on this project is correct in that respect, which
 is a statement about the evidence available and not about the check.
 
+Follow-up, built as a judgement call: `heard_caption_pairing` in
+`library/tools/reel_hearing.py`, report-only under the same contract
+(`GATES` stays False, owned by `plan_subtitles` through `qa_findings`).
+Clean on Reel 26 by construction - 13 of 13 established, worst edge
+42 ms - so it consciously departs from the fire-on-a-real-defect bar
+above: the pairing it would catch is invisible to every other check,
+and the check costs nothing to carry.
+

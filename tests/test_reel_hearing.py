@@ -236,6 +236,8 @@ def test_every_finding_carries_an_honest_verdict(hearing):
     assert by_metric[reel_hearing.DRIFT_METRIC].passed is False
     assert by_metric[reel_hearing.COVERAGE_METRIC].passed is False
     assert by_metric[reel_hearing.SCRIPT_METRIC].passed is False
+    assert by_metric[reel_hearing.PAIRING_METRIC].passed is True
+    assert by_metric[reel_hearing.PAIRING_METRIC].severity == "info"
     assert set(by_metric) == set(reel_hearing.METRICS)
 
 
@@ -244,10 +246,11 @@ def test_the_findings_go_through_the_one_reader(hearing):
     read = reel_hearing.read_findings(hearing)
     assert read.unrouted == [], [f.metric for f in read.unrouted]
     assert {f.owner for f in read.findings} == {"build_reels",
-                                                "plan_subtitles",
-                                                "temporal_index"}
-    # Four checks, four failures: the three consequences in the
-    # delivered file and the transcript row that caused them.
+                                                 "plan_subtitles",
+                                                 "temporal_index"}
+    # Five checks, four failures: the three consequences in the
+    # delivered file, the transcript row that caused them, and a pairing
+    # check that is clean on this reel - which is the point being pinned.
     assert read.counts()[qa_findings.FAILING] == 4
 
 
@@ -283,10 +286,10 @@ def test_caption_coverage_is_skipped_openly_when_there_are_no_captions(
     timeline["tracks"] = [t for t in timeline["tracks"]
                           if t["name"] != "Subtitles"]
     quiet = reel_hearing.hear(timeline, transcript, spoken,
-                             project_folder=str(project))
+                              project_folder=str(project))
     assert quiet.coverage["measured"] is False
-    assert [row["check"] for row in quiet.skipped] == \
-        [reel_hearing.COVERAGE_METRIC]
+    assert {row["check"] for row in quiet.skipped} == \
+        {reel_hearing.COVERAGE_METRIC, reel_hearing.PAIRING_METRIC}
     assert reel_hearing.COVERAGE_METRIC not in {f.metric
                                                 for f in quiet.findings}
 
@@ -464,3 +467,129 @@ def test_the_fixture_copies_into_a_tmp_project(tmp_path):
     destination = tmp_path / "fixtures"
     shutil.copytree(FIXTURES, destination)
     assert (destination / "reel26.timeline.json").exists()
+
+
+# ── 8. The caption-pairing check ─────────────────────────────────────
+#
+# PR 1178 measured this check and did not build it: 13 of 13 cards on
+# the only delivered reel land within one frame of the source span
+# their filename declares. It is built now as a judgement call rather
+# than a defect fix - cheap, report-only, and closing the
+# wrong-but-plausible pairing `subtitle_segment_id`'s own docstring
+# calls invisible.
+
+def test_the_pairing_check_is_clean_on_the_delivered_reel(hearing):
+    """13 of 13 cards over the span their own filename declares."""
+    pairing = hearing.pairing
+    assert pairing["measured"] is True
+    assert pairing["caption_cards"] == 13
+    assert pairing["established_cards"] == 13
+    assert pairing["mispaired"] == []
+    assert pairing["unestablished"] == []
+    # Within one 23.976fps frame (41.7ms), as PR 1178 measured.
+    assert pairing["max_edge_offset_seconds"] == pytest.approx(0.042,
+                                                              abs=0.005)
+    assert pairing["mean_edge_offset_seconds"] < 0.042
+
+
+def test_the_pairing_finding_is_owned_by_the_caption_plan(hearing):
+    """The step that bound each card to its span can re-plan it."""
+    read = reel_hearing.read_findings(hearing)
+    pairing = next(f for f in read.findings
+                   if f.metric == reel_hearing.PAIRING_METRIC)
+    assert pairing.owner == "plan_subtitles"
+
+
+def _mini_timeline(card_name, reel_in, reel_out, fps=24.0):
+    """One speech clip, one transcript segment, one caption card."""
+    source_file = "/audio/a.wav"
+    return {
+        "metadata": {"fps": fps, "name": "mini"},
+        "tracks": [
+            {"type": "audio", "index": 1, "name": "Dialogue",
+             "clips": [{"file_path": source_file, "name": "a.wav",
+                        "record_in": 0, "record_out": int(2.0 * fps),
+                        "source_in": int(10.0 * fps)}]},
+            {"type": "video", "index": 3, "name": "Subtitles",
+             "clips": [{"file_path": f"/caps/{card_name}",
+                        "name": card_name,
+                        "record_in": int(reel_in * fps),
+                        "record_out": int(reel_out * fps)}]},
+        ],
+    }, {
+        "segments": [{
+            "source_file": source_file,
+            "source_start": 10.0, "source_end": 12.0,
+            "timeline_start": 10.0,
+            "speaker": "Alice", "text": "hello world",
+            "words": [{"word": "hello", "start": 10.2, "end": 10.6},
+                      {"word": "world", "start": 10.7, "end": 11.1}],
+        }],
+    }
+
+
+def test_a_displaced_card_is_mispaired():
+    """The right file at the wrong time: seconds away, not milliseconds."""
+    card = "sub_alice_clipa_10000-11000_ab12cd34.mov"
+    timeline, transcript = _mini_timeline(card, 5.0, 5.9)
+    rows = reel_hearing.pairing_rows(timeline, transcript)
+    assert [row["kind"] for row in rows["mispaired"]] == ["displaced"]
+    assert rows["mispaired"][0]["offset_seconds"] == pytest.approx(
+        3.9, abs=0.05)
+
+
+def test_one_speakers_caption_over_another_speakers_audio_is_mispaired():
+    timeline, transcript = _mini_timeline(
+        "sub_bob_clipa_10000-11000_ab12cd34.mov", 0.2, 1.1)
+    rows = reel_hearing.pairing_rows(timeline, transcript)
+    assert [row["kind"] for row in rows["mispaired"]] == [
+        "speaker_mismatch"]
+
+
+def test_a_card_claiming_speech_no_segment_plays_is_mispaired():
+    timeline, transcript = _mini_timeline(
+        "sub_alice_clipa_50000-52000_ab12cd34.mov", 0.2, 1.1)
+    rows = reel_hearing.pairing_rows(timeline, transcript)
+    assert [row["kind"] for row in rows["mispaired"]] == ["span_unplayed"]
+
+
+def test_a_nospan_card_is_unestablished_never_a_finding():
+    """A file that declares no span cannot be paired with any speech,
+    and an unmeasurable card is not a guilty one."""
+    timeline, transcript = _mini_timeline(
+        "sub_alice_clipa_nospan_ab12cd34.mov", 0.2, 1.1)
+    rows = reel_hearing.pairing_rows(timeline, transcript)
+    assert rows["mispaired"] == []
+    assert [row["card"] for row in rows["unestablished"]] == [
+        "sub_alice_clipa_nospan_ab12cd34"]
+
+
+def test_pairing_is_skipped_openly_when_there_are_no_captions(
+        timeline, transcript, spoken, project):
+    """A reel that declares no captions is not a reel with wrong ones."""
+    timeline["tracks"] = [t for t in timeline["tracks"]
+                          if t["name"] != "Subtitles"]
+    quiet = reel_hearing.hear(timeline, transcript, spoken,
+                              project_folder=str(project))
+    assert quiet.pairing["measured"] is False
+    assert reel_hearing.PAIRING_METRIC in {row["check"]
+                                           for row in quiet.skipped}
+    assert reel_hearing.PAIRING_METRIC not in {f.metric
+                                               for f in quiet.findings}
+
+
+def test_pairing_can_be_declined_by_name(timeline, transcript, spoken,
+                                         project):
+    """Like every other check this pass makes, never silently absent."""
+    from library.tools import hearing_settings
+
+    settings = hearing_settings.resolve(
+        None, None, [reel_hearing.PAIRING_METRIC])
+    declined = reel_hearing.hear(timeline, transcript, spoken,
+                                 project_folder=str(project),
+                                 settings=settings)
+    assert declined.pairing["measured"] is False
+    assert reel_hearing.PAIRING_METRIC in {row["check"]
+                                           for row in declined.skipped}
+    assert reel_hearing.PAIRING_METRIC not in {f.metric
+                                               for f in declined.findings}

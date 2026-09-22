@@ -140,6 +140,33 @@ counted and reported separately, because it is a different defect from a
 card that is merely late.
 """
 
+CAPTION_PAIRING_TOLERANCE_SECONDS = 0.5
+"""How far a caption card may sit from the reel-time window of the
+source span its own filename declares before the pairing is reported.
+
+A tolerance, not a dial (`library/tools/hearing_settings.py`): the
+comparison's own noise is frame quantization plus the millisecond
+rounding in the filename, and the measured-good reel sits an order of
+magnitude inside this - 13 of 13 cards within one 23.976fps frame of
+their declared span, worst 43 ms, mean 15 ms (PR 1178, which measured
+this check and did not build it). Any genuine mispairing - the wrong
+file in a slot, or the right file at the wrong time - displaces the
+card by a card length or more, which is seconds. Half a second is
+twelve frames: ten times the worst good measurement and far below any
+real defect.
+"""
+
+PAIRING_WORD_EDGE_SECONDS = 0.005
+"""How far outside a card's declared source span a word's source time
+may fall and still count as the card's own speech.
+
+The span token in the filename rounds to milliseconds and word
+boundaries are floats, so a word starting exactly on the span's edge
+can read a hair outside it. Five milliseconds admits float dust and
+nothing else: a word genuinely outside the span belongs to another
+card, and widening this would smear the expected window toward it.
+"""
+
 
 # ── Tokens ───────────────────────────────────────────────────────────
 
@@ -249,24 +276,26 @@ def speech_spans(timeline: Dict[str, Any],
 SPAN_LEAD_TOLERANCE_SECONDS = 0.02
 
 
-def planned_words(timeline: Dict[str, Any],
-                  transcript: Dict[str, Any]) -> Tuple[List[Word], List[Span]]:
-    """What the PLAN says this reel says, in reel time.
+def _sourced_words(timeline: Dict[str, Any],
+                    transcript: Dict[str, Any],
+                    spans: Sequence[Span]
+                    ) -> List[Tuple[str, float, float, float, str, str,
+                                    Optional[str]]]:
+    """Every timed word, in BOTH timebases at once.
 
-    The plan's words are the timeline transcript's words - the same
-    document every timing decision in this reel was made from - windowed
-    to each placed clip's own source range and mapped onto reel time by
-    that clip's placement. So this is not a second opinion about the
-    speech: it is the pipeline's own opinion, moved into the frame the
-    render can be heard in.
+    One row per word: `(source_file, source_time, reel_start, reel_end,
+    word, token, speaker)`. `planned_words` and the caption-pairing
+    check walk the same clips and rows through this one function, so
+    the two can never disagree about where a word plays - a second
+    spelling of the walk is how a check passes a word the plan does
+    not carry.
 
     Keys are indexed rather than `.get`-defaulted: the timeline
     transcript's contract promises every one of them, and a rename must
     fail loudly (AGENTS.md 10.1).
     """
-    spans = speech_spans(timeline, transcript)
     segments = transcript.get("segments") or []
-    words: List[Word] = []
+    out: List[Tuple[str, float, float, float, str, str, Optional[str]]] = []
     for span in spans:
         for segment in segments:
             if segment.get("source_file") != span.file_path:
@@ -284,12 +313,30 @@ def planned_words(timeline: Dict[str, Any],
                 token = normalise(row["word"])
                 if not token:
                     continue
-                words.append(Word(
-                    word=row["word"], token=token,
-                    start=start - span.source_in + span.reel_in,
-                    end=end - span.source_in + span.reel_in,
-                    speaker=segment.get("speaker"),
-                ))
+                out.append((span.file_path, start,
+                            start - span.source_in + span.reel_in,
+                            end - span.source_in + span.reel_in,
+                            row["word"], token,
+                            segment.get("speaker")))
+    return out
+
+
+def planned_words(timeline: Dict[str, Any],
+                   transcript: Dict[str, Any]) -> Tuple[List[Word], List[Span]]:
+    """What the PLAN says this reel says, in reel time.
+
+    The plan's words are the timeline transcript's words - the same
+    document every timing decision in this reel was made from - windowed
+    to each placed clip's own source range and mapped onto reel time by
+    that clip's placement. So this is not a second opinion about the
+    speech: it is the pipeline's own opinion, moved into the frame the
+    render can be heard in.
+    """
+    spans = speech_spans(timeline, transcript)
+    words = [Word(word=word, token=token, start=reel_start, end=reel_end,
+                  speaker=speaker)
+             for _, _, reel_start, reel_end, word, token, speaker
+             in _sourced_words(timeline, transcript, spans)]
     words.sort(key=lambda w: (w.start, w.end))
     return words, spans
 
@@ -319,18 +366,36 @@ def unfitted_rows_played(timeline: Dict[str, Any],
 
 # ── The caption side ─────────────────────────────────────────────────
 
-def caption_windows(timeline: Dict[str, Any]) -> List[Tuple[float, float]]:
-    """When a rendered caption card is on screen, in reel time.
+#: A rendered caption filename, split into what it declares. Speaker
+#: and clip slugs never contain `_` and the span is `nospan` or
+#: `<ms>-<ms>`, so a `sub_` id that `is_segment_id` accepts is exactly
+#: these five parts - the same shape
+#: `library/tools/subtitle_segment_id.py` documents, parsed here rather
+#: than there because the pairing check needs the DECLARED span and the
+#: naming module's contract is naming, not parsing.
+_CARD_ID_RE = re.compile(
+    r"^sub_([^_]+)_([^_]+)_(\d+-\d+|nospan)_([0-9a-f]+)$")
+
+
+def caption_cards(timeline: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Every rendered caption card on the timeline, and what its own
+    filename declares.
 
     A card is identified by its FILENAME, through the naming contract
     `library/tools/subtitle_segment_id.py` owns - not by which track it
     sits on. A card placed on the wrong row is still a card the viewer
-    reads, and coverage is a question about the picture.
+    reads, and both coverage and pairing are questions about the
+    picture.
+
+    `source_start`/`source_end` are the declared source span in
+    seconds, or None when the filename declares `nospan`: a file that
+    says nothing about its speech cannot be paired with any, and the
+    pairing check records that openly rather than guessing.
     """
     from library.tools import subtitle_segment_id
 
     fps = _fps(timeline)
-    windows: List[Tuple[float, float]] = []
+    cards: List[Dict[str, Any]] = []
     for track in timeline.get("tracks") or []:
         if track.get("type") != "video":
             continue
@@ -339,10 +404,195 @@ def caption_windows(timeline: Dict[str, Any]) -> List[Tuple[float, float]]:
             stem = os.path.splitext(os.path.basename(str(name)))[0]
             if not subtitle_segment_id.is_segment_id(stem):
                 continue
-            windows.append((clip["record_in"] / fps,
-                            clip["record_out"] / fps))
-    windows.sort()
-    return windows
+            match = _CARD_ID_RE.match(stem)
+            declared: Tuple[Optional[float], Optional[float]] = (None, None)
+            speaker, slug = None, None
+            if match is not None:
+                speaker, slug = match.group(1), match.group(2)
+                if match.group(3) != "nospan":
+                    start_ms, end_ms = match.group(3).split("-")
+                    declared = (int(start_ms) / 1000.0,
+                                int(end_ms) / 1000.0)
+            cards.append({
+                "clip_name": str(name),
+                "stem": stem,
+                "speaker": speaker,
+                "clip": slug,
+                "source_start": declared[0],
+                "source_end": declared[1],
+                "reel_in": clip["record_in"] / fps,
+                "reel_out": clip["record_out"] / fps,
+            })
+    cards.sort(key=lambda c: (c["reel_in"], c["reel_out"]))
+    return cards
+
+
+def caption_windows(timeline: Dict[str, Any]) -> List[Tuple[float, float]]:
+    """When a rendered caption card is on screen, in reel time.
+
+    The card's own windows, without what each card declares - which is
+    what the coverage check reads. The pairing check reads
+    `caption_cards` instead.
+    """
+    return [(card["reel_in"], card["reel_out"])
+            for card in caption_cards(timeline)]
+
+
+def pairing_rows(timeline: Dict[str, Any],
+                 transcript: Dict[str, Any],
+                 spans: Optional[Sequence[Span]] = None
+                 ) -> Dict[str, Any]:
+    """One row per caption card: what its file declares, and where that
+    speech actually plays on this reel.
+
+    The declared source span comes out of the card's own FILENAME - the
+    provenance stem `subtitle_segment_id` roots every render in - and
+    the reel-time window it should sit over is measured, never assumed:
+    the transcript segments overlapping that span say which source file
+    it is, and the placed audio clips say when that file plays. No
+    render, no audio, no model: arithmetic over a filename and a clip
+    placement, which is what closes the "wrong-but-plausible pairing is
+    invisible" the naming module's own docstring names.
+
+    Three ways a card fails, each a different wrong pairing:
+
+    - `span_unplayed`: the declared span overlaps no transcript segment
+      at all - the file claims speech this reel's transcript never
+      plays.
+    - `speaker_mismatch`: segments overlap the span but none speaks as
+      the card's own speaker slug - one speaker's caption over another
+      speaker's audio.
+    - `displaced`: the card sits further than
+      `CAPTION_PAIRING_TOLERANCE_SECONDS` from the reel-time window of
+      its own declared words - the right file at the wrong time, or
+      the wrong file in the slot.
+
+    A card the check cannot establish - a `nospan` filename, or a
+    declared span under which the transcript carries no timed words -
+    is recorded in `unestablished`, never as a finding. The second is
+    the transcript-row-fit cause wearing another hat, and
+    `transcript_row_fit` already owns it: reporting it here too would
+    be one defect with two owners. An absent verdict is not a verdict
+    of fine, but neither is an unmeasurable one a verdict of guilt.
+    """
+    from library.tools import subtitle_segment_id
+
+    if spans is None:
+        spans = speech_spans(timeline, transcript)
+    cards = caption_cards(timeline)
+    segments = transcript.get("segments") or []
+    sourced = _sourced_words(timeline, transcript, spans)
+
+    mispaired: List[Dict[str, Any]] = []
+    unestablished: List[Dict[str, Any]] = []
+    edge_offsets: List[float] = []
+    for card in cards:
+        source_start, source_end = card["source_start"], card["source_end"]
+        if source_start is None or source_end is None:
+            unestablished.append({
+                "card": card["stem"],
+                "reason": "its filename declares no source span "
+                          "(nospan), so there is no speech to pair it "
+                          "with",
+            })
+            continue
+        overlapping = [segment for segment in segments
+                       if source_start < segment["source_end"]
+                       and source_end > segment["source_start"]]
+        if not overlapping:
+            mispaired.append({
+                "card": card["stem"],
+                "kind": "span_unplayed",
+                "reel_start": round(card["reel_in"], 3),
+                "reel_end": round(card["reel_out"], 3),
+                "declared_span": [source_start, source_end],
+                "declared_speaker": card["speaker"],
+                "expected_start": None,
+                "expected_end": None,
+                "offset_seconds": None,
+                "detail": (
+                    f"{card['stem']!r} declares source "
+                    f"{source_start:.3f}-{source_end:.3f}s and no "
+                    f"transcript segment plays that span - the file "
+                    f"claims speech this reel never carries"),
+            })
+            continue
+        speakers = {subtitle_segment_id.slug(segment.get("speaker"),
+                                             "nospeaker")
+                    for segment in overlapping}
+        if card["speaker"] not in speakers:
+            mispaired.append({
+                "card": card["stem"],
+                "kind": "speaker_mismatch",
+                "reel_start": round(card["reel_in"], 3),
+                "reel_end": round(card["reel_out"], 3),
+                "declared_span": [source_start, source_end],
+                "declared_speaker": card["speaker"],
+                "expected_start": None,
+                "expected_end": None,
+                "offset_seconds": None,
+                "detail": (
+                    f"{card['stem']!r} speaks as {card['speaker']!r} "
+                    f"over a span the transcript gives to "
+                    f"{sorted(speakers)} - one speaker's caption over "
+                    f"another speaker's audio"),
+            })
+            continue
+        files = {segment.get("source_file") for segment in overlapping}
+        lo, hi = None, None
+        for source_file, source_time, reel_start, reel_end, *_ in sourced:
+            if source_file not in files:
+                continue
+            if not (source_start - PAIRING_WORD_EDGE_SECONDS
+                    <= source_time
+                    <= source_end + PAIRING_WORD_EDGE_SECONDS):
+                continue
+            lo = reel_start if lo is None else min(lo, reel_start)
+            hi = reel_end if hi is None else max(hi, reel_end)
+        if lo is None:
+            unestablished.append({
+                "card": card["stem"],
+                "reason": ("its declared span "
+                           f"{source_start:.3f}-{source_end:.3f}s "
+                           "carries no timed word on this reel - the "
+                           "transcript rows there lost their timings, "
+                           "which transcript_row_fit already reports"),
+            })
+            continue
+        edge_offsets.append(max(abs(card["reel_in"] - lo),
+                                abs(card["reel_out"] - hi)))
+        gap = max(0.0, lo - card["reel_out"], card["reel_in"] - hi)
+        if gap > CAPTION_PAIRING_TOLERANCE_SECONDS:
+            mispaired.append({
+                "card": card["stem"],
+                "kind": "displaced",
+                "reel_start": round(card["reel_in"], 3),
+                "reel_end": round(card["reel_out"], 3),
+                "declared_span": [source_start, source_end],
+                "declared_speaker": card["speaker"],
+                "expected_start": round(lo, 3),
+                "expected_end": round(hi, 3),
+                "offset_seconds": round(gap, 3),
+                "detail": (
+                    f"{card['stem']!r} sits at "
+                    f"{card['reel_in']:.2f}-{card['reel_out']:.2f}s "
+                    f"but its declared span plays at "
+                    f"{lo:.2f}-{hi:.2f}s - "
+                    f"{gap:.2f}s away"),
+            })
+    mispaired.sort(key=lambda r: (r["reel_start"], r["card"]))
+    return {
+        "measured": True,
+        "caption_cards": len(cards),
+        "established_cards": len(edge_offsets),
+        "mispaired": mispaired,
+        "unestablished": unestablished,
+        "max_edge_offset_seconds": (round(max(edge_offsets), 3)
+                                    if edge_offsets else None),
+        "mean_edge_offset_seconds": (round(sum(edge_offsets)
+                                           / len(edge_offsets), 3)
+                                     if edge_offsets else None),
+    }
 
 
 def covered_fraction(start: float, end: float,
@@ -476,8 +726,10 @@ SCRIPT_METRIC = "heard_script_divergence"
 DRIFT_METRIC = "heard_timing_drift"
 COVERAGE_METRIC = "heard_caption_coverage"
 FIT_METRIC = "transcript_row_fit"
+PAIRING_METRIC = "heard_caption_pairing"
 
-METRICS = (SCRIPT_METRIC, DRIFT_METRIC, COVERAGE_METRIC, FIT_METRIC)
+METRICS = (SCRIPT_METRIC, DRIFT_METRIC, COVERAGE_METRIC, FIT_METRIC,
+           PAIRING_METRIC)
 """Every metric this producer can emit. Complete, and each has a row in
 `qa_findings.FINDING_READERS`.
 
@@ -525,6 +777,10 @@ class Hearing:
     or not any reel plays one. Carried on every hearing so a reader
     learns the episode-wide count from the reel they already ran,
     without hearing thirty more."""
+    pairing: Dict[str, Any] = field(default_factory=dict)
+    """What each caption card's own filename declares, and where that
+    speech actually plays. `pairing_rows` owns the shape; unmeasured
+    until `hear` runs it, like `coverage`."""
     settings: Any = None
     """The `hearing_settings.HearingSettings` this hearing ran with."""
     skipped: List[Dict[str, str]] = field(default_factory=list)
@@ -559,6 +815,7 @@ class Hearing:
             "drift": self.drift,
             "drift_runs": self.runs,
             "caption_coverage": self.coverage,
+            "caption_pairing": self.pairing,
             "transcriber_anomalies": self.anomalies,
             "unfitted_transcript_rows": self.unfitted_transcript_rows,
             "transcript_fit": self.transcript_fit,
@@ -694,6 +951,58 @@ def _fit_finding(hearing: Hearing) -> Finding:
     return Finding(
         metric=FIT_METRIC, passed=False, value=len(rows), threshold=0,
         severity="error" if whole else "warning", detail=detail)
+
+
+def _pairing_finding(hearing: Hearing) -> Optional[Finding]:
+    """The caption cards paired with the wrong source span.
+
+    The one check in this pass that needs no transcription at all: a
+    card's own filename declares whose speech and which source span it
+    captions (`subtitle_segment_id`), and the timeline says where the
+    card was placed. A wrong-but-plausible pairing - the wrong file in
+    a slot, or the right file at the wrong time - is invisible to every
+    other check here, because the words on screen are real words and
+    the timing can be perfect while they belong to another passage.
+
+    `error` when any card is mispaired, because a viewer reading one
+    speaker's caption over another speaker's audio is misinformed, not
+    inconvenienced. Cards the check cannot establish (`nospan`
+    filenames, or spans under which the transcript carries no timed
+    word) never fail it: the second already has an owner in
+    `transcript_row_fit`, and an unmeasurable card is not a guilty one.
+    """
+    pairing = hearing.pairing
+    if not pairing.get("measured"):
+        return None
+    mispaired = pairing["mispaired"]
+    cards = pairing["caption_cards"]
+    if not mispaired:
+        detail = (f"{pairing['established_cards']} of {cards} caption "
+                  f"cards sit over the source span their own filename "
+                  f"declares")
+        if pairing["max_edge_offset_seconds"] is not None:
+            detail += (f" - worst edge "
+                       f"{pairing['max_edge_offset_seconds'] * 1000:.0f}ms, "
+                       f"mean "
+                       f"{pairing['mean_edge_offset_seconds'] * 1000:.0f}ms")
+        if pairing["unestablished"]:
+            detail += (f"; {len(pairing['unestablished'])} card(s) declare "
+                       f"nothing to pair - "
+                       + ", ".join(row["card"]
+                                   for row in pairing["unestablished"]))
+        return Finding(metric=PAIRING_METRIC, passed=True, value=0,
+                       threshold=0, severity="info", detail=detail)
+    kinds: Dict[str, int] = {}
+    for row in mispaired:
+        kinds[row["kind"]] = kinds.get(row["kind"], 0) + 1
+    detail = (f"{len(mispaired)} of {cards} caption cards are paired "
+              f"with speech their filename does not declare "
+              f"({', '.join(f'{count} {kind}' for kind, count in sorted(kinds.items()))})")
+    first = mispaired[0]
+    detail += f" - first at {first['reel_start']:.2f}s: {first['detail']}"
+    return Finding(
+        metric=PAIRING_METRIC, passed=False, value=len(mispaired),
+        threshold=0, severity="error", detail=detail)
 
 
 def hear(timeline: Dict[str, Any],
@@ -854,10 +1163,31 @@ def hear(timeline: Dict[str, Any],
     # summary and the structure it was rendered from (AGENTS.md 10.1).
     hearing.transcript_fit.pop("rows_detail", None)
 
+    if not settings.runs(PAIRING_METRIC):
+        hearing.pairing = {"measured": False, "caption_cards": 0,
+                           "established_cards": 0, "mispaired": [],
+                           "unestablished": [],
+                           "max_edge_offset_seconds": None,
+                           "mean_edge_offset_seconds": None}
+    elif not caption_cards(timeline):
+        hearing.pairing = {"measured": False, "caption_cards": 0,
+                           "established_cards": 0, "mispaired": [],
+                           "unestablished": [],
+                           "max_edge_offset_seconds": None,
+                           "mean_edge_offset_seconds": None}
+        hearing.skipped.append({
+            "check": PAIRING_METRIC,
+            "reason": "this timeline carries no rendered caption segment, "
+                      "so there is no pairing to check. A reel that "
+                      "declares no captions is not a reel with wrong ones."})
+    else:
+        hearing.pairing = pairing_rows(timeline, transcript, hearing.spans)
+
     builders = ((SCRIPT_METRIC, _script_finding),
                 (DRIFT_METRIC, _drift_finding),
                 (COVERAGE_METRIC, _coverage_finding),
-                (FIT_METRIC, _fit_finding))
+                (FIT_METRIC, _fit_finding),
+                (PAIRING_METRIC, _pairing_finding))
     hearing.findings = []
     for metric, build in builders:
         if not settings.runs(metric):
