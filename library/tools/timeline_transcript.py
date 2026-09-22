@@ -94,6 +94,8 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence
 
+from library.tools.word_boundaries import sanitize_word_boundaries
+
 AUDIO_CACHE_KEYS = ("source_file", "source_in", "source_out",
                     "sample_rate", "channels")
 """What an extracted span's cache key is made of. Complete, and
@@ -746,6 +748,15 @@ def segments_for_speaker(aligned: dict, speaker: Optional[str],
         start = float(segment["start"])
         end = float(segment["end"])
         words = interpolate_untimed_words(segment.get("words") or [])
+        # The aligner bridges trailing silence into the word it placed
+        # last (field test: 9 stretched words, all backchannels, up to
+        # 62.6s). The preflight clamps those and this path did not, so a
+        # widened envelope put re-read midpoints in clip gaps and the row
+        # read as unbound. One clamp, both paths - see
+        # `library/tools/word_boundaries.py`. Membership never changes,
+        # so the unfitted-text counts on the document read identically
+        # before and after.
+        words = sanitize_word_boundaries(words)
         confidence = line_confidence(segment)
 
         clip = attribute_to_clip(start, end, clips)

@@ -213,12 +213,14 @@ def clamp_heard_words(words: Sequence[heard_speech.HeardWord]) -> List[dict]:
 
     This is WINDOW CONSTRUCTION HYGIENE on the TRANSCRIBER's words, and
     it is deliberately not the other thing that looks like it:
-    `step_1_04_temporal_index._sanitize_word_boundaries` applies an
-    equivalent pass to the ALIGNER's output words, which is a different
-    input at a different stage. Unifying the two is the standing
-    `vep-port-sanitize-word-boundaries-to-timeline-transcript` task and
-    is not done here; naming both in one place is what this docstring is
-    for.
+    `library/tools/word_boundaries.py` applies the shared pass to the
+    ALIGNER's output words, serving both `step_1_04_temporal_index` and
+    `timeline_transcript.segments_for_speaker`. This one stays separate
+    because its input is different (transcriber words, before any
+    aligner has run) and its fallback is different (no median, no
+    clamp, rather than the shared 0.3s) - folding it in would trade one
+    shared clamp for one clamp with two modes, which is the same defect
+    with fresher paint.
     """
     spans = [{"word": w.word, "start": float(w.start), "end": float(w.end)}
              for w in words]

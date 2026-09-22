@@ -76,6 +76,9 @@ from model_lifecycle import load_model, unload_model
 from library.tools.step_stdout import claim_stdout as _claim_stdout, emit as _emit
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools.subject_framing import load_face_cascade
+from library.tools.word_boundaries import (
+    sanitize_word_boundaries as _sanitize_word_boundaries,
+)
 
 
 # ── Audio extraction ─────────────────────────────────────────────────
@@ -272,49 +275,14 @@ def snap_word_boundaries_to_onsets(
     return words
 
 
-def _sanitize_word_boundaries(words: list) -> list:
-    """Fix wav2vec2 forced-alignment artifacts.
-
-    Three passes:
-      1. Fix negative/zero durations (end <= start)
-      2. Clamp unreasonably long words (> 2s) to median duration
-      3. Fix overlapping boundaries (word[i].end > word[i+1].start)
-
-    Must be called AFTER onset snapping (which may shift starts).
-    """
-    if not words:
-        return words
-
-    MIN_WORD_DURATION = 0.020   # 20ms — roughly one frame at 30fps
-    MAX_WORD_DURATION = 2.0     # alignment failure threshold
-
-    # Pass 1: fix negative/zero durations
-    for w in words:
-        if w["end"] <= w["start"]:
-            w["end"] = round(w["start"] + MIN_WORD_DURATION, 3)
-        elif w["end"] - w["start"] < MIN_WORD_DURATION:
-            w["end"] = round(w["start"] + MIN_WORD_DURATION, 3)
-
-    # Pass 2: clamp unreasonably long words
-    durations = [
-        w["end"] - w["start"] for w in words
-        if MIN_WORD_DURATION <= w["end"] - w["start"] <= MAX_WORD_DURATION
-    ]
-    if durations:
-        median_dur = sorted(durations)[len(durations) // 2]
-    else:
-        median_dur = 0.3  # fallback
-
-    for w in words:
-        if w["end"] - w["start"] > MAX_WORD_DURATION:
-            w["end"] = round(w["start"] + median_dur, 3)
-
-    # Pass 3: clamp overlapping word boundaries
-    for i in range(len(words) - 1):
-        if words[i]["end"] > words[i + 1]["start"]:
-            words[i]["end"] = words[i + 1]["start"]
-
-    return words
+# ── Speech regions ─────────────────────────────────────────────────
+#
+# Word-boundary hygiene lives in `library/tools/word_boundaries.py` and
+# is SHARED with the reels transcript path
+# (`timeline_transcript.segments_for_speaker`): one clamp, both paths.
+# This step calls it as `_sanitize_word_boundaries`, imported under
+# that historical name at the top of this file, so existing references
+# keep reading.
 
 
 def detect_speech_regions(
