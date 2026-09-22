@@ -251,6 +251,10 @@ make_remote_ledger_fleet() {  # <parent-home> <count>
   while [ "$i" -le "$count" ]; do
     id="ledger-$i"
     remote_home="$TMP_ROOT/remote-ledger-home-$i"
+    # The remote homes are shared across cases through the suite-wide TMP_ROOT,
+    # so reset each one here: a previous case's control files (slow or unbounded
+    # read markers, stale summaries) must never reach this case's snapshot.
+    rm -rf "$remote_home"
     mkdir -p "$remote_home/state"
     remote_home=$(cd "$remote_home" && pwd -P)
     printf -- '- %s - ledger fixture (host: host-%s; root: /remote/root; home: %s; scope: fixture; projects: sample; added 2026-09-01)\n' \
@@ -1847,6 +1851,44 @@ test_landed_preserves_kindless_v1_summary_reports() {
   pass "kindless v1 summaries retain report artifacts from fresh and cached ledgers"
 }
 
+# The remote ledger homes live under the suite-wide TMP_ROOT, so every case
+# shares the same victim paths. A case that leaves a slow-read marker behind
+# (as the concurrent-budget case does on ledger-1) must not change the next
+# case's snapshot: fleet setup resets each shared home, so cases stay
+# independent regardless of execution order.
+test_remote_ledger_fleet_resets_shared_homes_between_cases() {
+  local polluter victim remote_home fakebin json
+  polluter=$(make_home ledger-isolation-polluter)
+  make_remote_ledger_fleet "$polluter" 1
+  # The exact leftover the concurrent-budget case leaves on ledger-1.
+  : > "$TMP_ROOT/remote-ledger-home-1/state/slow-ledger-read"
+  victim=$(make_home ledger-isolation-victim)
+  make_remote_ledger_fleet "$victim" 1
+  remote_home="$TMP_ROOT/remote-ledger-home-1"
+  assert_absent "$remote_home/state/slow-ledger-read" \
+    "fleet setup carried a previous case's slow-read marker into this case"
+  fakebin=$(make_remote_ledger_ssh "$victim/remote-ssh")
+  jq '
+    .landed = [
+      {id:"legacy-report",title:"Scout report",report_path:"data/scout/report.md",completion:{verb:"reported",date:"2026-09-01"}},
+      {id:"legacy-pr",title:"Merged change",report_path:"data/scout/report.md",pr_url:"https://github.com/o/r/pull/1",completion:{verb:"merged",date:"2026-09-01"}},
+      {id:"legacy-local",title:"Local delivery",report_path:"data/scout/report.md",local_note:"local main",completion:{verb:"done",date:"2026-09-01"}}
+    ] | .counts.landed = (.landed | length)
+  ' "$remote_home/state/home-summary.json" > "$remote_home/state/legacy-summary.json"
+  mv "$remote_home/state/legacy-summary.json" "$remote_home/state/home-summary.json"
+  json=$(run_remote_ledger_bearings "$victim" "$fakebin" 1100) \
+    || fail "isolated ledger bearings failed"
+  printf '%s' "$json" | jq -e '
+    (.secondmates | any(.id == "ledger-1" and .freshness == "fresh"))
+    and (.landed | map({id,artifact,owner}) | sort_by(.id)) == [
+      {id:"legacy-local",artifact:"local main",owner:"ledger-1"},
+      {id:"legacy-pr",artifact:"https://github.com/o/r/pull/1",owner:"ledger-1"},
+      {id:"legacy-report",artifact:"data/scout/report.md",owner:"ledger-1"}
+    ]
+  ' >/dev/null || fail "a previous case's marker leaked into this snapshot: $json"
+  pass "remote ledger fleet setup resets shared homes between cases"
+}
+
 test_landed_default_balances_dominant_and_sparse_homes() {
   local home dominant sparse_a sparse_b sparse_c fakebin json i actual expected
   home=$(make_home landed-balanced-default)
@@ -3368,6 +3410,7 @@ test_current_state_uses_captured_status_observation
 test_relaunched_task_does_not_inherit_reused_endpoint_state
 test_large_local_snapshot_overlaps_local_reads_without_projection_drift
 test_remote_ledgers_share_one_concurrent_budget_and_fall_back_to_cache
+test_remote_ledger_fleet_resets_shared_homes_between_cases
 test_a_remote_home_without_any_ledger_is_explicitly_unreadable_without_remote_compute
 test_domain_alpha_stale_parent_event_does_not_become_current_work
 test_gnu_stat_uses_file_formats_without_bsd_fallback_pollution

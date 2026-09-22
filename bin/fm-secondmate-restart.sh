@@ -29,7 +29,11 @@
 #      All requests go out before any restart, so a slow mate delays only its own
 #      restart instead of serializing the fleet behind it.
 #   B. RESTART. Only after that mate's own correlated answer lands on the parent
-#      channel. The gate is that answer, never a wall clock, so a mate that is
+#      channel, and that answer's own request is retired to handled/ first:
+#      the answerer is stopped before it can acknowledge its own instruction,
+#      so without that retirement the replacement would read the already
+#      answered request as a new instruction and answer it a second time. The
+#      gate is that answer, never a wall clock, so a mate that is
 #      mid-turn queues the request behind that turn; the bound below exists to
 #      end the wait, not to authorize a restart without the answer. A timeout
 #      deliberately leaves that unanswered expectation open: it is a genuine
@@ -91,6 +95,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
+# shellcheck source=bin/fm-task-inbox-lib.sh
+. "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 
 PERSIST_WAIT=${FM_SECONDMATE_PERSIST_WAIT:-900}
 PERSIST_POLL=${FM_SECONDMATE_PERSIST_POLL:-5}
@@ -157,6 +163,39 @@ fall_back_to_nudge() {  # <id> <reason>
 report_unreached() {  # <id> <reason>
   unreached_count=$((unreached_count + 1))
   printf 'unreached: %s: %s\n' "$1" "$2"
+}
+
+# Retire this pass's own persist request for one mate, now that its answer is
+# on the parent channel. The answering incarnation is stopped before it moves
+# its own instruction to handled/ (bin/fm-task-inbox-lib.sh owns that
+# acknowledgement), so the restart performs the same move on the answer's
+# strength, before anything is stopped: locally here, remotely through the
+# host-local ack verb over the same transport hop. A restart that never
+# follows - refused, failed, or interrupted - still leaves nothing pending for
+# anyone to re-answer, because retirement follows the answer, not the restart.
+retire_persist_request() {  # <array-index>
+  local i=$1 id corr
+  id=${IDS[$i]}
+  corr=${CORR[$i]}
+  if [ "${PLACEMENT[i]}" = remote ]; then
+    FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-on.sh" "$id" \
+      fm-remote-secondmate-control.sh ack "$id" "$corr" < /dev/null
+  else
+    fm_task_inbox_retire_corr "$STATE" "$id" "$corr"
+  fi
+}
+
+# 0 when one mate's correlated answer has landed on the parent channel AND its
+# own persist request is retired to handled/, so the replacement never
+# re-answers it. Polling callers silence a failed retirement and retry it on
+# the next pass; only the timeout decision reports it, as unreached without a
+# restart, because restarting onto an unretired request would make the
+# replacement answer it a second time.
+persist_answer_settled() {  # <array-index>
+  local i=$1
+  fm_pending_reply_try_resolve "$STATE" "${CORR[i]}" || return 1
+  retire_persist_request "$i" || return 1
+  return 0
 }
 
 restart_mate() {  # <array-index>
@@ -335,7 +374,7 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
   i=0
   while [ "$i" -lt "${#IDS[@]}" ]; do
     if [ "${PLAN[i]}" = persisted-pending ] \
-      && fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
+      && persist_answer_settled "$i" >/dev/null 2>&1; then
       pending_count=$((pending_count - 1))
       launch_restart "$i"
     fi
@@ -351,8 +390,15 @@ while [ "$((pending_count + restart_active_count))" -gt 0 ]; do
       # A reply can land after the fleet-wide resolution pass. Recheck at the
       # timeout decision so an answer already on disk wins over the fallback.
       if fm_pending_reply_try_resolve "$STATE" "${CORR[i]}"; then
-        pending_count=$((pending_count - 1))
-        launch_restart "$i"
+        if retire_persist_request "$i"; then
+          pending_count=$((pending_count - 1))
+          launch_restart "$i"
+        else
+          report_unreached "${IDS[$i]}" \
+            "its write-down answer arrived but the answered request could not be retired, so a restart would make its replacement answer it again"
+          PLAN[i]="done"
+          pending_count=$((pending_count - 1))
+        fi
       else
         fall_back_to_nudge "${IDS[$i]}" \
           "it did not confirm within ${PERSIST_WAIT}s that its open work is written down, so its conversation was not spent"

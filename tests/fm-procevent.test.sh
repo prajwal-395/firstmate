@@ -2521,7 +2521,14 @@ STORM_SOURCE="$TMP_ROOT/storm-source.sh"
 cat > "$STORM_SOURCE" <<'SH'
 #!/usr/bin/env bash
 perl -MTime::HiRes=time -e 'printf "%.6f\n", time' >> "$1"
-FM_HOME="$2" perl -MPOSIX=setsid -e '
+# Succession waits for the predecessor runner's exit instead of a fixed sleep.
+# A fixed delay races runner teardown under load: a self-relaunch reconcile
+# that observes the still-live predecessor launches nothing, and with no other
+# driver the chain dies and the relaunch wait below times out. A dead
+# predecessor is reconcile's launch path, so waiting on its exit makes the
+# handoff state-based; the bound only covers PID reuse and falls back to one
+# immediate reconcile, which is the old behaviour.
+FM_HOME="$2" RUNNER_PID="$PPID" perl -MPOSIX=setsid -e '
   my @command = @ARGV;
   defined(my $pid = fork) or exit 1;
   exit 0 if $pid;
@@ -2529,7 +2536,13 @@ FM_HOME="$2" perl -MPOSIX=setsid -e '
   open STDIN, "<", "/dev/null" or exit 1;
   open STDOUT, ">", "/dev/null" or exit 1;
   open STDERR, ">", "/dev/null" or exit 1;
-  select undef, undef, undef, 0.2;
+  my $runner = $ENV{RUNNER_PID};
+  if (defined($runner) && $runner =~ /\A[1-9][0-9]*\z/) {
+    my $deadline = time + 30;
+    while (kill(0, $runner) && time < $deadline) {
+      select undef, undef, undef, 0.05;
+    }
+  }
   exec @command;
 ' "$3/bin/fm-procevent.sh" reconcile
 exit 1

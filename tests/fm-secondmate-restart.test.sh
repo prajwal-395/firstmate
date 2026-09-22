@@ -836,6 +836,120 @@ test_already_current_unprovable_mate_stays_on_the_nudge_path() {
   pass "T16 an already-current mate with an unprovable runtime keeps the honest nudge path"
 }
 
+# --- T17: an answered persist request is retired before the restart ---------
+# The restart kills the answering incarnation before that mate moves its own
+# instruction to handled/, so without a parent-side retire the replacement
+# reads the already-answered write-down request as a new instruction and
+# answers it a second time. The restart must retire its own request on the
+# strength of the answer, before anything is stopped.
+test_answered_restart_retires_its_own_persist_request() {
+  local dir out rc corr f
+  dir=$(new_case retire-on-answer)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+
+  out=$(run_restart "$dir" sm1); rc=$?
+
+  expect_code 0 "$rc" "a confirmed persist should restart the mate"$'\n'"$out"
+  assert_contains "$out" "restarted: sm1" "the mate should be restarted"
+  corr=$(grep -hoE 'corr=[0-9a-f]{16}' "$dir/home/state/sm1.inbox"/handled/*.msg 2>/dev/null | head -1)
+  [ -n "$corr" ] || fail "the answered persist request was never retired to handled/"
+  for f in "$dir/home/state/sm1.inbox"/*.msg; do
+    [ -e "$f" ] || continue
+    fail "a pending persist record survived the restart for the replacement to re-answer: $f"
+  done
+  assert_grep 'Open-record persistence' "$dir/home/state/sm1.inbox/handled/"*.msg \
+    "the retired record should be the persist request the mate already answered"
+  pass "T17 an answered persist request is retired before the restart"
+}
+
+# --- T18: retirement follows the answer, not the restart outcome -------------
+# A restart interrupted after the answer - here refused before anything stops -
+# must still retire the answered request. Otherwise the still-running mate keeps
+# a pending instruction it already answered and answers it again on re-ring.
+test_refused_restart_still_retires_the_answered_request() {
+  local dir out rc f
+  dir=$(new_case refused-retires)
+  add_local_mate "$dir" sm1
+  arm_answer "$dir" sm1
+  # muse is a crewmate-only adapter, so the control plane refuses a secondmate
+  # relaunch onto it BEFORE stopping anything.
+  printf 'muse\n' > "$dir/home/config/secondmate-harness"
+
+  out=$(run_restart "$dir" sm1); rc=$?
+
+  expect_code 3 "$rc" "a refused restart must not be reported as a reload"$'\n'"$out"
+  assert_contains "$out" "unreached: sm1:" "a failed restart must be reported as unknown"
+  assert_not_contains "$out" "restarted: sm1" "a refused restart must not be reported as restarted"
+  for f in "$dir/home/state/sm1.inbox"/*.msg; do
+    [ -e "$f" ] || continue
+    fail "the answered request stayed pending even though no restart followed: $f"
+  done
+  assert_grep 'Open-record persistence' "$dir/home/state/sm1.inbox/handled/"*.msg \
+    "the answered request must be retired even when the restart never happens"
+  pass "T18 a refused restart still retires the answered request"
+}
+
+# --- T19: a remote restart retires its request over the hop, first -----------
+test_remote_restart_retires_the_persist_request_over_the_hop() {
+  local dir out rc corr send_corr ack_line relaunch_line send_line
+  dir=$(new_case remote-retire)
+  setup_remote_case "$dir" sm2 ok
+  export FM_FAKE_ANSWER_STATUS="$dir/home/state/sm2.status"
+
+  out=$(run_restart "$dir" fm-sm2); rc=$?
+  unset FM_FAKE_ANSWER_STATUS
+
+  expect_code 0 "$rc" "a remote mate should restart over its transport hop"$'\n'"$out"
+  assert_contains "$out" "restarted: sm2 on remote-mac" "a remote restart should be reported"
+  send_corr=$(grep -oE 'corr=[0-9a-f]{16}' "$dir/ssh.log" | head -1)
+  [ -n "$send_corr" ] || fail "no correlation crossed the hop"$'\n'"$(cat "$dir/ssh.log")"
+  corr=${send_corr#corr=}
+  ack_line=$(grep -n "fm-remote-secondmate-control.sh ack sm2 $corr" "$dir/ssh.log" | head -1 | cut -d: -f1)
+  [ -n "$ack_line" ] || fail "the answered persist request was never retired over the hop"$'\n'"$(cat "$dir/ssh.log")"
+  send_line=$(grep -n '^fm-remote-secondmate-control.sh send' "$dir/ssh.log" | head -1 | cut -d: -f1)
+  relaunch_line=$(grep -n '^fm-remote-secondmate-control.sh relaunch' "$dir/ssh.log" | head -1 | cut -d: -f1)
+  [ -n "$relaunch_line" ] || fail "no relaunch crossed the transport hop"
+  [ "$send_line" -lt "$ack_line" ] && [ "$ack_line" -lt "$relaunch_line" ] \
+    || fail "retirement must run after the request and before the restart (send $send_line, ack $ack_line, relaunch $relaunch_line)"
+  pass "T19 a remote restart retires its answered request over the hop before relaunching"
+}
+
+# --- T20: the remote ack verb retires only the answered record ---------------
+test_remote_ack_verb_retires_only_the_matching_record() {
+  local dir rhome inbox out rc corr
+  dir=$(new_case remote-ack-verb)
+  rhome="$dir/rm1-home"
+  inbox="$rhome/state/parent-route/rm1.inbox"
+  mkdir -p "$inbox/handled" "$rhome/bin"
+  printf 'rm1\n' > "$rhome/.fm-secondmate-home"
+  printf '# agents\n' > "$rhome/AGENTS.md"
+  corr=abcdef0123456789
+  {
+    printf 'schema=fm-task-inbox.v1\nat=2026-09-22T00:00:00Z\n--\n'
+    printf 'marker corr=%s persist the open work\n' "$corr"
+  } > "$inbox/001.msg"
+  {
+    printf 'schema=fm-task-inbox.v1\nat=2026-09-22T00:00:00Z\n--\n'
+    printf 'an unrelated later steer\n'
+  } > "$inbox/002.msg"
+
+  out=$(FM_HOME="$rhome" "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 "$corr" 2>&1); rc=$?
+
+  expect_code 0 "$rc" "the ack verb should retire the answered record"$'\n'"$out"
+  assert_present "$inbox/handled/001.msg" "the answered record was not retired to handled/"
+  assert_present "$inbox/002.msg" "the ack retired a record it was never asked about"
+  assert_absent "$inbox/001.msg" "the retired record is still pending for the replacement"
+
+  # Retiring twice is a no-op success: the mate may have acknowledged itself.
+  out=$(FM_HOME="$rhome" "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 "$corr" 2>&1); rc=$?
+  expect_code 0 "$rc" "a repeated ack must stay a no-op success"$'\n'"$out"
+
+  out=$(FM_HOME="$rhome" "$ROOT/bin/fm-remote-secondmate-control.sh" ack rm1 not-a-corr 2>&1); rc=$?
+  [ "$rc" -ne 0 ] || fail "a malformed correlation was accepted"
+  pass "T20 the remote ack verb retires only the answered record"
+}
+
 test_persist_gates_and_asks_only_for_open_records
 test_persist_precedes_restart
 test_arrived_answer_precedes_deadline_check
@@ -855,5 +969,9 @@ test_unpublished_worker_result_is_accounted_for
 test_result_published_while_reaping_is_honored
 test_already_current_mate_restarts_end_to_end
 test_already_current_unprovable_mate_stays_on_the_nudge_path
+test_answered_restart_retires_its_own_persist_request
+test_refused_restart_still_retires_the_answered_request
+test_remote_restart_retires_the_persist_request_over_the_hop
+test_remote_ack_verb_retires_only_the_matching_record
 
 echo "# all fm-secondmate-restart tests passed"

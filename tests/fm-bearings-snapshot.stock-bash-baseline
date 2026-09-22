@@ -4,4 +4,4 @@
 # Refresh with bin/fm-stock-bash-baseline.sh after adding or removing tests.
 # Never hand-edit the count.
 # A mismatch fails loudly so a stale baseline cannot hide a stock-bash regression.
-count=60
+count=61
