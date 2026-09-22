@@ -889,7 +889,7 @@ def _tighten_impl(props: dict,
         draw_gain)
 
     # The clamp gate the caption path already has
-    # (`resolve_placement_from_correspondence`): a transform Resolve
+    # (`tight_box.placement_holds`): a transform Resolve
     # cannot hold is refused here, at render time, where the
     # full-canvas fallback still exists - never at placement time,
     # where the file is already small and the only options are a

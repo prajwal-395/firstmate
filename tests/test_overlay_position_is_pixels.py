@@ -62,8 +62,6 @@ from library.tools.overlay_placement import (  # noqa: E402
 )
 from library.tools.tight_box import (  # noqa: E402
     TightBoxMismatch,
-    extract_frames,
-    ink_union_of_frames,
     placement_for_box,
     placement_holds,
 )
