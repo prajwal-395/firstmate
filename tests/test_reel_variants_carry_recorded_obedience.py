@@ -56,11 +56,17 @@ def _module():
     return ast.parse(SOURCE.read_text(encoding="utf-8"))
 
 
+def _module_functions():
+    """Every top-level function `reel_build.py` defines, by name."""
+    return {node.name: node for node in _module().body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
 def _function(name):
-    for node in _module().body:
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return node
-    raise AssertionError(f"{SOURCE.name} defines no {name}()")
+    try:
+        return _module_functions()[name]
+    except KeyError:
+        raise AssertionError(f"{SOURCE.name} defines no {name}()")
 
 
 def _called_names(func):
@@ -77,6 +83,35 @@ def _called_names(func):
     return names
 
 
+def _called_names_transitive(name):
+    """What `name` reaches, following same-module helpers.
+
+    #1214 moved the rebuild's ending and exclusion handling behind the
+    shared spellings `derive_reel_ranges_and_cards` and
+    `moment_cuts_and_insistences`, which call `apply_ending` and
+    `exclusion_cuts_for_span` one frame out. A flat name check reads
+    that refactor as the rebuild dropping two obediences and skips -
+    which is how a green suite came to exit 1. The obedience is what
+    executes during the build, at whatever depth, so follow the calls
+    down to a fixpoint over this module's own functions.
+    """
+    defined = _module_functions()
+    seen, stack = set(), [name]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        func = defined.get(current)
+        if func is None:
+            continue
+        for called in _called_names(func):
+            if called not in seen:
+                stack.append(called)
+    seen.discard(name)
+    return seen
+
+
 def test_both_builders_exist():
     """The guard is worthless if it silently matches nothing."""
     assert _function("rebuild_reels_in_project")
@@ -86,7 +121,7 @@ def test_both_builders_exist():
 def test_the_rebuild_obeys_something():
     """The invariant is a SUBSET check, so an empty left side would
     pass forever.  Pin that the rebuild really reads these."""
-    called = _called_names(_function("rebuild_reels_in_project"))
+    called = _called_names_transitive("rebuild_reels_in_project")
     obeyed = RECORDED_OBEDIENCE & called
     assert obeyed, (
         "rebuild_reels_in_project calls none of "
@@ -98,10 +133,16 @@ def test_the_rebuild_obeys_something():
 
 @pytest.mark.parametrize("call", sorted(RECORDED_OBEDIENCE))
 def test_variant_carries_every_obedience_the_rebuild_carries(call):
-    rebuild = _called_names(_function("rebuild_reels_in_project"))
-    variant = _called_names(_function("build_reel_variants"))
+    rebuild = _called_names_transitive("rebuild_reels_in_project")
+    variant = _called_names_transitive("build_reel_variants")
     if call not in rebuild:
-        pytest.skip(f"{call} is not read by the rebuild either")
+        pytest.fail(
+            f"rebuild_reels_in_project no longer reaches {call}(), even "
+            f"through its shared helpers - either the rebuild stopped "
+            f"obeying a recorded decision (a regression in the rebuild), "
+            f"or RECORDED_OBEDIENCE is stale and must be updated to the "
+            f"new spelling. Skipping here would hide which, and the "
+            f"session hook fails an undeclared skip anyway.")
     assert call in variant, (
         f"rebuild_reels_in_project applies {call}() and "
         f"build_reel_variants does not. A variant that drops a recorded "

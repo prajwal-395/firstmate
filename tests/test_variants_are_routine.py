@@ -180,11 +180,18 @@ def test_the_branch_and_the_timeline_name_still_derive_both_ways():
 
 # ── The declarations reach the variant build ─────────────────────
 
+def _module_functions():
+    """Every top-level function `reel_build.py` defines, by name."""
+    return {node.name: node
+            for node in ast.parse(SOURCE.read_text(encoding="utf-8")).body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+
 def _function(name):
-    for node in ast.parse(SOURCE.read_text(encoding="utf-8")).body:
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return node
-    raise AssertionError(f"reel_build.py defines no {name}()")
+    try:
+        return _module_functions()[name]
+    except KeyError:
+        raise AssertionError(f"reel_build.py defines no {name}()")
 
 
 def _called_names(func):
@@ -199,6 +206,34 @@ def _called_names(func):
     return names
 
 
+def _called_names_transitive(name):
+    """What `name` reaches, following same-module helpers.
+
+    #1214 moved the rebuild's ending handling behind the shared
+    spelling `derive_reel_ranges_and_cards`, which calls
+    `apply_ending` one frame out. A flat name check reads that
+    refactor as the rebuild dropping a declaration and skips - which
+    is how a green suite came to exit 1. Reading a declaration is
+    what happens during the build, at whatever depth, so follow the
+    calls down to a fixpoint over this module's own functions.
+    """
+    defined = _module_functions()
+    seen, stack = set(), [name]
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        func = defined.get(current)
+        if func is None:
+            continue
+        for called in _called_names(func):
+            if called not in seen:
+                stack.append(called)
+    seen.discard(name)
+    return seen
+
+
 #: The per-reel DECLARATION readers. These are the stores a variant may
 #: now DIFFER in, so they are also the ones it must READ: a widened spec
 #: that named a store the builder never opened would be a vocabulary for
@@ -209,7 +244,7 @@ DECLARATION_READERS = ("load_intent", "load_pins", "resolve_ending",
 
 def test_the_rebuild_reads_these():
     """A SUBSET check with an empty left side passes forever."""
-    called = _called_names(_function("rebuild_reels_in_project"))
+    called = _called_names_transitive("rebuild_reels_in_project")
     assert set(DECLARATION_READERS) & called, (
         "the rebuild reads none of these - either it stopped reading "
         "the captain's declarations, or they were renamed and this "
@@ -224,10 +259,16 @@ def test_the_variant_build_reads_every_declaration_the_rebuild_reads(
     overlay positions and no caption-timing pins - three differences
     from the approved reel on top of the one it was built to show, and
     all three structurally perfect, so conformance passed them."""
-    rebuild = _called_names(_function("rebuild_reels_in_project"))
-    variant = _called_names(_function("build_reel_variants"))
+    rebuild = _called_names_transitive("rebuild_reels_in_project")
+    variant = _called_names_transitive("build_reel_variants")
     if reader not in rebuild:
-        pytest.skip(f"{reader} is not read by the rebuild either")
+        pytest.fail(
+            f"rebuild_reels_in_project no longer reaches {reader}(), even "
+            f"through its shared helpers - either the rebuild stopped "
+            f"reading a declaration (a regression in the rebuild), or "
+            f"DECLARATION_READERS is stale and must be updated to the new "
+            f"spelling. Skipping here would hide which, and the session "
+            f"hook fails an undeclared skip anyway.")
     assert reader in variant, (
         f"rebuild_reels_in_project reads {reader}() and "
         f"build_reel_variants does not. A variant that drops a "

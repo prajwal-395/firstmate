@@ -34,13 +34,11 @@ See docs/ASSET_LIBRARY_PLAN.md for the general-vs-project test this
 enforces the mechanical half of.
 """
 import ast
-import glob
 import json
 import os
 import sys
 
 import pytest
-import yaml
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
@@ -51,22 +49,8 @@ from library.tools.timed_text_overlay import (
     plan_timed_text_segments,
 )
 
-TEMPLATE_DIR = os.path.join(PROJECT_ROOT, "library", "templates")
 ROOT_TSX = os.path.join(
     PROJECT_ROOT, "remotion-subtitles", "src", "Root.tsx")
-
-
-def _template(name: str) -> dict:
-    with open(os.path.join(TEMPLATE_DIR, f"{name}.yaml"), encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
-
-
-def _all_templates() -> dict[str, dict]:
-    out = {}
-    for path in sorted(glob.glob(os.path.join(TEMPLATE_DIR, "*.yaml"))):
-        with open(path, encoding="utf-8") as f:
-            out[os.path.basename(path)[:-5]] = yaml.safe_load(f) or {}
-    return out
 
 
 def _moment(**overrides) -> dict:
@@ -196,18 +180,16 @@ def test_moments_have_required_fields():
 # Undeclared template renders no overlay
 # ─────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("name", sorted(_all_templates()))
-def test_an_undeclared_template_plans_no_segments(name):
-    """A template that declares nothing gets nothing - the opt-in shape.
-
-    Templates MAY now declare the slot; this asserts the default, which
-    is that omitting it costs nothing and renders nothing.
-    """
-    effect = _template(name).get("effect", {})
-    if effect.get("timed_text_overlay"):
-        pytest.skip(f"{name} declares the slot; covered by its own tests")
-    assert generate_timed_text_overlay_props(effect, width=1080, height=1920) is None
-    assert plan_timed_text_segments(effect, width=1080, height=1920) == []
+# There used to be a sweep here, parametrized over every
+# `library/templates/*.yaml`, asserting that a template declaring
+# nothing plans no segments. #1262 removed the in-engine templates by
+# product decision (a brand lives in the project's own brand.json;
+# `test_no_project_copy_declares_a_look` pins the directory absent), so
+# the sweep parametrized over an empty set and reported an undeclared
+# collection skip instead of measuring anything. The opt-in shape it
+# asserted - omitting the slot costs nothing and renders nothing - is
+# still covered, per shape, by the unit tests below; do not restore a
+# sweep over a directory the product deliberately does not ship.
 
 
 def test_empty_effect_dict_produces_nothing():
