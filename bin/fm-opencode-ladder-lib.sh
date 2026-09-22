@@ -156,7 +156,9 @@ fm_opencode_ladder_bare_model() {  # <model>
 # CURRENT evidence in <state-dir>? Prints one line and returns 0 when some
 # lane's sidecar classifies quota-scale (`blocked`) through
 # bin/fm-opencode-retry.sh and is bound to the free tier - or bound to no tier
-# at all, per the stated failure direction - OR when some lane's pane tail
+# at all, per the stated failure direction - OR when a descent preserved a
+# rung-scoped free cap (bin/fm-opencode-retry.sh record-cap) that has not
+# expired - OR when some lane's pane tail
 # carries the cap verbatim with no blocking sidecar (the idle shape: the lane
 # took the provider error and ended its turn, so the sidecar is gone and the
 # rendered text is the only evidence left; bin/fm-opencode-retry.sh owns the
@@ -178,6 +180,7 @@ fm_opencode_ladder_bare_model() {  # <model>
 fm_opencode_ladder_free_capped() {  # <state-dir>
   local state_dir=$1 f id out word status='' horizon='' model=''
   local free_horizon='' unbound_horizon=''
+  local cap_out cap_status='' cap_horizon=''
   local text_free='' text_unbound=''
   local meta harness lane_model lane_bare cap_file
   local free_bare model_bare
@@ -212,6 +215,25 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
     # A cap bound to any other model (notably the Go tier) says nothing about
     # free and is skipped, not counted.
   done
+  # The rung-scoped record a descent preserved past its task's own cleanup
+  # (bin/fm-opencode-retry.sh record-cap): the discovering lane may be
+  # relaunched or torn down, but the vendor horizon still binds the rung.
+  # Consulted after the per-task sidecars and before the pane-text scan - a
+  # live sidecar speaks for itself, while text capture costs a backend read.
+  if [ -z "$free_horizon" ]; then
+    if cap_out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" free 2>/dev/null); then
+      cap_status=''; cap_horizon=''
+      for word in $cap_out; do
+        case "$word" in
+          status=*) cap_status=${word#status=} ;;
+          horizon_s=*) cap_horizon=${word#horizon_s=} ;;
+        esac
+      done
+      if [ "$cap_status" = blocked ]; then
+        case "$cap_horizon" in ''|*[!0-9]*) : ;; *) free_horizon=$cap_horizon ;; esac
+      fi
+    fi
+  fi
   # The idle shape, per recorded lane: a blocking sidecar already counted above
   # stays counted; every other opencode lane gets its pane tail scanned. A lane
   # whose capture fails is unknown and skipped, never counted.

@@ -15,6 +15,9 @@
 #       never to a false blocked
 #   (e) the horizon threshold is caller-tunable via environment
 #   (f) clear removes the evidence best-effort
+#   (g) the rung-scoped record (record-cap/check-cap) preserves a proven cap
+#       past the discovering task's cleanup: newer evidence wins, expiry and
+#       threshold match the sidecar, malformed records classify nothing
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -179,6 +182,70 @@ test_verdict_three_states() {
   pass "capped, open, and unknown are separately expressible"
 }
 
+test_rung_cap_is_preserved_and_classified() {
+  local d="$TMP_ROOT/rung-cap"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now 79200)" \
+    || fail "record-cap refused a well-formed rung observation"
+  [ -f "$d/.opencode-cap-free" ] || fail "record-cap wrote no rung record"
+  local out; out=$("$HELPER" check-cap "$d" free) \
+    || fail "check-cap refused a live rung record"
+  assert_contains "$out" "status=blocked" "22h horizon -> blocked"
+  case "$out" in
+    *'horizon_s='*) : ;;
+    *) fail "the preserved finding must carry its horizon, said: $out" ;;
+  esac
+  pass "a preserved rung cap classifies blocked with its horizon"
+}
+
+test_rung_cap_newer_evidence_wins() {
+  local d="$TMP_ROOT/rung-newer"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now 79200)" || fail "record-cap refused fixture"
+  local first; first=$(cat "$d/.opencode-cap-free")
+  # An older horizon must not shorten the rung's recorded cap.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 3600)" || fail "record-cap must swallow an older observation as a no-op"
+  [ "$(cat "$d/.opencode-cap-free")" = "$first" ] \
+    || fail "an older observation must not clobber a newer rung record"
+  # A newer horizon replaces it.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 80000)" || fail "record-cap refused a newer observation"
+  [ "$(cat "$d/.opencode-cap-free")" != "$first" ] \
+    || fail "a newer observation must replace the rung record"
+  pass "newer rung evidence wins, older never shortens the cap"
+}
+
+test_rung_cap_expires_and_degrades() {
+  local d="$TMP_ROOT/rung-expired"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now -3600)" || fail "record-cap refused an old observation"
+  "$HELPER" check-cap "$d" free >/dev/null 2>&1 \
+    && fail "an expired rung record must not classify"
+  # An expired incumbent loses to any valid observation.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 79200)" || fail "record-cap refused fixture"
+  "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
+    || fail "a valid observation must replace an expired rung record"
+  # Malformed records and refused writes degrade to nothing-to-classify.
+  printf 'junk\n' > "$d/.opencode-cap-bad"
+  "$HELPER" check-cap "$d" bad >/dev/null 2>&1 \
+    && fail "a malformed rung record must not classify"
+  "$HELPER" record-cap "$d" 'bad rung' "$(ms_from_now 79200)" >/dev/null 2>&1 \
+    && fail "a rung outside the token charset must be refused"
+  "$HELPER" record-cap "$d" free soon >/dev/null 2>&1 \
+    && fail "a non-numeric horizon must be refused"
+  "$HELPER" check-cap "$d" missing >/dev/null 2>&1 \
+    && fail "an absent rung record must not classify"
+  "$HELPER" check-cap /nonexistent-dir free >/dev/null 2>&1 \
+    && fail "a missing state dir must not classify"
+  pass "an expired or malformed rung record degrades to nothing-to-classify"
+}
+
+test_rung_cap_threshold_is_tunable() {
+  local d="$TMP_ROOT/rung-threshold"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now 8)" || fail "record-cap refused fixture"
+  FM_OPENCODE_RETRY_BLOCK_SECS=1 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
+    || fail "a 1s threshold should flip an 8s rung horizon to blocked"
+  FM_OPENCODE_RETRY_BLOCK_SECS=999999 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=waiting" \
+    || fail "a huge threshold should keep a rung-scale horizon waiting"
+  pass "the rung record honors the same blocked threshold"
+}
+
 test_cap_horizon_is_blocked
 test_transient_horizon_is_waiting
 test_expired_sidecar_classifies_nothing
@@ -188,3 +255,7 @@ test_clear_removes_evidence
 test_idle_shape_text_is_blocked
 test_healthy_text_is_open_not_capped
 test_verdict_three_states
+test_rung_cap_is_preserved_and_classified
+test_rung_cap_newer_evidence_wins
+test_rung_cap_expires_and_degrades
+test_rung_cap_threshold_is_tunable
