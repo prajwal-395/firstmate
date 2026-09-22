@@ -230,3 +230,282 @@ def test_layer_only_timelines_keep_the_old_anchor():
                       "duration": 1}})
     notes = marker_carry.read_markers(retiring, "Reel X")
     assert notes[0]["anchor"] == ("/f/mg.mov", 10)
+
+
+# ── Replies re-pair with their notes, by identity ───────────────────
+#
+# Reel 14, 2026-09-20: the blue sat at 162, our green answered at 163.
+# The rebuild carried the blue to 461 and left the green at 163. Every
+# test below replays that shape: the reply names its note by durable
+# identity plus picture anchor, never by frame.
+
+
+def _reply_payload(timeline_name, name, note, anchor):
+    from library.tools import marker_feedback as _feedback
+    from library.tools.feedback_ledger import (
+        durable_identity as _identity)
+    text = "\n\n".join(part for part in (name, note) if part)
+    return _feedback.reply_custom_data(
+        "", _identity(timeline_name, text), note, "",
+        {"source_file": anchor[0],
+         "source_frame": anchor[1]} if anchor else None)
+
+
+def _reel14_retiring():
+    """Blue at 162 on (/f/mid.MXF @5000), green at 163 answering it."""
+    anchor = ("/f/mid.MXF", 5000)
+    payload = _reply_payload(
+        "Reel 14", "feedback", "there is like no value prop given",
+        anchor)
+    return _Timeline(
+        [("V1", [_Item(0, 459, "/f/mid.MXF", left=4838)])],
+        markers={
+            162: {"color": "Blue", "name": "feedback",
+                  "note": "there is like no value prop given",
+                  "duration": 1, "customData": ""},
+            163: {"color": "Green", "name": "reply: done",
+                  "note": "added the missing middle",
+                  "duration": 1, "customData": payload}})
+
+
+def _reel14_rebuilt():
+    """The structure wave's Reel 14: the same source frame at 461."""
+    return _Timeline(
+        [("V1", [_Item(300, 1057, "/f/mid.MXF", left=4839)])])
+
+
+def test_a_reply_follows_its_note_to_the_new_frame():
+    notes = marker_carry.read_markers(_reel14_retiring(), "Reel 14")
+    carried, uncarried = marker_carry.plan_carry(
+        notes, _reel14_rebuilt(), "Reel 14")
+    assert not uncarried
+    by_frame = {c["frame"]: c for c in carried}
+    assert by_frame[162]["to_frame"] == 461
+    assert by_frame[163]["to_frame"] == 462
+    assert by_frame[163]["pairing"] == "repaired"
+    assert by_frame[163]["paired_with"] == 162
+    # Carried asks come before carried replies, so the note lands
+    # before the answer that follows it.
+    assert [c["frame"] for c in carried] == [162, 163]
+
+
+def test_a_reply_whose_note_is_uncarried_is_reported_alongside_it():
+    notes = marker_carry.read_markers(_reel14_retiring(), "Reel 14")
+    gone = _Timeline([("V1", [_Item(0, 459, "/f/other.MXF", left=0)])])
+    carried, uncarried = marker_carry.plan_carry(notes, gone, "Reel 14")
+    assert not carried and len(uncarried) == 2
+    stranded = next(u for u in uncarried if u["frame"] == 163)
+    assert stranded["pairing"] == "stranded"
+    assert stranded["reply_of"] == 162
+    assert "@162" in stranded["why"] and "NOT CARRIED" in stranded["why"]
+
+
+def test_a_reply_naming_nothing_keeps_its_picture_and_says_so():
+    from library.tools.feedback_ledger import durable_identity
+    retiring = _reel14_retiring()
+    # Re-point the green at a note this reel never carried.
+    payload = _reply_payload("Reel 14", "feedback", "no value prop", None)
+    retiring._markers[163]["customData"] = payload.replace(
+        durable_identity("Reel 14",
+                         "feedback\n\nthere is like no value prop given"),
+        durable_identity("Reel 14", "feedback\n\na note never typed"))
+    notes = marker_carry.read_markers(retiring, "Reel 14")
+    carried, uncarried = marker_carry.plan_carry(
+        notes, _reel14_rebuilt(), "Reel 14")
+    assert not uncarried
+    green = next(c for c in carried if c["frame"] == 163)
+    assert green["pairing"] == "independent-unpaired"
+    assert "unpaired" in green["pairing_flags"]
+    # Its own picture still resolves, so it still carries - the pairing
+    # is reported, not dropped.
+    assert green["to_frame"] == 462
+
+
+def test_a_legacy_prose_locator_is_carried_and_quoted_not_dropped():
+    """Reel 04's shape: `answers="R04 blue feedback"`. Content
+    untouched (the Reel 29 specimen stays as it is), pairing reported."""
+    from library.tools import marker_payload as _payload
+    retiring = _reel14_retiring()
+    envelope = _payload.new_envelope()
+    _payload.merge_record(envelope, {
+        "kind": "reply", "writer": "marker_feedback", "writer_version": 1,
+        "id": "reply_legacy", "at": "2026-09-19T00:00:00+00:00",
+        "answers": "R04 blue feedback"})
+    retiring._markers[163]["customData"] = _payload.dumps(envelope)
+    notes = marker_carry.read_markers(retiring, "Reel 14")
+    carried, uncarried = marker_carry.plan_carry(
+        notes, _reel14_rebuilt(), "Reel 14")
+    assert not uncarried
+    green = next(c for c in carried if c["frame"] == 163)
+    assert green["pairing"] == "independent-legacy"
+    assert green["to_frame"] == 462
+
+
+def test_a_reply_loses_the_frame_its_note_already_took(capsys):
+    """One marker per frame: the reply yields and says so."""
+    retiring = _Timeline(
+        [("V1", [_Item(0, 459, "/f/mid.MXF", left=4838)]),
+         ("V2", [_Item(164, 200, "/f/other.MXF", left=0)])],
+        markers={
+            162: {"color": "Blue", "name": "feedback",
+                  "note": "there is like no value prop given",
+                  "duration": 1, "customData": ""},
+            163: {"color": "Green", "name": "reply: done",
+                  "note": "added the missing middle",
+                  "duration": 1, "customData": _reply_payload(
+                      "Reel 14", "feedback",
+                      "there is like no value prop given",
+                      ("/f/mid.MXF", 5000))},
+            164: {"color": "Blue", "name": "feedback",
+                  "note": "a later note", "duration": 1,
+                  "customData": ""}})
+    notes = marker_carry.read_markers(retiring, "Reel 14")
+    # The blue re-pairs to 461, so its reply wants 462 - but the later
+    # note's own picture lands at 462, and one marker per frame wins.
+    replacement = _Timeline(
+        [("V1", [_Item(300, 462, "/f/mid.MXF", left=4839)]),
+         ("V2", [_Item(462, 600, "/f/other.MXF", left=0)])])
+    carried, uncarried = marker_carry.plan_carry(
+        notes, replacement, "Reel 14")
+    green = next((u for u in uncarried if u["frame"] == 163), None)
+    assert green is not None and green["pairing"] == "stranded"
+    assert "already taken" in green["why"]
+    marker_carry.report("Reel 14", carried, uncarried)
+    assert "REPLY NOT CARRIED" in capsys.readouterr().err
+
+
+def test_the_anchor_picks_which_same_words_note_is_answered():
+    """Two blues, one sentence, two moments: the recorded anchor wins."""
+    retiring = _Timeline(
+        [("V1", [_Item(0, 150, "/f/a.mov", left=0),
+                 _Item(150, 300, "/f/b.mov", left=0)])],
+        markers={
+            100: {"color": "Blue", "name": "feedback", "note": "trim",
+                  "duration": 1, "customData": ""},
+            200: {"color": "Blue", "name": "feedback", "note": "trim",
+                  "duration": 1, "customData": ""},
+            201: {"color": "Green", "name": "reply: done",
+                  "note": "trimmed the second",
+                  "duration": 1, "customData": _reply_payload(
+                      "Reel X", "feedback", "trim", ("/f/b.mov", 50))}})
+    notes = marker_carry.read_markers(retiring, "Reel X")
+    replacement = _Timeline(
+        [("V1", [_Item(500, 650, "/f/a.mov", left=0),
+                 _Item(650, 800, "/f/b.mov", left=0)])])
+    carried, _ = marker_carry.plan_carry(notes, replacement, "Reel X")
+    green = next(c for c in carried if c["frame"] == 201)
+    assert green["paired_with"] == 200
+    assert green["to_frame"] == 701
+
+
+def test_an_anchor_mismatch_binds_nearest_and_says_so():
+    """Same words, different picture (a relinked file): nearest wins,
+    flagged rather than exact."""
+    retiring = _Timeline(
+        [("V1", [_Item(0, 150, "/f/a.mov", left=0),
+                 _Item(150, 300, "/f/b.mov", left=0)])],
+        markers={
+            100: {"color": "Blue", "name": "feedback", "note": "trim",
+                  "duration": 1, "customData": ""},
+            200: {"color": "Blue", "name": "feedback", "note": "trim",
+                  "duration": 1, "customData": ""},
+            201: {"color": "Green", "name": "reply: done",
+                  "note": "trimmed",
+                  "duration": 1, "customData": _reply_payload(
+                      "Reel X", "feedback", "trim",
+                      ("/f/renamed.mov", 7))}})
+    notes = marker_carry.read_markers(retiring, "Reel X")
+    replacement = _Timeline(
+        [("V1", [_Item(500, 650, "/f/a.mov", left=0),
+                 _Item(650, 800, "/f/b.mov", left=0)])])
+    carried, _ = marker_carry.plan_carry(notes, replacement, "Reel X")
+    green = next(c for c in carried if c["frame"] == 201)
+    assert green["paired_with"] == 200
+    assert "anchor_mismatch" in green["pairing_flags"]
+
+
+def test_note_text_matches_the_ledgers_join():
+    from library.tools.feedback_ledger import note_text
+    for name, note in (("feedback", "x"), ("", "x"), ("n", ""),
+                       ("", "")):
+        assert marker_carry._note_text(
+            {"name": name, "note": note}) == note_text(
+                {"name": name, "note": note})
+
+
+def test_the_report_names_repaired_and_stranded_replies(capsys):
+    notes = marker_carry.read_markers(_reel14_retiring(), "Reel 14")
+    carried, uncarried = marker_carry.plan_carry(
+        notes, _reel14_rebuilt(), "Reel 14")
+    marker_carry.report("Reel 14", carried, uncarried)
+    captured = capsys.readouterr()
+    assert "Reply re-paired onto Reel 14" in captured.out
+    assert "@163 -> @462" in captured.out
+    assert "with its note @162" in captured.out
+    assert captured.err == ""
+
+
+def test_the_carry_needs_the_reel_name_to_re_pair():
+    """The wiring promotion depends on: identities are reel + words,
+    so a carry planned without the reel name unpairs every reply.
+
+    Both production callers (`reel_build` promotion, `reel_touchup`)
+    pass the final reel's name for exactly this reason - without it
+    the Reel 14 green falls back to independent carry and the decay
+    this module exists to close is back."""
+    notes = marker_carry.read_markers(_reel14_retiring(), "Reel 14")
+    carried, uncarried = marker_carry.plan_carry(
+        notes, _reel14_rebuilt(), "")
+    assert not uncarried
+    green = next(c for c in carried if c["frame"] == 163)
+    assert green["pairing"] == "independent-unpaired"
+    assert "unpaired" in green["pairing_flags"]
+
+
+def test_the_audit_finds_the_reel14_stranding():
+    """Live now: blue correctly carried to 461, green stranded at 163."""
+    anchor = ("/f/mid.MXF", 5000)
+    payload = _reply_payload(
+        "Reel 14", "feedback", "there is like no value prop given",
+        anchor)
+    live = [
+        {"frame": 163, "color": "Green", "name": "reply: done",
+         "note": "added the missing middle", "duration": 1,
+         "custom_data": payload, "anchor": ("/f/mid.MXF", 5001)},
+        {"frame": 461, "color": "Blue", "name": "feedback",
+         "note": "there is like no value prop given", "duration": 1,
+         "custom_data": "", "anchor": anchor},
+    ]
+    rows = marker_carry.audit_replies(live, "Reel 14")
+    assert len(rows) == 1
+    assert rows[0]["status"] == "paired-drifted"
+    assert rows[0]["ask_frame"] == 461
+    assert rows[0]["distance"] == 163 - 462
+
+
+def test_the_audit_passes_an_adjacent_reply_and_names_the_rest():
+    from library.tools import marker_payload as _payload
+    good = _reply_payload("Reel X", "feedback", "trim", ("/f/a.mov", 1))
+    # A reply from before replies recorded what they answer: our
+    # record, but no `answers` key.
+    unclaimed = _payload.new_envelope()
+    _payload.merge_record(unclaimed, {
+        "kind": "reply", "writer": "marker_feedback", "writer_version": 1,
+        "id": "reply_old", "at": "2026-09-10T00:00:00+00:00"})
+    notes = [
+        {"frame": 100, "color": "Blue", "name": "feedback", "note": "trim",
+         "duration": 1, "custom_data": "", "anchor": ("/f/a.mov", 1)},
+        {"frame": 101, "color": "Green", "name": "reply: done",
+         "note": "trimmed", "duration": 1, "custom_data": good,
+         "anchor": ("/f/a.mov", 2)},
+        {"frame": 102, "color": "Green", "name": "reply: old",
+         "note": "trimmed long ago", "duration": 1,
+         "custom_data": _payload.dumps(unclaimed),
+         "anchor": ("/f/a.mov", 3)},
+    ]
+    rows = marker_carry.audit_replies(notes, "Reel X")
+    by_frame = {r["frame"]: r for r in rows}
+    assert set(by_frame) == {101, 102}
+    assert by_frame[101]["status"] == "paired-adjacent"
+    assert by_frame[101]["distance"] == 0
+    assert by_frame[102]["status"] == "unclaimed"

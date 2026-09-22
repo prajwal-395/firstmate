@@ -409,3 +409,24 @@ def test_render_names_a_re_ask_out_loud():
 
 def test_render_survives_an_empty_project():
     assert "no note" in fl.render(fl.build(None, [], resolutions=[]))
+
+
+# ── The identity grammar the `answers` single writer enforces ────────
+
+
+def test_is_identity_accepts_what_durable_identity_produces():
+    assert fl.is_identity(fl.durable_identity(REEL, f"feedback\n\n{ASK}"))
+    assert fl.is_identity(fl.durable_identity(
+        "Reel 04 (pre-rebuild backup)", "verdict (firstmate)\n\nFIXABLE"))
+
+
+def test_is_identity_rejects_prose_frames_and_fragments():
+    """Every shape found on a live reel that is not an identity."""
+    for bad in ("R04 blue feedback",
+                "Reel 14 - why-ai-trusts-youtube@162",
+                "Reel 29 - salvage#clip_marker@22",
+                "", None, 0,
+                "Reel_14", "Reel_14:xyz",
+                "Reel_14:9f2c4a1b7e5d03a",
+                "Reel_14:9f2c4a1b7e5d03aag"):
+        assert fl.is_identity(bad) is False

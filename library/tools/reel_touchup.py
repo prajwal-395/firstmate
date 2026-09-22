@@ -1556,7 +1556,11 @@ def _promote(project_folder: str, project: Any, pool: Any,
     carried_markers = None
     notes = _markers.read_markers(originals[final], final)
     if notes:
-        keep, lost = _markers.plan_carry(notes, staged_found[staging])
+        # `final`, as in promotion: the re-pair binds by durable
+        # identity over the reel name, so omitting it unpairs every
+        # reply. See `reel_build` above.
+        keep, lost = _markers.plan_carry(notes, staged_found[staging],
+                                         final)
         _markers.report(final, keep, lost)
         carried_markers = {"carried": keep, "uncarried": lost}
 

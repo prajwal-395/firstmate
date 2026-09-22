@@ -8426,8 +8426,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 allowed=declared.get(final, ()))
             notes = _markers.read_markers(originals[final], final)
             if notes:
+                # `final`: the re-pair binds replies to notes by
+                # durable identity (`feedback_ledger.durable_identity`
+                # over the reel name + words). Without it every reply
+                # reads as unpaired and falls back to independent
+                # carry - the decay this module exists to close.
                 keep, lost = _markers.plan_carry(
-                    notes, staged_found[staging])
+                    notes, staged_found[staging], final)
                 # SAID before the rename, so a promotion about to
                 # discard the captain's words has already said which
                 # even if the rename below refuses.
@@ -8488,9 +8493,20 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             # that cannot land is a named report, not a failed
             # promotion.
             try:
+                # Seam re-placement takes GENUINE notes only. `plan_carry`
+                # emits two kinds of uncarried entry: asks (no `pairing`
+                # key - the captain's words, which come back as Blue)
+                # and stranded replies (`pairing == "stranded"` - OUR
+                # green answering a note that is itself uncarried). A
+                # stranded reply re-placed here would file our answer
+                # text as a Blue note of his with a fresh Green beside
+                # it. It stays reported (by `report`, above) and on the
+                # retired backup and the datastore pull - never re-filed
+                # as his words.
                 plans = _markers.plan_seams(
-                    notes["uncarried"], originals[final],
-                    staged_found[staging])
+                    [m for m in notes["uncarried"]
+                     if m.get("pairing") != "stranded"],
+                    originals[final], staged_found[staging])
                 replaced, replace_declined = _markers.place_uncarried(
                     staged_found[staging], plans, final)
             except Exception as seam_failed:            # noqa: BLE001

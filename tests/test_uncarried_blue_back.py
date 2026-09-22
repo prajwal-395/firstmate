@@ -336,3 +336,45 @@ def test_promotion_puts_the_blue_back_at_the_seam(tmp_path):
     reply = [added for added in staging.added if added[1] == "Green"]
     assert len(reply) == 1
     assert reply[0][0] == 640
+
+
+def test_a_stranded_reply_is_reported_never_re_filed_as_blue(capsys):
+    """Our green answered the note the cut removed: it is reported
+    alongside its note, and the seam takes the genuine note only.
+
+    Re-placing the stranded reply would file our answer text as a Blue
+    note of his with a fresh Green beside it. Asserted on TEXT and
+    colour: no Blue may carry our reply's words."""
+    from library.tools import marker_feedback as _feedback
+    from library.tools.feedback_ledger import (
+        durable_identity as _identity)
+    retiring = _retiring()
+    retiring._markers[641] = {
+        "color": "Green", "name": "reply: trimmed",
+        "note": "trimmed the dead air per your note",
+        "duration": 1, "customData": _feedback.reply_custom_data(
+            "", _identity(FINAL, "trim?\n\n" + WORDS), WORDS, "")}
+    replacement = _replacement()
+    notes = marker_carry.read_markers(retiring, FINAL)
+    carried, uncarried = marker_carry.plan_carry(
+        notes, replacement, FINAL)
+    assert not carried
+    stranded = next(u for u in uncarried if u["frame"] == 641)
+    assert stranded["pairing"] == "stranded"
+    assert stranded["reply_of"] == 640
+    marker_carry.report(FINAL, carried, uncarried)
+    assert "REPLY NOT CARRIED" in capsys.readouterr().err
+
+    # The seam filter promotion applies: genuine notes only.
+    seam_input = [m for m in uncarried
+                  if m.get("pairing") != "stranded"]
+    assert [m["frame"] for m in seam_input] == [640]
+    plans = marker_carry.plan_seams(seam_input, retiring, replacement)
+    placed, declined = marker_carry.place_uncarried(
+        replacement, plans, FINAL)
+    assert not declined and len(placed) == 1
+    blue = [added for added in replacement.added
+            if added[1] == "Blue"]
+    assert len(blue) == 1
+    assert blue[0][3] == WORDS
+    assert "trimmed the dead air" not in blue[0][3]

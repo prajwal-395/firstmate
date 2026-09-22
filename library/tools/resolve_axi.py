@@ -854,6 +854,55 @@ def cmd_markers_reply(args) -> int:
                     and n.frame == args.answers_frame]
         answered.sort(key=lambda n: (n.source != "timeline_marker",))
         answers_text = answered[0].note if answered else ""
+        # The pairing the reply carries: the answered note's durable
+        # identity plus the picture it sat on (`marker_carry` re-pairs
+        # by this after a rebuild, never by frame). `--answers` is an
+        # explicit identity, validated, never prose: it must BE the
+        # note's own identity when both are given.
+        from library.tools.feedback_ledger import (
+            durable_identity as _durable_identity,
+            is_identity as _is_identity,
+        )
+        derived_answers, derived_anchor = "", None
+        if answered:
+            derived_answers = _durable_identity(
+                timeline.GetName(), answered[0].text)
+            # The SAME anchor `marker_carry` will read for this note:
+            # the picture under its frame, not the frame number. A
+            # mirror computed off the note's clip list would disagree
+            # wherever an overlay row sits on top (carry anchors to
+            # picture rows only), so this calls carry's own function.
+            from library.tools import marker_carry as _carry
+            try:
+                start_frame = int(timeline.GetStartFrame())
+            except (TypeError, ValueError):
+                start_frame = None
+            if answered[0].frame is not None and start_frame is not None:
+                pictured = _carry.picture_at(
+                    timeline, answered[0].frame - start_frame)
+                if pictured is not None:
+                    derived_anchor = {"source_file": pictured[0],
+                                      "source_frame": pictured[1]}
+        if args.answers and not _is_identity(args.answers):
+            return fail(
+                f"--answers {args.answers!r} is not a note identity - "
+                f"prose never joins to a note and a frame is invalidated "
+                f"by the next rebuild.",
+                f"omit --answers and keep --answers-frame "
+                f"{args.answers_frame} to take the note's own identity "
+                f"({derived_answers or 'none - no note at that frame'}), "
+                f"or pass that identity explicitly")
+        if (args.answers and derived_answers
+                and args.answers != derived_answers):
+            return fail(
+                f"--answers {args.answers!r} is not the note at frame "
+                f"{args.answers_frame} ({derived_answers}) - a reply "
+                f"cannot silently answer the wrong words.",
+                f"omit --answers to take the note's own identity, or "
+                f"check the frame with {TOOL} markers --timeline "
+                f"\"{timeline.GetName()}\"")
+        effective_answers = args.answers or derived_answers
+        effective_anchor = derived_anchor if answered else None
         try:
             start = int(timeline.GetStartFrame())
             span = int(timeline.GetEndFrame()) - start
@@ -877,6 +926,12 @@ def cmd_markers_reply(args) -> int:
                       "answers_frame": (args.answers_frame
                                         if args.answers_frame is not None
                                         else ""),
+                      "answers": effective_answers or "(none - words only)",
+                      "answers_anchor": (
+                          f"{effective_anchor['source_file']}@"
+                          f"{effective_anchor['source_frame']}"
+                          if effective_anchor else "(no picture under "
+                          "the note - pairs by words alone)"),
                       "answers_text": preview(answers_text, False),
                       "blocked": problem or "no",
                   }),
@@ -903,12 +958,16 @@ def cmd_markers_reply(args) -> int:
                 f"rather than depending on it. Open the reel and re-run.",
                 f"{TOOL} cursor --expect \"{timeline.GetName()}\"")
         payload = reply_custom_data(
-            "", args.answers or "", answers_text, args.summary or "")
+            "", effective_answers, answers_text, args.summary or "",
+            effective_anchor)
         try:
             place_reply_marker(timeline, int(args.frame), args.color,
                                args.name, args.note,
                                int(args.duration or 1), payload)
         except MarkerWriteError as exc:
+            return fail(str(exc), f"{TOOL} markers --timeline "
+                                  f"\"{timeline.GetName()}\"")
+        except ValueError as exc:
             return fail(str(exc), f"{TOOL} markers --timeline "
                                   f"\"{timeline.GetName()}\"")
     emit([kv_block("reply", {
@@ -919,6 +978,71 @@ def cmd_markers_reply(args) -> int:
           note,
           help_block(
               [f"{TOOL} markers --timeline \"{timeline.GetName()}\""])])
+    return 0
+
+
+def cmd_markers_audit_replies(args) -> int:
+    """Report which replies still sit beside the notes they answer.
+
+    Read-only: the sweep the replies-decay task asks for before
+    anything is changed. Each green reply is bound to its note by
+    identity (`marker_carry.audit_replies`); `paired-drifted` is the
+    Reel 14 shape - the note moved on under a rebuild and the reply
+    stayed. This command reports and writes nothing: re-pairing
+    happens in the next promotion carry, or by a directed write that
+    firstmate routes, never here.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        from library.tools import marker_carry as _carry
+        from library.tools import marker_feedback
+        try:
+            notes = _carry.read_markers(timeline, timeline.GetName())
+        except _carry.MarkerCarryUnreadable as exc:
+            return fail(str(exc), f"{TOOL} markers --timeline "
+                                  f"\"{args.timeline or '<name>'}\"")
+        rows = _carry.audit_replies(notes, timeline.GetName())
+        live = marker_feedback.read_notes(timeline)
+        clip_replies = [
+            n for n in live if n.source != "timeline_marker"
+            and marker_feedback.reply_records_in(n.custom_data_raw)]
+    table_rows = [{
+        "frame": r["frame"],
+        "color": r["color"] or "",
+        "name": preview(r["name"] or "", args.full),
+        "status": r["status"],
+        "ask_frame": (r["ask_frame"] if r["ask_frame"] is not None
+                      else ""),
+        "distance": (r["distance"] if r["distance"] is not None else ""),
+        "answers": preview(r["answers"] or "", args.full),
+    } for r in rows]
+    drifted = sum(1 for r in rows if r["status"] == "paired-drifted")
+    emit([kv_block("reply_audit", {
+              "timeline": timeline.GetName() +
+              (" (current)" if is_current else ""),
+              "replies": len(rows),
+              "drifted": drifted,
+              "clip_plane_replies": len(clip_replies),
+          }),
+          note,
+          table("replies", table_rows,
+                ["frame", "color", "name", "status", "ask_frame",
+                 "distance", "answers"]),
+          (f"note: {len(clip_replies)} replie(s) of ours sit on the "
+           f"clip plane, which marker carry does not read - this table "
+           f"covers the timeline plane only.")
+          if clip_replies else "",
+          help_block([f"{TOOL} markers --timeline "
+                      f"\"{timeline.GetName()}\" --full"])])
     return 0
 
 
@@ -1563,14 +1687,26 @@ def build_parser() -> Parser:
                    help="frame of the note being answered: its text is "
                         "looked up live into the payload and shown")
     p.add_argument("--answers", default="",
-                   help="explicit identity of the answered note (else the "
-                        "payload carries the quoted words only)")
+                   help="explicit identity of the answered note, "
+                        "validated against the durable-identity grammar "
+                        "(else the note's own identity is taken from "
+                        "--answers-frame)")
     p.add_argument("--summary", default="",
                    help="one-line summary recorded into the payload")
     p.add_argument("--apply", action="store_true",
                    help="place the marker under the Resolve lease with "
                         "the cursor asserted (default is a dry-run plan)")
     p.set_defaults(func=cmd_markers_reply)
+
+    p = msubs.add_parser("audit-replies", help="report which replies "
+                                               "still sit beside the "
+                                               "notes they answer; "
+                                               "read-only, writes nothing")
+    _add_scope(p, "audit-replies")
+    p.add_argument("--full", action="store_true",
+                   help="show complete names and identities instead of "
+                        "the preview")
+    p.set_defaults(func=cmd_markers_audit_replies)
 
     p = subs.add_parser("fusion", help="clips carrying Fusion comps and "
                                        "whether each comp covers its item")

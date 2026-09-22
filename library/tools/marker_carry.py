@@ -65,6 +65,40 @@ NEAREST candidate to the marker's original frame wins, because a reel
 that repeats a shot has not moved the captain's note to the other
 saying of it.
 
+Whether a stable identity for HIS notes exists
+----------------------------------------------
+The 13:38 question on the replies-decay task: do not carry a delta,
+pair by identity - and first establish whether such an identity CAN
+be stable across a rebuild. The answer for timeline-plane notes is
+YES, and it is the same signal this module already trusts:
+
+* a note's WORDS (`name` + `note`, normalised for whitespace and case
+  only - `feedback_ledger.durable_identity`) do not move when frames do;
+* a note's PICTURE anchor (the source file and source frame under it)
+  is rebuild-invariant BY THE DEFINITION carry resolves by: a note
+  whose anchor still plays is carried, one whose anchor is gone is
+  reported uncarried.
+
+So a reply names its note by identity (`answers`) plus the anchor it
+sat on (`answers_anchor`), and the carry re-pairs by id after the
+rebuild regardless of where either marker moved. A position delta was
+rejected deliberately: anything pairing two markers by position decays
+under rebuilds, which is the same reason the old `answers` frame
+locators failed - and Reel 29's green (locator `@22`, marker at 29,
+nothing visibly moved, no rebuild in between) proves a delta does not
+even cover every decay.
+
+Stated plainly, the limits:
+
+* a note over NOTHING (a gap, a generator) has no anchor half, so a
+  reply answering it pairs by words alone and is REPORTED weak;
+* edited words are a NEW identity: the old reply then names nothing,
+  and is reported unpaired rather than silently re-bound;
+* two identical notes (same words, same anchor) bind nearest, first;
+* CLIP-plane markers are never read here, so their replies cannot
+  re-pair in this pass - `audit_replies` says which ones those are
+  rather than pretending otherwise.
+
 `tests/test_marker_carry.py`.
 """
 
@@ -79,6 +113,13 @@ from library.tools.resolve_lock import under_lease
 #: marker to the same item, so the anchor is read off the PICTURE rows
 #: only - which are also the rows a note is ever about.
 _PICTURE_MEDIA = "video"
+
+#: Where a re-paired reply lands relative to its note's new frame: the
+#: adjacent frame, which is the reply convention the captain already
+#: reads (Reel 14's green sat at 163 answering the blue at 162). Never
+#: the note's own frame - Resolve holds one marker per frame and would
+#: decline the write.
+REPLY_TRACK_OFFSET = 1
 
 
 class MarkerCarryUnreadable(RuntimeError):
@@ -204,17 +245,197 @@ def resolve_frame(marker: dict, timeline, rows=None):
     return None if best is None else best[1]
 
 
-def plan_carry(markers, timeline) -> tuple:
+def _note_text(marker: dict) -> str:
+    """A marker's words, joined the way every reader joins them.
+
+    The same precedence `marker_feedback._text_of` and
+    `feedback_ledger.note_text` use, so one note read through any of
+    the three yields one string - and one identity.
+    """
+    return "\n\n".join(
+        part for part in (str(marker.get("name") or ""),
+                          str(marker.get("note") or "")) if part)
+
+
+def _ask_identity(marker: dict, timeline_name: str) -> str:
+    """The durable identity of a note that is (presumably) the captain's.
+
+    `feedback_ledger.durable_identity`: the reel's base name plus the
+    normalised words, and nothing a rebuild moves.
+    """
+    from library.tools import feedback_ledger as _ledger
+
+    return _ledger.durable_identity(timeline_name, _note_text(marker))
+
+
+def _anchor_tuple(anchor) -> tuple | None:
+    """A picture anchor as `(source_file, source_frame)`, or None.
+
+    Accepts the tuple `read_markers` records and the
+    `{"source_file", "source_frame"}` mapping a reply's `answers_anchor`
+    carries, so the two halves of a pairing compare equal.
+    """
+    if anchor is None:
+        return None
+    if isinstance(anchor, dict):
+        path, frame = anchor.get("source_file"), anchor.get("source_frame")
+    else:
+        try:
+            path, frame = anchor[0], anchor[1]
+        except (TypeError, IndexError, KeyError):
+            return None
+    if not isinstance(path, str) or not path:
+        return None
+    if not isinstance(frame, int) or isinstance(frame, bool):
+        return None
+    return (path, int(frame))
+
+
+def _reply_links(marker: dict) -> list:
+    """Every reply record OUR writer left on this marker.
+
+    `[]` for a marker carrying none - which is every note the captain
+    typed, and every reply written before the record existed. Reading
+    never refuses: a foreign or malformed `customData` is the payload
+    module's `foreign`, not a reply of ours.
+    """
+    from library.tools import marker_feedback as _feedback
+
+    try:
+        return _feedback.reply_records_in(
+            marker.get("custom_data") or "")
+    except Exception:                               # noqa: BLE001
+        return []
+
+
+def _answered_identity(marker: dict) -> tuple:
+    """What the reply's newest record names: `(answers, anchor, valid)`.
+
+    The newest record carrying `answers` speaks: a rewrite replaces by
+    id rather than appending, so the last statement is the current one.
+    `valid` is the identity grammar (`feedback_ledger.is_identity`); an
+    invalid `answers` is returned VERBATIM rather than dropped - the
+    caller classifies it legacy and the report quotes it, which is what
+    makes the old prose and frame locators visible instead of silently
+    absorbed. `("", None, False)` when the marker names nothing at all.
+    """
+    from library.tools.feedback_ledger import is_identity
+
+    answers, anchor, seen = "", None, False
+    for record in _reply_links(marker):
+        if not isinstance(record, dict):
+            continue
+        if record.get("answers"):
+            answers, seen = str(record["answers"]), True
+            raw_anchor = record.get("answers_anchor")
+            anchor = (_anchor_tuple(raw_anchor)
+                      if isinstance(raw_anchor, dict) else None)
+    if not seen:
+        return "", None, False
+    if answers and is_identity(answers):
+        return answers, anchor, True
+    return answers, None, False
+
+
+def _bind_reply(reply: dict, asks: list, identities: dict) -> tuple:
+    """Which note a reply answers, by identity rather than position.
+
+    Returns `(ask_or_None, flags)`. Candidates are the asks whose
+    durable identity equals the reply's `answers`; among them the one
+    whose picture anchor equals the reply's `answers_anchor` wins, else
+    the nearest by original frame. Flags say how exact the bind is:
+    `anchor_mismatch` (same words, different picture - bound nearest),
+    `weak` (the reply recorded no anchor, so words alone decided),
+    `legacy` (prose or a frame locator, from before the identity rule,
+    with the raw value kept for the report), `unpaired` (a valid
+    identity matching no note on this reel), `unclaimed` (no `answers`
+    at all - a reply from before replies recorded what they answer).
+    """
+    answers, anchor, valid = _answered_identity(reply)
+    if not valid:
+        return None, ({"legacy", answers} if answers else {"unclaimed"})
+    candidates = [a for a in asks if identities.get(a["frame"]) == answers]
+    if not candidates:
+        return None, {"unpaired"}
+    if anchor is not None:
+        exact = [a for a in candidates
+                 if _anchor_tuple(a.get("anchor")) == anchor]
+        pool, mismatch = (exact, False) if exact else (candidates, True)
+    else:
+        pool, mismatch = candidates, False
+    ask = min(pool, key=lambda a: abs(a["frame"] - reply["frame"]))
+    flags = set()
+    if mismatch:
+        flags.add("anchor_mismatch")
+    if anchor is None:
+        flags.add("weak")
+    return ask, flags
+
+
+def _timeline_span(timeline) -> int | None:
+    """Frames on `timeline`, or None when it will not say.
+
+    Best effort: a fake without `GetEndFrame` skips the past-the-end
+    check rather than refusing the carry.
+    """
+    try:
+        return int(timeline.GetEndFrame()) - int(timeline.GetStartFrame())
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _carry_unbound_reply(reply: dict, timeline, rows, flags: set,
+                         carried: list, uncarried: list) -> None:
+    """Carry a reply that binds to no note by its own picture, as ever.
+
+    The pairing is reported, not invented: `legacy` (prose or frame
+    locator from before the identity rule) and `unpaired` (an identity
+    nothing on this reel carries) both keep today's independent carry
+    and gain a flag the report reads aloud. Content untouched.
+    """
+    frame = resolve_frame(reply, timeline, rows)
+    kind = ("independent-legacy" if "legacy" in flags
+            else "independent-unpaired" if "unpaired" in flags
+            else "independent-unclaimed")
+    if frame is None:
+        reason = ("its anchor picture is in the replacement nowhere"
+                  if reply.get("anchor")
+                  else "nothing was playing under it to anchor to")
+        uncarried.append({**reply, "pairing": kind,
+                          "pairing_flags": sorted(flags), "why": reason})
+    else:
+        carried.append({**reply, "to_frame": int(frame), "pairing": kind,
+                        "pairing_flags": sorted(flags)})
+
+
+def plan_carry(markers, timeline, timeline_name: str = "") -> tuple:
     """Split markers into those that resolve here and those that do not.
 
     Returns `(carried, uncarried)`; neither list is written anywhere.
     A pure split so a caller may report before it acts, which is the
     order that matters: the report is the deliverable, the carry is
     the convenience.
+
+    Replies of OURS (markers carrying a `marker_feedback` reply record)
+    are not carried by their own picture. They are RE-PAIRED with the
+    note they answer: when the answered note carries from X to Y, its
+    reply goes to Y + `REPLY_TRACK_OFFSET`, the adjacent frame the
+    reply convention has always used (Reel 14: blue at 162, green at
+    163). A reply whose note is itself UNCARRIED is uncarried too, and
+    says which note it follows rather than stranding silently. A reply
+    naming nothing on this reel, or naming nothing valid at all
+    (legacy prose/frame locators), keeps the old independent carry and
+    is flagged for the report - content untouched, pairing reported.
+    Carried asks come before carried replies so a reply never lands
+    before the note it follows.
     """
     rows = _picture_rows(timeline)
+    asks = [m for m in markers if not _reply_links(m)]
+    replies = [m for m in markers if _reply_links(m)]
+    identities = {m["frame"]: _ask_identity(m, timeline_name)
+                  for m in asks}
     carried, uncarried = [], []
-    for marker in markers:
+    for marker in asks:
         frame = resolve_frame(marker, timeline, rows)
         if frame is None:
             reason = ("its anchor picture is in the replacement nowhere"
@@ -222,7 +443,57 @@ def plan_carry(markers, timeline) -> tuple:
                       else "nothing was playing under it to anchor to")
             uncarried.append({**marker, "why": reason})
         else:
-            carried.append({**marker, "to_frame": int(frame)})
+            carried.append({**marker, "to_frame": int(frame),
+                            "pairing": "note"})
+    # Each ask object to its fate, keyed by frame - Resolve holds one
+    # marker per frame, so the key is unique on a timeline.
+    fate = {}
+    for entry in carried:
+        fate[entry["frame"]] = ("carried", entry["to_frame"])
+    for entry in uncarried:
+        fate.setdefault(entry["frame"], ("uncarried", entry))
+    used = {entry["to_frame"] for entry in carried}
+    span = _timeline_span(timeline)
+    for reply in replies:
+        ask, flags = _bind_reply(reply, asks, identities)
+        if ask is None:
+            _carry_unbound_reply(reply, timeline, rows, flags, carried,
+                                 uncarried)
+            used.update(c["to_frame"] for c in carried
+                        if c.get("pairing", "").startswith("independent")
+                        and c["frame"] == reply["frame"])
+            continue
+        status, detail = fate.get(ask["frame"], ("uncarried", None))
+        if status != "carried":
+            why = (detail or {}).get("why", "it does not resolve here")
+            uncarried.append({**reply, "pairing": "stranded",
+                              "reply_of": ask["frame"],
+                              "why": (f"its note {ask['color']} "
+                                      f"{ask['name']!r} @{ask['frame']} "
+                                      f"is itself NOT CARRIED ({why}) - "
+                                      f"the question moved nowhere, so "
+                                      f"the answer follows it nowhere")})
+            continue
+        target = detail + REPLY_TRACK_OFFSET
+        if span is not None and not 0 <= target < span:
+            uncarried.append({**reply, "pairing": "stranded",
+                              "reply_of": ask["frame"],
+                              "why": (f"its note carried to @{detail} "
+                                      f"but @{target} is past the end of "
+                                      f"the replacement")})
+            continue
+        if target in used:
+            uncarried.append({**reply, "pairing": "stranded",
+                              "reply_of": ask["frame"],
+                              "why": (f"its note carried to @{detail} "
+                                      f"but @{target} is already taken - "
+                                      f"one marker per frame")})
+            continue
+        used.add(target)
+        carried.append({**reply, "to_frame": int(target),
+                        "pairing": "repaired",
+                        "paired_with": ask["frame"],
+                        "pairing_flags": sorted(flags)})
     return carried, uncarried
 
 
@@ -233,13 +504,58 @@ def report(timeline_name: str, carried, uncarried) -> None:
     or drops anything says which, by name and with the words, on
     stdout for the carried and stderr for the dropped - a note this
     build is about to lose is not an informational line.
+
+    Replies get their own lines: a re-paired one names the note it
+    follows and both frames, so the pairing is visible without opening
+    Resolve; a reply whose note is itself uncarried is reported
+    ALONGSIDE it, never stranded in silence; and a reply that binds to
+    nothing - legacy locator or an identity no note carries - says so
+    even when its own picture carried fine, because the pairing, not
+    the position, is what decayed.
     """
     for marker in carried:
+        if marker.get("pairing") == "repaired":
+            extra = ""
+            flags = marker.get("pairing_flags") or []
+            if "anchor_mismatch" in flags:
+                extra = " (same words, different picture - bound nearest)"
+            elif "weak" in flags:
+                extra = " (by words alone - no anchor recorded)"
+            print(f"  Reply re-paired onto {timeline_name}: "
+                  f"{marker['color']} {marker['name']!r} @"
+                  f"{marker['frame']} -> @{marker['to_frame']}, with "
+                  f"its note @{marker['paired_with']}{extra}",
+                  flush=True)
+            continue
         print(f"  Marker carried onto {timeline_name}: "
               f"{marker['color']} {marker['name']!r} @"
               f"{marker['frame']} -> @{marker['to_frame']}", flush=True)
+    for marker in carried:
+        pairing = marker.get("pairing") or ""
+        if not pairing.startswith("independent-"):
+            continue
+        flags = marker.get("pairing_flags") or []
+        if "legacy" in flags:
+            raw = next((f for f in flags if f not in
+                        ("legacy", "unpaired", "unclaimed",
+                         "anchor_mismatch", "weak")), "")
+            print(f"  REPLY NAMES NO VALID NOTE onto {timeline_name}: "
+                  f"{marker['color']} {marker['name']!r} @{marker['frame']} "
+                  f"carried by its own picture to @{marker['to_frame']} "
+                  f"but its answers locator {raw!r} is prose or a frame, "
+                  f"not a note identity - the pairing is unverified.",
+                  file=sys.stderr, flush=True)
+        elif "unpaired" in flags:
+            answers, _, _ = _answered_identity(marker)
+            print(f"  REPLY NAMES NOTHING HERE onto {timeline_name}: "
+                  f"{marker['color']} {marker['name']!r} @{marker['frame']} "
+                  f"carried by its own picture to @{marker['to_frame']} "
+                  f"but {answers!r} matches no note on this reel.",
+                  file=sys.stderr, flush=True)
     for marker in uncarried:
-        print(f"  MARKER NOT CARRIED onto {timeline_name}: "
+        kind = ("REPLY NOT CARRIED" if marker.get("pairing") == "stranded"
+                else "MARKER NOT CARRIED")
+        print(f"  {kind} onto {timeline_name}: "
               f"{marker['color']} {marker['name']!r} @{marker['frame']} "
               f"- {marker['why']}. The captain wrote: "
               f"{marker['note'].strip()!r}",
@@ -590,3 +906,54 @@ def place_uncarried(timeline, plans, timeline_name: str = "") -> tuple:
             else:
                 declined[-1]["reply_frame"] = reply_frame
     return placed, declined
+
+
+def audit_replies(notes, timeline_name: str = "") -> list:
+    """Pairing health for every reply in `notes`. Read-only, no writes.
+
+    Takes `read_markers` output and returns one row per reply marker:
+    `frame`, `color`, `name`, `note`, `answers`, `ask_frame` (the live
+    frame of the note it binds to, or None), `distance` (how far the
+    reply sits from the adjacent frame its note expects, or None), and
+    `status`:
+
+    * `paired-adjacent` - beside its note, as the convention reads;
+    * `paired-drifted` - bound to a note it no longer sits beside (the
+      Reel 14 shape: the note moved on under a rebuild and the reply
+      stayed - report before changing anything);
+    * `unpaired` - a valid identity matching no note here;
+    * `legacy` - prose or a frame locator, never joinable (the Reel 04
+      and Reel 29 shapes);
+    * `unclaimed` - no `answers` at all.
+
+    `pairing_flags` carries the bind's exactness (`weak`,
+    `anchor_mismatch`). Clip-plane replies never appear here because
+    `read_markers` never reads that plane - the audit's caller says
+    that count aloud rather than letting the table read as complete.
+    """
+    asks = [m for m in notes if not _reply_links(m)]
+    replies = [m for m in notes if _reply_links(m)]
+    identities = {m["frame"]: _ask_identity(m, timeline_name)
+                  for m in asks}
+    rows = []
+    for reply in replies:
+        answers, _anchor, valid = _answered_identity(reply)
+        ask, flags = _bind_reply(reply, asks, identities)
+        base = {"frame": reply["frame"], "color": reply.get("color", ""),
+                "name": reply.get("name", ""),
+                "note": reply.get("note", ""),
+                "answers": answers,
+                "pairing_flags": sorted(flags - {answers})}
+        if ask is None:
+            status = ("unpaired" if valid
+                      else "legacy" if answers else "unclaimed")
+            rows.append({**base, "status": status, "ask_frame": None,
+                         "distance": None})
+            continue
+        expected = ask["frame"] + REPLY_TRACK_OFFSET
+        rows.append({**base, "status": ("paired-adjacent"
+                                        if reply["frame"] == expected
+                                        else "paired-drifted"),
+                     "ask_frame": ask["frame"],
+                     "distance": reply["frame"] - expected})
+    return rows

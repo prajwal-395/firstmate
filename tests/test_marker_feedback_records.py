@@ -350,10 +350,10 @@ class _MarkerSurface:
 
 
 def test_a_reply_record_names_its_writer_and_what_it_answers():
-    record = _mf.reply_record(answers="Reel_13:abc", answers_text="the words")
+    record = _mf.reply_record(answers="Reel_13:9f2c4a1b7e5d03aa", answers_text="the words")
     assert record["kind"] == _mf.REPLY_RECORD_KIND
     assert record["writer"] == _mf.REPLY_WRITER
-    assert record["answers"] == "Reel_13:abc"
+    assert record["answers"] == "Reel_13:9f2c4a1b7e5d03aa"
     assert record["answers_text"] == "the words"
     marker_payload.merge_record(marker_payload.new_envelope(), record)
 
@@ -361,7 +361,7 @@ def test_a_reply_record_names_its_writer_and_what_it_answers():
 def test_reply_custom_data_merges_into_a_foreign_payload():
     """A marker's customData may already carry another writer's records."""
     data = _mf.reply_custom_data(existing="not json at all",
-                                 answers="Reel_13:abc")
+                                 answers="Reel_13:9f2c4a1b7e5d03aa")
     envelope = marker_payload.parse(data)
     assert envelope["foreign"] == "not json at all"
     assert len(_mf.reply_records_in(data)) == 1
@@ -371,22 +371,22 @@ def test_a_reply_marker_carries_its_record_and_reads_it_back():
     """Remove the stamping and this marker is indistinguishable from
     a question the captain typed."""
     timeline = _MarkerSurface()
-    payload = _mf.reply_custom_data(answers="Reel_13:abc")
+    payload = _mf.reply_custom_data(answers="Reel_13:9f2c4a1b7e5d03aa")
     landed = _mf.place_reply_marker(timeline, 100, "Green", "reply: done",
                                     "we did it", custom_data=payload)
     assert timeline.arity == 6
     assert landed["custom_data"] == payload
     assert _mf.reply_records_in(landed["custom_data"])[0]["answers"] \
-        == "Reel_13:abc"
+        == "Reel_13:9f2c4a1b7e5d03aa"
 
 
 def test_a_clip_reply_marker_carries_its_record_too():
     item = _MarkerSurface()
-    payload = _mf.reply_custom_data(answers="Reel_09:def")
+    payload = _mf.reply_custom_data(answers="Reel_09:1b7e5d03aa9f2c4a")
     landed = _mf.place_reply_clip_marker(item, 100, "Green", "reply: done",
                                          "we did it", custom_data=payload)
     assert _mf.reply_records_in(landed["custom_data"])[0]["answers"] \
-        == "Reel_09:def"
+        == "Reel_09:1b7e5d03aa9f2c4a"
 
 
 def test_a_reply_with_nothing_to_record_stays_a_five_argument_call():
@@ -407,7 +407,7 @@ def test_a_customdata_that_does_not_read_back_RAISES():
 
     with pytest.raises(_mf.MarkerWriteError) as refused:
         _mf.place_reply_marker(Dropping(), 100, "Green", "r", "x",
-                               custom_data=_mf.reply_custom_data(answers="a"))
+                               custom_data=_mf.reply_custom_data(answers="Reel_13:9f2c4a1b7e5d03aa"))
     assert "customData" in str(refused.value)
 
 
@@ -415,5 +415,69 @@ def test_a_foreign_writers_record_is_not_read_as_our_reply():
     envelope = marker_payload.new_envelope()
     marker_payload.merge_record(envelope, {
         "kind": _mf.REPLY_RECORD_KIND, "writer": "somebody_else",
-        "writer_version": 1, "id": "x", "at": "2026-09-11T00:00:00Z"})
+        "writer_version": 1, "id": "x", "at": "2026-08-28T00:00:00Z"})
     assert _mf.reply_records_in(marker_payload.dumps(envelope)) == []
+
+
+# ── `answers` is single-writer and well-formed ──────────────────────
+#
+# Measured on live reels: sometimes absent, sometimes prose ("R04 blue
+# feedback"), sometimes a stale frame locator ("Reel 14 - ... @162",
+# "...#clip_marker@22"). A field used all three ways invites the
+# mechanical count that has now failed twice, so the single writer -
+# `reply_record` - refuses everything but empty and the durable
+# identity, and prose stays in `answers_text` where it is display only.
+
+
+def test_a_prose_answers_is_refused():
+    """Reel 04's pink verdict: `answers="R04 blue feedback"`."""
+    with pytest.raises(ValueError, match="must be a durable note identity"):
+        _mf.reply_record(answers="R04 blue feedback")
+
+
+def test_a_frame_locator_answers_is_refused():
+    """Reel 14's green (`... @162`) and Reel 29's (`...#clip_marker@22`)."""
+    with pytest.raises(ValueError, match="must be a durable note identity"):
+        _mf.reply_record(answers="Reel 14 - why-ai-trusts-youtube@162")
+    with pytest.raises(ValueError, match="must be a durable note identity"):
+        _mf.reply_record(
+            answers="Reel 29 - salvage#clip_marker@22")
+
+
+def test_an_empty_answers_records_no_key():
+    record = _mf.reply_record(answers_text="the words")
+    assert "answers" not in record
+    assert record["answers_text"] == "the words"
+
+
+def test_a_durable_identity_answers_survives():
+    """The legitimate producer: `feedback_ledger.durable_identity`."""
+    from library.tools.feedback_ledger import durable_identity
+    identity = durable_identity("Reel 14", "feedback\n\nno value prop")
+    record = _mf.reply_record(answers=identity, answers_text="x")
+    assert record["answers"] == identity
+    marker_payload.merge_record(marker_payload.new_envelope(), record)
+
+
+def test_an_answers_anchor_is_recorded_verbatim():
+    anchor = {"source_file": "/f/LC4932.MXF", "source_frame": 1101}
+    record = _mf.reply_record(answers="Reel_14:9f2c4a1b7e5d03aa",
+                              answers_anchor=anchor)
+    assert record["answers_anchor"] == anchor
+    assert record["answers_anchor"] is not anchor
+    data = _mf.reply_custom_data(
+        answers="Reel_14:9f2c4a1b7e5d03aa", answers_anchor=anchor)
+    assert _mf.reply_records_in(data)[0]["answers_anchor"] == anchor
+
+
+def test_a_malformed_answers_anchor_is_refused():
+    good = "Reel_14:9f2c4a1b7e5d03aa"
+    for bad in ({"source_file": "/f/a.mov"},
+                {"source_frame": 3},
+                {"source_file": "", "source_frame": 3},
+                {"source_file": "/f/a.mov", "source_frame": -1},
+                {"source_file": "/f/a.mov", "source_frame": True},
+                {"source_file": "/f/a.mov", "source_frame": "3"},
+                "not-a-mapping"):
+        with pytest.raises(ValueError, match="answers_anchor"):
+            _mf.reply_record(answers=good, answers_anchor=bad)

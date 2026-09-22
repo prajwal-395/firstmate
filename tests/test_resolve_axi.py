@@ -29,6 +29,7 @@ from library.tools.resolve_axi import (
     cmd_fusion,
     cmd_items,
     cmd_markers,
+    cmd_markers_audit_replies,
     cmd_markers_reply,
     cmd_markers_restore,
     cmd_markers_snapshot,
@@ -810,6 +811,108 @@ def test_reply_apply_refuses_foreign_cursor(patched, notes, monkeypatch,
     assert cmd_markers_reply(_reply_ns(apply=True)) == 1
     assert "cursor sits on" in capsys.readouterr().out
     assert patched["timeline"].added == []
+
+
+def test_reply_dry_run_shows_the_derived_note_identity(
+        patched, notes, capsys):
+    """`--answers-frame` takes the note's own identity - the writer
+    never hand-types a locator again."""
+    from library.tools.feedback_ledger import durable_identity
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        color="Blue", name="feedback",
+                                        note="is this salvageable?")]
+    assert cmd_markers_reply(_reply_ns()) == 0
+    out = capsys.readouterr().out
+    assert ("answers: " + durable_identity(
+        "Reel 29 - salvage", "is this salvageable?")) in out
+    # The fixture timeline plays /footage/LC0001.MXF under frame 10, so
+    # the plan carries the picture anchor the carry will re-pair by.
+    assert "answers_anchor: /footage/LC0001.MXF@1010" in out
+
+
+def test_reply_refuses_a_prose_answers(patched, notes, capsys):
+    """Reel 04's pink verdict shape never becomes a record again."""
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        color="Blue", name="feedback",
+                                        note="is this salvageable?")]
+    assert cmd_markers_reply(_reply_ns(answers="R04 blue feedback")) == 1
+    assert "not a note identity" in capsys.readouterr().out
+    assert patched["timeline"].added == []
+
+
+def test_reply_refuses_an_answers_that_is_not_this_note(
+        patched, notes, capsys):
+    from library.tools.feedback_ledger import durable_identity
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        color="Blue", name="feedback",
+                                        note="is this salvageable?")]
+    other = durable_identity("Reel 29 - salvage", "other words")
+    assert cmd_markers_reply(_reply_ns(answers=other)) == 1
+    assert "not the note at frame" in capsys.readouterr().out
+    assert patched["timeline"].added == []
+
+
+def test_reply_accepts_the_notes_own_explicit_answers(
+        patched, notes, capsys):
+    from library.tools.feedback_ledger import durable_identity
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        color="Blue", name="feedback",
+                                        note="is this salvageable?")]
+    own = durable_identity("Reel 29 - salvage", "is this salvageable?")
+    assert cmd_markers_reply(_reply_ns(answers=own, apply=True)) == 0
+    (key, color, name, text, duration, custom), = \
+        patched["timeline"].added
+    assert own in custom
+
+
+# ── Marker reply audit ─────────────────────────────────────────────
+
+
+def _audit_timeline(green_frame):
+    from library.tools import marker_feedback as feedback
+    from library.tools.feedback_ledger import durable_identity
+    pool = _Pool("/footage/a.mov")
+    item = _Item("a.mov", 0, 99, pool=pool)
+    identity = durable_identity("Reel 29 - salvage", "feedback\n\ngood")
+    payload = feedback.reply_custom_data(
+        "", identity, "good", "",
+        {"source_file": "/footage/a.mov", "source_frame": 1010})
+    return _Timeline(
+        "Reel 29 - salvage",
+        markers={
+            10: {"color": "Blue", "name": "feedback", "note": "good",
+                 "duration": 1, "customData": ""},
+            green_frame: {"color": "Green", "name": "reply: done",
+                          "note": "done", "duration": 1,
+                          "customData": payload}},
+        tracks={("video", 1): {"name": "V1", "items": [item]}},
+        start=0, end=99)
+
+
+def test_audit_replies_passes_an_adjacent_reply(patched, monkeypatch,
+                                                capsys):
+    import library.tools.marker_feedback as feedback
+    monkeypatch.setattr(feedback, "read_notes", lambda *a, **k: [])
+    patched["timeline"]._markers = _audit_timeline(11)._markers
+    patched["timeline"]._tracks = _audit_timeline(11)._tracks
+    assert cmd_markers_audit_replies(
+        _ns(project="", timeline="Reel 29 - salvage", full=False)) == 0
+    out = capsys.readouterr().out
+    assert "paired-adjacent" in out
+    assert "drifted: 0" in out
+
+
+def test_audit_replies_finds_a_drifted_reply(patched, monkeypatch, capsys):
+    import library.tools.marker_feedback as feedback
+    monkeypatch.setattr(feedback, "read_notes", lambda *a, **k: [])
+    drifted = _audit_timeline(50)
+    patched["timeline"]._markers = drifted._markers
+    patched["timeline"]._tracks = drifted._tracks
+    assert cmd_markers_audit_replies(
+        _ns(project="", timeline="Reel 29 - salvage", full=False)) == 0
+    out = capsys.readouterr().out
+    assert "paired-drifted" in out
+    assert "drifted: 1" in out
 
 
 # ── run: the cheap escape hatch ────────────────────────────────────

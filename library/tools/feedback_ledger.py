@@ -222,6 +222,27 @@ def identity_of(note: Mapping, timeline: str = "") -> str:
                          note_text(note))
 
 
+#: What a `durable_identity` looks like: a readable reel stem, one
+#: colon, sixteen hex digest characters. Owned here because this module
+#: owns `durable_identity`; `marker_feedback.reply_record` (the single
+#: writer of a reply's `answers` key) and `marker_carry` (which re-pairs
+#: replies by it) both validate against this rather than re-spelling it.
+IDENTITY_PATTERN = re.compile(r"[^:]+:[0-9a-f]{16}")
+
+
+def is_identity(value) -> bool:
+    """Whether `value` has the shape `durable_identity` produces.
+
+    The grammar half of the `answers` single-writer rule: a reply's
+    `answers` is either empty (nothing claimed) or one of these, never
+    prose ("R04 blue feedback") and never a frame ("... @162"). Both of
+    those were found on live reels, and both decay: prose never joined
+    to anything, and a frame is invalidated by the next rebuild.
+    """
+    return (isinstance(value, str)
+            and IDENTITY_PATTERN.fullmatch(value) is not None)
+
+
 # ── The entries ───────────────────────────────────────────────────
 
 KIND_ASK = "ask"

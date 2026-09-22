@@ -218,7 +218,7 @@ def test_replies_never_summon_even_named_feedback():
 
 def test_a_marker_carrying_our_reply_record_never_summons():
     custom = marker_feedback.reply_custom_data(
-        "", answers="Reel_13:abc123", answers_text="feedback\n\nchange this")
+        "", answers="Reel_13:ab12cd34ef56ab78", answers_text="feedback\n\nchange this")
     assert feedback_poll.is_summons(_note(custom_data_raw=custom)) is False
 
 

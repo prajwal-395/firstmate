@@ -696,7 +696,8 @@ REPLY_WRITER_VERSION = 1
 
 
 def reply_record(answers: str = "", answers_text: str = "",
-                 summary: str = "") -> dict:
+                 summary: str = "",
+                 answers_anchor: dict | None = None) -> dict:
     """One `marker_payload` record stating this marker is our reply.
 
     `answers` is the answered note's durable identity and `answers_text`
@@ -704,8 +705,43 @@ def reply_record(answers: str = "", answers_text: str = "",
     when given: an identity is exact and a rebuild cannot move it, and
     the words are what a human reads when they find this marker a month
     later with no ledger to hand.
+
+    `answers` is SINGLE-WRITER and well-formed: this function is the
+    only place that sets the key, and it refuses anything that is not
+    empty or a `feedback_ledger` durable identity (`is_identity`). The
+    prose ("R04 blue feedback") and frame locators ("... @162",
+    "...#clip_marker@22") found on live reels never joined to anything
+    and decayed on the next rebuild; prose belongs in `answers_text`,
+    which stays free words by design. `answers_anchor` is the picture
+    the answered note sat on - `{"source_file", "source_frame"}`, as
+    `picture_anchor_of` returns - so a rebuild can tell two same-words
+    notes apart and re-pair this reply with its own note's new frame.
     """
     from library.tools import marker_payload
+    from library.tools.feedback_ledger import is_identity
+
+    if answers and not is_identity(answers):
+        raise ValueError(
+            f"a reply's `answers` must be a durable note identity "
+            f"(`feedback_ledger.durable_identity`, e.g. "
+            f"`Reel_14:9f2c...`), not {answers!r} - prose never joins "
+            f"to a note and a frame is invalidated by the next rebuild. "
+            f"Put the words in `answers_text`.")
+    anchor = None
+    if answers_anchor is not None:
+        try:
+            path = answers_anchor.get("source_file")
+            frame = answers_anchor.get("source_frame")
+        except AttributeError:
+            path, frame = None, None
+        if (not isinstance(path, str) or not path
+                or isinstance(frame, bool) or not isinstance(frame, int)
+                or frame < 0):
+            raise ValueError(
+                f"a reply's `answers_anchor` must be "
+                f"`{{$'source_file': str, 'source_frame': int >= 0}}`, "
+                f"not {answers_anchor!r}.")
+        anchor = {"source_file": path, "source_frame": int(frame)}
 
     record = {
         "kind": REPLY_RECORD_KIND,
@@ -720,11 +756,14 @@ def reply_record(answers: str = "", answers_text: str = "",
         record["answers_text"] = str(answers_text)
     if summary:
         record["summary"] = str(summary)
+    if anchor is not None:
+        record["answers_anchor"] = anchor
     return record
 
 
 def reply_custom_data(existing: str = "", answers: str = "",
-                      answers_text: str = "", summary: str = "") -> str:
+                      answers_text: str = "", summary: str = "",
+                      answers_anchor: dict | None = None) -> str:
     """The `customData` string for a reply, merged into what is there.
 
     Merged rather than replaced, through `marker_payload.parse`, which
@@ -736,7 +775,8 @@ def reply_custom_data(existing: str = "", answers: str = "",
 
     envelope = marker_payload.parse(existing or "")
     marker_payload.merge_record(
-        envelope, reply_record(answers, answers_text, summary))
+        envelope, reply_record(answers, answers_text, summary,
+                               answers_anchor))
     return marker_payload.dumps(envelope)
 
 
