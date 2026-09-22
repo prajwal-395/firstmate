@@ -60,6 +60,22 @@ Rows the transcript could not bind to any source (`source_file` None,
 or words with no timings) cannot be mapped onto the reel and are
 collected as `undetermined`: reported, never counted as played and
 never counted as missing.
+
+Transcription-level loss. Every leg of this diff - played, captioned
+and spine - reads the transcript, so words the transcription never
+produced are invisible to it BY CONSTRUCTION, and no timing hole is
+left behind for it to trip on: the aligner stretches the surviving
+words across the gap. Measured on Reel 12 (field test, 2026-09-19):
+the large-v3 arm dropped "pull from there" and stuttered "probably"
+into two in one 46-word row, MFA stretched "hallucinate" to 1.55s -
+under `DEFAULT_MAX_WORD_SECONDS`, so the stretched-word exclusion
+above never fired - and this gate reported CLEAN on audio speaking 9
+words where the card captions 6. The "played" leg is the transcript
+mapped through placed spans, not ground truth. A duration-anomaly
+warning upstream of caption planning
+(`library/tools/transcript_duration_anomaly.py`) flags the stretched
+words before any pixel renders; the words never transcribed remain
+outside what any played-vs-captioned comparison can see.
 """
 
 from __future__ import annotations

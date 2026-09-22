@@ -895,6 +895,55 @@ def generate_subtitles(audio_spine: dict, caption_case: str = "lowercase",
 
     subtitle_entries = []
 
+    # ── Stretched-speech warning, before a caption is planned ──
+    #
+    # Reel 12 (field test, 2026-09-19): the transcription dropped "pull
+    # from there" and stuttered "probably" into two, MFA stretched
+    # "hallucinate" across the gap to 1.55s, and this step captioned the
+    # defective list faithfully - every downstream check comparing
+    # played against captioned then agreed with itself. The two duration
+    # outliers in that row WERE the two complaints, so the row's own
+    # words are scored against its own local rate here, before grouping
+    # draws a card over them
+    # (`library/tools/transcript_duration_anomaly.py`). Advisory ONLY:
+    # a flagged row is a prompt to listen, never a refusal - this pass
+    # cannot tell stretched silence from slow speech, and words the
+    # transcription never produced have no duration to score. Said on
+    # the run, like every other repair in this step.
+    try:
+        from library.tools.transcript_duration_anomaly import (
+            flag_duration_anomalies,
+        )
+        _anomaly_rows = [
+            {"position": block.get("position"),
+             "speaker": block.get("speaker"),
+             "words": block.get("word_timestamps") or []}
+            for block in structure
+            if block.get("block_type") in ("hook", "speech")
+        ]
+        _anomalies = flag_duration_anomalies(_anomaly_rows)
+        _flagged = _anomalies["warnings"]
+        if _flagged:
+            _listed = ", ".join(
+                f"block {w['position']} {w['word']!r} "
+                f"{w['duration_seconds']:.2f}s "
+                f"(local median {w['local_median_seconds']:.2f}s, "
+                f"z {w['modified_z']:.1f})"
+                + (f" [{w['speaker']}]" if w.get("speaker") else "")
+                for w in _flagged[:5])
+            if len(_flagged) > 5:
+                _listed += f", +{len(_flagged) - 5} more"
+            print(
+                f"NOTE: {len(_flagged)} word(s) run far longer than "
+                f"their own block's speaking rate - possible "
+                f"aligner stretch across dropped speech, listen before "
+                f"trusting these cards: {_listed}",
+                file=sys.stderr,
+            )
+    except Exception as exc:  # noqa: BLE001 - advisory, never refuses
+        print(f"WARNING: duration-anomaly check could not run ({exc}); "
+              f"continuing without it.", file=sys.stderr)
+
     # ── A caption id is BLOCK-LOCAL, and that is what makes a region
     #    splice provable ──
     #
