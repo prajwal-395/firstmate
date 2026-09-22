@@ -37,13 +37,21 @@
 # unreliable in practice, the remedy is a probe launch on free, not a second
 # clock kept beside the vendor's.
 #
-# RUNNING WORKERS ARE DELIBERATELY NOT TOUCHED. A lane already working on free
-# that hits the cap reads `blocked` through bin/fm-crew-state.sh's existing
-# override, and it stays on its recorded model: there is no verified
+# RUNNING WORKERS ARE OWNED BY THE DESCENT, NOT LEFT IN PLACE. This file
+# routes the next spawn only. bin/fm-opencode-descent-lib.sh re-evaluates a
+# lane already running: a lane recorded on free with a proven cap relaunches
+# onto Go through bin/fm-control.sh relaunch --model, keeping its worktree,
+# branch, commits, and brief and carrying a handoff note, while its
+# conversation ends with the parked session. There is still no verified
 # in-session model switch for opencode (agy's guarded /model walk does not
-# transfer), and dragging a live worker across tiers unsupervised would risk
-# the conversation for no proven gain. Recovery and relaunch keep the recorded
-# model. This file routes the next spawn only, and says so.
+# transfer), which is why the move is a control-plane relaunch rather than a
+# live tier switch. This file routes the next spawn only, and says so.
+#
+# THE TWO DIRECTIONS ARE NOT SYMMETRIC. A running worker that has descended
+# onto Go never climbs back to free: moving a healthy lane would risk its
+# conversation for zero gain. Climb-back belongs to new spawns only, which
+# return to free through this file once the vendor's horizon elapses. The agy
+# ladder has no climb-back in either direction, so its rules do not transfer.
 #
 # THE FAILURE DIRECTION, STATED NOT IMPLIED. Two mistakes are possible: fall
 # through to Go when free is actually fine (spends money that did not need

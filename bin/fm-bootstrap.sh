@@ -1163,7 +1163,7 @@ EOF
 }
 
 crew_dispatch_validate() {
-  local file err verified_harnesses typed_key typed_active=false
+  local file err verified_harnesses typed_key typed_active=false legacy_notice
   file="$CONFIG/crew-dispatch.json"
   [ -f "$file" ] || return 0
   if ! command -v jq >/dev/null 2>&1; then
@@ -1280,9 +1280,13 @@ crew_dispatch_validate() {
   # The checks above validate dispatch PROFILES. This one validates the agy
   # LADDER order the same file also defines: a model the gate cannot rank
   # makes it discard the captain's whole order and enforce the built-in one
-  # instead, and nothing at dispatch time says so.
+  # instead, and nothing at dispatch time says so. A file that states its
+  # order only through the legacy default field keeps resolving, and is named
+  # as legacy so the coupled read is reported rather than silent.
   if err=$(fm_agy_ladder_config_problem "$file"); then
-    :
+    if legacy_notice=$(fm_agy_ladder_legacy_notice "$file"); then
+      [ -n "$legacy_notice" ] && echo "CREW_DISPATCH: legacy config/crew-dispatch.json - $legacy_notice"
+    fi
   else
     echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
     return 0

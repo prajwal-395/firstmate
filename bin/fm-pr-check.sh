@@ -36,6 +36,11 @@ HOST=$FM_PR_HOST
 PROJECT_PATH=$FM_PR_PATH
 NUMBER=$FM_PR_NUMBER
 
+# The captain's standing never-upstream ruling is enforced before any state is
+# touched: an upstream firstmate PR can never be registered, watched, or merged
+# through this fleet, whatever a brief's prose says.
+fm_pr_never_upstream_refuse || exit 1
+
 # Task-derived paths are constructed only after the canonical ID validation.
 META="$STATE/$ID.meta"
 if [ ! -f "$META" ] || [ -L "$META" ] || [ "$(fm_pr_file_link_count "$META")" != 1 ]; then

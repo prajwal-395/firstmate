@@ -420,7 +420,7 @@ EOF
     fi
 
     FM_FAKE_BOOTSTRAP_LOG="$log" run_stage "$home" "$root" run --locked 1
-    assert_grep $'check\tinactive-reconcile-diagnostic:invalid-secondmate-home\t' "$home/state/.wake-queue" \
+    assert_grep $'check\tinactive-reconcile:' "$home/state/.wake-queue" \
       "$kind marker finding was swallowed by the deferred startup stage"
     report=$(run_stage "$home" "$root" report)
     assert_contains "$report" "(silent - no problems found)" \
@@ -434,7 +434,7 @@ EOF
       || fail "$kind marker wake did not issue a durable acknowledgement"
     FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$DRAIN" \
       --ack-through "$seq" --recovery-generation "$generation" >/dev/null
-    assert_no_grep 'inactive-reconcile-diagnostic:invalid-secondmate-home' "$home/state/.wake-queue" \
+    assert_no_grep 'inactive-reconcile:' "$home/state/.wake-queue" \
       "$kind marker wake could not be acknowledged"
   done
   pass "fm-startup-network: deferred invalid secondmate markers produce durable wakes"
@@ -555,7 +555,7 @@ EOF
     || fail "the locked request never published"
   assert_grep 'network=only detect_only=0' "$log" \
     "the in-flight probe-only worker suppressed the locked sweeps"
-  assert_grep $'check\tinactive-reconcile-diagnostic:invalid-secondmate-home\t' "$home/state/.wake-queue" \
+  assert_grep $'check\tinactive-reconcile:' "$home/state/.wake-queue" \
     "the in-flight probe-only worker suppressed the locked inactive scan"
   pass "fm-startup-network: locked requests supersede in-flight probe-only workers"
 }

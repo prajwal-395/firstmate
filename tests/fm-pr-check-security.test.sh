@@ -2424,7 +2424,53 @@ SH
   pass "poll retirement preserves a replacement authority record"
 }
 
+# The captain's standing never-upstream ruling is a mechanical refusal, not a
+# reminder. The input is the canonical PR URL; the invocations are
+# bin/fm-pr-check.sh (registration) and bin/fm-pr-merge.sh (landing). The guard
+# fails a task only when the lowercased GitHub identity is exactly
+# kunchenguid/firstmate, before any state or network side effect. Each refusal
+# below proves its reason: the output names the ruling and the fork, no poll is
+# armed, and the fake forge was never called. The fork control proves the guard
+# passes what it should: the same fixture registers and arms.
+test_never_upstream_refused_at_registration() {
+  local dir out status
+  dir=$(make_case never-upstream-check)
+  write_task_meta "$dir" task-a
+  out=$(run_check_entry "$dir" task-a https://github.com/kunchenguid/firstmate/pull/129 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "an upstream firstmate PR was registered instead of refused"
+  assert_contains "$out" "never-upstream" "the upstream refusal did not name the standing ruling"
+  assert_contains "$out" "prajwal-395/firstmate" "the upstream refusal did not name the fork"
+  assert_contains "$out" "no brief prose overrides this refusal" "the upstream refusal left a prose bypass open"
+  assert_absent "$dir/home/state/task-a.check.sh" "the refused upstream PR still armed a merge poll"
+  assert_absent "$dir/home/state/task-a.pr-poll" "the refused upstream PR still wrote poll data"
+  [ ! -s "$dir/gh.log" ] || fail "the refused upstream PR reached the forge (gh was called)"
+  [ ! -s "$dir/guard.log" ] || fail "the refused upstream PR ran side effects before refusing"
+  out=$(run_check_entry "$dir" task-a https://github.com/KunChengUid/FirstMate/pull/130 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "a mixed-case upstream firstmate PR was registered instead of refused"
+  assert_contains "$out" "never-upstream" "the mixed-case refusal did not name the standing ruling"
+  out=$(run_check_entry "$dir" task-a https://github.com/prajwal-395/firstmate/pull/129 2>&1); status=$?
+  expect_code 0 "$status" "a fork PR should register past the guard (got: $out)"
+  assert_contains "$out" "armed: state/task-a.check.sh" "the fork PR did not arm its merge poll"
+  assert_not_contains "$out" "never-upstream" "the fork PR was fenced by the upstream guard"
+  pass "fm-pr-check.sh refuses the upstream firstmate repo and registers the fork"
+}
+
+test_never_upstream_refused_at_merge() {
+  local dir out status
+  dir=$(make_case never-upstream-merge)
+  write_task_meta "$dir" task-a
+  out=$(run_merge_entry "$dir" task-a https://github.com/kunchenguid/firstmate/pull/129 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "an upstream firstmate PR was accepted for merge instead of refused"
+  assert_contains "$out" "never-upstream" "the merge refusal did not name the standing ruling"
+  assert_contains "$out" "prajwal-395/firstmate" "the merge refusal did not name the fork"
+  [ ! -s "$dir/gh.log" ] || fail "the refused upstream merge reached the forge (gh was called)"
+  [ ! -s "$dir/gh-axi.log" ] || fail "the refused upstream merge reached the forge (gh-axi was called)"
+  pass "fm-pr-merge.sh refuses the upstream firstmate repo before any merge read"
+}
+
 test_parser_matrix
+test_never_upstream_refused_at_registration
+test_never_upstream_refused_at_merge
 test_gitlab_merge_watch
 test_merged_poll_retires_once
 test_merged_poll_reregistration_after_notification_is_absorbed
