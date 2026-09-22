@@ -565,6 +565,8 @@ def _load_survey_inputs(project_folder: str):
 
     from library.tools import transcript_corrections as _tc
     from library.tools.reel_proposal import proposal_path, read_proposal
+    from library.tools.timeline_transcript import (
+        transcript_path as _transcript_path)
 
     moments = read_proposal(str(proposal_path(project_folder)))
     surveyed = [moment for moment in moments
@@ -573,8 +575,7 @@ def _load_survey_inputs(project_folder: str):
                 == "approved"]
     surveyed = [moment for moment in surveyed
                 if closer_range(moment) is not None]
-    transcript_path = (Path(project_folder) / "pipeline_output" / "scratch"
-                       / "timeline_transcript" / "transcript.json")
+    transcript_path = _transcript_path(project_folder)
     with open(transcript_path, "r", encoding="utf-8") as handle:
         transcript = _json.load(handle)
     return (surveyed, transcript,

@@ -4668,7 +4668,10 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
 
     `collect_trims` (the build loop's) is filled with the trim records
     this call applied or held (`{"applied": [...], "held": [...]}`,
-    empty lists where no `span_retime` edit exists) - the per-reel
+    plus the pre-apply freshness state `{"drifted": [...], "stale":
+    [...]}` - anchors that resolved to a different place than
+    recorded, and anchors that no longer resolve - empty lists where
+    no `span_retime` edit exists) - the per-reel
     build summary's honest source for which captain trims landed,
     without a second computation. The ask path passes nothing and the
     return shape never changes for it.
@@ -4698,11 +4701,22 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
             f"recorded trim the build cannot read must refuse, "
             f"never build silently past it.")
     if any(e.get("kind") == "span_retime" for e in _all_edits):
+        _trim_probe = placements(ranges, master_clips, fps)
+        # BEFORE the trims apply: an anchor that re-timed since it
+        # was recorded still resolves - to a different place - and
+        # the trim would follow it silently (Reel 17, 2026-09-21: a
+        # head pin followed "So" 1407.830 -> 1407.970 and a
+        # caption-only rebuild shipped 7 frames shorter with
+        # nothing said). That drift is a loud, enumerable pre-build
+        # state, not a line in a log: stderr here, records in
+        # `collect_trims` for the per-reel summary and phase log.
+        _rt_drifted, _ = _edits.check_span_retime_freshness(
+            _trim_probe, transcript, _all_edits, fps=fps)
+        _edits.report_drifted(_rt_drifted)
         ranges, _rt_applied, _rt_held, _rt_stale = (
             _edits.retime_ranges(
-                ranges,
-                placements(ranges, master_clips, fps),
-                transcript, _all_edits, fps=fps))
+                ranges, _trim_probe, transcript, _all_edits,
+                fps=fps))
         for record in _rt_applied:
             print(f"  Captain edit: span {record['span_index']}'s "
                   f"{record['edge']} trimmed "
@@ -4720,11 +4734,15 @@ def derive_reel_ranges_and_cards(moment, transcript: dict, master_clips,
         if collect_trims is not None:
             collect_trims["applied"] = list(_rt_applied)
             collect_trims["held"] = list(_rt_held)
+            collect_trims["drifted"] = list(_rt_drifted)
+            collect_trims["stale"] = list(_rt_stale)
     elif collect_trims is not None:
         # No span_retime edit: the summary reads these below, and an
         # absent key there would fail the filing it must never fail.
         collect_trims["applied"] = []
         collect_trims["held"] = []
+        collect_trims["drifted"] = []
+        collect_trims["stale"] = []
 
     # WHERE THIS REEL ENDS (`library/tools/reel_ending.py`), on the
     # same ranges seam and directly after the trims: an ending is a
@@ -10767,7 +10785,11 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
                     "trims": {"applied": list(
                                     _trim_records.get("applied") or []),
                                 "held": list(
-                                    _trim_records.get("held") or [])},
+                                    _trim_records.get("held") or []),
+                                "drifted": list(
+                                    _trim_records.get("drifted") or []),
+                                "stale": list(
+                                    _trim_records.get("stale") or [])},
                     "keep_exclusions": [
                         {"id": str(cut_id), "start": cut_start,
                          "end": cut_end}
@@ -12305,10 +12327,18 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # trimmed ranges the approved reel was built from. `_pin_edits`
     # is the load above: one read, both pin kinds.
     if any(e.get("kind") == "span_retime" for e in _pin_edits):
+        _vrt_probe = placements(ranges, master_clips, fps)
+        # Same pre-apply freshness state as the rebuild loop: a
+        # variant is cut from trimmed ranges, so a drifted anchor
+        # moves the variant's edges exactly the way it moves the
+        # build's. Loud here; there is no per-variant trim summary
+        # to file it into.
+        _edits.report_drifted(
+            _edits.check_span_retime_freshness(
+                _vrt_probe, transcript, _pin_edits, fps=fps)[0])
         ranges, _vrt_applied, _vrt_held, _vrt_stale = (
             _edits.retime_ranges(
-                ranges, placements(ranges, master_clips, fps),
-                transcript, _pin_edits, fps=fps))
+                ranges, _vrt_probe, transcript, _pin_edits, fps=fps))
         for record in _vrt_applied:
             print(f"  Captain edit: span {record['span_index']}'s "
                   f"{record['edge']} trimmed onto "

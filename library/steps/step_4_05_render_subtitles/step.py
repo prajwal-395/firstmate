@@ -1813,7 +1813,7 @@ def _resolve_live_project(project_folder: str):
             f"the open Resolve project cannot be read: {exc}") from exc
     import yaml
     try:
-        with open(os.path.join(project_folder, "project.yaml"),
+        with open(ProjectLayout(project_folder).project_config_path,
                   encoding="utf-8") as handle:
             config = yaml.safe_load(handle) or {}
     except OSError as exc:

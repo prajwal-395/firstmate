@@ -580,7 +580,7 @@ def read_catalog_program_channels(project_folder: str):
     if not project_folder:
         return channels, refusals
     try:
-        with open(os.path.join(project_folder, "pipeline_data.json"),
+        with open(ProjectLayout(project_folder).pipeline_data_path,
                   encoding="utf-8") as handle:
             state = json.load(handle)
     except (OSError, ValueError):

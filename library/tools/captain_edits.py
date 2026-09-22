@@ -129,7 +129,10 @@ Recording a decision: the one route
   --reason ...`: the typed fallback for a decision settled in words.
 - `record-retime --anchor ... --edge head --reason ...`: the typed
   fallback for a hand trim - one placed span's head (or tail) onto
-  the anchor's own word edge. Trims only.
+  the anchor's own word edge. Trims only. The write stamps where
+  the anchor resolves now (`recorded_edge`), so a later
+  re-transcription that moves those words reports DRIFTED
+  pre-build rather than following them silently.
 - `capture-transform --reel 9 --timeline 'Reel 09 - ...' --words ...
   [--property Pan] [--reason ...]`: read the value out of the LIVE
   Resolve timeline - the hand move, which exists nowhere else - and
@@ -326,6 +329,17 @@ def validate_edits(value) -> list:
                         f"re-times. Name the edge in spoken words "
                         f"(`anchor_phrase`) with `edge` head/tail "
                         f"instead.")
+            recorded = edit.get("recorded_edge")
+            if recorded is not None and (
+                    isinstance(recorded, bool)
+                    or not isinstance(recorded, (int, float))
+                    or not math.isfinite(recorded) or recorded < 0):
+                raise CaptainEditError(
+                    f"{label} carries recorded_edge {recorded!r}: the "
+                    f"baseline is the anchor's word-edge time in master "
+                    f"seconds as resolved when the trim was recorded - "
+                    f"a real second, never a pin. The build places from "
+                    f"the words, not from this number.")
         reason = edit.get("reason")
         if not isinstance(reason, str) or not reason.strip():
             raise CaptainEditError(
@@ -566,6 +580,29 @@ def _run_starts(stream: list, phrase: str) -> list:
     n = len(needle)
     return [i for i in range(len(haystack) - n + 1)
             if haystack[i:i + n] == needle]
+
+
+def _resolve_single_edge(transcript: dict, anchor: str,
+                         edge: str | None) -> float | None:
+    """The anchor's word-edge time where it occurs exactly once.
+
+    `head` reads the first word's start, anything else the last
+    word's end - the same edges `match_span_retimes` trims onto.
+    None where the anchor occurs zero times (the caller refuses
+    that first) or more than once (no single baseline to stamp).
+    Pipeline millisecond precision, like every other master second.
+    """
+    try:
+        stream = _word_stream(transcript or {})
+        at = _run_starts(stream, anchor)
+        if len(at) != 1:
+            return None
+        tokens = _tokens(anchor)
+        if edge == "head":
+            return round(float(stream[at[0]][1]), 3)
+        return round(float(stream[at[0] + len(tokens) - 1][2]), 3)
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 def _opens_on_word_edge(when: float, transcript: dict,
@@ -1136,6 +1173,112 @@ def match_span_retimes(spans: list, transcript: dict,
     return matched, held, stale
 
 
+# ── Freshness: an anchor that moved since it was recorded ────────────
+
+def check_span_retime_freshness(spans: list, transcript: dict,
+                                edits: list,
+                                fps: float = 24000 / 1001) -> tuple:
+    """`(drifted, stale)`: the enumerable pre-build state of recorded trims.
+
+    Call this on the same placements probe the trim is about to
+    apply to, BEFORE it applies: an anchor that no longer resolves
+    is stale (loud today - kept loud here, and returned so a
+    caller can file it), and an anchor that resolves to a
+    DIFFERENT PLACE than the one it was recorded at is drifted -
+    silent by construction until this check, and the Reel 17
+    defect (2026-09-21: the head pin followed "So" 1407.830 ->
+    1407.970 and a caption-only rebuild shipped 7 frames shorter
+    with nothing said at all).
+
+    Drift is judged in FRAMES, not seconds: the baseline is the
+    `recorded_edge` stamped at write time (`record_edit`), the
+    resolution is the word edge the trim is about to land on, and
+    a move inside one frame changes nothing downstream while a
+    move across frames changes what the reel plays. A pin with no
+    `recorded_edge` - recorded before the stamp existed, or
+    stamped ambiguous - can never drift; it matches and applies
+    exactly as before.
+    """
+    from library.tools.frame_utils import seconds_to_frame
+
+    retimes = [e for e in (edits or [])
+               if e.get("kind") == "span_retime"]
+    if not retimes:
+        return [], []
+    matched, held, stale = match_span_retimes(spans, transcript, edits)
+    baselines: dict = {}
+    for edit in retimes:
+        recorded = edit.get("recorded_edge")
+        if (isinstance(recorded, bool)
+                or not isinstance(recorded, (int, float))
+                or not math.isfinite(recorded)):
+            continue
+        baselines.setdefault(
+            (edit.get("anchor_phrase"), edit.get("edge")),
+            float(recorded))
+    drifted = []
+
+    def _drift_record(span_index, edge, anchor, baseline,
+                      resolved, in_force, reason) -> dict:
+        old_frame = seconds_to_frame(baseline, fps)
+        new_frame = seconds_to_frame(resolved, fps)
+        if new_frame == old_frame:
+            return {}
+        moved = new_frame - old_frame
+        return {
+            "kind": "span_retime", "span_index": span_index,
+            "edge": edge, "anchor_phrase": anchor,
+            "recorded_edge": round(baseline, 3),
+            "resolved_edge": round(float(resolved), 3),
+            "frames_moved": moved,
+            "reason": (
+                f"DRIFTED on span {span_index}: {anchor!r} now "
+                f"resolves to {float(resolved):.3f}s - recorded at "
+                f"{baseline:.3f}s ({moved:+d} frames). "
+                f"Re-transcription re-timed the anchor and the "
+                f"{edge} trim follows the words, so this build "
+                f"trims to different seconds than the recorded "
+                f"decision - {in_force}. Re-capture the trim "
+                f"against the words now spoken if the new edge "
+                f"is wrong, or re-record it to adopt the new "
+                f"timing as the baseline. Original request: "
+                f"{reason}".strip())}
+
+    for record in matched:
+        baseline = baselines.get(
+            (record.get("anchor_phrase"), record.get("edge")))
+        if baseline is None:
+            continue
+        entry = _drift_record(
+            record["span_index"], record["edge"],
+            record["anchor_phrase"], baseline, record["new_edge"],
+            "the trim below lands on the moved words",
+            record.get("reason", ""))
+        if entry:
+            drifted.append(entry)
+    for record in held:
+        baseline = baselines.get(
+            (record.get("anchor_phrase"), record.get("edge")))
+        if baseline is None:
+            continue
+        try:
+            master = spans[record["span_index"]].get("master")
+            edge_now = float(
+                master[0] if record.get("edge") == "head"
+                else master[1])
+        except (TypeError, ValueError, IndexError, KeyError,
+                AttributeError):
+            continue
+        entry = _drift_record(
+            record["span_index"], record["edge"],
+            record["anchor_phrase"], baseline, edge_now,
+            "the pin is already in force at the moved words",
+            record.get("reason", ""))
+        if entry:
+            drifted.append(entry)
+    return drifted, list(stale)
+
+
 def retime_placements(placements_list: list, transcript: dict,
                       edits: list, fps: float = 24000 / 1001) -> tuple:
     """Move pinned span edges to their words and close up what follows.
@@ -1407,6 +1550,20 @@ def report_stale(records: list) -> list:
     return lines
 
 
+def report_drifted(records: list) -> list:
+    """A drifted trim is LOUD like a stale one: stderr, every record,
+    every rebuild. A trim that follows re-timed words onto different
+    seconds without saying so is the Reel 17 defect - the build
+    reports the move BEFORE it proceeds to place it."""
+    lines = []
+    for record in records or []:
+        line = (f"DRIFTED EDIT: {record.get('anchor_phrase', '')!r} - "
+                f"{record.get('reason', '')}".strip())
+        print(line, file=sys.stderr)
+        lines.append(line)
+    return lines
+
+
 # ── Recording a decision: the write side ──────────────────────────
 
 def transcript_path(project_folder) -> Path:
@@ -1495,7 +1652,27 @@ def record_edit(project_folder, edit: dict, source: str = "") -> tuple:
     (with its `external/` directory) where nothing was ever written -
     that absence was the whole defect."""
     validate_edits([edit])
-    check_anchor_spoken(edit, load_transcript(project_folder))
+    transcript = load_transcript(project_folder)
+    check_anchor_spoken(edit, transcript)
+    if (edit.get("kind") == "span_retime"
+            and "recorded_edge" not in edit
+            and transcript is not None):
+        # The freshness baseline: where the anchor's own word edge
+        # resolves RIGHT NOW, in master seconds. A rebuild re-snaps
+        # the trim to whatever the transcript says then, so a later
+        # re-transcription that re-times the anchor would move the
+        # trim silently (Reel 17, 2026-09-21: the head pin followed
+        # "So" 1407.830 -> 1407.970 and a caption-only rebuild
+        # shipped 7 frames shorter with nothing said). The recorded
+        # number is never placed from - the words are - it is only
+        # what the pre-build freshness check compares against. One
+        # occurrence only: an anchor spoken twice has no single
+        # baseline, and such a pin stays unstamped rather than
+        # guessing which telling it meant.
+        resolved = _resolve_single_edge(
+            transcript, edit["anchor_phrase"], edit.get("edge"))
+        if resolved is not None:
+            edit = dict(edit, recorded_edge=resolved)
     path = edits_path(project_folder)
     existing: list = []
     if path.is_file():

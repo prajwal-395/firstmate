@@ -241,7 +241,9 @@ def audit_ranges(*, number: int, staging: str = "", final: str = "",
         "disjoint": list(disjoint),
         "pins": [dict(p) for p in (pin_records or [])],
         "trims": ({"applied": list((trim_records or {}).get("applied") or []),
-                   "held": list((trim_records or {}).get("held") or [])}),
+                   "held": list((trim_records or {}).get("held") or []),
+                   "drifted": list((trim_records or {}).get("drifted") or []),
+                   "stale": list((trim_records or {}).get("stale") or [])}),
         "ending": dict(ending) if ending is not None else None,
     }
     if disjoint:

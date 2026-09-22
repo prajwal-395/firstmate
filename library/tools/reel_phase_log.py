@@ -491,12 +491,17 @@ def _exclusion_rows(exclusions: Any) -> List[Dict[str, Any]]:
     return rows
 
 
-def _trim_rows(applied: Any, held: Any) -> Dict[str, List[Dict[str, Any]]]:
+def _trim_rows(applied: Any, held: Any, drifted: Any = None,
+               stale: Any = None) -> Dict[str, List[Dict[str, Any]]]:
     """The captain's span trims this build honoured, without the prose.
 
     The run still SAYS each trim (span, edge, seconds, anchor, reason);
     the summary keeps the machine half - which span, which edge, which
-    seconds - so a lane checking "did lc-0016 land" reads here.
+    seconds - so a lane checking "did lc-0016 land" reads here. A
+    drifted trim keeps its numbers (both edges, frames moved) rather
+    than prose - that IS the diagnosis - and a stale one keeps its
+    reason, which names which kind of stale it is (no words anywhere
+    vs CANNOT-APPLY is a different state).
     """
     def shape(record: Any, with_seconds: bool) -> Dict[str, Any]:
         get = (record.get if isinstance(record, dict)
@@ -512,9 +517,33 @@ def _trim_rows(applied: Any, held: Any) -> Dict[str, List[Dict[str, Any]]]:
             row["now"] = list(now) if isinstance(now, (list, tuple)) else now
         return row
 
+    def drift_shape(record: Any) -> Dict[str, Any]:
+        get = (record.get if isinstance(record, dict)
+               else lambda key: getattr(record, key, None))
+        return {
+            "span_index": _int_or_none(get("span_index")),
+            "edge": get("edge"),
+            "anchor_phrase": get("anchor_phrase"),
+            "recorded_edge": get("recorded_edge"),
+            "resolved_edge": get("resolved_edge"),
+            "frames_moved": _int_or_none(get("frames_moved")),
+        }
+
+    def stale_shape(record: Any) -> Dict[str, Any]:
+        get = (record.get if isinstance(record, dict)
+               else lambda key: getattr(record, key, None))
+        return {
+            "span_index": _int_or_none(get("span_index")),
+            "edge": get("edge"),
+            "anchor_phrase": get("anchor_phrase"),
+            "reason": get("reason"),
+        }
+
     return {
         "applied": [shape(r, True) for r in (applied or ())],
         "held": [shape(r, False) for r in (held or ())],
+        "drifted": [drift_shape(r) for r in (drifted or ())],
+        "stale": [stale_shape(r) for r in (stale or ())],
     }
 
 
@@ -579,7 +608,10 @@ def assemble_summary(
             "span": _drops_of(span_record),
             "motion": _drops_of(motion_record),
         },
-        "captain_trims": _trim_rows(trims.get("applied"), trims.get("held")),
+        "captain_trims": _trim_rows(trims.get("applied"),
+                                     trims.get("held"),
+                                     trims.get("drifted"),
+                                     trims.get("stale")),
         "keep_exclusions": _exclusion_rows(keep_exclusions),
         "draw_gain": {
             "gain": _float_or_none(gain.get("gain")),
