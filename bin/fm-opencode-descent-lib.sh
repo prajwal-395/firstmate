@@ -73,6 +73,15 @@
 # moment the vendor's horizon elapses. The descent is one-directional: free
 # onto Go, never Go onto free.
 #
+# THE FINDING OUTLIVES THE TASK. The per-task sidecar describes one session's
+# backoff and is cleared with it after a move - but the cap it proved is a
+# property of the rung and the vendor horizon, so the tick records it
+# rung-scoped through bin/fm-opencode-retry.sh record-cap at proof time,
+# before any per-lane decision. The dispatch gate reads that record, so a cap
+# a descent paid for still routes the next spawn after the discovering task
+# is relaunched or torn down. Text-only evidence carries no trustworthy
+# horizon and is never preserved.
+#
 # THE WATCHER IS THE ONLY DRIVER, AND THAT IS SUFFICIENT. agy needed a
 # turn-end driver because a worker inside one long turn keeps spending while
 # the watcher waits between firstmate's turns. A capped opencode lane spends
@@ -440,6 +449,25 @@ fm_opencode_descent_tick() {  # <state-dir> [<now>]
     horizon=${cap%% *}; rest=${cap#* }
     bound=${rest%% *}; next=${rest#* }
     when=$(fm_opencode_descent_when "$horizon")
+
+    # Preserve the finding where the next spawn can still read it. The
+    # per-task sidecar above describes this task's own session and is cleared
+    # with it after a move; the cap itself is a property of the rung and the
+    # vendor horizon, so it is recorded rung-scoped through
+    # bin/fm-opencode-retry.sh record-cap before any per-lane decision below.
+    # Text-only evidence carries no trustworthy horizon and is never
+    # preserved. Failures are swallowed: preservation must never break the
+    # evaluation, and the per-task evidence still drives this lane.
+    case "$horizon" in
+      ''|*[!0-9]*) : ;;
+      *)
+        case "$bound" in
+          free|unbound)
+            "$_FM_OPENCODE_DESCENT_RETRY" record-cap "$state_dir" free "$next" \
+              2>/dev/null || true ;;
+        esac
+        ;;
+    esac
 
     # One automatic attempt per cap episode. A failed move is not retried
     # here - each attempt stops a live worker, so the refusal wake hands the
