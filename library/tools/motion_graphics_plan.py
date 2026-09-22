@@ -1025,7 +1025,13 @@ def plan_segments(moments: List[dict], *, fps: float, width: int,
     together: they are separate plan entries with their own anchors and
     timings, and the only thing joining them was this cluster.
     `mg_tight_box.separable_groups` owns the partition; each group
-    becomes its own segment and its own tight box.
+    becomes its own segment and its own tight box.  The middle mix is
+    the correctness case - ``top: 50%`` centres on the wrong frame -
+    and the top+bottom tall mix is the size case: a centre-anchored
+    title over a bottom panel unions edge to edge, so floored at the
+    full-frame layout width (PR 1301) it trips the coverage backstop
+    and renders full canvas, while apart each half is a short tight
+    row at the same wrap width.
 
     A segment therefore carries a **lane**: segments on one lane never
     overlap in time, and lanes become Resolve rows

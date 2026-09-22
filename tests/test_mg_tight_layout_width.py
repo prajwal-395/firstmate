@@ -285,9 +285,12 @@ def test_mixed_segment_pins_the_side_ink():
 def test_centre_tall_mix_falls_back_to_full_canvas():
     """A top-centre title over a bottom-anchored panel unions to
     nearly the frame height; floored at the layout width that union
-    covers the frame, so the segment renders full canvas. That IS
+    covers the frame, so the segment renders full     canvas. That IS
     the same drawing - the fallback the coverage backstop exists
-    for - at full-canvas bytes. Failing the build on planned content
+    for - at full-canvas bytes. The planner no longer produces such
+    a combined segment (`separable_groups` splits the tall mix into
+    two tight rows first); this pins the renderer's backstop for one
+    handed it directly. Failing the build on planned content
     would punish the plan for the engine's reach, so this passes
     counted, not failed (see `check_motion_graphics_files`)."""
     from library.tools.mg_tight_box import (
@@ -300,6 +303,26 @@ def test_centre_tall_mix_falls_back_to_full_canvas():
     assert box is None
     assert refusal is not None
     assert refusal.reason == "covers_frame"
+
+
+def test_split_halves_keep_the_full_layout_width():
+    """The split must not lose this file's property: the
+    centre-anchored half still wraps to the full-frame usable width,
+    so each tight row is the same drawing as the full frame."""
+    from library.tools.mg_tight_box import separable_groups
+    elements = [
+        _el("title_lockup", anchor="top_centre",
+            runs=_wrap_copy("title_lockup")),
+        _el("lower_third", anchor="bottom_left"),
+    ]
+    groups = separable_groups(elements)
+    assert [[e["element"] for e in g] for g in groups] == [
+        ["title_lockup"], ["lower_third"]]
+    centre = groups[0]
+    box = tighten_motion_graphics_props(_props(centre))
+    assert box is not None
+    assert box.props["layoutWidth"] == USABLE
+    assert _effective_container(box) == USABLE
 
 
 def test_stack_predicate_mirrors_the_composition():

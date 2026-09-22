@@ -87,7 +87,13 @@ a guess
   wrong frame. Top+bottom mixes are exact (both edges are canvas
   edges, exactly as the caption box is); anything with middle mixed in
   is not. All-middle segments are self-consistent - centring on the
-  small canvas IS the placement - and stay tight.
+  small canvas IS the placement - and stay tight. A top+bottom mix
+  carrying centre-anchored copy never reaches this refusal through
+  the planner: `separable_groups` splits it into two tight rows
+  first, because the layout-width floor would span its tall union at
+  the full-frame width and trip the coverage backstop below. A
+  combined one handed here directly still refuses there, as the
+  backstop.
 - Unknown element keys draw nothing (the composition returns null),
   so they are ignored; a segment of nothing but unknowns has no union.
 - A canvas covering `FULL_FRAME_COVERAGE` of the frame: the backstop
@@ -595,6 +601,26 @@ def _stack_needs_layout_width(stacks: dict) -> bool:
     return False
 
 
+def _element_needs_layout_width(element: dict) -> bool:
+    """Whether one plan element would trigger the layout-width floor.
+
+    The element-level mirror of `_stack_needs_layout_width`: a
+    centre-horizontal stack wraps its copy against the canvas width,
+    so `_tighten_impl` floors such a segment's canvas at the
+    full-frame usable width. Chrome never sits in a stack (it is
+    absolute) and asset elements refuse before any stack is laid
+    out, so neither can trigger the floor. An unknown key draws
+    nothing and never reaches a stack either - naming one here only
+    risks a needless split, never a wrong drawing.
+    """
+    kind = element.get("element", "")
+    if kind in SELF_POSITIONING or kind in ASSET_ELEMENTS:
+        return False
+    if _horizontal(element.get("anchor", "")) != "centre":
+        return False
+    return kind not in FIXED_GEOMETRY
+
+
 def separable_groups(elements: Sequence[dict]) -> list[list[dict]]:
     """One segment's elements, split into groups that can each be tight.
 
@@ -628,12 +654,41 @@ def separable_groups(elements: Sequence[dict]) -> list[list[dict]]:
     zone family is already tightenable (or already refused for a reason
     a split cannot fix, like `frame_accents` spanning by design).  The
     caller keeps its single segment and nothing changes.
+
+    The second split is the tall mix PR 1301 named as its known
+    consequence: a top-centre title over a bottom panel, say.  The
+    layout-width floor spans such a segment at the full-frame usable
+    width, and its union hangs from opposite edges - top stack top to
+    bottom stack bottom - so the floored canvas trips the coverage
+    backstop whatever the stacks' sizes, and the pair renders full
+    canvas.  Apart each half is a short tight row at the same wrap
+    width, so top-anchored copy goes in one group and bottom-anchored
+    copy in the other.  Side-anchored top+bottom mixes never trigger
+    the floor and stay one segment: a split that buys nothing is two
+    rows for no reason.
     """
     items = list(elements or [])
     if len(items) < 2:
         return [items] if items else []
     copy = [e for e in items if e.get("element") not in SELF_POSITIONING]
     zones = {_vertical_zone(e.get("anchor", "")) for e in copy}
+    if zones == {"top", "bottom"} and any(
+            _element_needs_layout_width(e) for e in copy):
+        top, bottom = [], []
+        for element in items:
+            if element.get("element") in SELF_POSITIONING:
+                # Chrome rides with its own zone where it has one - a
+                # top bar with the top group, a bottom bar with the
+                # bottom one.  Unzoned chrome (`frame_accents`) rides
+                # with the bottom group and still refuses there by
+                # design, while the top half goes tight.
+                (top if _vertical_zone(element.get("anchor", "")) == "top"
+                 else bottom).append(element)
+            elif _vertical_zone(element.get("anchor", "")) == "top":
+                top.append(element)
+            else:
+                bottom.append(element)
+        return [group for group in (top, bottom) if group]
     if "middle" not in zones or len(zones) < 2:
         return [items]
     middle, rest = [], []

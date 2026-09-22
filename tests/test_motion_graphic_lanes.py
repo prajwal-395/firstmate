@@ -110,6 +110,46 @@ def test_one_element_is_never_split():
     assert separable_groups([]) == []
 
 
+# A top-centre title over a bottom panel: PR 1301 floors the centre
+# copy at the full-frame layout width, so the edge-to-edge union trips
+# the coverage backstop together - the pair that used to ship the
+# rewrap defect (see test_centre_tall_mix_falls_back_to_full_canvas in
+# test_mg_tight_layout_width.py).
+TALL_MIX = [
+    _moment("title_lockup", "top_centre", 0, 144,
+            text="A SINGLE YEAR"),
+    _moment("lower_third", "bottom_left", 10, 100),
+]
+
+
+def test_a_centre_tall_mix_cannot_share_one_tight_box():
+    """The premise, measured rather than recalled: together they force
+    the full canvas."""
+    assert tighten_motion_graphics_props(_props(TALL_MIX)) is None
+
+
+def test_a_centre_tall_mix_splits_into_two_tight_rows():
+    groups = separable_groups(TALL_MIX)
+    assert [[e["element"] for e in g] for g in groups] == [
+        ["title_lockup"], ["lower_third"]]
+    boxes = [tighten_motion_graphics_props(_props(g)) for g in groups]
+    assert all(box is not None for box in boxes)
+    # Both are a fraction of the frame they used to cost.
+    for box in boxes:
+        assert box.width * box.height < 0.3 * 1080 * 1920
+        assert box.placement["scaling"] == 1
+
+
+def test_a_fixed_geometry_centre_mix_is_not_split():
+    """A centre anchor that cannot re-wrap triggers no floor - a beat
+    accent is a fixed square - so the tall union stays one tight
+    segment. A split that buys nothing is two rows for no reason."""
+    together = [_moment("beat_accent", "top_centre", 0, 60),
+                _moment("lower_third", "bottom_left", 10, 60)]
+    assert separable_groups(together) == [together]
+    assert tighten_motion_graphics_props(_props(together)) is not None
+
+
 # ── The lanes ──────────────────────────────────────────────────────
 
 def test_the_split_segments_land_on_two_lanes():
@@ -121,6 +161,20 @@ def test_the_split_segments_land_on_two_lanes():
     # Each segment is its own span, rebased to its own start.
     assert segments[0]["total_frames"] == 144
     assert segments[1]["total_frames"] == 96
+    assert segments[0]["props"]["elements"][0]["startFrame"] == 0
+    assert segments[1]["props"]["elements"][0]["startFrame"] == 0
+    # And they overlap, which is the whole point.
+    assert segments[1]["timeline_start"] < segments[0]["timeline_end"]
+
+
+def test_the_tall_mix_segments_land_on_two_lanes():
+    segments = mgp.plan_segments(TALL_MIX, fps=FPS, width=1080, height=1920,
+                                 safe_area=SAFE)
+    assert [s["elements"] for s in segments] == [
+        ["title_lockup"], ["lower_third"]]
+    assert [s["lane"] for s in segments] == [0, 1]
+    # Each segment is its own span, rebased to its own start.
+    assert segments[0]["total_frames"] == 144
     assert segments[0]["props"]["elements"][0]["startFrame"] == 0
     assert segments[1]["props"]["elements"][0]["startFrame"] == 0
     # And they overlap, which is the whole point.
