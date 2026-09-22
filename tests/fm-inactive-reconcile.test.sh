@@ -561,9 +561,11 @@ test_invalid_secondmate_marker_blocks_routing() {
     out=$(FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup)
     printf '%s\n' "$out" | grep -Fq 'inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker' \
       || fail "$kind secondmate marker did not surface the blocked terminal obligation"
-    [ "$(outcome_count "$MATE" pending)" = 0 ] \
-      || fail "$kind secondmate marker created a main-home pending receipt"
-    [ "$(wake_count "$MATE" 'inactive-reconcile-diagnostic:invalid-secondmate-home')" = 1 ] \
+    [ "$(outcome_count "$MATE" pending)" = 1 ] \
+      || fail "$kind secondmate marker did not retain its diagnostic notice"
+    grep -Fq 'diagnostic=invalid-secondmate-home' "$MATE/state/terminal-outcomes"/*.pending \
+      || fail "$kind secondmate marker created a main-home pending receipt instead of a diagnostic notice"
+    [ "$(wake_count "$MATE" 'inactive-reconcile:')" = 1 ] \
       || fail "$kind secondmate marker diagnostic was not durably queued"
     ! grep -Fq 'inactive-outcome:' "$MATE/state/.wake-queue" 2>/dev/null \
       || fail "$kind secondmate marker routed a captain presentation wake"
@@ -571,6 +573,53 @@ test_invalid_secondmate_marker_blocks_routing() {
       || fail "$kind secondmate marker lost the terminal obligation"
   done
   pass "invalid secondmate markers block routing and surface the obligation"
+}
+
+# A persistent invalid identity marker must wake exactly once: draining and
+# acknowledging the diagnostic suppresses it on later scans, while a changed
+# marker - or a repaired home that becomes invalid again - is a new finding
+# and wakes again.
+test_invalid_secondmate_marker_wake_does_not_rewake_after_drain() {
+  local err seq generation first_key second_key
+  make_world invalid-marker-dedup
+  printf '../main\n' > "$MATE/.fm-secondmate-home"
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'inactive-reconcile')" = 1 ] || fail "invalid marker did not queue its diagnostic wake"
+  grep -Fq 'inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker' "$MATE/state/.wake-queue" \
+    || fail "invalid marker diagnostic lost its payload"
+  first_key=$(awk -F '\t' '/inactive-reconcile/ { print $4; exit }' "$MATE/state/.wake-queue")
+  [ -n "$first_key" ] || fail "invalid marker diagnostic queued no key"
+
+  err="$WORLD/drain.err"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" >/dev/null 2> "$err"
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  [ -n "$seq" ] && [ -n "$generation" ] || fail "invalid marker diagnostic did not require durable acknowledgement"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
+
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'inactive-reconcile')" = 0 ] || fail "a drained invalid marker diagnostic woke again on the next scan"
+
+  printf '../other\n' > "$MATE/.fm-secondmate-home"
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'inactive-reconcile')" = 1 ] || fail "a changed invalid marker did not wake again"
+  second_key=$(awk -F '\t' '/inactive-reconcile/ { print $4; exit }' "$MATE/state/.wake-queue")
+  [ -n "$second_key" ] && [ "$second_key" != "$first_key" ] || fail "a changed invalid marker reused the drained diagnostic identity"
+
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" >/dev/null 2> "$err"
+  seq=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--ack-through \([0-9][0-9]*\) --recovery-generation .*/\1/p' "$err")
+  generation=$(sed -n 's/^WAKE_ACK_REQUIRED:.*--recovery-generation \([A-Za-z0-9._-][A-Za-z0-9._-]*\)$/\1/p' "$err")
+  [ -n "$seq" ] && [ -n "$generation" ] || fail "changed invalid marker diagnostic did not require durable acknowledgement"
+  FM_HOME="$MATE" FM_STATE_OVERRIDE="$MATE/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation" >/dev/null
+
+  rm -f "$MATE/.fm-secondmate-home"
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'inactive-reconcile')" = 0 ] || fail "a repaired home kept waking its retired diagnostic"
+
+  printf '../main\n' > "$MATE/.fm-secondmate-home"
+  FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE" --startup
+  [ "$(wake_count "$MATE" 'inactive-reconcile')" = 1 ] || fail "a home invalid again after repair did not wake again"
+  pass "a drained invalid marker diagnostic stays quiet until the marker changes or recurs after repair"
 }
 
 # A remote child route writes the existing mirror input once even across restarts.
@@ -893,6 +942,7 @@ test_report_ignores_teardown_bookkeeping_tail
 test_report_avoids_scan_meta_lock_inversion
 test_local_secondmate_rejects_relative_parent_home
 test_invalid_secondmate_marker_blocks_routing
+test_invalid_secondmate_marker_wake_does_not_rewake_after_drain
 test_remote_parent_reply_is_idempotent
 test_reused_task_id_reports_each_incarnation
 test_legacy_metadata_rewrite_keeps_receipt_identity

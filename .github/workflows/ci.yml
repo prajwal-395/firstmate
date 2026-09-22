@@ -173,7 +173,8 @@ jobs:
   tests-portable-serial:
     name: Behavior portable serial ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    # Current runners can take ~20 min for a balanced shard. This 30-minute cap
+    # Current runners take about 21 minutes of slowest-sum script time for a
+    # balanced shard. This 30-minute cap
     # preserves the timeout as a hang tripwire while allowing runner-speed and
     # job-setup margin; it is not the expected healthy end of the lane.
     timeout-minutes: 30
