@@ -1874,6 +1874,30 @@ fm_autoarm_release_abandoned() {  # <state-dir> [grace]
   return 1
 }
 
+# fm_mate_has_live_task <mate-state>
+# True (0) when at least one state/*.meta task record in the mate home is NOT
+# a declared stop: the endpoint may still be running, wedged, or awaiting its
+# worker, so a quiet watcher matters. False (1) when every record carries a
+# declared-stop record bound to its current incarnation (bin/fm-stopped-lib.sh),
+# i.e. firstmate itself parked those agents on purpose and nothing is running.
+# An unbound or unreadable record counts as live: silencing an agent the stop
+# record does not describe would repeat the wedge-blindness the record exists
+# to prevent. Scoped to the cross-home quiet-watcher predicate above; the
+# shared supervision-need predicate in bin/fm-supervision-lib.sh is untouched,
+# so this home's own guards keep their existing semantics.
+fm_mate_has_live_task() {
+  local mate_state=$1 meta id
+  # shellcheck source=bin/fm-stopped-lib.sh
+  command -v fm_stopped_declared >/dev/null 2>&1 || . "$FM_WAKE_LIB_DIR/fm-stopped-lib.sh"
+  for meta in "$mate_state"/*.meta; do
+    [ -e "$meta" ] || continue
+    id=${meta##*/}
+    id=${id%.meta}
+    fm_stopped_declared "$mate_state" "$id" || return 0
+  done
+  return 1
+}
+
 # fm_mate_watcher_health <mate-state> <mate-watch-path> <grace> <mate-home> <mate-root> <model>
 # Cross-home "does this secondmate home need attention" predicate for a parent
 # that can only read the mate's files, never its processes' ancestry. Always
@@ -1881,8 +1905,14 @@ fm_autoarm_release_abandoned() {  # <state-dir> [grace]
 # the model-aware verdict in fm_watcher_supervision_verdict above finds it
 # down), FM_MATE_WATCHER_DESC (human-readable one-liner), and
 # FM_MATE_BEACON_AGE (beacon seconds, ancient when absent). A home with nothing
-# riding on its watcher reports down=false, so idle mates stay silent. The
-# model override is saved and restored, so the caller's own model is untouched.
+# riding on its watcher reports down=false, so idle mates stay silent - and so
+# does a home whose every task record is a declared stop: firstmate itself
+# stopped those agents through the control plane, the endpoints are agent-free
+# by design (bin/fm-stopped-lib.sh), and an idle mate at a prompt is the
+# documented healthy state. A registered Relay poll, event source, or custom
+# check still counts as a wait that needs a watcher, as does any task record
+# without a declared stop. The model override is saved and restored, so the
+# caller's own model is untouched.
 # shellcheck disable=SC2034 # Read by callers after the function returns.
 FM_MATE_WATCHER_DOWN=false
 # shellcheck disable=SC2034 # Read by callers after the function returns.
@@ -1906,6 +1936,13 @@ fm_mate_watcher_health() {
   if   [ "$FM_SUP_NEEDED" != true ]; then
     # shellcheck disable=SC2034 # Read by callers after the function returns.
     FM_MATE_WATCHER_DESC="no supervision need (last beat: $FM_SUP_BEACON_DESC)"
+    return 0
+  fi
+  if [ "$FM_SUP_IN_FLIGHT" -gt 0 ] && [ "${FM_SUP_SOURCES:-0}" -eq 0 ] \
+    && [ "${FM_SUP_CHECKS:-0}" -eq 0 ] && [ ! -f "$mate_state/x-watch.check.sh" ] \
+    && ! fm_mate_has_live_task "$mate_state"; then
+    # shellcheck disable=SC2034 # Read by callers after the function returns.
+    FM_MATE_WATCHER_DESC="no supervision need (all $FM_SUP_IN_FLIGHT task record(s) stopped by design; last beat: $FM_SUP_BEACON_DESC)"
     return 0
   fi
   prior_model=${FM_SUPERVISION_MODEL:-__unset__}
