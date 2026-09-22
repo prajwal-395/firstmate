@@ -8607,7 +8607,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # saying so. Read here, reported below by name, and carried where
     # the picture under them still plays in the replacement.
     from library.tools import marker_carry as _markers
+    from library.tools import marker_gate as _gate
     carried_markers = {}
+    # The gate's baseline, per reel: the same pre-rename reads the
+    # carry planned from, filed to disk beside them
+    # (`library/tools/marker_gate.py`). Written here - before
+    # anything is renamed - so a refusal below still has the retired
+    # generation and the capture to recover from.
+    gate_captures = {}
     # The rows the guard reads off each incoming staging, kept for the
     # round stamp below. A fresh reel has no original to diff against
     # but is still part of the round, so its rows are taken too -
@@ -8676,6 +8683,17 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                     final, {"carried": [], "uncarried": []})
                 entry["clip_carried"] = clip_keep
                 entry["clip_uncarried"] = clip_lost
+            # The gate's baseline for this reel: the same pre-rename
+            # reads the carry planned from, filed to disk before
+            # anything is renamed. A capture that cannot be filed
+            # refuses the reel, the fail-closed direction - the disk
+            # record is what a recovery reads once the backup below
+            # is deleted.
+            capture = _gate.assemble_capture(final, notes, clip_notes)
+            gate_captures[final] = {
+                "capture": capture,
+                "path": _gate.write_capture(
+                    project_folder, final, capture)}
         except _guard.ReplaceGuardUnreadable as unreadable:
             refused[final] = (
                 f"REFUSING to promote {final!r}: {unreadable} Nothing "
@@ -8695,7 +8713,18 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 f"REFUSING to promote {final!r}: {unreadable} Nothing "
                 f"for this reel was renamed; its approved timeline is "
                 f"still in the project.")
+        except OSError as capture_failed:
+            refused[final] = (
+                f"REFUSING to promote {final!r}: its marker capture "
+                f"could not be filed ({capture_failed}). The capture "
+                f"is the recovery record once the backup below is "
+                f"deleted - nothing for this reel was renamed; its "
+                f"approved timeline is still in the project.")
     ok_finals = [final for final in finals if final not in refused]
+    # The fleet backstop's baseline, before any rename: every other
+    # reel must read back exactly what it holds now
+    # (`library/tools/marker_gate.py`).
+    fleet_before = _gate.fleet_snapshot(project)
 
     for final in ok_finals:
         staging = staged_to_final[final]
@@ -8763,6 +8792,54 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                     for marker in notes["uncarried"]]
             notes["replaced"] = replaced
             notes["replace_declined"] = replace_declined
+
+    # ── THE MARKER GATE ──────────────────────────────────────────
+    # The count from OUTSIDE the machinery: each promoted reel is
+    # re-read live, both planes, and diffed by identity against its
+    # pre-rename capture. A marker the carry said was carried but the
+    # live timeline does not hold - the 2026-09-20 false-all-clear
+    # shape - refuses here, by name with his words. This runs BEFORE
+    # the backup is deleted below, so a refusal still has the
+    # retired generation and the filed capture to recover from.
+    for final in ok_finals:
+        if final not in originals:
+            continue  # a fresh reel replaced nothing: nothing to lose
+        entry = gate_captures.get(final)
+        if entry is None:
+            continue
+        staging = staged_to_final[final]
+        try:
+            _gate.verify_promotion(final, entry["capture"],
+                                   staged_found[staging],
+                                   carried_markers.get(final))
+        except _markers.MarkerCarryUnreadable as unreadable:
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: {final!r} is "
+                f"promoted, but its live markers could not be re-read "
+                f"({unreadable}). The words cannot be vouched - "
+                f"recover from {backups[final]!r} and the capture at "
+                f"{entry['path']}.") from unreadable
+        except _gate.MarkerGateLost as lost:
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: {lost} Recover "
+                f"from {backups[final]!r} and the capture at "
+                f"{entry['path']}.") from lost
+    fleet_after = _gate.fleet_snapshot(project)
+    operated_names = (set(finals)
+                      | set(staged_to_final.values())
+                      | set(backups.values()))
+    fleet = _gate.check_fleet(fleet_before, fleet_after, operated_names)
+    if fleet["decreased"]:
+        shrunk = "; ".join(
+            f"{entry['reel']} {entry['plane']} "
+            f"{entry['before']}->{entry['after']}"
+            for entry in fleet["decreased"])
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: {shrunk} - marker "
+            f"count(s) SHRANK on reel(s) this promotion did not "
+            f"touch. Nothing in a promotion writes to other reels, "
+            f"so this is damage or a concurrent edit, and both "
+            f"deserve a stopped run.")
 
     import os
     review_dir = os.path.join(project_folder, "pipeline_output", "review")

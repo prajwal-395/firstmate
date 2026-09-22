@@ -1553,6 +1553,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
         allowed=declared.get(final, ()))
 
     from library.tools import marker_carry as _markers
+    from library.tools import marker_gate as _gate
     carried_markers = None
     notes = _markers.read_markers(originals[final], final)
     if notes:
@@ -1576,6 +1577,18 @@ def _promote(project_folder: str, project: Any, pool: Any,
         entry["clip_carried"] = clip_keep
         entry["clip_uncarried"] = clip_lost
         carried_markers = entry
+    # The gate's baseline: the same pre-rename reads, filed before
+    # anything is renamed (`library/tools/marker_gate.py`).
+    try:
+        gate_capture = _gate.assemble_capture(final, notes, clip_notes)
+        gate_path = _gate.write_capture(project_folder, final,
+                                        gate_capture)
+    except OSError as capture_failed:
+        raise TouchupError(
+            f"the marker capture for {final!r} could not be filed "
+            f"({capture_failed}) - nothing was renamed.") \
+            from capture_failed
+    fleet_before = _gate.fleet_snapshot(project)
 
     backup = backup_name(final)
     if not originals[final].SetName(backup):
@@ -1601,7 +1614,36 @@ def _promote(project_folder: str, project: Any, pool: Any,
             staged_found[staging], carried_markers["clip_carried"])
         carried_markers["clip_declined"] = clip_declined
     receipt["markers"] = carried_markers or {"carried": [],
-                                             "uncarried": []}
+                                              "uncarried": []}
+
+    # ── THE MARKER GATE ──────────────────────────────────────
+    # The outside count, before the replaced generation retires:
+    # the promoted reel re-read live, both planes, diffed by
+    # identity against the pre-rename capture.
+    try:
+        _gate.verify_promotion(final, gate_capture,
+                               staged_found[staging],
+                               carried_markers)
+    except _markers.MarkerCarryUnreadable as unreadable:
+        raise TouchupError(
+            f"{final!r} is promoted, but its live markers could not "
+            f"be re-read ({unreadable}) - recover from {backup!r} "
+            f"and the capture at {gate_path}.") from unreadable
+    except _gate.MarkerGateLost as lost:
+        raise TouchupError(
+            f"{lost} Recover from {backup!r} and the capture at "
+            f"{gate_path}.") from lost
+    fleet = _gate.check_fleet(
+        fleet_before, _gate.fleet_snapshot(project),
+        {final, staging, backup})
+    if fleet["decreased"]:
+        shrunk = "; ".join(
+            f"{entry['reel']} {entry['plane']} "
+            f"{entry['before']}->{entry['after']}"
+            for entry in fleet["decreased"])
+        raise TouchupError(
+            f"{final!r} is promoted, but {shrunk} - marker count(s) "
+            f"SHRANK on reel(s) this touch-up did not touch.")
 
     # Retire, never delete: the replaced generation goes to the
     # archive bin, bounded by reels rather than rounds - the same

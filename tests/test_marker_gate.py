@@ -1,0 +1,460 @@
+"""The gate audits the promotion from outside its own report.
+
+A promotion that destroyed two of the captain's clip markers printed
+"carried x3, uncarried 0" - a FALSE ALL-CLEAR. The carry machinery
+cannot report on a loss it never sees, so this gate re-reads the
+live timeline after the rename, both planes, and diffs by identity
+against a capture taken before it.
+
+These fakes stand in for Resolve; the API surface they answer is
+the one `promote_staged_reels` drives. Every failure assertion is
+on marker TEXT and colour, never on counts alone: a gate that fails
+on a number without naming the words is the count-only snapshot
+that already destroyed a note here.
+"""
+
+import json
+import subprocess
+import sys
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from library.tools import marker_carry, marker_gate
+from library.tools.reel_build import (
+    ReelBuildError,
+    promote_staged_reels,
+)
+
+
+class _Pool:
+    def __init__(self, path, markers=None):
+        self.path = path
+        self._markers = dict(markers or {})
+
+    def GetClipProperty(self, key):
+        return self.path if key == "File Path" else ""
+
+    def GetMarkers(self):
+        return dict(self._markers)
+
+
+class _ClipItem:
+    """One timeline item with a source file, an offset, and its markers."""
+
+    def __init__(self, name, start, end, path, left=0, markers=None):
+        self._name = name
+        self._start = start
+        self._end = end
+        self._pool = _Pool(path) if path else None
+        self._left = left
+        self._markers = dict(markers or {})
+        self.placed = []
+
+    def GetName(self):
+        return self._name
+
+    def GetStart(self):
+        return self._start
+
+    def GetEnd(self):
+        return self._end
+
+    def GetDuration(self):
+        return self._end - self._start
+
+    def GetLeftOffset(self):
+        return self._left
+
+    def GetMediaPoolItem(self):
+        return self._pool
+
+    def GetMarkers(self):
+        return dict(self._markers)
+
+    def AddMarker(self, frame, color, name, note, duration, custom=""):
+        self._markers[int(frame)] = {
+            "color": color, "name": name, "note": note,
+            "duration": duration, "customData": custom}
+        self.placed.append((frame, color, name, note, duration, custom))
+        return True
+
+
+class _Timeline:
+    def __init__(self, name, video=(), audio=(), markers=None, start=0):
+        self._name = name
+        self._video = list(video)
+        self._audio = list(audio)
+        self._markers = dict(markers or {})
+        self._start = start
+
+    def GetName(self):
+        return self._name
+
+    def SetName(self, name):
+        self._name = name
+        return True
+
+    def GetStartFrame(self):
+        return self._start
+
+    def GetTrackCount(self, media):
+        return len(self._video) if media == "video" else len(self._audio)
+
+    def GetTrackName(self, media, index):
+        rows = self._video if media == "video" else self._audio
+        return rows[index - 1][0]
+
+    def GetItemListInTrack(self, media, index):
+        rows = self._video if media == "video" else self._audio
+        return rows[index - 1][1]
+
+    def GetMarkers(self):
+        return dict(self._markers)
+
+    def AddMarker(self, frame, color, name, note, duration, custom=""):
+        self._markers[int(frame)] = {
+            "color": color, "name": name, "note": note,
+            "duration": duration, "customData": custom}
+        return True
+
+
+class FakeProject:
+    def __init__(self, timelines):
+        self.timelines = list(timelines)
+        pool = MagicMock()
+        pool.DeleteTimelines.side_effect = self._delete
+        self._pool = pool
+
+    def _delete(self, timelines):
+        for timeline in timelines:
+            self.timelines.remove(timeline)
+        return True
+
+    def GetMediaPool(self):
+        return self._pool
+
+    def GetTimelineCount(self):
+        return len(self.timelines)
+
+    def GetTimelineByIndex(self, index):
+        return self.timelines[index - 1]
+
+
+FINAL = "Reel 29 - clip notes (final)"
+MASTER = "Podcast - Synced"
+TIMELINE_NOTE = "tighten this pause before the reveal"
+CLIP_NOTE = "the lower third clips her chin here"
+
+
+def _body(left=6505):
+    return _ClipItem("Archana A", 0, 600, "/f/LC4932.MXF", left=left)
+
+
+def _retiring():
+    card = _ClipItem(
+        "cta card", 500, 560, "/f/mg_cta.mov", left=0,
+        markers={12: {"color": "Blue", "name": "feedback",
+                      "note": CLIP_NOTE, "duration": 1,
+                      "customData": ""}})
+    return _Timeline(
+        FINAL,
+        video=[("Archana", [_body()]),
+               ("Motion Graphics", [card])],
+        markers={100: {"color": "Blue", "name": "feedback",
+                       "note": TIMELINE_NOTE, "duration": 1,
+                       "customData": ""}})
+
+
+def _staging(moved_card_to=570):
+    card = _ClipItem("cta card", moved_card_to, moved_card_to + 60,
+                     "/f/mg_cta.mov", left=0)
+    return _Timeline(
+        FINAL + " (rebuild staging)",
+        video=[("Archana", [_body()]),
+               ("Motion Graphics", [card])])
+
+
+@pytest.fixture
+def project_dir(tmp_path):
+    root = tmp_path / "project"
+    (root / "pipeline_output" / "review").mkdir(parents=True)
+    return root
+
+
+def _promote(project, project_dir, staged_to_final):
+    (project_dir / "pipeline_output" / "review"
+     / "plan_provenance.json").write_text(json.dumps(
+         {"built_reels": sorted(staged_to_final.values())}),
+        encoding="utf-8")
+    with patch("library.tools.resolve_locale.scriptapp_preserving_locale"), \
+            patch("library.tools.reel_build.resolve_project_exactly",
+                  return_value=project):
+        return promote_staged_reels(
+            str(project_dir), "Mock Project", MASTER, staged_to_final,
+            organise=False)
+
+
+def _captures(project_dir):
+    capture_dir = (project_dir / "pipeline_output" / "review"
+                   / "marker_captures")
+    return sorted(capture_dir.glob("*.json")) if capture_dir.is_dir() else []
+
+
+def test_a_promotion_that_carries_everything_passes_silently(project_dir):
+    """Both planes carried: the gate files its capture and says nothing."""
+    retired, staging = _retiring(), _staging()
+    project = FakeProject([_Timeline(MASTER), retired, staging])
+
+    promoted = _promote(project, project_dir,
+                        {FINAL: staging.GetName()})
+
+    assert promoted["promoted"] == [FINAL]
+    # The live inventory holds his words on both planes - TEXT, not
+    # counts: a carry that kept the count while moving the words to
+    # the wrong item is the defect, not the fix.
+    live_t = marker_carry.read_markers(staging, FINAL)
+    assert [m["note"] for m in live_t if m["color"] == "Blue"] == \
+        [TIMELINE_NOTE]
+    live_c = marker_carry.read_clip_markers(staging, FINAL)
+    assert [m["note"] for m in live_c] == [CLIP_NOTE]
+    assert live_c[0]["anchor"]["source_file"] == "/f/mg_cta.mov"
+    assert live_c[0]["source_frame"] == 12
+    # And the capture was filed before the rename, holding them too.
+    paths = _captures(project_dir)
+    assert len(paths) == 1
+    capture = marker_gate.read_capture(str(paths[0]))
+    assert [m["note"] for m in capture["timeline"]] == [TIMELINE_NOTE]
+    assert [m["note"] for m in capture["clip"]] == [CLIP_NOTE]
+
+
+def test_a_reported_loss_is_owned_not_failed(project_dir):
+    """The ambiguous clip anchor is reported by the carry, so the gate
+    that re-reads the same live timeline must not fail it again."""
+    retired = _Timeline(FINAL, video=[
+        ("Motion Graphics", [_ClipItem(
+            "doubled card", 100, 160, "/f/mg_doubled.mov", left=0,
+            markers={20: {"color": "Blue", "name": "feedback",
+                          "note": "this card flashes",
+                          "duration": 1, "customData": ""}})]),
+    ])
+    staging = _Timeline(FINAL + " (rebuild staging)", video=[
+        ("Motion Graphics", [
+            _ClipItem("doubled card", 100, 160, "/f/mg_doubled.mov",
+                      left=0),
+            _ClipItem("doubled card encore", 160, 220,
+                      "/f/mg_doubled.mov", left=0),
+        ]),
+    ])
+    project = FakeProject([_Timeline(MASTER), retired, staging])
+
+    promoted = _promote(project, project_dir,
+                        {FINAL: staging.GetName()})
+
+    assert promoted["promoted"] == [FINAL]
+    assert [m["note"] for m in
+            promoted["markers"][FINAL]["clip_uncarried"]] == \
+        ["this card flashes"]
+
+
+def test_a_silent_clip_loss_refuses_by_name(project_dir):
+    """The 2026-09-20 shape: the machinery's lists say carried while
+    the live item holds nothing. The gate fails on the words."""
+    retired, staging = _retiring(), _staging()
+    project = FakeProject([_Timeline(MASTER), retired, staging])
+
+    def _swallow_clip_markers(replacement, carried):
+        return []  # claims success; places nothing
+
+    with patch.object(marker_carry, "place_clip_markers",
+                      side_effect=_swallow_clip_markers):
+        with pytest.raises(ReelBuildError, match="MARKER GATE LOST") as lost:
+            _promote(project, project_dir, {FINAL: staging.GetName()})
+
+    message = str(lost.value)
+    assert "Blue" in message
+    assert CLIP_NOTE in message
+    assert "mg_cta.mov" in message  # the alarm names where it lived
+    # The timeline note survived, so it must NOT be named as lost.
+    assert TIMELINE_NOTE not in message
+    # The capture survives the refusal: recovery needs no archaeology.
+    paths = _captures(project_dir)
+    assert len(paths) == 1
+    capture = marker_gate.read_capture(str(paths[0]))
+    lost_clip = [m for m in capture["clip"] if m["note"] == CLIP_NOTE]
+    assert len(lost_clip) == 1
+    assert lost_clip[0]["anchor"]["source_file"] == "/f/mg_cta.mov"
+    assert lost_clip[0]["anchor"]["source_frame"] == 12
+
+
+def test_a_silent_timeline_loss_refuses_by_name(project_dir):
+    """The same false-all-clear on the timeline plane."""
+    retired, staging = _retiring(), _staging()
+    project = FakeProject([_Timeline(MASTER), retired, staging])
+
+    def _swallow_timeline_markers(timeline, carried):
+        return []
+
+    real_place_clip = marker_carry.place_clip_markers
+    staging_card = staging._video[1][1][0]
+
+    def _drop_clip_after_place(replacement, carried):
+        failed = real_place_clip(replacement, carried)
+        staging_card._markers.clear()  # gone after the plan vouched
+        return failed
+
+    with patch.object(marker_carry, "place",
+                      side_effect=_swallow_timeline_markers), \
+        patch.object(marker_carry, "place_clip_markers",
+                     side_effect=_drop_clip_after_place):
+        with pytest.raises(ReelBuildError, match="MARKER GATE LOST") as lost:
+            _promote(project, project_dir, {FINAL: staging.GetName()})
+
+    message = str(lost.value)
+    assert TIMELINE_NOTE in message
+    assert CLIP_NOTE in message
+
+
+def test_a_fleet_shrink_on_an_untouched_reel_refuses(project_dir):
+    """The backstop: a reel this promotion never touched reads back
+    smaller, so the run stops even though the promoted reel is clean."""
+    retired, staging = _retiring(), _staging()
+    other = _Timeline(
+        "Reel 30 - bystander (final)",
+        video=[("Archana", [_body()])],
+        markers={10: {"color": "Blue", "name": "feedback",
+                      "note": "bystander note", "duration": 1,
+                      "customData": ""}})
+
+    reads = {"count": 0}
+    real_get_markers = other.GetMarkers
+
+    def _shrinking():
+        reads["count"] += 1
+        if reads["count"] == 1:
+            return real_get_markers()
+        return {}  # changed under the promotion, off this reel
+
+    other.GetMarkers = _shrinking
+    project = FakeProject([_Timeline(MASTER), retired, staging, other])
+
+    with pytest.raises(ReelBuildError, match="did not touch"):
+        _promote(project, project_dir, {FINAL: staging.GetName()})
+
+
+def test_a_fleet_addition_mid_run_only_reports(project_dir, capsys):
+    """The captain adding a note to another reel mid-run is
+    legitimate: noted on stdout, never a refusal."""
+    retired, staging = _retiring(), _staging()
+    other = _Timeline("Reel 30 - bystander (final)",
+                      video=[("Archana", [_body()])])
+
+    reads = {"count": 0}
+
+    def _growing():
+        reads["count"] += 1
+        if reads["count"] == 1:
+            return {}
+        return {10: {"color": "Blue", "name": "feedback",
+                     "note": "typed mid-run", "duration": 1,
+                     "customData": ""}}
+
+    other.GetMarkers = _growing
+    project = FakeProject([_Timeline(MASTER), retired, staging, other])
+
+    promoted = _promote(project, project_dir,
+                        {FINAL: staging.GetName()})
+
+    assert promoted["promoted"] == [FINAL]
+    out = capsys.readouterr()
+    assert "marker gate fleet note" in out.out
+    assert "MARKER GATE" not in out.err
+
+
+# ── The comparator from a separate process ──────────────────────
+#
+# An in-script GetMarkers once reported a marker on Reel 08 that did
+# not exist, so the alarm half is also exercised across a process
+# boundary: capture, live and accounted go to JSON files, and the
+# module CLI diffs them in a fresh interpreter.
+
+def _json_files(tmp_path, capture, live, accounted):
+    paths = {}
+    for name, payload in (("capture", capture), ("live", live),
+                          ("accounted", accounted)):
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        paths[name] = str(path)
+    return paths
+
+
+def _capture_payload():
+    return {
+        "format": marker_gate.CAPTURE_FORMAT,
+        "reel": FINAL,
+        "captured_at": "2026-09-20T00:00:00+00:00",
+        "timeline": [{
+            "frame": 100, "color": "Blue", "name": "feedback",
+            "note": TIMELINE_NOTE, "duration": 1, "custom_data": "",
+            "anchor": ["/f/LC4932.MXF", 6605]}],
+        "clip": [{
+            "plane": "clip", "frame": 512, "source_frame": 12,
+            "color": "Blue", "name": "feedback", "note": CLIP_NOTE,
+            "duration": 1, "custom_data": "",
+            "anchor": {"source_file": "/f/mg_cta.mov",
+                       "track_type": "video", "track_index": 2,
+                       "clip_name": "cta card", "timeline_start": 500,
+                       "timeline_end": 560, "source_start": 0,
+                       "source_end": 60, "source_frame": 12},
+            "unplaced_reason": ""}],
+    }
+
+
+def _check(tmp_path, capture, live, accounted):
+    paths = _json_files(tmp_path, capture, live, accounted)
+    return subprocess.run(
+        [sys.executable, "-m", "library.tools.marker_gate",
+         "--check", paths["capture"], paths["live"],
+         paths["accounted"], "--reel", FINAL],
+        capture_output=True, text=True, encoding="utf-8", timeout=120,
+        check=False)
+
+
+def test_the_cli_passes_a_clean_reel_in_another_process(tmp_path):
+    capture = _capture_payload()
+    live = {"timeline": list(capture["timeline"]),
+            "clip": list(capture["clip"])}
+    accounted = {"timeline": [], "clip": []}
+
+    completed = _check(tmp_path, capture, live, accounted)
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_the_cli_fails_a_silent_loss_in_another_process(tmp_path):
+    capture = _capture_payload()
+    # The false all-clear: the live clip item holds nothing, and the
+    # accounted lists claim nothing was lost.
+    live = {"timeline": list(capture["timeline"]), "clip": []}
+    accounted = {"timeline": [], "clip": []}
+
+    completed = _check(tmp_path, capture, live, accounted)
+
+    assert completed.returncode == 2
+    assert "Blue" in completed.stderr
+    assert CLIP_NOTE in completed.stderr
+    assert TIMELINE_NOTE not in completed.stderr
+
+
+def test_the_cli_accepts_a_reported_loss_in_another_process(tmp_path):
+    capture = _capture_payload()
+    live = {"timeline": list(capture["timeline"]), "clip": []}
+    # ... but owned: the carry reported this exact note, words and
+    # anchor, so the gate stays silent.
+    accounted = {"timeline": [],
+                 "clip": [dict(capture["clip"][0],
+                               why="no clip in the replacement plays it")]}
+
+    completed = _check(tmp_path, capture, live, accounted)
+
+    assert completed.returncode == 0, completed.stderr

@@ -7843,3 +7843,50 @@ Clean on Reel 26 by construction - 13 of 13 established, worst edge
 above: the pairing it would catch is invisible to every other check,
 and the check costs nothing to carry.
 
+
+## the-report-that-said-carried
+
+On 2026-09-20 three of the captain's notes were destroyed in under an
+hour, and the fleet-wide blue count caught all three while every
+in-band mechanism caught exactly one. The worst of the three was the
+Reel 29 promotion, run by the lane that performed it: it reported
+"carried x3 (@162/@446/@1199 with frames) and ZERO uncarried lines"
+while 2 clip markers died. That is not silence - it is a FALSE
+ALL-CLEAR, and it is strictly worse, because a clean report ends a
+check while silence invites one. Anyone auditing that promotion from
+its own output would have closed the question and moved on; only an
+external count of his blue markers contradicted it.
+
+The mechanism, confirmed from the code: `marker_carry.read_markers`
+called ONLY `timeline.GetMarkers()` - the clip plane was not carried,
+not lost, not even looked at; outside the function entirely. Its
+report was structurally incapable of describing the 17 of his 37
+notes living on clip items, however correct it was about the rest.
+(PR 1309 has since given the carry the clip plane, and PR 1278 files
+the uncarried report as an obligation blocking sign-off - both still
+the machinery auditing itself, which is why the gate below does not
+trust the plan's lists for what survived.)
+
+The rule this retires: "the uncarried mechanism is unreliable". It is
+not unreliable - it works correctly on the plane it reads and is blind
+to the other. And a second, quieter finding from the same day: the
+unreported half was never silent at all. The Reel 03 lane confirmed
+the timeline note WAS reported transiently - `marker_carry.report`
+prints uncarried to stderr by name with his words - but filed nowhere:
+`step_7_02` dropped the markers dict and the lane's piped build-log
+greps excluded MARKER lines. A report nothing reads is not a
+mechanism that fails; and `reel_build` returned the losses AS DATA
+while the step assigned two sibling keys off the same dict and dropped
+the third (`promoted["markers"]` lived for one expression).
+
+The gate (AGENTS.md 10.4): after every promotion, each operated reel
+is re-read live, both planes, and diffed by identity against a capture
+taken before the rename - never a stored constant. The gate compares
+counts to ALARM; the capture holds full content (both planes, every
+colour, full text, clip anchors with source file and frame range) to
+RECOVER from, because the worked case proved text is not enough: the
+Reel 03 note destroyed at frame 551 belonged at 523 after a 78-frame
+cut upstream, and only the anchor could produce 523. Plus a
+fleet-wide total as a cheap backstop: reels the operation did not
+touch must read back exactly what they held. `library/tools/marker_gate.py`,
+`tests/test_marker_gate.py`.
