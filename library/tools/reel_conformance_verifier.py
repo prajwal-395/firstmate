@@ -24,7 +24,8 @@ What it checks, ported from the audit's findings
 - **F5: Caption coverage** - seconds of real speech with no caption,
   split by straddling segments (a real gap) vs frame-quantisation residue
   (not a defect).
-- **F6: Caption card overlap** - cards that cannot coexist on one track.
+- **F6: Caption card overlap** - cards that cannot coexist on one track,
+  measured on what the build placed.
 - **F7: Short placed items** - caption, video and audio items under
   the 0.5s readability floor (`manifest_validator.
   MIN_CAPTION_DISPLAY_SECONDS`), measured on what the build placed.
@@ -1971,6 +1972,10 @@ def check_caption_overlaps(reel_name: str,
     The audit found 15 overlapping pairs.  Two cards covering the same
     seconds (mic bleed captioned under both speakers) cannot coexist on
     one V3 track - Resolve trims the later card's head.
+
+    The cards handed in are the PLACED ones, read off the timeline by
+    `verify_reel` - never the plan's re-derived cards, which describe
+    what today's planner would place rather than what is on screen.
     """
     findings: List[Finding] = []
     if len(caption_cards) < 2:
@@ -4916,7 +4921,6 @@ def _derive_word_coverage(reel_snapshot,
 def verify_reel(plan: ReelPlan,
                 timeline: ReelTimeline,
                 transcript_segments: Optional[Sequence[dict]] = None,
-                caption_cards: Optional[Sequence[dict]] = None,
                 master_holes: Optional[Sequence[dict]] = None,
                 master_fps: float = 0.0,
                 caption_provenance: Optional[dict] = None,
@@ -5112,22 +5116,20 @@ def verify_reel(plan: ReelPlan,
         findings.extend(check_caption_duration(
             plan.reel_name, plan.captions, timeline.caption_items, fps))
 
-    # F6 reads the CARDS rather than the placed items, because it
-    # measures overlap against what the plan asked for.  The
-    # plan's own derived cards are the reference when the caller passes
-    # none, which is every real run: `verify_built_reels` never passed
-    # `caption_cards`, so it was skipped on live builds even before the
-    # plan side was empty.
-    #
-    # F5 no longer reads these - it reads the cards ON THE TIMELINE, for
-    # the reason spelled out below.  F7 joined it: it reads the placed
-    # caption ITEMS, because a card that was never placed is never on
-    # screen and a flash that WAS placed is the defect.  F6 still grades
-    # the re-derived plan, which is the same reference F2 above now
-    # REFUSES without a recorded baseline; extending that refusal to it
-    # is owed work, not something this comment should imply is already
-    # done.
-    cards = caption_cards if caption_cards is not None else [
+    # The plan's own cards, for the checks that grade what was ASKED
+    # (F15's plan side, F17). F6 used to read these too - the overlap of
+    # the plan re-derived from today's code, the same reference F2 above
+    # now REFUSES without a recorded baseline. On the captain's nineteen
+    # that reference derived 39 cards where the build placed 28, so F6
+    # failed correct output when the planner drifted from what was
+    # built, and missed real placed overlaps for the same reason. F6
+    # reads the cards ON THE TIMELINE beside F5 and F7 below: only a
+    # card that was placed is on screen, so only the placed cards can
+    # say whether the reel overlaps. The placed cards are always
+    # reachable here - derived from `timeline.caption_items` for F5 -
+    # so no provenance refusal is needed: the real object is graded,
+    # never a re-derivation and never a guess.
+    cards = [
         {"reel_start": c.start_seconds, "reel_end": c.end_seconds,
          "text": c.text, "speaker": c.speaker, "frames": c.frames,
          "block_position": c.block_position,
@@ -5168,10 +5170,10 @@ def verify_reel(plan: ReelPlan,
             plan.keep_ranges or [(plan.span_start, plan.span_end)],
             fps, lead_seconds=plan.lead_seconds))
 
-    # F6: Caption overlap
-    if have_reference and cards:
+    # F6: Caption overlap, measured against THE CARDS ON THE TIMELINE.
+    if have_reference and placed_cards:
         findings.extend(check_caption_overlaps(
-            plan.reel_name, cards, fps))
+            plan.reel_name, placed_cards, fps))
 
     # F7: short placed items - caption cards, then picture and sound.
     #

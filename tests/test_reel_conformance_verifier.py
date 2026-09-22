@@ -2711,6 +2711,80 @@ class TestCaptionProvenanceGate:
         assert all(f.detail["delta"] == -1 for f in duration)
 
 
+# ── F6 grades the cards that were built, not the re-derived plan ───
+
+class TestF6GradesPlacedCards:
+    """`verify_reel` must grade F6 against the placed items, not the plan.
+
+    F6 graded the plan's caption cards re-derived from today's code - the
+    same reference F2/F14 now refuse without a recorded baseline. On the
+    captain's nineteen that reference derived 39 cards where the build
+    placed 28, so F6 failed correct output when the planner drifted from
+    what was built, and missed real placed overlaps for the same reason.
+    These fixtures replay both directions: an overlapping plan beside
+    non-overlapping placed items, and a clean plan beside overlapping
+    placed items.
+    """
+
+    @staticmethod
+    def _reel(plan_captions, placed):
+        name = "Reel 01 - f6-placed"
+        plan = _plan(reel_name=name, plan_seconds=2.0,
+                     span_start=0.0, span_end=2.0,
+                     placements=(_placement(1, 0.0, 2.0),),
+                     captions=plan_captions,
+                     keep_ranges=((0.0, 2.0),))
+        timeline = _timeline(
+            reel_name=name,
+            video_items=(_item("video", 1, 0, 48),),
+            audio_items=(_item("audio", 1, 0, 48),),
+            caption_items=placed,
+            total_frames=48)
+        return verify_reel(plan, timeline)
+
+    @staticmethod
+    def _f6(findings):
+        return [f for f in findings
+                if f.finding_class == FindingClass.F6]
+
+    def test_overlapping_plan_beside_clean_placement_draws_no_f6(self):
+        """The planner's overlap was never placed: no F6 on the reel."""
+        plan_captions = (
+            PlannedCaption(start_seconds=0.0, end_seconds=1.0,
+                           text="one two", speaker="Akshita",
+                           frames=24, block_position="body_1"),
+            PlannedCaption(start_seconds=0.5, end_seconds=1.5,
+                           text="three four", speaker="Craig",
+                           frames=24, block_position="body_1"),
+        )
+        placed = (
+            _item("video", 3, 0, 24, name="card one two"),
+            _item("video", 3, 24, 48, name="card three four"),
+        )
+        result = self._reel(plan_captions, placed)
+        assert self._f6(result.findings) == []
+
+    def test_clean_plan_beside_overlapping_placement_draws_f6(self):
+        """Overlapping items on the timeline are the defect: F6 fires."""
+        plan_captions = (
+            PlannedCaption(start_seconds=0.0, end_seconds=1.0,
+                           text="one two", speaker="Akshita",
+                           frames=24, block_position="body_1"),
+            PlannedCaption(start_seconds=1.0, end_seconds=2.0,
+                           text="three four", speaker="Akshita",
+                           frames=24, block_position="body_2"),
+        )
+        placed = (
+            _item("video", 3, 0, 30, name="card one two"),
+            _item("video", 3, 24, 48, name="card three four"),
+        )
+        result = self._reel(plan_captions, placed)
+        f6 = self._f6(result.findings)
+        assert len(f6) == 1
+        assert f6[0].severity == "error"
+        assert f6[0].detail["overlap_frames"] == 6
+
+
 # ── F15, pointed at what was placed ──────────────────────────────────
 
 def _placed_caption(start_frame: int, duration_frames: int,
