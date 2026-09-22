@@ -57,7 +57,14 @@
 # watcher recovery generation, so the synchronous Stop guard
 # (bin/fm-turnend-guard.sh --claude) can allow a stop whose recovery this hook
 # already owns, instead of forcing a duplicate continuation for the same event
-# epoch. The failure marker
+# epoch. The epoch holds only the CURRENT claim: updated_at is the last claim
+# touch, never the last verified success. Three bounded best-effort records in
+# bin/fm-wake-lib.sh close that diagnosability gap: state/.claude-autoarm-version
+# (the running Claude build, written when it changes), state/.claude-autoarm-last-success
+# (at/gen/outcome of the last verified success), and state/.claude-autoarm-history.log
+# (one line per firing that passes the need gate below, plus the claim itself).
+# Firings refused earlier - idle or away homes, foreign scope, another live
+# owner - stay byte-for-byte inert and leave no history line by design. The failure marker
 # state/.claude-autoarm-failure-notified deduplicates the last-resort notice,
 # and state/.claude-autoarm-failure-alarmed bounds the attended fail-open and
 # suppresses any later automatic continuation in that unresolved episode.
@@ -142,6 +149,13 @@ need_supervision() {
 }
 need_supervision || exit 0
 
+# Best-effort harness-build record for post-hoc diagnosis. Placed after the
+# AFK and need gates so idle or away homes stay byte-for-byte inert: any
+# firing that reaches this point matters, so it refreshes the record too.
+# Session start covers homes where the hook never fires at all. Skips the
+# write when the build is unchanged.
+fm_autoarm_record_version "$STATE"
+
 # --- stale session-lock recovery ---------------------------------------------
 # Delegate the claim to fm-lock.sh so its live-owner refusal and write semantics
 # remain the single acquisition owner, then re-verify current-session identity
@@ -163,18 +177,34 @@ fi
 # pre-generation build (or the guard's own terminal-check), which the legacy
 # shim defers to while genuinely deciding and reclaims once when proven
 # abandoned.
-fm_autoarm_claim_open "$STATE" "$GRACE" && exit 0
+fm_autoarm_claim_open "$STATE" "$GRACE" && {
+  fm_autoarm_history_append "$STATE" - deferred open-claim
+  exit 0
+}
 fm_autoarm_claim_next "$STATE" "$GRACE"
 CLAIM_RC=$?
 if [ "$CLAIM_RC" -ne 0 ]; then
-  [ "$CLAIM_RC" -eq 2 ] && exit 0
+  if [ "$CLAIM_RC" -eq 2 ]; then
+    fm_autoarm_history_append "$STATE" - deferred claim-race
+    exit 0
+  fi
   ROLE=$(fm_lock_role "$OWNER_LOCK" 2>/dev/null || true)
-  [ -n "$ROLE" ] || exit 0
-  fm_autoarm_release_abandoned "$STATE" "$GRACE" || exit 0
-  fm_autoarm_claim_next "$STATE" "$GRACE" || exit 0
+  if [ -z "$ROLE" ]; then
+    fm_autoarm_history_append "$STATE" - claim-refused no-role
+    exit 0
+  fi
+  fm_autoarm_release_abandoned "$STATE" "$GRACE" || {
+    fm_autoarm_history_append "$STATE" - claim-refused release-failed
+    exit 0
+  }
+  fm_autoarm_claim_next "$STATE" "$GRACE" || {
+    fm_autoarm_history_append "$STATE" - claim-refused reclaim-failed
+    exit 0
+  }
 fi
 MY_GEN=$FM_AUTOARM_MY_GEN
 [ -n "$MY_GEN" ] || exit 0
+fm_autoarm_history_append "$STATE" "$MY_GEN" claim firing
 
 # Commit <outcome> (optionally with the once-per-episode notice marker) for
 # this generation. Success means this generation's translation WINS and the
@@ -184,7 +214,7 @@ MY_GEN=$FM_AUTOARM_MY_GEN
 # (cleanup, exit 0) - the harness discards the collected stderr on exit 0, so
 # even an already-printed banner is never delivered by a losing generation.
 autoarm_commit() {  # <outcome> [marker-file]
-  local outcome=$1 marker=${2:-} session_pid recovery
+  local outcome=$1 marker=${2:-} session_pid recovery rc
   if [ "$outcome" = rewake ]; then
     fm_session_lock_owned_by_self "$STATE" || return 2
     session_pid=$(sed -n '1p' "$STATE/.lock" 2>/dev/null || true)
@@ -194,17 +224,33 @@ autoarm_commit() {  # <outcome> [marker-file]
       *) return 2 ;;
     esac
     fm_autoarm_write_owned "$STATE" "$MY_GEN" "$outcome" "$marker" "$session_pid" "$recovery"
+    rc=$?
   elif [ -n "$marker" ]; then
     fm_autoarm_write_owned "$STATE" "$MY_GEN" "$outcome" "$marker"
+    rc=$?
   else
     fm_autoarm_write_owned "$STATE" "$MY_GEN" "$outcome"
+    rc=$?
   fi
+  [ "$rc" -eq 0 ] || return "$rc"
+  fm_autoarm_history_append "$STATE" "$MY_GEN" "$outcome"
+  if [ "$outcome" = rewake ]; then
+    fm_autoarm_record_success "$STATE" "$MY_GEN" "$outcome"
+  fi
+  return 0
 }
 
 # Best-effort ownership-checked record for exit-0 paths, where supersession
-# changes nothing about the action taken.
+# changes nothing about the action taken. The history line records the reached
+# disposition even when the ledger write loses its race; the epoch ledger
+# remains the commit authority, so compare generations when diagnosing.
 autoarm_record() {  # <outcome>
-  fm_autoarm_write_owned "$STATE" "$MY_GEN" "$1" >/dev/null 2>&1 || true
+  if fm_autoarm_write_owned "$STATE" "$MY_GEN" "$1" >/dev/null 2>&1; then
+    fm_autoarm_history_append "$STATE" "$MY_GEN" "$1"
+  else
+    fm_autoarm_history_append "$STATE" "$MY_GEN" "$1" uncommitted
+  fi
+  return 0
 }
 
 # X mode cadence: source the generated config so an X instance polls at its
@@ -277,11 +323,13 @@ if [ "$HEALTHY" -eq 1 ]; then
   RESET_RC=$?
   if [ "$RESET_RC" -eq 0 ]; then
     autoarm_record clean
+    fm_autoarm_record_success "$STATE" "$MY_GEN" healthy
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
     exit 0
   fi
   if [ "$RESET_RC" -eq 2 ]; then
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
+    fm_autoarm_history_append "$STATE" "$MY_GEN" superseded reset-race
     exit 0
   fi
   if autoarm_commit failed-suppressed; then
@@ -306,6 +354,7 @@ if [ "$ACTIONABLE" -eq 1 ]; then
   # the owned terminal write below.
   if ! fm_autoarm_still_owner "$STATE" "$MY_GEN"; then
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
+    fm_autoarm_history_append "$STATE" "$MY_GEN" superseded actionable
     exit 0
   fi
   {
@@ -329,6 +378,7 @@ fi
 if [ ! -e "$FAILURE_NOTICE" ]; then
   if ! fm_autoarm_still_owner "$STATE" "$MY_GEN"; then
     [ -z "$OUT" ] || rm -f "$OUT" 2>/dev/null || true
+    fm_autoarm_history_append "$STATE" "$MY_GEN" superseded failure-notice
     exit 0
   fi
   {

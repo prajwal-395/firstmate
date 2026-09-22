@@ -124,6 +124,11 @@
 #                          external-wait pause rows do not feed this escalation,
 #                          observation is read-only, and one parent notification
 #                          covers each no-progress episode
+#   check: secondmate watcher quiet: mate=<id> <beacon-desc> (<reason>, model <model>)
+#                          an endpoint-recorded local secondmate home still needs
+#                          supervision but its model-aware watcher verdict is down;
+#                          observation is read-only, and one parent notification
+#                          covers each quiet episode
 # For normal supervision, resume the session-start primary-harness protocol
 # after each printed reason. Direct duplicate invocations of this script still
 # no-op through the watcher singleton lock.
@@ -917,6 +922,59 @@ EOF
     fi
     fm_wake_secondmate_stall_receipt_write "$task" "$row_key" || return 1
     fm_wake_secondmate_stall_marker_write "$task" "$row_key" || return 1
+    wake "$reason"
+  done
+  return 0
+}
+
+# A quiet secondmate watcher: the mate home still needs supervision but its
+# model-aware verdict is down, so its Stop-hook arm (or extension/persistent
+# equivalent) has gone silent. One durable parent check per mate-episode bounds
+# detection to one poll cycle instead of whenever a human looks. The verdict is
+# bin/fm-wake-lib.sh's fm_mate_watcher_health - the same model-aware question
+# the guards ask - so between-turns rewake gaps, extension hand-offs, a
+# healthily cycling away-mode daemon (live owner plus a fresh beacon), and
+# idle mates (need=false) all stay silent; only a home with something riding
+# on a dead watcher wakes. An away home whose beacon passed grace reads down
+# exactly as the turn-end guard treats it: the daemon stopped cycling. The
+# marker clears on recovery like the wake-stall marker above. This tick cannot
+# report while THIS watcher's own loop is down; session start remains the
+# backstop for that case.
+secondmate_watcher_quiet_tick() {
+  local meta task kind remote_host home mate_harness model marker notify_key reason queued
+  local grace=${WATCHER_STALE_GRACE:-300}
+  for meta in "$STATE"/*.meta; do
+    [ -e "$meta" ] || continue
+    kind=$(fm_meta_get "$meta" kind)
+    [ "$kind" = secondmate ] || continue
+    remote_host=$(fm_meta_get "$meta" remote_host)
+    [ -z "$remote_host" ] || continue
+    task=${meta##*/}
+    task=${task%.meta}
+    case "$task" in ''|*[!A-Za-z0-9._-]*) continue ;; esac
+    home=$(fm_meta_get "$meta" home)
+    [ -n "$home" ] || continue
+    [ -f "$home/.fm-secondmate-home" ] && [ ! -L "$home/.fm-secondmate-home" ] || continue
+    [ "$(cat "$home/.fm-secondmate-home" 2>/dev/null || true)" = "$task" ] || continue
+    marker="$STATE/.secondmate-watcher-quiet-$task"
+    if [ -e "$marker" ] || [ -L "$marker" ]; then
+      [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+    fi
+    mate_harness=$(fm_meta_get "$meta" harness)
+    model=$(fm_supervision_model_for_harness "$mate_harness")
+    fm_mate_watcher_health "$home/state" "$home/bin/fm-watch.sh" "$grace" "$home" "$home" "$model"
+    if [ "$FM_MATE_WATCHER_DOWN" != true ]; then
+      rm -f "$marker"
+      continue
+    fi
+    [ -e "$marker" ] && continue
+    notify_key="secondmate-watcher-quiet-$task"
+    reason="check: secondmate watcher quiet: mate=$task $FM_MATE_WATCHER_DESC"
+    queued=$(fm_wake_queued_keys check)
+    if ! printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1; then
+      fm_wake_append check "$notify_key" "$reason" || return 1
+    fi
+    printf '%s\n' "$FM_MATE_WATCHER_DESC" > "$marker" || return 1
     wake "$reason"
   done
   return 0
@@ -2347,6 +2405,14 @@ while :; do
   # the parent without consuming or rewriting the receiving home's record.
   secondmate_wake_stall_tick || {
     echo "watcher: secondmate wake-loop observation failed" >&2
+    exit 1
+  }
+
+  # A silent secondmate continuity outage (dead Stop-hook arm, not a stalled
+  # queue) gets its own per-episode check through the model-aware verdict, so
+  # it surfaces within one poll cycle instead of whenever a human looks.
+  secondmate_watcher_quiet_tick || {
+    echo "watcher: secondmate watcher-quiet observation failed" >&2
     exit 1
   }
 
