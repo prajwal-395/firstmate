@@ -185,6 +185,38 @@ HARNESS=$(meta_value harness)
 REMOTE_HOST=$(meta_value remote_host)
 [ -n "$KIND" ] || KIND=ship
 
+# Mate-watcher quiet detail (heartbeat backstop): for a local secondmate task,
+# the same model-aware verdict the primary watcher poll tick consults is
+# evaluated here, so every heartbeat read of this task also sees a quiet mate
+# home. Only a down verdict appends anything - healthy and idle mates leave
+# every emitted line byte-identical. Endpoint facts (suspended, exited,
+# stopped) dominate and are left untouched: this rides only the routine
+# fallbacks below. The verdict is read-only; queueing and episode markers
+# stay with the poll tick and locked session start.
+MATE_QUIET_DETAIL=
+if [ "$KIND" = secondmate ] && [ -z "$REMOTE_HOST" ]; then
+  # fm-wake-lib.sh is a canonical lint root itself. Stop duplicate
+  # source-graph expansion here: following its wake graph from this large
+  # runtime exceeds the bounded CI lint worker while adding no uncovered
+  # file (precedent: fm-watch.sh cuts fm-push-transition-lib.sh the same
+  # way for the same reason).
+  # shellcheck source=/dev/null
+  command -v fm_mate_watcher_health >/dev/null 2>&1 || . "$SCRIPT_DIR/fm-wake-lib.sh"
+  MATE_HOME=$(meta_value home)
+  MATE_TASK=$(basename "$META")
+  MATE_TASK=${MATE_TASK%.meta}
+  if [ -n "$MATE_HOME" ] && [ -n "$MATE_TASK" ] \
+    && [ -f "$MATE_HOME/.fm-secondmate-home" ] && [ ! -L "$MATE_HOME/.fm-secondmate-home" ] \
+    && [ "$(cat "$MATE_HOME/.fm-secondmate-home" 2>/dev/null || true)" = "$MATE_TASK" ]; then
+    MATE_MODEL=$(fm_supervision_model_for_harness "$HARNESS")
+    fm_mate_watcher_health "$MATE_HOME/state" "$MATE_HOME/bin/fm-watch.sh" \
+      "${WATCHER_STALE_GRACE:-300}" "$MATE_HOME" "$MATE_HOME" "$MATE_MODEL"
+    if [ "$FM_MATE_WATCHER_DOWN" = true ]; then
+      MATE_QUIET_DETAIL="mate watcher quiet: $FM_MATE_WATCHER_DESC"
+    fi
+  fi
+fi
+
 # A torn-down (or never-created) worktree has no current state to read. A
 # remote secondmate's recorded worktree is a path on ITS host, so the local
 # probe proves nothing for it - the remote arm below reads the true source.
@@ -978,7 +1010,11 @@ fi
 # both classifier-backed backends (tmux and herdr) - and every death-class
 # verdict reports unknown rather than trusting a possibly-stale status log as
 # the current state.
-[ -n "$BACKEND_TARGET" ] || emit unknown none "no backend target recorded"
+[ -n "$BACKEND_TARGET" ] || {
+  NO_TARGET_DETAIL="no backend target recorded"
+  [ -z "$MATE_QUIET_DETAIL" ] || NO_TARGET_DETAIL="$NO_TARGET_DETAIL${SEP}$MATE_QUIET_DETAIL"
+  emit unknown none "$NO_TARGET_DETAIL"
+}
 if ! pane_readable "$BACKEND_TARGET"; then
   # A failed probe is not itself evidence the pane is gone: the herdr CLI can
   # error or stall under load, and tmux can fail to be executed at all (a
@@ -1158,7 +1194,9 @@ fi
 if [ -n "$LOG_VERB" ]; then
   LOG_STATE=$(map_log_state "$LOG_LINE")
   if [ "$LOG_STATE" != unknown ]; then
-    emit "$LOG_STATE" status-log "$(status_line_note "$LOG_LINE")"
+    LOG_DETAIL="$(status_line_note "$LOG_LINE")"
+    [ -z "$MATE_QUIET_DETAIL" ] || LOG_DETAIL="$LOG_DETAIL${SEP}$MATE_QUIET_DETAIL"
+    emit "$LOG_STATE" status-log "$LOG_DETAIL"
   fi
 fi
 
@@ -1166,4 +1204,6 @@ if [ -n "${PANE_UNKNOWN_REASON:-}" ]; then
   emit unknown pane "$PANE_UNKNOWN_REASON"
 fi
 
-emit unknown none "no current-state source available"
+FINAL_DETAIL="no current-state source available"
+[ -z "$MATE_QUIET_DETAIL" ] || FINAL_DETAIL="$FINAL_DETAIL${SEP}$MATE_QUIET_DETAIL"
+emit unknown none "$FINAL_DETAIL"

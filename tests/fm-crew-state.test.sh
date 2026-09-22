@@ -2243,6 +2243,53 @@ test_unattributable_endpoint_is_never_reported_exited() {
   pass "an endpoint whose process cannot be attributed is never reported exited"
 }
 
+# Heartbeat backstop for the cross-home quiet-watcher detection: a local
+# secondmate task whose home still needs supervision but whose model-aware
+# watcher verdict is down carries that fact on the routine heartbeat read, so
+# a fleet review sees the quiet home without waiting for the poll tick's own
+# wake. Only a down verdict appends anything; healthy and idle mates leave
+# the line untouched.
+test_secondmate_quiet_watcher_surfaces_on_heartbeat_read() {
+  reset_fakes
+  local d; d=$(new_case quiet-mate-read)
+  mkdir -p "$d/wt"
+  make_fakebin "$d" >/dev/null
+  mkdir -p "$d/matehome/state"
+  printf 'qm\n' > "$d/matehome/.fm-secondmate-home"
+  printf 'kind=ship\n' > "$d/matehome/state/work.meta"
+  fm_write_meta "$d/state/qm.meta" "window=fm:fm-qm" "worktree=$d/wt" \
+    "kind=secondmate" "harness=claude" "home=$d/matehome"
+  FM_FAKE_AXI_STATUS=""
+  local out; out=$(run_crew_state "$d" qm)
+  assert_contains "$out" "state: unknown" "a quiet mate with no log verb reads unknown"
+  assert_contains "$out" "source: none" "a quiet mate with no log verb has no state source"
+  assert_contains "$out" "mate watcher quiet" "the heartbeat read must surface the quiet mate home"
+  assert_contains "$out" "cause unknown from outside" "the heartbeat detail must not imply a cause"
+  printf 'working: reconciling routed items\n' > "$d/state/qm.status"
+  out=$(run_crew_state "$d" qm)
+  assert_contains "$out" "state: working" "a real trailing state verb still renders"
+  assert_contains "$out" "reconciling routed items" "the log detail is preserved"
+  assert_contains "$out" "mate watcher quiet" "the status-log fallback carries the quiet detail too"
+  pass "a quiet mate home surfaces on the heartbeat current-state read"
+}
+
+test_secondmate_healthy_watcher_leaves_heartbeat_read_untouched() {
+  reset_fakes
+  local d; d=$(new_case healthy-mate-read)
+  mkdir -p "$d/wt"
+  make_fakebin "$d" >/dev/null
+  mkdir -p "$d/matehome/state"
+  printf 'hm\n' > "$d/matehome/.fm-secondmate-home"
+  fm_write_meta "$d/state/hm.meta" "window=fm:fm-hm" "worktree=$d/wt" \
+    "kind=secondmate" "harness=claude" "home=$d/matehome"
+  FM_FAKE_AXI_STATUS=""
+  local out; out=$(run_crew_state "$d" hm)
+  assert_contains "$out" "state: unknown" "an idle mate reads unknown"
+  assert_contains "$out" "source: none" "an idle mate has no state source"
+  assert_not_contains "$out" "mate watcher quiet" "a healthy mate home adds no heartbeat chatter"
+  pass "a healthy mate home leaves the heartbeat read untouched"
+}
+
 # A secondmate skips the busy check entirely (its idle endpoint is healthy), so
 # for one the status log is the ONLY other source and the exit check is the only
 # thing standing between a departed mate and a log that outlives it.
@@ -3325,6 +3372,8 @@ test_exited_agent_that_reported_done_keeps_its_own_verdict
 test_live_agent_between_turns_is_never_reported_exited
 test_unattributable_endpoint_is_never_reported_exited
 test_exited_secondmate_does_not_ride_its_stale_log
+test_secondmate_quiet_watcher_surfaces_on_heartbeat_read
+test_secondmate_healthy_watcher_leaves_heartbeat_read_untouched
 test_exited_agent_is_not_absorbed_as_working
 test_fresh_spawn_with_empty_endpoint_is_not_exited
 test_fresh_spawn_is_not_absorbed_as_working

@@ -1925,8 +1925,114 @@ fm_mate_watcher_health() {
   fi
   # shellcheck disable=SC2034 # Read by callers after the function returns.
   FM_MATE_WATCHER_DOWN=true
+  # The residual travels with the verdict: a silent hook and a home with no
+  # Stop event read identically from outside, so a down verdict never implies
+  # a known cause.
   # shellcheck disable=SC2034 # Read by callers after the function returns.
-  FM_MATE_WATCHER_DESC="last beat $FM_SUP_BEACON_DESC ($verdict_reason, model $model)"
+  FM_MATE_WATCHER_DESC="last beat $FM_SUP_BEACON_DESC ($verdict_reason, model $model; cause unknown from outside: hook silence and no Stop event read identically)"
+  return 0
+}
+
+# fm_mate_quiet_observe <state> <meta> <grace>
+# One endpoint-recorded local secondmate home's quiet-watcher observation,
+# shared by the primary watcher poll tick (bin/fm-watch.sh) and the locked
+# session-start backstop (bin/fm-session-start.sh) so both consult the same
+# verdict with the same episode dedupe. Prints the check reason when it queues
+# one, prints nothing otherwise. Returns 0 handled (queued, already alerted,
+# or healthy with the episode marker cleared), 2 skipped (this meta is not an
+# observable local mate), 1 validation failure (an episode marker that is not
+# a regular file, or a failed queue/marker write - fail loudly like the
+# wake-stall tick). Queueing reuses the tick's episode scheme: one durable
+# parent check per quiet episode, cleared on recovery. Never emits a wake
+# itself: the poll tick wakes per printed reason, and session start's own
+# drain presents the queued row in the same digest.
+fm_mate_quiet_observe() {
+  local state=$1 meta=$2 grace=$3
+  local kind remote_host task home marker mate_harness model notify_key reason queued
+  local save_state save_queue save_lock
+  case "$grace" in ''|*[!0-9]*) grace=300 ;; esac
+  kind=$(fm_meta_get "$meta" kind)
+  [ "$kind" = secondmate ] || return 2
+  remote_host=$(fm_meta_get "$meta" remote_host)
+  [ -z "$remote_host" ] || return 2
+  task=${meta##*/}
+  task=${task%.meta}
+  case "$task" in ''|*[!A-Za-z0-9._-]*) return 2 ;; esac
+  home=$(fm_meta_get "$meta" home)
+  [ -n "$home" ] || return 2
+  [ -f "$home/.fm-secondmate-home" ] && [ ! -L "$home/.fm-secondmate-home" ] || return 2
+  [ "$(cat "$home/.fm-secondmate-home" 2>/dev/null || true)" = "$task" ] || return 2
+  marker="$state/.secondmate-watcher-quiet-$task"
+  if [ -e "$marker" ] || [ -L "$marker" ]; then
+    [ -f "$marker" ] && [ ! -L "$marker" ] || return 1
+  fi
+  # The queue helpers below write through the caller's globals, so rebind them
+  # to the observed state for the duration of this call; production callers
+  # pass their own $STATE (a no-op rebind) while tests observe fixture states.
+  save_state=$STATE
+  save_queue=$FM_WAKE_QUEUE
+  save_lock=$FM_WAKE_QUEUE_LOCK
+  STATE=$state
+  FM_WAKE_QUEUE="$state/.wake-queue"
+  FM_WAKE_QUEUE_LOCK="$state/.wake-queue.lock"
+  mate_harness=$(fm_meta_get "$meta" harness)
+  model=$(fm_supervision_model_for_harness "$mate_harness")
+  fm_mate_watcher_health "$home/state" "$home/bin/fm-watch.sh" "$grace" "$home" "$home" "$model"
+  if [ "$FM_MATE_WATCHER_DOWN" != true ]; then
+    rm -f "$marker"
+    STATE=$save_state
+    FM_WAKE_QUEUE=$save_queue
+    FM_WAKE_QUEUE_LOCK=$save_lock
+    return 0
+  fi
+  if [ -e "$marker" ]; then
+    STATE=$save_state
+    FM_WAKE_QUEUE=$save_queue
+    FM_WAKE_QUEUE_LOCK=$save_lock
+    return 0
+  fi
+  notify_key="secondmate-watcher-quiet-$task"
+  reason="check: secondmate watcher quiet: mate=$task $FM_MATE_WATCHER_DESC"
+  queued=$(fm_wake_queued_keys check)
+  if ! printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1; then
+    fm_wake_append check "$notify_key" "$reason" || {
+      STATE=$save_state
+      FM_WAKE_QUEUE=$save_queue
+      FM_WAKE_QUEUE_LOCK=$save_lock
+      return 1
+    }
+  fi
+  printf '%s\n' "$FM_MATE_WATCHER_DESC" > "$marker" || {
+    STATE=$save_state
+    FM_WAKE_QUEUE=$save_queue
+    FM_WAKE_QUEUE_LOCK=$save_lock
+    return 1
+  }
+  STATE=$save_state
+  FM_WAKE_QUEUE=$save_queue
+  FM_WAKE_QUEUE_LOCK=$save_lock
+  printf '%s\n' "$reason"
+  return 0
+}
+
+# fm_mate_quiet_sweep <state> [grace]
+# Locked-path sweep over every endpoint-recorded local secondmate meta: one
+# fm_mate_quiet_observe per mate, printing each newly queued reason. Returns 1
+# loudly on the first validation failure; skips are silent. Callers: the
+# watcher poll tick (which wakes per printed reason) and locked session start
+# (whose drain presents the queued rows).
+fm_mate_quiet_sweep() {
+  local state=$1 grace=${2:-300} meta reason rc
+  case "$grace" in ''|*[!0-9]*) grace=300 ;; esac
+  for meta in "$state"/*.meta; do
+    [ -e "$meta" ] || continue
+    reason=$(fm_mate_quiet_observe "$state" "$meta" "$grace") || {
+      rc=$?
+      [ "$rc" -eq 2 ] && continue
+      return 1
+    }
+    [ -n "$reason" ] && printf '%s\n' "$reason"
+  done
   return 0
 }
 
