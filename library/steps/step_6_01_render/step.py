@@ -113,6 +113,58 @@ def _visual_qa_prompt_addition(visual_qa) -> str:
     )
 
 
+def _render_output_payload(result: dict, export: dict,
+                           resolve_project_name: str = "") -> dict:
+    """The render record 6.02 validates, as the `render_output` state key.
+
+    Hand-picks its keys (see `run`): anything not named here is dropped
+    before the ledger ever sees it. Three of them are the approve gate's
+    address of the timeline it must read back: `resolve_project_name`
+    is the exact Resolve project the build opened (refused unless
+    exact, so this spelling is the listed one), `timeline_name` is the
+    timestamped name the build placed (not the manifest's base project
+    name), and `track_plan` is the plan that build laid out, so the
+    `verify_timeline` gating skill on 6.02 can run its link and stream
+    checks instead of skipping them openly. The manifest itself never
+    reaches 6.02's prompt (its context drops it whole), so the address
+    has to travel here - a skill whose inputs are not in context cannot
+    be invoked. A build that recorded no plan carries no `track_plan`
+    key - an absent plan is not an empty one, and the skill says which
+    it got.
+    """
+    result = result or {}
+    export = export or {}
+    payload = {
+        "timeline_name": result.get("timeline_name"),
+        "resolve_project_name": resolve_project_name or "",
+        "status": "success" if result.get("success", True) else "failed",
+        "success": result.get("success", True),
+        "errors": result.get("errors", []),
+        "tracks": result.get("tracks", {}),
+        "warnings": result.get("warnings", []),
+        # Error-severity QA station failures, forwarded so they
+        # land in pipeline_data.json. This payload hand-picks its
+        # keys, so anything not named here is dropped before the
+        # ledger ever sees it - and this list is the evidence
+        # channel for whether a failing station should become
+        # fatal. Without it that question can never be answered
+        # from real runs. See docs/PIPELINE_PLAN.md.
+        "qa_failures": result.get("qa_failures", []),
+        "output_path": export.get("output_path"),
+        "output_size_bytes": export.get("size_bytes"),
+        "render_job": {
+            "job_id": export.get("job_id"),
+            "job_status": export.get("job_status"),
+            "format": export.get("format"),
+            "codec": export.get("codec"),
+        },
+    }
+    track_plan = result.get("track_plan")
+    if track_plan is not None:
+        payload["track_plan"] = track_plan
+    return payload
+
+
 def _export_timeline(timeline_name: str, inputs: dict, manifest: dict) -> dict:
     """Render the built timeline to a file and return the render report.
 
@@ -221,31 +273,15 @@ def run(inputs: dict) -> dict:
         # every run ended at distribution_ready: false.
         export = _export_timeline(result.get("timeline_name"), inputs, manifest)
 
+        # The exact Resolve project the build opened: `build_timeline`
+        # refuses anything but the exact listed name, so the manifest's
+        # base project name is the listed one. 6.02's prompt never sees
+        # the manifest, so the skill's `--project` travels here.
         output_payload = {
-            "render_output": {
-                "timeline_name": result.get("timeline_name"),
-                "status": "success" if result.get("success", True) else "failed",
-                "success": result.get("success", True),
-                "errors": result.get("errors", []),
-                "tracks": result.get("tracks", {}),
-                "warnings": result.get("warnings", []),
-                # Error-severity QA station failures, forwarded so they
-                # land in pipeline_data.json. This payload hand-picks its
-                # keys, so anything not named here is dropped before the
-                # ledger ever sees it - and this list is the evidence
-                # channel for whether a failing station should become
-                # fatal. Without it that question can never be answered
-                # from real runs. See docs/PIPELINE_PLAN.md.
-                "qa_failures": result.get("qa_failures", []),
-                "output_path": export["output_path"],
-                "output_size_bytes": export["size_bytes"],
-                "render_job": {
-                    "job_id": export["job_id"],
-                    "job_status": export["job_status"],
-                    "format": export["format"],
-                    "codec": export["codec"],
-                },
-            }
+            "render_output": _render_output_payload(
+                result, export,
+                resolve_project_name=(manifest.get("project") or {}).get(
+                    "name", DEFAULT_TIMELINE_NAME)),
         }
 
         if "visual_qa" in result and result["visual_qa"]:

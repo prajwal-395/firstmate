@@ -165,10 +165,13 @@ def test_the_view_declares_the_input_it_reads(node_id):
 def test_no_word_timing_reaches_the_qa_prompts(node_id):
     """The other route in: `subtitles[*].words` off the assembly manifest.
 
-    These two steps are deliberately unprojected, so the removal is a
-    drop-only declaration - everything they were handed, minus this one
-    field - rather than an allow-list, which would quietly become the
-    decision about what the QA calls should ask for.
+    `render` is deliberately unprojected, so the removal is a drop-only
+    declaration - everything it was handed, minus this one field -
+    rather than an allow-list, which would quietly become the decision
+    about what the QA calls should ask for. `validate` dropped the whole
+    manifest from its prompt (#1282), so no word timing reaches it
+    because nothing of the manifest does; that absence is pinned
+    separately below.
     """
     inputs = {
         "assembly_manifest": {
@@ -186,12 +189,34 @@ def test_no_word_timing_reaches_the_qa_prompts(node_id):
     projected = project_fields(inputs, cf)
 
     assert not find_key(projected, "words")
-    # Everything else it was handed is still there: this is a drop, not
-    # an allow-list.
-    sub = projected["assembly_manifest"]["subtitles"][0]
-    assert sub["text"] == "i can feel the"
-    assert sub["emphasis_words"] == ["feel"]
-    assert projected["assembly_manifest"]["tracks"]["v1"]
+    if node_id == "render":
+        # Everything else it was handed is still there: this is a drop,
+        # not an allow-list.
+        sub = projected["assembly_manifest"]["subtitles"][0]
+        assert sub["text"] == "i can feel the"
+        assert sub["emphasis_words"] == ["feel"]
+        assert projected["assembly_manifest"]["tracks"]["v1"]
+        assert projected["rendered_output"]["output_path"] == "/nowhere/out.mp4"
+
+
+def test_validate_prompt_carries_no_manifest_at_all():
+    """#1282 dropped `assembly_manifest` whole from 6.02's prompt: the
+    transition seating and V1 tiling the model used to re-derive are
+    held by the bridge now, so the prompt carries the render record and
+    the measurements, not the plan. No word timing reaches it because no
+    manifest does."""
+    inputs = {
+        "assembly_manifest": {
+            "subtitles": [
+                {"id": "sub_001", "text": "i can feel the",
+                 "words": [{"word": "i", "start": 0.0, "end": 0.036}]},
+            ],
+        },
+        "rendered_output": {"output_path": "/nowhere/out.mp4"},
+    }
+    projected = project_fields(
+        inputs, manifest(QA_STEPS["validate"])["context_fields"])
+    assert "assembly_manifest" not in projected
     assert projected["rendered_output"]["output_path"] == "/nowhere/out.mp4"
 
 

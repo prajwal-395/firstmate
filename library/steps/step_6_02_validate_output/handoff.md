@@ -43,6 +43,41 @@ The captain's own bar is *"would I post this?"* - theirs to apply, and
 not a question you can check. Yours are the questions the block lists,
 each of which a specific frame answers yes or no.
 
+### The timeline behind the file
+
+The file is the export OF a timeline, and the timeline itself must obey
+the SOP (`docs/TIMELINE_SOP.md`) - no empty rows, no default row names,
+no two rows carrying one role, a-roll picture linked to its speech, the
+placed stream the recorded program stream. The `verify_timeline` gating
+skill reads that back off the live timeline in Resolve. Run it BEFORE
+you answer, on the build this step is validating:
+
+```
+python3 -m library.skills.verify_timeline.skill \
+    --project "<rendered_output.resolve_project_name>" \
+    --timeline "<rendered_output.timeline_name>" \
+    --project-folder <project-folder> \
+    --step-id validate \
+    --plan-json '<rendered_output.track_plan as JSON>'
+```
+
+- All three live on `rendered_output`, which is in your context: the
+  exact Resolve project the build opened, the timestamped timeline
+  name it placed (not the base project name), and the plan that build
+  laid out. The manifest itself never reaches your prompt, so the
+  address has to come from the render record - do not guess names.
+  `--step-id` is this DAG node's id (`validate`).
+- `--plan-json` is the build result's own track plan, which 6.01
+  records on `rendered_output.track_plan`. Pass it: without it the
+  link and stream checks are skipped openly and the gate reads only
+  its structural half. A run whose `rendered_output` carries no plan
+  is an old build - say so; the structural half still gates.
+- `passed: false` means do not approve the timeline, whether it names
+  violations or a refusal (Resolve down, wrong project, no such
+  timeline). Say which check failed and what it measured. The step's
+  verdict carries a failed timeline gate as a fail no matter what the
+  file measurements say.
+
 ---
 
 ## Task Prompt

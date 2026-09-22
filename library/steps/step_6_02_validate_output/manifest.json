@@ -82,6 +82,7 @@
     "-deterministic_validation.qa_report"
   ],
   "skills": [
-    "verify_render"
+    "verify_render",
+    "verify_timeline"
   ]
 }
