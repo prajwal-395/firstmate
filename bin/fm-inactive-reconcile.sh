@@ -72,7 +72,12 @@
 # ledger_claim binds that one ledger fingerprint to the already-delivered
 # inactive receipt so the two publishers cannot report one completion twice.
 # Pending atomically becomes reported after parent append or presented after
-# main-home acknowledgement. The atomic epoch/cursor marker's mtime gates scans,
+# main-home acknowledgement. The invalid-identity diagnostic below keeps its
+# own per-fingerprint pending record instead: its notice_emitted is set when
+# first queued and confirmed by fm-wake-drain's post-handling acknowledgement,
+# so a persistent invalid marker wakes exactly once, while a changed marker -
+# or a repaired home that becomes invalid again, whose healthy scan retires
+# the record - wakes as a new finding. The atomic epoch/cursor marker's mtime gates scans,
 # and its cursor records the last child visited within the aggregate budget.
 #
 # The scan reads only durable local state and fm-crew-state.sh; it never invokes
@@ -253,6 +258,70 @@ queue_notice_once() { # <record> <key> <payload>
 queue_presentation() { # <record> <fingerprint> <payload>
   local record=$1 fingerprint=$2 payload=$3
   publish_actionable "inactive-outcome:$fingerprint" "$payload"
+}
+
+# The durable identity of one unusable .fm-secondmate-home marker episode.
+# Bound to what makes this invalidity different from another one, so a
+# changed marker wakes again while the identical marker stays quiet after
+# its drain: a symlink names its target, a regular file names its content,
+# anything else names its kind.
+invalid_marker_descriptor() { # <marker>
+  local marker=$1 target content
+  if [ -L "$marker" ]; then
+    target=$(readlink "$marker" 2>/dev/null || true)
+    printf 'symlink:%s' "$(clean_field "$target")"
+  elif [ -f "$marker" ]; then
+    content=$(cat "$marker" 2>/dev/null || true)
+    printf 'file:%s' "$(clean_field "$content")"
+  elif [ -d "$marker" ]; then
+    printf 'directory'
+  elif [ -e "$marker" ]; then
+    printf 'other-present'
+  else
+    printf 'other-absent'
+  fi
+}
+
+# The invalid-identity diagnostic, deduplicated exactly like the
+# parent-report-failure notices: publish_actionable covers the still-queued
+# window and this per-fingerprint record's notice_emitted covers everything
+# after fm-wake-drain acknowledges it. Fields stay minimal because no parent
+# report, presentation, or ledger claim ever applies to a diagnostic.
+queue_invalid_marker_diagnostic() { # <marker>
+  local marker=$1 fingerprint record tmp payload
+  fingerprint=$(sha256_text "invalid-secondmate-home|$(invalid_marker_descriptor "$marker")")
+  record=$(record_path "$fingerprint" pending)
+  if [ ! -f "$record" ] || [ -L "$record" ]; then
+    mkdir -p "$OUTCOME_DIR" || return 1
+    [ ! -L "$OUTCOME_DIR" ] || return 1
+    tmp=$(mktemp "$OUTCOME_DIR/.pending.XXXXXX") || return 1
+    {
+      printf 'schema=fm-inactive-diagnostic.v1\n'
+      printf 'fingerprint=%s\n' "$fingerprint"
+      printf 'diagnostic=invalid-secondmate-home\n'
+      printf 'created_epoch=%s\n' "$(reconcile_now)"
+      printf 'notice_emitted=0\n'
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    chmod 600 "$tmp" 2>/dev/null || true
+    mv -f "$tmp" "$record" || { rm -f "$tmp"; return 1; }
+  fi
+  payload="inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker"
+  queue_notice_once "$record" "inactive-reconcile:$fingerprint" "$payload" || true
+}
+
+# A healthy home retires every invalid-marker diagnostic record, so a later
+# invalid episode - even with byte-identical marker content - is a new
+# finding and wakes again. Cheap file reads only.
+retire_invalid_marker_diagnostics() {
+  local record suffix
+  [ -d "$OUTCOME_DIR" ] && [ ! -L "$OUTCOME_DIR" ] || return 0
+  for suffix in pending presented reported; do
+    for record in "$OUTCOME_DIR"/*."$suffix"; do
+      [ -f "$record" ] && [ ! -L "$record" ] || continue
+      [ "$(record_value "$record" diagnostic)" = invalid-secondmate-home ] || continue
+      rm -f "$record" || return 1
+    done
+  done
 }
 
 last_activity_age() { # <meta> <status> <turn-ended>
@@ -608,6 +677,9 @@ scan() {
     marker_rc=$?
     self=''
   fi
+  if [ -n "$self" ] || [ "$marker_rc" -eq 1 ]; then
+    retire_invalid_marker_diagnostics || return 1
+  fi
   if [ "$startup" != 1 ] && [ "$(scan_marker_age)" -lt "$FM_INACTIVE_RECONCILE_SECS" ]; then
     return 0
   fi
@@ -615,8 +687,7 @@ scan() {
   valid_id "$cursor" || cursor=''
   write_scan_marker "$cursor" || return 1
   if [ -z "$self" ] && [ "$marker_rc" -ne 1 ]; then
-    publish_actionable "inactive-reconcile-diagnostic:invalid-secondmate-home" \
-      "inactive terminal outcomes remain unreconciled: invalid .fm-secondmate-home marker" || true
+    queue_invalid_marker_diagnostic "$FM_HOME/.fm-secondmate-home" || true
     return 0
   fi
   deadline=$(( $(date +%s) + FM_INACTIVE_RECONCILE_BUDGET_SECS ))
