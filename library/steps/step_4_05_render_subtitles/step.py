@@ -100,7 +100,9 @@ from library.tools.subtitle_segment_id import (
 )
 from library.tools.caption_asset_gc import (
     LedgerError,
+    ambiguous_span_pairs,
     card_key,
+    ledger_path_for,
     record_rendered_segments,
 )
 from library.tools.caption_swap import (
@@ -625,6 +627,53 @@ def batch_caption_engine(remotion_dir: str):
     renders rather than handing it this engine.
     """
     return _SharedPersistentEngine(remotion_dir)
+
+
+def _ambiguous_pairs_for_dir(out_dir: str, fresh_paths) -> list:
+    """Same-span duplicates the render ledger vouches for, REPORTED.
+
+    One ledger read, grouped by
+    `caption_asset_gc.ambiguous_span_pairs`: every pair is two files
+    covering one placing span with no recorded supersede direction
+    between them - the re-plan leftover the same-card retention rule
+    cannot name. A REPORT, never a gate: an absent or unreadable
+    ledger yields no pairs and a note, because a visibility pass must
+    never refuse a render that succeeded. Nothing moves: retirement
+    stays with the caption GC's mark and sweep (quarantine, never
+    delete), which alone can prove the mate unreferenced.
+    """
+    try:
+        with open(ledger_path_for(out_dir), encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as exc:
+        print(f"    note: the caption render ledger cannot be read "
+              f"({exc}); same-span duplicates go unreported this pass",
+              file=sys.stderr)
+        return []
+    overlay = data.get("subtitle_overlay") if isinstance(data, dict) else None
+    entries = (overlay or {}).get("segments") \
+        if isinstance(overlay, dict) else None
+    if not isinstance(entries, list):
+        print(f"    note: the caption render ledger holds no "
+              f"subtitle_overlay.segments list; same-span duplicates go "
+              f"unreported this pass", file=sys.stderr)
+        return []
+    pairs = ambiguous_span_pairs(
+        [e for e in entries if isinstance(e, dict)], fresh_paths)
+    for pair in pairs:
+        span = f"{pair['timeline_start']:.1f}-{pair['timeline_end']:.1f}s"
+        timeline = pair["timeline"] or "<unnamed>"
+        print(f"  AMBIGUOUS: timeline {timeline} span {span} is covered "
+              f"by {len(pair['files'])} files with no recorded direction:",
+              file=sys.stderr)
+        for path in pair["files"]:
+            marker = "drew this pass" if path in pair["drawn_fresh"] \
+                else "mate - did not draw this pass"
+            print(f"    - {path} ({marker})", file=sys.stderr)
+        print(f"    Nothing was moved. The mate is an orphan candidate - "
+              f"retire it with the caption GC (mark + sweep to "
+              f"quarantine), never by hand.", file=sys.stderr)
+    return pairs
 
 
 def _superseded_generations(out_dir: str, overlay_path: str) -> list:
@@ -1670,6 +1719,29 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
               f"generation(s) - orphan candidates, still on disk",
               file=sys.stderr)
 
+    # ── Same-span duplicates no re-render named, REPORTED not retired ──
+    #
+    # A re-plan that changed only placement metadata (`_card_index`,
+    # `_timeline_start` - correctly excluded from the reuse digest)
+    # writes a new hashed filename beside the old one, and the
+    # same-card rule above only names what shares its card. What it
+    # misses - a shifted source span, a plan predating `card_index` -
+    # would otherwise sit silent beside its replacement until someone
+    # mistook it for the live card. The ledger (which binds each
+    # artefact to the placing it serves) says which pairs those are;
+    # the sweep still owns retirement, because only reachability can
+    # prove the mate unplaced.
+    fresh_paths = set()
+    for segment in segments:
+        if segment.get("provenance") == FAILED:
+            continue
+        at = segment.get("overlay_path") or (
+            (segment.get("frames") or {}).get("dir") or "")
+        if at:
+            fresh_paths.add(at)
+    ambiguous_pairs = _ambiguous_pairs_for_dir(
+        sub_output_dir, fresh_paths)
+
     usable = [s for s in segments if s["provenance"] != FAILED]
     if usable:
         try:
@@ -1749,6 +1821,11 @@ def render_subtitle_overlays(subtitle_plan: dict, audio_spine: dict,
             "failed": tally[FAILED],
             "planned": len(props_list),
             "superseded_generations": superseded_generations,
+            # Same-span files with no recorded direction (see above):
+            # which mate drew this pass and which did not, so a later
+            # reader of two props files for one span knows without
+            # opening either render. Always present, possibly empty.
+            "ambiguous_span_pairs": ambiguous_pairs,
         }
     }
     if renderer_fallback is not None:
@@ -1973,6 +2050,10 @@ def rerender_and_swap(project_folder: str, pairs: list,
              f"already-current {len(already)}, failed {len(failures)} "
              f"({len(checked)} paired)")
     print(tally, file=sys.stderr)
+    # A swap is a re-plan by another name: every new file beside an
+    # old one for one span is reported, never moved - see the pass.
+    ambiguous_pairs = _ambiguous_pairs_for_dir(
+        out_dir, set(mapping.values()))
     report = {
         "ok": not failures,
         "rendered": rendered,
@@ -1981,6 +2062,7 @@ def rerender_and_swap(project_folder: str, pairs: list,
         "failed": failures,
         "map": dict(mapping),
         "swapped": [],
+        "ambiguous_span_pairs": ambiguous_pairs,
     }
     if failures:
         report["error"] = (

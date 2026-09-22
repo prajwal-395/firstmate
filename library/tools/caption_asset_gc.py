@@ -1133,6 +1133,116 @@ def _superseded_map(project_folder: str) -> dict[str, str]:
     return mapping
 
 
+def _entry_artefact(entry: dict) -> str:
+    """The file an entry vouches for: the mov, or the frames directory."""
+    overlay = entry.get("overlay_path") or ""
+    if overlay:
+        return str(overlay)
+    frames = entry.get("frames") or {}
+    return str(frames.get("dir") or "") if isinstance(frames, dict) else ""
+
+
+def _entry_span(entry: dict) -> tuple | None:
+    """The placing span an entry covers, or None when it names none.
+
+    Both bounds must be real numbers (bools excluded): a span that is
+    half-named groups with nothing, because a file whose placing is
+    unknown cannot be shown to cover another file's span.
+    """
+    start = entry.get("timeline_start")
+    end = entry.get("timeline_end")
+    if isinstance(start, bool) or isinstance(end, bool):
+        return None
+    if not isinstance(start, (int, float)) \
+            or not isinstance(end, (int, float)):
+        return None
+    return (start, end)
+
+
+def ambiguous_span_pairs(entries: list[dict],
+                         fresh_paths=None) -> list[dict]:
+    """Same-span files with no recorded direction between them.
+
+    Two ledger entries name the same placing - one timeline, one
+    `[timeline_start, timeline_end]` span - while vouching for two
+    DIFFERENT artefacts, and neither entry's `superseded` list names
+    the other. One of them drew and the other is a leftover, and the
+    ledger cannot say which: a re-plan that changed only placement
+    metadata (`_card_index`, `_timeline_start` - correctly excluded
+    from the reuse digest, since neither draws) writes a new hashed
+    filename beside the old one, and the same-card retention rule
+    (`render_one_segment`) only names what shares its card. A source
+    span that shifted past the millisecond the filename carries, or a
+    plan that predates `card_index`, lands here.
+
+    Grouped on the LEDGER, never on a directory scan: the props files
+    carry no timeline (placement never names a file), while the ledger
+    binds each artefact to the placing it serves - so a master card
+    and a reel card sharing absolute seconds never read as a pair.
+    The span match is EXACT: spans are min/max over identical plan
+    numbers for identical plans, and an epsilon would merge genuinely
+    neighbouring cards.
+
+    What is NOT a pair, and why:
+    - one file shared by several placings (the cross-variant sharing):
+      the group holds one distinct artefact;
+    - a pair with a recorded supersede direction (either entry names
+      the other in `superseded`): the re-render already said what
+      replaced what - re-planning leaves no ambiguous pair behind.
+
+    `fresh_paths` are the artefacts the calling pass just produced;
+    each pair names which of its files drew this pass (`drawn_fresh`,
+    possibly empty for a stale duplicate no pass claims). Pure:
+    reads the entries given, touches nothing. REPORT, never gate -
+    the caller prints and records; nothing moves, because reachability
+    still rules retirement (`mark`/`sweep`).
+    """
+    fresh = {str(p) for p in (fresh_paths or []) if p}
+    supersedes: set[tuple[str, str]] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        newer = _entry_artefact(entry)
+        if not newer:
+            continue
+        for older in entry.get("superseded") or []:
+            if isinstance(older, str) and older:
+                supersedes.add((newer, older))
+    groups: dict[tuple, set[str]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        at = _entry_artefact(entry)
+        span = _entry_span(entry)
+        if not at or span is None:
+            continue
+        binding = entry.get("binding")
+        timeline = ""
+        if isinstance(binding, dict):
+            timeline = str(binding.get("timeline") or "")
+        groups.setdefault((timeline, span[0], span[1]), set()).add(at)
+    pairs = []
+    for (timeline, start, end), files in sorted(
+            groups.items(), key=lambda item: str(item[0])):
+        ordered = sorted(files)
+        if len(ordered) < 2:
+            continue
+        explained = any(
+            (newer, older) in supersedes or (older, newer) in supersedes
+            for i, newer in enumerate(ordered)
+            for older in ordered[i + 1:])
+        if explained:
+            continue
+        pairs.append({
+            "timeline": timeline,
+            "timeline_start": start,
+            "timeline_end": end,
+            "files": ordered,
+            "drawn_fresh": sorted(f for f in ordered if f in fresh),
+        })
+    return pairs
+
+
 def mark(project_folder: str, asset_dir: str,
          roots: list[RootResult]) -> MarkResult:
     """Compute reachability. Read-only: writes nothing, anywhere."""
