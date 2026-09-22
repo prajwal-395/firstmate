@@ -7,6 +7,7 @@
 #   fm-remote-secondmate-control.sh state <id>
 #   fm-remote-secondmate-control.sh route <id>
 #   fm-remote-secondmate-control.sh send <id> <message> [fire-and-forget]
+#   fm-remote-secondmate-control.sh ack <id> <corr>
 #   fm-remote-secondmate-control.sh key <id> <key>
 #   fm-remote-secondmate-control.sh capture <id> [lines]
 #   fm-remote-secondmate-control.sh observe <id>
@@ -302,6 +303,21 @@ cmd_send() {
   esac
 }
 
+# Retire a request the mate already answered through the parent channel before
+# it moved its own steering-inbox record: the same handled/ acknowledgement the
+# worker performs, run host-locally so the replacement never re-answers it.
+# Record-only by design: the endpoint may be mid-relaunch, so no endpoint is
+# loaded. Idempotent: an already-acknowledged correlation is a no-op success.
+cmd_ack() {
+  local id=$1 corr=$2
+  validate_id "$id"
+  case "$corr" in ''|*[!A-Fa-f0-9]*) die "invalid acknowledgement correlation" ;; esac
+  [ "${#corr}" -eq 16 ] || die "invalid acknowledgement correlation"
+  validate_home "$id"
+  fm_task_inbox_retire_corr "$CONTROL_STATE" "$id" "$corr" \
+    || die "answered steering-inbox records for $id could not be retired"
+}
+
 cmd_key() {
   local id=$1 key=$2
   validate_id "$id"
@@ -431,6 +447,7 @@ case "${1:-}" in
   state) shift; [ "$#" -eq 1 ] || usage; validate_id "$1"; validate_home "$1"; state_value "$1" ;;
   route) shift; [ "$#" -eq 1 ] || usage; cmd_route "$1" ;;
   send) shift; [ "$#" -ge 2 ] && [ "$#" -le 3 ] || usage; cmd_send "$@" ;;
+  ack) shift; [ "$#" -eq 2 ] || usage; cmd_ack "$@" ;;
   key) shift; [ "$#" -eq 2 ] || usage; cmd_key "$@" ;;
   capture) shift; [ "$#" -ge 1 ] && [ "$#" -le 2 ] || usage; cmd_capture "$@" ;;
   observe) shift; [ "$#" -eq 1 ] || usage; cmd_observe "$@" ;;
