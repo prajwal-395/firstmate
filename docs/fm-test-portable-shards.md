@@ -57,7 +57,8 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
 
 Assignment is longest-processing-time bin packing over per-script duration hints embedded in `bin/fm-test-run.sh`.
-The embedded hints include the slowest measurements retained from the `fm-test-timing-portable-serial-*` artifacts of three green CI runs on 2026-09-01, [33558082172](https://github.com/kunchenguid/firstmate/actions/runs/33558082172), [33523597838](https://github.com/kunchenguid/firstmate/actions/runs/33523597838), and [33463326167](https://github.com/kunchenguid/firstmate/actions/runs/33463326167), the completed-script measurements from [run 34342484144](https://github.com/kunchenguid/firstmate/actions/runs/34342484144), plus the 5121 ms native-Windows focused runner measurement for `tests/fm-pi-windows-shell-invocation.test.sh` from 2026-09-06T21:02Z.
+The embedded hints are the slowest `duration_ms` per script from the `fm-test-timing-portable-serial-*` artifacts of four green CI runs on 2026-09-22: [35665191329](https://github.com/prajwal-395/firstmate/actions/runs/35665191329), [35664891424](https://github.com/prajwal-395/firstmate/actions/runs/35664891424), [35663110890](https://github.com/prajwal-395/firstmate/actions/runs/35663110890), and [35661755328](https://github.com/prajwal-395/firstmate/actions/runs/35661755328).
+All 192 serial scripts are now measured, including the 28 that previously balanced on the default weight; the 5121 ms native-Windows focused runner measurement for `tests/fm-pi-windows-shell-invocation.test.sh` from 2026-09-06T21:02Z is retained because the portable CI shards gate-skip that script.
 Taking the slowest of several CI runs rather than a single run keeps the balance honest on a slow runner.
 A script with no hint gets the conservative `PORTABLE_SERIAL_DEFAULT_WEIGHT_MS` default.
 Hints only affect balance: the coverage guard keeps the partition complete and disjoint whatever they say, so a stale hint costs a slower shard rather than lost coverage.
@@ -69,7 +70,7 @@ Refresh the hints whenever the serial lane gains scripts, rather than waiting fo
 `bin/fm-test-run.sh` owns the per-shard packing, so its `--check-coverage` output is the current account of lane size, shard composition, and balance rather than a copied table.
 Run 34342484144 observed a shard reach about 20 minutes of passing work, so the 30-minute job cap keeps meaningful hang-tripwire margin for job setup and runner-speed spread.
 
-The single longest script, `tests/fm-watch-triage.test.sh` at 262626 ms, is the floor for any shard count.
+The single longest script, `tests/fm-watch-triage.test.sh` at 699926 ms, is the floor for any shard count.
 
 Refresh the CI-derived hints by downloading the per-shard timing artifacts from several green CI runs and replacing the `portable_serial_weight_hints` table in `bin/fm-test-run.sh` with the slowest measured `duration_ms` per `path`:
 
@@ -111,7 +112,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | See [CI workflow](../.github/workflows/ci.yml) | The workflow owns the parallel cap rationale and its evidence limits. |
-| portable serial 1-5 | job `timeout-minutes: 30` | Current runners can take about 20 minutes; the 30-minute cap remains a hang tripwire while leaving margin for job setup and runner-speed spread. |
+| portable serial 1-5 | job `timeout-minutes: 30` | Current runners take about 21 minutes of slowest-sum script time for a balanced shard; the 30-minute cap remains a hang tripwire while leaving margin for job setup and runner-speed spread. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are intended as hang tripwires; a passing coverage guard does not establish a healthy job duration.
