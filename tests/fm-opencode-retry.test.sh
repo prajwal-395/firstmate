@@ -15,6 +15,13 @@
 #       never to a false blocked
 #   (e) the horizon threshold is caller-tunable via environment
 #   (f) clear removes the evidence best-effort
+#   (g) the rung-scoped record (record-cap/check-cap) preserves a proven cap
+#       past the discovering task's cleanup: newer evidence wins, expiry and
+#       threshold match the sidecar, malformed records classify nothing
+#   (h) verdict-cap keeps expired and absent tellable apart: both route to
+#       free through check-cap, but the honest answer names expired-evidence
+#       (a cap was proved and its window passed) versus no-evidence (nobody
+#       ever proved anything about this rung)
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -179,6 +186,109 @@ test_verdict_three_states() {
   pass "capped, open, and unknown are separately expressible"
 }
 
+test_rung_cap_is_preserved_and_classified() {
+  local d="$TMP_ROOT/rung-cap"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now 79200)" \
+    || fail "record-cap refused a well-formed rung observation"
+  [ -f "$d/.opencode-cap-free" ] || fail "record-cap wrote no rung record"
+  local out; out=$("$HELPER" check-cap "$d" free) \
+    || fail "check-cap refused a live rung record"
+  assert_contains "$out" "status=blocked" "22h horizon -> blocked"
+  case "$out" in
+    *'horizon_s='*) : ;;
+    *) fail "the preserved finding must carry its horizon, said: $out" ;;
+  esac
+  pass "a preserved rung cap classifies blocked with its horizon"
+}
+
+test_rung_cap_newer_evidence_wins() {
+  local d="$TMP_ROOT/rung-newer"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now 79200)" || fail "record-cap refused fixture"
+  local first; first=$(cat "$d/.opencode-cap-free")
+  # An older horizon must not shorten the rung's recorded cap.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 3600)" || fail "record-cap must swallow an older observation as a no-op"
+  [ "$(cat "$d/.opencode-cap-free")" = "$first" ] \
+    || fail "an older observation must not clobber a newer rung record"
+  # A newer horizon replaces it.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 80000)" || fail "record-cap refused a newer observation"
+  [ "$(cat "$d/.opencode-cap-free")" != "$first" ] \
+    || fail "a newer observation must replace the rung record"
+  pass "newer rung evidence wins, older never shortens the cap"
+}
+
+test_rung_cap_expires_and_degrades() {
+  local d="$TMP_ROOT/rung-expired"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now -3600)" || fail "record-cap refused an old observation"
+  "$HELPER" check-cap "$d" free >/dev/null 2>&1 \
+    && fail "an expired rung record must not classify"
+  # An expired incumbent loses to any valid observation.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 79200)" || fail "record-cap refused fixture"
+  "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
+    || fail "a valid observation must replace an expired rung record"
+  # Malformed records and refused writes degrade to nothing-to-classify.
+  printf 'junk\n' > "$d/.opencode-cap-bad"
+  "$HELPER" check-cap "$d" bad >/dev/null 2>&1 \
+    && fail "a malformed rung record must not classify"
+  "$HELPER" record-cap "$d" 'bad rung' "$(ms_from_now 79200)" >/dev/null 2>&1 \
+    && fail "a rung outside the token charset must be refused"
+  "$HELPER" record-cap "$d" free soon >/dev/null 2>&1 \
+    && fail "a non-numeric horizon must be refused"
+  "$HELPER" check-cap "$d" missing >/dev/null 2>&1 \
+    && fail "an absent rung record must not classify"
+  "$HELPER" check-cap /nonexistent-dir free >/dev/null 2>&1 \
+    && fail "a missing state dir must not classify"
+  pass "an expired or malformed rung record degrades to nothing-to-classify"
+}
+
+test_rung_cap_threshold_is_tunable() {
+  local d="$TMP_ROOT/rung-threshold"; mkdir -p "$d"
+  "$HELPER" record-cap "$d" free "$(ms_from_now 8)" || fail "record-cap refused fixture"
+  FM_OPENCODE_RETRY_BLOCK_SECS=1 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
+    || fail "a 1s threshold should flip an 8s rung horizon to blocked"
+  FM_OPENCODE_RETRY_BLOCK_SECS=999999 "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=waiting" \
+    || fail "a huge threshold should keep a rung-scale horizon waiting"
+  pass "the rung record honors the same blocked threshold"
+}
+
+test_rung_cap_verdict_keeps_expired_and_absent_apart() {
+  local d="$TMP_ROOT/rung-verdict"; mkdir -p "$d"
+  local out
+  # Absent: nobody ever proved anything about this rung.
+  out=$("$HELPER" verdict-cap "$d" free) \
+    || fail "verdict-cap must always answer, even with no record"
+  assert_contains "$out" "verdict=unknown" "absent rung record is unknown, never capped"
+  assert_contains "$out" "reason=no-evidence" "absent means nothing was ever proved"
+  # Live quota-scale cap.
+  "$HELPER" record-cap "$d" free "$(ms_from_now 83823)" \
+    || fail "record-cap refused a well-formed rung observation"
+  out=$("$HELPER" verdict-cap "$d" free) \
+    || fail "verdict-cap must always answer, even past the cap"
+  assert_contains "$out" "verdict=capped" "a live rung cap reads capped"
+  assert_contains "$out" "evidence=rung-record" "the finding names where it lives"
+  # Live but short horizon: worth watching, not quota-scale.
+  "$HELPER" record-cap "$d" go "$(ms_from_now 8)" \
+    || fail "record-cap refused a transient rung observation"
+  out=$("$HELPER" verdict-cap "$d" go) \
+    || fail "verdict-cap must always answer a transient record"
+  assert_contains "$out" "verdict=waiting" "a transient rung horizon reads waiting, never capped"
+  # Expired: a cap WAS proved and its window has passed - free is worth
+  # trying, and the record says why. Same routing as absent, different fact.
+  "$HELPER" record-cap "$d" old "$(ms_from_now -3600)" \
+    || fail "record-cap refused an old observation"
+  "$HELPER" check-cap "$d" old >/dev/null 2>&1 \
+    && fail "an expired rung record must not classify through check-cap"
+  out=$("$HELPER" verdict-cap "$d" old) \
+    || fail "verdict-cap must always answer an expired record"
+  assert_contains "$out" "verdict=unknown" "an expired rung record is unknown, never capped"
+  assert_contains "$out" "reason=expired-evidence" "expired names the proved cap whose window passed"
+  # Malformed: present but unreadable.
+  printf 'junk\n' > "$d/.opencode-cap-bad"
+  out=$("$HELPER" verdict-cap "$d" bad) \
+    || fail "verdict-cap must always answer a malformed record"
+  assert_contains "$out" "reason=malformed-record" "a malformed rung record names itself"
+  pass "verdict-cap tells expired-evidence from no-evidence"
+}
+
 test_cap_horizon_is_blocked
 test_transient_horizon_is_waiting
 test_expired_sidecar_classifies_nothing
@@ -188,3 +298,8 @@ test_clear_removes_evidence
 test_idle_shape_text_is_blocked
 test_healthy_text_is_open_not_capped
 test_verdict_three_states
+test_rung_cap_is_preserved_and_classified
+test_rung_cap_newer_evidence_wins
+test_rung_cap_expires_and_degrades
+test_rung_cap_threshold_is_tunable
+test_rung_cap_verdict_keeps_expired_and_absent_apart

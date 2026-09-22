@@ -485,6 +485,38 @@ test_idle_healthy_lane_stays_free() {
   pass "an idle lane with a clean pane stays on free"
 }
 
+# --- 12. the preserved rung cap routes dispatch past task cleanup --------------
+# A descent proves free is exhausted, moves its lane onto Go, and clears the
+# dead session's sidecar with the task's own state. The rung-scoped record it
+# preserved must still fall a later free request through - asserted here
+# through the public gate with no per-task evidence left at all.
+
+test_preserved_rung_cap_falls_through_to_go() {
+  local state out
+  state=$(fresh_state rungcap)
+  "$HELPER" record-cap "$state" free "$(ms_from_now 78840)" \
+    || fail "record-cap refused a well-formed rung observation"
+  out=$(run_gate "$state" "$FREE") || fail "gate must never refuse, even past the cap"
+  split_gate "$out"
+  [ "$GOT" = "$GO" ] || fail "a preserved rung cap must fall through to Go, got '$GOT'"
+  case "$NOTE" in
+    *'free'*|*'Free'*) : ;;
+    *) fail "fall-through must name the exhausted free tier, said: ${NOTE:-<silent>}" ;;
+  esac
+  pass "a preserved rung cap falls through to Go with no per-task evidence left"
+}
+
+test_expired_rung_cap_climbs_back_to_free() {
+  local state out
+  state=$(fresh_state rungexpired)
+  "$HELPER" record-cap "$state" free "$(ms_from_now -3600)" \
+    || fail "record-cap refused an old observation"
+  out=$(run_gate "$state" "$FREE") || fail "gate must never refuse"
+  split_gate "$out"
+  [ "$GOT" = "$FREE" ] || fail "an expired rung cap must climb back to free, got '$GOT'"
+  pass "an expired rung cap climbs back to free on the vendor's own horizon"
+}
+
 test_fresh_home_dispatches_free
 test_explicit_free_stays_free_when_healthy
 test_recorded_refusal_falls_through_to_go
@@ -501,3 +533,5 @@ test_idle_lane_falls_through_to_go
 test_idle_healthy_lane_stays_free
 test_spawn_falls_through_on_proven_cap
 test_spawn_defaults_to_free
+test_preserved_rung_cap_falls_through_to_go
+test_expired_rung_cap_climbs_back_to_free

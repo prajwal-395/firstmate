@@ -632,3 +632,49 @@ test_recorded_pin_holds_without_the_env_var
 test_unrecorded_move_reported
 test_unbound_cap_relaunches_with_ambiguity
 test_evaluation_rate_limited
+
+# --- 8. the finding outlives the task ----------------------------------------
+# A descent that moves a lane onto Go spends real money proving free is
+# exhausted, then clears the dead session's sidecar with the rest of that
+# task's state. The FINDING (free is capped until the vendor horizon) is a
+# property of the rung, not of the task that discovered it, so it must stay
+# readable after that task's cleanup has run - or the next spawn pays for
+# the same refusal again.
+
+test_descended_cap_survives_task_cleanup() {
+  local state out cap horizon
+  state=$(fresh_state survive)
+  stub_env "$state" 0 1
+  write_meta "$state" lane1 opencode "$FREE" scout
+  arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
+  # 83823s is a measured horizon, not a round number: the 2026-09-21 evening
+  # cap event held three lanes on this rung with sidecars agreeing to within
+  # the minute (about 23h16m), which is the direct evidence the cap belongs
+  # to the rung and the vendor window rather than to any one task.
+  record_cap "$state" lane1 83823 "$FREE" || fail "record refused fixture"
+  out=$(run_tick "$state") || fail "tick must never fail past the cap"
+  case "$out" in
+    relaunched' '*) : ;;
+    *) fail "a proven free cap must relaunch, said: ${out:-<silent>}" ;;
+  esac
+  # That task's cleanup: the tick already cleared the dead session's
+  # sidecar; teardown removes the rest of the per-task state (record, busy
+  # wiring, episode marker).
+  rm -f "$state/lane1.meta" "$state/lane1.opencode-retry" \
+    "$state/lane1.busy-gen" "$state/lane1.busy-state" \
+    "$state/.opencode-descent-escalated-lane1" \
+    "$state/lane1.progress"
+  cap=$(fm_opencode_ladder_free_capped "$state" 2>/dev/null) \
+    || fail "the descended cap must still read exhausted after that task's cleanup"
+  case "$cap" in
+    free-capped' '*) : ;;
+    *) fail "the gate must report free-capped, said: ${cap:-<silent>}" ;;
+  esac
+  horizon=${cap#*horizon_s=}; horizon=${horizon%% *}
+  case "$horizon" in ''|*[!0-9]*) fail "the preserved finding must carry the vendor horizon, said: $cap" ;; esac
+  [ "$horizon" -gt 600 ] \
+    || fail "the preserved horizon must still read quota-scale, said: $cap"
+  pass "a descended cap stays readable after that task's cleanup"
+}
+
+test_descended_cap_survives_task_cleanup

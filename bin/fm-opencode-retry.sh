@@ -31,6 +31,25 @@
 # resumed turn writes `session-busy` first, which drops the blocked verdict
 # even if a stale sidecar survives.
 #
+# THE RUNG-SCOPED RECORD (record-cap / check-cap below). A cap is a property
+# of the rung and the vendor horizon, not of the task that happened to
+# discover it - but the sidecar above is per-task private state, so the
+# descent's own post-move cleanup clears it and the task's teardown takes the
+# rest of the per-task state with it, and the next spawn has to pay for the
+# same refusal again. The rung record preserves the FINDING past that
+# cleanup: state/.opencode-cap-<rung>, exactly one line, atomically
+# replaced -
+#
+#   v1 next=<epoch-ms> ts=<epoch-s>
+#
+# where `next` is the vendor's own scheduled-retry timestamp from the proven
+# observation and `ts` is when it was preserved. Newer evidence wins: a lane
+# proving an older horizon never shortens the rung's recorded cap, while a
+# malformed or expired incumbent loses to any valid observation. Validity,
+# threshold, and grace are the sidecar's own semantics, so the record stops
+# describing the present - and dispatch climbs back - exactly when the
+# sidecar would have.
+#
 # THE IDLE SHAPE (2026-09-14: four of five capped lanes were invisible).
 # A lane that takes the provider error and ends its turn goes idle: the plugin
 # writes the idle busy event and clears the sidecar (or no retry status event
@@ -100,6 +119,37 @@
 #       unreadable text still exits 1. Without the flag this is byte-for-byte
 #       the old sidecar-only contract.
 #
+#   record-cap <state-dir> <rung> <next-ms>
+#       Preserve a proven rung cap past the discovering task's own cleanup.
+#       Validates and atomically stores the vendor's scheduled-retry
+#       timestamp as state/.opencode-cap-<rung> (`v1 next=<ms> ts=<s>`).
+#       Newer evidence wins (see above); a non-numeric next, or a rung
+#       outside the token charset, is refused (exit 1). Always exits 0 once
+#       the record is stored or a newer-or-equal incumbent already holds it.
+#
+#   check-cap <state-dir> <rung>
+#       Classify the preserved rung cap. Prints one line:
+#         status=<blocked|waiting> horizon_s=<s>
+#       Exit 0 when the record is present, well-formed, and unexpired;
+#       exit 1 when it is absent, malformed, or expired. `blocked` iff
+#       horizon_s exceeds FM_OPENCODE_RETRY_BLOCK_SECS, exactly as check.
+#       Absent and expired collapse here on purpose: both route to free.
+#       Callers that must SHOW the answer rather than route it use
+#       verdict-cap below, which keeps the two tellable apart.
+#
+#   verdict-cap <state-dir> <rung>
+#       The honest three-state answer for the preserved rung cap, mirroring
+#       verdict's split between routing (check-cap) and showing. Always
+#       prints one line and exits 0:
+#         verdict=capped evidence=rung-record status=blocked horizon_s=<s>
+#         verdict=waiting evidence=rung-record horizon_s=<s>
+#         verdict=unknown reason=<slug>
+#       where <slug> is expired-evidence (a cap was proved and its window
+#       has passed - free is worth trying, and the record says why),
+#       no-evidence (nobody ever proved anything about this rung), or
+#       malformed-record. Unknown is not open: the caller decides what each
+#       absence licenses, exactly as with verdict.
+#
 #   scan-text [--file <path>]
 #       Classify rendered pane text alone (file, or stdin when --file is
 #       absent). Prints `status=blocked source=text match=<slug>
@@ -146,6 +196,9 @@ usage:
   fm-opencode-retry.sh record <state-dir> <id> <attempt> <next-ms> [model] [session]
   fm-opencode-retry.sh clear <state-dir> <id>
   fm-opencode-retry.sh check <state-dir> <id> [--text-file <path>]
+  fm-opencode-retry.sh record-cap <state-dir> <rung> <next-ms>
+  fm-opencode-retry.sh check-cap <state-dir> <rung>
+  fm-opencode-retry.sh verdict-cap <state-dir> <rung>
   fm-opencode-retry.sh scan-text [--file <path>]
   fm-opencode-retry.sh verdict <state-dir> <id> [--text-file <path>]
 See the header comment for the full contract.
@@ -196,7 +249,7 @@ scan_stream() {
 
 CMD=${1:-}
 case "$CMD" in
-  record|clear|check|verdict|scan-text) shift ;;
+  record|clear|check|verdict|scan-text|record-cap|check-cap|verdict-cap) shift ;;
   *) usage ;;
 esac
 
@@ -214,6 +267,128 @@ if [ "$CMD" = scan-text ]; then
   else
     scan_stream || exit 1
   fi
+  exit 0
+fi
+
+# --- the rung-scoped cap record (record-cap / check-cap / verdict-cap) --------
+# Per-task STATE/ID parsing below does not apply here: the record belongs to
+# the rung, so it takes a rung key instead of a task id. Handled and exited
+# before that parsing, exactly like scan-text above.
+if [ "$CMD" = record-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]; then
+  CAP_STATE=${1:-}
+  CAP_RUNG=${2:-}
+  [ -n "$CAP_STATE" ] && [ -n "$CAP_RUNG" ] || usage
+  case "$CAP_RUNG" in
+    *[!A-Za-z0-9._-]*) echo "error: invalid rung key" >&2; exit 1 ;;
+  esac
+  [ -d "$CAP_STATE" ] || { echo "error: state dir not found: $CAP_STATE" >&2; exit 1; }
+  CAP_REC="$CAP_STATE/.opencode-cap-$CAP_RUNG"
+fi
+
+# rung_cap_check: classify the preserved rung cap at <path>, on the sidecar's
+# own semantics. Prints `status=<blocked|waiting> horizon_s=<s>` and returns
+# 0 whenever the record is present, well-formed, and unexpired; returns 1
+# with RUNG_STATUS set to absent|malformed|expired when there is nothing to
+# report, so verdict-cap can name the reason honestly instead of guessing.
+# RUNG_STATUS is blocked|waiting on success, mirroring the printed status for
+# callers that must tell a quota-scale record from a transient one without
+# re-parsing.
+RUNG_STATUS=
+rung_cap_check() {  # <path>
+  local path=$1 line extra ver next='' ts='' f status horizon_s now_ms
+  local -a fields
+  RUNG_STATUS=absent
+  [ -f "$path" ] || return 1
+  RUNG_STATUS=malformed
+  # Exactly one line; a second line (or an unreadable file) is malformed.
+  # shellcheck disable=SC2034 # extra exists only to prove the record is one line
+  { IFS= read -r line && ! IFS= read -r extra; } < "$path" 2>/dev/null || return 1
+  [ -n "$line" ] || return 1
+  # `read -a` never glob-expands a field and never touches positional params.
+  # shellcheck disable=SC3045
+  IFS=' ' read -r -a fields <<< "$line" 2>/dev/null || return 1
+  ver=${fields[0]:-}
+  [ "$ver" = v1 ] || return 1
+  for f in "${fields[@]:1}"; do
+    case "$f" in
+      next=*) next=${f#next=} ;;
+      ts=*) ts=${f#ts=} ;;
+      *) return 1 ;;
+    esac
+  done
+  case "$next" in ''|*[!0-9]*) return 1 ;; esac
+  case "$ts" in ''|*[!0-9]*) return 1 ;; esac
+  now_ms=$(($(date +%s) * 1000))
+  # Expired: the vendor's own scheduled retry time plus grace has passed, so
+  # this record no longer describes the present - dispatch climbs back.
+  if [ "$now_ms" -gt $((next + STALE_SECS * 1000)) ]; then
+    RUNG_STATUS=expired
+    return 1
+  fi
+  horizon_s=$(((next - now_ms) / 1000))
+  [ "$horizon_s" -ge 0 ] || horizon_s=0
+  if [ "$horizon_s" -gt "$BLOCK_SECS" ]; then
+    status=blocked
+  else
+    status=waiting
+  fi
+  RUNG_STATUS=$status
+  printf 'status=%s horizon_s=%s\n' "$status" "$horizon_s"
+}
+
+if [ "$CMD" = record-cap ]; then
+  CAP_NEXT=${3:-}
+  [ -z "${4:-}" ] || usage
+  case "$CAP_NEXT" in ''|*[!0-9]*) echo "error: invalid next: $CAP_NEXT" >&2; exit 1 ;; esac
+  # Newer evidence wins: a lane proving an older horizon must not shorten the
+  # rung's recorded cap. A malformed or expired incumbent loses to any valid
+  # observation, so the rung is never pinned by a record that no longer
+  # describes the present.
+  if rung_cap_check "$CAP_REC" >/dev/null 2>&1; then
+    incumbent=$(tr ' ' '\n' < "$CAP_REC" 2>/dev/null \
+      | sed -n 's/^next=\([0-9][0-9]*\)$/\1/p' | head -n 1)
+    case "$incumbent" in ''|*[!0-9]*) incumbent= ;; esac
+    if [ -n "$incumbent" ] && [ "$CAP_NEXT" -lt "$incumbent" ]; then
+      exit 0
+    fi
+  fi
+  old_umask=$(umask)
+  umask 077
+  tmp="$CAP_REC.tmp.$$"
+  printf 'v1 next=%s ts=%s\n' "$CAP_NEXT" "$(date +%s)" > "$tmp" \
+    || { rm -f "$tmp"; umask "$old_umask"; echo "error: cap record write failed" >&2; exit 1; }
+  mv -f "$tmp" "$CAP_REC" \
+    || { rm -f "$tmp"; umask "$old_umask"; echo "error: cap record write failed" >&2; exit 1; }
+  umask "$old_umask"
+  exit 0
+fi
+
+if [ "$CMD" = check-cap ]; then
+  [ -z "${3:-}" ] || usage
+  rung_cap_check "$CAP_REC" 2>/dev/null
+  exit $?
+fi
+
+if [ "$CMD" = verdict-cap ]; then
+  [ -z "${3:-}" ] || usage
+  tmp_out="${TMPDIR:-/tmp}/fm-opencode-retry.$$.out"
+  if rung_cap_check "$CAP_REC" > "$tmp_out" 2>/dev/null; then
+    if [ "$RUNG_STATUS" = blocked ]; then
+      printf 'verdict=capped evidence=rung-record %s\n' "$(cat "$tmp_out")"
+      rm -f "$tmp_out"; exit 0
+    fi
+    rest=$(sed -n 's/^status=waiting //p' "$tmp_out" | head -n 1)
+    [ -n "$rest" ] || rest='horizon_s=unknown'
+    printf 'verdict=waiting evidence=rung-record %s\n' "$rest"
+    rm -f "$tmp_out"; exit 0
+  fi
+  rm -f "$tmp_out"
+  case "$RUNG_STATUS" in
+    expired) reason=expired-evidence ;;
+    malformed) reason=malformed-record ;;
+    *) reason=no-evidence ;;
+  esac
+  printf 'verdict=unknown reason=%s\n' "$reason"
   exit 0
 fi
 
