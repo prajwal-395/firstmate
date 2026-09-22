@@ -3277,6 +3277,10 @@ def run_pipeline(
                     print(f"  ⏭  {node_id}: revised output applied", file=sys.stderr)
 
             print(f"  ⏭  {node_id}: already completed", file=sys.stderr)
+            # Reused, not rebuilt: the run's own record says so, with no
+            # duration, because there is nothing honest to time on a step
+            # that did not run. Best-effort; never fails the run.
+            run_control.record_step_timing(project_dir, node_id, reused=True)
             completed.append(node_id)
             continue
         
@@ -3484,6 +3488,11 @@ def run_pipeline(
             if auto_mode and impl["type"] == "hybrid":
                 entry["note"] = "auto-completed via bridge (context only)"
             step_ledger.record(state, stage_by_node[node_id], node_id, entry)
+            # What the step COST: one honest wall-clock number on the
+            # run's own record, beside the reused marks above. `elapsed`
+            # is measured around the execution above, retries included.
+            run_control.record_step_timing(
+                project_dir, node_id, duration_s=elapsed)
             save_pipeline_state(project_dir, state)
 
             # What this step ran on, stamped into the run record and

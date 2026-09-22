@@ -19,6 +19,8 @@ Three files live at the root of a project directory:
     pipeline_run.json   the runner's own account of itself: mode, current
                         step, last completed step, and how it ended.
                         Nothing else may write it.
+                        Per-step wall clock lives here too, under
+                        `step_timings` (see `record_step_timing`).
 
 The handbrake is deliberately advisory.  A control that killed the
 process mid-step would leave `pipeline_data.json` describing a step that
@@ -240,6 +242,11 @@ def begin_run_status(project_dir: str, mode: str, steps_to_run: List[str],
         # above, which is what each stamp is compared against.
         "step_input_digests": {},
         "previous_step_input_digests": previous_digests,
+        # What this run COST, filled in as steps run or are reused (see
+        # `record_step_timing`). Fresh every run: the previous run's
+        # costs lived in the record this call just replaced, and carrying
+        # them forward would read as this run's.
+        "step_timings": {},
     }
     try:
         _write_json(run_status_path(project_dir), record)
@@ -332,6 +339,41 @@ def record_step_input_digest(project_dir: str, node_id: str,
         _write_json(run_status_path(project_dir), current)
         return current
     except OSError:
+        return {}
+
+
+# ── Per-step wall clock ─────────────────────────────────────────────
+
+def record_step_timing(project_dir: str, node_id: str,
+                       duration_s: Optional[float] = None,
+                       reused: bool = False) -> Dict[str, Any]:
+    """Merge one step's wall clock into this run's record.
+
+    A step that RAN passes its measured seconds (`duration_s`, a plain
+    number - this is a measurement record, not a creative value, so it
+    does not go through the decided-value path).  A step that was
+    SKIPPED because its recorded output was still good passes
+    `reused=True` and no duration: there is nothing honest to time on
+    a step that did not run, and the mark is what says the run reused
+    rather than rebuilt it.
+
+    Best-effort like `write_run_status`: a timing that fails to persist
+    must never take down a real run - the record is then missing a row,
+    which a reader sees as an absent step, not as a wrong number.
+    """
+    try:
+        current = read_run_status(project_dir)
+        timings = dict(current.get("step_timings") or {})
+        if reused:
+            timings[node_id] = {"reused": True}
+        else:
+            timings[node_id] = {"duration_s": round(float(duration_s or 0.0), 1),
+                                "reused": False}
+        current["step_timings"] = timings
+        current["updated_at"] = _now()
+        _write_json(run_status_path(project_dir), current)
+        return current
+    except (OSError, ValueError, TypeError):
         return {}
 
 
