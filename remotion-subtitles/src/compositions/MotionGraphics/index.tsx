@@ -82,6 +82,22 @@ export type MotionGraphicsProps = {
    */
   safeArea: { top: number; right: number; bottom: number; left: number };
   durationInFrames: number;
+  /**
+   * The wrap width centre-anchored copy lays out at, in pixels.
+   *
+   * Absent on full-frame renders: there the centre container spans
+   * the insets, which IS the usable width, so there is nothing to
+   * cap and the drawing is exactly what it has always been. The
+   * tighten path (`library/tools/mg_tight_box.py`) sets it to the
+   * full-frame usable width on tight props only: a centre stack sets
+   * BOTH left and right insets, so on a small canvas its container
+   * would be the canvas minus the insets and the copy would wrap
+   * where the full frame did not (captain 2026-09-21: fix the
+   * wrapping at tight size). Capped at the full-frame width with
+   * auto margins, the container wraps exactly as at full frame
+   * while the canvas stays tight.
+   */
+  layoutWidth?: number;
 };
 
 export const motionGraphicsSchema = {} as any;
@@ -2228,6 +2244,7 @@ export const isLive = (element: PlannedElement, frame: number): boolean => {
 export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
   elements,
   safeArea,
+  layoutWidth,
 }) => {
   const frame = useCurrentFrame();
 
@@ -2295,8 +2312,29 @@ export const MotionGraphics: React.FC<MotionGraphicsProps> = ({
         if (!live.length) {
           return null;
         }
+        const stackStyle = anchorStyle(anchor, safeArea);
+        // A centre-anchored stack sets BOTH left and right insets, so
+        // its container is the canvas minus the insets. On a tight
+        // canvas that is narrower than the full frame, and the copy
+        // wraps where the full frame did not. `layoutWidth` is the
+        // full-frame usable width the tighten path measured this
+        // segment against: capped at it with auto margins, the
+        // container wraps exactly as at full frame while the canvas
+        // stays tight. Absent (every full-frame render) this changes
+        // nothing - no maxWidth, no margins. Side-anchored stacks set
+        // one inset and size to their content, so they are capped
+        // never: the union-sized canvas already holds their layout.
+        if (
+          layoutWidth != null &&
+          !String(anchor).endsWith("left") &&
+          !String(anchor).endsWith("right")
+        ) {
+          stackStyle.maxWidth = `${Math.round(layoutWidth)}px`;
+          stackStyle.marginLeft = "auto";
+          stackStyle.marginRight = "auto";
+        }
         return (
-          <div key={`stack-${anchor}`} style={anchorStyle(anchor, safeArea)}>
+          <div key={`stack-${anchor}`} style={stackStyle}>
             {live.map((element, i) => (
               <DrawnElement
                 key={`${element.element}-${element.row}-${i}`}

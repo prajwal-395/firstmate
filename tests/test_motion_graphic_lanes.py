@@ -88,8 +88,17 @@ def test_split_apart_each_half_is_a_tight_box():
 
 def test_a_segment_already_in_one_zone_family_is_not_split():
     """A split that buys nothing is two rows for no reason. Top and
-    bottom share canvas edges, so they bound exactly together."""
-    together = [_moment("title_lockup", "top_centre", 0, 60),
+    bottom share canvas edges, so they bound exactly together.
+
+    Side-anchored on both edges, so no layout-width floor applies
+    and the pair stays tight. With a CENTRE anchor in the mix the
+    floored canvas covers the frame and the pair renders full canvas
+    instead - which is the fix, not a regression: the old narrow
+    canvas rewrapped the centre copy (see
+    test_centre_tall_mix_falls_back_to_full_canvas in
+    test_mg_tight_layout_width.py).
+    """
+    together = [_moment("title_lockup", "top_left", 0, 60),
                 _moment("lower_third", "bottom_left", 10, 60)]
     assert separable_groups(together) == [together]
     assert tighten_motion_graphics_props(_props(together)) is not None

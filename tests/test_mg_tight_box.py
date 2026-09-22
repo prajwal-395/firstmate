@@ -196,8 +196,10 @@ def test_tight_safe_area_is_padding_plus_rail_growth():
 
 def test_elements_timing_and_frame_pass_through_untouched():
     props = _props([
-        _el("title_lockup", row=0, start=0, duration=40),
-        _el("quote_card", anchor="top_centre", row=0, start=30, duration=40),
+        _el("title_lockup", row=0, start=0, duration=40,
+            anchor="bottom_left"),
+        _el("quote_card", anchor="top_left", row=0, start=30,
+            duration=40),
     ])
     box = tighten_motion_graphics_props(props)
     assert box is not None
@@ -239,8 +241,14 @@ def test_all_middle_stays_tight():
 
 
 def test_top_and_bottom_mix_stays_tight():
+    # Side-anchored on both edges: the union-sized canvas already
+    # holds the layout, so no layout-width floor applies and the mix
+    # stays tight. A CENTRE-anchored title in the same mix spans the
+    # layout width over nearly the frame height and covers the frame
+    # instead - see test_centre_tall_mix_falls_back_to_full_canvas in
+    # test_mg_tight_layout_width.py.
     props = _props([
-        _el("title_lockup", anchor="top_centre"),
+        _el("title_lockup", anchor="top_left"),
         _el("lower_third", anchor="bottom_left"),
     ])
     box = tighten_motion_graphics_props(props)
@@ -312,7 +320,12 @@ def test_footprint_scales_the_estimate():
     big = tighten_motion_graphics_props(_props(
         [_el("title_lockup", anchor="middle_centre", footprint=2.0)]))
     assert small is not None and big is not None
-    assert big.width > small.width
+    # Both unions fit inside the layout-width floor, so both canvases
+    # ship at it (966x480) - the footprint scales the ESTIMATE, which
+    # is what the union carries, not the floored canvas.
+    assert (small.width, small.height) == (966, 480)
+    assert (big.width, big.height) == (966, 480)
+    assert big.union_w > small.union_w
     assert big.union_h > small.union_h
 
 
@@ -576,6 +589,15 @@ def test_top_anchored_graphic_places_at_the_measured_value():
     gain on 2026-09-11. Under today's measured gain the same graphic
     stores 1296 for the identical rows (see
     `tests/test_draw_gain_measured.py`).
+
+    Since the layout-width floor (captain 2026-09-21) this top-centre
+    graphic ships on a 966-wide canvas instead of the union-sized
+    one: the canvas spans the full-frame usable width plus the pads
+    so the copy wraps as at full frame. The union is centred, so the
+    canvas stays centred - pan 0, tilt 2592, the values above - and
+    only the origin moves: the canvas edge sits at 57, one pad past
+    the layout edge (540 - 870/2 - 48), instead of one pad past the
+    union edge (348).
     """
     from library.tools.tight_box import canvas_offset
     box = tighten_motion_graphics_props(
@@ -584,11 +606,11 @@ def test_top_anchored_graphic_places_at_the_measured_value():
     assert box is not None
     assert box.height == 480
     assert box.placement == {"scaling": 1, "pan": 0.0, "tilt": 2592.0}
-    # And the origin is the union minus pads, so the file reader and
+    # And the origin is the layout edge minus pads, so the file reader and
     # the Resolve placer agree on one placement, not two halves of
     # one: a top-anchored union at the 120px safe inset sits its
-    # 480-tall canvas at y 72.
-    assert canvas_offset(box) == (348, 72)
+    # 966-wide floored canvas at x 57.
+    assert canvas_offset(box) == (57, 72)
 
 
 def _list_build_runs():

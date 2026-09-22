@@ -33,14 +33,45 @@ tables; the row gap is its `STACK_GAP_PX`; the bar, accent, plate and
 
 Where the estimate may be wrong, and why that is safe
 -----------------------------------------------------
-Copy elements do not wrap - no arm constrains their width, so a long
-run overflows rather than breaking - which means heights are sums of
-line boxes and widths are single-line measurements. Chromium shaping
-and PIL shaping differ by a few pixels either way. Both errors land in
-`MG_PAD`, which at 48px also clears the largest entrance/exit motion
-(`slide` travels 40px), the 12px text-shadow blur, and the glitch
-jitter with its drop-shadow chain. A box with slack is a smaller win;
-a box that clips ink is a defect. The estimate errs toward slack.
+Heights are sums of line boxes and widths are single-line measurements
+- which holds only where no arm constrains the width. A
+centre-horizontal stack DOES: it sets BOTH left and right insets
+(`anchorStyle` in the composition), so its container is the canvas
+minus the insets and copy wraps to the canvas. On a small canvas the
+copy wraps where the full frame did not - a stat_callout drew 366x225
+tight where the full frame drew 540x165, a quote_card 856x193 against
+986x132 (measured 2026-09-16; the crop-probe path below exists because
+of those two). Chromium shaping and PIL shaping differ by a few
+pixels either way. Both errors land in `MG_PAD`, which at 48px also
+clears the largest entrance/exit motion (`slide` travels 40px), the
+12px text-shadow blur, and the glitch jitter with its drop-shadow
+chain. A box with slack is a smaller win; a box that clips ink is a
+defect. The estimate errs toward slack.
+
+How the tight render stays the SAME DRAWING (captain 2026-09-21)
+---------------------------------------------------------------
+Fix the wrapping at tight size: the copy must wrap to the width it
+would have had at full frame, while the canvas stays tight. Two
+halves, one in each language:
+
+- Python (`_tighten_impl`) floors the canvas: where a centre stack is
+  present the canvas spans the full-frame usable width plus the pads,
+  so the container is never NARROWER than at full frame. The canvas
+  origin stays pinned to the union edge, so side-anchored ink in a
+  mixed segment does not move.
+- the composition caps the container: a centre stack carries
+  `maxWidth: layoutWidth` (the full-frame usable width, set only on
+  tight props), so the container is never WIDER than at full frame
+  either - which is what an over-wide predicted union would
+  otherwise draw. Full-frame props carry no `layoutWidth`, so the
+  full render is pixel-identical.
+
+`layoutWidth` present means the canvas was floored, and equals the
+full-frame usable width. Side-anchored stacks set one inset and size
+to their content, so the union-sized canvas already holds their
+layout and they carry no cap. Elements of fixed geometry
+(`FIXED_GEOMETRY`) never consult the container width - explicit
+sizes, clamped bodies - and do not trigger the floor on their own.
 
 What falls back to the full canvas, and why each is a refusal and not
 a guess
@@ -130,6 +161,16 @@ POINTER_GLOW = 16
 
 SELF_POSITIONING = ("progress_bar", "frame_accents")
 ASSET_ELEMENTS = ("channel_bug", "website_panel")
+
+# Element kinds whose arms never consult the container width, so a
+# centre anchor cannot re-wrap them: `review_panel` states explicit
+# pixel widths with clamped bodies (`overflow: hidden`, `ellipsis`,
+# `WebkitLineClamp`), and `beat_accent` / `pointer_annotation` are
+# fixed squares. Every other stackable kind carries text in a plain
+# `div`, which wraps to whatever the container is. A centre stack of
+# nothing but these triggers no layout-width floor - there is no
+# wrapping to preserve, and the small canvas stands.
+FIXED_GEOMETRY = ("review_panel", "beat_accent", "pointer_annotation")
 
 # `review_panel`'s own drawing, from `REVIEW_PANEL` in the composition.
 # Read, not re-chosen, exactly as TYPE_SIZE above is - and the one arm
@@ -534,6 +575,26 @@ def _horizontal(anchor: str) -> str:
     return "centre"
 
 
+def _stack_needs_layout_width(stacks: dict) -> bool:
+    """Whether any laid-out stack wraps copy against the canvas width.
+
+    A centre-horizontal stack sets BOTH left and right insets, so its
+    container is the canvas minus the insets: whatever the canvas is,
+    the copy wraps to it. Such a stack needs the layout-width floor
+    and the composition cap (see the module docstring) unless every
+    row in it is fixed geometry that never consults the container.
+    Side-anchored stacks set one inset and size to their content, so
+    the union-sized canvas already holds their layout.
+    """
+    for stack in stacks.values():
+        if stack.get("horizontal") != "centre":
+            continue
+        rows = stack.get("rows") or []
+        if any(kind not in FIXED_GEOMETRY for _, _, _, kind in rows):
+            return True
+    return False
+
+
 def separable_groups(elements: Sequence[dict]) -> list[list[dict]]:
     """One segment's elements, split into groups that can each be tight.
 
@@ -834,6 +895,29 @@ def _tighten_impl(props: dict,
     canvas_w = _ceil_even(union_w + 2 * MG_PAD)
     measured_h = _ceil_even(union_h + 2 * MG_PAD)
 
+    # The layout-width floor (captain 2026-09-21: fix the wrapping at
+    # tight size). A centre stack's container is the canvas minus the
+    # insets, so without this the copy wraps to the small canvas. The
+    # canvas instead spans the full-frame usable width plus the pads -
+    # the container is never narrower than at full frame - and the
+    # composition caps it at `layoutWidth` so it is never wider
+    # either. The origin stays pinned to the union edge (`canvas_left`
+    # below), so side-anchored ink in a mixed segment lands where the
+    # union says, exactly as before; a pure-centre union is centred,
+    # so its canvas stays centred too. `usable_width` above IS the
+    # full-frame centre-container width, which is what makes this a
+    # floor at the layout rather than a second estimate.
+    layout_width: Optional[float] = None
+    canvas_left = union[0] - MG_PAD
+    if _stack_needs_layout_width(stacks):
+        layout_width = usable_width
+        need_left = min(canvas_left,
+                        full_w / 2.0 - layout_width / 2.0 - MG_PAD)
+        need_right = max(union[2] + MG_PAD,
+                         full_w / 2.0 + layout_width / 2.0 + MG_PAD)
+        canvas_w = _ceil_even(need_right - need_left)
+        canvas_left = need_left
+
     # The floor that keeps the placement inside Resolve's rail
     # (`tight_box.MIN_CANVAS_HEIGHT`) - but ONLY where growing cannot
     # move the ink. Anchored stacks hug canvas edges, so a top+bottom
@@ -882,7 +966,11 @@ def _tighten_impl(props: dict,
                    f"marginal pixel savings are not worth the placement "
                    f"risk")
 
-    canvas_cx = union[0] - MG_PAD + canvas_w / 2.0
+    # `canvas_left` is the union edge minus the pad - the layout-width
+    # floor above moves it left only, never right, so this is the old
+    # formula wherever no floor applied, and the pinned edge where one
+    # did.
+    canvas_cx = canvas_left + canvas_w / 2.0
     canvas_cy = union[1] - (MG_PAD + top_extra) + canvas_h / 2.0
     placement = placement_for_box(
         canvas_w, canvas_h, canvas_cx, canvas_cy, full_w, full_h,
@@ -918,6 +1006,17 @@ def _tighten_impl(props: dict,
         "top": MG_PAD + top_extra, "right": MG_PAD,
         "bottom": MG_PAD + grown_below, "left": MG_PAD,
     }
+    # The wrap width the composition caps centre stacks at. Present
+    # exactly where the floor above applied, and equal to the
+    # full-frame usable width - which is why the tight render wraps
+    # like the full frame. Full-frame props carry no such key, so the
+    # full render is untouched. It enters the drawing digest with the
+    # rest of the rendered props: tight files cut under it re-render
+    # once, which is correct - their pixels change. (The measured
+    # path below crops its probe instead of re-rendering, so it sets
+    # no cap: there is no second layout to preserve.)
+    if layout_width is not None:
+        tight_props["layoutWidth"] = layout_width
 
     return TightBox(
         width=canvas_w,
