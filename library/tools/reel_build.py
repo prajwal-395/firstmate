@@ -11868,12 +11868,30 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
     # REPORTED, never a gate (a suffix verification build waits on a
     # human by design), and carried on the record beside
     # `staged_timelines` so a later reader need not re-derive it.
+    # Reconciled against the LIVE project: measured 2026-09-20, two
+    # holds named long-deleted Reel 26 stagings and read as pending
+    # work for three days. A census that fails falls back to the
+    # unreconciled file - today's behaviour - never to empty, which
+    # would read as "nothing pending".
     # Never fatal: an unreadable holds file must not fail a build
     # whose reels already landed.
     try:
         from library.tools import staging_holds as _holds
-        pending_promotions = _holds.pending_promotions(project_folder)
-        pending_report = _holds.report_pending(project_folder)
+        try:
+            with resolve_lease("pending promotions census",
+                               exclusive=False):
+                _live_hold_names = _holds.live_timeline_names(project)
+        except Exception as _census_failed:  # noqa: BLE001
+            _live_hold_names = None
+            print(f"  pending-promotion census unavailable "
+                  f"({_census_failed}) - holds report unreconciled "
+                  f"against the live project; a ghost hold would read "
+                  f"as pending",
+                  file=sys.stderr, flush=True)
+        pending_promotions = _holds.pending_promotions(
+            project_folder, timeline_names=_live_hold_names)
+        pending_report = _holds.report_pending(
+            project_folder, timeline_names=_live_hold_names)
     except Exception as pending_unreadable:  # noqa: BLE001
         pending_promotions = []
         pending_report = ""

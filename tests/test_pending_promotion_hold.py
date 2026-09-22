@@ -651,3 +651,109 @@ def test_concurrent_takes_keep_every_hold(project_dir):
     assert len(kept) == threads * per_thread, (
         f"concurrent takes lost {threads * per_thread - len(kept)} "
         f"hold(s) - an interleaved writer dropped them")
+
+
+# ── Ghost holds reconcile against the live project (2026-09-20) ─────
+# Two holds named `(MFA timings)` and `(all three fixes)` stagings of
+# Reel 26, both deleted days earlier. With no live listing both read
+# as unpromoted work for three days: "four builds held awaiting a
+# promotion decision" went out with two of the four never real. These
+# pin the reconciliation: a hold whose timeline exists reads as
+# pending, a hold whose timeline is gone reads as its own
+# non-pending state, and a hold whose name merely shares a prefix
+# with a living timeline does NOT resolve onto it.
+
+GHOST_FINAL = "Reel 26 - write-for-the-question-your-customer-ask"
+GHOST_MFA = GHOST_FINAL + " (MFA timings)"
+GHOST_FIXES = GHOST_FINAL + " (all three fixes)"
+
+
+class GhostFakeTimeline:
+    def __init__(self, name):
+        self._name = name
+
+    def GetName(self):
+        return self._name
+
+
+class GhostFakeProject:
+    """A live project holding exactly ONE Reel 26 timeline: the plain
+    final. Both builds are gone - plausibly a whole-batch discard -
+    and their hold records were never retired."""
+
+    def __init__(self, names):
+        self._timelines = [GhostFakeTimeline(name) for name in names]
+
+    def GetTimelineCount(self):
+        return len(self._timelines)
+
+    def GetTimelineByIndex(self, index):
+        return self._timelines[index - 1]
+
+
+def _take_ghost_and_live_holds(project_dir):
+    from library.tools.reel_build import STAGING_SUFFIX
+    live_staging = "Reel 04 - google-gave-a-list-from-2023" + STAGING_SUFFIX
+    holds.take_hold(str(project_dir), GHOST_MFA, awaiting=GHOST_FINAL,
+                    taken_by="rebuild_reels_in_project")
+    holds.take_hold(str(project_dir), GHOST_FIXES, awaiting=GHOST_FINAL,
+                    taken_by="rebuild_reels_in_project")
+    holds.take_hold(str(project_dir), live_staging,
+                    awaiting="Reel 04 - google-gave-a-list-from-2023",
+                    taken_by="rebuild_reels_in_project")
+    return live_staging
+
+
+def test_pending_promotions_reports_ghosts_as_stale_not_pending(project_dir):
+    """All three shapes at once, against an explicit name listing."""
+    live_staging = _take_ghost_and_live_holds(project_dir)
+    # The trap's shape, stated plainly: each ghost name carries the
+    # living final's whole text as a prefix.
+    assert GHOST_MFA.startswith(GHOST_FINAL)
+    assert GHOST_FIXES.startswith(GHOST_FINAL)
+    rows = holds.pending_promotions(
+        str(project_dir), timeline_names=[GHOST_FINAL, live_staging])
+    assert {row["staging"]: row["status"] for row in rows} == {
+        GHOST_MFA: "stale",
+        GHOST_FIXES: "stale",
+        live_staging: "pending",
+    }
+    report = holds.report_pending(
+        str(project_dir), timeline_names=[GHOST_FINAL, live_staging])
+    assert "UNPROMOTED STAGING: 1 staged timeline(s)" in report
+    assert live_staging in report
+    assert "STALE HOLDS: 2 hold(s)" in report
+    assert GHOST_MFA in report
+    assert GHOST_FIXES in report
+    assert "release_hold" in report
+    # The ghost names appear only past the STALE section - never
+    # counted as work awaiting a promotion decision.
+    unpromoted, _, stale = report.partition("STALE HOLDS")
+    assert GHOST_MFA not in unpromoted
+    assert GHOST_FIXES not in unpromoted
+    assert live_staging not in stale
+
+
+def test_pending_promotions_resolves_a_live_project_by_exact_name(project_dir):
+    """The same three shapes, resolved off a live project handle -
+    the route the build path takes."""
+    live_staging = _take_ghost_and_live_holds(project_dir)
+    project = GhostFakeProject([GHOST_FINAL, live_staging])
+    assert holds.live_timeline_names(project) == [GHOST_FINAL, live_staging]
+    rows = holds.pending_promotions(str(project_dir), project=project)
+    assert {row["staging"]: row["status"] for row in rows} == {
+        GHOST_MFA: "stale",
+        GHOST_FIXES: "stale",
+        live_staging: "pending",
+    }
+
+
+def test_unreconciled_holds_still_read_as_pending(project_dir):
+    """No listing offered: the file alone cannot know a hold is
+    stale, so every row reads pending - the pre-2026-09-20 behaviour,
+    preserved for offline readers."""
+    _take_ghost_and_live_holds(project_dir)
+    rows = holds.pending_promotions(str(project_dir))
+    assert {row["status"] for row in rows} == {"pending"}
+    assert holds.report_pending(str(project_dir)).startswith(
+        "UNPROMOTED STAGING: 3 ")

@@ -348,8 +348,44 @@ def refusal_message(staging_name: str, entry: dict) -> str:
     return "\n".join(lines)
 
 
-def pending_promotions(project_folder: str) -> list:
-    """Every staging still awaiting promotion, oldest first.
+def live_timeline_names(project) -> list:
+    """Every timeline name on the live project, as EXACT full names.
+
+    The reconciliation half of `pending_promotions`: the holds file
+    names stagings, and only the project itself says which of them
+    still exist. Callers compare by `==` on the full string - never
+    by prefix. Reel names share prefixes (a `(MFA timings)` staging
+    and its plain final), so a prefix match resolves a ghost onto a
+    living sibling, which reads worse than unresolved.
+    """
+    names = []
+    count = project.GetTimelineCount() or 0
+    for index in range(1, count + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is None:
+            continue
+        names.append(timeline.GetName())
+    return names
+
+
+def _resolve_known(timeline_names=None, project=None) -> set | None:
+    """The live timeline names to reconcile against, or None.
+
+    None means no live listing was offered: the file alone cannot
+    say a hold is stale, so every hold reads as pending (the
+    pre-2026-09-20 behaviour). An offered listing reconciles by
+    EXACT full-name membership.
+    """
+    if timeline_names is not None:
+        return set(timeline_names)
+    if project is not None:
+        return set(live_timeline_names(project))
+    return None
+
+
+def pending_promotions(project_folder: str, *, timeline_names=None,
+                       project=None) -> list:
+    """Every hold in the file, oldest first, each carrying its live state.
 
     The holds file IS the pending-promotion record (a hold is taken
     at STAGE time and released at promotion or discard), but until
@@ -361,11 +397,37 @@ def pending_promotions(project_folder: str) -> list:
     here says so (see `report_pending`); an empty list is no pending
     work, never an unreadable file (which raises `HoldsUnreadable`
     rather than reading as empty).
+
+    MEASURED 2026-09-20: the same file also reads GHOSTS as pending.
+    Two holds named `(MFA timings)` and `(all three fixes)` stagings
+    of Reel 26, both deleted days earlier; with no live listing both
+    read as unpromoted work for three days, and "four builds held
+    awaiting a promotion decision" went to the captain with two of
+    the four never real. So where a live listing is offered - an
+    explicit `timeline_names` collection, or a live `project`
+    enumerated by `live_timeline_names` - each row carries `status`:
+    `"pending"` where the staging's EXACT full name is on the
+    project, `"stale"` where it is not. A stale hold is its own
+    state, never pending work. With no listing the file alone
+    cannot know, and every row reads `"pending"` as before.
+
+    Resolved by EXACT FULL NAME only: reel names share prefixes,
+    and a prefix match resolves a ghost onto a living sibling -
+    a confident wrong answer, worse than the ghost it replaced.
+
+    REPORTED, never a gate: a stale hold stays listed (saying it
+    cannot be actioned) and is NOT retired here. Retiring would
+    release sweep protection on the strength of one listing read,
+    and a listing taken with the manager parked in the wrong
+    folder reads every hold stale. The operator retires it with
+    `release_hold` once the listing is trusted.
     """
     holds = read_holds(project_folder)
+    known = _resolve_known(timeline_names, project)
     out = []
     for name, entry in holds.items():
         entry = entry if isinstance(entry, dict) else {}
+        status = "pending" if known is None or name in known else "stale"
         out.append({
             "staging": name,
             "awaiting": entry.get("awaiting"),
@@ -373,12 +435,14 @@ def pending_promotions(project_folder: str) -> list:
             "age": hold_age(entry),
             "taken_by": entry.get("taken_by", ""),
             "reason": entry.get("reason", ""),
+            "status": status,
         })
     out.sort(key=lambda row: row["taken_at"])
     return out
 
 
-def report_pending(project_folder: str) -> str:
+def report_pending(project_folder: str, *, timeline_names=None,
+                   project=None) -> str:
     """Pending promotions as a run-end warning, or "" when none.
 
     Loud about WHAT is pending and HOW LONG, because a staging that
@@ -386,21 +450,47 @@ def report_pending(project_folder: str) -> str:
     the staging, the final it awaits, and the hold's age. Quiet (not
     silent - the empty string, which callers print only when
     non-empty) when nothing is pending.
+
+    Where a live listing is offered (see `pending_promotions`), the
+    count and the UNPROMOTED section cover live stagings only; holds
+    whose timeline is gone get their own STALE section saying they
+    cannot be actioned - never counted as awaiting a decision.
     """
-    pending = pending_promotions(project_folder)
-    if not pending:
+    rows = pending_promotions(project_folder, timeline_names=timeline_names,
+                              project=project)
+    if not rows:
         return ""
-    lines = [f"UNPROMOTED STAGING: {len(pending)} staged timeline(s) "
-             f"still awaiting promotion - finished work no timeline "
-             f"carries yet:"]
-    for row in pending:
-        awaiting = row["awaiting"]
-        waits = (f"-> {awaiting!r}" if awaiting
-                 else "(no automatic promotion will take it - a human "
-                      "promotes it explicitly or releases the hold)")
-        lines.append(f"  {row['staging']!r} {waits} "
-                     f"(held {row['age']}, by {row['taken_by'] or '?'})")
-    lines.append("  Promote it, discard it, or release the hold "
-                 "explicitly - a staging that sits is a fix the "
-                 "captain cannot watch.")
+    pending = [row for row in rows if row["status"] == "pending"]
+    stale = [row for row in rows if row["status"] != "pending"]
+    lines = []
+    if pending:
+        lines.append(
+            f"UNPROMOTED STAGING: {len(pending)} staged timeline(s) "
+            f"still awaiting promotion - finished work no timeline "
+            f"carries yet:")
+        for row in pending:
+            awaiting = row["awaiting"]
+            waits = (f"-> {awaiting!r}" if awaiting
+                     else "(no automatic promotion will take it - a human "
+                          "promotes it explicitly or releases the hold)")
+            lines.append(f"  {row['staging']!r} {waits} "
+                         f"(held {row['age']}, by {row['taken_by'] or '?'})")
+        lines.append("  Promote it, discard it, or release the hold "
+                     "explicitly - a staging that sits is a fix the "
+                     "captain cannot watch.")
+    if stale:
+        lines.append(
+            f"STALE HOLDS: {len(stale)} hold(s) name timelines no "
+            f"longer on the project - nothing to promote, nothing "
+            f"awaiting a decision:")
+        for row in stale:
+            lines.append(
+                f"  {row['staging']!r} names no live timeline (held "
+                f"{row['age']}, by {row['taken_by'] or '?'}) - release "
+                f"the hold explicitly once the listing is trusted:")
+            lines.append(
+                f"    python3 -c \"from library.tools.staging_holds "
+                f"import release_hold; "
+                f"print(release_hold('.', {row['staging']!r}))\" "
+                f"(run in the project folder)")
     return "\n".join(lines)

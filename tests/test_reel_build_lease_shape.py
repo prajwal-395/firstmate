@@ -302,6 +302,10 @@ def test_no_whole_build_hold_exists(built_with_spies):
         # leaves no line in this record by design.
         "sweep all reels",
         "build reels drift end",
+        # The pending-promotion census: a short SHARED read of the
+        # live timeline names so ghost holds reconcile (2026-09-20) -
+        # reporting only, never a gate.
+        "pending promotions census",
     ]
 
 
