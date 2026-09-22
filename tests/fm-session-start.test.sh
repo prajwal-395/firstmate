@@ -2098,6 +2098,74 @@ SH
   pass "the runtime bound leaves enough ancestry headroom for a deeply nested session to take the lock"
 }
 
+# --- cross-home quiet-watcher backstop -----------------------------------------
+# Locked session start is the backstop for a primary watcher loop that is
+# itself down: it evaluates the same model-aware verdict against each
+# registered local secondmate home ahead of its own wake-queue drain, so the
+# finding is presented in the same digest.
+
+test_quiet_watcher_backstop_queues_check_before_drain() {
+  local rec root home fakebin mate out
+  rec=$(new_world quiet-backstop)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  # A quiet mate: needs supervision (an in-flight record) with no beacon.
+  mate="$TMP_ROOT/quiet-backstop-mate"
+  mkdir -p "$mate/state"
+  printf 'qsmate\n' > "$mate/.fm-secondmate-home"
+  printf 'kind=ship\n' > "$mate/state/work.meta"
+  fm_write_secondmate_meta "$home/state/qsmate.meta" "$mate" "firstmate:fm-qsmate" alpha claude
+  # An idle mate must stay silent.
+  mkdir -p "$home/idle-secondmate/state"
+  printf 'ismate\n' > "$home/idle-secondmate/.fm-secondmate-home"
+  fm_write_secondmate_meta "$home/state/ismate.meta" "$home/idle-secondmate" "firstmate:fm-ismate" alpha claude
+  out=$(FM_FAKE_HARNESS_PID=$$ run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  grep -Fq $'check\tsecondmate-watcher-quiet-qsmate' "$home/state/.wake-queue" \
+    || fail "the backstop never queued the quiet check (queue=$(cat "$home/state/.wake-queue" 2>/dev/null))"
+  grep -Fq "cause unknown from outside" "$home/state/.wake-queue" \
+    || fail "the backstop's queued check must carry the outside-cause residual"
+  assert_contains "$out" "secondmate watcher quiet: mate=qsmate" "the same digest's drain must present the backstop finding"
+  assert_present "$home/state/.secondmate-watcher-quiet-qsmate" "the backstop must leave the quiet-episode marker"
+  if grep -Fq "secondmate-watcher-quiet-ismate" "$home/state/.wake-queue" 2>/dev/null; then
+    fail "the idle mate must not wake the parent"
+  fi
+  [ ! -e "$home/state/.secondmate-watcher-quiet-ismate" ] \
+    || fail "the idle mate must leave no quiet-episode marker"
+  pass "locked session start queues one quiet check per down mate ahead of its own drain"
+}
+
+test_quiet_watcher_backstop_skipped_on_reemit() {
+  local rec root home fakebin mate reemit
+  rec=$(new_world quiet-reemit)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  FM_FAKE_HARNESS_PID=$$ run_session_start "$home" "$root" "$fakebin:$BASE_PATH" >/dev/null
+  # A mate that goes quiet after startup must not be swept by a re-emit: the
+  # mutating sweeps belong to true startup, and the live poll tick owns the
+  # interim.
+  mate="$TMP_ROOT/quiet-reemit-mate"
+  mkdir -p "$mate/state"
+  printf 'qrmate\n' > "$mate/.fm-secondmate-home"
+  printf 'kind=ship\n' > "$mate/state/work.meta"
+  fm_write_secondmate_meta "$home/state/qrmate.meta" "$mate" "firstmate:fm-qrmate" alpha claude
+  reemit=$(FM_FAKE_HARNESS_PID=$$ FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u FM_PI_HARNESS -u GROK_AGENT \
+    "$SESSION_START" --reemit)
+  assert_contains "$reemit" "SESSION START (CONTEXT RE-EMIT) - $home" "--reemit did not label itself"
+  if grep -Fq "secondmate-watcher-quiet-qrmate" "$home/state/.wake-queue" 2>/dev/null; then
+    fail "--reemit swept a quiet mate although the mutating sweeps belong to true startup"
+  fi
+  [ ! -e "$home/state/.secondmate-watcher-quiet-qrmate" ] \
+    || fail "--reemit marked a quiet episode although the mutating sweeps belong to true startup"
+  pass "--reemit leaves the quiet-watcher sweep to true startup and the live tick"
+}
+
 # --- context re-emit (--reemit) ----------------------------------------------
 
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain() {
@@ -2719,6 +2787,8 @@ test_portable_timeout_escalates_term_resistant_process
 test_runtime_bound_leaves_a_healthy_digest_untouched
 test_runtime_bound_leaves_harness_ancestry_headroom
 test_reemit_skips_startup_sweeps_but_keeps_the_wake_drain
+test_quiet_watcher_backstop_queues_check_before_drain
+test_quiet_watcher_backstop_skipped_on_reemit
 test_agents_baseline_stays_at_true_start_and_reemits_on_every_drifted_pi_compact
 test_read_only_pi_compact_refreshes_against_its_own_session_identity
 test_codex_unreachable_reset_sources_do_not_claim_instruction_refresh

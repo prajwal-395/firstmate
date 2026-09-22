@@ -660,6 +660,20 @@ if [ "$READ_ONLY" -eq 0 ]; then
   # and this covers sessions where the hook never fires at all. Inert where
   # the Claude build is absent or unchanged.
   fm_autoarm_record_version "$STATE"
+  # Cross-home quiet-watcher backstop (bin/fm-wake-lib.sh's
+  # fm_mate_quiet_sweep): the primary watcher poll tick cannot report while
+  # this home's own watcher loop is down, so a locked start evaluates the
+  # same model-aware verdict against each registered local secondmate home
+  # here, ahead of the wake-queue drain below that presents whatever it
+  # queued. One durable check per quiet episode, silent when healthy;
+  # skipped on re-emit with the other mutating sweeps. A validation failure
+  # is reported, never fatal: the digest must complete, and the live poll
+  # tick remains the detector.
+  if [ "$REEMIT" -eq 0 ]; then
+    if ! fm_mate_quiet_sweep "$STATE" "${WATCHER_STALE_GRACE:-300}" >/dev/null 2>&1; then
+      printf 'secondmate watcher-quiet backstop unavailable this start (a mate episode marker failed validation); the watcher poll tick remains the live detector.\n'
+    fi
+  fi
   # A full locked start publishes this home's current structured summary.
   # Publication is side-band and best-effort, so it can never change the
   # session-start result. A context re-emit is not another session start.

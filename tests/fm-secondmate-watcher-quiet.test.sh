@@ -22,6 +22,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=bin/fm-backend.sh
+. "$ROOT/bin/fm-backend.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$ROOT/bin/fm-wake-lib.sh"
 # shellcheck source=bin/fm-supervision-lib.sh
@@ -128,7 +130,145 @@ fm_mate_watcher_health "$mate/state" "$mate/bin/fm-watch.sh" 300 "$mate" "$mate"
 unset FM_SUPERVISION_MODEL
 pass "a mate health check leaves the caller's own supervision model untouched"
 
-# --- Claude build record ------------------------------------------------------
+# --- shared observe + sweep (poll tick and session-start backstop) -------------
+
+# The residual travels with the verdict: a down verdict never implies a cause,
+# because hook silence and no Stop event read identically from outside.
+resmate=$(make_mate "$TMP_ROOT/residual/state-home" residualmate need)
+fm_mate_watcher_health "$resmate/state" "$resmate/bin/fm-watch.sh" 300 "$resmate" "$resmate" autoarm
+[ "$FM_MATE_WATCHER_DOWN" = true ] \
+  || fail "the residual fixture must read as down, got down=$FM_MATE_WATCHER_DOWN"
+assert_contains "$FM_MATE_WATCHER_DESC" "cause unknown from outside" "a down verdict must carry the outside-cause residual"
+assert_contains "$FM_MATE_WATCHER_DESC" "hook silence and no Stop event read identically" "the residual must name the indistinguishable pair"
+pass "a down verdict carries the outside-cause residual instead of implying one"
+
+ORIG_QUEUE=$FM_WAKE_QUEUE
+ohome="$TMP_ROOT/observe"
+opstate="$ohome/parent/state"
+omate=$(make_mate "$ohome/mate" obsmate need)
+mkdir -p "$opstate"
+cat > "$opstate/obsmate.meta" <<EOF
+kind=secondmate
+harness=claude
+home=$omate
+EOF
+
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/obsmate.meta" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "observing a quiet mate must succeed, got rc=$rc"
+assert_contains "$out" "check: secondmate watcher quiet: mate=obsmate" "observing a quiet mate must print its check reason"
+assert_contains "$out" "cause unknown from outside" "the queued reason must carry the residual"
+grep -qF "secondmate-watcher-quiet-obsmate" "$opstate/.wake-queue" \
+  || fail "the observation must land in the observed state's durable queue"
+assert_present "$opstate/.secondmate-watcher-quiet-obsmate" "a quiet episode must leave a dedupe marker"
+assert_contains "$(cat "$opstate/.secondmate-watcher-quiet-obsmate")" "cause unknown from outside" "the marker must carry the residual too"
+[ "$FM_WAKE_QUEUE" = "$ORIG_QUEUE" ] \
+  || fail "observing a fixture state must restore the caller's queue binding, got $FM_WAKE_QUEUE"
+pass "one observation queues one durable check with its marker"
+
+# The second call is silent: the episode is already alerted, and no row doubles.
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/obsmate.meta" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "re-observing an alerted episode must succeed, got rc=$rc"
+[ -z "$out" ] || fail "an already-alerted episode must stay silent, got: $out"
+[ "$(grep -cF 'secondmate-watcher-quiet-obsmate' "$opstate/.wake-queue")" = 1 ] \
+  || fail "an alerted episode must not queue a duplicate row"
+pass "an alerted episode stays silent with no duplicate row"
+
+# A pre-queued key still gets its marker (the tick's wake-on-reason parity),
+# but the row is never duplicated.
+qhome="$TMP_ROOT/prequeued"
+qpstate="$qhome/parent/state"
+qmate=$(make_mate "$qhome/mate" qmate need)
+mkdir -p "$qpstate"
+cat > "$qpstate/qmate.meta" <<EOF
+kind=secondmate
+harness=claude
+home=$qmate
+EOF
+printf '%s\t%s\t%s\t%s\t%s\n' "1700000000" "1" "check" "secondmate-watcher-quiet-qmate" "stale row" >> "$qpstate/.wake-queue"
+printf '%s\n' "1" > "$qpstate/.wake-queue.seq"
+out=$(fm_mate_quiet_observe "$qpstate" "$qpstate/qmate.meta" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "observing a queued-but-unmarked episode must succeed, got rc=$rc"
+[ -n "$out" ] || fail "an unmarked episode must still report its reason"
+[ "$(grep -cF 'secondmate-watcher-quiet-qmate' "$qpstate/.wake-queue")" = 1 ] \
+  || fail "a pre-queued key must not gain a duplicate row"
+assert_present "$qpstate/.secondmate-watcher-quiet-qmate" "the unmarked episode must gain its marker"
+pass "a pre-queued key gains its marker without a duplicate row"
+
+# Skips are silent rc=2: a non-mate kind, a remote mate, and a bad task name.
+printf 'kind=ship\n' > "$opstate/plain.meta"
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/plain.meta" 300); rc=$?
+[ "$rc" -eq 2 ] || fail "a non-mate meta must skip, got rc=$rc"
+[ -z "$out" ] || fail "a skipped meta must stay silent"
+cat > "$opstate/rmate.meta" <<EOF
+kind=secondmate
+harness=claude
+remote_host=elsewhere
+home=$omate
+EOF
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/rmate.meta" 300); rc=$?
+[ "$rc" -eq 2 ] || fail "a remote mate must skip, got rc=$rc"
+[ -z "$out" ] || fail "a skipped remote mate must stay silent"
+pass "non-mate, remote, and foreign metas skip silently"
+
+# An idle mate observes healthy: silent, markerless.
+imat=$(make_mate "$ohome/idlem" idlemate)
+cat > "$opstate/idlemate.meta" <<EOF
+kind=secondmate
+harness=claude
+home=$imat
+EOF
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/idlemate.meta" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "observing an idle mate must succeed, got rc=$rc"
+[ -z "$out" ] || fail "an idle mate must stay silent, got: $out"
+[ ! -e "$opstate/.secondmate-watcher-quiet-idlemate" ] \
+  || fail "an idle mate must leave no episode marker"
+pass "an idle mate observes healthy with no marker"
+
+# Recovery clears the episode on the next observation.
+touch "$omate/state/.last-watcher-beat"
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/obsmate.meta" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "observing a recovered mate must succeed, got rc=$rc"
+[ -z "$out" ] || fail "a recovered mate must stay silent, got: $out"
+[ ! -e "$opstate/.secondmate-watcher-quiet-obsmate" ] \
+  || fail "recovery must clear the quiet-episode marker"
+pass "recovery clears the episode on the next observation"
+
+# A marker that is not a regular file fails loudly, like the stall tick.
+ln -s /tmp "$opstate/.secondmate-watcher-quiet-obsmate"
+out=$(fm_mate_quiet_observe "$opstate" "$opstate/obsmate.meta" 300); rc=$?
+[ "$rc" -eq 1 ] || fail "a symlinked marker must fail loudly, got rc=$rc"
+rm -f "$opstate/.secondmate-watcher-quiet-obsmate"
+pass "a non-regular marker fails loudly instead of observing"
+
+# The sweep observes every meta and prints only newly queued reasons.
+swhome="$TMP_ROOT/sweep"
+swstate="$swhome/parent/state"
+sw1=$(make_mate "$swhome/m1" sweep1 need)
+sw2=$(make_mate "$swhome/m2" sweep2)
+mkdir -p "$swstate"
+cat > "$swstate/sweep1.meta" <<EOF
+kind=secondmate
+harness=claude
+home=$sw1
+EOF
+cat > "$swstate/sweep2.meta" <<EOF
+kind=secondmate
+harness=claude
+home=$sw2
+EOF
+printf 'kind=ship\n' > "$swstate/plain.meta"
+out=$(fm_mate_quiet_sweep "$swstate" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "sweeping a mixed fleet must succeed, got rc=$rc"
+[ "$(printf '%s\n' "$out" | grep -c .)" = 1 ] \
+  || fail "a sweep must print exactly the one newly queued reason, got: $out"
+assert_contains "$out" "mate=sweep1" "the sweep must report the quiet mate"
+assert_present "$swstate/.secondmate-watcher-quiet-sweep1" "the sweep must mark the quiet episode"
+[ ! -e "$swstate/.secondmate-watcher-quiet-sweep2" ] \
+  || fail "the sweep must leave the idle mate unmarked"
+out=$(fm_mate_quiet_sweep "$swstate" 300); rc=$?
+[ "$rc" -eq 0 ] || fail "re-sweeping must succeed, got rc=$rc"
+[ -z "$out" ] || fail "a re-sweep with nothing new must stay silent, got: $out"
+pass "a sweep reports only newly queued episodes across mixed metas"
 
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fakebin")
 cat > "$FAKEBIN/claude" <<'SH'
