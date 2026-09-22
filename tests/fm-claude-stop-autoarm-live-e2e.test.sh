@@ -77,7 +77,11 @@ printf '9999999\n' > "$HOME_DIR/state/.lock"
 
 # Rapid-death arm fixture: started plus an immediate actionable reason, the
 # exact spent-Stop edge shape. Runs 1-2 close actionable; run 3 closes clean so
-# a misbehaving session can never loop forever.
+# a misbehaving session can never loop forever. Every actionable close emits
+# the pending:downtime recovery marker and a fresh beacon, exactly as a real
+# watcher cycle does through the wake queue: since the rewake commit binds to
+# the active recovery generation, an actionable close without that episode is
+# an unproducible shape the hook silently refuses.
 cat > "$PROJECT/bin/fm-watch-arm.sh" <<'SH'
 #!/usr/bin/env bash
 N=$(cat "$FM_HOME/state/arm-count" 2>/dev/null || echo 0); N=$((N+1)); echo "$N" > "$FM_HOME/state/arm-count"
@@ -87,18 +91,24 @@ if [ "$N" -ge 3 ]; then
   printf 'watcher: attached pid=%s (beacon 2s)\n' "$$"
   exit 0
 fi
+printf 'pending:downtime:fixture-generation\n' > "$FM_HOME/state/.watcher-down"
+touch "$FM_HOME/state/.last-watcher-beat"
 printf 'watcher: started pid=%s (beacon fresh)\n' "$$"
 printf 'stale: fixture-rapid-%s\n' "$N"
 exit 0
 SH
-# Drain fixture: session start invokes it once, then the model invokes it once
-# per rewake. The third total drain ends the in-flight need after two complete
-# Stop-owned cycles.
+# Drain fixture: the SessionStart hook runs session start deterministically AND
+# the prompt orders the model to run it again, so session start drains twice
+# before any rewake; then the model drains once per rewake. Need must survive
+# two complete Stop-owned cycles, so removal is gated on two hook-owned arm
+# runs rather than on a fixed drain count, which a doubled session-start drain
+# would otherwise reach one cycle early.
 cat > "$PROJECT/bin/fm-wake-drain.sh" <<'SH'
 #!/usr/bin/env bash
 N=$(cat "$FM_HOME/state/drain-count" 2>/dev/null || echo 0); N=$((N+1)); echo "$N" > "$FM_HOME/state/drain-count"
 echo "drain-run=$N" >> "$FM_HOME/state/drain-ran"
-if [ "$N" -ge 3 ]; then
+ARMS=$(cat "$FM_HOME/state/arm-count" 2>/dev/null || echo 0)
+if [ "$ARMS" -ge 2 ]; then
   rm -f "$FM_HOME/state/task.meta"
 fi
 printf 'stale: fixture-rapid drained\n'
@@ -117,7 +127,7 @@ PROMPT='Run exactly `bin/fm-session-start.sh` with Bash as your first tool call.
 ARM_RUNS=$(wc -l < "$HOME_DIR/state/arm-ran" 2>/dev/null | tr -d ' ')
 [ "$ARM_RUNS" = 2 ] || fail "expected exactly 2 hook-owned arm cycles, got $ARM_RUNS: $(cat "$HOME_DIR/state/arm-ran" 2>/dev/null)"
 DRAIN_RUNS=$(wc -l < "$HOME_DIR/state/drain-ran" 2>/dev/null | tr -d ' ')
-[ "$DRAIN_RUNS" = 3 ] || fail "expected one session-start drain plus two model wake drains, got $DRAIN_RUNS drains"
+[ "$DRAIN_RUNS" = 4 ] || fail "expected two session-start drains (hook-driven plus model-driven) plus two model wake drains, got $DRAIN_RUNS drains"
 REWAKES=$(grep -c 'Stop hook feedback' "$TRANSCRIPT" 2>/dev/null || true)
 [ "$REWAKES" -ge 2 ] || fail "expected at least 2 exit-2 rewake deliveries, got $REWAKES"
 grep -q 'stale: fixture-rapid-1' "$TRANSCRIPT" || fail "first rapid rewake reason missing from the transcript"
