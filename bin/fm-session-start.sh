@@ -655,6 +655,11 @@ if [ "$READ_ONLY" -eq 0 ]; then
     rm -f "$COMPLETION_FILE" 2>/dev/null || true
   fi
   fm_trace_context_session_start "$CONFIG" "$STATE/.trace-context-effective"
+  # Best-effort harness-build record for post-hoc watcher-outage diagnosis
+  # (bin/fm-wake-lib.sh): the Stop hook refreshes it on firings that matter,
+  # and this covers sessions where the hook never fires at all. Inert where
+  # the Claude build is absent or unchanged.
+  fm_autoarm_record_version "$STATE"
   # A full locked start publishes this home's current structured summary.
   # Publication is side-band and best-effort, so it can never change the
   # session-start result. A context re-emit is not another session start.

@@ -183,6 +183,20 @@ fm_watcher_healthy() {
 # mid-turn, where the auto-arm model runs no watcher at all, so it wants a
 # different, model-aware question:
 
+# fm_supervision_model_for_harness <harness>
+# Pure harness-name to supervision-model mapping, shared by fm_supervision_model
+# below and by cross-home health checks that only have another home's recorded
+# harness name (a parent cannot run process-ancestry detection for a mate's
+# session). An empty or unknown harness maps to persistent, the strictest
+# model: a live identity-matched watcher with a fresh beacon is required.
+fm_supervision_model_for_harness() {
+  case "${1:-}" in
+    claude|cursor) printf 'autoarm\n' ;;
+    pi|pi-signed|omp) printf 'extension\n' ;;
+    *) printf 'persistent\n' ;;
+  esac
+}
+
 # fm_supervision_model
 # Print the supervision model of this home's PRIMARY harness:
 #   autoarm     Claude's Stop-hook auto-arm and Cursor's stop-hook park: the
@@ -208,11 +222,7 @@ fm_supervision_model() {
     autoarm|extension|persistent) printf '%s\n' "$FM_SUPERVISION_MODEL"; return 0 ;;
   esac
   harness=$("$FM_WAKE_LIB_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
-  case "$harness" in
-    claude|cursor) printf 'autoarm\n' ;;
-    pi|pi-signed|omp) printf 'extension\n' ;;
-    *) printf 'persistent\n' ;;
-  esac
+  fm_supervision_model_for_harness "$harness"
 }
 
 # Pi primary supervision evidence. The Pi extensions record, in their state
@@ -1862,6 +1872,152 @@ fm_autoarm_release_abandoned() {  # <state-dir> [grace]
   fm_lock_release "$steal"
   [ -e "$lock" ] || [ -L "$lock" ] || return 0
   return 1
+}
+
+# fm_mate_watcher_health <mate-state> <mate-watch-path> <grace> <mate-home> <mate-root> <model>
+# Cross-home "does this secondmate home need attention" predicate for a parent
+# that can only read the mate's files, never its processes' ancestry. Always
+# returns 0; callers read FM_MATE_WATCHER_DOWN (true = needs supervision and
+# the model-aware verdict in fm_watcher_supervision_verdict above finds it
+# down), FM_MATE_WATCHER_DESC (human-readable one-liner), and
+# FM_MATE_BEACON_AGE (beacon seconds, ancient when absent). A home with nothing
+# riding on its watcher reports down=false, so idle mates stay silent. The
+# model override is saved and restored, so the caller's own model is untouched.
+# shellcheck disable=SC2034 # Read by callers after the function returns.
+FM_MATE_WATCHER_DOWN=false
+# shellcheck disable=SC2034 # Read by callers after the function returns.
+FM_MATE_WATCHER_DESC=
+# shellcheck disable=SC2034 # Read by callers after the function returns.
+FM_MATE_BEACON_AGE=
+fm_mate_watcher_health() {
+  local mate_state=$1 mate_watch=$2 grace=$3 mate_home=$4 mate_root=$5 model=$6
+  local prior_model=__unset__ verdict_ok verdict_reason
+  # shellcheck disable=SC2034 # Read by callers after the function returns.
+  FM_MATE_WATCHER_DOWN=false
+  # shellcheck disable=SC2034 # Read by callers after the function returns.
+  FM_MATE_WATCHER_DESC=
+  # shellcheck disable=SC2034 # Read by callers after the function returns.
+  FM_MATE_BEACON_AGE=$(fm_path_age "$mate_state/.last-watcher-beat")
+  # The supervision-need predicate lives in bin/fm-supervision-lib.sh, loaded
+  # lazily like the classifier above so minimal recovery fixtures stay light.
+  # shellcheck source=bin/fm-supervision-lib.sh
+  command -v fm_supervision_status >/dev/null 2>&1 || . "$FM_WAKE_LIB_DIR/fm-supervision-lib.sh"
+  fm_supervision_status "$mate_state" "$grace"
+  if   [ "$FM_SUP_NEEDED" != true ]; then
+    # shellcheck disable=SC2034 # Read by callers after the function returns.
+    FM_MATE_WATCHER_DESC="no supervision need (last beat: $FM_SUP_BEACON_DESC)"
+    return 0
+  fi
+  prior_model=${FM_SUPERVISION_MODEL:-__unset__}
+  FM_SUPERVISION_MODEL=$model
+  fm_watcher_supervision_verdict "$mate_state" "$mate_watch" "$grace" "$mate_home" "$mate_root"
+  verdict_ok=$FM_WATCHER_VERDICT_OK
+  verdict_reason=$FM_WATCHER_VERDICT_REASON
+  if [ "$prior_model" = __unset__ ]; then
+    unset FM_SUPERVISION_MODEL
+  else
+    FM_SUPERVISION_MODEL=$prior_model
+  fi
+  if [ "$verdict_ok" = true ]; then
+    # shellcheck disable=SC2034 # Read by callers after the function returns.
+    FM_MATE_WATCHER_DESC="healthy for model $model (last beat: $FM_SUP_BEACON_DESC)"
+    return 0
+  fi
+  # shellcheck disable=SC2034 # Read by callers after the function returns.
+  FM_MATE_WATCHER_DOWN=true
+  # shellcheck disable=SC2034 # Read by callers after the function returns.
+  FM_MATE_WATCHER_DESC="last beat $FM_SUP_BEACON_DESC ($verdict_reason, model $model)"
+  return 0
+}
+
+# --- Claude Stop auto-arm durable records ------------------------------------
+# The epoch ledger above records only the CURRENT claim: updated_at is the last
+# claim touch, never the last verified success, and a hook that never fires
+# writes nothing anywhere. These three bounded records close that gap:
+#
+#   state/.claude-autoarm-version       "<claude --version first line>" plus
+#                                       "recorded_at=<epoch>"; best-effort, so a
+#                                       future outage can be correlated with the
+#                                       harness build it ran under.
+#   state/.claude-autoarm-last-success  "at=<epoch> gen=<N> outcome=<O>" written
+#                                       only on a verified success (a rewake the
+#                                       owned ledger committed, or a close that
+#                                       verified a live fresh watcher). Answers
+#                                       "when did the arm last succeed", which
+#                                       the epoch's updated_at cannot.
+#   state/.claude-autoarm-history.log   one tab-separated line per hook firing
+#                                       that passes the supervision-need gate
+#                                       (gen, disposition, detail, timestamps).
+#                                       Bounded like the watcher cycle ledger;
+#                                       proves the hook fired when continuity
+#                                       was actually at stake, so a gap against
+#                                       session activity is evidence the harness
+#                                       stopped delivering Stop events. Firings
+#                                       refused earlier (idle or away homes,
+#                                       foreign scope, another live owner) leave
+#                                       no line by design: those homes stay
+#                                       byte-for-byte inert.
+# All three are diagnostic evidence, never supervision dependencies: every
+# write is best-effort and no reader may fail closed on them.
+
+# fm_autoarm_record_version <state-dir>
+# Best-effort capture of the running Claude build. Skips the write when the
+# recorded version already matches, so idle homes stay byte-for-byte inert
+# across firings and only an upgrade dirties the file. Always returns 0.
+fm_autoarm_record_version() {
+  local state=$1 version recorded tmp
+  version=$(claude --version 2>/dev/null | head -1 | tr '\t\r\n' '   ' | cut -c1-128) || version=
+  [ -n "$version" ] || return 0
+  recorded=$(sed -n '1p' "$state/.claude-autoarm-version" 2>/dev/null || true)
+  case "$recorded" in
+    "$version recorded_at="*) return 0 ;;
+  esac
+  tmp="$state/.claude-autoarm-version.tmp.${BASHPID:-$$}"
+  printf '%s recorded_at=%s\n' "$version" "$(date +%s)" > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$state/.claude-autoarm-version" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null || true
+  return 0
+}
+
+# fm_autoarm_record_success <state-dir> <gen> <outcome>
+# Mark the last verified arm success. Always returns 0.
+fm_autoarm_record_success() {
+  local state=$1 gen=$2 outcome=$3 tmp
+  tmp="$state/.claude-autoarm-last-success.tmp.${BASHPID:-$$}"
+  printf 'at=%s gen=%s outcome=%s\n' "$(date +%s)" "$gen" "$outcome" > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$state/.claude-autoarm-last-success" 2>/dev/null
+  rm -f "$tmp" 2>/dev/null || true
+  return 0
+}
+
+# fm_autoarm_history_append <state-dir> <gen> <disposition> [detail]
+# One bounded line per hook firing outcome. Always returns 0; rotation is
+# opportunistic under a try-acquire so a contended log never stalls a hook.
+fm_autoarm_history_append() {
+  local state=$1 gen=$2 disposition=$3 detail=${4:-} hist_log hist_lock size tmp raw
+  hist_log="$state/.claude-autoarm-history.log"
+  hist_lock="$state/.claude-autoarm-history.lock"
+  detail=$(printf '%s' "$detail" | tr '\t\r\n' '   ' | cut -c1-256)
+  printf 'at=%s\tgen=%s\toutcome=%s\tdetail=%s\n' \
+    "$(date +%s)" "$gen" "$disposition" "$detail" >> "$hist_log" 2>/dev/null || true
+  if fm_lock_try_acquire "$hist_lock" 2>/dev/null; then
+    size=$(wc -c < "$hist_log" 2>/dev/null | tr -d '[:space:]')
+    case "$size" in
+      ''|*[!0-9]*) ;;
+      *)
+        if [ "${size:-0}" -ge 65536 ]; then
+          tmp="$hist_log.tmp.${BASHPID:-$$}"
+          raw="$tmp.raw"
+          tail -n 500 "$hist_log" > "$raw" 2>/dev/null \
+            && awk 'NR > 1 || /^at=/' "$raw" > "$tmp" 2>/dev/null \
+            && mv -f "$tmp" "$hist_log" 2>/dev/null
+          rm -f "$tmp" "$raw" 2>/dev/null || true
+        fi
+        ;;
+    esac
+    fm_lock_release "$hist_lock" 2>/dev/null || true
+  fi
+  return 0
 }
 
 fm_wake_clean_field() {
