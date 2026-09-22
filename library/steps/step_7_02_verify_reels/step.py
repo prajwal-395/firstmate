@@ -416,6 +416,172 @@ def verify_reels(data: dict) -> dict:
     }}
 
 
+class GateStillsRefused(RuntimeError):
+    """The still run cannot start, and this says which input is missing."""
+
+
+def _resolve_live_project(project_folder: str):
+    """The open Resolve project, refused unless it is this project's own.
+
+    Reads the expected name from the project's own `project.yaml`
+    (`resolve.project_name`) and refuses when Resolve is not running,
+    when nothing is open, or when what is open is another project -
+    grabbing one project's reel stills off another's timelines is the
+    failure this refusal exists to stop. Mirrors the connect-and-check
+    in `library/steps/step_4_05_render_subtitles/step.py`.
+    """
+    import os as _os
+    import sys as _sys
+    try:
+        import DaVinciResolveScript as dvr
+    except ImportError:
+        _os.environ.setdefault(
+            "RESOLVE_SCRIPT_API",
+            "/Library/Application Support/Blackmagic Design/"
+            "DaVinci Resolve/Developer/Scripting/Modules")
+        _sys.path.insert(0, _os.environ["RESOLVE_SCRIPT_API"])
+        try:
+            import DaVinciResolveScript as dvr
+        except ImportError as exc:
+            raise GateStillsRefused(
+                "Resolve scripting is unavailable - open Resolve first, "
+                "or run with no frames to check the refusal") from exc
+    from library.tools.resolve_locale import scriptapp_preserving_locale
+    app = scriptapp_preserving_locale(dvr, "Resolve")
+    if app is None:
+        raise GateStillsRefused(
+            "Resolve is not running - open Resolve first, or run with "
+            "no frames to check the refusal")
+    try:
+        project = app.GetProjectManager().GetCurrentProject()
+        open_name = project.GetName() if project is not None else None
+    except Exception as exc:  # noqa: BLE001 - unreadable is unusable
+        raise GateStillsRefused(
+            f"the open Resolve project cannot be read: {exc}") from exc
+    import yaml
+    from library.tools.project_layout import ProjectLayout as _Layout
+    try:
+        with open(_Layout(project_folder).project_config_path,
+                  encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+    except OSError as exc:
+        raise GateStillsRefused(
+            f"cannot read {project_folder}/project.yaml: {exc}") from exc
+    expected = ((config.get("resolve") or {}).get("project_name") or "")
+    if not expected:
+        raise GateStillsRefused(
+            f"{project_folder}/project.yaml names no resolve.project_name "
+            f"- refusing to guess which open project to grab off")
+    if open_name != expected:
+        raise GateStillsRefused(
+            f"Resolve has {open_name!r} open, not {expected!r} - "
+            f"refusing to grab another project's reel stills")
+    return project
+
+
+def _hold_awake():
+    """Hold the display awake for the grab run, best effort.
+
+    With the display asleep viewer stills come back missing upper-track
+    overlays while lower tracks read correctly (measured 2026-09-17:
+    captions pixel-perfect, motion graphics absent, on frames that
+    verify exactly with the display held awake -
+    `library/tools/marker_capture.py`). Returns the held process, or
+    None when there is nothing to hold with: absent `caffeinate`
+    (Linux, CI) is not a refusal, just an unheld run.
+    """
+    import shutil as _shutil
+    import subprocess as _subprocess
+    if _shutil.which("caffeinate") is None:
+        return None
+    try:
+        return _subprocess.Popen(["caffeinate", "-d", "-i"])
+    except OSError:
+        return None
+
+
+def grab_gate_stills(project_folder: str, reel_label: str,
+                     timeline_name: str, frames: list) -> dict:
+    """Grab gate stills at named reel-relative frames off one timeline.
+
+    The entry point a visual gate calls instead of writing its own
+    position-and-grab script (reached as `reel.gate_stills`, called as
+    `operations.get(...).run(...)` the way `rerender_and_swap` is
+    driven). `frames` are reel-relative: 0 is the timeline's first
+    frame, the same numbering the lanes passed on the command line.
+    Stills bank into the project's own `7_02_verify_reels/gate_stills/`
+    directory - never `/tmp`, where the lanes' throwaway versions left
+    evidence no later run could find.
+
+    Malformed input RAISES (`ValueError`): no project folder, no reel
+    label, no timeline name, no frames, or a frame that is not an int.
+    A negative or past-the-end frame is not malformed - it is a frame
+    the timeline does not have, so it is REPORTED per frame (Resolve
+    grabs a black still past the end) while the rest of the set still
+    grabs.
+
+    When Resolve is unavailable, or the open project is not this
+    project's own, nothing grabs and the failure RETURNS (`ok: False`
+    with the reason) rather than raising: the gate reads the report,
+    and a re-run grabs the same filenames. With no failures the report
+    carries one record per still - reel frame, set and read-back
+    timecodes, path, dimensions and bytes - for the gate to judge.
+    """
+    from library.tools import gate_stills as _stills
+    from library.tools.project_layout import Area, ProjectLayout
+
+    if not project_folder:
+        raise ValueError(
+            "grab_gate_stills needs a project_folder - stills bank into "
+            "the project's step directory, never into the checkout")
+    if not isinstance(reel_label, str) or not reel_label:
+        raise ValueError(
+            "grab_gate_stills needs a reel_label - it names the still "
+            "files, and there is nothing to infer it from")
+    if not isinstance(timeline_name, str) or not timeline_name:
+        raise ValueError(
+            "grab_gate_stills needs a timeline_name - the timeline is "
+            "matched exactly, never by prefix, so guessing is refused")
+    checked = list(frames or [])
+    if not checked:
+        raise ValueError(
+            "grab_gate_stills needs at least one frame - a still run "
+            "over no frames grabs nothing and proves nothing")
+    for index, frame in enumerate(checked):
+        if not isinstance(frame, int) or isinstance(frame, bool):
+            raise ValueError(
+                f"frame {index} is {frame!r}, not an int reel-relative "
+                f"frame - refusing to guess which frame the gate meant")
+
+    layout = ProjectLayout(project_folder)
+    out_dir = layout.write_dir(Area.GATE_STILLS, step="verify_reels")
+
+    try:
+        project = _resolve_live_project(project_folder)
+    except GateStillsRefused as exc:
+        return {
+            "ok": False,
+            "reel_label": reel_label,
+            "timeline": timeline_name,
+            "stills": [],
+            "failed": [{"reel_frame": frame, "reason": str(exc)}
+                       for frame in checked],
+            "restored": {"timeline": None, "ok": False},
+            "error": str(exc),
+        }
+    held = _hold_awake()
+    try:
+        return _stills.grab_reel_stills(
+            project, timeline_name, checked, out_dir,
+            reel_label=reel_label)
+    finally:
+        if held is not None:
+            try:
+                held.terminate()
+            except Exception:  # noqa: BLE001 - best effort, said nowhere
+                pass
+
+
 def main():
     import json
     import sys

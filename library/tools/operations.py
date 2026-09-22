@@ -893,6 +893,22 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="verify_reels",
     ),
     Operation(
+        name="reel.gate_stills",
+        summary="Grab gate stills at named reel-relative frames off one built reel timeline",
+        owning_node="verify_reels",
+        owning_dir="step_7_02_verify_reels", body="step.py",
+        attr="grab_gate_stills",
+        # Its arguments are caller-decided - a reel label, the timeline's
+        # exact name and the reel-relative frames the gate wants to see -
+        # handed in by the gate that asks the visual question. The runner
+        # never drives it. See `Operation.caller_supplied`.
+        caller_supplied=True,
+        # PROJECT only. The grab switches timelines and moves the
+        # playhead, so a region address would promise a scope the grab
+        # does not keep.
+        scopes=(PROJECT,),
+    ),
+    Operation(
         name="music.analyse",
         summary="Analyse the selected track for beat grid, BPM, key and structure",
         owning_node="music_analysis",

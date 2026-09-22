@@ -364,6 +364,7 @@ class Area(str, Enum):
     CARRIERS = "carriers"
     TIMELINE_INTERCHANGE = "timeline_interchange"
     QA_FRAMES = "qa_frames"
+    GATE_STILLS = "gate_stills"
 
     # Project-level, and deliberately NOT under steps/: nesting these
     # under a step would be a lie about who wrote them.
@@ -579,6 +580,12 @@ AREAS: dict[Area, AreaSpec] = {
         _step_path("validate", "qa_frames"), Kind.OUTPUT,
         "Single frames pulled off the render to check an effect drew.",
         step="validate"),
+    Area.GATE_STILLS: AreaSpec(
+        _step_path("verify_reels", "gate_stills"), Kind.OUTPUT,
+        "Single frames grabbed off a built reel timeline to judge its "
+        "gate - the `reel.gate_stills` entry point's stills, one file "
+        "per named frame. See library/tools/gate_stills.py.",
+        step="verify_reels"),
 
     # ── Project-level: not a step's product ─────────────────────────
     Area.THUMBNAILS: AreaSpec(

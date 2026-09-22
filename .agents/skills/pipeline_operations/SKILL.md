@@ -32,6 +32,7 @@ run at a declared scope. It owns no logic of its own.
 | `reel.build` | `build_reels` | project | Cut every APPROVED moment onto its own Resolve timeline, bad takes removed |
 | `reel.ask` | `build_reels` | project | Write every APPROVED reel's three visual asks without building anything |
 | `reel.verify` | `verify_reels` | project | Grade the built reel timelines against the plan they were built from |
+| `reel.gate_stills` | `verify_reels` | project | Grab gate stills at named reel-relative frames off one built reel timeline |
 | `music.analyse` | `music_analysis` | project | Analyse the selected track for beat grid, BPM, key and structure |
 | `subtitles.plan` | `plan_subtitles` | project, region | Generate subtitle entries from the spine's own word timestamps |
 | `subtitles.splice` | `plan_subtitles` | region | Put a region's re-planned captions back into the stored plan |
