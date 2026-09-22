@@ -8346,6 +8346,22 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     reel(s) with their guard text, lists what already promoted, and
     states that the refused stagings remain in the project with
     their baselines and holds intact for a deliberate re-run.
+
+    REFUSE WHEN THE RECORD WOULD BE WRONG (captain's 2026-09-18
+    ruling, option a: "Refuse only when the record would be wrong;
+    report everything else"). Every post-promotion bookkeeping write
+    whose failure would leave a false or missing record - the
+    retirement, the comparison retirement, a declared sign-off
+    supersession, the round stamp, the carried build signatures, the
+    render-ledger re-pointing - RAISES rather than reporting success
+    with the hole. The reels already landed; the raise says so and
+    names the record that did not, so the run reads as the failure it
+    is instead of a success every downstream check would trust. What
+    is only tidiness or instrumentation - the media-pool filing
+    (carried honestly as `{"refused": ...}`), the build sweep
+    (declining to remove is a good outcome), the version-control
+    commit (carried as committed/reason), the phase-log lines, drift,
+    divergence and the other advisory reports - REPORTS and finishes.
     """
     if not staged_to_final:
         return {"promoted": [], "organised": None}
@@ -8402,6 +8418,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     replace_reports = {}
     refused = {}
     superseded_signoffs = {}
+    # What phase 0 SAW on each reel with a sign-off gate question: the
+    # live entry when one existed and was declared, None when none
+    # existed. The supersede loop below compares against this rather
+    # than re-reading, so a vacuous declaration (no sign-off was ever
+    # live) passes quietly while a vanished one (live at declare time,
+    # gone at land time) refuses.
+    supersede_entries = {}
     # The captain's typed notes, read off each RETIRING timeline before
     # anything is renamed (`library/tools/marker_carry.py`). Promotion
     # replaces the timeline object, so its markers go with it - which
@@ -8436,7 +8459,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             continue
         staging = staged_to_final[final]
         try:
-            _signoff.assert_declared(
+            supersede_entries[final] = _signoff.assert_declared(
                 project_folder, final, declared_supersessions)
             incoming_rows = _guard.snapshot_timeline(
                 staged_found[staging], staging, side="staged")
@@ -8586,8 +8609,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # staging container this promotion just renamed away, every entry
     # would pin its mov LIVE for ever against a timeline that does not
     # exist - which is why no sweep could reclaim the 584 MB the
-    # 2026-09-10 measurement found. Never fatal: a ledger that cannot be
-    # re-pointed leaves MORE files live, which is the safe direction.
+    # 2026-09-10 measurement found. A ledger that cannot be re-pointed
+    # REFUSES the promotion: the ledger is the sweep's reference root,
+    # so bindings naming dead staging containers are a wrong record
+    # every downstream check would trust, and a build must not report
+    # success while its own record names timelines that do not exist
+    # (captain's 2026-09-18 ruling: refuse when the record would be
+    # wrong; report everything else).
     try:
         from library.tools.caption_asset_gc import rename_ledger_timelines
         from library.tools.project_layout import Area, ProjectLayout
@@ -8599,10 +8627,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             print(f"Re-pointed {renamed['renamed']} render-ledger "
                   f"binding(s) at the promoted names", flush=True)
     except Exception as ledger_failed:  # noqa: BLE001
-        import sys as _sys
-        print(f"  render ledger not re-pointed ({ledger_failed}) - its "
-              f"entries still name the staging timeline, so their files "
-              f"stay LIVE and nothing is swept", file=_sys.stderr)
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the reels above are "
+            f"promoted, but their render-ledger bindings still name "
+            f"the staging timelines ({ledger_failed}). The ledger is "
+            f"read as a reference root, so a stale binding pins its "
+            f"files LIVE for ever against a timeline that does not "
+            f"exist. Re-point the ledger and re-run; nothing further "
+            f"was renamed or deleted.") from ledger_failed
 
     # ── DELETE by default, RETIRE only when asked (the captain, 2026-09-18)
     # Before this every backup was renamed into `05 - Reels/Archive`
@@ -8617,9 +8649,17 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # number of REELS rather than the number of rounds, and by exactly
     # the reels this call promoted.
     #
-    # Never fatal. The reels are promoted; a retirement that cannot
-    # rename leaves the approved content under its backup name, which
-    # the next build refuses on loudly rather than losing.
+    # A retirement that fails REFUSES the promotion. The reels are
+    # promoted, and a retirement that cannot rename leaves the approved
+    # content under its backup name - which the next build refuses on
+    # loudly rather than losing. Reporting success here would trade a
+    # named failure now for a confusing refusal later, with a record
+    # claiming a settled project while backup timelines still stand in
+    # it (captain's 2026-09-18 ruling: refuse when the record would be
+    # wrong or incomplete; report everything else). The one soft half
+    # is the bin filing inside `retire_timelines`: a renamed-but-
+    # unfiled timeline is safe and the organiser re-files it on the
+    # next build, so `unfiled` is carried on the record, not refused.
     from library.tools import reel_retirement as _retire
     from library.tools import round_version as _rounds
     retirement = {"archived": {}, "unfiled": [], "collected": [],
@@ -8681,12 +8721,13 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             retirement["kept"].extend(legacy["kept"])
         print(_retire.render(retirement), flush=True)
     except Exception as retirement_failed:  # noqa: BLE001
-        import sys as _sys
-        print(f"  retirement refused ({retirement_failed}) - the reels "
-              f"are promoted; the replaced timelines are still in the "
-              f"project under their backup names and nothing was "
-              f"deleted", file=_sys.stderr)
-        retirement["refused"] = f"{retirement_failed}"
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the reels above are "
+            f"promoted, but their retirement failed "
+            f"({retirement_failed}). The replaced timelines are still "
+            f"in the project under their backup names and nothing was "
+            f"deleted - clear them in Resolve and re-run.") \
+            from retirement_failed
 
     # ── COMPARISONS, bounded the way the archive is ──────────────
     # Suffix verification builds (`name_suffix`, e.g. `... (baseline
@@ -8700,9 +8741,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # reel are collected under the same guard, never touching a
     # sign-off, a hold, a variant or a plan final.
     #
-    # Never fatal, for the block above's reason: the reels are
-    # promoted, and a comparison lifecycle that breaks a build is
-    # worse than one that skips a round loudly.
+    # Never silently skipped, for the block above's reason: the
+    # reels are promoted, and a comparison lifecycle that silently
+    # skips a round re-opens the accumulation the archive above was
+    # built to stop, arriving by the door it does not watch. A
+    # comparison retirement that fails REFUSES the promotion, naming
+    # the superseded comparisons still standing in the project.
     from library.tools import comparison_retirement as _comp
     comparison_retirement: dict = {"bases": [], "retired": {},
                                    "unfiled": [], "collect": [],
@@ -8716,18 +8760,23 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             master_timeline_name)
         print(_comp.render(comparison_retirement), flush=True)
     except Exception as comparison_failed:  # noqa: BLE001
-        import sys as _sys
-        print(f"  comparison retirement refused ({comparison_failed}) - "
-              f"the reels are promoted; superseded comparisons are "
-              f"still in the project and nothing was deleted",
-              file=_sys.stderr)
-        comparison_retirement["refused"] = f"{comparison_failed}"
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the reels above are "
+            f"promoted, but their superseded comparison timelines "
+            f"could not be retired ({comparison_failed}). Those "
+            f"comparisons are still in the project and nothing was "
+            f"deleted - clear or re-run them and re-run.") \
+            from comparison_failed
 
     # A declared supersession ends the sign-off it was declared
     # against - AFTER the rename landed, so a promotion that refused
-    # later never retires an approval it did not replace. Recorded as
+    # earlier never retires an approval it did not replace. Recorded as
     # superseded, never deleted: "this reel was approved once and then
-    # rebuilt" is exactly the question that had no answer before.
+    # rebuilt" is exactly the question that had no answer before. A
+    # supersession that cannot land REFUSES the promotion: the replaced
+    # cut would otherwise keep carrying a live approval for a timeline
+    # the captain never approved, and the next promotion would refuse
+    # on it demanding a declaration the operator already gave.
     for final in ok_finals:
         if _signoff.base_name(final) not in declared_supersessions:
             continue
@@ -8735,12 +8784,28 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             ended = _signoff.supersede(
                 project_folder, final,
                 round_number=rounds_by_final.get(final))
-        except Exception:  # noqa: BLE001
-            ended = None
+        except Exception as supersede_failed:  # noqa: BLE001
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: {final!r} is "
+                f"promoted, but its declared sign-off supersession "
+                f"did not land ({supersede_failed}). The approval is "
+                f"still live on a cut that has been replaced - "
+                f"re-run once the sign-off record is writable.") \
+                from supersede_failed
         if ended:
             superseded_signoffs[final] = ended
             print(f"Sign-off on {final!r} superseded by this build "
                   f"(recorded, not deleted)", flush=True)
+        elif supersede_entries.get(final) is not None:
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: {final!r} is "
+                f"promoted, but its sign-off - live and declared "
+                f"superseded before the rename - has no entry to end "
+                f"now. Something edited the sign-off record "
+                f"mid-promotion, so the approval state of this reel "
+                f"cannot be vouched. Re-run once it is settled.")
+        # Else no sign-off was ever live: a vacuous declaration ends
+        # nothing, and there is nothing to refuse.
 
     # The promotion happened - the staging containers are now the
     # approved timelines under their final names - so their pending
@@ -8777,8 +8842,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # stored here are the ones the replace guard already read off the
     # incoming timeline in phase 0, so this costs no Resolve call - and
     # storing them is what lets `round-diff` answer long after the
-    # timeline they describe has been retired and collected. Never
-    # fatal: a version record that fails a build is worse than none.
+    # timeline they describe has been retired and collected. An
+    # unstamped promotion REFUSES: the version record is the build's
+    # own account of what it promoted, a hole there never heals on
+    # re-run (an unchanged reel is left alone, so no later build
+    # re-stamps this one), and reporting success would bury it until
+    # somebody wonders why the round diff skips a promotion.
     stamped_round = None
     try:
         from library.tools.plan_provenance import read_provenance
@@ -8792,10 +8861,12 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"`manage_project.py round-diff <project>` shows what "
               f"changed since the round before.", flush=True)
     except Exception as stamp_failed:  # noqa: BLE001
-        import sys as _sys
-        print(f"  round not stamped ({stamp_failed}) - the reels are "
-              f"promoted and unaffected, but this promotion is not in "
-              f"the version record", file=_sys.stderr)
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the reels above are "
+            f"promoted, but the round was not stamped "
+            f"({stamp_failed}). This promotion is missing from the "
+            f"version record - re-run once it is writable.") \
+            from stamp_failed
 
     # ── CLOSE EACH PROMOTED REEL'S BUILD SIGNATURE ──────────────
     # The carried half (`library/tools/reel_rebuild_need.py`): what
@@ -8805,9 +8876,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # still held the reel being replaced. One `snapshot_timeline` per
     # promoted reel, MEASURED at 0.043-0.153 s each.
     #
-    # Never fatal: a signature that fails to close costs the NEXT
-    # build a placement, which is the fail-closed direction. A
-    # promotion that failed over a bookkeeping write would be worse.
+    # A signature that cannot be READ stays open and is REPORTED: an
+    # open signature reads as REBUILD, never as current, so no later
+    # reader is misled - the next build places the reel again, which
+    # is the fail-closed direction. A signature that was read but
+    # cannot be WRITTEN refuses: the carried digests are the
+    # provenance half of this promotion, and a build must not report
+    # success while the provenance it claims to have closed did not
+    # land (captain's 2026-09-18 ruling).
     try:
         from library.tools import reel_rebuild_need as _need_record
         from library.tools.plan_provenance import (
@@ -8821,25 +8897,62 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
         for _final in ok_finals:
             _timeline = _live.get(_final)
             if _timeline is None:
+                import sys as _sys
+                print(f"  build signature left open for {_final}: "
+                      f"the promoted timeline is not in the project "
+                      f"census, so there is nothing to read back - "
+                      f"the next build will place it again rather "
+                      f"than assume", file=_sys.stderr)
                 continue
             # SELF-read: the reel made current before it is read. The
             # digest depends on which timeline is current, so the two
             # ends must read the same way or they disagree by
             # construction (`reel_rebuild_need.carried_digest_live`).
-            _digest = _need_record.carried_digest_live(project, _timeline)
+            # A reel that will not read back stays open (reported
+            # above); a read error is not a write error.
+            try:
+                _digest = _need_record.carried_digest_live(
+                    project, _timeline)
+            except Exception as _read_failed:            # noqa: BLE001
+                import sys as _sys
+                print(f"  build signature left open for {_final} "
+                      f"({_read_failed}) - the reel is promoted and "
+                      f"unaffected; the next build will place it "
+                      f"again rather than assume", file=_sys.stderr)
+                continue
             if _digest:
                 _carried[_final] = _digest
-        _record_carried(review_dir, _carried)
+            else:
+                import sys as _sys
+                print(f"  build signature left open for {_final}: "
+                      f"the carried digest would not read back - the "
+                      f"reel is promoted and unaffected; the next "
+                      f"build will place it again rather than assume",
+                      file=_sys.stderr)
+        try:
+            _record_carried(review_dir, _carried)
+        except Exception as _close_failed:              # noqa: BLE001
+            raise ReelBuildError(
+                f"REFUSING to report this promotion: the reels above "
+                f"are promoted, but their build signatures did not "
+                f"close ({_close_failed}). The carried digests - the "
+                f"provenance half of this promotion - are not on the "
+                f"record. Re-run once the provenance record is "
+                f"writable.") from _close_failed
         if _carried:
             print(f"  build signature closed for {len(_carried)} "
                   f"promoted reel(s) - the next build can tell whether "
                   f"they still need a Resolve pass", flush=True)
+    except ReelBuildError:
+        raise
     except Exception as _signature_failed:                # noqa: BLE001
-        import sys as _sys
-        print(f"  build signature not closed ({_signature_failed}) - "
-              f"the reels are promoted and unaffected; the next build "
-              f"will place them again rather than assume",
-              file=_sys.stderr)
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the reels above are "
+            f"promoted, but their build signatures could not be read "
+            f"back ({_signature_failed}). Without the read-back the "
+            f"promotion cannot vouch for what the approved timelines "
+            f"hold - re-run once Resolve answers.") \
+            from _signature_failed
 
     # ── FILE THE MEDIA POOL ──────────────────────────────────
     # The pass is idempotent and files by reference: each generated
@@ -8849,12 +8962,14 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # twice moves nothing the second time - which is what makes it
     # something a build can call without anyone remembering to.
     #
-    # Never fatal, for the same reason as every other post-promotion
-    # step above: the reels are already promoted, and a filing pass
-    # that errors taking a good build down with it would be a bad
-    # trade. A refusal is said on stderr and carried on the record as
-    # `{"refused": ...}`, so a later reader can see the filing was
-    # attempted and declined - `resolve-organize` is the retry.
+    # Never fatal, for its own reason rather than the retired "never
+    # fail a landed promotion" above: a filing refusal leaves no false
+    # record - it is said on stderr and carried on the returned record
+    # as `{"refused": ...}`, so a later reader sees the filing was
+    # attempted and declined, and `resolve-organize` is the named
+    # retry. Filing is tidiness; the record stays truthful either way,
+    # so under the captain's 2026-09-18 ruling this REPORTS and the
+    # build finishes.
     #
     # Quiet when there is nothing to do: an idle build prints one line
     # instead of the full trio. The unplaced and scratch reports keep
@@ -12904,6 +13019,13 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
     gate never graded (fatal error, runner crash), discards nothing.
     The raw JSON and human-readable table are preserved in
     the project's pipeline_output/review directory.
+
+    A pass always lands its record: `run_verification` writes the
+    conformance report before it returns 0, and a write failure
+    raises rather than returning - so there is no pass-without-record
+    path to refuse on here, by construction rather than by check
+    (`tests/test_build_refuses_when_the_record_would_lie.py` pins
+    the write side). An empty scope is refused above, never passed.
     """
     if only_reels is not None and not list(only_reels):
         raise RuntimeError(
@@ -12939,7 +13061,7 @@ def verify_built_reels(project_folder: str, resolve_project_name: str, master_ti
         )
     except Exception as e:
         raise RuntimeError(f"Reel conformance verifier failed to run: {e}")
-        
+
     if exit_code == 1:
         findings_msg = "See conformance_report.json for details."
         if os.path.exists(json_path):

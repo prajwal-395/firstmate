@@ -178,7 +178,10 @@ def verify_reels(data: dict) -> dict:
     # `staged_timelines` maps final -> staging while anything is
     # staged. It is absent on records written before staging existed -
     # those timelines are already final and promote to nothing, so
-    # grading them is the whole job and there is no second half.
+    # grading them is the whole job and there is no second half. The
+    # gate above already ran over `timelines_built` and
+    # `verify_built_reels` refuses a pass whose report did not land,
+    # so reaching here means the verdict is both run and recorded.
     staged = dict(build.get("staged_timelines") or {})
     for _final, _staging in staged.items():
         if _final in _final_numbers:
