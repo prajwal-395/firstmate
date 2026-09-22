@@ -280,3 +280,116 @@ def test_a_copy_entry_without_data_is_untouched():
     resolved = _resolve([_entry()])
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
     assert resolved.moments[0]["data"] == {}
+
+
+# ── ARM A second half: the slot ships WITH the instruction ──────────
+#
+# The proof lane showed a bare slot produces garbage: `data` copied
+# onto all 8 entries, no switch to a depicting element, invented
+# equal-pair payloads ([3,3], [5,5]). So the schema surface above and
+# the instruction below are pinned together: the licence to choose a
+# depicting element, and which payloads may be asserted versus which
+# need a measurement.
+
+def _handoff_text():
+    with open(HANDOFF, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def _manifest_plan_description():
+    with open(MANIFEST, encoding="utf-8") as handle:
+        manifest = json.load(handle)
+    outputs = manifest["interface"]["llm_outputs"]
+    return next(
+        o for o in outputs if o["name"] == "motion_graphics_plan")[
+        "description"]
+
+
+def _reel_request(tmp_path):
+    project = str(tmp_path / "proj-agree")
+    os.makedirs(os.path.join(project, "pipeline_output", "review"))
+    path = sem_vis.write_request(
+        _moment(), _transcript(), [(10.0, 18.0)], project, FPS)
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def test_three_schema_surfaces_agree(tmp_path):
+    """All three places that describe the slot to the model state one
+    contract: the manifest's llm_outputs, the handoff's answer section,
+    and the reel request file's expected_schema.
+
+    A planner reading any one of them must get the same slot: `data`
+    and `asset` exist, a payload is asserted only from what the speech
+    itself states, and the two junk shapes drop by name.
+    """
+    manifest_desc = _manifest_plan_description()
+    handoff = _handoff_text()
+    schema = _reel_request(tmp_path)["expected_schema"]
+    for surface in (manifest_desc, handoff, schema):
+        assert "data" in surface
+        assert "asset" in surface
+        assert "speech itself" in surface
+        assert "all equal" in surface
+
+
+def test_manifest_and_handoff_name_the_same_depicting_set():
+    """The elements a planner may assert a payload for are the same in
+    both places that describe the contract to the model."""
+    manifest_desc = _manifest_plan_description()
+    handoff = _handoff_text()
+    for surface in (manifest_desc, handoff):
+        for element in ("comparison_bars", "counter_roll",
+                        "digit_counter", "step_counter"):
+            assert element in surface, (
+                f"{element} named in one contract surface but not the other")
+        for element in ("channel_bug", "website_panel"):
+            assert element in surface, (
+                f"{element} named in one contract surface but not the other")
+
+
+def _flat(text: str) -> str:
+    """One line: the handoff wraps prose, so multi-word rules are
+    asserted against flattened text rather than raw lines."""
+    return " ".join(text.split())
+
+
+def test_depicting_licence_names_the_five_and_not_title_lockup():
+    """The corpus shows a model that will not switch element kind on its
+    own, so the instruction says plainly which elements depict a
+    comparison, a count, a sequence or a measurement - and what the
+    wrong answer is."""
+    section = _flat(_handoff_text().split(
+        "## A graphic may depict", 1)[1])
+    for element in ("comparison_bars", "counter_roll", "digit_counter",
+                    "step_counter", "progress_bar"):
+        assert element in section, (
+            f"{element} not licenced as a depicting element")
+    assert "rather than `title_lockup` carrying the same words as type" \
+        in section
+
+
+def test_assert_vs_measure_rule_states_the_fallback():
+    """The half that stops the [3,3] garbage: assert what the speech
+    states, never invent a measurement - and what to do instead."""
+    handoff = _flat(_handoff_text())
+    assert "must NOT invent one you would have had to measure" in handoff
+    assert "choose an element that does not need one" in handoff
+
+
+def test_instruction_reaches_the_reel_request(tmp_path):
+    """A rule nobody reads is the failure mode this task exists to
+    avoid: the depicting section must travel on the prompt the reel
+    path actually writes, beside the schema that carries the slot."""
+    prompt = _flat(sem_vis.handoff_text())
+    assert "## A graphic may depict" in prompt
+    assert "must NOT invent one you would have had to measure" in prompt
+    assert "choose an element that does not need one" in prompt
+    request = _reel_request(tmp_path)
+    assert "## A graphic may depict" in request["prompt"]
+    assert "must NOT invent one you would have had to measure" in _flat(
+        request["prompt"])
+    assert "data" in request["expected_schema"]
+    assert "asset" in request["expected_schema"]
+    assert "speech itself" in request["expected_schema"]
+    assert "all equal" in request["expected_schema"]

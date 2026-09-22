@@ -244,16 +244,25 @@ A graphic that restates a sentence the captions are already showing
 earns nothing - two renderings of one sentence is clutter, not
 emphasis. The roster says this on `title_lockup`'s own `never` column
 (a title must distill, never transcribe) and the collision rule under
-Rules gives it teeth. The positive half is yours to choose: where the
-speech states a magnitude, a count, a comparison or a sequence, draw
-the THING - bars at proportional length, a figure that moves, a
-position in a declared sequence - rather than the words that said it.
+Rules gives it teeth. The positive half is yours to choose: when the
+beat is a comparison, a count, a sequence or a measurement, the right
+answer is the element that DEPICTS it - `comparison_bars`,
+`counter_roll`, `digit_counter`, `step_counter`, `progress_bar` -
+rather than `title_lockup` carrying the same words as type. Bars at
+proportional length, a figure that moves, a position in a declared
+sequence: draw the THING rather than the words that said it.
 
 ### Which payloads you may state from the speech
 
 The `data` axis's `resolved_against` line reads as though every
 payload is somebody else's to measure. For the depicting elements it
-is yours to state, from the words in `timeline_context_toon`:
+is yours to state, from the words in `timeline_context_toon` - and
+that is the whole of what you may assert. You may assert a payload
+you can read out of the speech itself; you must NOT invent one you
+would have had to measure. When the number is not in the speech,
+choose an element that does not need one - a copy element carrying
+the words, or no graphic at all - rather than stating a figure
+nobody said.
 
 - `comparison_bars`: the labelled magnitudes, where the speech states
   both sides of a comparison. Labels go in `copy`, magnitudes in
@@ -261,6 +270,9 @@ is yours to state, from the words in `timeline_context_toon`:
 - `counter_roll`: the start and end of a stated change, in
   `data.start_value` / `data.end_value`. The change must be stated -
   growth, a countdown, an elapsed quantity.
+- `digit_counter`: the stated end value in `data.end_value`. Same
+  rule as the roll: the figure must be stated, and the motion is the
+  change, not decoration on a static number.
 - `review_panel`: the score, the count and the rows the speech points
   at, in `data.rating` / `data.count` / `data.rows`, plus the palette
   of the place they were written on in `data.palette`. Drawn, never
