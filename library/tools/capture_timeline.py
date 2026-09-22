@@ -54,8 +54,13 @@ def safe(fn, *a):
 
 # The one read. Everything below is a projection of `result`, except the
 # envelope extras Resolve reports about itself (product/version,
-# settings, subtitle rows) which are not clips or markers.
-result = reel_read.read_reel(tl, p.GetName(), mode=reel_read.QUICK)
+# settings, subtitle rows) which are not clips or markers. The project
+# handle is the currency proof: when the target is not the current
+# timeline this REFUSES rather than archiving scaled Pan/Tilt
+# (`reel_read.assert_timeline_current`) - open the reel first, then
+# capture.
+result = reel_read.read_reel(tl, p.GetName(), mode=reel_read.QUICK,
+                             resolve_project=p)
 by_track = {(t["type"], t["index"]): t for t in result["tracks"]}
 
 PROPS = [

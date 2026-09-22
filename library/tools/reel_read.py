@@ -107,6 +107,121 @@ class ReelReadError(RuntimeError):
     """A reel that could not be read honestly. Fail closed, like the guard."""
 
 
+# ── The currency check: a transform off a non-current timeline is not one ──
+#
+# Measured 2026-09-15 on Resolve Studio 21.1.0.14 (the re-measurement
+# lane): Resolve reports a timeline item's Pan/Tilt scaled by the
+# resolution of the timeline that is CURRENT, not of the timeline the
+# item is on - Pan by current_width/this_width, Tilt by
+# current_height/this_height, per axis. Reading Reel 13 (1080x1920)
+# through its handle while the 3840x2160 master was current returned
+# Pan -85.33333 for the -24.0 the same item reads with Reel 13
+# current (ratio exactly 3840/1080), and Tilt -1944.0 for -1728.0
+# (ratio exactly 2160/1920). `docs/READING_A_TRANSFORM.md` carries the
+# earlier three-way cross-current read that already showed the
+# anisotropy. This is a strong candidate for - but not proven to
+# close - the long-running unexplained 2x and 4x readings: a uniform
+# halving on both axes would need a current timeline half the width
+# AND half the height of the read one, and no such timeline exists in
+# the projects measured, so the 4x cause is still formally
+# unidentified. Say what the evidence supports and no more.
+#
+# The shape is REFUSE, not record-and-correct: a correction would bake
+# the measured ratio into every consumer and would still read as a
+# measurement wherever a consumer forgot to apply it - the same defect
+# moved. Refusing collapses the conditions to one (the reel current),
+# under which no consumer ever reasons about scale factors. The
+# read-only sweeps that cannot move the cursor (the conformance
+# verifier's F12, `resolve_axi --transforms`) are the cost, stated in
+# the audit: their transform numbers are scaled whenever the read
+# timeline is not current, and they must say so or self-read.
+
+
+def _timeline_identity(timeline):
+    """`(kind, value)`: `GetUniqueId` when served, else the exact name.
+
+    Real Resolve timelines serve a UniqueId; stub timelines in tests
+    may serve only a name. Identity is the id where it exists because
+    two timelines can resemble in name and must never be substituted
+    (AGENTS.md 5) - the name is only the fallback where no id answers.
+    """
+    try:
+        unique = timeline.GetUniqueId()
+    except Exception:
+        unique = None
+    if unique:
+        return ("id", str(unique))
+    try:
+        name = timeline.GetName()
+    except Exception:
+        name = None
+    return ("name", name)
+
+
+def _timeline_size(timeline):
+    """`(width, height)` from timeline settings, or `(None, None)`."""
+    try:
+        width = int(timeline.GetSetting("timelineResolutionWidth"))
+        height = int(timeline.GetSetting("timelineResolutionHeight"))
+    except (TypeError, ValueError):
+        return (None, None)
+    except Exception:
+        return (None, None)
+    return (width, height)
+
+
+def assert_timeline_current(timeline, resolve_project) -> None:
+    """Refuse unless `timeline` is `resolve_project`'s current one.
+
+    A Pan/Tilt read through a non-current handle comes back scaled by
+    the current timeline's dimensions over this one's (above), so it
+    reads as a measurement and is not one. The remedy is a self-read:
+    make the reel current - `resolve_lock.cursor_excursion`, which
+    puts the cursor back through the guarded setter - then read.
+    Raises `ReelReadError`, which names both timelines and both
+    resolutions so the refusal itself shows the scale that would have
+    been mistaken.
+    """
+    try:
+        current = resolve_project.GetCurrentTimeline()
+    except Exception as unreadable:
+        raise ReelReadError(
+            "the current timeline could not be read "
+            f"({unreadable}); refusing rather than returning a "
+            f"transform that may be scaled.") from unreadable
+    if current is None:
+        raise ReelReadError(
+            "Resolve has no current timeline; a transform read with "
+            "nothing current is not a measurement. Open the reel and "
+            "re-run.")
+    want, have = _timeline_identity(timeline), _timeline_identity(current)
+    if want[1] is not None and want == have:
+        return
+    try:
+        timeline_name = timeline.GetName()
+    except Exception:
+        timeline_name = "?"
+    try:
+        current_name = current.GetName()
+    except Exception:
+        current_name = "?"
+    this_w, this_h = _timeline_size(timeline)
+    cur_w, cur_h = _timeline_size(current)
+
+    def _fmt(size):
+        return f"{size[0]}x{size[1]}" if all(size) else "unknown size"
+
+    raise ReelReadError(
+        f"REFUSING: timeline {timeline_name!r} ({_fmt((this_w, this_h))}) "
+        f"is not current - {current_name!r} ({_fmt((cur_w, cur_h))}) is. "
+        f"Pan/Tilt read through a non-current handle come back scaled "
+        f"by current_width/this_width on Pan and "
+        f"current_height/this_height on Tilt, so the numbers would "
+        f"read as a measurement and are not one. Make the reel current "
+        f"(`resolve_lock.cursor_excursion`, which restores the cursor) "
+        f"and re-read.")
+
+
 # ── The per-item detail: the one place a clip is enumerated ──────────
 #
 # `timeline_serializer` calls this for every item instead of its own
@@ -231,7 +346,8 @@ def clip_detail(item, track_type: str, track_index: int,
 # no attribute 'GetSetting'"), so the guard takes this slice instead.
 
 
-def live_track_items(timeline, track_type: str, index: int) -> list:
+def live_track_items(timeline, track_type: str, index: int,
+                       *, resolve_project=None) -> list:
     """The LIVE handles on one row, in timeline order. A slice of the one read.
 
     The single-row half of `live_items` below: the `GetItemListInTrack`
@@ -239,7 +355,16 @@ def live_track_items(timeline, track_type: str, index: int) -> list:
     sweep re-reading a placed clip's stored transform - takes this slice
     rather than opening its own probe (AGENTS.md 15). Raises
     `ReelReadError` when the row does not read.
+
+    `resolve_project` is the currency proof: when given, the timeline
+    must be the project's current one (`assert_timeline_current`),
+    because the stored transforms on these handles read scaled when it
+    is not. Left out, no check is made - the replace guard's rows
+    (names and spans, which carry no transform) read this way, and so
+    do the stub timelines in tests, which have no project.
     """
+    if resolve_project is not None:
+        assert_timeline_current(timeline, resolve_project)
     try:
         return list(timeline.GetItemListInTrack(track_type, index) or [])
     except Exception as unreadable:
@@ -250,7 +375,7 @@ def live_track_items(timeline, track_type: str, index: int) -> list:
             f"a reel.") from unreadable
 
 
-def live_items(timeline) -> list:
+def live_items(timeline, *, resolve_project=None) -> list:
     """Every row with its LIVE Resolve item handles, in track order.
 
     The one enumeration over the whole timeline: `read_tracks` below is
@@ -260,11 +385,17 @@ def live_items(timeline) -> list:
     (AGENTS.md 15: no new probe). The per-row read itself is
     `live_track_items` above, which single-row callers take directly.
 
+    `resolve_project` is the currency proof, checked once here rather
+    than per row. See `live_track_items` for when it is required and
+    when it is left out.
+
     Returns `[{"type", "index", "name", "items": [handle, ...]}, ...]`.
     The handles are Resolve's own objects and are invalidated by any
     delete or place, so a caller re-reads after every mutation rather
     than holding one across it.
     """
+    if resolve_project is not None:
+        assert_timeline_current(timeline, resolve_project)
     rows = []
     try:
         for track_type in MEDIA_TYPES:
@@ -287,12 +418,22 @@ def live_items(timeline) -> list:
 
 
 def read_tracks(timeline,
-                speaker_map: Optional[Mapping[str, str]] = None) -> list:
+                speaker_map: Optional[Mapping[str, str]] = None,
+                *, resolve_project=None) -> list:
     """Every track with every clip, as plain data. Read-only.
 
     Raises `ReelReadError` on ANY row/item read failure - a half-read
-    timeline must refuse, never pass on the rows that happened to read.
+    timeline must refuse, never pass on the rows that happened to read -
+    and when `resolve_project` is given and the timeline is not the
+    project's current one (`assert_timeline_current`): the `transform`
+    on every clip would read scaled. The replace guard calls this
+    WITHOUT the project because its rows (names and spans) carry no
+    transform and are current-independent; anyone comparing transforms
+    across two reads passes the project on both, which refuses unless
+    each timeline was current for its own read.
     """
+    if resolve_project is not None:
+        assert_timeline_current(timeline, resolve_project)
     speaker_map = dict(speaker_map or {})
     tracks = []
     try:
@@ -329,13 +470,24 @@ def read_tracks(timeline,
 def read_reel(timeline, project_name: str = "",
               speaker_map: Optional[Mapping[str, str]] = None,
               mode: str = QUICK, artefact_roots=(),
-              project_folder=None) -> dict:
+              project_folder=None, *, resolve_project) -> dict:
     """The whole truth about one reel, in one call. Read-only.
 
     `timeline` is the live Resolve timeline object, so this runs against
     whatever is open without changing the captain's session. `mode` is
     `"quick"` (Resolve getters only) or `"full"` (plus pixel-measured
     overlay ink off disk - the only expensive part).
+
+    `resolve_project` is REQUIRED (keyword-only) and is the currency
+    proof: the timeline must be the project's current one
+    (`assert_timeline_current`), because Pan/Tilt read through a
+    non-current handle come back scaled by the current timeline's
+    dimensions and would read as a measurement that is not one. There
+    is no opt-out on this function - the row-only slices
+    (`read_tracks`, `live_items`) are the route for readers that need
+    no transform. To read a reel that is not open, make it current
+    first (`resolve_lock.cursor_excursion` restores the cursor) and
+    pass the same project.
 
     Markers come from `marker_feedback.read_notes`: timeline, clip and
     media-pool levels with colour, name, note and attachment. That is
@@ -346,6 +498,7 @@ def read_reel(timeline, project_name: str = "",
     if mode not in (QUICK, FULL):
         raise ReelReadError(
             f"mode is {mode!r}; the vocabulary is {QUICK!r} and {FULL!r}.")
+    assert_timeline_current(timeline, resolve_project)
     try:
         reported_fps = float(timeline.GetSetting("timelineFrameRate"))
     except (TypeError, ValueError):
@@ -745,7 +898,13 @@ def main(argv=None) -> int:
         result = read_reel(
             timeline, args.project or project.GetName(),
             mode=args.mode, artefact_roots=args.artefact_root,
-            project_folder=args.project_folder)
+            project_folder=args.project_folder,
+            # The CLI reads through `current_timeline()` and refuses
+            # unless the open timeline IS the named one, so this proof
+            # always holds here - and a future caller that reaches for
+            # a by-index handle gets the refusal instead of scaled
+            # Pan/Tilt (`assert_timeline_current`).
+            resolve_project=project)
     except ReelReadError as exc:
         print(f"Cannot read: {exc}", file=sys.stderr)
         return 1

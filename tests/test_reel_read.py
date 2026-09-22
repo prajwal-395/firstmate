@@ -10,6 +10,8 @@ marker alongside the timeline-level ones, because its marker half IS
 import ast
 from pathlib import Path
 
+import pytest
+
 from library.tools import reel_read
 from library.tools import reel_replace_guard as guard
 from library.tools.timeline_serializer import serialize_timeline_state
@@ -121,15 +123,19 @@ class _Item:
 
 
 class _Timeline:
-    def __init__(self, items_by_track):
+    def __init__(self, items_by_track, name=REEL):
         self._tracks = items_by_track
+        self._name = name
         self._markers = {
             50: {"color": "Green", "name": "overall",
-                 "note": "nice pacing", "duration": 1, "customData": ""},
+                  "note": "nice pacing", "duration": 1, "customData": ""},
         }
 
     def GetName(self):
-        return REEL
+        return self._name
+
+    def GetUniqueId(self):
+        return f"uid-timeline-{self._name}"
 
     def GetSetting(self, key):
         return {"timelineFrameRate": "24",
@@ -166,10 +172,29 @@ def _reel(tmp_path):
     return _Timeline({"video": {"V1": [clip]}}), str(tmp_path)
 
 
+class _Project:
+    """The Resolve project handle, reduced to what currency needs.
+
+    `current` is settable so a test can move the cursor the way the
+    captain's session does - including onto a timeline the read is
+    not about.
+    """
+
+    def __init__(self, current):
+        self.current = current
+
+    def GetName(self):
+        return "Pipeline_Edit"
+
+    def GetCurrentTimeline(self):
+        return self.current
+
+
 def test_the_reader_sees_the_clip_marker_alongside_timeline_ones(tmp_path):
     timeline, project_folder = _reel(tmp_path)
     result = reel_read.read_reel(timeline, "Pipeline_Edit",
-                                 project_folder=project_folder)
+                                 project_folder=project_folder,
+                                 resolve_project=_Project(timeline))
     by_source = {}
     for note in reel_read.markers_of(result):
         by_source.setdefault(note["source"], []).append(note)
@@ -188,7 +213,8 @@ def test_the_reader_sees_the_clip_marker_alongside_timeline_ones(tmp_path):
 def test_clips_carry_ranges_source_ranges_and_transforms(tmp_path):
     timeline, project_folder = _reel(tmp_path)
     result = reel_read.read_reel(timeline, "Pipeline_Edit",
-                                 project_folder=project_folder)
+                                 project_folder=project_folder,
+                                 resolve_project=_Project(timeline))
     clips = reel_read.clips_of(result)
     assert len(clips) == 1
     clip = clips[0]
@@ -208,7 +234,8 @@ def test_clips_carry_ranges_source_ranges_and_transforms(tmp_path):
 def test_the_guard_takes_its_rows_from_the_one_reader(tmp_path):
     timeline, project_folder = _reel(tmp_path)
     result = reel_read.read_reel(timeline, "Pipeline_Edit",
-                                 project_folder=project_folder)
+                                 project_folder=project_folder,
+                                 resolve_project=_Project(timeline))
     assert guard.snapshot_timeline(timeline, REEL) == reel_read.rows_of(result)
     rows = reel_read.rows_of(result)
     assert rows["video:V1"]["count"] == 1
@@ -260,12 +287,14 @@ def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
     timeline = _Timeline({"video": {"V1": [clip], "V2": [overlay]}})
 
     quick = reel_read.read_reel(timeline, "Pipeline_Edit",
-                                project_folder=str(tmp_path))
+                                project_folder=str(tmp_path),
+                                resolve_project=_Project(timeline))
     assert reel_read.overlays_of(quick) == []
 
     full = reel_read.read_reel(timeline, "Pipeline_Edit",
                                mode=reel_read.FULL,
-                               project_folder=str(tmp_path))
+                               project_folder=str(tmp_path),
+                               resolve_project=_Project(timeline))
     overlays = reel_read.overlays_of(full)
     by_clip = {row["clip"]: row for row in overlays}
     assert by_clip["craig-take"]["ink"]["measured"] is False
@@ -294,6 +323,121 @@ def test_full_mode_measures_ink_from_pixels_not_from_the_gain(tmp_path):
                 and node.attr == "draw_gain"):
             code_uses.add("draw_gain")
     assert code_uses == set()
+
+
+# ── The currency check: a scaled reading refuses ───────────────────
+#
+# Measured 2026-09-15 on Resolve Studio 21.1.0.14: Pan/Tilt read
+# through a non-current handle come back scaled by
+# current_width/this_width on Pan and current_height/this_height on
+# Tilt. The stubs below model exactly that law - each item answers
+# `GetProperty()` in units of whatever timeline the fake project has
+# current - so the test proves both ways: the old shape (no project)
+# returns the scaled number as plain data, and the new shape (with
+# the project) refuses. The numbers are the brief's own: Reel 13's V1
+# LC4932 reads Pan -24.0 / Tilt -1.58 with Reel 13 current and
+# -85.33333 / -1.7775 with the 3840x2160 master current.
+
+
+class _MeasuredTimeline(_Timeline):
+    def __init__(self, name, width, height, items_by_track):
+        super().__init__(items_by_track, name=name)
+        self._measured_size = (width, height)
+
+    def GetSetting(self, key):
+        return {"timelineFrameRate": "24",
+                "timelineResolutionWidth": str(self._measured_size[0]),
+                "timelineResolutionHeight": str(self._measured_size[1]),
+                }.get(key, "")
+
+
+class _MeasuredItem(_Item):
+    """An item answering Pan/Tilt the way Resolve does: in units of
+    the CURRENT timeline, not of the one the item is on."""
+
+    def __init__(self, name, start, end, left, pool, *, pan, tilt,
+                 own_size, project):
+        super().__init__(name, start, end, left, pool)
+        self._pan, self._tilt = pan, tilt
+        self._own_size = own_size
+        self._project = project
+
+    def GetProperty(self):
+        current = self._project.current
+        cur_w, cur_h = current._measured_size
+        own_w, own_h = self._own_size
+        return {"Pan": self._pan * cur_w / own_w,
+                "Tilt": self._tilt * cur_h / own_h,
+                "ZoomX": 1.0, "ZoomY": 1.0, "Opacity": 100.0}
+
+
+def _measured_world():
+    """Master (3840x2160) plus two 1080x1920 reels, cursor on the master."""
+    project = _Project(None)
+    pool = _Pool("/footage/LC4932.MXF")
+    reel13 = _MeasuredTimeline("Reel 13", 1080, 1920, {"video": {"V1": [
+        _MeasuredItem("LC4932.MXF", 108100, 108300, 100, pool,
+                      pan=-24.0, tilt=-1.58, own_size=(1080, 1920),
+                      project=project)]}})
+    reel26 = _MeasuredTimeline("Reel 26", 1080, 1920, {"video": {"V1": [
+        _MeasuredItem("LC4932.MXF", 108100, 108300, 100, pool,
+                      pan=-31.644, tilt=0.25, own_size=(1080, 1920),
+                      project=project)]}})
+    master = _MeasuredTimeline("Master", 3840, 2160, {})
+    project.current = master
+    return project, master, reel13, reel26
+
+
+def test_the_old_shape_returns_the_scaled_number_as_data(tmp_path):
+    project, _master, reel13, _reel26 = _measured_world()
+    assert project.current.GetName() == "Master"
+    clips = reel_read.read_tracks(reel13)[0]["clips"]
+    assert clips[0]["transform"]["Pan"] == \
+        pytest.approx(-24.0 * 3840 / 1080)
+    assert clips[0]["transform"]["Tilt"] == \
+        pytest.approx(-1.58 * 2160 / 1920)
+    # Nothing on the reading marks its condition: this is the defect -
+    # a scaled number in the exact shape a measurement arrives in.
+
+
+def test_the_new_shape_refuses_a_timeline_that_is_not_current(tmp_path):
+    project, _master, reel13, _reel26 = _measured_world()
+    with pytest.raises(reel_read.ReelReadError) as exc:
+        reel_read.read_reel(reel13, "Pipeline_Edit",
+                            project_folder=str(tmp_path),
+                            resolve_project=project)
+    message = str(exc.value)
+    assert "not current" in message
+    assert "Reel 13" in message and "Master" in message
+
+
+def test_the_new_shape_reads_true_values_with_the_reel_current(tmp_path):
+    project, _master, reel13, _reel26 = _measured_world()
+    project.current = reel13
+    result = reel_read.read_reel(reel13, "Pipeline_Edit",
+                                 project_folder=str(tmp_path),
+                                 resolve_project=project)
+    clip = reel_read.clips_of(result)[0]
+    assert clip["transform"]["Pan"] == pytest.approx(-24.0)
+    assert clip["transform"]["Tilt"] == pytest.approx(-1.58)
+
+
+def test_the_same_resolution_control_reads_unscaled_yet_still_refuses(
+        tmp_path):
+    """The brief's Reel 26 control: read through another same-sized
+    reel's handle, the values are identical (ratio 1) - and the new
+    shape still refuses, because the guarantee is one canonical
+    condition (the reel current), never a resolution comparison a
+    consumer would have to redo per read."""
+    project, _master, reel13, reel26 = _measured_world()
+    project.current = reel13
+    clips = reel_read.read_tracks(reel26)[0]["clips"]
+    assert clips[0]["transform"]["Pan"] == pytest.approx(-31.644)
+    assert clips[0]["transform"]["Tilt"] == pytest.approx(0.25)
+    with pytest.raises(reel_read.ReelReadError):
+        reel_read.read_reel(reel26, "Pipeline_Edit",
+                            project_folder=str(tmp_path),
+                            resolve_project=project)
 
 
 # ── The enforceable half: no new probe ────────────────────────────

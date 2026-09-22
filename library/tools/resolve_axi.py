@@ -1080,6 +1080,16 @@ def cmd_items(args) -> int:
                 # converted here: Pan/Tilt is one model and a unit is
                 # not a pixel (`resolve_transform`), so the numbers
                 # travel as Resolve stores them.
+                #
+                # CURRENCY WARNING (not enforced here): through a
+                # non-current handle Pan/Tilt come back scaled by the
+                # current timeline's dimensions
+                # (`reel_read.assert_timeline_current`). The
+                # "(current)" marker above only covers the opened-via-
+                # current path - a named timeline that happens to be
+                # current reads true but unmarked, and one that is not
+                # reads scaled with no warning. Treat these numbers as
+                # the timeline's own only when it is current.
                 stored = clip.get("transform") or {}
                 for key in ("Pan", "Tilt", "ZoomX", "ZoomY", "Opacity"):
                     row[key.lower()] = stored.get(key, "")

@@ -6358,6 +6358,18 @@ def run_verification(
 
     No Set*, Add*, Append*, Delete*, OpenPage, LoadProject,
     SetCurrentTimeline or SetCurrentProject.
+
+    That read-only policy is also why the transform grades (F12
+    `check_delivered_framing`) cannot self-read: every reel here is
+    reached through its by-index handle under WHATEVER timeline is
+    current, and Pan/Tilt through a non-current handle come back
+    scaled by the current timeline's dimensions over the read one
+    (`reel_read.assert_timeline_current`,
+    docs/READING_A_TRANSFORM.md). An F12 verdict on a reel that was
+    not current grades scaled numbers - meaningless, in either
+    direction. Until the policy tradeoff is decided (cursor moves for
+    a read-only sweep), grade with the reel open: the current reel's
+    F12 is the trustworthy one.
     """
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     if draw_gain is None:

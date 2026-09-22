@@ -1899,6 +1899,17 @@ def _capture_transform(args) -> tuple:
     # rounds Pan/Tilt to 3): the read-back float residue (-35.000...36)
     # is Resolve's, not the captain's, and the store keeps what the
     # captain can read back.
+    #
+    # CURRENCY WARNING (not enforced here): `value` above is read
+    # through a by-index handle, and Pan/Tilt through a non-current
+    # handle come back scaled by the current timeline's dimensions
+    # over this one's (`reel_read.assert_timeline_current`,
+    # docs/READING_A_TRANSFORM.md). A capture taken while another
+    # timeline is current records a scaled value the build then
+    # re-applies as truth. Open the reel (make it current) before
+    # capturing; enforcing that here needs the cursor move this
+    # read-only path deliberately avoids, so it stays a documented
+    # condition until that tradeoff is decided.
     value = round(value, 3)
     if len(tracks) > 1:
         raise CaptainEditError(
