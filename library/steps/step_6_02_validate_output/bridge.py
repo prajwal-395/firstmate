@@ -11,6 +11,9 @@ Checks:
   3. Duration comparison against manifest expected duration
   4. Black frame detection (render sample frames, check file sizes)
   5. Audio presence and level check
+  6. Every planned transition sits at a V1 cut point or V1/V2 seam
+  7. The V1 track tiles with no gaps, where a B-roll cutaway or a
+     declared black beat covers
 
 Classification: Nondeterministic / Evaluation & Judgment
 Input:  { "rendered_output": {...}, "assembly_manifest": {...} }
@@ -30,6 +33,7 @@ from library.tools.render_qa import RenderQAResult, run_full_render_qa
 from library.tools import render_watch
 from library.tools.spine_contract import declared_black_beat_ranges
 from library.tools.subtitle_qa import verify_subtitle_timing
+from library.tools.transition_vocabulary import CUT_TYPES
 
 
 def _run_ffprobe(filepath, *args):
@@ -212,6 +216,176 @@ def _music_bed(assembly_manifest: dict):
     return music_path, automation, offset
 
 
+def _plan_geometry_checks(assembly_manifest: dict) -> dict:
+    """Transitions at their seams, V1 tiled end to end - as CHECKS.
+
+    Both are plain arithmetic over `tracks` and `transitions`, with no
+    taste in them: a transition's `cut_point_timeline` either sits
+    where the picture actually cuts or it does not, and consecutive V1
+    clips either abut or something covers the stretch between them.
+    They used to be answerable only from the manifest rows in the
+    prompt; holding them here is what lets those rows leave the prompt
+    entirely.
+
+    Two things the first draft of this check got wrong, measured on
+    the round3 snapshot rather than reasoned out:
+
+    - A V1 gap is not a hole when a B-roll cutaway covers it. Round3's
+      V1 carries four multi-second gaps and every one is exactly a V2
+      clip (`broll_1` over `[2.398, 5.398]`, and three more) - the
+      combined picture is continuous, `compile_manifest` accepted it,
+      and the render is correct. A V1-only tiling check fails that
+      render, so a gap counts only when no V2 clip covers it. (AGENTS.md
+      10.4: a gate that fails correct output is no coverage.)
+    - A transition sits where the picture cuts, which is a V1 boundary
+      OR a V1/V2 seam: round3's transitions claim the points where V1
+      resumes after a cutaway, up to 0.24s off the clip edge. The
+      quarter-second is not invented here - it is the tolerance
+      `compile_manifest._v1_index_ending_at` already seats a drawn
+      transition with, so a plan the compile accepted is a plan this
+      gate accepts. And only DRAWN transitions are held at all: a
+      `hard_cut` row draws nothing, so its drift from the edge (0.3s
+      on the 001 snapshots' word-end+beat cuts) moves no pixel, and
+      failing a render over it would be failing correct output.
+
+    A gap the spine validly declared as an intentional black beat is
+    likewise allowed through, exactly as `compile_manifest` allows it.
+
+    Returns `{"transitions_at_seams": check, "v1_tiling": check}` in
+    the shape `validate_output` merges into its verdict.
+    """
+    fps = float((assembly_manifest.get("project") or {}).get("frame_rate")
+                or 30.0)
+    # One frame, judged in seconds. The epsilon is for the threshold
+    # itself: a gap of exactly one frame computes as
+    # 0.03333333333333297 against a bound of 0.03333333333333333 and
+    # would be missed by float noise - the same lesson
+    # `compile_manifest._is_real_gap` documents.
+    frame = 1.0 / max(fps, 1.0)
+    tolerance = frame + 1e-6
+    # The tolerance a drawn transition is seated with - see
+    # `compile_manifest._v1_index_ending_at`. A plan the compile
+    # accepted is a plan this gate accepts.
+    SEAM_TOLERANCE = 0.25 + 1e-6
+
+    tracks = assembly_manifest.get("tracks") or {}
+    v1 = sorted(
+        ((tracks.get("V1", {}) or {}).get("clips", []) or []),
+        key=lambda c: c.get("timeline_in", 0.0),
+    )
+    v2 = sorted(
+        ((tracks.get("V2", {}) or {}).get("clips", []) or []),
+        key=lambda c: c.get("timeline_in", 0.0),
+    )
+
+    seams_check = {"pass": True, "issues": []}
+    tiling_check = {"pass": True, "issues": []}
+    if not v1:
+        return {"transitions_at_seams": seams_check,
+                "v1_tiling": tiling_check}
+
+    # Every V1 edge is a place the picture can cut: an interior out is
+    # a V1-to-V1 cut, an in after a gap is where V1 resumes under (or
+    # after) a cutaway, and the last out is the V1-end/V2-start seam a
+    # trailing cutaway begins on.
+    edges = [c.get("timeline_in") for c in v1]
+    edges += [c.get("timeline_out") for c in v1]
+    edges = [e for e in edges if e is not None]
+    for t in assembly_manifest.get("transitions") or []:
+        tid = t.get("transition_id", "?")
+        # CUT types draw NOTHING - the vocabulary says so in as many
+        # words - so a hard/jump/match cut row carries no seating
+        # obligation: its cut point is an aspiration (a word end, a
+        # beat) recorded beside the V1 edge the mesh actually cut on,
+        # and drift between the two moves no pixel. The same exclusion
+        # `manifest_validator`'s uniformity check makes, for the same
+        # reason. Only a DRAWN transition is seated from its cut point
+        # - `compile_manifest` refuses one that sits at no V1 edge -
+        # so only a drawn one can fail here.
+        if t.get("transition_type") in CUT_TYPES:
+            continue
+        cut = t.get("cut_point_timeline", t.get("cut_point_original"))
+        if cut is None:
+            seams_check["pass"] = False
+            seams_check["issues"].append(
+                f"Transition {tid} names no cut point - neither "
+                f"cut_point_timeline nor cut_point_original is set"
+            )
+            continue
+        if not any(abs(cut - e) <= SEAM_TOLERANCE for e in edges):
+            nearest = min(edges, key=lambda e: abs(cut - e))
+            seams_check["pass"] = False
+            seams_check["issues"].append(
+                f"Transition {tid} claims cut point {cut:.3f}s, which "
+                f"is {abs(cut - nearest):.3f}s from the nearest V1 "
+                f"edge ({nearest:.3f}s) - no cut exists there"
+            )
+
+    beats = declared_black_beat_ranges(
+        assembly_manifest.get("_spine_blocks") or [])
+
+    def _declared(start: float, end: float) -> bool:
+        return any(bs - 1e-6 <= start and end <= be + 1e-6
+                   for bs, be in beats)
+
+    def _v2_covers(start: float, end: float) -> bool:
+        """A V2 clip spans the whole stretch, end to end.
+
+        Covering is all-or-nothing: a cutaway over the middle with
+        black peeking out on either side is still a hole, so slivers
+        under one frame at either end are the only slack.
+        """
+        cursor = start
+        for clip in v2:
+            cin = clip.get("timeline_in")
+            cout = clip.get("timeline_out")
+            if cin is None or cout is None:
+                continue
+            if cin - cursor > tolerance:
+                return False
+            if cout > cursor:
+                cursor = cout
+            if cursor >= end - tolerance:
+                return True
+        return cursor >= end - tolerance
+
+    def _hold_gap(start: float, end: float, what: str) -> None:
+        if _v2_covers(start, end) or _declared(start, end):
+            return
+        tiling_check["pass"] = False
+        tiling_check["issues"].append(
+            f"V1 {what} of {end - start:.3f}s ({start:.3f}s to "
+            f"{end:.3f}s) shows no A-roll and no B-roll covers it - "
+            f"no spine block declares an intentional black beat "
+            f"covering it"
+        )
+
+    first_in = v1[0].get("timeline_in", 0.0) or 0.0
+    if first_in > tolerance:
+        _hold_gap(0.0, first_in, "starts late, leaving a leading gap")
+    for prev, curr in zip(v1, v1[1:]):
+        prev_out = prev.get("timeline_out", 0.0) or 0.0
+        curr_in = curr.get("timeline_in", 0.0) or 0.0
+        gap = curr_in - prev_out
+        if gap > tolerance:
+            _hold_gap(
+                prev_out, curr_in,
+                f"gap between '{prev.get('label', '?')}' (ends "
+                f"{prev_out:.3f}s) and '{curr.get('label', '?')}' "
+                f"(starts {curr_in:.3f}s)")
+        elif gap < -tolerance:
+            tiling_check["pass"] = False
+            tiling_check["issues"].append(
+                f"V1 overlap of {-gap:.3f}s: "
+                f"'{curr.get('label', '?')}' (starts {curr_in:.3f}s) "
+                f"begins before '{prev.get('label', '?')}' ends "
+                f"({prev_out:.3f}s)"
+            )
+
+    return {"transitions_at_seams": seams_check,
+            "v1_tiling": tiling_check}
+
+
 def build_watch_frames(video_path: str, project_folder: str) -> str:
     """Draw the strips the LLM half WATCHES, and map them for the prompt.
 
@@ -299,6 +473,15 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
             "distribution_ready": False,
             "summary": "Rendered file missing or empty",
         }
+
+    # ── Plan geometry: transitions at their seams, V1 tiled ──
+    #
+    # Plain arithmetic over tracks + transitions, held here so the
+    # manifest rows that used to carry it can leave the prompt. It runs
+    # before the QA toolkit on purpose: it needs no render, only the
+    # plan, so a broken plan fails fast rather than after every
+    # measurement.
+    geometry = _plan_geometry_checks(assembly_manifest)
 
     # ── Run QA Toolkit ──
     qa_results = []
@@ -452,15 +635,19 @@ def validate_output(rendered_output: dict, assembly_manifest: dict,
     checks["black_frames"] = black_frame_check
     checks["audio_levels"] = audio_check
     checks["subtitles"] = subtitle_check
+    checks["transitions_at_seams"] = geometry["transitions_at_seams"]
+    checks["v1_tiling"] = geometry["v1_tiling"]
 
     # ── Aggregate result ──
     # `subtitles` is deliberately outside the gate: its issues reach the
     # verdict through checks/all_issues/qa_report, but status and
     # distribution_ready move only on the checks above. The set below is
-    # exactly the keys the old `all(checks.values())` read, so nothing
-    # that gated before stops gating.
+    # exactly the keys the old `all(checks.values())` read, plus the two
+    # plan-geometry checks this step now holds so the prompt no longer
+    # has to.
     gating = ("file_exists", "technical", "framing", "duration",
-              "black_frames", "audio_levels")
+              "black_frames", "audio_levels", "transitions_at_seams",
+              "v1_tiling")
     all_passed = all(checks.get(k, {}).get("pass", False) for k in gating)
     critical_passed = all(
         checks.get(k, {}).get("pass", False)
