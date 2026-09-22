@@ -12,11 +12,19 @@ What is pinned:
 - the five ops qualify to the right class: move / swap_pixels /
   add_overlay / remove_overlay are `composed`; retime is
   `composed_with_rederivation`;
+- two structural exclusions: adds to a comp-bearing row (V1/V2)
+  refuse, and a move across rows refuses - both name what to state
+  instead, before anything is staged;
 - the cost statements carry the measured numbers and never the old
   spike ratio: no "50x", no "~112s rebuild";
 - anything unclassifiable refuses with its reason: unknown ops,
   vacating continuous rows, undeclared treatments, collisions,
   graded swaps, comp-carrying swaps, manifest mismatches;
+- every producer of a refused comp is accounted for: a drawing comp
+  refuses the swap, Resolve's own empty auto composition still
+  qualifies, an unreadable graph refuses fail-closed;
+- grades ride from the approved timeline: a graded retime or move
+  keeps its nodes through the composition;
 - the `composed` class runs through `apply_composed_edit` with the
   null rederiver and verifies by re-reading the track.
 """
@@ -529,3 +537,253 @@ def test_pre_delete_refuses_when_the_target_is_not_there(tmp_path):
                         "why": "test"}])
     assert "does not hold" in str(refusal.value)
     assert timeline.delete_calls == []
+
+
+# ── Structural exclusions: named, before anything is staged ───────────
+
+
+def test_add_to_a_comp_row_refuses_and_names_rebuild(tmp_path):
+    """A new item on V1/V2 would land with no treatment comp.
+
+    Every clip on a comp-bearing row carries one, and a newly placed
+    item has no manifest spec for the pass to key one to - so the
+    null path would sail it through comp-less beside treated
+    neighbours, and it would render looking like a choice. Excluded
+    by name: the rebuild plans the new clip with its treatment.
+    """
+    timeline, _pool, _media = build_reel(tmp_path)
+    for row in ("V1", "V2"):
+        with pytest.raises(tu.TouchupRefused) as refusal:
+            tu.qualify(_tracks(timeline),
+                       {"reel": 1, "edits": [
+                           {"op": "add_overlay", "row": row,
+                            "media": "/lab/card.mov", "record": 2000,
+                            "duration": 24, "properties": {}}]})
+        message = str(refusal.value)
+        assert row in message
+        assert "build-reels" in message
+    # The overlay rows stay servable: the refusal is about the row,
+    # not about adds.
+    qualified = tu.qualify(_tracks(timeline),
+                           {"reel": 1, "edits": [
+                               {"op": "add_overlay", "row": "V4",
+                                "media": "/lab/card.mov", "record": 1300,
+                                "duration": 40, "properties": {}}]})
+    assert qualified.gate_class == tu.COMPOSED
+
+
+def test_cross_row_move_refuses_and_names_remove_add(tmp_path):
+    """The composition addresses a delete by (row, position).
+
+    A move keyed by its target row but its source position would
+    capture whatever sits at that position on the target row -
+    deleting a bystander while duplicating the moved item. So the
+    gate refuses the cross-row move before anything is staged, and
+    names the two edits that state the carrying explicitly.
+    """
+    timeline, _pool, _media = build_reel(tmp_path)
+    with pytest.raises(tu.TouchupRefused) as refusal:
+        tu.qualify(_tracks(timeline),
+                   {"reel": 1, "edits": [
+                       {"op": "move", "row": "V4", "item": 0,
+                        "to_row": "V3", "to_record": 1300}]})
+    message = str(refusal.value)
+    assert "across rows" in message
+    assert "remove_overlay" in message and "add_overlay" in message
+    # Same-row repositioning - the move the gate serves - is untouched.
+    qualified = tu.qualify(_tracks(timeline),
+                           {"reel": 1, "edits": [
+                               {"op": "move", "row": "V4", "item": 0,
+                                "to_row": "V4", "to_record": 1300}]})
+    assert qualified.gate_class == tu.COMPOSED
+
+
+# ── Every producer of a refused comp, accounted for ──────────────────
+
+
+def test_swap_on_an_empty_auto_comp_still_qualifies(tmp_path):
+    """Resolve gives every plain item its own empty composition.
+
+    That deterministically-produced comp draws nothing, so it is not
+    a treatment and the swap refusal written against builder comps
+    must not catch it - a gate that failed this correct output would
+    be no better than one that cannot fail (AGENTS.md 10.4).
+    """
+    from tests.composed_edit_harness import (
+        FakeComp, FakeTool, covering_window)
+
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.rows["V4"][0].comps = [FakeComp({
+        "MediaIn1": FakeTool("MediaIn", covering_window(40, 0, 200)),
+        "MediaOut1": FakeTool("MediaOut", {}),
+        "AudioDisplay1": FakeTool("AudioDisplay", {})})]
+    assert timeline.rows["V4"][0].GetFusionCompCount() == 1
+
+    qualification = tu.qualify(_tracks(timeline),
+                               {"reel": 1, "edits": [
+                                   {"op": "swap_pixels", "row": "V4",
+                                    "item": 0,
+                                    "media": "/lab/card.mov"}]})
+    assert qualification.gate_class == tu.COMPOSED
+
+
+def test_swap_on_an_unreadable_comp_refuses(tmp_path):
+    """Fail closed: an unreadable graph is not evidence of an empty one."""
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.rows["V4"][0].comps = [object()]  # answers no getter
+    with pytest.raises(tu.TouchupRefused) as refusal:
+        tu.qualify(_tracks(timeline),
+                   {"reel": 1, "edits": [
+                       {"op": "swap_pixels", "row": "V4", "item": 0,
+                        "media": "/lab/card.mov"}]})
+    assert "drawing" in str(refusal.value)
+
+
+def test_graded_swap_refuses_at_resolve(tmp_path):
+    """An Insertion cannot take a grade from an item being deleted.
+
+    The V3 overlay carries no comp, so it passes qualify - and the
+    resolve then refuses its 8-node grade by name, before anything
+    is staged. The legitimate producer - Resolve's own default
+    single node - is what every qualifying swap test above rides on.
+    """
+    from tests.composed_edit_harness import FakeMediaPoolItem
+
+    timeline, _pool, _media = build_reel(tmp_path)
+    timeline.rows["V4"][0].nodes = 8  # graded, but no drawing comp
+    pixels = tmp_path / "graded-swap.mov"
+    pixels.write_bytes(b"fake-rendered-overlay")
+    spec = {"reel": 1, "edits": [
+        {"op": "swap_pixels", "row": "V4", "item": 0,
+         "media": str(pixels)}]}
+    qualification = tu.qualify(_tracks(timeline), spec)
+    assert qualification.gate_class == tu.COMPOSED
+    stub = _StubPool([FakeMediaPoolItem(str(pixels), frames=200)])
+    with pytest.raises(tu.TouchupRefused) as refusal:
+        tu._resolve_insertions(stub, timeline,
+                               qualification.insertions)
+    assert "colour grade" in str(refusal.value)
+
+
+# ── Grades ride from the approved timeline ───────────────────────────
+
+
+class _Rederiver(ce.CompRederiver):
+    """Re-keys covering comps for length-changed comp items, as the
+    builder's pass does (it reads played lengths off the live items)."""
+
+    def __init__(self, timeline):
+        self.timeline = timeline
+
+    def reachable_reason(self, changes):
+        return None
+
+    def rederive(self, changes):
+        from tests.composed_edit_harness import FakeItem, covering_window
+        for change in changes:
+            if not (change.played_length_changes and change.comp_count):
+                continue
+            row = self.timeline.rows[change.row]
+            item = next(i for i in row
+                        if i.GetStart() == change.record_frame)
+            item.comps = FakeItem(
+                item.mpi, item.start, item.duration, item.left_offset,
+                comp_windows=[covering_window(
+                    item.duration, item.left_offset,
+                    item.mpi.frames)]).comps
+        return {"ran": True, "ok": True}
+
+    def expects_comp(self, row, record_frame):
+        return False
+
+
+def _staged_pair(tmp_path):
+    """Approved + staging timelines with a pool bound to the staging.
+
+    Mirrors `_edit_staged`: the plan qualifies off the staging read,
+    the grades resolve off the approved reel, the composition runs on
+    the staging copy.
+    """
+    from tests.composed_edit_harness import FakeMediaPool, duplicate
+    approved, _pool, media = build_reel(tmp_path)
+    staged = duplicate(approved)
+    return approved, staged, FakeMediaPool(staged), media
+
+
+def test_grade_sources_map_by_pre_edit_span(tmp_path):
+    approved, staged, _pool, _media = _staged_pair(tmp_path)
+    spec = {"reel": 1, "edits": [
+        {"op": "retime", "row": "V1", "item": 0, "duration": 492}]}
+    qualification = tu.qualify(_tracks(staged), spec)
+    changes = tu._rekey_changes(_tracks(staged), qualification)
+    grades = tu._grade_sources_for(approved, changes,
+                                   qualification.moves)
+    head = next(c for c in changes
+                if (c.row, c.item_index) == ("V1", 0))
+    assert grades[("V1", 0)] is approved.rows["V1"][0]
+    assert head.previous_record == approved.rows["V1"][0].GetStart()
+
+    spec = {"reel": 1, "edits": [
+        {"op": "remove_overlay", "row": "V4", "item": 1},
+        {"op": "move", "row": "V4", "item": 2, "to_row": "V4",
+         "to_record": 1300}]}
+    qualification = tu.qualify(_tracks(staged), spec)
+    tu._pre_delete_removed(staged, qualification.removals)
+    changes = tu._rekey_changes(_tracks(staged), qualification)
+    # The rekey re-points the move at its re-seated change object.
+    assert qualification.moves[0]["change"] in changes
+    grades = tu._grade_sources_for(approved, changes,
+                                   qualification.moves)
+    moved = next(c for c in changes if c.record_frame == 1300)
+    assert moved.item_index == 1  # re-seated past the pre-delete
+    assert grades[(moved.row, moved.item_index)] is \
+        approved.rows["V4"][2]
+
+
+def test_retime_keeps_its_grade_through_the_qualified_plan(tmp_path):
+    """A graded retime without the carry renders de-graded: 8 nodes in,
+    one node out. The wiring carries each re-placed item's grade from
+    the approved reel and the restore judges it by read-back."""
+    approved, staged, pool, _media = _staged_pair(tmp_path)
+    spec = {"reel": 1, "edits": [
+        {"op": "retime", "row": "V1", "item": 0, "duration": 492}]}
+    qualification = tu.qualify(_tracks(staged), spec)
+    assert qualification.gate_class == tu.COMPOSED_WITH_REDERIVATION
+    tu._pre_delete_removed(staged, qualification.removals)
+    changes = tu._rekey_changes(_tracks(staged), qualification)
+    grades = tu._grade_sources_for(approved, changes,
+                                   qualification.moves)
+    receipt = ce.apply_composed_edit(
+        timeline=staged, media_pool=pool, changes=changes,
+        comp_dir=str(tmp_path / "c"), withheld_dir=str(tmp_path / "w"),
+        rederiver=_Rederiver(staged), grade_sources=grades)
+
+    head = next(i for i in staged.rows["V1"] if i.GetStart() == 590)
+    assert head.GetDuration() == 492
+    assert head.GetNumNodes() == 8, "the retimed head lost its grade"
+    assert head.GetProperty("ZoomX") == 2.307
+    assert receipt.rederived["verified"]["checked"] == 1
+    # The approved reel stands untouched behind the staging.
+    assert approved.rows["V1"][0].GetDuration() == 479
+    assert approved.rows["V1"][0].GetNumNodes() == 8
+
+
+def test_move_of_a_graded_overlay_keeps_its_grade(tmp_path):
+    approved, staged, pool, _media = _staged_pair(tmp_path)
+    approved.rows["V3"][0].nodes = 8
+    staged.rows["V3"][0].nodes = 8
+    spec = {"reel": 1, "edits": [
+        {"op": "move", "row": "V3", "item": 0, "to_row": "V3",
+         "to_record": 1300}]}
+    qualification = tu.qualify(_tracks(staged), spec)
+    assert qualification.gate_class == tu.COMPOSED
+    changes = tu._rekey_changes(_tracks(staged), qualification)
+    grades = tu._grade_sources_for(approved, changes,
+                                   qualification.moves)
+    ce.apply_composed_edit(
+        timeline=staged, media_pool=pool, changes=changes,
+        comp_dir=str(tmp_path / "c"), withheld_dir=str(tmp_path / "w"),
+        rederiver=tu._NullRederiver("test"), grade_sources=grades)
+    moved = next(i for i in staged.rows["V3"]
+                 if i.GetStart() == 1300)
+    assert moved.GetNumNodes() == 8, "the moved overlay lost its grade"

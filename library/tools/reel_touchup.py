@@ -17,11 +17,15 @@ call.
 
 The five ops
 ------------
-- `move` - an overlay item to a different row and/or record position.
-  Same duration, same pixels.  The source row must be an overlay row
-  (V3+ video): vacating V1, V2 or any audio row refuses, because that
-  leaves black or silence in continuous program and stating the
-  covering change is the caller's job, not the gate's guess.
+- `move` - an overlay item to a different record position on the SAME
+  row.  Same duration, same pixels.  A move across rows refuses: the
+  composition addresses what it deletes by (row, position), so a
+  cross-row plan would capture whatever sits at that position on the
+  target row.  State that as `remove_overlay` plus `add_overlay`.
+  The source row must be an overlay row (V3+ video): vacating V1, V2
+  or any audio row refuses, because that leaves black or silence in
+  continuous program and stating the covering change is the caller's
+  job, not the gate's guess.
 - `swap_pixels` - an overlay item's pixels for a re-rendered file at
   the same span.  The replaced item must carry no drawing Fusion comp
   (there is nothing to carry a treatment across a pool-item swap) and
@@ -29,9 +33,13 @@ The five ops
   cannot take a grade from an item about to be deleted).  Its
   transform properties are CARRIED from its own live read and declared
   in the receipt - carried, never invented (AGENTS.md 10.5).
-- `add_overlay` - a new overlay item at a stated record frame.
-  `properties` is REQUIRED: a placed item comes back at identity, so
-  an undeclared treatment renders a framing nobody chose
+- `add_overlay` - a new overlay item at a stated record frame, on an
+  OVERLAY row (V3+).  Adding to a comp-bearing row (V1/V2,
+  `FUSION_COMP_TRACKS`) refuses: every clip there carries a
+  treatment comp and a newly placed item has no manifest spec for
+  the pass to key one to, so it would land untreated beside treated
+  neighbours.  `properties` is REQUIRED: a placed item comes back at
+  identity, so an undeclared treatment renders a framing nobody chose
   (`composed_edit.InsertionUndeclared`).
 - `remove_overlay` - an overlay item off its row, same source-row rule
   as `move`.  `composed_edit` only deletes what it re-places, so the
@@ -92,6 +100,11 @@ it against the source, edits the copy, verifies by re-reading the
 track, and only then swaps the names - with the replace guard, the
 sign-off check, marker carry, archive retirement and the carried
 signature close, mirroring `promote_staged_reels` phases 0-2.
+Grades ride from the APPROVED timeline: a re-placed item comes back
+with one colour node where it had eight, so every re-placed change
+carries its grade from the live item on the untouched reel
+(`_grade_sources_for`, resolved by source row + pre-edit record
+frame and judged by read-back).
 
 On `reel_rebuild_need`'s "on this reel the composed path is not
 faster"
@@ -127,6 +140,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional, Sequence
 
 from library.tools import composed_edit as _ce
+from library.tools.execution.fusion_tracks import FUSION_COMP_TRACKS
 
 # ── Refusals ─────────────────────────────────────────────────────────
 #
@@ -155,6 +169,16 @@ COMPOSED_WITH_REDERIVATION = "composed_with_rederivation"
 #: order (`docs/TIMELINE_SOP.md`), sparse by nature, so a gap there
 #: is an ordinary state.
 CONTINUOUS_VIDEO_ROWS = ("V1", "V2")
+
+
+#: Rows the comp pass writes per-clip Fusion comps on. Read off the
+#: one enumeration (`execution/fusion_tracks.FUSION_COMP_TRACKS`) rather
+#: than restated, so the gate and the pass cannot disagree about which
+#: rows are treated. A manifest can additionally declare V3+ rows for a
+#: future multi-angle reel; `qualify` is pure over the track read and
+#: has no manifest, so the static rows are the refusal's boundary and
+#: that future is named in `_op_add_overlay` rather than guessed at.
+COMP_ROWS = {f"V{index}" for index in FUSION_COMP_TRACKS}
 
 
 def _is_audio_row(row: str) -> bool:
@@ -482,6 +506,18 @@ def _op_move(edit, position, tracks, spans, changes, insertions,
             f"REFUSING: edit {position} moves to row {to_row}, and "
             f"this reel has no such row. The gate never invents a "
             f"track - name one the timeline already carries.")
+    if to_row != row:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} moves {row}[{item_index}] to "
+            f"{to_row}, and a move across rows is not a composed "
+            f"edit: the composition addresses what it deletes by "
+            f"(row, position), so a cross-row plan would capture "
+            f"whatever sits at that position on the TARGET row and "
+            f"delete a bystander while duplicating the moved item. "
+            f"State it as two edits - `remove_overlay` from {row} "
+            f"plus `add_overlay` on {to_row} carrying the treatment "
+            f"explicitly - rather than asking the gate to guess the "
+            f"carrying.")
     clip = _find_clip(tracks, row, int(item_index))
     duration = int(clip["duration"])
     own_span = (int(clip["record_in"]), int(clip["record_out"]))
@@ -567,6 +603,19 @@ def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
         raise TouchupRefused(
             f"REFUSING: edit {position} adds to row {row}, and this "
             f"reel has no such row. The gate never invents a track.")
+    if row in COMP_ROWS:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} adds a new item on {row}, "
+            f"and {row} is a comp-bearing row - the pass writes "
+            f"per-clip Fusion comps there "
+            f"(`execution/fusion_tracks.FUSION_COMP_TRACKS`), so "
+            f"every clip around it carries a treatment. A newly "
+            f"placed item has no manifest spec for the pass to key "
+            f"one to, so it would land with no comp beside treated "
+            f"neighbours - and render, looking like a choice. "
+            f"Rebuild the reel with `build-reels`, which plans the "
+            f"new clip with its treatment, instead of touching it "
+            f"up.")
     _check_free(spans.get(row, []), row, int(record), int(duration),
                 what=f"edit {position} (`add_overlay`)")
     insertions.append(_PendingSwap(
@@ -1086,6 +1135,7 @@ def _rekey_changes(staging_tracks: Sequence[Mapping],
     move_source = {id(m.get("change")): str(m.get("from_row")).upper()
                    for m in qualification.moves}
     rekeyed = []
+    by_id = {}
     for change in qualification.changes:
         source_row = move_source.get(id(change), change.row)
         key = (source_row, int(change.previous_record))
@@ -1096,8 +1146,50 @@ def _rekey_changes(staging_tracks: Sequence[Mapping],
                 f"planned {change.how}. The plan and the timeline "
                 f"disagree - nothing further is deleted and the "
                 f"approved timeline stands.")
-        rekeyed.append(_dc.replace(change, item_index=position[key]))
+        new = _dc.replace(change, item_index=position[key])
+        by_id[id(change)] = new
+        rekeyed.append(new)
+    # The moves table states each move with both ends; re-point its
+    # change at the rekeyed object so everything downstream of here -
+    # the grade carry, the overlap accounting - reads the move rather
+    # than inferring it from a stale identity.
+    for move in qualification.moves:
+        if id(move.get("change")) in by_id:
+            move["change"] = by_id[id(move["change"])]
     return rekeyed
+
+
+def _grade_sources_for(source: Any,
+                       changes: Sequence[_ce.ItemChange],
+                       moves: Sequence[dict]) -> dict:
+    """`(row, item_index)` to the live item carrying this change's grade.
+
+    A re-placed item comes back with one colour node where it had
+    eight, so every change the composition re-places carries its grade
+    from the item that already has it.  The source is a LIVE item on
+    the APPROVED timeline - which this whole path never mutates - so
+    the delete cannot take it.  Addressed by (source row, pre-edit
+    record frame): the pre-delete re-seats positional indexes, but an
+    item's pre-edit span is stable, and a move's source row lives in
+    the moves table (its change is keyed by the target row).  A change
+    with no live item at its pre-edit span gets no entry, and the
+    restore then judges the grade like every other property - by
+    read-back, never by assumption.
+    """
+    approved: dict = {}
+    for row, items in _live_rows(source).items():
+        for item in items:
+            approved[(str(row).upper(),
+                      _live_prop(item, "GetStart", None))] = item
+    move_source = {id(m.get("change")): str(m.get("from_row")).upper()
+                   for m in moves}
+    out: dict = {}
+    for change in changes:
+        src_row = str(move_source.get(id(change), change.row)).upper()
+        src = approved.get((src_row, int(change.previous_record)))
+        if src is not None:
+            out[(change.row, change.item_index)] = src
+    return out
 
 
 def _plan_post_edit_counts(tracks: Sequence[Mapping],
@@ -1370,6 +1462,14 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # read before the composition addresses anything by them.
     changes = _rekey_changes(_read.read_tracks(staged),
                              qualification)
+    # Grades ride from the APPROVED timeline, never from the staging
+    # copy: a re-placed item comes back with one colour node where it
+    # had eight, and the staging items are about to be deleted. The
+    # approved reel is never mutated, so its handles stay live
+    # through the restore, which judges every grade by read-back.
+    grade_sources = _grade_sources_for(source, changes,
+                                       qualification.moves)
+    receipt["grades_carried"] = len(grade_sources)
 
     edit_started = time.time()
     composed = _ce.apply_composed_edit(
@@ -1378,6 +1478,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         comp_dir=os.path.join(comp_dir, "comps"),
         withheld_dir=os.path.join(comp_dir, "withheld"),
         rederiver=rederiver,
+        grade_sources=grade_sources,
         link_rows={},
         picture_row="V1")
     receipt["composed_seconds"] = round(time.time() - edit_started,
