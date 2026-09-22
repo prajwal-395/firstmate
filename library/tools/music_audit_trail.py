@@ -57,6 +57,20 @@ AUDIT_FILENAME = "music_audit_trail.json"
 OWNING_STEP = "music_selection"
 
 
+class AuditTrailMissing(ValueError):
+    """A resolved music selection with no readable audit sidecar.
+
+    Step 2.04's post-bridge writes the sidecar warn-and-continue: a
+    failed write prints one WARNING line into a long stderr stream and
+    the run goes on. That trade is deliberate - failing a long run on
+    the captain's own machine over a sidecar is worse than a warning -
+    but it means a missing file is a silently half-reverted ruling
+    (2026-09-16: the record is KEPT, only the carrier changes) unless
+    something downstream says so loudly. This error is that something.
+    It is raised by the pre-render check, never at the write site.
+    """
+
+
 def audit_path(project_folder: str) -> Path:
     """The audit file's path, for reading. Nothing is created."""
     from library.tools.project_layout import ProjectLayout
@@ -100,3 +114,74 @@ def read_audit_trail(project_folder: str) -> Optional[Dict[str, Any]]:
     with open(path, encoding="utf-8") as handle:
         data = json.load(handle)
     return data if isinstance(data, dict) else None
+
+
+def is_resolved(music_selection: Any) -> bool:
+    """Whether 2.04 resolved a track - the condition the audit covers.
+
+    A resolved selection names the file that will play (`audio_path`
+    at the top level, the key every downstream consumer reads). An
+    empty selection, or one naming no track, leaves no record to
+    keep and the sidecar is not expected.
+    """
+    if not isinstance(music_selection, dict):
+        return False
+    path = music_selection.get("audio_path")
+    return isinstance(path, str) and bool(path.strip())
+
+
+def assert_audit_trail_present(
+    project_folder: str,
+    music_selection: Any,
+) -> Optional[Dict[str, Any]]:
+    """The sidecar exists and parses whenever a selection was resolved.
+
+    The other half of 2.04's warn-and-continue write: the post-bridge
+    keeps the run alive over a failed write with one WARNING line
+    nobody is looking for, so the pre-render check (`compile_manifest`)
+    calls this and REFUSES loudly when the file is gone. Silence here
+    would quietly revert half of the captain's 2026-09-16 ruling while
+    reporting success.
+
+    Returns the parsed record when it is there, None when no selection
+    was resolved and no record is owed. Raises `AuditTrailMissing`
+    when a resolved selection has no file, no parse, or no record in
+    it - never at the write site, always here.
+    """
+    if not is_resolved(music_selection):
+        return None
+    path = audit_path(project_folder)
+    if not path.is_file():
+        raise AuditTrailMissing(
+            f"music_selection names {music_selection.get('audio_path')!r} "
+            f"but the audit sidecar is missing: {path} does not exist. "
+            f"Step 2.04 writes this file warn-and-continue, so a missing "
+            f"file means that WARNING fired unseen - the run kept the "
+            f"choice and lost the record of why it was chosen, which "
+            f"reverts half of the 2026-09-16 ruling (the record is KEPT, "
+            f"only the carrier changes). Re-run step 2.04 so the choice "
+            f"is recorded: "
+            f"manage_project.py run <project> --rerun music_selection"
+        )
+    try:
+        with open(path, encoding="utf-8") as handle:
+            stored = json.load(handle)
+    except json.JSONDecodeError as exc:
+        raise AuditTrailMissing(
+            f"the music audit sidecar does not parse: {path} "
+            f"({exc}). A resolved selection "
+            f"({music_selection.get('audio_path')!r}) owes a readable "
+            f"record of why it was chosen - re-run step 2.04: "
+            f"manage_project.py run <project> --rerun music_selection"
+        ) from exc
+    if not isinstance(stored, dict) or not stored:
+        raise AuditTrailMissing(
+            f"the music audit sidecar holds no record: {path} parsed "
+            f"as {type(stored).__name__}, not the resolved selection. "
+            f"A resolved selection "
+            f"({music_selection.get('audio_path')!r}) owes the whole "
+            f"choice - candidates, justification, measurements - in "
+            f"that file. Re-run step 2.04: "
+            f"manage_project.py run <project> --rerun music_selection"
+        )
+    return stored

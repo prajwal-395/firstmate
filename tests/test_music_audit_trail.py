@@ -179,6 +179,53 @@ def test_the_audit_file_refuses_an_empty_selection(tmp_path):
     assert audit.read_audit_trail(str(tmp_path)) is None
 
 
+# ── The other half of 2.04's warn-and-continue write ──────────────
+#
+# The post-bridge keeps the run alive over a failed sidecar write with
+# one WARNING line nobody is looking for. `assert_audit_trail_present`
+# is what makes somebody look: the pre-render check calls it whenever
+# a selection was resolved, and it refuses loudly when the record is
+# gone. Without it the run silently reverts half of the 2026-09-16
+# ruling (the record is KEPT, only the carrier changes) while
+# reporting success.
+
+def test_no_selection_resolved_means_no_record_owed(tmp_path):
+    for unresolved in ({}, {"title": "a vibe"}, {"audio_path": "  "},
+                       None, "a path"):
+        assert audit.assert_audit_trail_present(
+            str(tmp_path), unresolved) is None
+
+
+def test_a_present_sidecar_reads_back(tmp_path):
+    selection = _selection()
+    audit.write_audit_trail(str(tmp_path), selection)
+    assert audit.assert_audit_trail_present(
+        str(tmp_path), selection) == selection
+
+
+def test_a_missing_sidecar_after_a_resolved_selection_refuses(tmp_path):
+    selection = _selection()
+    with pytest.raises(audit.AuditTrailMissing,
+                       match="audit sidecar is missing"):
+        audit.assert_audit_trail_present(str(tmp_path), selection)
+
+
+def test_an_unparseable_sidecar_refuses(tmp_path):
+    selection = _selection()
+    path = audit.write_audit_trail(str(tmp_path), selection)
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(audit.AuditTrailMissing, match="does not parse"):
+        audit.assert_audit_trail_present(str(tmp_path), selection)
+
+
+def test_a_sidecar_holding_no_record_refuses(tmp_path):
+    selection = _selection()
+    path = audit.write_audit_trail(str(tmp_path), selection)
+    path.write_text("[1, 2]", encoding="utf-8")
+    with pytest.raises(audit.AuditTrailMissing, match="holds no record"):
+        audit.assert_audit_trail_present(str(tmp_path), selection)
+
+
 def test_step_2_04_post_bridge_writes_the_sidecar(tmp_path):
     """The real 2.04 post-bridge leaves the sidecar beside its output."""
     from library.steps.step_2_04_music_selection import (

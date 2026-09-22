@@ -259,12 +259,16 @@ class TestCompileManifest(unittest.TestCase):
         in the render. See AGENTS.md 10.5.
         """
         import os as _os
+        import tempfile as _tempfile
         from unittest.mock import patch
         from library.steps.step_5_04_compile_manifest.step import compile_manifest
+        from library.tools import music_audit_trail as _audit
 
-        aroll = _os.path.abspath("bed_aroll.mov")
-        broll = _os.path.abspath("bed_broll.mov")
-        music = _os.path.abspath("bed_music.wav")
+        _tmp = _tempfile.TemporaryDirectory()
+        self.addCleanup(_tmp.cleanup)
+        aroll = _os.path.join(_tmp.name, "bed_aroll.mov")
+        broll = _os.path.join(_tmp.name, "bed_broll.mov")
+        music = _os.path.join(_tmp.name, "bed_music.wav")
         for path in (aroll, broll, music):
             with open(path, "w") as f:
                 f.write("dummy")
@@ -316,9 +320,15 @@ class TestCompileManifest(unittest.TestCase):
                  "assessment": {"clip_type": "a-roll"}}]},
         }
 
+        # A resolved selection owes its audit sidecar: the pre-render
+        # check refuses without it, so this run stages what 2.04's
+        # post-bridge writes on a real run. The compile reads the
+        # project root off `out_dir`, hence a real directory.
+        _audit.write_audit_trail(
+            _tmp.name, inputs["music_selection"])
         with patch("library.steps.step_5_04_compile_manifest.step.load",
                    side_effect=lambda out_dir, filename: inputs):
-            manifest = compile_manifest("dummy")
+            manifest = compile_manifest(_os.path.join(_tmp.name, "out"))
 
         v1_end = max(c["timeline_out"] for c in manifest["tracks"]["V1"]["clips"])
         self.assertAlmostEqual(v1_end, 1.914)

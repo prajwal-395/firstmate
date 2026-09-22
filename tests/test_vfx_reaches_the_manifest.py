@@ -57,6 +57,12 @@ def recorded_run(tmp_path):
     outputs = _step_outputs(names["a_roll.mov"], names["b_roll.mov"],
                             names["bed.wav"], names["whoosh.wav"],
                             names["sub_seg_000.mov"])
+    # A resolved selection owes its audit sidecar: the pre-render check
+    # refuses without it, so stage what 2.04's post-bridge writes on a
+    # real run.
+    from library.tools import music_audit_trail as audit
+    audit.write_audit_trail(
+        str(project_dir), outputs["music_selection"]["music_selection"])
     return project_dir, layout, outputs, names["whoosh.wav"]
 
 

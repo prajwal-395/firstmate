@@ -130,9 +130,17 @@ def manifest(tmp_path):
     with open(str(tmp_path / "click.wav"), "w", encoding="utf-8") as f:
         f.write("dummy")
 
+    # A resolved selection owes its audit sidecar: the pre-render check
+    # refuses without it, so the fixture stages what 2.04's post-bridge
+    # writes on a real run. The compile reads the project root off
+    # `out_dir`, hence the output directory under tmp_path.
+    from library.tools import music_audit_trail as audit
+    audit.write_audit_trail(str(tmp_path), inputs["music_selection"])
+
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        return compile_manifest("dummy"), one, two
+        return (compile_manifest(str(tmp_path / "pipeline_output")),
+                one, two)
 
 
 def test_the_manifest_carries_a_multi_track_spliced_bed(manifest):

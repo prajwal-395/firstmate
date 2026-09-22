@@ -90,6 +90,7 @@ from tools.pipeline_validation import require_keys
 from tools.sfx_library import load_sfx_catalog, resolve_sfx_id
 from tools.beat_grid import assert_music_offset_is_the_chosen_section
 from library.tools.music_bed import bed_clips
+from library.tools.music_audit_trail import assert_audit_trail_present
 from library.tools.sfx_level import read_volume_db
 from library.tools.music_bed import describe as describe_music_bed
 from library.tools.music_bed import resolve_bed
@@ -1771,6 +1772,15 @@ def compile_manifest(out_dir: str) -> dict:
 
     # ── A2: Music ──
     ms = music_data.get("music_selection", {})
+    # The audit trail is a sidecar, not a spine key (captain's ruling,
+    # 2026-09-16: the record is KEPT, only the carrier changes), and
+    # step 2.04 writes it warn-and-continue - one WARNING line in a
+    # long stderr stream nobody is looking for. So the pre-render
+    # check asserts it here, whenever a selection was resolved: a run
+    # that kept the choice but lost the record refuses loudly instead
+    # of quietly reverting half of that ruling while reporting
+    # success. See library/tools/music_audit_trail.py.
+    assert_audit_trail_present(_project_root, ms)
     # WHICH PARTS of WHICH TRACKS play, and WHERE, is the plan's decision
     # and this is where it lands. `source_in: 0.0` used to be a literal
     # here, so the `splices` step 2.04's handoff has always asked for

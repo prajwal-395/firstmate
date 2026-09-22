@@ -39,6 +39,7 @@ import json
 import pytest
 
 from library.tools import input_contract, run_scope
+from library.tools import music_audit_trail as audit
 from library.tools.project_layout import ProjectLayout
 
 
@@ -175,6 +176,11 @@ def project(tmp_path):
     outputs = _step_outputs(names["a_roll.mov"], names["b_roll.mov"],
                             names["bed.wav"], names["whoosh.wav"],
                             names["sub_seg_000.mov"])
+    # A resolved selection owes its audit sidecar: the pre-render check
+    # refuses without it, so the fixture stages what 2.04's post-bridge
+    # writes on a real run.
+    audit.write_audit_trail(
+        str(project_dir), outputs["music_selection"]["music_selection"])
     return project_dir, layout, outputs, names["whoosh.wav"]
 
 
@@ -222,6 +228,31 @@ def test_the_baseline_compiles_with_every_input_present(project):
 
 
 # ── The four the issue is about ──────────────────────────────────────
+
+def test_a_resolved_selection_with_no_sidecar_refuses_the_compile(project):
+    """2.04's warn-and-continue write must not pass silently downstream.
+
+    Step 2.04 writes `music_audit_trail.json` warn-and-continue: a
+    failed write is one WARNING line in a long stderr stream nobody is
+    looking for. The pre-render check is the other half of that trade -
+    a run that kept the choice but lost the record of why it was
+    chosen refuses here, loudly, instead of quietly reverting half of
+    the 2026-09-16 ruling while reporting success.
+    """
+    project_dir, layout, _outputs, _sfx_file = project
+    (layout.step_dir("music_selection") / audit.AUDIT_FILENAME).unlink()
+    with pytest.raises(audit.AuditTrailMissing,
+                       match="audit sidecar is missing"):
+        _compile(project)
+
+
+def test_a_resolved_selection_with_an_unparseable_sidecar_refuses(project):
+    """A sidecar that does not parse is no record either."""
+    project_dir, layout, _outputs, _sfx_file = project
+    (layout.step_dir("music_selection") / audit.AUDIT_FILENAME).write_text(
+        "{not json", encoding="utf-8")
+    with pytest.raises(audit.AuditTrailMissing, match="does not parse"):
+        _compile(project)
 
 def test_a_manifest_compiles_with_no_transition_plan(project):
     manifest = _compile(project, ("plan_transitions", "transition_spec"))

@@ -178,9 +178,14 @@ def _compile_with(music_selection, tmp_path):
         }]},
     }
     from library.steps.step_5_04_compile_manifest.step import compile_manifest
+    from library.tools import music_audit_trail as audit
+    # A resolved selection owes its audit sidecar: the pre-render check
+    # refuses without it, so stage what 2.04's post-bridge writes on a
+    # real run. The compile reads the project root off `out_dir`.
+    audit.write_audit_trail(str(tmp_path), inputs["music_selection"])
     with patch("library.steps.step_5_04_compile_manifest.step.load",
                side_effect=lambda out_dir, filename: inputs):
-        return compile_manifest(str(tmp_path))
+        return compile_manifest(str(tmp_path / "pipeline_output"))
 
 
 def test_the_chosen_section_is_where_the_bed_is_placed(tmp_path):
