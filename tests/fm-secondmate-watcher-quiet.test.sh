@@ -28,6 +28,8 @@ set -u
 . "$ROOT/bin/fm-wake-lib.sh"
 # shellcheck source=bin/fm-supervision-lib.sh
 . "$ROOT/bin/fm-supervision-lib.sh"
+# shellcheck source=bin/fm-stopped-lib.sh
+. "$ROOT/bin/fm-stopped-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-watcher-quiet)
 WATCH="$ROOT/bin/fm-watch.sh"
@@ -80,6 +82,112 @@ fm_mate_watcher_health "$mate/state" "$mate/bin/fm-watch.sh" 300 "$mate" "$mate"
 [ "$FM_MATE_WATCHER_DOWN" = false ] \
   || fail "an idle mate must stay silent, got down=$FM_MATE_WATCHER_DOWN desc=$FM_MATE_WATCHER_DESC"
 pass "an idle mate with nothing riding on its watcher stays silent"
+
+# --- parked homes stay silent: empty and all-stopped --------------------------
+# FIRING TWO (vep): zero task records in state/, zero in-flight backlog rows,
+# zero queued wakes - yet the check fired. An empty mate home needs no
+# supervision, so the verdict must stay down=false and the observe path must
+# stay silent and markerless. The backlog file below mirrors the production
+# shape (rows present, none in flight); the predicate reads task records, and
+# the file documents that neither signal claimed work.
+#
+# FIRING ONE (lucie): six task records, all deliberately stopped after their
+# work was pushed - yet the check fired. A declared stop is agent-free by
+# design, so a home whose every record is stopped must read exactly like an
+# idle home. A single live record, or a stop record left behind by a replaced
+# agent, must still fire: the exclusion silences parked homes, never workers.
+
+# make_stopped_task <mate-state> <id> [gen]: a task record parked on purpose,
+# with a declared-stop record bound to its current incarnation.
+make_stopped_task() {
+  local mstate=$1 id=$2 gen=${3:-gen-$2-1}
+  printf 'kind=ship\nspawn_gen=%s\n' "$gen" > "$mstate/$id.meta"
+  fm_stopped_record "$mstate" "$id" "parked for test" \
+    || fail "could not record a declared stop for $id"
+}
+
+# observe_mate <parent-state> <mate-home> <task>: endpoint-record the mate and
+# run one observation, printing the reason (if any) and returning its rc.
+observe_mate() {
+  local pstate=$1 mhome=$2 task=$3
+  cat > "$pstate/$task.meta" <<EOF
+kind=secondmate
+harness=claude
+home=$mhome
+EOF
+  fm_mate_quiet_observe "$pstate" "$pstate/$task.meta" 300
+}
+
+parkhome="$TMP_ROOT/parked"
+parkstate="$parkhome/parent/state"
+mkdir -p "$parkstate"
+
+# The vep shape: nothing of any kind.
+vep=$(make_mate "$parkhome/vepmate" vepmate)
+mkdir -p "$vep/data"
+printf '# backlog\n\n- [x] done: earlier work (Done)\n' > "$vep/data/backlog.md"
+[ ! -e "$vep/state/.wake-queue" ] \
+  || fail "the empty-home fixture must hold zero queued wakes"
+fm_mate_watcher_health "$vep/state" "$vep/bin/fm-watch.sh" 300 "$vep" "$vep" autoarm
+[ "$FM_MATE_WATCHER_DOWN" = false ] \
+  || fail "a home with zero task records and zero in-flight rows must stay silent, got desc=$FM_MATE_WATCHER_DESC"
+out=$(observe_mate "$parkstate" "$vep" vepmate); rc=$?
+[ "$rc" -eq 0 ] || fail "observing an empty mate must succeed, got rc=$rc"
+[ -z "$out" ] || fail "an empty mate must stay silent, got: $out"
+[ ! -e "$parkstate/.secondmate-watcher-quiet-vepmate" ] \
+  || fail "an empty mate must leave no episode marker"
+pass "a home with zero task records and zero in-flight rows never reports quiet"
+
+# The live shape: one in-flight task, no live watcher - must still fire.
+live=$(make_mate "$parkhome/livemate" livemate need)
+mkdir -p "$live/data"
+printf '# backlog\n\n- [ ] live work (In flight)\n' > "$live/data/backlog.md"
+fm_mate_watcher_health "$live/state" "$live/bin/fm-watch.sh" 300 "$live" "$live" autoarm
+[ "$FM_MATE_WATCHER_DOWN" = true ] \
+  || fail "a home with a live in-flight task and no live watcher must read as down, got down=$FM_MATE_WATCHER_DOWN"
+out=$(observe_mate "$parkstate" "$live" livemate); rc=$?
+[ "$rc" -eq 0 ] || fail "observing a live mate must succeed, got rc=$rc"
+assert_contains "$out" "check: secondmate watcher quiet: mate=livemate" "observing a live mate must print its check reason"
+assert_present "$parkstate/.secondmate-watcher-quiet-livemate" "a live mate must leave a quiet-episode marker"
+pass "a home with a live in-flight task and no live watcher still reports quiet"
+
+# The lucie shape: every record stopped, nothing running.
+lucie=$(make_mate "$parkhome/lucie" luciemate)
+make_stopped_task "$lucie/state" t1
+make_stopped_task "$lucie/state" t2
+make_stopped_task "$lucie/state" t3
+fm_mate_watcher_health "$lucie/state" "$lucie/bin/fm-watch.sh" 300 "$lucie" "$lucie" autoarm
+[ "$FM_MATE_WATCHER_DOWN" = false ] \
+  || fail "a home whose every task record is stopped must stay silent, got desc=$FM_MATE_WATCHER_DESC"
+assert_contains "$FM_MATE_WATCHER_DESC" "stopped by design" "an all-stopped verdict must say why it stays silent"
+out=$(observe_mate "$parkstate" "$lucie" luciemate); rc=$?
+[ "$rc" -eq 0 ] || fail "observing an all-stopped mate must succeed, got rc=$rc"
+[ -z "$out" ] || fail "an all-stopped mate must stay silent, got: $out"
+[ ! -e "$parkstate/.secondmate-watcher-quiet-luciemate" ] \
+  || fail "an all-stopped mate must leave no episode marker"
+pass "a home whose every task record is stopped never reports quiet"
+
+# One live record among stopped ones still fires: the exclusion never
+# silences a worker that may still be running.
+mixed=$(make_mate "$parkhome/mixed" mixedmate)
+make_stopped_task "$mixed/state" s1
+printf 'kind=ship\nspawn_gen=%s\n' "gen-live-1" > "$mixed/state/w1.meta"
+fm_mate_watcher_health "$mixed/state" "$mixed/bin/fm-watch.sh" 300 "$mixed" "$mixed" autoarm
+[ "$FM_MATE_WATCHER_DOWN" = true ] \
+  || fail "one live record among stopped ones must still read as down, got down=$FM_MATE_WATCHER_DOWN"
+pass "one live record among stopped ones still reports quiet"
+
+# A stop record left behind by a replaced agent binds to nobody: the
+# replacement is supervised normally and still fires.
+replaced=$(make_mate "$parkhome/replaced" replacedmate)
+printf 'kind=ship\nspawn_gen=%s\n' "gen-old-1" > "$replaced/state/r1.meta"
+fm_stopped_record "$replaced/state" "r1" "parked for test" \
+  || fail "could not record a declared stop for r1"
+printf 'kind=ship\nspawn_gen=%s\n' "gen-new-2" > "$replaced/state/r1.meta"
+fm_mate_watcher_health "$replaced/state" "$replaced/bin/fm-watch.sh" 300 "$replaced" "$replaced" autoarm
+[ "$FM_MATE_WATCHER_DOWN" = true ] \
+  || fail "a stale stop record from a replaced agent must not silence its replacement, got down=$FM_MATE_WATCHER_DOWN"
+pass "a stale stop record never silences the replacement worker"
 
 mate=$(make_mate "$TMP_ROOT/fresh/state-home" freshmate need)
 touch "$mate/state/.last-watcher-beat"
