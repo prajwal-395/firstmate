@@ -647,7 +647,11 @@ test_descended_cap_survives_task_cleanup() {
   stub_env "$state" 0 1
   write_meta "$state" lane1 opencode "$FREE" scout
   arm_busy "$state" lane1 session-retry || fail "busy writer refused fixture"
-  record_cap "$state" lane1 78840 "$FREE" || fail "record refused fixture"
+  # 83823s is a measured horizon, not a round number: the 2026-09-21 evening
+  # cap event held three lanes on this rung with sidecars agreeing to within
+  # the minute (about 23h16m), which is the direct evidence the cap belongs
+  # to the rung and the vendor window rather than to any one task.
+  record_cap "$state" lane1 83823 "$FREE" || fail "record refused fixture"
   out=$(run_tick "$state") || fail "tick must never fail past the cap"
   case "$out" in
     relaunched' '*) : ;;
