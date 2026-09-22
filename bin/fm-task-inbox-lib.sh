@@ -433,3 +433,41 @@ fm_task_inbox_record_escalated() {  # <state-dir> <task-id> <record-path>
     return 1
   fi
 }
+
+# Retire every unhandled record for <task-id> that carries <corr-id> by moving
+# it to handled/ - the same acknowledgement the worker's own `mv` performs.
+# This is how a supervisor retires a request the worker already answered
+# through another channel (its parent status report) before the worker itself
+# moved the record: the replacement then never reads an instruction the
+# previous incarnation already answered. Idempotent: a record the worker
+# already moved, or a correlation with no unhandled record left, is a no-op
+# success. Only records carrying the exact token move; every other pending
+# record is left alone.
+fm_task_inbox_retire_corr() {  # <state-dir> <task-id> <corr-id>
+  local state=$1 task=$2 corr=$3 dir f body
+  case "$corr" in ''|*[!A-Fa-f0-9]*) return 2 ;; esac
+  [ "${#corr}" -eq 16 ] || return 2
+  case "$task" in ''|*/*) return 2 ;; esac
+  dir=$(fm_task_inbox_dir "$state" "$task")
+  [ -d "$dir" ] || return 0
+  [ ! -L "$dir" ] || return 1
+  mkdir -p "$dir/handled" || return 1
+  for f in "$dir"/*.msg; do
+    [ -e "$f" ] || continue
+    [ -f "$f" ] && [ ! -L "$f" ] || continue
+    body=$(fm_task_inbox_body "$f" 2>/dev/null) || continue
+    case "$body" in
+      *"corr=$corr"*) ;;
+      *) continue ;;
+    esac
+    if mv -f "$f" "$dir/handled/${f##*/}" 2>/dev/null; then
+      :
+    elif [ -e "$dir/handled/${f##*/}" ] || [ ! -e "$f" ]; then
+      # A concurrent worker acknowledgement won the same record.
+      :
+    else
+      return 1
+    fi
+  done
+  return 0
+}
