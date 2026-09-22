@@ -404,6 +404,17 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
     git-diffable shape - source/record in-out, transform, markers -
     beside the declaration the build read, so a later diff answers what
     moved.
+
+    The Fusion comps land under
+    `pipeline_output/steps/7_01_build_reels/fusion_comps/` (on the
+    allow-list) as `<reel>__*.comp`, one plain-text export per comp per
+    reel (`library/tools/reel_fusion_comps.py`). The serializer's
+    record reduces 76 Fusion tools to a comp count plus a name, which
+    is neither diffable nor mergeable; the exports are the plain Lua
+    text Resolve wrote, committed VERBATIM in the same commit - never
+    compressed, re-encoded, summarised or normalised. Best effort like
+    the snapshots: a reel Resolve no longer holds is recorded, never
+    raised.
     """
     report: dict = {"committed": False, "reason": "", "files": [],
                     "snapshots": []}
@@ -473,6 +484,18 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
                                        ensure_ascii=False) + "\n",
                             encoding="utf-8")
             report["snapshots"].append(str(path))
+        # The Fusion comps, off the same handles the snapshots just
+        # read: plain Lua text per comp per reel, committed verbatim
+        # in the same commit below. Best effort - a reel Resolve no
+        # longer holds is recorded on the report, never raised, and
+        # the commit below still goes ahead.
+        try:
+            from library.tools import reel_fusion_comps as _comps
+            report["fusion_comps"] = _comps.export_built_reels(
+                project, names, project_folder)
+        except Exception as exc:  # noqa: BLE001 - never fail the build
+            report["fusion_comps"] = {"reels": {}, "files": [],
+                                      "errors": [f"export failed: {exc!r}"]}
     except Exception as exc:
         # COMMIT ANYWAY. The snapshot is the nice-to-have half; the
         # declarations, the run state and the step outputs on disk are
