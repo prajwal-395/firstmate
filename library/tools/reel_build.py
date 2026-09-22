@@ -8886,7 +8886,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                   f"further was removed; the reels are unaffected",
                   file=_sys.stderr)
     if refused:
-        _raise_partial_promotion(finals, ok_finals, refused)
+        _raise_partial_promotion(finals, ok_finals, refused,
+                                 markers=carried_markers)
     return {"promoted": ok_finals, "organised": organised, "swept": swept,
             "replace_reports": replace_reports,
             "refused": dict(refused),
@@ -8897,7 +8898,8 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             "superseded_signoffs": superseded_signoffs}
 
 
-def _raise_partial_promotion(finals, ok_finals, refused) -> None:
+def _raise_partial_promotion(finals, ok_finals, refused,
+                           markers=None) -> None:
     """The refusal half of a partially promoted batch, naming only itself.
 
     The passing reels already fully promoted above (renames, sidecars,
@@ -8905,6 +8907,12 @@ def _raise_partial_promotion(finals, ok_finals, refused) -> None:
     discarded because a sibling failed. Each refused reel's staging
     container, baselines and hold remain in place for a deliberate
     re-run.
+
+    The passing reels' marker losses ride on the exception as
+    `.markers` - there is no return record on this path, and without
+    them `step_7_02` could file nothing for reels that already landed.
+    The message is unchanged; only readers that know the attribute
+    touch it.
     """
     lines = [
         f"Promoted {len(ok_finals)} reel(s): {sorted(ok_finals)}. "
@@ -8915,7 +8923,9 @@ def _raise_partial_promotion(finals, ok_finals, refused) -> None:
     for final in finals:
         if final in refused:
             lines.append(refused[final])
-    raise ReelBuildError("\n".join(lines))
+    error = ReelBuildError("\n".join(lines))
+    error.markers = dict(markers or {})
+    raise error
 
 
 def _organise_after_refusal(project, project_folder: str,

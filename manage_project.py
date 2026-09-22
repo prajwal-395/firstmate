@@ -68,7 +68,7 @@ ALL_COMMANDS = (
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
-    "round-diff", "sign-off", "variant", "relink",
+    "round-diff", "sign-off", "discharge-uncarried", "variant", "relink",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -539,13 +539,74 @@ def cmd_sign_off(args):
         else:
             print(f"{args.reel!r} was not signed off; nothing changed.")
         return
-    entry = reel_signoff.sign_off(project_folder, args.reel,
-                                  note=args.note, by=args.by)
+    try:
+        entry = reel_signoff.sign_off(project_folder, args.reel,
+                                      note=args.note, by=args.by)
+    except reel_signoff.UncarriedNotesOpen as owed:
+        print(f"{owed}", file=sys.stderr)
+        sys.exit(1)
     print(f"Signed off {entry['reel']!r}"
           + (f" in round {entry['round']}" if entry.get("round") else "")
           + f", by {entry['by']}.")
     print(f"  A promotion that would replace it now REFUSES unless it "
-          f"declares `build-reels --supersede {entry['reel']!r}`.")
+           f"declares `build-reels --supersede {entry['reel']!r}`.")
+
+
+def cmd_discharge_uncarried(args):
+    """Discharge an uncarried-note obligation, or list what is owed.
+
+    A promotion that drops the captain's note files an obligation
+    (`library/tools/uncarried_notes.py`), and the reel cannot be signed
+    off until each one is discharged with a stated reason - what
+    happened to those words. Omitted reel lists everything open.
+    """
+    from library.tools import uncarried_notes as owed
+    from library.tools import reel_signoff
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+
+    if not args.reel:
+        open_notes = owed.open_for(project_folder)
+        if not open_notes:
+            print("No reel owes an uncarried note.")
+            return
+        print(f"-- {len(open_notes)} open uncarried-note obligation(s) --")
+        for entry in open_notes:
+            words = " ".join(
+                (entry.get("text") or "").split())[:120]
+            print(f"  {entry.get('reel')}: \"{words}\"")
+            print(f"    {entry['identity']}")
+        return
+    reel = reel_signoff.base_name(args.reel)
+    if not args.identity:
+        open_notes = owed.open_for(project_folder, reel)
+        if len(open_notes) != 1:
+            if not open_notes:
+                print(f"{reel!r} owes nothing - nothing discharged.")
+                return
+            print(f"{reel!r} owes {len(open_notes)} notes - name one:",
+                  file=sys.stderr)
+            for entry in open_notes:
+                words = " ".join(
+                    (entry.get("text") or "").split())[:120]
+                print(f"  --identity {entry['identity']} "
+                      f"\"{words}\"", file=sys.stderr)
+            sys.exit(1)
+        args.identity = open_notes[0]["identity"]
+    try:
+        entry = owed.discharge(project_folder, reel, args.identity,
+                               by=args.by, note=args.note)
+    except (owed.DischargeRefused, owed.UncarriedNoteUnknown) as refused:
+        print(f"{refused}", file=sys.stderr)
+        sys.exit(1)
+    words = " ".join((entry.get("text") or "").split())[:120]
+    print(f"Discharged {entry['identity']} on {entry['reel']!r}: "
+          f"\"{words}\" - by {entry['discharged']['by']}.")
+    print(f"  The discharge is recorded, never erased.")
 
 
 def cmd_variant(args):
@@ -2387,6 +2448,26 @@ def main():
                            help="withdraw the sign-off on this reel; the "
                                 "withdrawal is recorded, never erased")
     p_signoff.set_defaults(func=cmd_sign_off)
+
+    p_discharge = sub.add_parser(
+        "discharge-uncarried",
+        help="Discharge a dropped captain's note a promotion filed, "
+             "so its reel can be signed off")
+    p_discharge.add_argument("slug", metavar="PROJECT",
+                             help="Project slug, or an absolute path")
+    p_discharge.add_argument("reel", nargs="?", default="", metavar="REEL",
+                             help="The reel timeline name. Omitted, every "
+                                  "open obligation is listed")
+    p_discharge.add_argument("--identity", default="",
+                             help="The obligation to discharge. Omitted, "
+                                  "the reel's only open one is taken; a "
+                                  "reel owing several must name one")
+    p_discharge.add_argument("--note", default="",
+                             help="REQUIRED to discharge: what happened to "
+                                  "the captain's words. A discharge with "
+                                  "no reason is refused")
+    p_discharge.add_argument("--by", default="captain")
+    p_discharge.set_defaults(func=cmd_discharge_uncarried)
 
     p_variant = sub.add_parser(
         "variant",

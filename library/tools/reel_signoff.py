@@ -81,6 +81,11 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 
+# Re-exported so callers can catch the completion gate without importing
+# a second module: `sign_off` raises this while the reel owes an
+# uncarried-note obligation (`library/tools/uncarried_notes.py`).
+from library.tools.uncarried_notes import UncarriedNotesOpen
+
 SIGNOFF_FILENAME = "reel_signoffs.json"
 SIGNOFF_FORMAT = "reel_signoffs/1"
 
@@ -171,8 +176,19 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     `round_number` defaults to the round this project is currently in,
     so the sign-off says WHICH version was approved rather than only
     that one was.
+
+    Refuses while this reel owes an uncarried-note obligation
+    (`library/tools/uncarried_notes.py`): a sign-off is the act that
+    says a built reel is done, and a reel with the captain's words
+    still unaccounted for is not done. Only an explicit discharge -
+    naming the obligation and saying what happened to the note -
+    releases it. Reels that never dropped a note sign off exactly as
+    before.
     """
     from library.tools import round_version
+    from library.tools import uncarried_notes as _owed
+
+    _owed.assert_none_open(project_folder, timeline)
 
     document = read_signoffs(project_folder)
     reel = base_name(timeline)

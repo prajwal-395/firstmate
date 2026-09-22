@@ -28,6 +28,47 @@ class ReelVerifyRefused(RuntimeError):
     """Verification cannot start, and this says which input is missing."""
 
 
+def record_uncarried_notes(project_folder: str, markers) -> dict:
+    """File the promotion's marker losses as obligations. Never raises.
+
+    `markers` is `promoted["markers"]` - the structured record of what
+    the promotion carried and what it dropped, per reel
+    (`reel_build.promote_staged_reels`). Reading two sibling keys off
+    it and dropping the third is how a reel's blue went unanswered for
+    forty minutes (2026-09-20): `marker_carry.report` had named it on
+    stderr, and nothing durable survived.
+
+    RECORD-AND-CONTINUE: an uncarried note is often the correct outcome
+    (a note pinned to a removed take cannot carry anywhere), so a
+    filing that fails is said on stderr - where the promotion's own
+    report still names every dropped note with the captain's words -
+    and the gate's verdict stands. What is filed becomes an obligation
+    (`library/tools/uncarried_notes.py`): it names the reel, quotes the
+    captain's words verbatim, and blocks that reel's sign-off until an
+    explicit discharge says what happened to the note.
+    """
+    import sys as _sys
+
+    try:
+        from library.tools import uncarried_notes as _owed
+        report = _owed.record(project_folder, markers)
+    except Exception as record_failed:                  # noqa: BLE001
+        print(f"  uncarried-note obligations not filed ({record_failed}) "
+              f"- the promotion's report above still names every dropped "
+              f"note with the captain's words",
+              file=_sys.stderr, flush=True)
+        return {"filed": [], "reopened": [], "open": {},
+                "path": None, "error": f"{record_failed}"}
+    filed = report.get("filed") or []
+    reopened = report.get("reopened") or []
+    if filed or reopened:
+        print(f"  Uncarried notes filed as obligations: {len(filed)} new, "
+              f"{len(reopened)} reopened - `manage_project.py "
+              f"discharge-uncarried {project_folder}` lists what each "
+              f"reel owes", file=_sys.stderr, flush=True)
+    return report
+
+
 def verify_reels(data: dict) -> dict:
     """Run the conformance verifier over what `build_reels` placed.
 
@@ -109,6 +150,7 @@ def verify_reels(data: dict) -> dict:
                 f"all {len(left_alone)} reel(s) needed no Resolve pass, "
                 f"so nothing was staged and nothing was promoted - the "
                 f"approved timelines are untouched"),
+            "uncarried_notes": None,
         }}
     if not timelines_built:
         raise ReelVerifyRefused(
@@ -255,9 +297,11 @@ def verify_reels(data: dict) -> dict:
     # `--allow-drop` flag reaches both nodes) is the fallback for a
     # record written before declarations existed.
     organised = None
+    uncarried_report = None
     if staged:
         from library.tools import reel_replace_guard as _guard
-        from library.tools.reel_build import promote_staged_reels
+        from library.tools.reel_build import (
+            ReelBuildError as _PromoteError, promote_staged_reels)
         recorded = build.get("allow_drops")
         if recorded is None:
             recorded = _guard.parse_specs(
@@ -275,10 +319,23 @@ def verify_reels(data: dict) -> dict:
         retaining = build.get("retain")
         if retaining is None:
             retaining = (data or {}).get("retain")
-        promoted = promote_staged_reels(
-            project_folder, resolve_project_name, master_timeline_name,
-            staged, allow_drops=recorded, supersede=superseding,
-            retain=retaining)
+        try:
+            promoted = promote_staged_reels(
+                project_folder, resolve_project_name, master_timeline_name,
+                staged, allow_drops=recorded, supersede=superseding,
+                retain=retaining)
+        except _PromoteError as partial:
+            # A partial promotion raises AFTER its passing reels fully
+            # promoted - and their marker losses ride on the exception
+            # (`.markers`), because there is no return record on this
+            # path. Filed before the refusal propagates: the reels
+            # already landed, and their drops are owed owners either
+            # way. Never masks the refusal.
+            record_uncarried_notes(
+                project_folder, getattr(partial, "markers", None))
+            raise
+        uncarried_report = record_uncarried_notes(
+            project_folder, promoted.get("markers"))
         organised = promoted["organised"]
         timelines_verified = list(promoted["promoted"])
         # Consolidation ran, per reel, at the moment it ran: the staging
@@ -352,6 +409,7 @@ def verify_reels(data: dict) -> dict:
         "resolve_project_name": resolve_project_name,
         "master_timeline_name": master_timeline_name,
         "organised": organised,
+        "uncarried_notes": uncarried_report,
     }}
 
 
