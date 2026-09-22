@@ -8301,14 +8301,22 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     Every marker on a retiring timeline is READ before phase 1, and
     the ones whose picture still plays in the replacement are placed
     onto it after phase 2. One that cannot be placed is named, with
-    the captain's own words, on stderr. Whether markers SHOULD always
-    be carried stays an open product question; that a promotion must
-    not discard them in silence does not.
+    the captain's own words, on stderr - and then PUT BACK anyway: a
+    Blue carrying his name, note, colour and custom data byte-identical
+    at duration 1, at the seam where its subject was cut out
+    (`marker_carry.seam_for` - the join the cut made, never a guess
+    onto similar material), with our own Green reply BESIDE it stating
+    the original frame and the derivation. Refusing to re-anchor by
+    heuristic stays: the seam is the one position that is always both
+    defensible and honest. Whether markers SHOULD always be carried
+    stays an open product question; that a promotion must not discard
+    them in silence does not.
 
     Returns `{"promoted": [final names...], "organised": ...,
     "replace_reports": {final: guard report...},
     "refused": {final: refusal text...},
-    "markers": {final: {"carried": [...], "uncarried": [...]}}}`.
+    "markers": {final: {"carried": [...], "uncarried": [...],
+    "replaced": [...], "replace_declined": [...]}}}`.
 
     A partial refusal still RAISES - automation must not read it as
     clean - after the passing reels have fully promoted (renames,
@@ -8472,6 +8480,32 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             declined = _markers.place(staged_found[staging],
                                       notes["carried"])
             notes["declined"] = declined
+        if notes and notes.get("uncarried") and final in originals:
+            # The Blue goes back. `originals[final]` still reads the
+            # retired picture - the rename changed its name, not its
+            # items - so the seam derives off the cut that was actually
+            # made. Never fatal and never a refusal: a re-placement
+            # that cannot land is a named report, not a failed
+            # promotion.
+            try:
+                plans = _markers.plan_seams(
+                    notes["uncarried"], originals[final],
+                    staged_found[staging])
+                replaced, replace_declined = _markers.place_uncarried(
+                    staged_found[staging], plans, final)
+            except Exception as seam_failed:            # noqa: BLE001
+                import sys as _sys
+                print(f"  MARKERS NOT RE-PLACED onto {final}: "
+                      f"the seam derivation raised ({seam_failed}) - "
+                      f"the uncarried report above still names every "
+                      f"note with the captain's words",
+                      file=_sys.stderr, flush=True)
+                replaced, replace_declined = [], [
+                    {**marker, "seam": None,
+                     "why": f"seam derivation raised ({seam_failed})"}
+                    for marker in notes["uncarried"]]
+            notes["replaced"] = replaced
+            notes["replace_declined"] = replace_declined
 
     import os
     review_dir = os.path.join(project_folder, "pipeline_output", "review")

@@ -31,9 +31,26 @@ What is not in question is the silence.  So:
 * a marker whose anchor still resolves in the replacement is carried to
   the frame that shows the same picture;
 * a marker whose anchor does not resolve is REPORTED BY NAME, with its
-  words, and left uncarried.
+  words, and - at promotion time - PUT BACK as a Blue marker at the
+  seam where its subject was cut out, with our own reply BESIDE it,
+  never instead of it.
 
-Nothing is deleted here and nothing is guessed.
+Nothing is deleted here and nothing is guessed onto similar-looking
+material. The seam is not a re-anchor: it is the join the cut actually
+made - the frame right after the surviving content that played just
+before the note - derived from the retiring and replacement picture
+rows, never from similarity. Where even the seam is ambiguous (nothing
+before the cut survives), the note goes at the start of the replacing
+item and the reply says so.
+
+The DATASTORE `marker_feedback` pull format stays the durable standard
+for any pre-promotion capture on disk: per note, the CLIPS it spans
+with source file and source frame range. No new capture is added here -
+the seam is derived from the same live pre-rename read `plan_carry`
+uses - so there is no weaker snapshot for anyone to mistake: the
+resolve-axi "markers snapshot" restores the timeline plane only (no
+clip anchors, no source ranges), and ad-hoc text captures keep the
+WORDS but not the ANCHOR. Neither can derive a seam.
 
 What "the anchor resolves" means
 --------------------------------
@@ -252,3 +269,324 @@ def place(timeline, carried) -> list:
                   f"the captain wrote: {marker['note'].strip()!r}",
                   file=sys.stderr, flush=True)
     return failed
+
+
+def _rows_span(rows, start: int) -> int:
+    """How many timeline-relative frames the picture rows cover."""
+    end = start
+    for _index, _name, items in rows:
+        for item in items or []:
+            try:
+                if int(item.GetEnd()) > end:
+                    end = int(item.GetEnd())
+            except Exception:                           # noqa: BLE001
+                continue
+    return max(0, end - start)
+
+
+def _exact_frames(rows, start: int, path: str, source_frame: int,
+                  ref: int) -> list:
+    """Every relative frame playing exactly `(path, source_frame)`.
+
+    Nearest to `ref` first - a reel that repeats a shot has not moved
+    the captain's note to the other saying of it, the same reason
+    `resolve_frame` prefers the nearest candidate.
+    """
+    out = []
+    for _index, _name, items in rows:
+        for item in items or []:
+            if _source_path(item) != path:
+                continue
+            left = int(item.GetLeftOffset() or 0)
+            offset = source_frame - left
+            if not (0 <= offset < item.GetEnd() - item.GetStart()):
+                continue
+            out.append(item.GetStart() + offset - start)
+    return sorted(out, key=lambda frame: abs(frame - ref))
+
+
+def _anchor_span_desc(marker: dict, retiring, rows, start: int) -> str:
+    """The source range the marker's span sat on, for humans.
+
+    Scans the retiring picture across the marker's whole duration, so
+    a duration-81 note reports the range it covered rather than the
+    single source frame under its head. Falls back to the point anchor
+    when the span plays no single file throughout.
+    """
+    import os as _os
+
+    frame = int(marker["frame"])
+    duration = max(1, int(marker.get("duration") or 1))
+    seen: list = []
+    for offset in range(duration):
+        picture = picture_at(retiring, frame + offset, rows)
+        if picture is None:
+            return (f"{_os.path.basename(marker['anchor'][0])} source "
+                    f"{marker['anchor'][1]}" if marker.get("anchor")
+                    else "no anchored picture")
+        if not seen or seen[-1] != picture:
+            seen.append(picture)
+    if len({path for path, _src in seen}) == 1:
+        path = seen[0][0]
+        first, last = seen[0][1], seen[-1][1]
+        if last == first + len(seen) - 1:
+            return (f"{_os.path.basename(path)} source "
+                    f"{first}..{last + 1}")
+    anchor = marker.get("anchor")
+    if anchor:
+        return (f"{_os.path.basename(anchor[0])} source {anchor[1]} "
+                f"(marker span covers more than one source range)")
+    return "no anchored picture"
+
+
+def seam_for(marker: dict, retiring, replacement,
+             rows_r=None, rows_n=None) -> dict | None:
+    """Where an uncarried marker's Blue goes back: the seam, or None.
+
+    The seam is the join the cut actually made: one past the
+    replacement frame still playing the surviving content from just
+    before the note. Both halves are live picture rows, never
+    similarity - the marker is placed where its subject was removed,
+    not guessed onto something that looks like it.
+
+    Returns `{"seam", "ambiguous", "explanation", ...}`. `ambiguous`
+    is True exactly when nothing before the cut survives, and then
+    the seam is the start of the replacing item and the explanation
+    says so. None when the replacement plays no picture at all -
+    there is no seam on an empty timeline, and the caller reports
+    that rather than placing nowhere.
+    """
+    frame = int(marker["frame"])
+    duration = max(1, int(marker.get("duration") or 1))
+    if rows_r is None:
+        rows_r = _picture_rows(retiring)
+    if rows_n is None:
+        rows_n = _picture_rows(replacement)
+    start_n = int(replacement.GetStartFrame())
+    span_n = _rows_span(rows_n, start_n)
+    if span_n <= 0:
+        return None
+    start_r = int(retiring.GetStartFrame())
+    span_r = _rows_span(rows_r, start_r)
+    subject = _anchor_span_desc(marker, retiring, rows_r, start_r)
+
+    predecessor = None
+    probe = frame - 1
+    while probe >= 0:
+        picture = picture_at(retiring, probe, rows_r)
+        if picture is not None:
+            path, source = picture
+            hits = _exact_frames(rows_n, start_n, path, source, frame)
+            if hits:
+                predecessor = (probe, hits[0])
+                break
+        probe -= 1
+    successor = None
+    probe = frame + duration
+    while probe < span_r:
+        picture = picture_at(retiring, probe, rows_r)
+        if picture is not None:
+            path, source = picture
+            hits = _exact_frames(rows_n, start_n, path, source, frame)
+            if hits:
+                successor = (probe, hits[0])
+                break
+        probe += 1
+
+    if predecessor is not None:
+        seam = min(predecessor[1] + 1, span_n - 1)
+        return {
+            "seam": int(seam),
+            "ambiguous": False,
+            "explanation":
+                f"the cut removed {subject} the note sat on; the "
+                f"content just before it still plays at {predecessor[1]}, "
+                f"so the join is {seam}",
+            "predecessor": predecessor[1],
+            "successor": successor[1] if successor else None,
+        }
+    if successor is not None:
+        return {
+            "seam": int(successor[1]),
+            "ambiguous": True,
+            "explanation":
+                f"the cut removed {subject} the note sat on and nothing "
+                f"before it survives, so the note goes at "
+                f"{successor[1]}, the start of the replacing item",
+            "predecessor": None,
+            "successor": successor[1],
+        }
+    want = min(max(frame, 0), span_n - 1)
+    # The item the viewer SEES at `want` is the topmost picture row's:
+    # `_picture_rows` runs bottom-first and `picture_at` lets the
+    # later row win, so walk reversed (topmost first), first hit wins.
+    head = want
+    for _index, _name, items in reversed(rows_n):
+        for item in items or []:
+            item_start = int(item.GetStart()) - start_n
+            item_end = int(item.GetEnd()) - start_n
+            if item_start <= want < item_end:
+                head = item_start
+                break
+        else:
+            continue
+        break
+    return {
+        "seam": int(head),
+        "ambiguous": True,
+        "explanation":
+            f"the cut removed {subject} the note sat on and neither "
+            f"side of it survives, so the note goes at {head}, the "
+            f"start of the item now playing there",
+        "predecessor": None,
+        "successor": None,
+    }
+
+
+def plan_seams(uncarried, retiring, replacement) -> list:
+    """One seam plan per uncarried marker, in marker order.
+
+    Pure: reads both timelines, writes nothing. A plan whose seam is
+    None names a replacement with no picture to hold it.
+    """
+    rows_r = _picture_rows(retiring)
+    rows_n = _picture_rows(replacement)
+    plans = []
+    for marker in uncarried:
+        plans.append({"marker": marker,
+                      "plan": seam_for(marker, retiring, replacement,
+                                       rows_r, rows_n)})
+    return plans
+
+
+def _reply_custom_data(note_text: str, summary: str) -> str:
+    """Our reply's machine-readable mark, best effort, never fatal.
+
+    A green reply that carries no writer record reads downstream as
+    another question the captain typed (`feedback_poll` summons on
+    unmarked notes). The envelope states the writer is us and quotes
+    what it answers, so the question survives on the Blue beside it
+    and this marker is never mistaken for his.
+    """
+    try:
+        from library.tools import marker_feedback as _feedback
+        return _feedback.reply_custom_data(
+            answers_text=note_text, summary=summary)
+    except Exception:                                   # noqa: BLE001
+        return ""
+
+
+def place_uncarried(timeline, plans, timeline_name: str = "") -> tuple:
+    """Put each uncarried note back as Blue at its seam, reply beside.
+
+    The Blue carries the captain's name, note, colour and custom data
+    BYTE-IDENTICAL at duration 1 - a point at the join, never the old
+    span over unrelated content. The colour is the marker's OWN, so a
+    Blue comes back Blue; our reply is a separate Green marker at the
+    first free frame beside it, stating the original frame, the seam
+    derivation and whether the seam was ambiguous. A reply beside the
+    Blue is the answer; a reply instead of it is the defect.
+
+    Returns `(placed, declined)`; Resolve is judged by what it
+    RETURNS, and a declined Blue is named on stderr with the captain's
+    words. Never raises: a re-placement that cannot land is a report,
+    not a promotion failure.
+    """
+    placed, declined = [], []
+    start = int(timeline.GetStartFrame())
+    rows = _picture_rows(timeline)
+    span = _rows_span(rows, start)
+    for entry in plans:
+        marker = entry["marker"]
+        plan = entry.get("plan")
+        name = marker.get("name") or ""
+        note = marker.get("note") or ""
+        if plan is None:
+            declined.append({**marker, "seam": None,
+                             "why": "the replacement plays no picture - "
+                                    "there is no seam to hold the note"})
+            print(f"  MARKER NOT RE-PLACED onto {timeline_name}: "
+                  f"{marker.get('color')} {name!r} @{marker['frame']} - "
+                  f"the replacement plays no picture. The captain wrote: "
+                  f"{note.strip()!r}", file=sys.stderr, flush=True)
+            continue
+        seam = int(plan["seam"])
+        blue_ok = False
+        refused_reason = ""
+        try:
+            blue_ok = bool(timeline.AddMarker(
+                start + seam, marker.get("color") or "Blue",
+                name, note, 1, marker.get("custom_data") or ""))
+        except Exception as refused:                    # noqa: BLE001
+            refused_reason = f"Resolve raised ({refused})"
+        if not blue_ok and not refused_reason:
+            refused_reason = ("Resolve declined the Blue at the seam - "
+                              "an empty name, or a marker already there")
+        if not blue_ok:
+            declined.append({**marker, "seam": seam,
+                             "why": refused_reason})
+        if not blue_ok:
+            print(f"  MARKER NOT RE-PLACED onto {timeline_name}: "
+                  f"{marker.get('color')} {name!r} @{marker['frame']} - "
+                  f"Resolve declined the Blue at seam {seam}. "
+                  f"The captain wrote: {note.strip()!r}",
+                  file=sys.stderr, flush=True)
+        else:
+            print(f"  Marker re-placed as Blue onto {timeline_name}: "
+                  f"{marker.get('color')} {name!r} @{marker['frame']} "
+                  f"-> @{seam} ({plan['explanation']})", flush=True)
+        reply_name = f"re: {name}" if name else (
+            f"re: note @{marker['frame']}")
+        verdict = (f"the Blue is at {seam}"
+                   if blue_ok else
+                   f"the Blue at {seam} was DECLINED - the note's words "
+                   f"are quoted here so they are not lost: {note!r}"
+                   if note else
+                   f"the Blue at {seam} was DECLINED")
+        reply_note = (
+            f"Your note @{marker['frame']} did not carry: {marker.get('why', '')} "
+            f"{plan['explanation']}. {verdict} - this reply sits beside "
+            f"your words, never instead of them."
+            + (" (seam ambiguous: start of the replacing item.)"
+               if plan["ambiguous"] else ""))
+        custom = _reply_custom_data(
+            "\n\n".join(part for part in (name, note) if part),
+            f"re-placed uncarried marker @{marker['frame']} at seam {seam}")
+        reply_frame = None
+        if span > 0:
+            offset = 1
+            while offset < span:
+                for candidate in (seam + offset, seam - offset):
+                    if 0 <= candidate < span and candidate != seam:
+                        try:
+                            if timeline.AddMarker(
+                                    start + candidate, "Green", reply_name,
+                                    reply_note, 1, custom):
+                                reply_frame = candidate
+                                break
+                        except Exception:               # noqa: BLE001
+                            continue
+                if reply_frame is not None:
+                    break
+                offset += 1
+        if reply_frame is None:
+            print(f"  REPLY NOT PLACED onto {timeline_name}: no free frame "
+                  f"beside seam {seam} for {reply_name!r}",
+                  file=sys.stderr, flush=True)
+            if blue_ok:
+                placed.append({**marker, "seam": seam,
+                               "ambiguous": plan["ambiguous"],
+                               "explanation": plan["explanation"],
+                               "reply_frame": None})
+        else:
+            print(f"  Reply placed onto {timeline_name}: {reply_name!r} "
+                  f"@{reply_frame} beside the re-placed Blue @{seam}",
+                  flush=True)
+            if blue_ok:
+                placed.append({**marker, "seam": seam,
+                               "ambiguous": plan["ambiguous"],
+                               "explanation": plan["explanation"],
+                               "reply_frame": reply_frame})
+            else:
+                declined[-1]["reply_frame"] = reply_frame
+    return placed, declined
