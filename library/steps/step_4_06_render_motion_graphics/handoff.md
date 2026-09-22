@@ -287,9 +287,9 @@ dropped).
   `library/tools/motion_graphics_plan.py`).
 - Data no element draws. `data` on an entry whose element declares no
   `data` axis - every copy element - reaches no node in the
-  composition, with one exception you never author: `lower_third`'s
-  staged-construction directive, which the engine writes and the
-  composition reads. Such an entry is dropped by name
+  composition, with two exceptions you never author: `lower_third`'s
+  staged-construction directive and `list_build`'s stage offsets, both
+  written by the engine and both read by the composition. Such an entry is dropped by name
   (`data_no_element_draws`).
 
 ## Rules
@@ -318,8 +318,9 @@ dropped).
   dropped rather than drawn as an empty box.
 - `data` belongs on an element whose roster axes include `data`, and a
   payload whose values are all equal states no relation and no change.
-  (The one `data` you never write is `lower_third`'s
-  staged-construction directive - the engine's, not the plan's.)
+  (The two `data` shapes you never write are `lower_third`'s
+  staged-construction directive and `list_build`'s stage offsets -
+  the engine's, not the plan's.)
   Both drop the entry by name - `data_no_element_draws` and
   `data_states_no_difference` in
   `library/tools/motion_graphics_plan.py` - rather than drawing junk.

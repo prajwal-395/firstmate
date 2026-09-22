@@ -223,6 +223,45 @@ def test_bare_data_on_a_lower_third_still_drops():
     (dropped,) = resolved.dropped
     assert dropped.reason == "data_no_element_draws"
 
+
+# ── the second exception: the engine's own explainer directive ──────
+
+def _staged_list(**kw):
+    base = _entry(
+        element="list_build", anchor="bottom_left",
+        copy=[{"text": "LINKEDIN", "type_role": "supporting"},
+              {"text": "CRUNCHBASE", "type_role": "supporting"},
+              {"text": "REDDIT", "type_role": "supporting"}],
+        color="#FFB8D4",
+        data={"stage_offsets": [0.0, 0.8, 2.0]})
+    base.update(kw)
+    return base
+
+
+def test_the_explainer_stage_offsets_resolve():
+    """The same refusal caught a second deterministic producer the
+    night it landed: `explainer_plan.plan_entries` writes one
+    `list_build` entry carrying `data.stage_offsets` - the per-item
+    seconds that make a staged element an explainer - and `list_build`
+    declares no `data` axis. But the renderer's `stageStarts` reads
+    exactly that key, so the entry resolves and carries its payload.
+    The #1270 exemption covered only the lower-third directive and
+    this test stayed red until the second arm landed."""
+    resolved = _resolve([_staged_list()])
+    assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
+    (moment,) = resolved.moments
+    assert moment["data"] == {"stage_offsets": [0.0, 0.8, 2.0]}
+
+
+def test_bare_data_on_a_staged_list_still_drops():
+    """The exemption is the directive, not the element: depicting
+    magnitudes on a `list_build` reach no node in the composition and
+    still drop by name."""
+    resolved = _resolve([_staged_list(data={"values": [3, 9]})])
+    assert not resolved.moments
+    (dropped,) = resolved.dropped
+    assert dropped.reason == "data_no_element_draws"
+
 def test_distinct_bars_resolve_and_carry_their_payload():
     resolved = _resolve([_bars([3, 9])])
     assert not resolved.dropped, [d.as_record() for d in resolved.dropped]
