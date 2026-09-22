@@ -85,6 +85,18 @@ SIM_GAIN = 2.0
 FRAME_WH = (1080, 1920)
 
 
+@pytest.fixture(autouse=True)
+def _sole_writer():
+    """The probe runs inside its own exclusive hold in production;
+    the fakes here have no instance to contend for, so the cursor
+    establishments go through unguarded-with-a-reason rather than
+    queueing behind a live captain for nothing."""
+    from library.tools.resolve_lock import assume_sole_writer
+    with assume_sole_writer(
+            "test: fake project has no instance to contend for"):
+        yield
+
+
 class _Clip:
     def __init__(self, duration=120):
         self._duration = duration
@@ -111,6 +123,9 @@ class _Timeline:
 
     def GetName(self):
         return self._name
+
+    def GetUniqueId(self):
+        return f"uid-{self._name}-{id(self)}"
 
     def SetSetting(self, key, value):
         self.settings[key] = value

@@ -597,17 +597,13 @@ def deliver_reel(project_folder: str, reel: Optional[int],
         resolve_name = ((_yaml.safe_load(handle).get("resolve") or {}).get(
             "project_name", os.path.basename(project_folder)))
     project = reel_build._connect_resolve_project(resolve_name)
-    # The captain's cursor, saved so it can be put back. Selecting the
-    # reel is a write to global Resolve state; leaving it there would
-    # hand the captain back a session pointing at a reel they did not
-    # open. Restored best-effort in the finally below - a restore that
-    # raises must not mask the render's own verdict.
-    try:
-        prior = project.GetCurrentTimeline()
-        prior_name = prior.GetName() if prior is not None else ""
-    except Exception:  # noqa: BLE001 - best-effort read of live state
-        prior_name = ""
-    timeline = resolve_render._select_timeline(project, timeline_name)
+    # Handle lookup only: `render_timeline` below selects the reel
+    # under its own lease, so selecting here would walk the cursor
+    # twice - once unleashed, outside any lease. The 2026-09-20
+    # incident was exactly such an unleased move colliding with a
+    # sibling lane's Fusion pass. Nothing here moves the cursor, so
+    # there is nothing to put back afterwards either.
+    timeline = resolve_render._find_timeline(project, timeline_name)
     expected_seconds = _timeline_expected_seconds(timeline)
 
     # Fail fast, naming the files: a render against stale overlay
@@ -618,26 +614,14 @@ def deliver_reel(project_folder: str, reel: Optional[int],
     if stale:
         raise DeliverRefused(_refuse_stale_overlays(stale))
 
-    try:
-        report = resolve_render.render_timeline(
-            timeline_name=timeline.GetName(),
-            output_dir=dest_dir,
-            output_name=os.path.splitext(out_name)[0],
-            fmt=settings["format"],
-            codec=settings["codec"],
-            timeout_seconds=timeout_seconds,
-        )
-    finally:
-        if prior_name and prior_name != timeline.GetName():
-            try:
-                for i in range(1, project.GetTimelineCount() + 1):
-                    candidate = project.GetTimelineByIndex(i)
-                    if (candidate is not None
-                            and candidate.GetName() == prior_name):
-                        project.SetCurrentTimeline(candidate)
-                        break
-            except Exception:  # noqa: BLE001 - best-effort restore
-                pass
+    report = resolve_render.render_timeline(
+        timeline_name=timeline.GetName(),
+        output_dir=dest_dir,
+        output_name=os.path.splitext(out_name)[0],
+        fmt=settings["format"],
+        codec=settings["codec"],
+        timeout_seconds=timeout_seconds,
+    )
     verdict = verify_deliverable(
         report["output_path"], expected_seconds,
         settings["width"], settings["height"])

@@ -68,6 +68,11 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(_TOOLS_DIR))
 if _REPO_ROOT not in sys.path:
     sys.path.insert(0, _REPO_ROOT)
 from library.tools.resolve_lock import under_lease
+try:
+    from library.tools.resolve_lock import (
+        ResolveRaceError, assert_current_timeline)
+except ImportError:  # pragma: no cover - script entry point
+    from resolve_lock import ResolveRaceError, assert_current_timeline
 from transition_vocabulary import canonical_type, is_cut, withdrawal_reason
 
 from fusion.comp_builder import ZOOM_KEYS, build_effect_comp, normalize_effects
@@ -219,7 +224,20 @@ def assert_destination(resolve, expected_project, expected_timeline):
             f"{expected_project!r}: the staging this pass was to "
             f"composite is gone, so there is nothing to assert onto."
         )
-    project.SetCurrentTimeline(target)
+    # Through the guard, under this pass's exclusive lease: the
+    # establishment is itself a write to instance-global state, and a
+    # direct set bypasses the lease refusal. An unleased cursor move
+    # killed a sibling lane's pass on 2026-09-20. A race the guard
+    # reports is this pass's own refusal type: the destination would
+    # not stay put, so there is nothing to composite onto.
+    try:
+        assert_current_timeline(project, target)
+    except ResolveRaceError as exc:
+        raise DestinationMismatchError(
+            f"Wrong timeline: expected {expected_timeline!r}, but the "
+            f"cursor would not stay put ({exc}). Refusing to write "
+            f"Fusion comps onto a moving destination."
+        ) from exc
     return verify_destination(resolve, expected_project, expected_timeline)
 
 

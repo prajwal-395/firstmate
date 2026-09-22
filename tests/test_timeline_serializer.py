@@ -167,3 +167,32 @@ def test_merge_pipeline_state(mock_resolve):
     
     assert state["pipeline_state"]["assembly_manifest"] == manifest
     assert state["pipeline_state"]["pipeline_data"] == pipeline_data
+
+
+def test_named_handle_read_never_touches_the_cursor(mock_resolve):
+    """A caller that names its timeline moves no cursor.
+
+    2026-09-20: a snapshot that set the current timeline per name
+    walked the cursor across every final unleashed and killed a
+    sibling lane's Fusion pass. The `timeline=` handle reads the same
+    state with the cursor exactly where it was found.
+    """
+    project = mock_resolve.GetProjectManager().GetCurrentProject()
+    other = MagicMock()
+    other.GetName.return_value = "Reel 28"
+    project.GetCurrentTimeline.return_value = other
+
+    timeline = MagicMock()
+    timeline.GetName.return_value = "Reel 06"
+    timeline.GetStartFrame.return_value = 0
+    timeline.GetEndFrame.return_value = 100
+    timeline.GetStartTimecode.return_value = "01:00:00:00"
+    timeline.GetSetting.return_value = ""
+    timeline.GetMarkers.return_value = {}
+    timeline.GetTrackCount.return_value = 0
+
+    state = serialize_timeline_state(resolve_mock=mock_resolve,
+                                     timeline=timeline)
+    assert state["metadata"]["name"] == "Reel 06"
+    project.SetCurrentTimeline.assert_not_called()
+    project.GetCurrentTimeline.assert_not_called()

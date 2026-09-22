@@ -1206,7 +1206,11 @@ def build_timeline(
         results["errors"].append("Failed to create timeline")
         return results
 
-    project.SetCurrentTimeline(timeline)
+    # Establishing the cursor goes through the guard, like every write
+    # below: setting it directly bypasses the lease refusal and the
+    # fence's drift record, and an unleased move is what killed a
+    # sibling lane's Fusion pass on 2026-09-20.
+    assert_current_timeline(project, timeline)
     timeline_fps_str = str(int(fps)) if fps.is_integer() else str(fps)
 
     # The shape goes on the PROJECT, not only on the timeline.

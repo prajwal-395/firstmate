@@ -7128,7 +7128,11 @@ def build_reel_timeline(project, moment, master_clips, subtitle_segments, fps, w
 
     timeline = create_reel_timeline(pool, name)
 
-    project.SetCurrentTimeline(timeline)
+    # Through the guard: this runs inside the per-reel exclusive hold,
+    # and a direct set would bypass the lease refusal and the fence's
+    # drift record. An unleased cursor move killed a sibling lane's
+    # Fusion pass on 2026-09-20.
+    assert_current_timeline(project, timeline)
 
     # The frame the caller already resolved and every overlay above was
     # rendered at. Written from `width`/`height` rather than by literal:

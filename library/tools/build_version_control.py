@@ -447,37 +447,32 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
             serialize_timeline_state)
         review_dir = Path(project_folder) / "pipeline_output" / "review"
         review_dir.mkdir(parents=True, exist_ok=True)
-        previous = project.GetCurrentTimeline()
-        previous_name = previous.GetName() if previous else ""
-        try:
-            for name in names:
-                target = None
-                for index in range(1, project.GetTimelineCount() + 1):
-                    candidate = project.GetTimelineByIndex(index)
-                    if candidate and candidate.GetName() == name:
-                        target = candidate
-                        break
-                if target is None:
-                    report.setdefault("missing", []).append(name)
-                    continue
-                project.SetCurrentTimeline(target)
-                state = serialize_timeline_state(resolve_mock=resolve)
-                safe = "".join(
-                    c if c.isalnum() or c in "-_." else "_"
-                    for c in name) or "timeline"
-                path = review_dir / f"{safe}.timeline.json"
-                path.write_text(json.dumps(state, indent=2,
-                                           sort_keys=True,
-                                           ensure_ascii=False) + "\n",
-                                encoding="utf-8")
-                report["snapshots"].append(str(path))
-        finally:
-            if previous_name:
-                for index in range(1, project.GetTimelineCount() + 1):
-                    candidate = project.GetTimelineByIndex(index)
-                    if candidate and candidate.GetName() == previous_name:
-                        project.SetCurrentTimeline(candidate)
-                        break
+        # Read through each timeline's OWN handle: the serializer takes
+        # it directly, so the cursor never moves - a snapshot that set
+        # the current timeline per name walked the cursor across every
+        # final unleashed, the move that killed a sibling lane's Fusion
+        # pass on 2026-09-20.
+        for name in names:
+            target = None
+            for index in range(1, project.GetTimelineCount() + 1):
+                candidate = project.GetTimelineByIndex(index)
+                if candidate and candidate.GetName() == name:
+                    target = candidate
+                    break
+            if target is None:
+                report.setdefault("missing", []).append(name)
+                continue
+            state = serialize_timeline_state(resolve_mock=resolve,
+                                             timeline=target)
+            safe = "".join(
+                c if c.isalnum() or c in "-_." else "_"
+                for c in name) or "timeline"
+            path = review_dir / f"{safe}.timeline.json"
+            path.write_text(json.dumps(state, indent=2,
+                                       sort_keys=True,
+                                       ensure_ascii=False) + "\n",
+                            encoding="utf-8")
+            report["snapshots"].append(str(path))
     except Exception as exc:
         # COMMIT ANYWAY. The snapshot is the nice-to-have half; the
         # declarations, the run state and the step outputs on disk are
@@ -573,7 +568,8 @@ def record_finished_timeline(resolve, timeline, project_folder: str,
                 sys.path.insert(0, str(repo))
             from library.tools.timeline_serializer import (
                 serialize_timeline_state)
-            timeline_state = serialize_timeline_state(resolve_mock=resolve)
+            timeline_state = serialize_timeline_state(
+                resolve_mock=resolve, timeline=timeline)
         except Exception as exc:
             timeline_state = None
             report["serializer_reason"] = f"serializer read failed: {exc!r}"

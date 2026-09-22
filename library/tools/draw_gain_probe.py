@@ -181,6 +181,7 @@ def calibrate(resolve, project, frame_wh: tuple,
     """
     from library.tools import marker_capture as mc
     from library.tools.marker_capture import grab_still
+    from library.tools.resolve_lock import assert_current_timeline
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
 
     warnings = []
@@ -238,9 +239,11 @@ def calibrate(resolve, project, frame_wh: tuple,
         # Current BEFORE appending: AppendToTimeline lands on
         # whichever timeline is current, and that must be the
         # scratch by construction rather than by implementation
-        # accident in any Resolve build.
+        # accident in any Resolve build. Through the guard: the probe
+        # runs inside its own exclusive hold, and a direct set would
+        # bypass the lease refusal.
         resolve.OpenPage("edit")
-        project.SetCurrentTimeline(scratch)
+        assert_current_timeline(project, scratch)
         appended = pool.AppendToTimeline(
             [{"mediaPoolItem": imported[0]}])
         if not appended:
@@ -257,7 +260,7 @@ def calibrate(resolve, project, frame_wh: tuple,
             return _fallback_record(
                 ["probe clip too short to still: probe cannot run"])
 
-        project.SetCurrentTimeline(scratch)
+        assert_current_timeline(project, scratch)
         mid = duration // 2
         fps = mc.timeline_fps(scratch)
         start_tc = scratch.GetStartTimecode()
@@ -356,7 +359,8 @@ def calibrate(resolve, project, frame_wh: tuple,
     finally:
         try:
             if scratch is not None:
-                project.SetCurrentTimeline(entry_tl)
+                if entry_tl is not None:
+                    assert_current_timeline(project, entry_tl)
                 pool.DeleteTimelines([scratch])
             if imported:
                 try:
@@ -372,7 +376,7 @@ def calibrate(resolve, project, frame_wh: tuple,
                     f"{PROBE_TIMELINE_NAME!r} still present after "
                     f"teardown: delete it by hand")
             if entry_tl is not None:
-                project.SetCurrentTimeline(entry_tl)
+                assert_current_timeline(project, entry_tl)
                 if entry_tc is not None:
                     entry_tl.SetCurrentTimecode(entry_tc)
             if entry_page:

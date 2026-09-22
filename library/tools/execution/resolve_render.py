@@ -56,8 +56,14 @@ def _connect():
     return resolve
 
 
-def _select_timeline(project, timeline_name: str):
-    """Make *timeline_name* current, or raise if it does not exist."""
+def _find_timeline(project, timeline_name: str):
+    """The timeline handle named `timeline_name`, without moving anything.
+
+    Read-only: naming a handle is not a cursor move, so this takes no
+    lease and disturbs no holder. A caller that then needs it CURRENT
+    establishes it through `_select_timeline`, which goes through the
+    guard exactly like every other cursor move.
+    """
     if not timeline_name:
         timeline = project.GetCurrentTimeline()
         if not timeline:
@@ -67,13 +73,24 @@ def _select_timeline(project, timeline_name: str):
     for i in range(1, project.GetTimelineCount() + 1):
         timeline = project.GetTimelineByIndex(i)
         if timeline and timeline.GetName() == timeline_name:
-            project.SetCurrentTimeline(timeline)
             return timeline
 
     raise RenderError(
         f"Timeline {timeline_name!r} is not in this project. Available: "
         f"{[project.GetTimelineByIndex(i).GetName() for i in range(1, project.GetTimelineCount() + 1)]}"
     )
+
+
+def _select_timeline(project, timeline_name: str):
+    """Make *timeline_name* current, or raise if it does not exist."""
+    timeline = _find_timeline(project, timeline_name)
+    if timeline_name:
+        # Establishing the cursor IS a write to instance-global state:
+        # through the guard, under a lease, like every other cursor
+        # move - an unleased select walked the cursor out from under a
+        # sibling lane's Fusion pass on 2026-09-20.
+        assert_current_timeline(project, timeline)
+    return timeline
 
 
 def _assert_has_audio(path: str) -> None:

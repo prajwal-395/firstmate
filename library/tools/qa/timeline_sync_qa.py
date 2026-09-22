@@ -87,8 +87,11 @@ def run_timeline_sync_qa(manifest: dict, project_name: str, timeline_name: str) 
             
     if not timeline:
         raise RuntimeError(f"Could not find timeline '{timeline_name}' for sync QA check")
-        
-    project.SetCurrentTimeline(timeline)
+
+    # Read through the handle: every check below is `timeline.Get*`,
+    # so setting the current timeline first would move the cursor for
+    # no reader - the unleashed move that killed a sibling lane's
+    # Fusion pass on 2026-09-20. The cursor stays where it was.
     fps = float(timeline.GetSetting("timelineFrameRate"))
     
     # Check V1

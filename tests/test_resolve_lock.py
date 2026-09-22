@@ -724,3 +724,32 @@ def test_the_captain_cli_sets_shows_and_clears(lock_dir, capsys):
     assert resolve_lock._main(["captain-release"]) == 0
     assert resolve_lock._main(["captain-status"]) == 0
     assert "not in Resolve" in capsys.readouterr().out
+
+
+def test_the_unguarded_prefer_path_never_establishes_the_cursor():
+    """`prefer_lease` proceeds unguarded on contention, so the path it
+    guards must not move the cursor at all.
+
+    2026-09-20: an unleased `SetCurrentTimeline` collided with a
+    sibling lane's Fusion pass. The captain's button (the sole
+    `prefer=True` entry point, `marker_capture.capture`) takes the
+    lease when free and goes ahead when held - safe only because it
+    never establishes the cursor: playhead and stills read off the
+    passed timeline handle, markers land on that same handle. A
+    holder's fence watches the cursor, so a path that cannot move it
+    cannot trip one. If this path ever needs the cursor current, it
+    must take the real lease first rather than grow a setter here.
+    """
+    import ast
+    from pathlib import Path
+    source = (Path(__file__).resolve().parent.parent
+              / "library" / "tools" / "marker_capture.py").read_text(
+                  encoding="utf-8")
+    setters = [node.lineno for node in ast.walk(ast.parse(source))
+               if isinstance(node, ast.Attribute)
+               and node.attr == "SetCurrentTimeline"]
+    assert setters == [], (
+        f"marker_capture.py establishes the cursor at lines {setters}: "
+        f"the prefer_lease path goes ahead unguarded on contention, so "
+        f"a setter here would walk a sibling holder's cursor with no "
+        f"lease and no refusal.")

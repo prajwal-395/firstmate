@@ -430,9 +430,12 @@ def test_reel_promotion_snapshots_each_timeline_then_commits(
     import library.tools.timeline_serializer as ser
     seen = []
 
-    def _fake_serialize(resolve_mock=None):
-        seen.append(resolve_mock.GetProjectManager()
-                    .GetCurrentProject().GetCurrentTimeline().GetName())
+    def _fake_serialize(resolve_mock=None, timeline=None):
+        # The snapshot names its handle: the cursor is never moved to
+        # read (2026-09-20: an unleased cursor walk killed a sibling
+        # lane's Fusion pass), so the fake reads the handle it is
+        # given rather than whatever is current.
+        seen.append(timeline.GetName())
         return {"schema_version": "1.0", "timeline": seen[-1]}
 
     monkeypatch.setattr(ser, "serialize_timeline_state", _fake_serialize)
@@ -448,7 +451,9 @@ def test_reel_promotion_snapshots_each_timeline_then_commits(
     assert snapshot.is_file()
     assert json.loads(snapshot.read_text(encoding="utf-8"))["timeline"] == \
         "Reel 28 - the-nail-salon-query-google-cant-answer"
-    # The commit holds the snapshot, and the open timeline is restored.
+    # The commit holds the snapshot, and the cursor never moved: the
+    # snapshot names its handle rather than setting the current
+    # timeline per name, so there is nothing to put back.
     assert "pipeline_output/review/Reel_28" in "\n".join(report["files"])
     assert project.GetCurrentTimeline().GetName() == "GEO Podcast - Synced"
     log = _git(tmp_path, "log", "--oneline")

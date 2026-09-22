@@ -65,22 +65,30 @@ def _clean_dict(d: dict) -> dict:
 def serialize_timeline_state(
     manifest_path: Optional[str] = None,
     pipeline_data_path: Optional[str] = None,
-    resolve_mock = None
+    resolve_mock = None,
+    timeline=None,
 ) -> Dict[str, Any]:
     """
     Reads the current timeline state from Resolve and serializes it to a dictionary.
+
+    Pass `timeline` to read a NAMED timeline through its own handle:
+    nothing below reads the cursor, so setting the current timeline in
+    order to read is a cursor move with no reader behind it - the exact
+    move that killed a sibling lane's Fusion pass on 2026-09-20. A
+    caller that names its handle keeps the cursor where it found it.
+    Without `timeline` the current one is read, as before.
     """
-    if resolve_mock:
-        resolve = resolve_mock
-    else:
-        resolve = _connect_resolve()
-        
-    pm = resolve.GetProjectManager()
-    project = pm.GetCurrentProject()
-    if not project:
-        raise RuntimeError("No project is currently open in Resolve.")
-        
-    timeline = project.GetCurrentTimeline()
+    if timeline is None:
+        if resolve_mock:
+            resolve = resolve_mock
+        else:
+            resolve = _connect_resolve()
+        pm = resolve.GetProjectManager()
+        project = pm.GetCurrentProject()
+        if not project:
+            raise RuntimeError("No project is currently open in Resolve.")
+
+        timeline = project.GetCurrentTimeline()
     if not timeline:
         raise RuntimeError("No timeline is currently open.")
         

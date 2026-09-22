@@ -29,8 +29,20 @@ if str(REPO) not in sys.path:
 from library.tools import otio_mix
 from library.tools.music_behavior import SILENT_LEVEL_DB
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.resolve_lock import assume_sole_writer
 
 FPS = 30.0
+
+
+@pytest.fixture(autouse=True)
+def _sole_writer():
+    """The mix runs inside the render build's exclusive hold in
+    production; the fakes here have no instance to contend for, so
+    the cursor establishment goes through unguarded-with-a-reason
+    rather than queueing behind a live captain for nothing."""
+    with assume_sole_writer(
+            "test: FakeResolve has no instance to contend for"):
+        yield
 
 
 # ── Fixtures shaped like the real thing ─────────────────────────────

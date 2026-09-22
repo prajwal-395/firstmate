@@ -13,6 +13,8 @@ These tests use plain mock objects - no Resolve writes.
 """
 import pytest
 
+from library.tools import resolve_lock
+
 # apply_fusion_comps lives outside a regular package and needs
 # DaVinciResolveScript on sys.path.  We mock the import so the tests
 # run without Resolve installed. Its sibling imports
@@ -27,6 +29,15 @@ from library.tools.execution.apply_fusion_comps import (  # noqa: E402
 
 
 # ── Mock helpers ────────────────────────────────────────────────
+
+@pytest.fixture
+def unguarded(monkeypatch):
+    """Undo conftest's session-wide sole-writer declaration.
+
+    The suite declares itself the sole writer because its Resolve is a
+    mock. A test ABOUT the guard has to stand outside that (same shape
+    as `unguarded` in test_resolve_lock.py)."""
+    monkeypatch.setattr(resolve_lock, "_sole_writer_reason", None)
 
 class MockTimeline:
     def __init__(self, name):
@@ -258,6 +269,15 @@ class TestAssertDestination:
     agreed to any lock.
     """
 
+    @pytest.fixture(autouse=True)
+    def _sole_writer(self):
+        """The pass runs under its own exclusive lease in production;
+        the mocks here have no instance to contend for."""
+        from library.tools.resolve_lock import assume_sole_writer
+        with assume_sole_writer(
+                "test: mock project has no instance to contend for"):
+            yield
+
     def _project(self, current, *timelines):
         proj = MockProject("Podcast", timeline=current,
                            timelines=list(timelines))
@@ -324,3 +344,23 @@ class TestAssertDestination:
         resolve = MockResolve(MockProjectManager(project=proj))
         with pytest.raises(DestinationMismatchError, match="Wrong timeline"):
             assert_destination(resolve, "Podcast", staging.GetName())
+
+
+class TestAssertDestinationNeedsALease:
+    """The establishment goes through the guard, so without a lease it
+    refuses BEFORE moving the cursor - the 2026-09-20 shape (an
+    unleased move colliding with a sibling lane's pass) fails loud
+    instead of landing somewhere wrong."""
+
+    def test_assertion_without_a_lease_is_refused(self, unguarded):
+        from library.tools import resolve_lock
+        assert not resolve_lock.held()
+        sibling = MockTimeline("Reel 05 - final")
+        staging = MockTimeline("Reel 06 - staging")
+        proj = MockProject("Podcast", timeline=sibling,
+                           timelines=[sibling, staging])
+        resolve = MockResolve(MockProjectManager(project=proj))
+        with pytest.raises(resolve_lock.UnguardedPlacementError):
+            assert_destination(resolve, "Podcast", staging.GetName())
+        assert proj.GetCurrentTimeline() is sibling
+        assert proj.set_calls == []

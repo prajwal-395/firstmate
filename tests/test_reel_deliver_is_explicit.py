@@ -329,7 +329,7 @@ def test_deliver_refuses_on_stale_overlays_before_rendering(tmp_path):
               "disk_resolution": "904x480"}]
     with (patch("library.tools.reel_build._connect_resolve_project",
                 return_value=project),
-          patch("library.tools.execution.resolve_render._select_timeline",
+          patch("library.tools.execution.resolve_render._find_timeline",
                 return_value=timeline),
           patch("library.tools.execution.resolve_render.render_timeline",
                 render),
@@ -365,7 +365,10 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
     timeline.GetStartFrame.return_value = 0
     timeline.GetEndFrame.return_value = 299  # 300 frames @ 30fps = 10s
 
-    # The captain's cursor: on the master, and it must be put back.
+    # The captain's cursor: on the master, and it must stay there -
+    # deliver looks the reel up by handle and never selects it, so
+    # there is nothing to put back (2026-09-20: the unleased select
+    # and restore walked the cursor out from under a sibling lane).
     prior = MagicMock()
     prior.GetName.return_value = "GEO Podcast - Synced"
     project = MagicMock()
@@ -405,8 +408,6 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
 
     with (patch("library.tools.reel_build._connect_resolve_project",
                 return_value=project),
-          patch("library.tools.execution.resolve_render._select_timeline",
-                return_value=timeline),
           patch("library.tools.execution.resolve_render.render_timeline",
                 side_effect=fake_render),
           patch("library.tools.render_qa.verify_duration",
@@ -425,8 +426,9 @@ def test_deliver_renders_exactly_the_reel_timeline(tmp_path):
 
     assert calls["timeline_name"] == "Reel 03 - hook"
     assert calls["output_dir"].endswith("exports")
-    # The captain's cursor is put back where it was.
-    project.SetCurrentTimeline.assert_called_once_with(prior)
+    # The captain's cursor never moved: deliver names a handle and
+    # `render_timeline` selects under its own lease.
+    project.SetCurrentTimeline.assert_not_called()
     assert full["delivered"] is True
     assert full["verification"]["passed"] is True
     assert full["verification"]["content_present"] is True

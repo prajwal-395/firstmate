@@ -36,6 +36,7 @@ if _REPO not in sys.path:
 
 from library.tools import otio_mix  # noqa: E402
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.resolve_lock import assert_current_timeline  # noqa: E402
 
 # What the placement timeline is called while the mixed one takes its
 # name.  It exists for the length of one import and is deleted, or
@@ -180,7 +181,10 @@ def deliver_mix(resolve, project, media_pool, timeline, manifest, *,
             "the placement timeline was kept")
         return report
 
-    project.SetCurrentTimeline(imported)
+    # Establishing the cursor goes through the guard: the imported
+    # timeline is what the rest of the build works on, and a direct
+    # set bypasses the lease refusal and the fence's drift record.
+    assert_current_timeline(project, imported)
     report["timeline"] = imported
     report["timeline_name"] = imported.GetName()
     report["applied"] = written["applied"]
