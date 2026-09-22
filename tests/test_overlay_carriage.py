@@ -434,3 +434,55 @@ def test_the_probe_cache_follows_a_file_that_changed_underneath_it(tmp_path):
     assert after_item.properties["Data Level"] == DATA_LEVEL_FULL, (
         "the same path now holds qtrle and was read through the stale "
         "probe: the clip would composite the whole frame 16/255 dark")
+
+
+# ── The stamp moves with the codec, both directions ──────────────────
+
+def test_a_new_artefact_pairs_the_codec_with_the_current_stamp():
+    """What an overlay artefact IS, both halves, in one place.
+
+    The codec half lives in `overlay_carriage` (what the encoder is
+    told, what the probe reads back, what level Resolve is told) and
+    the stamp half in `overlay_mode.OVERLAY_CARRIAGE` (what the reuse
+    key and the tight-box sidecar record). An artefact encoded the new
+    way and stamped the old way is worse than either, because the
+    stamp is what later readers trust - so the pairing itself is
+    pinned: a file probing as the current codec must be readable as
+    an overlay AND demand the current behaviour, under the current
+    stamp, which must be the one that named this codec change.
+    """
+    from library.tools.overlay_mode import OVERLAY_CARRIAGE
+
+    assert OVERLAY_CARRIAGE == "tight-480-4"
+    assert OVERLAY_VIDEO_CODEC == "qtrle"
+    assert carries_alpha(codec_name=OVERLAY_VIDEO_CODEC,
+                         pix_fmt=OVERLAY_PIXEL_FORMAT, profile="")
+    assert data_level_for(OVERLAY_VIDEO_CODEC) == DATA_LEVEL_FULL
+
+
+def test_an_old_carriage_artefact_still_reads():
+    """Existing artefacts must not become unreadable.
+
+    A `tight-480-3`-era file on disk probes as ProRes 4444 with a
+    `yuva` pixel format - the codec the current carriage replaced.
+    The reader is keyed to the FILE, not to the current stamp, so it
+    still recognises the alpha plane, still sets the premultiplied
+    mode, and still leaves alone the one property ProRes needs left
+    alone. Unmigrated files keep importing correctly; only their
+    recorded stamps read as superseded, which is what earns them a
+    transcode rather than a re-render.
+    """
+    old_fields = {"codec_name": "prores", "pix_fmt": "yuva444p10le",
+                  "profile": "4444"}
+    assert carries_alpha(**old_fields)
+    assert data_level_for(old_fields["codec_name"]) is None
+
+    item = _FakeItem()
+    applied = apply_clip_attributes(item, "old_carriage.mov",
+                                    probe=dict(old_fields))
+    assert applied["alpha"] is True
+    assert item.properties["Alpha mode"] == ALPHA_MODE_PREMULTIPLIED
+    assert item.properties["Data Level"] == "Auto", (
+        "forcing Full onto a ProRes overlay renders the transparent "
+        "region 16/255 too bright - the same defect in the other "
+        "direction")

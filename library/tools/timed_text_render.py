@@ -2,7 +2,8 @@
 
 ``library/tools/timed_text_overlay.py`` says what a declaration means and
 groups its moments into non-overlapping segments; this turns each segment
-into a ProRes 4444 file with an alpha channel, which is what
+into an overlay artefact with an alpha channel
+(``library/tools/overlay_carriage.py`` owns what one IS), which is what
 ``resolve_build_timeline`` can place on V6 over the finished picture.
 
 Called by ``render_motion_graphics`` (4.06), beside the bookend render,
@@ -27,6 +28,10 @@ from pathlib import Path
 from library.tools.timed_text_overlay import (
     TIMED_TEXT_COMPOSITION,
     plan_timed_text_segments,
+)
+from library.tools.overlay_carriage import (
+    OVERLAY_VIDEO_CODEC,
+    transcode_in_place,
 )
 from library.tools.project_layout import AREAS, Area
 
@@ -94,7 +99,7 @@ def render_timed_text_segments(
               f"tl:{segment['timeline_start']:.2f}-"
               f"{segment['timeline_end']:.2f}s", file=stream)
 
-        _render_one(name, out_path, props_path, remotion_dir)
+        _render_one(name, out_path, props_path, remotion_dir, stream=stream)
 
         rendered.append({
             "overlay_path": out_path,
@@ -112,7 +117,7 @@ def render_timed_text_segments(
 
 
 def _render_one(name: str, out_path: str, props_path: str,
-                remotion_dir: str) -> None:
+                remotion_dir: str, *, stream=sys.stderr) -> None:
     """One `npx remotion render` of TimedTextOverlay, judged by its result."""
     command = [
         "npx", "remotion", "render",
@@ -146,3 +151,27 @@ def _render_one(name: str, out_path: str, props_path: str,
         raise TimedTextRenderError(
             f"timed text segment '{name}' reported success but wrote no "
             f"file at {out_path}")
+
+    # ── The carriage ──
+    #
+    # What Remotion wrote is not the artefact: it renders ProRes 4444,
+    # and it cannot write the overlay codec - `renderMedia` takes no
+    # `qtrle`, and its BUNDLED ffmpeg is compiled without that encoder
+    # entirely (`library/tools/overlay_carriage.py`). Step 4.06 already
+    # reports these segments as `OVERLAY_FORMAT_NAME`, so a file left
+    # as ProRes would be an artefact encoded the old way and stamped
+    # the new way. The transcode is VERIFIED bit-exact before it
+    # replaces the render, and a failure RAISES like every other
+    # failure here: a missing overlay leaves the picture underneath
+    # intact, so a warning would ship an episode silently without the
+    # text the template declared.
+    carried = transcode_in_place(out_path)
+    if carried.get("error"):
+        raise TimedTextRenderError(
+            f"timed text segment '{name}' rendered but could not be "
+            f"carried as {OVERLAY_VIDEO_CODEC}: "
+            f"{carried['error'][:400]}")
+    if carried.get("changed"):
+        print(f"      carried as {OVERLAY_VIDEO_CODEC}: "
+              f"{carried['before']:,} -> {carried['after']:,} bytes",
+              file=stream)

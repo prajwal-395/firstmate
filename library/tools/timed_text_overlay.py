@@ -70,8 +70,9 @@ capability, and until 2026-08-20 it stopped at step 1:
    non-overlapping SEGMENTS and rebases each moment's frame numbers
    against the segment it lands in, so nothing renders transparent
    frames between two moments a minute apart.
-3. ``library/tools/timed_text_render.py`` renders one ProRes 4444 file
-   per segment, called by ``render_motion_graphics`` (4.06).
+3. ``library/tools/timed_text_render.py`` renders one overlay artefact
+   per segment (``library/tools/overlay_carriage.py`` owns what one IS),
+   called by ``render_motion_graphics`` (4.06).
 4. ``compile_manifest`` (5.04) carries the segments as the top-level
    ``timed_text_overlay`` manifest key.
 5. ``resolve_build_timeline`` (6.01) places each segment on **V6**.

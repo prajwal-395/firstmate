@@ -12,10 +12,11 @@ exists" is not the same claim as "the picture changed".  `smart_reframe`
 had a reader that printed a tick for months while calling a method
 Resolve does not expose.  So this test renders the REAL production path -
 `render_timed_text_segments`, the same `npx remotion render` the pipeline
-runs, ProRes 4444 with alpha - and reads the resulting frames back with
-ffmpeg to assert the declared colours are in the declared halves of the
-frame at the declared frames, and absent at the frames where the moment
-is not running.
+runs, carried afterwards as the overlay codec
+(`library/tools/overlay_carriage.py`) - and reads the resulting frames
+back with ffmpeg to assert the declared colours are in the declared
+halves of the frame at the declared frames, and absent at the frames
+where the moment is not running.
 
 It is deliberately a FIXTURE render: 320x568 for 24 frames, under a
 second of video.  Nothing here re-renders a project.
@@ -31,6 +32,10 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, PROJECT_ROOT)
 
 from library.tools.timed_text_render import render_timed_text_segments
+from library.tools.overlay_carriage import (
+    OVERLAY_PIXEL_FORMAT,
+    OVERLAY_VIDEO_CODEC,
+)
 
 REMOTION_DIR = os.path.join(PROJECT_ROOT, "remotion-subtitles")
 
@@ -208,6 +213,32 @@ def test_a_moment_is_absent_after_it_ends(rendered):
     assert not _colour_rows(frame, RED), (
         f"ALPHA ends at segment frame 18 but is still in {frame}")
     assert _colour_rows(frame, GREEN), f"no green BETA pixels in {frame}"
+
+
+@remotion_available
+def test_the_segment_is_carried_as_the_overlay_codec(rendered):
+    """The file on disk is what step 4.06 stamps it as.
+
+    `_timed_text_output` reports these segments as `OVERLAY_FORMAT_NAME`,
+    so a file left as the Remotion ProRes render would be an artefact
+    encoded the old way and stamped the new way - the one combination
+    the carriage exists to forbid.
+    """
+    segments, _ = rendered
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name,pix_fmt",
+         "-of", "csv=p=0", segments[0]["overlay_path"]],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    assert probe.returncode == 0, probe.stderr[-800:]
+    codec, pix_fmt = probe.stdout.strip().split(",")[:2]
+    assert codec == OVERLAY_VIDEO_CODEC, (
+        f"timed text segment is {codec}, not the overlay codec "
+        f"{OVERLAY_VIDEO_CODEC}")
+    assert pix_fmt == OVERLAY_PIXEL_FORMAT, (
+        f"timed text segment is {pix_fmt}, not the overlay pixel format "
+        f"{OVERLAY_PIXEL_FORMAT}")
 
 
 @remotion_available

@@ -910,3 +910,79 @@ def test_a_bundled_or_accepted_family_needs_no_file():
         props = plan_timed_text_segments(declaration, width=1080, height=1920)[0]["props"]
         assert props["fontFamily"] == family
         assert "fontFile" not in props
+
+
+# ─────────────────────────────────────────────────────────
+# The render carries the overlay codec, or it raises
+# ─────────────────────────────────────────────────────────
+
+class _RenderOk:
+    returncode = 0
+    stderr = ""
+
+
+def _render_one_with(monkeypatch, tmp_path, *, carry):
+    """`_render_one` with the Remotion launch and the carry stubbed.
+
+    Nothing here shells out: the launch is faked at `subprocess.run`
+    and the carry is the *carry* argument. The render is "done" by
+    pre-creating the output file, which is exactly the state a
+    successful Remotion run leaves behind.
+    """
+    from library.tools import timed_text_render as render_mod
+
+    out_path = str(tmp_path / "timed_text_000.mov")
+    with open(out_path, "wb") as handle:
+        handle.write(b"not a real mov, only os.path.exists matters here")
+    monkeypatch.setattr(
+        render_mod.subprocess, "run",
+        lambda *args, **kwargs: _RenderOk())
+    calls = []
+    if callable(carry):
+        def _carry(path):
+            calls.append(path)
+            return carry(path)
+    else:
+        def _carry(path):
+            calls.append(path)
+            return carry
+    monkeypatch.setattr(render_mod, "transcode_in_place", _carry)
+    return render_mod, out_path, calls
+
+
+def test_a_rendered_segment_is_carried_as_the_overlay(tmp_path, monkeypatch):
+    """Step 4.06 stamps these segments as the overlay format, so the
+    file must BE that codec - Remotion cannot write it, which is why
+    the carry happens here and not in the render command."""
+    from library.tools.overlay_carriage import OVERLAY_VIDEO_CODEC
+
+    render_mod, out_path, calls = _render_one_with(
+        monkeypatch, tmp_path, carry={
+            "error": "", "changed": True, "before": 100, "after": 40})
+    render_mod._render_one(
+        "timed_text_000", out_path,
+        str(tmp_path / "timed_text_000_props.json"), str(tmp_path))
+    assert calls == [out_path], (
+        "the Remotion ProRes render was left on disk as the artefact; "
+        f"step 4.06 reports it as {OVERLAY_VIDEO_CODEC}")
+
+
+def test_a_segment_whose_carry_fails_raises(tmp_path, monkeypatch):
+    """A failed carry RAISES like every other render failure here.
+
+    A missing overlay leaves the picture underneath intact, so a
+    warning would ship an episode silently without the text the
+    template declared - and a ProRes file stamped as the overlay
+    codec would be the old-way/new-stamp combination the carriage
+    exists to forbid.
+    """
+    from library.tools.timed_text_render import TimedTextRenderError
+
+    render_mod, out_path, _ = _render_one_with(
+        monkeypatch, tmp_path, carry={
+            "error": "transcode failed: no ffmpeg here", "changed": False,
+            "before": 100, "after": 100})
+    with pytest.raises(TimedTextRenderError, match="carried"):
+        render_mod._render_one(
+            "timed_text_000", out_path,
+            str(tmp_path / "timed_text_000_props.json"), str(tmp_path))
