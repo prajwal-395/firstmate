@@ -86,6 +86,9 @@
 # to launch a ship task whose explicit --mode disagrees, so an adjusted brief and the
 # recorded task metadata cannot drift apart.
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
+# The ship Setup then names the verified worktree as the only editable workspace
+# and firstmate's home as not the workspace, so a home path never reads as a
+# second workplace; the project-memory helper is named once for the same reason.
 # --mode is refused on scout and secondmate scaffolds: a scout's deliverable is a
 # report rather than a merge, and a charter is not a delivery contract.
 # There is no --yolo flag here. The worker never owns merge decisions, so yolo is
@@ -819,11 +822,16 @@ If the top-level path is the primary checkout or not the worktree you were launc
 
 1. First action: create your branch: \`git checkout -b fm/$ID\`$SETUP2
 
+# Workspace vs firstmate's home
+Your workspace is the disposable worktree you just verified above (the \`git rev-parse --show-toplevel\` path): branch, edit, commit, and run code only there.
+Firstmate's home is \`$FM_HOME\`: the status file, inbox, and helper scripts named below all live under it, and it is NOT your workspace even when it holds a checkout of the same repo.
+Never cd into it, edit, commit, branch, or run project code there; the only writes allowed under it are the ones this brief gives you explicit commands for.
+
 # Rules
 $RULE1
-2. Stay inside this worktree; modify nothing outside it.
+2. Stay inside that worktree; the firstmate-home paths below are outside it, not additional places to work.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
+4. Report status by appending one line (that file lives in firstmate's home, outside your worktree):
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
    States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
    Each append wakes firstmate, so report sparingly: only phase changes a supervisor
@@ -861,10 +869,11 @@ $ASK_USER_BLOCK
 $INBOX_SECTION
 
 # Project memory
-If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
+If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run the firstmate helper \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
+It operates on your workspace; do not open, edit, or run anything else under \`$FM_ROOT\` itself.
 Record only project knowledge useful to almost every future session.
 For anything the codebase already shows, prefer a pointer to the authoritative file, command, or doc over copying the detail.
-If you touch a project \`AGENTS.md\`, follow \`$FM_ROOT/bin/fm-ensure-agents-md.sh\`'s self-governance contract in the same pass.
+If you touch a project \`AGENTS.md\`, follow that helper's self-governance contract in the same pass.
 Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
 
 # Tests
