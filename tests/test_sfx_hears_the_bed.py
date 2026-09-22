@@ -8,9 +8,10 @@ per block, so it COULD have seen that; nothing asked it to, and
 prominent -6) with no relation to what the sound measures or to what is
 under it.
 
-The bed's level at each block now travels into that step's candidate
-table as DATA with a legend - the `MEASUREMENT_LEGEND` route, because
-`handoff.md` is frozen.
+The bed's own level at each block now travels into that step's candidate
+table as DATA, defined in 4.04's own prompt - and it states a level and
+never a gain, because the gain is decided later, at the mix, over
+measurements this step does not yet have.
 
 **It states a level and never a target.** What separation a sound should
 have over the bed is the same undeclared decision
@@ -58,7 +59,11 @@ def test_the_block_the_shipped_sound_sat_on_reads_prominent():
         {"block_type": "transition_slot", "position": 1,
          "music_behavior": "prominent"}, MEASURED_BED)
     assert behaviour == "prominent"
-    assert cell == "-6 dB gain, bed at -21.17 LUFS"
+    assert cell == ("the bed plays here at -15.17 LUFS of its own; how far "
+                    "it is pushed down under this block is decided at the "
+                    "mix, not yet")
+    # Since 2026-09-16 the gain is decided at the mix, never quoted here.
+    assert "gain" not in cell
 
 
 def test_a_planned_silence_says_so_rather_than_reporting_a_level():
@@ -84,7 +89,10 @@ def test_the_prompt_states_a_level_and_never_a_target():
     assert "`music_behavior`" in handoff and "`bed_under_it`" in handoff
     lowered = handoff.lower()
     assert "no separation target is declared anywhere" in lowered
-    assert "bed level unmeasured" in lowered
+    # An unmeasured bed is a stated absence, never a zero or a silence -
+    # the wording moved since, the concept stands where the model reads it.
+    assert '"unmeasured"' in handoff
+    assert "never" in lowered and "the bed is silent" in lowered
     # The prompt must not turn the two facts into a level to read off.
     start = lowered.index("what a level is measured against")
     for instruction in ("should be at", "aim for", "at least"):
@@ -116,8 +124,16 @@ def test_the_table_carries_the_bed_and_the_prompt_defines_it():
     })
     by_id = {r["segment_id"]: r for r in rows}
     assert by_id[1]["music_behavior"] == "prominent"
-    assert by_id[1]["bed_under_it"] == "-6 dB gain, bed at -21.17 LUFS"
-    assert by_id[2]["bed_under_it"] == "-18 dB gain, bed at -33.17 LUFS"
+    assert by_id[2]["music_behavior"] == "background"
+    # Both rows state the bed's OWN level - it does not vary by block, the
+    # behaviour column carries the per-block difference - and neither quotes
+    # a gain: that is decided at the mix, not here.
+    expected_cell = ("the bed plays here at -15.17 LUFS of its own; how far "
+                     "it is pushed down under this block is decided at the "
+                     "mix, not yet")
+    assert by_id[1]["bed_under_it"] == expected_cell
+    assert by_id[2]["bed_under_it"] == expected_cell
+    assert "gain" not in by_id[1]["bed_under_it"]
 
     # The definition is in the PROMPT now, not shipped beside the table.
     # The freeze that forced a `sfx_candidates_legend` dict was lifted

@@ -259,41 +259,6 @@ def scan(document: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def rows_played(timeline: Dict[str, Any],
-                transcript: Dict[str, Any],
-                spans: Optional[Sequence[Any]] = None) -> List[Dict[str, Any]]:
-    """The unfitted rows ONE REEL plays, in that reel's own time.
-
-    `spans` are `reel_hearing.Span`s. Passed in by the hearing pass,
-    which has already measured them; computed here when a caller has
-    only the two documents, so this question can be asked of a BUILT
-    reel before anything is rendered or heard.
-    """
-    from library.tools import reel_hearing
-
-    if spans is None:
-        spans = reel_hearing.speech_spans(timeline, transcript)
-    by_file: Dict[str, List[Any]] = {}
-    for span in spans:
-        by_file.setdefault(span.file_path, []).append(span)
-
-    played: List[Dict[str, Any]] = []
-    for segment in transcript.get("segments") or []:
-        row = row_fit(segment)
-        if row is None:
-            continue
-        for span in by_file.get(str(segment.get("source_file") or ""), []):
-            if not (span.source_in <= row.source_start <= span.source_out):
-                continue
-            entry = row.as_row()
-            entry["reel_start"] = round(
-                row.source_start - span.source_in + span.reel_in, 3)
-            played.append(entry)
-            break
-    played.sort(key=lambda r: r["reel_start"])
-    return played
-
-
 def summary_lines(report: Dict[str, Any], where: str) -> List[str]:
     """What a reader is told about a whole transcript, as lines."""
     lines = [

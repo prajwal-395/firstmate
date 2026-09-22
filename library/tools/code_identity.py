@@ -114,6 +114,20 @@ STEP_IMPLEMENTATION_DEPS = {
         # accepts.
         "library/tools/overlay_mode.py",
     ),
+    "step_1_02_catalog_footage": (
+        # Read by step.py for the source block's declared program stream
+        # and measure flag: which audio stream counts as the program mix
+        # decides what the catalog records, so a fix here changes the
+        # cached rows.
+        "library/tools/footage_identity.py",
+        # Its declaration parsing: the source block is read through the
+        # project config schema.
+        "library/schemas/project_config.py",
+        # Imported by project_config: the subtitle_overlay_geometry /
+        # subtitle_overlay_container vocabularies declaration parsing
+        # validates against (same chain as the scan row above).
+        "library/tools/overlay_mode.py",
+    ),
     "step_1_03_semantic_analysis": (
         # The executed measurement (D1: the usable-ranges gate lives here).
         "library/tools/analysis/vision_pipeline_v3.py",
@@ -148,6 +162,32 @@ STEP_IMPLEMENTATION_DEPS = {
         # box that reaches the seeder, so a fix here changes the cached
         # face_boxes.
         "library/tools/analysis/object_segmentation.py",
+        # Imported by timeline_transcript: the hybrid transcriber is the
+        # primary arm that hears each clip, so a fix here changes the
+        # cached segments.
+        "library/tools/hybrid_transcription.py",
+        # Imported by timeline_transcript beside the hybrid arm: forced
+        # alignment where its environment is present, so a fix here
+        # moves the cached word timings.
+        "library/tools/mfa_align.py",
+        # Imported by hybrid_transcription: the contained third-party
+        # transcriber behind the hybrid arm, so a fix here changes what
+        # the cached segments heard.
+        "library/tools/heard_speech.py",
+        # Imported by mfa_align: which interpreter carries the ML stack
+        # decides what the alignment hears, so a fix here changes the
+        # cached timings. (Its paths import is exempt plumbing.)
+        "library/tools/shared_environment.py",
+        # Imported by timeline_transcript: the one word-boundary clamp
+        # both paths run, so a fix here moves the cached word ends.
+        "library/tools/word_boundaries.py",
+        # Imported by timeline_transcript: the row-fit predicate counts
+        # the unfitted-text keys onto the cached document, so a fix here
+        # changes them. (The per-reel rows_played half lives in
+        # reel_hearing beside the Spans it reads, so this module reaches
+        # no hearing machinery - pinned by
+        # test_the_document_half_reaches_no_hearing_machinery.)
+        "library/tools/transcript_fit.py",
     ),
     "step_1_05_prosody_analysis": (
         # The executed measurement.
@@ -167,6 +207,13 @@ STEP_IMPLEMENTATION_DEPS = {
 EXEMPT_IMPORTS = {
     # Directory plumbing: moving an area does not change a measured value.
     "library/tools/project_layout.py",
+    # Centralized path configuration: every entry is a location or an
+    # environment override, so a change here fails loud (a binary not
+    # found) rather than as a silently stale cached value.  Declaring it
+    # instead would re-run transcription over a moved directory - the
+    # over-invalidation rot the coverage test exists to stop in the
+    # other direction.
+    "library/tools/paths.py",
     # Stdout claiming plumbing.
     "library/tools/step_stdout.py",
     # Project declarations.  step_ledger's rule is that they do NOT travel

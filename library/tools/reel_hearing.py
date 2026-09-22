@@ -361,7 +361,47 @@ def unfitted_rows_played(timeline: Dict[str, Any],
     from library.tools import transcript_fit
 
     spans = speech_spans(timeline, transcript) if spans is None else spans
-    return transcript_fit.rows_played(timeline, transcript, spans)
+    return rows_played(timeline, transcript, spans)
+
+
+def rows_played(timeline: Dict[str, Any],
+                transcript: Dict[str, Any],
+                spans: Optional[Sequence[Any]] = None) -> List[Dict[str, Any]]:
+    """The unfitted rows ONE REEL plays, in that reel's own time.
+
+    `spans` are this module's `Span`s. Passed in by the hearing pass,
+    which has already measured them; computed here when a caller has
+    only the two documents, so this question can be asked of a BUILT
+    reel before anything is rendered or heard.
+
+    Moved here from `library/tools/transcript_fit.py`: the measurement
+    is `row_fit`'s and `row_fit` stays there, but this is the per-reel
+    half and it was the only thing in that module reaching the hearing
+    machinery - so it lives with the hearing machinery.
+    """
+    from library.tools import transcript_fit
+
+    if spans is None:
+        spans = speech_spans(timeline, transcript)
+    by_file: Dict[str, List[Any]] = {}
+    for span in spans:
+        by_file.setdefault(span.file_path, []).append(span)
+
+    played: List[Dict[str, Any]] = []
+    for segment in transcript.get("segments") or []:
+        row = transcript_fit.row_fit(segment)
+        if row is None:
+            continue
+        for span in by_file.get(str(segment.get("source_file") or ""), []):
+            if not (span.source_in <= row.source_start <= span.source_out):
+                continue
+            entry = row.as_row()
+            entry["reel_start"] = round(
+                row.source_start - span.source_in + span.reel_in, 3)
+            played.append(entry)
+            break
+    played.sort(key=lambda r: r["reel_start"])
+    return played
 
 
 # ── The caption side ─────────────────────────────────────────────────

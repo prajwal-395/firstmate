@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from library.tools import reel_hearing
 from library.tools import transcript_fit
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "reel_hearing"
@@ -170,6 +171,27 @@ def test_a_row_with_no_span_at_all_asserts_no_rate():
 
 # ── 5. The reel's own rows, without a render ─────────────────────────
 
+def test_the_document_half_reaches_no_hearing_machinery():
+    """Step 1.04 executes only `row_fit` over the transcript document.
+
+    The per-reel half (`rows_played`) lives in `reel_hearing` beside
+    the `Span`s it reads, so the document module must import nothing
+    from the hearing side - a new import there re-couples the preflight
+    cache identity to the whole hearing pass. AST, not text: the prose
+    names the hearing module and must keep doing so.
+    """
+    import ast
+
+    source = Path(transcript_fit.__file__).read_text(encoding="utf-8")
+    imported = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+        elif isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
+    assert not any("reel_hearing" in name for name in imported), (
+        f"transcript_fit reaches the hearing side: {sorted(imported)}")
+
 def test_the_reels_rows_are_found_from_the_PLAN_alone():
     """No audio, no render, no transcription.
 
@@ -181,7 +203,7 @@ def test_the_reels_rows_are_found_from_the_PLAN_alone():
         encoding="utf-8"))
     transcript = json.loads((FIXTURES / "reel26.transcript.json").read_text(
         encoding="utf-8"))
-    played = transcript_fit.rows_played(timeline, transcript)
+    played = reel_hearing.rows_played(timeline, transcript)
     assert len(played) == 1, played
     assert played[0]["reel_start"] == pytest.approx(25.62, abs=0.01)
     assert played[0]["untimed_words"] == 12
@@ -195,7 +217,7 @@ def test_a_row_the_reel_does_not_play_is_not_reported():
         encoding="utf-8"))
     # The episode fixture's rows are scattered across the whole podcast
     # and this reel's clips cover one narrow span of one file.
-    played = transcript_fit.rows_played(timeline, episode)
+    played = reel_hearing.rows_played(timeline, episode)
     assert len(played) < len(transcript_fit.unfitted_rows(episode))
 
 

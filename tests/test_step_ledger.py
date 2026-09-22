@@ -898,10 +898,19 @@ def test_step_hash_folds_in_declared_implementation_files():
         "cover more than its own directory")
 
     catalog_dir = str(STEPS_ROOT / "step_1_02_catalog_footage")
-    assert (code_identity.code_hashes_for({"catalog": catalog_dir})["catalog"]
-            == code_identity.step_code_hash(catalog_dir)), (
-        "catalog has no declared implementation, so its identity must "
-        "be exactly its own directory")
+    catalog_bare = code_identity.step_code_hash(catalog_dir)
+    catalog_full = code_identity.code_hashes_for(
+        {"catalog": catalog_dir})["catalog"]
+    assert catalog_bare != catalog_full, (
+        "catalog executes shared code (footage_identity), so its identity "
+        "must cover more than its own directory")
+
+    unwired_dir = str(STEPS_ROOT / "step_1_06_object_segmentation")
+    assert (code_identity.code_hashes_for(
+        {"object_segmentation": unwired_dir})["object_segmentation"]
+            == code_identity.step_code_hash(unwired_dir)), (
+        "object_segmentation is unwired and declares no implementation, "
+        "so its identity must be exactly its own directory")
 
 
 def _strip_prose(text):

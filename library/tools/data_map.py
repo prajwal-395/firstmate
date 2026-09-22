@@ -1720,7 +1720,7 @@ UNREAD_BUDGET: Dict[str, int] = {
     "OUT@build_reels": 4,
     "OUT@catalog": 12,
     "OUT@color_grade": 40,
-    "OUT@compile_manifest": 171,
+    "OUT@compile_manifest": 165,
     "OUT@creative_cohesion": 16,
     "OUT@creative_direction": 0,
     "OUT@judge_reels": 35,
