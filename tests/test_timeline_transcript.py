@@ -375,6 +375,44 @@ def test_the_document_says_how_much_was_re_read():
     assert doc["segments_straddling_a_cut"] == 0
 
 
+def test_the_document_counts_rows_whose_text_outruns_their_timings():
+    """The Reel 26 defect as a document fact, beside the counts it joins.
+
+    A row with text and no words must not reach a caption planner
+    silently, and `avg_logprob` is null on that row so
+    `transcript_confidence` has nothing to read. The count lives where
+    `segments_read_from_words` and `segments_with_asr_confidence` live,
+    read with `transcript_fit.row_fit` - so a row that lost only PART of
+    its words counts beside one that lost the whole row, and a fitted row
+    or an empty one counts as neither."""
+    class Snap:
+        project_name, timeline_name = "P", "T"
+        fps, duration = 23.976, 100.0
+        clips = ()
+
+        def speakers(self):
+            return ["Craig"]
+
+    def _segment(text, n_words):
+        words = tuple(
+            {"word": f"w{i}", "start": float(i), "end": float(i) + 0.2}
+            for i in range(n_words))
+        return tt.SpokenSegment(
+            speaker="Craig", text=text,
+            timeline_start=0.0, timeline_end=1.0,
+            source_file="s.wav", source_start=0.0, source_end=1.0,
+            resolve_item_id="A", words=words)
+
+    doc = tt.transcript_document(Snap(), [
+        _segment("hello world", 2),  # fitted: counts as neither
+        _segment("", 0),  # no text: nothing to fit, counts as neither
+        _segment("make sure that you're coming up", 0),  # the Reel 26 row
+        _segment("one two three four", 2),  # partial loss: still counts
+    ])
+    assert doc["segments_with_unfitted_text"] == 2
+    assert doc["words_with_no_timing"] == 6 + 2
+
+
 # ── Re-binding a transcript that is already on disk ──────────────────
 #
 # The word-level re-read runs when a transcript is PRODUCED, and

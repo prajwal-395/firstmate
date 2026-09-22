@@ -891,6 +891,24 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
     rebound = sum(1 for s in merged
                   if s.read_from_words and s.resolve_item_id is not None)
     with_confidence = sum(1 for s in merged if s.avg_logprob is not None)
+    # Rows whose TEXT outruns their TIMINGS, read with the one predicate
+    # that already answers that question - `transcript_fit.row_fit`, a
+    # count against a count with no threshold in it. This is the Reel 26
+    # defect: a WhisperX fallback row carrying twelve words of text in
+    # 920ms with `words: []` and `avg_logprob` null, so
+    # `transcript_confidence` has nothing to read and cannot be where it
+    # gets caught. It is REPORTED, never refused: a partial-loss row
+    # still carries placeable words, and refusing the whole transcript
+    # over a few fallback-arm rows would discard every good one with
+    # them. The per-reel half already exists as the `transcript_row_fit`
+    # finding in `reel_hearing`; this is the whole-document half, known
+    # the day the transcript is written, before any reel plays one.
+    from library.tools import transcript_fit
+    unfitted = [fit for fit in
+                (transcript_fit.row_fit(s.as_dict()) for s in merged)
+                if fit is not None]
+    unfitted_segments = len(unfitted)
+    untimed_words = sum(f.text_words - f.timed_words for f in unfitted)
     from library.tools.transcript_confidence import ALIGNMENT_SCORE
     scored_words = sum(1 for s in merged for w in s.words
                        if isinstance(w, dict)
@@ -961,6 +979,16 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         # and is never read as that one - see
         # `transcript_confidence.ALIGNMENT_SCORE_LEGEND`.
         "words_with_alignment_score": scored_words,
+        # How many rows carry text no word timing covers, and how many
+        # words that is. The same kind of fact as `segments_read_from_words`
+        # and `segments_with_asr_confidence` above: a population count on
+        # the document, read with `transcript_fit.row_fit` so the
+        # partial-loss class (a row that lost SOME of its words) counts
+        # beside the whole-row class - a guard built only on `words: []`
+        # misses it. Zero and "nobody looked" do not read the same from
+        # outside, so these keys are always present.
+        "segments_with_unfitted_text": unfitted_segments,
+        "words_with_no_timing": untimed_words,
         "segments": [s.as_dict() for s in merged],
     }
     if transcription is not None:
@@ -1166,6 +1194,13 @@ def main(argv=None) -> int:
     if document["segments_straddling_a_cut"]:
         print(f"  {document['segments_straddling_a_cut']} segments carry no "
               f"source binding even at word level", file=sys.stderr)
+    if document["segments_with_unfitted_text"]:
+        print(f"  {document['segments_with_unfitted_text']} segment(s) carry "
+              f"text with no timing for it - "
+              f"{document['words_with_no_timing']} word(s) no caption, "
+              f"karaoke highlight or take boundary can be placed from "
+              f"(library/tools/transcript_fit.py reports; it does not gate)",
+              file=sys.stderr)
     heard = (document.get("transcription") or {}).get("arms") or {}
     if heard:
         print(f"  heard by: "
