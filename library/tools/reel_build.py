@@ -4838,6 +4838,143 @@ def write_visual_asks(moment, transcript: dict, ranges, master_clips,
             "reel_motion": motion_path, "motion_spine": spine}
 
 
+#: The three visual channels one batched ask read / answer write covers,
+#: in the same key vocabulary `write_visual_asks` returns.
+VISUAL_ANSWER_KEYS = ("reel_semantic", "reel_span", "reel_motion")
+
+
+def read_visual_asks(project_folder: str, reel_number: int) -> dict:
+    """All three visual asks for one reel, in ONE call.
+
+    The answering half of `reel.ask`: `write_visual_asks` (and the
+    pass-1 loop before it) wrote the semantic, span and motion asks as
+    three `llm_requests/*.json` files across three tool calls to read
+    back; this reads all three at once and returns them keyed
+    `reel_semantic` / `reel_span` / `reel_motion` - the same vocabulary
+    `write_visual_asks` returns. Each value is the parsed ask payload,
+    or None where that ask was never written (no spine, no timed
+    words, no declared look - every one of those is a legitimate
+    absence, the way `write_visual_asks` returns `""` for it).
+
+    A file that will not parse RAISES rather than reading as absent:
+    an ask the model cannot read is a question it must not answer
+    blind. The stems stay spelled once each, in the module that owns
+    the ask - nothing here duplicates them.
+    """
+    import json
+    import os
+
+    from library.tools import reel_look as _look
+    from library.tools import reel_semantic_visual as sem_vis
+    from library.tools.project_layout import Area, ProjectLayout
+
+    requests_dir = str(
+        ProjectLayout(project_folder).read_dir(Area.LLM_REQUESTS))
+    stems = {"reel_semantic": sem_vis.request_stem(reel_number),
+             "reel_span": sem_vis.span_request_stem(reel_number),
+             "reel_motion": _look.motion_request_stem(reel_number)}
+    asks = {}
+    for key in VISUAL_ANSWER_KEYS:
+        path = os.path.join(requests_dir, stems[key] + ".json")
+        if not os.path.isfile(path):
+            asks[key] = None
+            continue
+        with open(path, "r", encoding="utf-8") as handle:
+            asks[key] = json.load(handle)
+    return asks
+
+
+def write_visual_answers(project_folder: str, reel_number: int,
+                         answers: dict) -> dict:
+    """All three visual answers for one reel, in ONE call.
+
+    The submitting half of `reel.ask`: the model's semantic, span and
+    motion answers land as three `llm_responses/*.json` files - where
+    pass 2 already reads them (`reel_semantic_visual.read_answer`,
+    `read_span_answer`, `reel_look.read_motion_answer`) - in a single
+    call instead of three. Returns the three paths, keyed the way
+    `read_visual_asks` keys the asks.
+
+    This moves the plumbing, never the judgement: each payload is
+    written VERBATIM (a dict with its plan key, or a bare list - both
+    shapes the readers accept), with no default, no template and no
+    reading of what the answer says. `None` is never a payload: an
+    unanswered channel is an ABSENT KEY, and an absent or extra key
+    RAISES before anything is written - a partial write is never
+    silently accepted as three answers.
+    """
+    import json
+    import os
+
+    from library.tools import reel_look as _look
+    from library.tools import reel_semantic_visual as sem_vis
+    from library.tools.project_layout import Area, ProjectLayout
+
+    given = set((answers or {}).keys())
+    missing = [key for key in VISUAL_ANSWER_KEYS if key not in given]
+    extra = sorted(given - set(VISUAL_ANSWER_KEYS))
+    if missing or extra:
+        raise ValueError(
+            f"reel {int(reel_number):02d} answers must carry exactly "
+            f"{list(VISUAL_ANSWER_KEYS)}; "
+            f"missing={missing or None} extra={extra or None}. A "
+            f"partial write is not three answers.")
+    if any(value is None for value in (answers or {}).values()):
+        raise ValueError(
+            f"reel {int(reel_number):02d} answers carry a None payload. "
+            f"An unanswered channel is an absent key - and an absent "
+            f"key refuses above - because None on file would read as "
+            f"unanswered while reporting success.")
+    responses_dir = str(
+        ProjectLayout(project_folder).write_dir(Area.LLM_RESPONSES))
+    stems = {"reel_semantic": sem_vis.request_stem(reel_number),
+             "reel_span": sem_vis.span_request_stem(reel_number),
+             "reel_motion": _look.motion_request_stem(reel_number)}
+    paths = {}
+    for key in VISUAL_ANSWER_KEYS:
+        path = os.path.join(responses_dir, stems[key] + ".json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(answers[key], handle, indent=2)
+        paths[key] = path
+    return paths
+
+
+def read_visual_answers(project_folder: str, reel_number: int) -> dict:
+    """All three visual answers for one reel, in ONE call, VERBATIM.
+
+    What `write_visual_answers` wrote, read back exactly: each value
+    is the raw file payload - no plan-key unwrapping, so a round trip
+    compares equal - or None where no answer file exists or it will
+    not parse, which is the per-ask readers' own discipline (a
+    malformed answer is not a decision for no visuals, and pass 2
+    builds without and says so).
+    """
+    import json
+    import os
+
+    from library.tools import reel_look as _look
+    from library.tools import reel_semantic_visual as sem_vis
+    from library.tools.project_layout import Area, ProjectLayout
+
+    responses_dir = str(
+        ProjectLayout(project_folder).read_dir(Area.LLM_RESPONSES))
+    stems = {"reel_semantic": sem_vis.request_stem(reel_number),
+             "reel_span": sem_vis.span_request_stem(reel_number),
+             "reel_motion": _look.motion_request_stem(reel_number)}
+    found = {}
+    for key in VISUAL_ANSWER_KEYS:
+        path = os.path.join(responses_dir, stems[key] + ".json")
+        if not os.path.isfile(path):
+            found[key] = None
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                found[key] = json.load(handle)
+        except (OSError, ValueError):
+            found[key] = None
+    return found
+
+
 def write_reel_asks_for_project(project_folder: str, transcript: dict,
                                 only=None, name_suffix: str = "") -> dict:
     """Write every approved reel's three visual asks, without building.
