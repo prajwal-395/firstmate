@@ -198,10 +198,33 @@ def test_both_declarations_are_read_once_before_any_timeline_exists():
 def test_promotion_reads_carries_and_reports_the_captains_markers():
     calls = _calls(_function("promote_staged_reels"))
     for spelled in ("_markers.read_markers", "_markers.plan_carry",
-                    "_markers.report", "_markers.place"):
+                    "_markers.report", "_markers.place",
+                    "_markers.read_clip_markers",
+                    "_markers.plan_clip_carry", "_markers.report_clip",
+                    "_markers.place_clip_markers"):
         assert spelled in calls, (
             f"{spelled} is no longer called by promote_staged_reels: a "
             f"promotion can silently destroy the captain's words again.")
+
+
+def test_touchup_promotion_reads_carries_and_reports_both_planes():
+    import inspect as _inspect
+
+    from library.tools import reel_touchup as _touchup
+
+    tree = ast.parse(_inspect.getsource(_touchup))
+    node = next(
+        n for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef) and n.name == "_promote")
+    calls = _calls(node)
+    for spelled in ("_markers.read_markers", "_markers.plan_carry",
+                    "_markers.report", "_markers.place",
+                    "_markers.read_clip_markers",
+                    "_markers.plan_clip_carry", "_markers.report_clip",
+                    "_markers.place_clip_markers"):
+        assert spelled in calls, (
+            f"{spelled} is no longer called by reel_touchup._promote: a "
+            f"touch-up can silently destroy the captain's words again.")
 
 
 def test_the_markers_are_read_before_anything_is_renamed():

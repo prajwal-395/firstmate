@@ -1563,6 +1563,19 @@ def _promote(project_folder: str, project: Any, pool: Any,
                                          final)
         _markers.report(final, keep, lost)
         carried_markers = {"carried": keep, "uncarried": lost}
+    # The clip plane beside it, as in promotion: a marker on a clip
+    # item dies with its item, and the timeline read above never saw
+    # it. Carried by source file and source frame, reported by name
+    # where no unique placement resolves.
+    clip_notes = _markers.read_clip_markers(originals[final], final)
+    if clip_notes:
+        clip_keep, clip_lost = _markers.plan_clip_carry(
+            clip_notes, staged_found[staging], final)
+        _markers.report_clip(final, clip_keep, clip_lost)
+        entry = carried_markers or {"carried": [], "uncarried": []}
+        entry["clip_carried"] = clip_keep
+        entry["clip_uncarried"] = clip_lost
+        carried_markers = entry
 
     backup = backup_name(final)
     if not originals[final].SetName(backup):
@@ -1583,6 +1596,10 @@ def _promote(project_folder: str, project: Any, pool: Any,
         declined = _markers.place(staged_found[staging],
                                   carried_markers["carried"])
         carried_markers["declined"] = declined
+    if carried_markers and carried_markers.get("clip_carried"):
+        clip_declined = _markers.place_clip_markers(
+            staged_found[staging], carried_markers["clip_carried"])
+        carried_markers["clip_declined"] = clip_declined
     receipt["markers"] = carried_markers or {"carried": [],
                                              "uncarried": []}
 

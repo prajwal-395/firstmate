@@ -8457,15 +8457,20 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     archive. A reel carrying a durable sign-off retires whatever this
     says. There is no "retain everything" value.
 
-    Every marker on a retiring timeline is READ before phase 1, and
-    the ones whose picture still plays in the replacement are placed
-    onto it after phase 2. One that cannot be placed is named, with
-    the captain's own words, on stderr - and then PUT BACK anyway: a
+    Every marker on a retiring timeline is READ before phase 1, on
+    BOTH planes - the timeline's own markers and the markers living on
+    its clip items - and the ones whose anchor still resolves in the
+    replacement are placed onto it after phase 2. One that cannot be
+    placed is named, with the captain's own words, on stderr - and a
+    TIMELINE-plane one is then PUT BACK anyway: a
     Blue carrying his name, note, colour and custom data byte-identical
     at duration 1, at the seam where its subject was cut out
     (`marker_carry.seam_for` - the join the cut made, never a guess
     onto similar material), with our own Green reply BESIDE it stating
-    the original frame and the derivation. Refusing to re-anchor by
+    the original frame and the derivation. A CLIP-plane marker that
+    cannot be placed is reported and left there: it is about an ITEM,
+    and re-filing it as a moment note on the timeline plane would read
+    as a different claim. Refusing to re-anchor by
     heuristic stays: the seam is the one position that is always both
     defensible and honest. Whether markers SHOULD always be carried
     stays an open product question; that a promotion must not discard
@@ -8475,7 +8480,9 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     "replace_reports": {final: guard report...},
     "refused": {final: refusal text...},
     "markers": {final: {"carried": [...], "uncarried": [...],
-    "replaced": [...], "replace_declined": [...]}}}`.
+    "replaced": [...], "replace_declined": [...],
+    "clip_carried": [...], "clip_uncarried": [...],
+    "clip_declined": [...]}}}`.
 
     A partial refusal still RAISES - automation must not read it as
     clean - after the passing reels have fully promoted (renames,
@@ -8621,6 +8628,23 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
                 _markers.report(final, keep, lost)
                 carried_markers[final] = {"carried": keep,
                                           "uncarried": lost}
+            # The CLIP plane beside it: a marker living on a clip item
+            # (a caption card, a motion graphic, a master audio item)
+            # dies with its item when the rebuild replaces it, and the
+            # timeline read above never saw it. Carried by source file
+            # and source frame - WHICH item - never by timeline frame,
+            # and reported by name where no unique placement resolves
+            # (`library/tools/marker_carry.py`, the clip plane).
+            clip_notes = _markers.read_clip_markers(
+                originals[final], final)
+            if clip_notes:
+                clip_keep, clip_lost = _markers.plan_clip_carry(
+                    clip_notes, staged_found[staging], final)
+                _markers.report_clip(final, clip_keep, clip_lost)
+                entry = carried_markers.setdefault(
+                    final, {"carried": [], "uncarried": []})
+                entry["clip_carried"] = clip_keep
+                entry["clip_uncarried"] = clip_lost
         except _guard.ReplaceGuardUnreadable as unreadable:
             refused[final] = (
                 f"REFUSING to promote {final!r}: {unreadable} Nothing "
@@ -8667,6 +8691,10 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             declined = _markers.place(staged_found[staging],
                                       notes["carried"])
             notes["declined"] = declined
+        if notes and notes.get("clip_carried"):
+            clip_declined = _markers.place_clip_markers(
+                staged_found[staging], notes["clip_carried"])
+            notes["clip_declined"] = clip_declined
         if notes and notes.get("uncarried") and final in originals:
             # The Blue goes back. `originals[final]` still reads the
             # retired picture - the rename changed its name, not its

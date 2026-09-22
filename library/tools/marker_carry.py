@@ -587,6 +587,434 @@ def place(timeline, carried) -> list:
     return failed
 
 
+# ── The clip plane ────────────────────────────────────────────────
+#
+# A DaVinci marker lives either on the TIMELINE or on a CLIP ITEM, and
+# promotion carried the timeline plane only - so a clip-anchored marker
+# died with its item when a rebuild replaced it, and NOTHING REPORTED
+# THE LOSS. Proven 2026-09-19 on Reel 09: the CTA-animation note (blue,
+# the captain's verbatim words) had died that way on an earlier rebuild
+# and was reported nowhere until a lane tripped over it and restored it
+# by hand.
+#
+# What "the anchor" means here is NOT the timeline frame - a rebuild
+# moves every frame. It is the source file and the source frame the
+# marker sits on: WHICH item the note is about. A clip marker's key IS
+# already a source frame (the same space as `GetLeftOffset()` -
+# `marker_feedback`), so carrying it is placing the same key on the
+# same file's placement in the replacement. Where the file plays twice
+# over the key, or plays nowhere, there is no unique item to place on
+# and the marker is REPORTED BY NAME rather than guessed onto one - a
+# marker silently re-anchored to the wrong item is worse than one
+# honestly reported missing. That refusal is the timeline plane's rule
+# and it is not weakened here.
+#
+# Deliberate boundaries, stated so nobody re-derives them:
+#
+# * Media-pool-inherited copies are not carried. A pool marker that
+#   exists when a clip is placed is COPIED onto every item cut from the
+#   file (`marker_feedback`), so the replacement's own placements
+#   already inherit the same copy - carrying it again would only earn a
+#   decline for a marker that is already there. Skipped the way the
+#   reader skips them: same key, same name, same note.
+# * An uncarried clip marker is REPORTED, never re-placed. The timeline
+#   plane puts an uncarried note back as a Blue at the seam - but a clip
+#   note is about an ITEM, and re-filing it as a moment note on the
+#   timeline plane would read as a different claim (and route
+#   differently downstream). The words survive on the retired backup,
+#   in the datastore pull, and in the report below.
+# * Clip replies carry by their OWN anchor, like every other clip
+#   marker. The timeline plane re-pairs a reply with its note by
+#   identity; the clip plane does not - pairing across replaced items
+#   is a second mechanism this change does not build.
+#
+# `tests/test_clip_marker_carry.py`.
+
+#: Every track a clip marker may live on. The retiring inventory held
+#: caption cards, motion graphics (video) and one master-MXF audio
+#: item - the picture-rows-only filter of the timeline plane would
+#: miss the last, so the clip plane reads both media types whole.
+_CLIP_TRACK_TYPES = ("video", "audio")
+
+
+def _clip_row_items(timeline):
+    """Every `(track_type, track_index, track_name, item)` on `timeline`.
+
+    Raises `MarkerCarryUnreadable` when a row will not read - the same
+    fail-closed shape as the timeline plane: a promotion that cannot
+    see every item cannot prove it carried every note.
+    """
+    rows = []
+    for track_type in _CLIP_TRACK_TYPES:
+        try:
+            count = timeline.GetTrackCount(track_type) or 0
+        except Exception as unreadable:
+            raise MarkerCarryUnreadable(
+                f"the {track_type} rows could not be read "
+                f"({unreadable}); a promotion that cannot see the "
+                f"captain's words must not proceed to replace them "
+                f"silently.") from unreadable
+        for index in range(1, count + 1):
+            try:
+                name = timeline.GetTrackName(track_type, index) or ""
+                items = (timeline.GetItemListInTrack(track_type, index)
+                         or [])
+            except Exception as unreadable:
+                raise MarkerCarryUnreadable(
+                    f"the items of {track_type}{index} could not be read "
+                    f"({unreadable}); a promotion that cannot see the "
+                    f"captain's words must not proceed to replace them "
+                    f"silently.") from unreadable
+            for item in items:
+                rows.append((track_type, index, name, item))
+    return rows
+
+
+def _clip_item_anchor(item, track_type: str, track_index: int):
+    """What item this is, in source space, or None when it will not say.
+
+    None is not a guess and not a zero: an item whose span or source
+    file cannot be read cannot anchor a marker, and the marker is
+    reported uncarried rather than placed by frame.
+    """
+    try:
+        start = int(item.GetStart())
+        end = int(item.GetEnd())
+        left = int(item.GetLeftOffset())
+    except (AttributeError, TypeError, ValueError):
+        return None
+    try:
+        duration = int(item.GetDuration())
+    except (AttributeError, TypeError, ValueError):
+        duration = end - start
+    if duration < 0:
+        return None
+    try:
+        pool_item = item.GetMediaPoolItem()
+        path = (str(pool_item.GetClipProperty("File Path") or "")
+                if pool_item is not None else "")
+    except (AttributeError, TypeError, ValueError):
+        path = ""
+    try:
+        clip_name = item.GetName() or ""
+    except (AttributeError, TypeError, ValueError):
+        clip_name = ""
+    return {
+        "source_file": path,
+        "track_type": track_type,
+        "track_index": int(track_index),
+        "clip_name": str(clip_name),
+        "timeline_start": start,
+        "timeline_end": end,
+        "source_start": left,
+        "source_end": left + duration,
+    }
+
+
+def _item_markers(item):
+    """This item's own markers, or None when the item answers no marker API.
+
+    None is a property of TEST DOUBLES only: every real TimelineItem
+    answers `GetMarkers` (`marker_feedback`, measured). A double
+    without the method is a double carrying no markers to read, and is
+    skipped - anything the method itself raises is unreadable instead,
+    and refuses rather than reading as empty.
+    """
+    try:
+        get = item.GetMarkers
+    except AttributeError:
+        return None
+    try:
+        return dict(get() or {})
+    except Exception as unreadable:
+        raise MarkerCarryUnreadable(
+            f"a clip item's markers could not be read ({unreadable}); "
+            f"a promotion that cannot see the captain's words must not "
+            f"proceed to replace them silently.") from unreadable
+
+
+def read_clip_markers(timeline, timeline_name: str = "") -> list:
+    """Every marker living on a clip item, with the anchor each sits on.
+
+    Read BEFORE anything is renamed, beside `read_markers` - the whole
+    point of either is that the captain's words are in hand before the
+    object that carries them is replaced. One entry per item marker:
+
+    * `frame`: the absolute timeline frame it resolves to, or None
+      with `unplaced_reason` when the key sits outside what the clip
+      plays - kept UNPLACED, never clamped to the clip's head (the
+      `marker_feedback` rule);
+    * `source_frame`: the marker's own key, in source space;
+    * `anchor`: the placement the note was typed ON - the source file
+      plus the source range that says WHICH item - or None when the
+      item would not say, in which case the plan reports rather than
+      places.
+    """
+    del timeline_name  # the anchor, not the reel, is what carries here
+    entries = []
+    pool_seen: dict = {}
+    for track_type, index, _name, item in _clip_row_items(timeline):
+        raw = _item_markers(item)
+        if raw is None:
+            continue
+        anchor = _clip_item_anchor(item, track_type, index)
+        if anchor is not None:
+            key = anchor["source_file"] or anchor["clip_name"]
+            if key not in pool_seen:
+                try:
+                    pool_item = item.GetMediaPoolItem()
+                    pool_seen[key] = (dict(pool_item.GetMarkers() or {})
+                                      if pool_item is not None else {})
+                except (AttributeError, TypeError, ValueError):
+                    pool_seen[key] = {}
+        else:
+            pool_seen.setdefault("", {})
+        inherited = pool_seen.get(
+            (anchor["source_file"] or anchor["clip_name"])
+            if anchor is not None else "", {}) or {}
+        for key, marker in raw.items():
+            try:
+                source_frame = int(key)
+            except (TypeError, ValueError):
+                continue
+            marker = dict(marker)
+            name = marker.get("name") or ""
+            note = marker.get("note") or ""
+            pooled = inherited.get(key) or inherited.get(source_frame)
+            if isinstance(pooled, dict):
+                if ((pooled.get("name") or "",
+                     pooled.get("note") or "") == (name, note)):
+                    continue  # the pool's own copy, re-inherited below
+            if anchor is None:
+                entries.append({
+                    "plane": "clip",
+                    "frame": None,
+                    "source_frame": source_frame,
+                    "color": marker.get("color", ""),
+                    "name": name,
+                    "note": note,
+                    "duration": int(marker.get("duration", 1) or 1),
+                    "custom_data": marker.get("customData", ""),
+                    "anchor": None,
+                    "unplaced_reason": (
+                        "the item it sits on would not report its span "
+                        "or source file, so there is no anchor to carry"),
+                })
+                continue
+            in_range = (anchor["source_start"]
+                        <= source_frame < anchor["source_end"])
+            entries.append({
+                "plane": "clip",
+                "frame": (anchor["timeline_start"]
+                          + (source_frame - anchor["source_start"])
+                          if in_range else None),
+                "source_frame": source_frame,
+                "color": marker.get("color", ""),
+                "name": name,
+                "note": note,
+                "duration": int(marker.get("duration", 1) or 1),
+                "custom_data": marker.get("customData", ""),
+                "anchor": {**anchor, "source_frame": source_frame},
+                "unplaced_reason": ("" if in_range else (
+                    f"marker at source frame {source_frame}, outside the "
+                    f"{anchor['source_start']}..{anchor['source_end']} "
+                    f"this clip plays")),
+            })
+    entries.sort(key=lambda e: (e["frame"] is None, e["frame"] or 0,
+                                str(e["anchor"])))
+    return entries
+
+
+def _clip_candidates(anchor: dict, replacement) -> list:
+    """Every replacement placement playing the anchor's source frame.
+
+    A candidate is `(item, candidate_anchor)`: same non-empty source
+    file, key inside its played source range. Linked audio+video items
+    of ONE placement (same file, same timeline span, same source span
+    - `marker_routing._same_placement`) count once: they are one clip
+    seen twice, not two items to choose between.
+    """
+    if not anchor or not anchor.get("source_file"):
+        return []
+    path, key = anchor["source_file"], anchor["source_frame"]
+    found = []
+    for track_type, index, _name, item in _clip_row_items(replacement):
+        candidate = _clip_item_anchor(item, track_type, index)
+        if candidate is None:
+            continue
+        if candidate["source_file"] != path:
+            continue
+        if not (candidate["source_start"]
+                <= key < candidate["source_end"]):
+            continue
+        candidate = {**candidate, "source_frame": key}
+        if any(all(candidate.get(k) == seen[1].get(k)
+                   for k in ("source_file", "timeline_start",
+                             "timeline_end", "source_start",
+                             "source_end"))
+               for seen in found):
+            continue
+        found.append((item, candidate))
+    return found
+
+
+def plan_clip_carry(clip_markers, replacement,
+                    timeline_name: str = "") -> tuple:
+    """Split clip markers into those that resolve here and those that do not.
+
+    Returns `(carried, uncarried)`; neither list is written anywhere -
+    the same pure split `plan_carry` is, so a caller may report before
+    it acts. A marker carries when exactly one DISTINCT replacement
+    placement plays its anchor's source frame: the key is unchanged
+    (source space is rebuild-invariant for the same file) and
+    `to_frame` is where that key now lands on the timeline. Zero
+    placements, two different ones, a marker with no anchor, or one
+    whose key its own clip never played are all uncarried with the
+    reason stated - never guessed onto a neighbour.
+    """
+    del timeline_name  # identity pairs replies; this plane carries anchors
+    carried, uncarried = [], []
+    for marker in clip_markers:
+        anchor = marker.get("anchor")
+        if anchor is None:
+            uncarried.append({**marker, "why": (
+                marker.get("unplaced_reason")
+                or "nothing was playing under it to anchor to")})
+            continue
+        if marker.get("frame") is None:
+            uncarried.append({**marker, "why": (
+                marker.get("unplaced_reason")
+                or "its key sits outside what its clip plays")})
+            continue
+        if not anchor.get("source_file"):
+            uncarried.append({**marker, "why": (
+                "it sits on a generator or composition with no source "
+                "file - there is no file identity to carry it by")})
+            continue
+        candidates = _clip_candidates(anchor, replacement)
+        if not candidates:
+            uncarried.append({**marker, "why": (
+                f"no clip in the replacement plays source frame "
+                f"{anchor['source_frame']} of {anchor['source_file']}"
+            )})
+        elif len(candidates) > 1:
+            named = "; ".join(
+                f"{candidate['clip_name'] or '(unnamed)'} "
+                f"({candidate['track_type']}{candidate['track_index']} "
+                f"{candidate['timeline_start']}"
+                f"..{candidate['timeline_end']})"
+                for _item, candidate in candidates)
+            uncarried.append({**marker, "why": (
+                f"{len(candidates)} different clips play source frame "
+                f"{anchor['source_frame']} of {anchor['source_file']} "
+                f"({named}) - refusing to guess which one the note is "
+                f"about")})
+        else:
+            _item, candidate = candidates[0]
+            carried.append({
+                **marker,
+                "to_source_frame": anchor["source_frame"],
+                "to_frame": (candidate["timeline_start"]
+                             + (anchor["source_frame"]
+                                - candidate["source_start"])),
+                "target": candidate,
+            })
+    return carried, uncarried
+
+
+def report_clip(timeline_name: str, carried, uncarried) -> None:
+    """Say what is about to happen to the captain's clip-anchored words.
+
+    A promotion with no clip markers prints nothing; one that carries
+    or drops any says which, by name and with the words - stdout for
+    the carried, stderr for the dropped. A note this build is about to
+    lose is not an informational line, on either plane.
+    """
+    for marker in carried:
+        target = marker.get("target") or {}
+        print(f"  Clip marker carried onto {timeline_name}: "
+              f"{marker['color']} {marker['name']!r} "
+              f"source {marker['source_frame']} of "
+              f"{(marker.get('anchor') or {}).get('source_file')} -> "
+              f"{target.get('track_type')}{target.get('track_index')} "
+              f"@{marker['to_frame']}", flush=True)
+    for marker in uncarried:
+        anchor = marker.get("anchor") or {}
+        where = (f"source {marker.get('source_frame')} of "
+                 f"{anchor.get('source_file')}"
+                 if anchor.get("source_file")
+                 else "no anchored source file")
+        print(f"  CLIP MARKER NOT CARRIED onto {timeline_name}: "
+              f"{marker['color']} {marker['name']!r} ({where}) - "
+              f"{marker['why']}. The captain wrote: "
+              f"{marker['note'].strip()!r}",
+              file=sys.stderr, flush=True)
+
+
+@under_lease("carry the captain's clip markers onto the replacement")
+def place_clip_markers(replacement, carried) -> list:
+    """Write the resolved clip markers onto the replacement's items.
+
+    Each carried entry is re-resolved against the live replacement by
+    its anchor - the rename changed names, never items, so the unique
+    placement the plan found is the one found again. A marker whose
+    anchor no longer resolves uniquely, or that Resolve declines, is
+    returned in the failure list and named on stderr with the captain's
+    words - AGENTS.md 5: judge a Resolve call by what it RETURNS.
+    """
+    failed = []
+    for marker in carried:
+        anchor = marker.get("anchor") or {}
+        target = marker.get("target") or {}
+        candidates = _clip_candidates(anchor, replacement)
+        item = None
+        for candidate_item, candidate in candidates:
+            if all(candidate.get(k) == target.get(k)
+                   for k in ("source_file", "track_type", "track_index",
+                             "timeline_start", "timeline_end")):
+                item = candidate_item
+                break
+        if item is None:
+            failed.append(marker)
+            print(f"  CLIP MARKER NOT CARRIED: the anchored placement "
+                  f"({target.get('track_type')}"
+                  f"{target.get('track_index')} "
+                  f"@{target.get('timeline_start')}) no longer resolves "
+                  f"uniquely - the captain wrote: "
+                  f"{marker['note'].strip()!r}",
+                  file=sys.stderr, flush=True)
+            continue
+        try:
+            if marker.get("custom_data"):
+                ok = item.AddMarker(
+                    int(marker["to_source_frame"]),
+                    marker["color"] or "Blue", marker["name"],
+                    marker["note"], marker["duration"],
+                    marker.get("custom_data") or "")
+            else:
+                ok = item.AddMarker(
+                    int(marker["to_source_frame"]),
+                    marker["color"] or "Blue", marker["name"],
+                    marker["note"], marker["duration"])
+        except Exception as refused:                       # noqa: BLE001
+            failed.append(marker)
+            print(f"  CLIP MARKER NOT CARRIED: Resolve raised "
+                  f"({refused}) for {marker['name']!r} - the captain "
+                  f"wrote: {marker['note'].strip()!r}",
+                  file=sys.stderr, flush=True)
+            continue
+        if not ok:
+            failed.append(marker)
+            print(f"  CLIP MARKER NOT CARRIED: Resolve declined "
+                  f"{marker['name']!r} at source "
+                  f"{marker['to_source_frame']} of "
+                  f"{anchor.get('source_file')} - the captain wrote: "
+                  f"{marker['note'].strip()!r}",
+                  file=sys.stderr, flush=True)
+    return failed
+
+
+
 def _rows_span(rows, start: int) -> int:
     """How many timeline-relative frames the picture rows cover."""
     end = start
