@@ -30,9 +30,12 @@ reason, recorded in the learning's own history.
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
+
+from library.tools import learned_context
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -255,6 +258,82 @@ def test_a_pending_proposal_is_corrected_only_after_promotion(tmp_path):
         str(tmp_path), rec["id"], new_statement="Better guess.",
         reason="Settled it.")
     assert new["supersedes"] == rec["id"]
+
+
+def test_concurrent_records_keep_every_record_with_unique_ids(tmp_path):
+    """The retake-detection lane's refusal, exercised: N writers racing
+    `record()` must lose nothing and mint no id twice. Barrier-synced
+    threads maximise the overlap of the old load-mint-save window; on
+    the unlocked code this fails with lost records and duplicate ids.
+    Uses a temporary store only - never a real project store."""
+    writers, per_writer = 8, 10
+    total = writers * per_writer
+    barrier = threading.Barrier(writers)
+    failures = []
+
+    def write_batch(slot):
+        try:
+            barrier.wait(timeout=30)
+            for n in range(per_writer):
+                learned_context.record(
+                    str(tmp_path), kind="correction",
+                    statement=f"Writer {slot} learning {n}.",
+                    read_by=["plan_transitions"])
+        except Exception as exc:  # noqa: BLE001 - collected, then raised
+            failures.append(exc)
+
+    threads = [threading.Thread(target=write_batch, args=(s,))
+               for s in range(writers)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+
+    assert not failures, f"writers raised: {failures!r}"
+    store = json.loads(
+        (tmp_path / "learned_context" / "learnings.json").read_text(
+            encoding="utf-8"))
+    assert len(store) == total, (
+        f"{total - len(store)} concurrent records lost")
+    ids = [l["id"] for l in store]
+    assert len(set(ids)) == total, "two writers minted the same id"
+    assert set(ids) == {f"lc-{n:04d}" for n in range(1, total + 1)}
+
+
+def test_concurrent_retires_do_not_clobber_each_other(tmp_path):
+    """Two lanes retiring different learnings at once: the classic
+    last-writer-wins clobber on the unlocked code un-retired one of
+    them. Every retirement must survive."""
+    count = 8
+    ids = [learned_context.record(
+        str(tmp_path), kind="mistake_fix",
+        statement=f"Fix {n}.", read_by=["music_selection"])["id"]
+        for n in range(count)]
+    barrier = threading.Barrier(count)
+    failures = []
+
+    def retire_one(learning_id):
+        try:
+            barrier.wait(timeout=30)
+            learned_context.retire(
+                str(tmp_path), learning_id,
+                reason=f"{learning_id} no longer applies.")
+        except Exception as exc:  # noqa: BLE001 - collected, then raised
+            failures.append(exc)
+
+    threads = [threading.Thread(target=retire_one, args=(i,)) for i in ids]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=120)
+
+    assert not failures, f"retirers raised: {failures!r}"
+    store = json.loads(
+        (tmp_path / "learned_context" / "learnings.json").read_text(
+            encoding="utf-8"))
+    assert len(store) == count
+    assert {l["status"] for l in store} == {"retired"}, (
+        "a concurrent retirement was clobbered away")
 
 
 def test_learnings_reach_a_declaring_step_through_gather(tmp_path):

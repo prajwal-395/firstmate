@@ -58,6 +58,21 @@ atomically through `ProjectLayout.write_path`, so the area law holds
 for the writer too. ids are `lc-NNNN`, allocated monotonically and
 never reused, so a retired id still names the thing it named.
 
+Concurrency
+-----------
+Every mutation (`record`, `retire`, `correct`, `promote`) holds an
+exclusive lock across its WHOLE read-modify-write - load, id minting
+and save - so two concurrent writers can neither mint the same id nor
+lose each other's records. The lock is a sidecar
+`learnings.json.lock` file taken with `fcntl.flock` (the same shape as
+`declaration_keys._file_lock`), plus a process-local `threading.Lock`
+for threads sharing the process; where `fcntl` is unavailable the
+thread lock is all there is. Pure reads stay unlocked: the save swaps
+the file in with one atomic `os.replace`, so a reader never sees a
+half-written store. `correct()` mints and links under ONE hold (a
+crash before the single save leaves no partial state, which is the
+honest outcome). The on-disk format is unchanged.
+
 `tests/test_learned_context.py`.
 """
 
@@ -67,6 +82,9 @@ import datetime
 import json
 import os
 import tempfile
+import threading
+from contextlib import contextmanager
+from pathlib import Path
 
 LEARNINGS_FILE = "learnings.json"
 
@@ -163,6 +181,51 @@ def _save(project_folder: str, learnings: list) -> None:
         raise
 
 
+#: In-process half of the store lock: threads sharing this process
+#: serialise here before (and while holding) the file lock below, so
+#: no thread waits on a kernel round-trip it could have avoided. The
+#: file lock is the half that matters across processes; this one is
+#: cheap and never sufficient alone.
+_store_thread_lock = threading.Lock()
+
+
+def _lock_file_path(project_folder: str) -> Path:
+    from library.tools.project_layout import Area, ProjectLayout
+    return ProjectLayout(project_folder).read_dir(
+        Area.LEARNED_CONTEXT) / (LEARNINGS_FILE + ".lock")
+
+
+@contextmanager
+def _store_lock(project_folder: str):
+    """Exclusive across cooperating writers; the id minting is inside.
+
+    Held across the WHOLE read-modify-write - load, id choice and save -
+    so a concurrent writer can neither mint the same id nor have its
+    record clobbered by a stale read. Held for milliseconds. A writer
+    that does not take it - the captain in a text editor - is outside
+    this contract, the way it is outside `declaration_keys`' identical
+    one. `ProjectLayout` raises on an empty folder before anything is
+    created, so a lock is never taken for a store that cannot exist.
+    """
+    with _store_thread_lock:
+        path = _lock_file_path(project_folder)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a+", encoding="utf-8") as handle:
+            try:
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            except ImportError:  # pragma: no cover - not POSIX
+                pass
+            try:
+                yield
+            finally:
+                try:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except ImportError:  # pragma: no cover - not POSIX
+                    pass
+
+
 def _now() -> str:
     return datetime.datetime.now(
         datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -195,6 +258,36 @@ def _check_readers(read_by) -> list:
     return readers
 
 
+def _mint_id(learnings: list) -> str:
+    """First free `lc-NNNN`. Callers hold `_store_lock`: the scan and
+    the append that follows are one critical section, which is what
+    keeps two writers from minting the same id."""
+    taken = {l.get("id") for l in learnings if isinstance(l, dict)}
+    n = 1
+    while f"lc-{n:04d}" in taken:
+        n += 1
+    return f"lc-{n:04d}"
+
+
+def _build_learning(kind: str, statement: str, readers: list,
+                    source: dict | None, detail: str,
+                    status: str) -> dict:
+    learning = {
+        "id": "",  # minted by the caller, under `_store_lock`
+        "kind": kind,
+        "statement": statement,
+        "read_by": readers,
+        "status": status,
+        "said_by": SAID_BY[kind],
+        "source": dict(source or {}),
+        "created_at": _now(),
+        "history": [{"at": _now(), "event": "recorded"}],
+    }
+    if detail and str(detail).strip():
+        learning["detail"] = str(detail).strip()
+    return learning
+
+
 def record(project_folder: str, kind: str, statement: str, read_by,
            source: dict | None = None, detail: str = "",
            status: str = ACTIVE) -> dict:
@@ -221,27 +314,14 @@ def record(project_folder: str, kind: str, statement: str, read_by,
             "an empty statement is refused: a learning that says nothing "
             "cannot be acted on."
         )
-    learnings = _load(project_folder)
-    taken = {l.get("id") for l in learnings if isinstance(l, dict)}
-    n = 1
-    while f"lc-{n:04d}" in taken:
-        n += 1
-    learning = {
-        "id": f"lc-{n:04d}",
-        "kind": kind,
-        "statement": text,
-        "read_by": readers,
-        "status": status,
-        "said_by": SAID_BY[kind],
-        "source": dict(source or {}),
-        "created_at": _now(),
-        "history": [{"at": _now(), "event": "recorded"}],
-    }
-    if detail and str(detail).strip():
-        learning["detail"] = str(detail).strip()
-    learnings.append(learning)
-    _save(project_folder, learnings)
-    return learning
+    with _store_lock(project_folder):
+        learnings = _load(project_folder)
+        learning = _build_learning(
+            kind, text, readers, source, detail, status)
+        learning["id"] = _mint_id(learnings)
+        learnings.append(learning)
+        _save(project_folder, learnings)
+        return learning
 
 
 def _find(learnings: list, learning_id: str) -> dict:
@@ -266,20 +346,21 @@ def retire(project_folder: str, learning_id: str, reason: str) -> dict:
             f"retirement nobody explained reads as tidying, and the next "
             f"run cannot tell a wrong conclusion from an inconvenient one."
         )
-    learnings = _load(project_folder)
-    learning = _find(learnings, learning_id)
-    if learning.get("status") not in (ACTIVE, PENDING):
-        raise LearnedContextError(
-            f"learning {learning_id!r} is already "
-            f"{learning.get('status')}. Only an active or pending "
-            f"learning retires."
-        )
-    learning["status"] = RETIRED
-    learning.setdefault("history", []).append(
-        {"at": _now(), "event": "retired",
-         "reason": reason.strip()})
-    _save(project_folder, learnings)
-    return learning
+    with _store_lock(project_folder):
+        learnings = _load(project_folder)
+        learning = _find(learnings, learning_id)
+        if learning.get("status") not in (ACTIVE, PENDING):
+            raise LearnedContextError(
+                f"learning {learning_id!r} is already "
+                f"{learning.get('status')}. Only an active or pending "
+                f"learning retires."
+            )
+        learning["status"] = RETIRED
+        learning.setdefault("history", []).append(
+            {"at": _now(), "event": "retired",
+             "reason": reason.strip()})
+        _save(project_folder, learnings)
+        return learning
 
 
 def correct(project_folder: str, learning_id: str, new_statement: str,
@@ -297,38 +378,35 @@ def correct(project_folder: str, learning_id: str, new_statement: str,
             f"correcting {learning_id!r} with an empty statement exchanges "
             f"a wrong conclusion for silence."
         )
-    learnings = _load(project_folder)
-    old = _find(learnings, learning_id)
-    if old.get("status") != ACTIVE:
-        raise LearnedContextError(
-            f"learning {learning_id!r} is "
-            f"{old.get('status')}. Only an active learning is corrected - "
-            f"a pending one is promoted first, so the confirmation is on "
-            f"the record rather than smuggled inside a correction."
-        )
-    new = record(
-        project_folder, kind=old["kind"], statement=text,
-        read_by=list(old.get("read_by", [])),
-        source=dict(old.get("source", {})))
-    # `record` saved already; now link both halves and save again, so a
-    # crash between the two still leaves two honest records rather than
-    # a dangling pointer.
-    learnings = _load(project_folder)
-    stored_old = _find(learnings, learning_id)
-    stored_old["status"] = SUPERSEDED
-    stored_old.setdefault("history", []).append(
-        {"at": _now(), "event": "superseded",
-         "reason": reason.strip(), "by": new["id"]})
-    for stored_new in learnings:
-        if stored_new.get("id") == new["id"]:
-            stored_new["supersedes"] = learning_id
-            stored_new.setdefault("history", []).append(
-                {"at": _now(), "event": "recorded as a correction",
-                 "reason": reason.strip(), "of": learning_id})
-            new = stored_new
-            break
-    _save(project_folder, learnings)
-    return new
+    # Mint and link under ONE hold of the store lock (never via the
+    # public `record()`, which would take the non-reentrant lock
+    # twice): a single atomic save, so a crash before it leaves no
+    # partial state rather than a dangling pointer.
+    with _store_lock(project_folder):
+        learnings = _load(project_folder)
+        old = _find(learnings, learning_id)
+        if old.get("status") != ACTIVE:
+            raise LearnedContextError(
+                f"learning {learning_id!r} is "
+                f"{old.get('status')}. Only an active learning is corrected - "
+                f"a pending one is promoted first, so the confirmation is on "
+                f"the record rather than smuggled inside a correction."
+            )
+        new = _build_learning(
+            old["kind"], text, list(old.get("read_by", [])),
+            dict(old.get("source", {})), "", ACTIVE)
+        new["id"] = _mint_id(learnings)
+        learnings.append(new)
+        old["status"] = SUPERSEDED
+        old.setdefault("history", []).append(
+            {"at": _now(), "event": "superseded",
+             "reason": reason.strip(), "by": new["id"]})
+        new["supersedes"] = learning_id
+        new.setdefault("history", []).append(
+            {"at": _now(), "event": "recorded as a correction",
+             "reason": reason.strip(), "of": learning_id})
+        _save(project_folder, learnings)
+        return new
 
 
 def promote(project_folder: str, learning_id: str, reason: str) -> dict:
@@ -346,19 +424,20 @@ def promote(project_folder: str, learning_id: str, reason: str) -> dict:
             f"cannot tell a confirmed proposal from one that slipped "
             f"through."
         )
-    learnings = _load(project_folder)
-    learning = _find(learnings, learning_id)
-    if learning.get("status") != PENDING:
-        raise LearnedContextError(
-            f"learning {learning_id!r} is "
-            f"{learning.get('status')}. Only a pending learning promotes."
-        )
-    learning["status"] = ACTIVE
-    learning.setdefault("history", []).append(
-        {"at": _now(), "event": "promoted",
-         "reason": reason.strip()})
-    _save(project_folder, learnings)
-    return learning
+    with _store_lock(project_folder):
+        learnings = _load(project_folder)
+        learning = _find(learnings, learning_id)
+        if learning.get("status") != PENDING:
+            raise LearnedContextError(
+                f"learning {learning_id!r} is "
+                f"{learning.get('status')}. Only a pending learning promotes."
+            )
+        learning["status"] = ACTIVE
+        learning.setdefault("history", []).append(
+            {"at": _now(), "event": "promoted",
+             "reason": reason.strip()})
+        _save(project_folder, learnings)
+        return learning
 
 
 def pending(project_folder: str) -> list:
