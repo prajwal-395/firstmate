@@ -84,7 +84,9 @@
     "requirements": [
       "reel_plan.approved",
       "resolve.timeline_binding",
-      "env.resolve_scripting"
+      "env.resolve_scripting",
+      "env.face_detector",
+      "env.reel_build_libraries"
     ]
   },
   "classification": {

@@ -244,7 +244,8 @@ def test_the_same_operation_passes_its_contract_with_the_transcript(
 
 
 def _reel_project(tmp_path, *, transcript=True, approved=True, binding=True,
-                  resolve_present=True, built=False) -> str:
+                   resolve_present=True, face_detector=True,
+                   build_libraries=True, built=False) -> str:
     """A project under tmp_path carrying whichever half is being tested.
 
     Never a real project (AGENTS.md 8), and every half is BUILT rather
@@ -262,12 +263,19 @@ def _reel_project(tmp_path, *, transcript=True, approved=True, binding=True,
         state["step_outputs"]["build_reels"] = {"reel_build": {
             "timelines_built": ["Reel 01 - a-witness"],
             "plan_path": str(proposal_path(tmp_path))}}
-    # The environment probe seam. `env.resolve_scripting` reads the
-    # MACHINE, and a machine with no Resolve on it is the normal case in
-    # CI - so the witness drives the probe rather than the test
-    # installing an NLE. Nothing in library/processes or library/steps
-    # ever writes this key; tests/test_requirements.py pins that.
-    state[_R._FORCE] = {"resolve_scripting": bool(resolve_present)}
+    # The environment probe seam. `env.resolve_scripting`,
+    # `env.face_detector` and `env.reel_build_libraries` read the
+    # MACHINE, and a machine with no Resolve, no Haar cascades or a
+    # partial venv on it is the normal case in CI - so the witness
+    # drives the probes rather than the test installing an NLE, an
+    # OpenCV and a full venv. Nothing in library/processes or
+    # library/steps ever writes this key;
+    # tests/test_requirements.py pins that.
+    state[_R._FORCE] = {
+        "resolve_scripting": bool(resolve_present),
+        "face_detector": bool(face_detector),
+        "reel_build_libraries": bool(build_libraries),
+    }
     (tmp_path / "pipeline_data.json").write_text(json.dumps(state),
                                                  encoding="utf-8")
 
@@ -300,13 +308,16 @@ def test_the_build_passes_a_project_that_has_everything(tmp_path):
     build = operations.get("reel.build")
     assert build.unmet(_reel_project(tmp_path)) == [], (
         "reel.build refused a project with an approved plan, a transcript, "
-        "a Resolve binding and a machine that can reach Resolve")
+        "a Resolve binding and a machine that can reach Resolve, load "
+        "the Haar cascade and import the build libraries")
 
 
 @pytest.mark.parametrize("absent,expected", [
     ("approved", "reel_plan.approved"),
     ("binding", "resolve.timeline_binding"),
     ("resolve_present", "env.resolve_scripting"),
+    ("face_detector", "env.face_detector"),
+    ("build_libraries", "env.reel_build_libraries"),
     ("transcript", "timeline_transcript.on_file"),
 ])
 def test_each_half_of_the_builds_contract_can_refuse_on_its_own(

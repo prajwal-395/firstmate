@@ -576,6 +576,256 @@ def require_mfa() -> Path:
     return mfa_binary()
 
 
+# ── the BUILD half: what a reel build needs in its own interpreter ───
+#
+# Four instances, all on 2026-09-10/11, each costing a lane a failed
+# build and a diagnosis - and each lane fixed it LOCALLY with its own
+# venv, every one missing something DIFFERENT:
+#
+#   1. a system cv2 whose `CascadeClassifier` was gone answered None
+#      from the face probe, so every punch-in went unaimed;
+#   2. a system cv2 5.0 refused the same aim, LOUD this time
+#      (`SubjectProbeUnavailable`);
+#   3. a purpose-built cv2 4.12 venv missing `jsonschema` failed the
+#      very next attempt at the same build, inside
+#      `manifest_validator`.
+#
+# (The fourth - Remotion `node_modules` absent - already has an owner
+# in the Node half above.) The tell is that nothing DECLARED what a
+# build requires, so every attempt rediscovered a different subset. A
+# missing detector, cascade file or library is therefore ONE CLEAR
+# MESSAGE BEFORE THE BUILD STARTS, naming what is missing and what
+# would supply it - not a refusal three steps in and not a silent gap.
+#
+# The verdict on the detector belongs to its loader, not to this
+# module: `subject_framing.load_face_cascade` is what the build really
+# calls, so `face_detector_usable` asks IT rather than re-deriving the
+# answer. What lives here is the REQUIREMENT - the pin, the message,
+# and the combined pre-build check - because the value of the halves
+# above is that there is one owner, and a second mechanism beside this
+# module recreates the problem this row is about.
+#
+# Probing loads cv2, which costs about a second the first time. That
+# is the point rather than a cost to avoid: the check proves the exact
+# call the build is about to make, instead of asserting it.
+
+FACE_CASCADE_FILENAME = "haarcascade_frontalface_default.xml"
+"""The cascade file the reels punch-in aims with, from `cv2.data`."""
+
+FACE_DETECTOR_PIN = "opencv-python>=4.8,<5"
+"""The interpreter pin that ships the Haar cascade.
+`requirements.txt` carries it twice - `opencv-python-headless` provides
+the SAME `cv2` module and shadows a correct install when unpinned - so
+the message names the bound, not just the package."""
+
+BUILD_VENV_DOC = "docs/ML_ENVIRONMENT.md"
+"""The procedure that builds a complete interpreter. Named in every
+refusal, because "install opencv" into a disposable lane venv is the
+local fix that produced four different ad-hoc environments."""
+
+REQUIREMENTS_FILE = "requirements.txt"
+"""The declared library set a purpose-built venv is completed from."""
+
+
+class FaceDetectorMissing(RuntimeError):
+    """This interpreter cannot load the Haar face detector.
+
+    Raised rather than left for the probe to answer None (an unaimed
+    punch-in) or raise mid-build (`SubjectProbeUnavailable`, after the
+    derivation was paid for). The message carries the pin that fixes
+    it.
+    """
+
+
+class ReelBuildEnvironmentMissing(RuntimeError):
+    """This interpreter cannot run a reel build.
+
+    The combined pre-build refusal: every missing detector, cascade
+    file and library in ONE message, before anything is derived. A
+    refusal per missing thing would send the operator through the
+    build once per gap; there were four gaps in two days.
+    """
+
+
+def face_detector_usable() -> bool:
+    """Can THIS interpreter load the Haar cascade the build aims with?
+
+    Asked of the loader the build really calls
+    (`subject_framing.load_face_cascade`) - imported lazily, so asking
+    never moves the import cost onto a caller that only needed the
+    Node half, and so this module keeps its stdlib-only import shape
+    for the stock-interpreter query below.
+    """
+    try:
+        from library.tools import subject_framing
+    except ImportError:  # imported as `tools.*` from inside library/
+        try:
+            from tools import subject_framing
+        except ImportError:
+            return False
+    try:
+        return subject_framing.load_face_cascade() is not None
+    except Exception:
+        return False
+
+
+def _face_detector_hint() -> str:
+    """Which half of the detector is missing, as an observed fact.
+
+    Read only after `face_detector_usable` answered False, so this
+    never decides the verdict - it names the cause. Each branch is
+    phrased from attributes observed here, never inferred, with a
+    fallback for a combination this list did not anticipate.
+    """
+    try:
+        import cv2
+    except ImportError:
+        return "cv2 is not installed in this interpreter"
+    version = str(getattr(cv2, "__version__", "unknown"))
+    if getattr(cv2, "CascadeClassifier", None) is None:
+        return (
+            f"cv2 {version} is installed but has no CascadeClassifier "
+            f"(OpenCV 5 dropped Haar cascades entirely)")
+    data = getattr(cv2, "data", None)
+    haar_dir = getattr(data, "haarcascades", None) if data else None
+    if not haar_dir:
+        return (f"cv2 {version} has a CascadeClassifier but exposes no "
+                f"haarcascades directory")
+    candidate = os.path.join(haar_dir, FACE_CASCADE_FILENAME)
+    if not os.path.exists(candidate):
+        return (f"cv2 {version} exposes {haar_dir} but "
+                f"{FACE_CASCADE_FILENAME} is not in it")
+    return (f"cv2 {version} carries {candidate} but it fails to load "
+            f"(the classifier comes back empty)")
+
+
+def face_detector_available() -> tuple:
+    """`(usable, detail)` - whether this interpreter can aim a punch-in."""
+    if face_detector_usable():
+        try:
+            import cv2
+            version = str(getattr(cv2, "__version__", "unknown"))
+        except ImportError:  # pragma: no cover - agreed True above
+            version = "unknown"
+        return True, (f"Haar {FACE_CASCADE_FILENAME} loads "
+                      f"(cv2 {version})")
+    return False, face_detector_missing_message()
+
+
+def face_detector_missing_message() -> str:
+    """What is missing from the detector, and what would supply it."""
+    return (
+        f"No face detector in this interpreter: {_face_detector_hint()}. "
+        f"The reels punch-in is aimed with the Haar cascade, and an "
+        f"unaimed shot under the TV-frame look leaves black inside the "
+        f"screen. Run the build under an interpreter carrying "
+        f"{FACE_DETECTOR_PIN}, which ships the cascade - the durable "
+        f"per-machine venv ({BUILD_VENV_DOC}) or PIPELINE_PYTHON pointed "
+        f"at one that does.")
+
+
+def require_face_detector():
+    """Return True, or REFUSE naming the missing detector half."""
+    if not face_detector_usable():
+        raise FaceDetectorMissing(face_detector_missing_message())
+    return True
+
+
+REEL_BUILD_LIBRARIES: tuple = ("jsonschema", "yaml")
+"""The third-party modules a reel build imports, DECLARED as data.
+
+`jsonschema` killed a real build from inside `manifest_validator`;
+`yaml` is read on every build through the project configuration and
+the reel look. `requirements.txt` pins both; a purpose-built venv
+completed from anything less is how the third instance happened. cv2
+is deliberately NOT listed: its absence - and the worse case, its
+presence without cascades - is owned above, where the message can
+name which half is gone. Listing it here too would report one gap
+twice.
+"""
+
+
+def missing_build_libraries() -> tuple:
+    """The declared libraries THIS interpreter cannot import.
+
+    `find_spec` rather than an import: answering must not execute
+    module code, only report whether it is there to be executed.
+    """
+    import importlib.util
+
+    missing = []
+    for module in REEL_BUILD_LIBRARIES:
+        try:
+            found = importlib.util.find_spec(module) is not None
+        except (ImportError, ValueError):
+            found = False
+        if not found:
+            missing.append(module)
+    return tuple(missing)
+
+
+def build_libraries_present() -> bool:
+    """Every declared library imports in THIS interpreter."""
+    return not missing_build_libraries()
+
+
+def build_libraries_missing_message() -> str:
+    """Which libraries are missing, and what would supply them."""
+    missing = missing_build_libraries()
+    names = ", ".join(missing)
+    return (
+        f"This interpreter cannot import {names}, which the reel build "
+        f"requires ({REQUIREMENTS_FILE} declares every one). Complete "
+        f"the venv from that file - `pip install -r {REQUIREMENTS_FILE}` "
+        f"- or build the durable per-machine one ({BUILD_VENV_DOC}) "
+        f"rather than assembling another ad-hoc venv.")
+
+
+def reel_build_environment_problems() -> list:
+    """Every build-environment gap, each naming its own remedy."""
+    problems = []
+    if not face_detector_usable():
+        problems.append(face_detector_missing_message())
+    missing = missing_build_libraries()
+    if missing:
+        problems.append(build_libraries_missing_message())
+    return problems
+
+
+def reel_build_environment_available() -> tuple:
+    """`(ready, detail)` - whether THIS interpreter can run a reel build.
+
+    The pre-build check both surviving gaps share: the detector half
+    and the library half, asked together so a missing renderer,
+    detector or library is one clear message at the top.
+    """
+    problems = reel_build_environment_problems()
+    if problems:
+        return False, reel_build_environment_missing_message()
+    return True, "reel build environment: face detector loads, " \
+        + ", ".join(REEL_BUILD_LIBRARIES) + " importable"
+
+
+def reel_build_environment_missing_message() -> str:
+    """The one clear message: every gap, each with what supplies it."""
+    import sys
+
+    lines = [f"The reel build cannot start under {sys.executable}:"]
+    lines += [f"  - {problem}"
+              for problem in reel_build_environment_problems()]
+    if len(lines) == 1:
+        lines.append("  - (no gaps found - this message should not have "
+                     "been built)")
+    return "\n".join(lines)
+
+
+def require_reel_build_environment() -> None:
+    """REFUSE by name before the build starts, or pass silently."""
+    if reel_build_environment_problems():
+        raise ReelBuildEnvironmentMissing(
+            reel_build_environment_missing_message())
+
+
 def main(argv=None) -> int:
     """`python -m library.tools.shared_environment --resolve-interpreter
     [--repo-root <checkout>]`.

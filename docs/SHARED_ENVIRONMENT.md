@@ -201,6 +201,28 @@ already put it, for the reason that page gives. Nothing about building it
 changes. What changes is that four callers now *find* it instead of
 looking somewhere it has never been.
 
+## The build half: what a reel build needs in its interpreter
+
+Four instances, all on 2026-09-10/11, each costing a lane a failed build:
+a cv2 without Haar cascades answering None from the face probe, a system
+cv2 5.0 refusing the punch-in aim, and a purpose-built cv2 4.12 venv
+missing `jsonschema` on the very next attempt. Each lane fixed it locally
+with its own venv, each missing something different - nothing declared
+the set, so every attempt rediscovered a different subset.
+
+The declaration lives in the same module, because the value of the halves
+above is one owner. `REEL_BUILD_LIBRARIES` (`jsonschema`, `yaml`) is the
+library set a purpose-built venv is completed from; the Haar cascade is
+the detector half, with the verdict owned by the loader the build really
+calls (`subject_framing.load_face_cascade`) and the pin
+(`opencv-python>=4.8,<5`) owned here. `require_reel_build_environment()`
+is the one clear message before the build starts - every gap, each with
+what supplies it. `env.face_detector` and `env.reel_build_libraries` in
+`library/tools/requirements.py` carry the same two halves as the
+`build_reels` pre-build refusal, so `build-reels` refuses before deriving
+anything rather than three steps in. The verifier is deliberately not a
+consumer: it grades placed timelines and aims nothing.
+
 ## Build it
 
 ```sh

@@ -646,6 +646,98 @@ def _resolve_scripting_importable() -> bool:
         Path(api) / "Modules" / "DaVinciResolveScript.py").is_file()
 
 
+# ── the two surviving gaps of the undeclared-build-environment row ───
+#
+# Built by hand rather than through `_env_requirement`, for one reason:
+# that helper's remedy is a STATIC string, and these two refusals must
+# name the ACTUAL missing piece at check time - which half of the
+# detector is gone, which libraries are absent. The diagnosis lives in
+# `shared_environment` (the one owner) and is computed HERE, when the
+# check runs - never at import, which would load cv2 into every
+# process that imports this module.
+#
+# BUILD only, never verify: the verifier grades timelines already
+# placed and aims nothing, so asking it for a detector would refuse a
+# grading that needs none. Nothing about the pipeline STEPS' own
+# requirements changes here - these consumers are reel lanes.
+
+_FACE_DETECTOR_REMEDY = (
+    f"run the build under an interpreter carrying "
+    f"{_node_env.FACE_DETECTOR_PIN}, which ships the Haar cascade - "
+    f"the durable per-machine venv ({_node_env.BUILD_VENV_DOC}) or "
+    f"PIPELINE_PYTHON pointed at one that does")
+
+_REEL_BUILD_LIBRARIES_REMEDY = (
+    f"complete the venv from {_node_env.REQUIREMENTS_FILE} "
+    f"(`pip install -r {_node_env.REQUIREMENTS_FILE}`) or build the "
+    f"durable per-machine one ({_node_env.BUILD_VENV_DOC}); the "
+    f"build imports {', '.join(_node_env.REEL_BUILD_LIBRARIES)}")
+
+
+def _face_detector_check(ctx: Context) -> Satisfaction:
+    forced = (ctx.state or {}).get(_FORCE, {})
+    if "face_detector" in forced:
+        # The witness seam: a forced verdict carries the static remedy,
+        # which is true on every machine. The live diagnosis below is
+        # only honest when the probe really ran.
+        if forced["face_detector"]:
+            return SATISFIED(MEASURED)
+        return UNSATISFIED(
+            f"the Haar face detector loads in this interpreter - "
+            f"{_FACE_DETECTOR_REMEDY}",
+            missing="env.face_detector")
+    if _node_env.face_detector_usable():
+        return SATISFIED(MEASURED)
+    return UNSATISFIED(
+        f"the Haar face detector loads in this interpreter - "
+        f"{_node_env.face_detector_missing_message()}",
+        missing="env.face_detector")
+
+
+def _face_detector_requirement() -> Requirement:
+    return Requirement(
+        name="env.face_detector", kind=KIND_ENVIRONMENT,
+        describe="the Haar face detector loads in this interpreter",
+        produced_by=(), consumers=("build_reels",),
+        check=_face_detector_check,
+        refuting_context=lambda: Context(state={_FORCE: {
+            "face_detector": False}}),
+        satisfying_context=lambda: Context(state={_FORCE: {
+            "face_detector": True}}),
+    )
+
+
+def _reel_build_libraries_check(ctx: Context) -> Satisfaction:
+    forced = (ctx.state or {}).get(_FORCE, {})
+    if "reel_build_libraries" in forced:
+        if forced["reel_build_libraries"]:
+            return SATISFIED(MEASURED)
+        return UNSATISFIED(
+            f"the Python libraries the reel build imports are importable "
+            f"- {_REEL_BUILD_LIBRARIES_REMEDY}",
+            missing="env.reel_build_libraries")
+    missing = _node_env.missing_build_libraries()
+    if not missing:
+        return SATISFIED(MEASURED)
+    return UNSATISFIED(
+        f"the Python libraries the reel build imports are importable - "
+        f"absent here: {', '.join(missing)}. {_REEL_BUILD_LIBRARIES_REMEDY}",
+        missing="env.reel_build_libraries")
+
+
+def _reel_build_libraries_requirement() -> Requirement:
+    return Requirement(
+        name="env.reel_build_libraries", kind=KIND_ENVIRONMENT,
+        describe="the Python libraries the reel build imports are importable",
+        produced_by=(), consumers=("build_reels",),
+        check=_reel_build_libraries_check,
+        refuting_context=lambda: Context(state={_FORCE: {
+            "reel_build_libraries": False}}),
+        satisfying_context=lambda: Context(state={_FORCE: {
+            "reel_build_libraries": True}}),
+    )
+
+
 ENVIRONMENT: Tuple[Requirement, ...] = (
     _env_requirement(
         "env.npx",
@@ -689,6 +781,8 @@ ENVIRONMENT: Tuple[Requirement, ...] = (
         "libfusionscript.dylib (AGENTS.md 9). Both reel nodes drive a "
         "LIVE Resolve project and neither can start without it",
         "resolve_scripting"),
+    _face_detector_requirement(),
+    _reel_build_libraries_requirement(),
 )
 
 
