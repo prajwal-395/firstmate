@@ -39,6 +39,7 @@ MODULE_ENTRY_POINTS = {
     "library.tools.marker_capture": "capture",
     "library.steps.step_1_03_semantic_analysis": None,
     "library.steps.step_4_05_render_subtitles": None,
+    "library.steps.step_7_02_verify_reels": None,
 }
 
 
@@ -138,6 +139,11 @@ CONNECTS_BUT_IS_NOT_DISPATCHED = {
     # through the routed `render subtitles` row: a connect-and-check
     # read (refuses unless the open project is this project's own)
     # and swap writes that take their own leases in `caption_swap`
+    "library/steps/step_7_02_verify_reels/step.py",  # reached
+    # through the routed `grab gate stills` row: a connect-and-check
+    # read (refuses unless the open project is this project's own)
+    # and grab writes that take their own exclusive lease in
+    # `gate_stills`
     "library/tools/drift_check.py",  # takes no lease: called under
     # `build reels` at both ends, and the `drift` CLI holds the
     # instance itself - the cursor move is the write either way

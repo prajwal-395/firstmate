@@ -235,6 +235,15 @@ OPERATIONS: Tuple[Operation, ...] = (
             "is a read that refuses unless the open project is this "
             "project's own, and its writes take their own leases in "
             "`caption_swap`."),
+    Operation(
+        name="grab gate stills",
+        entry_point="library.steps.step_7_02_verify_reels",
+        exclusion=FREE,
+        why="File work plus a connect-and-check read (refuses unless "
+            "the open project is this project's own, mirroring the "
+            "render-subtitles row above). The grab moves the cursor, "
+            "but under its own exclusive lease in `gate_stills`, so a "
+            "parallel dispatch meets the build only there."),
 )
 
 BY_ENTRY_POINT: Dict[str, Operation] = {op.entry_point: op

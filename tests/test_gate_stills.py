@@ -55,6 +55,13 @@ class FakeTimeline:
     def GetName(self):
         return self._name
 
+    def GetUniqueId(self):
+        # What `assert_current_timeline` reads back after establishing
+        # the cursor: the grab refuses rather than judging frames off
+        # the wrong timeline, so the fake carries a stable id like a
+        # real handle does.
+        return f"fake-timeline-{self._name}"
+
     def GetStartFrame(self):
         return self._start
 

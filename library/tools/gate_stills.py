@@ -68,7 +68,7 @@ from library.tools.marker_capture import (
     timecode_to_frames,
 )
 from library.tools.marker_feedback import frames_to_timecode
-from library.tools.resolve_lock import resolve_lease
+from library.tools.resolve_lock import assert_current_timeline, resolve_lease
 
 
 class GateStillsError(RuntimeError):
@@ -265,7 +265,12 @@ def grab_reel_stills(project, timeline_name: str, frames: list,
                 entry_tc = None
         report["restored"]["timeline"] = entry_name
         try:
-            project.SetCurrentTimeline(timeline)
+            # Routed through the shared establishment: the lease above
+            # is held, so this sets exactly as before, plus the
+            # fence-drift check. `tests/test_cursor_discipline.py`
+            # counts raw `SetCurrentTimeline` sites - none may live
+            # outside `resolve_lock`.
+            assert_current_timeline(project, timeline)
         except Exception as exc:  # noqa: BLE001 - not current, no grab
             report["ok"] = False
             report["error"] = (
@@ -403,7 +408,8 @@ def _restore(project, entry, entry_name, entry_tc, stream) -> bool:
               file=stream)
         return True
     try:
-        project.SetCurrentTimeline(entry)
+        # Shared establishment, as above: same set, plus the checks.
+        assert_current_timeline(project, entry)
     except Exception as exc:  # noqa: BLE001 - unrestored is reported
         print(f"  WARNING: entry timeline {entry_name!r} could not be "
               f"restored: {exc}", file=stream)

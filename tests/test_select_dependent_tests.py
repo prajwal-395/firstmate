@@ -13,13 +13,31 @@ drops one reads as a red test, not a smaller file.
 
 from __future__ import annotations
 
-import sys
+import importlib.util
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
-from select_dependent_tests import CONTRACT_SETS, select
+
+def _load_selector():
+    """`scripts/select_dependent_tests.py` without touching `sys.path`.
+
+    An import-time `sys.path.insert` of `scripts/` is process-global:
+    collection order would decide what a later bare name binds to
+    (`tests/test_no_syspath_shadowing.py`). The agents-md gate loads
+    its scripts the same way (`tests/test_agents_md_gates.py`).
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_select_dependent_tests",
+        REPO_ROOT / "scripts" / "select_dependent_tests.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_selector = _load_selector()
+CONTRACT_SETS = _selector.CONTRACT_SETS
+select = _selector.select
 
 MG_CONTRACT = CONTRACT_SETS["motion_graphics_plan"]
 

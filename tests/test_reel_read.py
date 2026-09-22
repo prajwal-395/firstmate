@@ -537,6 +537,17 @@ def test_the_same_resolution_control_reads_unscaled_yet_still_refuses(
 # other module below still reads Resolve objects directly.
 # Write-path confirmation reads (`marker_resolution`, `mark_master`)
 # re-resolve a single key before deleting, which is not a probe.
+#
+# Three more modules read directly and stay listed, because a
+# `reel_read` slice cannot serve them:
+# - `resolve_axi` IS the sanctioned read surface: its `GetMarkers` /
+#   `GetItemListInTrack` calls are the reads agents are given, covered
+#   by their own AST and cursor tests.
+# - `caption_swap` and `reel_fusion_comps` are writers that need LIVE
+#   item handles (`ReplaceClip` plus read-back; per-item
+#   `ExportFusionComp`) off a timeline the caller already holds. A
+#   snapshot slice carries data, never handles, so routing them would
+#   take a new handle-carrying API - a bigger change for no gain.
 READER_MODULES = {
     "library/tools/reel_read.py",
     "library/tools/marker_feedback.py",
@@ -553,6 +564,9 @@ READER_MODULES = {
     "library/tools/overlay_placement.py",
     "library/tools/reel_build.py",
     "library/tools/reel_look.py",
+    "library/tools/resolve_axi.py",
+    "library/tools/caption_swap.py",
+    "library/tools/reel_fusion_comps.py",
     "library/tools/qa/timeline_sync_qa.py",
     "library/tools/execution/apply_fusion_comps.py",
     "library/tools/execution/mark_master.py",

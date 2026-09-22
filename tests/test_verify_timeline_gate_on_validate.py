@@ -45,7 +45,8 @@ import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-sys.path.insert(0, str(REPO / "library" / "steps" / "step_6_01_render"))
+# No step_6_01_render insert here: tests/conftest.py already owns that
+# entry (for step.py:21's bare sibling import), deterministically.
 
 from library.skills.verify_timeline import skill  # noqa: E402
 from library.steps.step_6_02_validate_output import post_bridge  # noqa: E402

@@ -6,11 +6,28 @@ exit 0; verify against another reel's capture must exit 1 naming the
 missing). Synthetic here, no projects, no timelines.
 """
 
-import sys
+import importlib.util
+from pathlib import Path
 
-sys.path.insert(0, "scripts")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
-from vep_marker_check import compare
+
+def _load_comparer():
+    """`scripts/vep_marker_check.py` without touching `sys.path`.
+
+    The old import-time insert was doubly fragile: process-global
+    (collection order decides later bindings -
+    `tests/test_no_syspath_shadowing.py`) and relative (it resolves
+    against whatever the working directory happens to be).
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_vep_marker_check", REPO_ROOT / "scripts" / "vep_marker_check.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.compare
+
+
+compare = _load_comparer()
 
 
 def _timeline(color, name, note, frame, source="timeline_marker"):
