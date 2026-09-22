@@ -71,6 +71,31 @@ CLOSER = CallToAction(timeline_start=200.0, timeline_end=206.0,
                       speaker="Akshita")
 
 
+def _project_with_tail_card(tmp_path):
+    """A project declaring a 3.0s tail card, written under tmp_path.
+
+    Beside the 19-frame freeze a CTA-closing reel inherits, this is the
+    other half of the 3.8s standard ending the build appends - so a
+    duration figure resolved against it must read ~69.8s for the 60s
+    body plus 6s closer above, never 66.0s."""
+    (tmp_path / "project.yaml").write_text(
+        "effect:\n"
+        "  full_frame_elements:\n"
+        "    - element: full_frame_card\n"
+        "      placement: tail\n"
+        "      duration_seconds: 3.0\n"
+        "      background: \"#101014\"\n"
+        "      entrance: blur\n"
+        "      exit: fade\n"
+        "      font_family: Montserrat\n"
+        "      runs:\n"
+        "        - text: \"LUCIE\"\n"
+        "          type_role: display\n"
+        "          colour: \"#FFFFFF\"\n",
+        encoding="utf-8")
+    return tmp_path
+
+
 # ── The four qualities are declared, and the declaration is checked ──
 
 def test_the_four_qualities_are_the_captains_four():
@@ -126,53 +151,65 @@ def test_the_coherence_ruling_carries_the_looking_that_produced_it():
     assert "31" in record["why"]
 
 
-def test_the_length_band_is_the_one_reel_exchange_declares():
-    """A guidance spelled twice is this repository's dominant bug class."""
-    from library.tools import reel_conformance_verifier as verifier
+def test_the_length_band_is_gone_from_the_bar():
+    """2026-09-18, option c: the 45-90s window came OUT of the quality
+    bar, replaced by nothing - no wider window, no warning threshold,
+    no configurable default.  The selector still weighs the guidance
+    while choosing (that is `reel_exchange`'s, not this module's)."""
     from library.tools.reel_exchange import LENGTH_GUIDANCE
 
-    assert qb.LENGTH_GUIDANCE is LENGTH_GUIDANCE
-    assert (verifier.REEL_LENGTH_MIN,
-            verifier.REEL_LENGTH_MAX) == LENGTH_GUIDANCE
+    assert LENGTH_GUIDANCE == (45.0, 90.0)
+    assert not hasattr(qb, "LENGTH_GUIDANCE")
+    assert not hasattr(qb, "QB_DURATION")
+    assert "QB-DURATION" not in set(qb.FINDING_OWNERS)
+    assert qb.DURATION_GATE_REMOVED["ruled"] == "2026-09-18"
 
 
-# ── EXACT: duration, both directions ─────────────────────────────────
+# ── EXACT: duration is measured, never judged ────────────────────────
 
-def test_a_reel_inside_the_band_produces_no_duration_finding():
+def test_a_duration_reading_carries_no_guidance_keys():
+    """No band, no side, no distance-to-band: there is nothing left to
+    be inside or outside of."""
     transcript = _transcript(SEGMENTS)
     moment = _moment(end=70.0)  # 60s
     reading = qb.duration_reading(moment, transcript)
     assert reading["delivered_seconds"] == 60.0
-    assert reading["within_guidance"]
+    for key in ("guidance_seconds", "within_guidance",
+                "outside_by_seconds"):
+        assert key not in reading
     findings = qb.exact_findings(moment, transcript, {})
-    assert [f.code for f in findings if f.code == qb.QB_DURATION] == []
+    assert [f.code for f in findings
+            if f.quality == "duration"] == []
 
 
-@pytest.mark.parametrize("end,side", [(40.0, "under"), (170.0, "over")])
-def test_a_reel_outside_the_band_is_REPORTED_and_does_not_fail(end, side):
-    """The brief says "no fixed target ... preferably between 45-90
-    seconds" and "No hard cap", and settles it with "a coherent
-    90-second reel is right, a stitched 47-second one is not" - 47s
-    being inside the band. So the band is measured and reported, and it
-    does not decide (reel_quality_bar's docstring carries the reading).
-
-    The MEASUREMENT is unchanged: the finding still fires, still names
-    the side, and `within_guidance` still reads False."""
+@pytest.mark.parametrize("end", [44.0, 100.0, 170.0])
+def test_a_reel_outside_the_old_window_is_not_rejected_for_length(end):
+    """2026-09-18, option c: length is never a gate.  A reel delivering
+    40s, 96s or 166s carries NO duration finding at all - not an error
+    and not a warning - and with a closer and a takeaway it PASSES.
+    (Past five minutes the mechanical absurd bound still errors; that
+    is not a window, it is where a candidate stops being a reel.)"""
     transcript = _transcript(SEGMENTS)
-    moment = _moment(end=end)
-    reading = qb.duration_reading(moment, transcript)
-    assert not reading["within_guidance"]
-    findings = [f for f in qb.exact_findings(moment, transcript, {})
-                if f.code == qb.QB_DURATION]
-    assert len(findings) == 1
-    assert findings[0].severity == qb.WARNING
-    assert side in findings[0].message
-    # Nothing about its LENGTH fails it. (The bare moment carries no
-    # closer, which is a separate quality and still an error.)
-    errors = {f.code for f in qb.judge([moment], transcript)
-              .verdicts[0].errors}
-    assert qb.QB_DURATION not in errors
-    assert qb.QB_ABSURD_LENGTH not in errors
+    moment = _moment(end=end, cta=CLOSER)
+    assert not hasattr(qb, "QB_DURATION")
+    codes = {f.code for f in qb.exact_findings(moment, transcript,
+                                               qb.declared_closers([moment]))}
+    assert not {c for c in codes
+                if qb.FINDING_OWNERS.get(c) == "duration"}
+    report = qb.judge([moment], transcript, {"readings": [{
+        "reel": 1,
+        "claim_quote": "so what actually changed",
+        "opening_quote": "so what actually changed",
+        "closing_quote": "run the free check",
+        "closing_asks_for": "run the free check",
+        "takeaway_quote": "people ask a full sentence now",
+        "assumes_known": [],
+        "stops_developing_at": 10.0,
+        "rank": 1, "basis": "x",
+    }]})
+    verdict = report.verdicts[0]
+    assert verdict.verdict == qb.PASS
+    assert verdict.as_dict()["duration_gates"] is False
 
 
 def test_the_length_ERROR_is_the_mechanical_bound_and_it_CAN_fire():
@@ -202,13 +239,17 @@ def test_the_length_ERROR_is_the_mechanical_bound_and_it_CAN_fire():
 
 
 def test_the_duration_measured_is_what_plays_not_the_body_window():
-    """Body, minus bad takes, plus the closer - three different numbers."""
+    """Body, minus bad takes, plus the closer - three different numbers -
+    and without a project to resolve the ending against, the figure says
+    it is the body only rather than reporting itself as the reel."""
     transcript = _transcript(SEGMENTS)
     moment = _moment(cta=CLOSER)
     reading = qb.duration_reading(moment, transcript)
     assert reading["body_seconds"] == 60.0
     assert reading["closer_seconds"] == 6.0
     assert reading["delivered_seconds"] == 66.0
+    assert reading["ending_resolved"] is False
+    assert "no project folder" in reading["ending"]["why"]
 
 
 def test_the_duration_ruling_records_the_captains_words_and_date():
@@ -228,39 +269,47 @@ def test_the_duration_ruling_records_the_captains_words_and_date():
     assert "10.5" in record["ruling"]
 
 
-def test_the_duration_warning_points_at_its_ruling():
-    """A reel outside the band is told LOUDLY, the way the coherence
-    warning points at COHERENCE_DOES_NOT_GATE - the record, not silence."""
-    transcript = _transcript(SEGMENTS)
-    moment = _moment(end=40.0)
-    findings = [f for f in qb.exact_findings(moment, transcript, {})
-                if f.code == qb.QB_DURATION]
-    assert len(findings) == 1
-    assert "DURATION_DOES_NOT_GATE" in findings[0].message
+def test_the_removal_record_names_the_ruling_and_what_replaces_it():
+    """2026-09-18, option c, under the standing "no hard coded number"
+    ruling: the window is OUT, replaced by nothing, and the reading plus
+    the captain's approval are what decide."""
+    record = qb.DURATION_GATE_REMOVED
+    assert record["ruled"] == "2026-09-18"
+    assert "Delete the gate" in record["captain"]
+    assert "no hard coded number" in record["standing_ruling"]
+    assert "no wider window" in record["what_went"]
+    assert "22 reels" in record["evidence"]
+    assert "assert_approved" in record["evidence"]
 
 
-def test_a_reel_outside_only_the_band_passes_and_says_so():
-    """Duration guides, it does not gate: a reel whose ONLY finding is
-    the band still passes, and its record says duration did not decide."""
+def test_a_surviving_duration_figure_includes_the_ending(tmp_path):
+    """The reel the old warning called short built with the ending: a
+    60s body, a 6s closer, a 19-frame freeze inherited from the CTA and
+    a 3.0s tail card the project declares - 69.8s a viewer sits
+    through, resolved never restated."""
     transcript = _transcript(SEGMENTS)
-    # 30s body plus the 6s declared closer: 36s delivered, under the
-    # band, with a closer so nothing else errors.
-    moment = _moment(end=40.0, cta=CLOSER)
-    report = qb.judge([moment], transcript,
-                      {"readings": [{
-                          "reel": 1,
-                          "claim_quote": "so what actually changed",
-                          "opening_quote": "so what actually changed",
-                          "closing_quote": "run the free check",
-                          "closing_asks_for": "run the free check",
-                          "takeaway_quote": "people ask a full sentence now",
-                          "assumes_known": [],
-                          "stops_developing_at": 10.0,
-                          "rank": 1, "basis": "x",
-                      }]})
-    verdict = report.verdicts[0]
-    assert verdict.verdict == qb.PASS
-    assert verdict.as_dict()["duration_gates"] is False
+    moment = _moment(cta=CLOSER)
+    project = _project_with_tail_card(tmp_path)
+    reading = qb.duration_reading(moment, transcript, str(project))
+    assert reading["ending_resolved"] is True
+    assert reading["ending"]["ending_source"] == "inherited"
+    assert reading["ending"]["freeze_seconds"] == pytest.approx(
+        19 / (24000 / 1001))
+    assert reading["ending"]["card_seconds"] == pytest.approx(3.0, abs=0.05)
+    assert reading["ending_seconds"] == pytest.approx(3.8, abs=0.05)
+    assert reading["delivered_seconds"] == pytest.approx(69.8, abs=0.05)
+
+
+def test_a_body_only_figure_says_it_is_unresolved():
+    """Without a project there is no declaration to resolve the ending
+    from.  The figure is the body and SAYS SO - reporting it as the
+    reel in silence is the defect the removal records."""
+    transcript = _transcript(SEGMENTS)
+    moment = _moment(cta=CLOSER)
+    reading = qb.duration_reading(moment, transcript)
+    assert reading["ending_resolved"] is False
+    assert reading["ending"]["total"] == 0.0
+    assert reading["delivered_seconds"] == 66.0
 
 
 # ── EXACT: the call to action, all three sources ─────────────────────
@@ -526,6 +575,29 @@ def test_the_bridge_refuses_rather_than_reading_nothing():
         bridge.build_context({"timeline_transcript": _transcript(SEGMENTS)})
 
 
+def test_the_reader_weighs_the_reconciled_length(tmp_path):
+    """Option c: the script reading judges length as part of judging
+    the reel - so the length it is sent must be the one a viewer sits
+    through.  The 60s body plus 6s closer reads 69.8s against a project
+    declaring the 3.0s tail card (plus the inherited freeze), and the
+    body 66.0s where no project resolves an ending."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "judge_reels_bridge3", STEP / "bridge.py")
+    bridge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bridge)
+
+    moment = _moment(cta=CLOSER)
+    base = {"timeline_transcript": _transcript(SEGMENTS),
+            "reel_selection": {"moments": [moment.as_dict()]}}
+    with_project = bridge.build_context(
+        {**base, "project_folder": str(_project_with_tail_card(tmp_path))})
+    assert with_project["reels_to_read"][0]["runs_for_seconds"] == (
+        pytest.approx(69.8, abs=0.05))
+    without_project = bridge.build_context(dict(base))
+    assert without_project["reels_to_read"][0]["runs_for_seconds"] == 66.0
+
+
 # ── A reading is checked against the reel, both directions ───────────
 
 WORDS = ("so what actually changed about search "
@@ -695,13 +767,15 @@ def test_a_reading_that_does_not_check_out_fails_the_reel_as_unusable():
     assert first.coherence == qb.UNJUDGED
 
 
-def test_a_reel_that_leans_on_the_episode_RECORDS_and_does_not_fail():
-    """Asked as "does it lean on anything unheard", this read
-    not_followable on 31 of 31 real reels under two independent readers.
-    A column constant across a batch carries no information about that
-    batch, and four deterministic halves were measured and rejected
-    (`COHERENCE_DOES_NOT_GATE`). So the reading is RECORDED and the
-    verdict is not derived from it (AGENTS.md 10.4)."""
+def test_a_reel_that_leans_on_the_episode_RECORDS_and_emits_no_signal():
+    """Asked as "does it lean on anything unheard", the reading said
+    not_followable on 29 of 31 script-QA moments, 20 of the 22 it
+    approved - a column constant across approved and rejected alike,
+    which is worse than no signal because it looks like diligence.
+    Calibration had already been tried and failed
+    (`COHERENCE_DOES_NOT_GATE`'s four halves), so the WARNING is
+    REMOVED and only the recording stays: the derived value and every
+    dependency placed at the word the reel says it, as evidence."""
     transcript, moments = _batch()
     words = qb.reel_text(moments[0], transcript)
     quote = words.split()[0]
@@ -719,9 +793,12 @@ def test_a_reel_that_leans_on_the_episode_RECORDS_and_does_not_fail():
     first = next(v for v in report.verdicts if v.number == 1)
     # The observation is kept in full - it is evidence, not a verdict.
     assert first.coherence == qb.NOT_FOLLOWABLE
-    finding = next(f for f in first.findings
-                   if f.code == qb.QB_NOT_FOLLOWABLE)
-    assert finding.severity == qb.WARNING
+    assert not hasattr(qb, "QB_NOT_FOLLOWABLE")
+    assert [f.code for f in first.findings
+            if f.quality == "coherence"] == []
+    # ... and the exact half that survived is still placed, word by word.
+    assert first.dependencies
+    assert first.dependencies[0]["position"] == qb.OPENING
     assert first.verdict == qb.PASS
     assert first.as_dict()["coherence_gates"] is False
 
@@ -1038,19 +1115,21 @@ def test_a_planned_reel_with_no_timeline_is_REPORTED_not_dropped():
     assert any("finding(s)" in line for line in unattached)
 
 
-def test_duration_is_not_folded_because_pq_length_already_carries_it():
-    """One reel's length reported twice under two codes is the
-    double-counting that made 22 PQ-LENGTH findings out of 11."""
+def test_the_bar_carries_no_duration_finding_to_fold():
+    """Since 2026-09-18 the bar judges no band, so there is nothing to
+    fold twice: length is reported once, by the verifier's own
+    `check_plan_length`, and the fold carries the call-to-action half."""
     from library.tools.reel_conformance_verifier import attach_quality_bar
 
     transcript = _transcript(SEGMENTS)
-    short = _moment(number=1, start=300.0, end=340.0)   # 40s, out of band
+    short = _moment(number=1, start=300.0, end=340.0)   # 40s, off the old band
     report = qb.judge([short], transcript)
-    assert qb.QB_DURATION in {f.code for f in report.verdicts[0].findings}
+    assert not {f.code for f in report.verdicts[0].findings
+                if f.quality == "duration"}
     results = [_reel_result(short.timeline_name, 1)]
-    attach_quality_bar(report, results)
-    assert qb.QB_DURATION not in {f.finding_class
-                                  for f in results[0].findings}
+    assert attach_quality_bar(report, results) == []
+    assert qb.QB_CTA_ABSENT in {f.finding_class
+                                for f in results[0].findings}
 
 
 def test_the_closer_that_decides_is_the_LAST_one_the_reel_plays():

@@ -4056,7 +4056,7 @@ def check_plan_length(reel_name: str,
     `reel_exchange.ABSURD_SECONDS`, which is mechanical rather than
     editorial (AGENTS.md 10.5).
     """
-    from library.tools.reel_quality_bar import LENGTH_GUIDANCE as _band
+    from library.tools.reel_exchange import LENGTH_GUIDANCE as _band
 
     low, high = _band
     if low <= plan_seconds <= high:
@@ -4505,9 +4505,10 @@ def attach_quality_bar(bar_report, reel_results: Sequence[ReelResult],
     "(selector redraw)" - so name alone attached 20 of 25 on the field
     test and dropped five without saying so.
 
-    DURATION is not folded: `check_plan_length` is the same measurement
-    in this file's vocabulary and carrying both would report one reel's
-    length twice under two codes.
+    DURATION is not folded because there is nothing to fold:
+    `reel_quality_bar` carries no duration finding since 2026-09-18
+    (`DURATION_GATE_REMOVED`) - `check_plan_length` is the one place a
+    reel's length is reported, in this file's vocabulary.
     """
     from library.tools import reel_quality_bar as _bar
 
@@ -4525,8 +4526,6 @@ def attach_quality_bar(bar_report, reel_results: Sequence[ReelResult],
                     f"{verdict.name} ({len(verdict.findings)} finding(s))")
             continue
         for finding in verdict.findings:
-            if finding.code == _bar.QB_DURATION:
-                continue
             target.findings.append(Finding(
                 finding_class=finding.code, reel=finding.reel,
                 message=finding.message, severity=finding.severity,
@@ -7042,12 +7041,11 @@ def run_verification(
     # reported as failing rather than shipped because its frame rate was
     # right.
     #
-    # DURATION is deliberately left out of the fold: `check_plan_length`
-    # above is the same measurement in this file's vocabulary, and
-    # carrying both would report one reel's length twice under two
-    # codes.  What comes in is the call-to-action half, which nothing
-    # here measured, and the two JUDGEMENT qualities, which nothing here
-    # could.
+    # The bar carries no duration finding since 2026-09-18
+    # (`reel_quality_bar.DURATION_GATE_REMOVED`): length is reported once,
+    # by `check_plan_length` above.  What comes in is the call-to-action
+    # half, which nothing here measured, and the two JUDGEMENT qualities,
+    # which nothing here could.
     bar_report = None
     if moments and transcript and not plan_refused:
         from library.tools import reel_quality_bar as _bar

@@ -38,42 +38,34 @@ Every one of those is exact.  None of them was being held.
 
 The two EXACT qualities
 -----------------------
-**DURATION, which is MEASURED exactly and REPORTED rather than
-enforced.**  This changed on 2026-09-06 and the brief is the reason.  It
-says, in the captain's own words:
+**DURATION, which is MEASURED exactly and never judged.**  The 45-90s
+window came OUT of this module on 2026-09-18 (captain, option c:
+"Delete the gate; the script reading judges length as part of
+judging the reel").  The brief already said "no fixed target",
+"preferably" and "No hard cap", and the standing ruling behind the
+removal (2026-09-16) is "there is no hard coded number that hits
+this" - so there is no band here any more, and nothing in its place:
+not a wider window, not a warning threshold, not a configurable
+default.  `DURATION_GATE_REMOVED` keeps that ruling; the 2026-09-09
+demotion to a warning it supersedes stays below as history, with the
+harvest-batch numbers that forced it.
 
-    "no fixed target but preferably between 45-90 seconds (this is for
-    short form content on social media)"
+What the bar still records on every reel is how long it RUNS -
+`duration_reading`, reconciled with what the build appends after the
+body.  The reel the old warning called 5.5s short built at 45.92s,
+because the judged figure never included the 3.8s standard ending
+(the freeze tail plus the tail card).  A figure that omits the ending
+is wrong wherever it appears, so the ending is resolved with the
+owners' own functions (`reel_ending`, `reel_build.plan_cards`) and the
+reconciled figure is the only one this module reports.  Nothing here
+restates the ending's length: a hardcoded 3.8 would be the same
+standing-ruling violation as a hardcoded 45.
 
-and beside it: *"No hard cap. What he rejected before was collage, not
-length - a coherent 90-second reel is right, a stitched 47-second one is
-not."*  Three statements that the band is a PREFERENCE - "no fixed
-target", "preferably", "No hard cap" - and a fourth that settles it: a
-47-second reel is INSIDE the band and can still be wrong, so length was
-never the thing that disqualifies.
-
-`reel_exchange.LENGTH_GUIDANCE`, the constant this module imports, says
-the same in its own docstring: "GUIDANCE THE MODEL WEIGHS, never a
-boundary this module enforces", and records that it stopped being a hard
-window on 2026-09-04 because enforcing it "silently withheld every
-stretch needing longer to finish".  This module imported that constant
-and made it an ERROR again, which re-created four days later exactly the
-defect that had been removed from its source.
-
-Measured on the harvest batch of 31: TEN were failed on length alone,
-and seven of the ten missed by under six seconds - 44.7s, 43.8s, 43.1s,
-40.4s, 40.3s, 39.6s, 39.5s against the 45s floor, and 93.1s against the
-90s ceiling.  **Reel 03 was failed by 0.3 seconds.**
-
-So NO NUMBER HERE CHANGED.  `duration_reading` measures exactly what it
-measured before and `within_guidance` still reads False for the same ten
-reels; what changed is that QB-DURATION is a WARNING.  Widening the band
-would have been tuning the measure to improve the result, which is the
-one move that would make it worthless.  The captain confirmed the
-reading on 2026-09-09 - "the time amount is a rule of thumb, there can
-be exceptions if the video is good still" - and that ruling is kept in
-code as `DURATION_DOES_NOT_GATE`, the same shape
-`COHERENCE_DOES_NOT_GATE` takes.
+Length reaches the model as one input among others: step 3.05 sends
+`runs_for_seconds` beside the lines, reconciled the same way, and no
+finding, score or tolerance is computed from it here.  Tonight's
+script QA judged 22 reels on their words and length never decided a
+verdict; the reading does the job the gate was pretending to do.
 
 The ERROR that remains is `reel_exchange.ABSURD_SECONDS`, imported and
 not restated: past five minutes a "reel" is most of the episode.  That
@@ -82,17 +74,14 @@ length bound the brief leaves standing.  It fired on 0 of the 31, and
 that is said here rather than left to read as coverage.  The brief
 declares no floor at all, so this module holds none.
 
-**THE CALL TO ACTION.**  `reel_exchange.LENGTH_GUIDANCE` is imported
-rather than restated,
-because a guidance spelled twice is this repository's dominant bug class
-(AGENTS.md 10.1).  The SELECTOR still weighs it: a story that needs 95
-seconds to finish is a real answer and `exchange_windows` deliberately
-stopped truncating at 90.  The BAR reports it.  Those are two different
-moments and the difference is the point - guidance you weigh while
-choosing becomes a finding once the choice is made, which is what "make
-it BITE at the point a reel is judged" means.  Nothing here shortens,
-drops or rewrites a reel; a reel outside the band is REPORTED outside the
-band and the captain still approves it or does not.
+**THE LENGTH GUIDANCE.**  The selector still weighs the captain's
+45-90s brief while choosing - a story that needs 95 seconds to finish
+is a real answer and `exchange_windows` deliberately stopped
+truncating at 90.  The BAR reports no band.  Those are two different
+moments and the difference is the point: guidance the model weighs
+while choosing is the selector's; once the choice is made the reel is
+judged on its words.  Nothing here shortens, drops or rewrites a
+reel.
 
 **A CALL TO ACTION.**  Three things, all exact:
 
@@ -141,15 +130,21 @@ a different property, and one moved with a window width nobody could
 source.  `COHERENCE_DOES_NOT_GATE` carries each with the number that
 killed it.
 
-What survives is better recording rather than a verdict:
-`dependency_positions` places every dependency at the word the reel says
-it, which is exact.  That matters most for one number - **26 of the 31,
-identically under both readers, lean on something inside their own
-declared call to action**, almost always the product arriving named in
-the closing pitch.  That is the closer the captain ASKED for, and the
-gate was failing reels for carrying it.  VALUE still gates, and on this
-batch it found the one reel with nothing to carry away - the two
-readers picked the same one independently, and so had the selector.
+What survives is the recording without the signal: `coherence_of` and
+`dependency_positions` are still derived on every judged reel, and the
+QB-NOT-FOLLOWABLE warning that used to carry them was REMOVED on
+2026-09-18.  It fired on 29 of 31 script-QA moments, including 20 of
+the 22 the reading approved - a column constant across approved and
+rejected alike carries no information about either, and a signal that
+says the same thing about everything is worse than none because it
+looks like diligence.  Calibration was already tried: four
+deterministic halves were measured against the 31 and every one
+failed (`COHERENCE_DOES_NOT_GATE` carries each with the number that
+killed it), and the model-dependent half moves with which reader read,
+so deriving a verdict from it would be enforcing a model's opinion
+with an arithmetic step in front of it.  REMOVE was the honest one of
+the two options, and the positions - which are exact - stay as
+evidence a reader can weigh.
 
 The hard part is that a recorded judgement must be worth something.  A
 model asked "is this good?" that answers "yes" has told you nothing, and
@@ -225,16 +220,19 @@ import sys
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-# ONE spelling of the captain's length brief, owned by the module whose
-# docstring records where it came from and why it stopped being a
-# boundary.  Restating the numbers here would be the second enumeration
-# AGENTS.md 10.1 is about.
-from library.tools.reel_exchange import ABSURD_SECONDS, LENGTH_GUIDANCE
+# ONE spelling of the captain's mechanical length bound, owned by the
+# module whose docstring records where it came from.  The 45-90s GUIDANCE
+# this module used to import alongside it is gone (2026-09-18,
+# `DURATION_GATE_REMOVED`): a guidance spelled here as well as in
+# `reel_exchange` would be the second enumeration AGENTS.md 10.1 is
+# about, and there is no band left to spell.
+from library.tools.reel_exchange import ABSURD_SECONDS
 
 __all__ = [
     "BODY",
     "COHERENCE_DOES_NOT_GATE",
     "DURATION_DOES_NOT_GATE",
+    "DURATION_GATE_REMOVED",
     "EXACT",
     "FORBIDDEN_IN_THE_ASK",
     "IN_CALL_TO_ACTION",
@@ -255,6 +253,7 @@ __all__ = [
     "declared_closers",
     "dependency_positions",
     "duration_reading",
+    "ending_seconds",
     "exact_findings",
     "format_table",
     "judge",
@@ -379,11 +378,55 @@ COHERENCE_DOES_NOT_GATE = {
     # coverage than one that cannot fail (AGENTS.md 10.4).
     "dependencies_inside_the_declared_closer": {
         "reader_1": "26 of 31", "reader_2": "26 of 31"},
+    # 2026-09-18: the WARNING this ruling created is gone too.  The
+    # script-QA batch read not_followable on 29 of 31 moments, 20 of the
+    # 22 it approved - the column the 2026-09-06 ruling already knew was
+    # constant proved constant on new material, and a signal that says
+    # the same thing about everything is worse than none.  Calibration
+    # was the other option and had already been tried (the four halves
+    # above).  What stays is the recording: `coherence_of` and
+    # `dependency_positions` on every judged verdict, no finding.
+    "warning_removed": "2026-09-18, with the duration gate (option c)",
 }
 """Why the coherence quality does not decide pass or fail.
 
 Kept beside `FIRST_MEASUREMENT` and for the same reason: a design
 argument that has never met the material is a design argument.
+"""
+
+
+DURATION_GATE_REMOVED = {
+    "ruled": "2026-09-18",
+    "option": "c",
+    "captain": (
+        '"Delete the gate; the script reading judges length as part of '
+        'judging the reel."'),
+    "standing_ruling": "2026-09-16: there is no hard coded number that hits this",
+    "what_went": (
+        "The 45-90s window came OUT of the quality bar - no wider window, "
+        "no warning threshold, no configurable default, all three being "
+        "the same defect wearing a different number. QB-DURATION no "
+        "longer exists, and `duration_reading` carries no guidance keys. "
+        "Length reaches the model as one input among others: step 3.05 "
+        "sends `runs_for_seconds` beside the lines, reconciled with the "
+        "ending the same way the bar's own figure is."),
+    "evidence": (
+        "Tonight's script QA judged 22 reels on their words and length "
+        "never decided a verdict. The reading does the job the gate was "
+        "pretending to do. What replaces the gate is the captain's "
+        "approval, which is already the mechanism: a reel is BUILT only "
+        "once they approve it (`reel_proposal.assert_approved`), and "
+        "PROPOSED fails that gate exactly as REJECTED does."),
+    "what_stays": (
+        "`duration_reading` still measures how long the reel RUNS on every "
+        "reel - reconciled with the ending the build appends - and "
+        "QB-ABSURD-LENGTH still errors past `reel_exchange.ABSURD_SECONDS`, "
+        "which is mechanical rather than editorial (AGENTS.md 10.5)."),
+}
+"""Why the duration band is gone entirely, not demoted again.
+
+Supersedes `DURATION_DOES_NOT_GATE` (2026-09-09), which stays below as
+the history of the warning this ruling deleted.
 """
 
 
@@ -519,7 +562,6 @@ def assert_qualities_are_well_formed() -> None:
 
 # ── Findings ─────────────────────────────────────────────────────────
 
-QB_DURATION = "QB-DURATION"
 QB_ABSURD_LENGTH = "QB-ABSURD-LENGTH"
 QB_UNBUILDABLE = "QB-UNBUILDABLE"
 QB_CTA_ABSENT = "QB-CTA-ABSENT"
@@ -531,7 +573,6 @@ QB_CTA_OPENS_MID_SENTENCE = "QB-CTA-OPENS-MID-SENTENCE"
 QB_CTA_SHARED = "QB-CTA-SHARED"
 QB_CTA_NOT_LAST = "QB-CTA-NOT-LAST"
 QB_CTA_DISAGREEMENT = "QB-CTA-DISAGREEMENT"
-QB_NOT_FOLLOWABLE = "QB-NOT-FOLLOWABLE"
 QB_NO_TAKEAWAY = "QB-NO-TAKEAWAY"
 QB_UNGROUNDED = "QB-UNGROUNDED"
 QB_OPENING_MISPLACED = "QB-OPENING-MISPLACED"
@@ -543,7 +584,6 @@ WARNING = "warning"
 FINDING_OWNERS: Dict[str, str] = {
     # Which quality each finding is about, so a report can be read by
     # quality rather than by code.
-    QB_DURATION: "duration",
     QB_ABSURD_LENGTH: "duration",
     QB_UNBUILDABLE: "duration",
     QB_CTA_ABSENT: "call_to_action",
@@ -555,7 +595,6 @@ FINDING_OWNERS: Dict[str, str] = {
     QB_CTA_SHARED: "call_to_action",
     QB_CTA_NOT_LAST: "call_to_action",
     QB_CTA_DISAGREEMENT: "call_to_action",
-    QB_NOT_FOLLOWABLE: "coherence",
     QB_NO_TAKEAWAY: "value",
     QB_UNGROUNDED: "judgement",
     QB_OPENING_MISPLACED: "judgement",
@@ -726,50 +765,166 @@ def reel_text(moment, transcript: dict) -> str:
     return " ".join(line["text"] for line in played_speech(moment, transcript))
 
 
-def delivered_seconds(moment, transcript: dict) -> float:
-    """How long the reel RUNS - body minus bad takes, plus the closer.
+def delivered_seconds(moment, transcript: dict,
+                        project_folder=None) -> float:
+    """How long the reel RUNS - the reconciled figure, not the body window.
 
-    Not `duration` (the body window) and not `total_duration` (body plus
-    closer, before anything is cut).  What a viewer sits through is the
-    sum of the ranges that are placed, and the three numbers are
-    genuinely different: a moment carrying a whole removed take is
-    shorter than either.
-
-    0.0 for a reel that cannot be laid out at all - `playable_ranges`
-    says why, and `exact_findings` reports it.
+    Body minus bad takes, plus the closer, plus the ending the build
+    appends after them (freeze tail and head/tail cards).  `project_folder`
+    resolves the ending with the owners' own functions; without one there
+    is no declaration to resolve and the figure is the body only - see
+    `duration_reading`, which says so rather than reporting it as the
+    reel.  One spelling: this delegates rather than re-summing.
     """
-    return sum(end - start
-               for start, end in playable_ranges(moment, transcript)[0])
+    return duration_reading(
+        moment, transcript, project_folder)["delivered_seconds"]
+
+
+def ending_seconds(moment, transcript: dict, project_folder) -> dict:
+    """The seconds the build appends after the body: freeze tail + cards.
+
+    Resolved, never restated: the ending declaration comes from
+    `reel_ending.resolve_ending` (a hand-written pin wins, otherwise the
+    freeze a CTA-closing reel inherits), the freeze length from
+    `reel_ending.ending_tail_frames`, and the cards from
+    `reel_build.plan_cards` - the same functions the build and the
+    conformance verifier read.  A hardcoded length here would be the
+    standing-ruling violation ("there is no hard coded number that hits
+    this") wearing a different number, and the reel the old warning
+    called 5.5s short built at 45.92s is what a restated figure buys.
+
+    Span cards replace the body rather than sitting beside it
+    (`reel_conformance_verifier` derives `plan_seconds` the same way),
+    so `span_present` travels for the caller that sums.
+
+    Without a project folder there is no declaration to resolve, and a
+    card plan that refuses is the build's own refusal arriving early:
+    both come back as `resolved: False` with the reason in `why`, so a
+    body-only figure is never reported as the reel in silence.
+    """
+    unresolved = {"freeze_seconds": 0.0, "card_seconds": 0.0, "total": 0.0,
+                  "span_present": False, "cards": [], "ending_source": "none",
+                  "resolved": False, "why": ""}
+    if not project_folder:
+        unresolved["why"] = (
+            "no project folder, so no ending declaration to resolve: "
+            "this figure is the body only")
+        return unresolved
+    fps = float((transcript.get("derived_from") or {}).get("fps") or 0.0)
+    if not fps:
+        unresolved["why"] = (
+            "the transcript names no fps, so freeze frames cannot be read "
+            "as seconds: this figure is the body only")
+        return unresolved
+    from library.tools import reel_ending as _ending
+
+    try:
+        ending = _ending.resolve_ending(
+            project_folder, moment.timeline_name, moment, transcript)
+    except Exception as refused:  # noqa: BLE001 - the build refuses on
+        # this too, and the bar must report the batch, not die on one reel
+        unresolved["why"] = (
+            f"the ending could not be resolved: {refused}")
+        return unresolved
+    # The project's TV-frame look, or the element's own declared timings
+    # where the project cannot be read - the same fallback
+    # `reel_conformance_verifier._reel_look_declaration` holds, for the
+    # same reason: a look nobody can read is the build's refusal, not
+    # this module's, and the element's own timings are the answer
+    # meanwhile.
+    look = None
+    try:
+        from library.tools import reel_look as _look
+        from library.tools.delivery_format import resolve_delivery_format
+
+        frame_w, frame_h = resolve_delivery_format(project_folder)
+        look = _look.resolve_look(project_folder, frame_w, frame_h)
+    except Exception:  # noqa: BLE001 - see above
+        look = None
+    freeze_seconds = _ending.ending_tail_frames(ending, look) / fps if ending else 0.0
+    try:
+        from library.tools.reel_build import (
+            plan_cards as _plan_cards,
+            reel_resolution as _resolution,
+        )
+
+        width, height = _resolution(project_folder)
+        ranges = playable_ranges(moment, transcript)[0]
+        cards = _plan_cards(moment, transcript, ranges, project_folder,
+                            fps, width=width, height=height,
+                            ending=ending, look=look)
+    except Exception as refused:  # noqa: BLE001 - see above
+        unresolved["why"] = (
+            f"the reel's cards could not be planned: {refused}")
+        return unresolved
+    planned = [{"placement": c.placement, "element": c.element,
+                "render_name": c.render_name,
+                "duration_seconds": round(c.duration_frames / fps, 2)}
+               for c in (cards or [])]
+    card_seconds = sum(c.duration_frames for c in (cards or ())) / fps
+    span_present = any(c.placement == "span" for c in (cards or ()))
+    source = "none"
+    if ending is not None:
+        source = ("inherited" if _ending.is_inherited(ending)
+                  else "declared")
+    return {"freeze_seconds": freeze_seconds, "card_seconds": card_seconds,
+            "total": freeze_seconds + card_seconds,
+            "span_present": span_present, "cards": planned,
+            "ending_source": source, "resolved": True, "why": ""}
 
 
 # ── EXACT: duration ──────────────────────────────────────────────────
 
-def duration_reading(moment, transcript: dict) -> dict:
-    """How long the reel runs, and which side of the guidance it falls."""
+def duration_reading(moment, transcript: dict,
+                     project_folder=None) -> dict:
+    """How long the reel runs: body, closer, and the ending after them.
+
+    `delivered_seconds` is the RECONCILED figure - what a viewer sits
+    through.  The body minus the bad takes the build cuts, plus the
+    closer, plus the freeze tail and the head/tail cards the build
+    appends (`ending_seconds`).  Not `duration` (the body window) and
+    not `total_duration` (body plus closer, before anything is cut):
+    three genuinely different numbers, and the old warning judged the
+    second while the reel built the first plus 3.8s of ending.
+
+    `project_folder` resolves the ending.  Without one the figure is
+    the body only and SAYS SO (`ending_resolved` False with the reason
+    in the `ending` breakdown) - a body-only figure reported as the
+    reel is the defect `DURATION_GATE_REMOVED` records.
+    """
     ranges, refusal = playable_ranges(moment, transcript)
-    seconds = sum(end - start for start, end in ranges)
-    low, high = LENGTH_GUIDANCE
+    body = sum(end - start for start, end in ranges)
+    ending = ending_seconds(moment, transcript, project_folder)
     if refusal:
-        # A reel nothing can lay out has no length to hold against the
-        # guidance, and reporting 0.0s as "under 45" would be a finding
+        # A reel nothing can lay out has no length to hold against
+        # anything, and reporting 0.0s as a length would be a finding
         # about the instrument. The refusal is the finding.
         return {"delivered_seconds": 0.0, "unbuildable": refusal,
-                "guidance_seconds": [low, high], "within_guidance": True,
-                "outside_by_seconds": 0.0}
+                "body_seconds": 0.0,
+                "closer_seconds": 0.0,
+                "removed_by_cuts_seconds": 0.0,
+                "ending_seconds": 0.0,
+                "ending_resolved": False,
+                "ending": ending}
+    if ending["span_present"]:
+        # A span card replaces the footage video for the whole body, so
+        # adding the body again would report the reel at twice its
+        # length - the same branch `reel_conformance_verifier` takes.
+        delivered = ending["card_seconds"] + ending["freeze_seconds"]
+    else:
+        delivered = body + ending["card_seconds"] + ending["freeze_seconds"]
     return {
-        "delivered_seconds": round(seconds, 1),
+        "delivered_seconds": round(delivered, 1),
         "body_seconds": round(moment.timeline_end - moment.timeline_start, 1),
         "closer_seconds": round(moment.call_to_action.duration, 1)
         if moment.call_to_action else 0.0,
         "removed_by_cuts_seconds": round(
             (moment.timeline_end - moment.timeline_start)
             + (moment.call_to_action.duration if moment.call_to_action else 0.0)
-            - seconds, 1),
-        "guidance_seconds": [low, high],
-        "within_guidance": low <= seconds <= high,
-        "outside_by_seconds": round(
-            low - seconds if seconds < low
-            else seconds - high if seconds > high else 0.0, 1),
+            - body, 1),
+        "ending_seconds": round(ending["total"], 1),
+        "ending_resolved": ending["resolved"],
+        "ending": ending,
     }
 
 
@@ -1065,8 +1220,16 @@ def cta_reading(moment, transcript: dict,
 def exact_findings(moment, transcript: dict,
                    closers: Dict[Tuple[float, float], List[int]],
                    thesis: Optional[dict] = None,
+                   project_folder=None,
                    ) -> List[BarFinding]:
-    """Everything the two EXACT qualities have to say about one reel."""
+    """Everything the two EXACT qualities have to say about one reel.
+
+    Duration is MEASURED here (`duration_reading`, reconciled with the
+    ending when `project_folder` resolves one) and never judged: the
+    45-90s window came out on 2026-09-18 (`DURATION_GATE_REMOVED`), so
+    there is no band branch and nothing to widen, warn or configure.
+    The one length ERROR is the mechanical absurd bound below.
+    """
     name = moment.timeline_name
     out: List[BarFinding] = []
 
@@ -1078,7 +1241,7 @@ def exact_findings(moment, transcript: dict,
     cta = cta_reading(moment, transcript, closers, thesis=thesis)
     out.extend(_cta_findings(moment, name, cta, closers))
 
-    duration = duration_reading(moment, transcript)
+    duration = duration_reading(moment, transcript, project_folder)
     if duration.get("unbuildable"):
         # Nothing else can be read off a plan nothing can lay out. Say so
         # only where the CTA half has not already named the cause -
@@ -1097,19 +1260,6 @@ def exact_findings(moment, transcript: dict,
                 f"runs {duration['delivered_seconds']:.1f}s, past the "
                 f"{ABSURD_SECONDS:.0f}s at which a candidate is most of "
                 f"the episode rather than a reel"),
-            detail=duration))
-    elif not duration["within_guidance"]:
-        low, high = LENGTH_GUIDANCE
-        side = "under" if duration["delivered_seconds"] < low else "over"
-        out.append(BarFinding(
-            code=QB_DURATION, reel=name, severity=WARNING,
-            message=(
-                f"runs {duration['delivered_seconds']:.1f}s, "
-                f"{duration['outside_by_seconds']:.1f}s {side} the "
-                f"{low:.0f}-{high:.0f}s the brief PREFERS. The brief says "
-                f"\"no fixed target\" and \"No hard cap\", so this is "
-                f"reported and does not decide anything: see "
-                f"reel_quality_bar.DURATION_DOES_NOT_GATE"),
             detail=duration))
 
     return out
@@ -1748,7 +1898,6 @@ class BarReport:
             "passing": len(self.passing),
             "failing": len(self.failing),
             "not_read": list(self.not_read),
-            "guidance_seconds": list(LENGTH_GUIDANCE),
             "verdicts": [v.as_dict() for v in self.verdicts],
         }
 
@@ -1799,8 +1948,9 @@ def judge(moments: Sequence, transcript: dict,
         number = int(moment.number)
         thesis = theses.get(number)
         findings = exact_findings(moment, transcript, closers,
-                                  thesis=thesis)
-        duration = duration_reading(moment, transcript)
+                                  thesis=thesis,
+                                  project_folder=project_folder)
+        duration = duration_reading(moment, transcript, project_folder)
         cta = cta_reading(moment, transcript, closers, thesis=thesis)
 
         reading = None
@@ -1831,33 +1981,15 @@ def judge(moments: Sequence, transcript: dict,
 
         coherence = coherence_of(reading)
         value = value_of(reading)
+        # RECORDED, never signalled.  The QB-NOT-FOLLOWABLE warning that
+        # used to fire here was removed on 2026-09-18: it read
+        # not_followable on 29 of 31 script-QA moments, 20 of the 22 the
+        # reading approved, so it could not be what separated approved
+        # from rejected (`DURATION_GATE_REMOVED`, and the module
+        # docstring).  What stays is the exact half - every dependency
+        # placed at the word the reel says it - and the derived value,
+        # both on the verdict as evidence a reader weighs.
         positions = dependency_positions(reading, moment, transcript)
-        if coherence == NOT_FOLLOWABLE:
-            # RECORDED, never enforced.  This fired on 31 of 31 under two
-            # independent readers, and 26 of those 31 lean on something
-            # inside their own declared call to action - the closer the
-            # captain asked for.  `COHERENCE_DOES_NOT_GATE` carries the
-            # four deterministic halves that were measured and why none
-            # of them can carry a verdict.
-            counted = {}
-            for placed in positions:
-                counted[placed["position"]] = counted.get(
-                    placed["position"], 0) + 1
-            where = ", ".join(f"{n} in the {p.replace('_', ' ')}"
-                              for p, n in sorted(counted.items())) or "nowhere"
-            findings.append(BarFinding(
-                code=QB_NOT_FOLLOWABLE, reel=name, severity=WARNING,
-                message=(
-                    "leans on "
-                    + "; ".join(
-                        f"{(a or {}).get('what')!r} (at {(a or {}).get('quote')!r})"
-                        for a in reading.assumes_known)
-                    + f" - {where}. Recorded rather than held against "
-                      f"this reel: see reel_quality_bar."
-                      f"COHERENCE_DOES_NOT_GATE"),
-                detail={"assumes_known":
-                        [dict(a) for a in reading.assumes_known],
-                        "positions": positions}))
         if value == DELIVERS_NOTHING:
             findings.append(BarFinding(
                 code=QB_NO_TAKEAWAY, reel=name, severity=ERROR,
@@ -1935,11 +2067,11 @@ def ranked(report: BarReport) -> List[ReelVerdict]:
 
 def format_table(report: BarReport) -> str:
     """One row per reel, in the judge's ordering."""
-    low, high = LENGTH_GUIDANCE
     lines = [
         f"REEL QUALITY BAR - {len(report.verdicts)} reel(s), "
         f"{len(report.passing)} pass, {len(report.failing)} fail",
-        f"guidance {low:.0f}-{high:.0f}s; coherence and value are the "
+        f"secs are what a viewer sits through - body, closer and the "
+        f"ending the build appends; coherence and value are the "
         f"model's reading, checked against each reel's own words",
         "",
         f"{'rank':>4}  {'#':>3}  {'verdict':<7}  {'secs':>6}  "

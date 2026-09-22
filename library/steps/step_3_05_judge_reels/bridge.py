@@ -12,11 +12,13 @@ model was told the criteria it would be graded on and duly graded itself
 well, and nothing about that outcome was surprising.
 
 So one table goes out: `reels_to_read`, one row per proposed moment,
-carrying the reel's number, how long it runs, and every line a listener
-hears in the order they hear it.  Not the slug.  Not the reason.  Not
-the measurements, the concerns, the openings, the repeated takes, the
-speakers' shares, the picture holes or the length.  Not the creative
-brief, which is where a project says what it wants from a reel.
+carrying the reel's number, how long it runs - reconciled with the
+ending the build appends, because the reader judges length as part of
+judging the reel - and every line a listener hears in the order they
+hear it.  Not the slug.  Not the reason.  Not the measurements, the
+concerns, the openings, the repeated takes, the speakers' shares, the
+picture holes or the length guidance.  Not the creative brief, which
+is where a project says what it wants from a reel.
 
 The step's manifest declares `context_fields: ["reels_to_read"]` and the
 projection is what enforces the subtraction; this file is the other half
@@ -49,6 +51,40 @@ class JudgeReelsRefused(RuntimeError):
     """This step cannot build a reading request, and says which half is
     missing.  Both inputs are declared REQUIRED and this is the code
     that refuses on them (`library/tools/input_contract.py`)."""
+
+
+def _runs_for_seconds(moment, transcript: dict, lines: list,
+                      data: dict) -> float:
+    """How long the reel runs, as the reader weighs it: reconciled.
+
+    The body the lines already cover, plus the ending the build appends
+    after them (`reel_quality_bar.ending_seconds` - freeze tail and
+    head/tail cards, resolved never restated).  The reader judges length
+    as part of judging the reel (captain, 2026-09-18, option c), so the
+    length it weighs must be the one a viewer sits through: the reel the
+    old warning called 5.5s short built at 45.92s, and a reading that
+    weighed 42.1 would be weighing a reel that never exists.
+
+    A reel whose ending cannot be resolved reads the body figure - the
+    same number this row carried before - because one unreadable
+    declaration must not cost the reading of the whole batch.  The bar's
+    own `duration_reading` is where the unresolved half is SAID.
+    """
+    body = round(lines[-1]["reel_end"], 1)
+    try:
+        from library.tools.reel_quality_bar import (
+            ending_seconds as _ending_seconds,
+        )
+
+        ending = _ending_seconds(moment, transcript,
+                                 (data or {}).get("project_folder") or "")
+    except Exception:  # noqa: BLE001 - see above
+        return body
+    if not ending["resolved"]:
+        return body
+    if ending["span_present"]:
+        return round(ending["card_seconds"] + ending["freeze_seconds"], 1)
+    return round(body + ending["total"], 1)
 
 
 def build_context(data: dict) -> dict:
@@ -92,7 +128,8 @@ def build_context(data: dict) -> dict:
             continue
         rows.append({
             "reel": int(moment.number),
-            "runs_for_seconds": round(lines[-1]["reel_end"], 1),
+            "runs_for_seconds": _runs_for_seconds(moment, transcript,
+                                                  lines, data),
             "lines": [{"at": line["reel_start"],
                        "speaker": line["speaker"],
                        "says": line["text"]} for line in lines],
