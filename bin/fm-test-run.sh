@@ -841,6 +841,7 @@ tests/fm-cursor-primary-live-e2e.test.sh 96
 tests/fm-cursor-primary.test.sh 52337
 tests/fm-daemon.test.sh 34191
 tests/fm-decision-replacement.test.sh 1627
+tests/fm-direct-merge-record.test.sh 6035
 tests/fm-dispatch-resolve.test.sh 6047
 tests/fm-documentation-audiences.test.sh 897
 tests/fm-drain-triage.test.sh 1046
