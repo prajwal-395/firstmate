@@ -8562,6 +8562,37 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     replace_reports = {}
     refused = {}
     superseded_signoffs = {}
+    # ── THESIS GATE (post-build reading, pre-promotion) ──
+    # Gap G1 (`library/tools/reel_thesis.py`): nothing reads a
+    # sentence, so the kept word sequence is read with three
+    # questions and a fresh recorded incoherent refuses that reel's
+    # promotion, per reel. Partitioned BEFORE the guard diffs
+    # anything, so a refused reel's staging, baselines and hold stay
+    # exactly as the build left them and only promotable finals flow
+    # below. A missing sidecar, stale words, unjudged readings and
+    # unreadable inputs all REPORT and promote: an instrument must
+    # never fail the build it instruments, and every caller without
+    # a survey reads exactly what it read before.
+    _thesis_refused: dict = {}
+    try:
+        from library.tools import reel_thesis as _thesis
+        _thesis_decision = _thesis.gate_promotion(
+            project_folder, staged_to_final)
+    except Exception as exc:  # noqa: BLE001 - instrument, not gate.
+        import sys as _sys
+        print(f"  thesis gate unavailable ({exc!r}) - promoting "
+              f"without the reading", file=_sys.stderr)
+        _thesis_decision = {"promotable": dict(staged_to_final),
+                            "refused": {}, "lines": []}
+    for _thesis_line in _thesis_decision.get("lines", ()):
+        print(_thesis_line, flush=True)
+    _thesis_refused = dict(_thesis_decision.get("refused", {}))
+    if _thesis_refused:
+        staged_to_final = dict(_thesis_decision.get("promotable",
+                                                    staged_to_final))
+        finals = list(staged_to_final.keys())
+        if not staged_to_final:
+            raise _thesis.ThesisRefused(_thesis_refused, [])
     # What phase 0 SAW on each reel with a sign-off gate question: the
     # live entry when one existed and was declared, None when none
     # existed. The supersede loop below compares against this rather
@@ -9190,6 +9221,15 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     if refused:
         _raise_partial_promotion(finals, ok_finals, refused,
                                  markers=carried_markers)
+    if _thesis_refused:
+        # The passing reels fully promoted above (renames, sidecars,
+        # holds, filing); the refused stagings stay with theirs. A
+        # `ReelBuildError` subclass on purpose: every promotion
+        # handler already files the landed reels' marker losses off
+        # `.markers` and re-raises, so no caller needs teaching.
+        _thesis_error = _thesis.ThesisRefused(_thesis_refused, ok_finals)
+        _thesis_error.markers = carried_markers
+        raise _thesis_error
     return {"promoted": ok_finals, "organised": organised, "swept": swept,
             "replace_reports": replace_reports,
             "refused": dict(refused),
