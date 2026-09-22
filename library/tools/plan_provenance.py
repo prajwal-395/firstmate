@@ -30,10 +30,29 @@ commits "I built from THIS plan", so it is the natural owner of that
 record.
 
 Retroactive fitness
--------------------
+------------------
 The 16 reels built before this change have no provenance record.  They
 are honestly lost to verification against a specific plan - the verifier
 says so plainly rather than inventing a reconstruction.
+
+Snapshot supersession
+---------------------
+Several `.timeline.json` snapshots can name the SAME live timeline: the
+base snapshot, a `(batch-1050)` comparison copy, a `(final)` copy.
+Measured 2026-09-19 they disagreed on Reel 09's bound (36510 against
+36490) with nothing on disk saying which was authoritative, and a check
+graded the stale one.  So promotion records, per live timeline name,
+which snapshot file is the authoritative record of that timeline
+(`snapshot_provenance[timeline]`) and which same-named files it
+superseded.  The readers (`built_from_snapshot`,
+`is_snapshot_superseded`) refuse where nothing was recorded rather
+than grading a stale file.  This key lives here rather than in the
+snapshot metadata because the fact belongs to no single snapshot file:
+marking old files would rewrite committed history, while one
+builder-owned record diffs as a one-hunk change beside the declaration
+it was built from.
+
+``tests/test_snapshot_supersession.py``.
 
 ``tests/test_plan_provenance.py``.
 """
@@ -131,6 +150,22 @@ def archive_plan(plan_path: str, archive_dir: Optional[str] = None) -> str:
 
 PROVENANCE_FILENAME = "plan_provenance.json"
 """Written by the builder next to conformance_report.json."""
+
+SNAPSHOT_PROVENANCE_KEY = "snapshot_provenance"
+"""Per live timeline name: which snapshot file is its authoritative
+record and which same-named files that snapshot superseded.
+
+``{timeline_name: {"snapshot": <review/-relative filename>,
+"sha256": <hex of the file's bytes when recorded>,
+"recorded_at": <iso>,
+"superseded": [{"snapshot": <filename>, "sha256": <hex>,
+"superseded_by": <filename>, "recorded_at": <iso>}]}}``.
+
+A builder-owned record, written by `record_snapshot_supersession` at
+promotion time - the only moment "what the live timeline holds" and
+"which files name it" are both known.  Readers refuse on absence
+rather than grading a stale file.
+"""
 
 
 def caption_content_hash(cards) -> str:
@@ -370,6 +405,12 @@ def write_provenance(
             superseded = existing.get("plan_content_hash")
             assets = dict(asset_hashes) if asset_hashes is not None else {}
 
+    # The snapshot record is orthogonal to the plan: a plan change does
+    # not un-build a timeline, so the table is carried whole in both
+    # branches. A build that dropped it would delete the supersession
+    # answer as a side effect of recording anything else.
+    snapshots_table = dict(existing.get(SNAPSHOT_PROVENANCE_KEY) or {})
+
     doc = {
         "plan_path": os.path.abspath(plan_path),
         "plan_content_hash": content_hash,
@@ -400,6 +441,12 @@ def write_provenance(
         # time, so a file replaced on disk reads as changed rather
         # than current (`reel_divergence` compares these).
         "asset_hashes": assets,
+        # Per live timeline name: the authoritative snapshot file and
+        # the same-named files it superseded
+        # (`record_snapshot_supersession`). Carried, never recomputed
+        # here - a build records plan facts, promotion records
+        # snapshot facts, and neither rewrites the other's.
+        SNAPSHOT_PROVENANCE_KEY: snapshots_table,
     }
     if superseded:
         doc["superseded_plan_hash"] = superseded
@@ -444,6 +491,15 @@ def rename_reel_entries(review_dir: str, mapping: dict[str, str]) -> None:
             if old in entries:
                 entries[new] = entries.pop(old)
         doc[key] = entries
+    # The snapshot table is keyed by live timeline name too, so its
+    # keys move with the promotion. The filenames inside stay: the
+    # snapshots were written after the rename, under the final names.
+    if SNAPSHOT_PROVENANCE_KEY in doc:
+        snapshots_table = dict(doc.get(SNAPSHOT_PROVENANCE_KEY) or {})
+        for old, new in mapping.items():
+            if old in snapshots_table:
+                snapshots_table[new] = snapshots_table.pop(old)
+        doc[SNAPSHOT_PROVENANCE_KEY] = snapshots_table
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
 
 
@@ -494,14 +550,267 @@ def drop_reel_entries(review_dir: str, names) -> None:
     if not drop:
         return
     doc["built_reels"] = [name for name in (doc.get("built_reels") or [])
-                           if name not in drop]
+                            if name not in drop]
     for key in ("caption_hashes", "footage_binding_hashes",
                 "built_at_reels", "built_with", "build_signatures"):
         entries = dict(doc.get(key) or {})
         for name in drop:
             entries.pop(name, None)
         doc[key] = entries
+    # A refused staging leaves no snapshot baseline behind either, or
+    # a later reader would grade the surviving timeline against files
+    # the refused build named.
+    if SNAPSHOT_PROVENANCE_KEY in doc:
+        snapshots_table = dict(doc.get(SNAPSHOT_PROVENANCE_KEY) or {})
+        for name in drop:
+            snapshots_table.pop(name, None)
+        doc[SNAPSHOT_PROVENANCE_KEY] = snapshots_table
     path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+
+
+def _snapshot_bytes(path: Path) -> Optional[bytes]:
+    """The bytes of a snapshot file, or None when unreadable."""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _snapshot_timeline_name(document: dict) -> str:
+    """The timeline name a snapshot document records, or "".
+
+    Read from the snapshot's own `metadata.name` - what the timeline
+    was called when the build wrote it - never from the filename, for
+    the same reason `drift_check.newest_snapshots` does: promotion
+    sanitises names into filenames, so the filename cannot be turned
+    back into the timeline name.
+    """
+    metadata = document.get("metadata") if isinstance(document, dict) else None
+    if not isinstance(metadata, dict):
+        return ""
+    return str(metadata.get("name") or "").strip()
+
+
+def record_snapshot_supersession(
+    review_dir: str,
+    snapshots_by_timeline: dict,
+) -> dict:
+    """Record which snapshot each promoted timeline was built from.
+
+    `snapshots_by_timeline` is `{live timeline name: path of the
+    snapshot file just written for it}` - what
+    `build_version_control.record_reel_promotion` passes straight
+    after serializing each promoted timeline.  Promotion is the only
+    moment both halves are known: what the live timeline now holds
+    (the bytes just written) and which older files name that same
+    timeline.
+
+    Per timeline the record holds the authoritative file (its
+    review-relative filename plus the sha256 of its bytes, so a file
+    replaced on disk afterwards reads as changed rather than
+    current) and every OTHER same-named snapshot file as superseded,
+    with the file that superseded it.  Timelines outside
+    `snapshots_by_timeline` are left exactly as they are - the same
+    merge rule `write_provenance` keeps for a partial rebuild.
+
+    A file that cannot be read, or that names no timeline, is SKIPPED
+    and never marked: supersession that cannot be established is not
+    recorded.  The just-written files themselves are never
+    superseded, even when a previous record listed them.
+
+    Returns `{timeline_name: {"snapshot": ..., "superseded_now": [...]}}`.
+    """
+    review = Path(review_dir)
+    provenance_path = review / PROVENANCE_FILENAME
+    doc: dict = {}
+    if provenance_path.is_file():
+        try:
+            loaded = json.loads(provenance_path.read_text(encoding="utf-8"))
+            doc = loaded if isinstance(loaded, dict) else {}
+        except (OSError, ValueError):
+            doc = {}
+    table = dict(doc.get(SNAPSHOT_PROVENANCE_KEY) or {})
+    now = datetime.now(timezone.utc).isoformat()
+    report: dict = {}
+    for timeline_name, snapshot_path in (snapshots_by_timeline or {}).items():
+        timeline_name = str(timeline_name or "").strip()
+        if not timeline_name:
+            continue
+        written = Path(str(snapshot_path))
+        raw = _snapshot_bytes(written)
+        if raw is None:
+            continue
+        try:
+            stored = written.relative_to(review).as_posix()
+        except ValueError:
+            stored = written.name
+        digest = hashlib.sha256(raw).hexdigest()
+        entry = dict(table.get(timeline_name) or {})
+        previous: dict = {}
+        stored_superseded = entry.get("superseded") or ()
+        superseded_items = (stored_superseded.values()
+                            if isinstance(stored_superseded, dict)
+                            else stored_superseded)
+        for item in superseded_items:
+            if isinstance(item, dict) and item.get("snapshot"):
+                previous[str(item["snapshot"])] = dict(item)
+        superseded_now: list = []
+        # A previous authoritative file under a different filename no
+        # longer describes the live timeline - it is history now.
+        old_snapshot = entry.get("snapshot")
+        if (old_snapshot and old_snapshot != stored
+                and old_snapshot not in previous):
+            old_path = review / str(old_snapshot)
+            old_raw = _snapshot_bytes(old_path)
+            if old_raw is not None:
+                previous[str(old_snapshot)] = {
+                    "snapshot": str(old_snapshot),
+                    "sha256": hashlib.sha256(old_raw).hexdigest(),
+                    "superseded_by": stored,
+                    "recorded_at": now,
+                }
+                superseded_now.append(str(old_snapshot))
+        for candidate in sorted(review.glob("*.timeline.json")):
+            if candidate.name == written.name and (
+                    candidate == written
+                    or candidate.resolve() == written.resolve()):
+                continue
+            candidate_raw = _snapshot_bytes(candidate)
+            if candidate_raw is None:
+                continue
+            try:
+                candidate_doc = json.loads(candidate_raw.decode("utf-8"))
+            except ValueError:
+                continue
+            if _snapshot_timeline_name(candidate_doc) != timeline_name:
+                continue
+            try:
+                candidate_stored = candidate.relative_to(
+                    review).as_posix()
+            except ValueError:
+                candidate_stored = candidate.name
+            if candidate_stored == stored:
+                continue
+            if candidate_stored not in previous:
+                previous[candidate_stored] = {
+                    "snapshot": candidate_stored,
+                    "sha256": hashlib.sha256(candidate_raw).hexdigest(),
+                    "superseded_by": stored,
+                    "recorded_at": now,
+                }
+                superseded_now.append(candidate_stored)
+            else:
+                previous[candidate_stored]["superseded_by"] = stored
+        # The authoritative file is never its own superseded entry,
+        # whatever an earlier record said.
+        previous.pop(stored, None)
+        table[timeline_name] = {
+            "snapshot": stored,
+            "sha256": digest,
+            "recorded_at": now,
+            "superseded": [previous[key] for key in sorted(previous)],
+        }
+        report[timeline_name] = {"snapshot": stored,
+                                 "superseded_now": sorted(superseded_now)}
+    doc[SNAPSHOT_PROVENANCE_KEY] = table
+    review.mkdir(parents=True, exist_ok=True)
+    provenance_path.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    return report
+
+
+def built_from_snapshot(
+    review_dir: str,
+    timeline_name: str,
+    provenance: Optional[dict] = None,
+) -> tuple[Optional[dict], str]:
+    """Which snapshot file the live timeline was built from, and why not.
+
+    Returns `(entry, reason)` where `entry` is the recorded
+    `{"snapshot", "sha256", "recorded_at"}`.  A `None` entry is never
+    "any snapshot will do" - it is "nothing here can say", and the
+    caller must report the refusal rather than grade a file the
+    record does not bless.  That refusal is the whole of G6: the
+    check that graded Reel 09's stale 36490 bound had no record to
+    ask, so it graded whichever file it found first.
+
+    The recorded digest is verified against the file's current bytes:
+    a snapshot replaced on disk after the record reads as changed,
+    never as current.
+    """
+    if provenance is None:
+        provenance = read_provenance(review_dir)
+    timeline_name = str(timeline_name or "").strip()
+    if not provenance:
+        return None, (
+            f"{timeline_name}: no provenance record exists, so nothing "
+            f"states which snapshot this live timeline was built from. "
+            f"No snapshot is graded - a file found by filename alone "
+            f"is not the one the build blessed.")
+    table = provenance.get(SNAPSHOT_PROVENANCE_KEY) or {}
+    entry = table.get(timeline_name)
+    if not entry:
+        return None, (
+            f"{timeline_name}: provenance records no snapshot for this "
+            f"timeline, so which file its live state came from is "
+            f"unknown. No snapshot is graded. Promote it to record one.")
+    stored = str(entry.get("snapshot") or "")
+    path = Path(review_dir) / stored
+    raw = _snapshot_bytes(path)
+    if raw is None:
+        return None, (
+            f"{timeline_name}: the recorded snapshot {stored!r} is no "
+            f"longer on disk. No snapshot is graded - a missing "
+            f"baseline is not a matching one.")
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != entry.get("sha256"):
+        return None, (
+            f"{timeline_name}: the recorded snapshot {stored!r} changed "
+            f"since the build recorded it - its bytes no longer hash "
+            f"to the recorded digest. No snapshot is graded.")
+    return dict(entry), (
+        f"{timeline_name}: built from {stored} "
+        f"(recorded {entry.get('recorded_at', '')})")
+
+
+def is_snapshot_superseded(
+    review_dir: str,
+    snapshot: str,
+    provenance: Optional[dict] = None,
+) -> tuple[bool, str]:
+    """Does this snapshot file read as superseded, and why.
+
+    Returns `(superseded, reason)`.  `True` names the file that
+    superseded it and when.  `False` is either "the authoritative
+    record for its timeline" or "nothing here says" - the reason
+    tells which, because an unrecorded file is not a live one.
+    """
+    if provenance is None:
+        provenance = read_provenance(review_dir)
+    name = Path(str(snapshot or "")).name
+    if not provenance:
+        return False, (
+            f"{name}: no provenance record exists, so no snapshot "
+            f"reads as superseded. Nothing here can say which file "
+            f"is authoritative either.")
+    table = provenance.get(SNAPSHOT_PROVENANCE_KEY) or {}
+    for timeline_name, entry in table.items():
+        if not isinstance(entry, dict):
+            continue
+        for item in entry.get("superseded") or ():
+            if isinstance(item, dict) and item.get("snapshot") == name:
+                return True, (
+                    f"{name}: superseded by {item.get('superseded_by')} "
+                    f"for {timeline_name} "
+                    f"(recorded {item.get('recorded_at', '')}) - "
+                    f"grading it grades history, not the live timeline.")
+        if entry.get("snapshot") == name:
+            return False, (
+                f"{name}: the authoritative snapshot for "
+                f"{timeline_name} - grading it grades the live timeline.")
+    return False, (
+        f"{name}: no supersession recorded for this file. It is "
+        f"neither the authoritative snapshot of any timeline nor a "
+        f"superseded one - nothing here can say what it is.")
 
 
 def check_captions_match_provenance(

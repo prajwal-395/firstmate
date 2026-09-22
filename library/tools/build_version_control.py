@@ -463,6 +463,7 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
         # the current timeline per name walked the cursor across every
         # final unleashed, the move that killed a sibling lane's Fusion
         # pass on 2026-09-20.
+        snapshots_by_timeline: dict = {}
         for name in names:
             target = None
             for index in range(1, project.GetTimelineCount() + 1):
@@ -484,6 +485,7 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
                                        ensure_ascii=False) + "\n",
                             encoding="utf-8")
             report["snapshots"].append(str(path))
+            snapshots_by_timeline[name] = str(path)
         # The Fusion comps, off the same handles the snapshots just
         # read: plain Lua text per comp per reel, committed verbatim
         # in the same commit below. Best effort - a reel Resolve no
@@ -496,6 +498,22 @@ def record_reel_promotion(project_folder: str, resolve_project_name: str,
         except Exception as exc:  # noqa: BLE001 - never fail the build
             report["fusion_comps"] = {"reels": {}, "files": [],
                                       "errors": [f"export failed: {exc!r}"]}
+        # Which snapshot each promoted timeline was built from, and
+        # which same-named files that snapshot superseded
+        # (`plan_provenance.record_snapshot_supersession`): without it
+        # three files can name one reel with nothing saying which is
+        # authoritative, and a later check grades the stale one
+        # (Reel 09, 36510 vs 36490, 2026-09-19). Never fails the
+        # promotion - the timelines are promoted and unaffected, and
+        # a supersession failure never skips the comp export above
+        # (or vice versa): each records its own failure on the report.
+        try:
+            from library.tools import plan_provenance as _provenance
+            supersession = _provenance.record_snapshot_supersession(
+                str(review_dir), snapshots_by_timeline)
+            report["snapshot_supersession"] = supersession
+        except Exception as exc:  # noqa: BLE001
+            report["supersession_failed"] = f"{exc!r}"
     except Exception as exc:
         # COMMIT ANYWAY. The snapshot is the nice-to-have half; the
         # declarations, the run state and the step outputs on disk are
