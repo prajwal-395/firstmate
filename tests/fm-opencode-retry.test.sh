@@ -226,14 +226,19 @@ test_rung_cap_expires_and_degrades() {
   "$HELPER" check-cap "$d" free 2>/dev/null | grep -q "status=blocked" \
     || fail "a valid observation must replace an expired rung record"
   # Malformed records and refused writes degrade to nothing-to-classify.
-  printf 'junk\n' > "$d/.opencode-cap-bad"
-  "$HELPER" check-cap "$d" bad >/dev/null 2>&1 \
+  # The malformed fixture uses a ladder rung key (go) with junk bytes, so the
+  # failure proves the content is unreadable rather than the name unaccepted.
+  local dm="$TMP_ROOT/rung-malformed"; mkdir -p "$dm"
+  printf 'junk\n' > "$dm/.opencode-cap-go"
+  "$HELPER" check-cap "$dm" go >/dev/null 2>&1 \
     && fail "a malformed rung record must not classify"
   "$HELPER" record-cap "$d" 'bad rung' "$(ms_from_now 79200)" >/dev/null 2>&1 \
-    && fail "a rung outside the token charset must be refused"
+    && fail "a rung outside the accepted set must be refused"
   "$HELPER" record-cap "$d" free soon >/dev/null 2>&1 \
     && fail "a non-numeric horizon must be refused"
-  "$HELPER" check-cap "$d" missing >/dev/null 2>&1 \
+  # Absent: a ladder rung key with no record on disk classifies nothing.
+  local da="$TMP_ROOT/rung-absent"; mkdir -p "$da"
+  "$HELPER" check-cap "$da" go >/dev/null 2>&1 \
     && fail "an absent rung record must not classify"
   "$HELPER" check-cap /nonexistent-dir free >/dev/null 2>&1 \
     && fail "a missing state dir must not classify"
@@ -273,20 +278,92 @@ test_rung_cap_verdict_keeps_expired_and_absent_apart() {
   assert_contains "$out" "verdict=waiting" "a transient rung horizon reads waiting, never capped"
   # Expired: a cap WAS proved and its window has passed - free is worth
   # trying, and the record says why. Same routing as absent, different fact.
-  "$HELPER" record-cap "$d" old "$(ms_from_now -3600)" \
+  # An isolated dir keeps the expired free record clear of the live one above.
+  local de="$TMP_ROOT/rung-verdict-expired"; mkdir -p "$de"
+  "$HELPER" record-cap "$de" free "$(ms_from_now -3600)" \
     || fail "record-cap refused an old observation"
-  "$HELPER" check-cap "$d" old >/dev/null 2>&1 \
+  "$HELPER" check-cap "$de" free >/dev/null 2>&1 \
     && fail "an expired rung record must not classify through check-cap"
-  out=$("$HELPER" verdict-cap "$d" old) \
+  out=$("$HELPER" verdict-cap "$de" free) \
     || fail "verdict-cap must always answer an expired record"
   assert_contains "$out" "verdict=unknown" "an expired rung record is unknown, never capped"
   assert_contains "$out" "reason=expired-evidence" "expired names the proved cap whose window passed"
-  # Malformed: present but unreadable.
-  printf 'junk\n' > "$d/.opencode-cap-bad"
-  out=$("$HELPER" verdict-cap "$d" bad) \
+  # Malformed: present but unreadable, under a ladder rung key so the reason
+  # proves content, not name, is at fault.
+  local dmb="$TMP_ROOT/rung-verdict-malformed"; mkdir -p "$dmb"
+  printf 'junk\n' > "$dmb/.opencode-cap-go"
+  out=$("$HELPER" verdict-cap "$dmb" go) \
     || fail "verdict-cap must always answer a malformed record"
   assert_contains "$out" "reason=malformed-record" "a malformed rung record names itself"
   pass "verdict-cap tells expired-evidence from no-evidence"
+}
+
+test_rung_cap_rejects_unknown_rung() {
+  # The 2026-09-22 defect: `record-cap <dir> opencode` succeeded and wrote
+  # `.opencode-cap-opencode`, which nothing ever reads - strictly worse than
+  # recording nothing, because the writer's own re-checks reassured while the
+  # dispatch gate saw no evidence. An unreadable rung must fail loudly.
+  local d="$TMP_ROOT/rung-reject"; mkdir -p "$d"
+  local err
+  err=$(mktemp "$TMP_ROOT/reject-err.XXXXXX")
+  "$HELPER" record-cap "$d" opencode "$(ms_from_now 79200)" 2>"$err" \
+    && fail "record-cap with an unreadable rung must exit nonzero"
+  [ ! -f "$d/.opencode-cap-opencode" ] \
+    || fail "a refused rung must write no record file"
+  assert_contains "$(cat "$err")" "opencode" "the refusal names what was passed"
+  assert_contains "$(cat "$err")" "free" "the refusal names the accepted free rung"
+  assert_contains "$(cat "$err")" "go" "the refusal names the accepted go rung"
+  rm -f "$err"
+  pass "record-cap refuses an unreadable rung without writing and names the valid rungs"
+}
+
+test_rung_cap_commands_reject_the_same_set() {
+  # A name cannot be written by one command and read by another: all three
+  # rung commands reject the identical set.
+  local d="$TMP_ROOT/rung-same-set"; mkdir -p "$d"
+  local rung
+  for rung in opencode bad missing old 'bad rung'; do
+    "$HELPER" record-cap "$d" "$rung" "$(ms_from_now 79200)" >/dev/null 2>&1 \
+      && fail "record-cap must refuse rung '$rung'"
+    "$HELPER" check-cap "$d" "$rung" >/dev/null 2>&1 \
+      && fail "check-cap must refuse rung '$rung'"
+    "$HELPER" verdict-cap "$d" "$rung" >/dev/null 2>&1 \
+      && fail "verdict-cap must refuse rung '$rung'"
+    case "$rung" in
+      *' '*) : ;;
+      *)
+        [ ! -f "$d/.opencode-cap-$rung" ] \
+          || fail "a refused rung '$rung' must leave no record file" ;;
+    esac
+  done
+  pass "record-cap, check-cap and verdict-cap reject the same rung set"
+}
+
+test_rung_cap_accepted_rungs_work_end_to_end() {
+  # Both ladder rungs still classify exactly as before: a quota-scale horizon
+  # reads blocked (capped) and a seconds-long horizon reads waiting.
+  local rung d_long d_short out
+  for rung in free go; do
+    d_long="$TMP_ROOT/rung-e2e-$rung-blocked"; mkdir -p "$d_long"
+    "$HELPER" record-cap "$d_long" "$rung" "$(ms_from_now 79200)" \
+      || fail "record-cap refused a quota-scale observation for rung '$rung'"
+    out=$("$HELPER" check-cap "$d_long" "$rung") \
+      || fail "check-cap refused a live record for rung '$rung'"
+    assert_contains "$out" "status=blocked" "22h horizon on '$rung' reads blocked"
+    out=$("$HELPER" verdict-cap "$d_long" "$rung") \
+      || fail "verdict-cap must answer a live record for rung '$rung'"
+    assert_contains "$out" "verdict=capped" "a quota-scale record on '$rung' reads capped"
+    d_short="$TMP_ROOT/rung-e2e-$rung-waiting"; mkdir -p "$d_short"
+    "$HELPER" record-cap "$d_short" "$rung" "$(ms_from_now 8)" \
+      || fail "record-cap refused a transient observation for rung '$rung'"
+    out=$("$HELPER" check-cap "$d_short" "$rung") \
+      || fail "check-cap refused a transient record for rung '$rung'"
+    assert_contains "$out" "status=waiting" "8s horizon on '$rung' reads waiting, never blocked"
+    out=$("$HELPER" verdict-cap "$d_short" "$rung") \
+      || fail "verdict-cap must answer a transient record for rung '$rung'"
+    assert_contains "$out" "verdict=waiting" "a transient record on '$rung' reads waiting"
+  done
+  pass "the accepted rungs classify blocked above the threshold and waiting below it"
 }
 
 test_cap_horizon_is_blocked
@@ -303,3 +380,6 @@ test_rung_cap_newer_evidence_wins
 test_rung_cap_expires_and_degrades
 test_rung_cap_threshold_is_tunable
 test_rung_cap_verdict_keeps_expired_and_absent_apart
+test_rung_cap_rejects_unknown_rung
+test_rung_cap_commands_reject_the_same_set
+test_rung_cap_accepted_rungs_work_end_to_end
