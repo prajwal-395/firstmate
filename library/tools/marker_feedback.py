@@ -757,6 +757,7 @@ def reply_records_in(custom_data) -> list:
             if r.get("writer") == REPLY_WRITER]
 
 
+@under_lease("place a reply marker on the timeline")
 def place_reply_marker(timeline, frame: int, color: str, name: str,
                        note: str, duration: int = 1,
                        custom_data: str = "") -> dict:
@@ -815,6 +816,7 @@ def place_reply_marker(timeline, frame: int, color: str, name: str,
             "custom_data": back.get("customData") or ""}
 
 
+@under_lease("place a reply marker on a clip")
 def place_reply_clip_marker(item, source_frame: int, color: str,
                             name: str, note: str,
                             duration: int = 1,
@@ -885,6 +887,7 @@ def place_reply_clip_marker(item, source_frame: int, color: str,
             "custom_data": back.get("customData") or ""}
 
 
+@under_lease("remove an answered clip marker")
 def remove_clip_marker(item, source_frame: int) -> bool:
     """Delete one clip marker at a SOURCE frame, verified by read-back.
 

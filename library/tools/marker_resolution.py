@@ -134,6 +134,7 @@ if str(_HERE.parents[2]) not in sys.path:  # repo root, for direct execution
     sys.path.insert(0, str(_HERE.parents[2]))
 
 from library.tools.project_layout import Area, ProjectLayout  # noqa: E402
+from library.tools.resolve_lock import under_lease  # noqa: E402
 
 RESOLUTIONS_SUBDIR = "resolutions"
 RESOLUTION_FORMAT = "marker_resolution/1"
@@ -546,6 +547,7 @@ def _confirm_absent(get_markers, key) -> bool:
     }
 
 
+@under_lease("delete a timeline marker on resolution")
 def delete_timeline_marker(timeline, frame_key) -> dict:
     """Delete the timeline marker at `frame_key`. Judged, then confirmed.
 
@@ -584,6 +586,7 @@ def delete_timeline_marker(timeline, frame_key) -> dict:
     return outcome
 
 
+@under_lease("delete a clip marker on resolution")
 def delete_clip_marker(item, source_frame) -> dict:
     """Delete the clip marker at `source_frame`. Same contract as
     `delete_timeline_marker`: the return is read, then the re-read
@@ -621,6 +624,7 @@ def delete_clip_marker(item, source_frame) -> dict:
     return outcome
 
 
+@under_lease("delete a marker by customData on resolution")
 def delete_marker_by_custom_data(timeline_or_item, custom_data: str) -> dict:
     """Fallback deletion by `customData`. Judged the same way.
 

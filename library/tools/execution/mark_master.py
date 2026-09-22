@@ -31,6 +31,7 @@ from library.tools.master_markers import (
     windows_of,
 )
 from library.tools.resolve_organization import reel_state
+from library.tools.resolve_lock import under_lease
 
 JOURNAL_PREFIX = "master_markers"
 
@@ -94,6 +95,7 @@ def plan_markers(project, project_folder: str, master_name: str) -> dict:
             "existing": master.GetMarkers() or {}}
 
 
+@under_lease("write the reel-coverage markers onto the master")
 def apply_markers(plan: dict, journal_path: str) -> dict:
     """Write the markers. Additive: refuses to land on the captain's own.
 
@@ -133,6 +135,7 @@ def apply_markers(plan: dict, journal_path: str) -> dict:
     return journal
 
 
+@under_lease("clear this module's markers off the master")
 def clear_markers(master) -> list[int]:
     """Remove the markers THIS module wrote, and only those.
 

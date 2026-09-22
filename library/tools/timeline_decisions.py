@@ -160,6 +160,7 @@ from library.tools.project_layout import (  # noqa: E402
     Area,
     ProjectLayout,
 )
+from library.tools.resolve_lock import under_lease  # noqa: E402
 
 LEDGER_FORMAT = "timeline_decisions/1"
 LEDGER_FILENAME = "timeline_decisions.json"
@@ -701,6 +702,7 @@ class StampReport:
         return "\n".join(lines)
 
 
+@under_lease("stamp the deciding placements onto the timeline's markers")
 def stamp_timeline(timeline, ledger: dict) -> StampReport:
     """Stamp every marker ALREADY on `timeline`.  Creates none.
 

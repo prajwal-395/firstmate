@@ -55,6 +55,8 @@ from __future__ import annotations
 
 import sys
 
+from library.tools.resolve_lock import under_lease
+
 #: Rows a marker anchor is read from, topmost picture first. Captions
 #: and frame overlays run the length of a reel and would anchor every
 #: marker to the same item, so the anchor is read off the PICTURE rows
@@ -227,6 +229,7 @@ def report(timeline_name: str, carried, uncarried) -> None:
               file=sys.stderr, flush=True)
 
 
+@under_lease("carry the captain's markers onto the replacement")
 def place(timeline, carried) -> list:
     """Write the resolved markers onto the replacement.
 
