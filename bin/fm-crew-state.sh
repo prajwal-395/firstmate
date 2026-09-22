@@ -195,7 +195,12 @@ REMOTE_HOST=$(meta_value remote_host)
 # stay with the poll tick and locked session start.
 MATE_QUIET_DETAIL=
 if [ "$KIND" = secondmate ] && [ -z "$REMOTE_HOST" ]; then
-  # shellcheck source=bin/fm-wake-lib.sh
+  # fm-wake-lib.sh is a canonical lint root itself. Stop duplicate
+  # source-graph expansion here: following its wake graph from this large
+  # runtime exceeds the bounded CI lint worker while adding no uncovered
+  # file (precedent: fm-watch.sh cuts fm-push-transition-lib.sh the same
+  # way for the same reason).
+  # shellcheck source=/dev/null
   command -v fm_mate_watcher_health >/dev/null 2>&1 || . "$SCRIPT_DIR/fm-wake-lib.sh"
   MATE_HOME=$(meta_value home)
   MATE_TASK=$(basename "$META")
