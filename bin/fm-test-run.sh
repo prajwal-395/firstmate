@@ -406,6 +406,7 @@ fm-lint.test.sh pure-contract-unit
 fm-live-gate.test.sh standalone
 fm-mail-check.test.sh watcher-wake-lock
 fm-mail.test.sh watcher-wake-lock
+fm-mate-route.test.sh standalone
 fm-muse-harness.test.sh pure-contract-unit
 fm-muse-signals-live-e2e.test.sh live-harness-optin
 fm-no-mistakes-required.test.sh standalone
@@ -874,6 +875,7 @@ tests/fm-lint-workflows.test.sh 851
 tests/fm-live-gate.test.sh 2642
 tests/fm-mail-check.test.sh 6895
 tests/fm-mail.test.sh 9825
+tests/fm-mate-route.test.sh 1500
 tests/fm-muse-harness.test.sh 44758
 tests/fm-muse-signals-live-e2e.test.sh 101
 tests/fm-nm-test-contract.test.sh 2813
@@ -1685,14 +1687,19 @@ families_for_changed_path() {
     bin/fm-intake-kind.sh)
       printf '%s\n' "__script__:fm-intake-kind.test.sh"
       ;;
+    bin/fm-mate-route.sh)
+      printf '%s\n' "__script__:fm-mate-route.test.sh"
+      ;;
     bin/fm-env-lib.sh)
       # The one .env accessor, sourced by bin/fm-x-lib.sh (Relay token) and
-      # bin/fm-dispatch-resolve.sh, bin/fm-drain-triage.sh, and
-      # bin/fm-intake-kind.sh (TYPESAFE_API_KEY and AI_GATEWAY_API_KEY).
+      # bin/fm-dispatch-resolve.sh, bin/fm-drain-triage.sh,
+      # bin/fm-intake-kind.sh, and bin/fm-mate-route.sh (TYPESAFE_API_KEY and
+      # AI_GATEWAY_API_KEY).
       printf '%s\n' pr-forge
       printf '%s\n' "__script__:fm-dispatch-resolve.test.sh"
       printf '%s\n' "__script__:fm-drain-triage.test.sh"
       printf '%s\n' "__script__:fm-intake-kind.test.sh"
+      printf '%s\n' "__script__:fm-mate-route.test.sh"
       ;;
     .pi/extensions/fm-branch-supervision.ts|.pi/extensions/lib/fm-async-exec.ts|\
     .pi/extensions/lib/fm-branch-dispatch.ts|.pi/extensions/lib/fm-native-contract.ts)

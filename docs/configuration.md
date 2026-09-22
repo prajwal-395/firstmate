@@ -547,6 +547,19 @@ Only a usage or configuration error exits 2: a missing, unreadable, or empty int
 Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate classifies as today.
 The offline gate evidence is recorded in [`verification/intake-kind.md`](verification/intake-kind.md); a keyed live run against the same hand-labeled set is still open.
 
+## Typed secondmate routing (.env TYPESAFE_API_KEY, .env AI_GATEWAY_API_KEY)
+
+`bin/fm-mate-route.sh` routes one intake to at most one secondmate with typesafe.ai's System One model (Jev), so the scope-text match that firstmate otherwise reads by hand on every intake becomes one short tool turn.
+It shares the dispatch resolver's opt-in gate, gateway-first ladder, fixed confidence floor 0.6, 5-second timeout, and secret handling: off means one `mate-route: off` line on stderr, nothing on stdout, exit 0, and no network call, so firstmate routes exactly as today.
+This section is the single owner of the tool's operator contract; the script header owns its exact flags and output lines, "Secondmate routes" above owns the registry format, and `AGENTS.md` section 7 owns the routing rules the gates enforce.
+When on, the tool sends the intake text plus the resolved project as state and asks one Choice question `mate` with one option per registry entry plus the fixed default `No listed scope applies; the main home keeps the work.`; each option carries only that entry's `scope:` text, so the model never sees the non-exclusive `projects:` list and cannot learn the wrong key.
+Everything after the answer runs in code, in order: the local-only gate (a local-only resolved project stays with the main home, and no scope text overrides that), the captain-redirect gate (an explicit redirect wins over the answer, while a redirect to a blocked or unreachable mate escalates instead of routing main), the liveness gate (a blocked or unreachable answer target falls through to the main home), and the 0.6 confidence floor.
+The result is one of `clear` (a `mate:` line naming the mate or main), `ambiguous` (confidence below the floor: the intake returns unrouted with its lean recorded), `escalate` (no usable registry entry, or the captain's redirect target is blocked or unreachable), or `error` (API, network, or response failure), and every one of them exits 0.
+Every non-clear result hands back the unrouted intake with its reason, and firstmate routes by hand as today: `Send in-scope work to the fitting secondmate unless it is blocked or the captain explicitly redirects it; do not read the secondmate's chat because marked routed replies return through its status or referenced document.` plus `If no secondmate scope fits, use the main home or discuss creating an appropriate persistent secondmate.` (`AGENTS.md` section 7).
+Only a usage or configuration error exits 2: a missing, unreadable, or empty intake file, an unreadable registry, a redirect, blocked, or unreachable id naming no registered mate, or missing `jq`, each reported and never selected around.
+Missing `curl` is a normal structured `error` outcome with exit 0 so firstmate routes as today.
+`TYPESAFE_API_KEY` and `AI_GATEWAY_API_KEY` are its only router-specific environment settings.
+
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
