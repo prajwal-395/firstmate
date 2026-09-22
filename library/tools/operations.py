@@ -69,6 +69,57 @@ the one that exists, and the hand-written half would be prose in a
 costume.  That is the defect this refactor removes, so `requires` is a
 property with no setter and `_REGISTRY` carries no requirement literals.
 
+What an operation EFFECTS, and why nine are empty
+-------------------------------------------------
+`Operation.effect` is the exact mirror of `requires`: every requirement
+in `library/tools/requirements.py` whose `produced_by` includes this
+operation's `owning_node`.  Same vocabulary, same derivation discipline -
+an effect in a different language could never be matched against a
+precondition, so nothing would compose.
+
+Fourteen of the 23 operations have a non-empty effect.  Nine are empty,
+and the emptiness is TRUE, not a gap: `run_scope.prerequisites`
+derives one condition per REQUIRED input, so a node that no consumer
+requires anything from produces no requirement.  The nine are three
+kinds, each verified against the tree (see `EMPTY_EFFECT_REASONS` for
+the per-operation evidence):
+
+* VERDICT - the effect is pass/fail, not a state key.  The gate raises
+  or exits non-zero on failure, so there is no downstream consumer to
+  name one: `sfx_library.validate`, `reel.verify`,
+  `validation.resolve`.
+* ARTIFACT - the product lands on disk for a caller, a gate or Resolve
+  placement rather than travelling a DAG edge: `reel.gate_stills`,
+  `motion_graphics.render`, `motion_graphics.render_segment`.
+* ANALYSIS the requirement layer does not model - real state whose
+  edges are OPTIONAL or absent, which `prerequisites` deliberately
+  excludes: `prosody.analyse`, `color_grade.resolve`
+  (optional consumers), `ocr.extract` (no outgoing edge, no reader).
+
+The composition consequence is stated plainly rather than patched
+around: a composer working backwards from requirements alone can never
+select these nine, because verdicts and optional productions are
+invisible as goals.  Teaching the requirement layer about optional
+edges is future work; hand-writing nine effects in a second vocabulary
+to make the field look complete would be the defect this module
+removes, in a new costume.
+
+This follows the layer's own enforced doctrine, not just this
+module's taste: `Requirement.__post_init__`
+(`library/tools/requirements.py`) refuses a predicate or coverage
+requirement with an empty `produced_by` and refuses an environment
+requirement with a non-empty one, on the grounds that `produced_by`
+models exactly one thing - a prior step wrote this into state - and
+excludes both machine facts and a step's own subject matter.  A
+verdict (a gate's exit code, a raise) and an artifact handed to a
+caller or a gate are both the excluded half, so expressing them as
+`produced_by` entries would extend what the field means.  The two
+analysis operations that DO write state keys (`prosody.analyse`,
+`ocr.extract`) stay empty for the narrower reason above - optional or
+absent edges, which `prerequisites` deliberately excludes - and would
+become derivable the day the layer models optional edges, like the
+other fourteen.
+
 Executing
 ---------
 `Operation.execute` gathers the step's inputs the way the RUNNER does -
@@ -363,6 +414,33 @@ class Operation:
         from library.tools import requirements
         return tuple(r for r in requirements.all_requirements()
                      if self.owning_node in r.consumers)
+
+    @property
+    def effect(self) -> tuple:
+        """Every requirement this operation's OWNING NODE satisfies.
+
+        The exact mirror of `requires`, in the SAME vocabulary: where
+        `requires` filters `requirements.all_requirements()` on
+        `owning_node in r.consumers`, this filters on `owning_node in
+        r.produced_by`.  Derived, never hand-written, for the same
+        reason - an effect in a second language cannot be matched
+        against a precondition, so nothing composes.
+
+        Node-granular, like `requires`: sibling operations owned by one
+        node share one effect.  A bridge half therefore carries its
+        node's whole production (`duration_zone.build` reads as
+        producing the spine its step meshes) - the vocabulary is keyed
+        by node id, so anything finer would be a second vocabulary.
+
+        Empty for the nine operations named in `EMPTY_EFFECT_REASONS`,
+        and the emptiness is the truth: no requirement in the registry
+        names those nodes as a producer, so running one satisfies no
+        precondition.  See the module docstring for the three kinds and
+        the composition consequence.
+        """
+        from library.tools import requirements
+        return tuple(r for r in requirements.all_requirements()
+                     if self.owning_node in r.produced_by)
 
     @property
     def run(self) -> Callable:
@@ -789,6 +867,99 @@ class Operation:
             raise ScopeNotSupported(
                 f"{self.name} does not run at {scope.kind} scope; it runs "
                 f"at: {', '.join(self.scopes)}")
+
+
+# ── Operations whose derived effect is empty ────────────────────────
+#
+# Nine operations satisfy no requirement in the registry, each for a
+# reason that was verified against the tree rather than assumed.  The
+# mapping is operation name to the reason its effect is empty anyway -
+# the justification `tests/test_operations_declare_effect.py` demands
+# before it accepts a new entry here.
+#
+# A new operation whose owning node produces no requirement FAILS that
+# test until its author classifies it below.  Do NOT invent a
+# requirement name to fill the field instead: that is a second
+# vocabulary, and it would make the field look complete while teaching
+# the composer a goal nothing refuses on.  If a future operation
+# genuinely cannot be expressed here, that means the requirement layer
+# is not the right home for effects - say so and revisit the design
+# rather than hand-writing the entry.
+
+EMPTY_EFFECT_REASONS: dict[str, str] = {
+    # VERDICT - the effect is pass/fail, not a state key.
+    "sfx_library.validate":
+        "VERDICT. The gate is the step's own exit code, not its record "
+        "(`library/steps/step_0_01_validate_sfx_library/step.py:main` "
+        "writes `sfx_library_status` then `sys.exit(1)`; the manifest "
+        "says so verbatim). `output_contract` reports that record "
+        "NOBODY, and no DAG edge leaves `validate_sfx_library`, so no "
+        "requirement names it as a producer.",
+    "reel.verify":
+        "VERDICT. A failure raises (`ReelVerifyRefused` / "
+        "`ReelVerificationRefused` at six sites in "
+        "`library/steps/step_7_02_verify_reels/step.py`) rather than "
+        "returning - the manifest says the key existing MEANS the reels "
+        "conformed. `verify_reels` is terminal (no outgoing edge); its "
+        "only reader is `manage_project.py` by code route, not an edge, "
+        "so no requirement names it as a producer.",
+    "validation.resolve":
+        "VERDICT. One verdict leaves the node "
+        "(`library/steps/step_6_02_validate_output/post_bridge.py:"
+        "resolve_validation` returns `validation_result.status`), and "
+        "`run_pipeline.check_validation_verdict` fails the run on "
+        "`fail`. `validate` is terminal (no outgoing edge); its only "
+        "reader is `run_pipeline.py` by code route, so no requirement "
+        "names it as a producer.",
+    # ARTIFACT - the product lands on disk for a caller, a gate or
+    # placement rather than travelling a DAG edge.
+    "reel.gate_stills":
+        "ARTIFACT. Caller-supplied (`caller_supplied=True`): the gate "
+        "hands it a reel label, timeline name and frames, and the "
+        "stills bank into `7_02_verify_reels/gate_stills/` for the gate "
+        "to judge "
+        "(`library/steps/step_7_02_verify_reels/step.py:"
+        "grab_gate_stills`). No edge carries them, and the owning node "
+        "`verify_reels` produces no requirement.",
+    "motion_graphics.render":
+        "ARTIFACT. The post-bridge renders the overlay artefacts to "
+        "disk "
+        "(`library/steps/step_4_06_render_motion_graphics/post_bridge.py:"
+        "render_motion_graphics`); the overlay record it returns reaches "
+        "`compile_manifest` only through inputs that manifest declares "
+        "OPTIONAL, which `run_scope.prerequisites` deliberately "
+        "excludes - so no requirement names `render_motion_graphics` "
+        "as a producer.",
+    "motion_graphics.render_segment":
+        "ARTIFACT. Caller-supplied (`caller_supplied=True`): the unit "
+        "`reel_build` drives, `render_one_segment(planned, out_dir)`, "
+        "rendering ONE segment onto no master spine. No edge carries "
+        "it, and the owning node `render_motion_graphics` produces no "
+        "requirement.",
+    # ANALYSIS the requirement layer does not model - real state whose
+    # edges are OPTIONAL or absent, which `prerequisites` excludes.
+    "prosody.analyse":
+        "ANALYSIS. Real state with real readers "
+        "(`output_contract`: `creative_direction.prosody_analysis`, "
+        "`speech_sequence.prosody_analysis`), but both manifests "
+        "declare the `prosody_analysis` input OPTIONAL - and "
+        "`run_scope.prerequisites` derives one condition per REQUIRED "
+        "input only. So no requirement names `prosody_analysis` as a "
+        "producer.",
+    "color_grade.resolve":
+        "ANALYSIS. Real state with a real reader "
+        "(`output_contract`: `compile_manifest.color_grade_spec`), but "
+        "that manifest declares `color_grade_spec` OPTIONAL - and "
+        "`run_scope.prerequisites` derives one condition per REQUIRED "
+        "input only. So no requirement names `color_grade` as a "
+        "producer.",
+    "ocr.extract":
+        "ANALYSIS. Real state with NO reader: `output_contract` carries "
+        "an explicit FINDING that `ocr_extraction.ocr_extraction` has "
+        "no edge, no code reader and no tool consumer, `ocr_extraction` "
+        "has no outgoing DAG edge, and the step is DESELECTED BY "
+        "DEFAULT. So no requirement names it as a producer.",
+}
 
 
 # ── The registry ────────────────────────────────────────────────────
