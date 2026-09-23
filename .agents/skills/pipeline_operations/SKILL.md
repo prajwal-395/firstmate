@@ -23,6 +23,7 @@ run at a declared scope. It owns no logic of its own.
 | operation | owning node | scopes | what it does |
 |---|---|---|---|
 | `sfx_library.validate` | `validate_sfx_library` | project | Check the SFX library can actually serve a run |
+| `footage.scan` | `scan` | project | Scan the project folder for raw video files |
 | `semantics.analyse` | `semantic_analysis` | project | Run the v3 vision pass over clips without a profile |
 | `prosody.analyse` | `prosody_analysis` | project | Measure pitch, pace, voice quality and intensity per clip |
 | `ocr.extract` | `ocr_extraction` | project | Extract on-screen text from the footage |

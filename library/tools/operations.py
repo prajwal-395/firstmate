@@ -77,7 +77,7 @@ operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
 precondition, so nothing would compose.
 
-Seventeen of the 26 operations have a non-empty effect.  Nine are empty,
+Eighteen of the 27 operations have a non-empty effect.  Nine are empty,
 and the emptiness is TRUE, not a gap: `run_scope.prerequisites`
 derives one condition per REQUIRED input, so a node that no consumer
 requires anything from produces no requirement.  The nine are three
@@ -118,7 +118,7 @@ analysis operations that DO write state keys (`prosody.analyse`,
 `ocr.extract`) stay empty for the narrower reason above - optional or
 absent edges, which `prerequisites` deliberately excludes - and would
 become derivable the day the layer models optional edges, like the
-other seventeen.
+other eighteen.
 
 Executing
 ---------
@@ -976,6 +976,13 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="validate_sfx_library",
         owning_dir="step_0_01_validate_sfx_library", body="step.py",
         attr="validate_sfx_library",
+    ),
+    Operation(
+        name="footage.scan",
+        summary="Scan the project folder for raw video files",
+        owning_node="scan",
+        owning_dir="step_1_01_scan_project", body="step.py",
+        attr="scan_project_folder",
     ),
     Operation(
         name="semantics.analyse",
