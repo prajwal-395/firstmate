@@ -65,6 +65,7 @@ def test_render_segment_success(mock_find, mock_size, mock_listdir, mock_makedir
     mock_project.AddRenderJob.assert_called_once()
     mock_project.StartRendering.assert_called_once()
 
+@pytest.mark.heavy
 @patch("os.makedirs")
 def test_render_segment_timeout(mock_makedirs, mock_resolve, mock_project, mock_timeline):
     # Make it always rendering to trigger timeout

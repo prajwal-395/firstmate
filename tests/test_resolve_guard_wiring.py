@@ -214,6 +214,7 @@ def test_no_library_module_declares_itself_the_sole_writer():
     assert not offenders, offenders
 
 
+@pytest.mark.heavy
 def test_assert_current_timeline_still_has_its_callers():
     """The 22 write paths the refusal now covers, counted.
 

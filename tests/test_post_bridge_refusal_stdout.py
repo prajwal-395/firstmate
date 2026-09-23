@@ -6,6 +6,7 @@ import pytest
 
 from library.processes.edit_video.run_pipeline import PostBridgeError, run_hybrid_step
 
+@pytest.mark.heavy
 def test_a_post_bridge_refusal_written_to_stdout_reaches_the_retry_message_non_empty(tmp_path):
     """Proves a post-bridge refusal written to stdout reaches the retry message with its content intact."""
     project = tmp_path / "project"

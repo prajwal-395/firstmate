@@ -1,6 +1,7 @@
 """Lane-report plumbing for the parallel full-suite gate.
 
-The gate runs the ``not heavy_ml`` selection in two lanes (parallel over
+The gate runs each marker selection (``not heavy_ml and not heavy``,
+``heavy``) in two lanes (parallel over
 xdist, serial single-process) and merges the lane JUnit XMLs into ONE
 report that the existing verdict logic reads unchanged.  Four helpers,
 each executable from the gate script:

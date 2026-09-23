@@ -59,6 +59,7 @@ def _sites(path: Path) -> list:
             if isinstance(node, ast.Attribute) and node.attr == METHOD]
 
 
+@pytest.mark.heavy
 def test_every_cursor_setter_is_registered():
     """No shipped file sets the cursor without a registry row."""
     seen = {}

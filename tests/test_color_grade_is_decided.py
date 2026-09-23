@@ -136,6 +136,7 @@ def _post_bridge(tmp_path, rows, answer, brand_template=None):
     return json.loads(proc.stdout)["color_grade_spec"]
 
 
+@pytest.mark.heavy
 def test_a_project_with_no_brand_template_still_gets_a_reasoned_grade(
         tmp_path, bridge_output):
     """The defect, in one test. 001 names no template; before this the
@@ -170,6 +171,7 @@ def test_a_project_with_no_brand_template_still_gets_a_reasoned_grade(
     assert "last cut" in spec["correction_basis"]["assessment"]
 
 
+@pytest.mark.heavy
 def test_a_project_with_a_template_still_gets_that_templates_look(
         tmp_path, bridge_output):
     """The house look is not removed - it gains a craft layer under it."""
@@ -198,6 +200,7 @@ def test_a_project_with_a_template_still_gets_that_templates_look(
     assert corrected["saturation"] == 0.95
 
 
+@pytest.mark.heavy
 def test_a_judged_no_correction_is_not_an_ungraded_run(tmp_path,
                                                        bridge_output):
     _p, rows, _ = bridge_output

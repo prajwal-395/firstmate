@@ -7,6 +7,17 @@
 #     scripts/full_suite_gate.sh                  # the gate (parallel lanes)
 #     scripts/full_suite_gate.sh --no-parallel    # serial control, same commit
 #     scripts/full_suite_gate.sh --skip-heavy-ml  # CI-equivalent selection only
+#     scripts/full_suite_gate.sh --skip-heavy     # default (fast) lane only
+#
+# THE HEAVY TIER IS NOT OPTIONAL.  Tests whose measured duration in the
+# derivation run is >= 1.0s carry the `heavy` marker (docs/HEAVY_TIER.md)
+# and run as their own phase of THIS gate.
+# `--skip-heavy` exists so a working lane can stay cool between batch
+# gates; a run that skips it reports NARROWED PASS, never PASS, naming
+# the heavy tier - "the fast lane was green" must never read as "the
+# suite was green".  NOTHING MERGES WITHOUT THE HEAVY TIER HAVING RUN
+# ON IT: the heavy tests are slow because they do real work (renders,
+# tree surveys, audio measurements), not because they are wasteful.
 #
 # It prints ONE verdict line, last, beginning `FULL-SUITE GATE:`.  A
 # caller may grep for `FULL-SUITE GATE: PASS` and for nothing else.
@@ -29,12 +40,14 @@
 #     NARROWED PASS - never an unqualified PASS - and every missing
 #     capability is named with what it costs and how to install it.
 #
-# TWO LANES, ONE VERDICT.  The `not heavy_ml` selection runs sharded:
-# a PARALLEL lane (`pytest -n <workers> --dist loadfile`, which keeps
-# each file's tests on one worker in collection order) over everything
-# the boundary routes parallel, and a SERIAL lane (single-process) over
-# exactly the files the boundary routes serial.  The boundary is
-# executable code run fresh on every invocation
+# TWO SELECTIONS, SHARED LANES, ONE VERDICT.  The `not heavy_ml and not
+# heavy` selection (the default lane a working lane may run) and the
+# `heavy` selection (the slow tier the batch gate runs before anything
+# merges) EACH run sharded: a PARALLEL lane (`pytest -n <workers> --dist
+# loadfile`, which keeps each file's tests on one worker in collection
+# order) over everything the boundary routes parallel, and a SERIAL lane
+# (single-process) over exactly the files the boundary routes serial.
+# The boundary is executable code run fresh on every invocation
 # (`library/tools/lane_routing.py`), never a checked-in list, so a
 # new test is routed by the rule its own code matches.  `--no-parallel`
 # runs the legacy single-process selection instead: the CONTROL the
@@ -96,16 +109,18 @@ RESOLVE_DRIVING=(
 )
 
 RUN_HEAVY_ML=1
+RUN_HEAVY_TIER=1
 PARALLEL=1
 WORKERS="auto"
 while [ $# -gt 0 ]; do
   case "${1:-}" in
     --skip-heavy-ml) RUN_HEAVY_ML=0; shift ;;
+    --skip-heavy) RUN_HEAVY_TIER=0; shift ;;
     --no-parallel) PARALLEL=0; shift ;;
     -n|--workers) WORKERS="${2:?missing worker count}"; shift 2 ;;
     --workers=*) WORKERS="${1#--workers=}"; shift ;;
-    --help|-h) sed -n '2,12p' "${BASH_SOURCE[0]}"; exit 0 ;;
-    *) echo "usage: $0 [--skip-heavy-ml] [--no-parallel] [-n N | --workers N]" >&2; exit 64 ;;
+    --help|-h) sed -n '2,20p' "${BASH_SOURCE[0]}"; exit 0 ;;
+    *) echo "usage: $0 [--skip-heavy-ml] [--skip-heavy] [--no-parallel] [-n N | --workers N]" >&2; exit 64 ;;
   esac
 done
 
@@ -210,16 +225,16 @@ lane_counts() {
     || echo "no readable lane report"
 }
 
-# ---- phase 1: the CI-equivalent selection ------------------------------
-# Parallel by default (two lanes, one merged report); `--no-parallel`
-# runs the legacy single-process selection as the control.
-MAIN_XML="${REPORT_DIR}/main.xml"
-PARALLEL_XML="${REPORT_DIR}/parallel.xml"
-SERIAL_XML="${REPORT_DIR}/serial.xml"
-MERGED_XML="${REPORT_DIR}/merged.xml"
-
+# ---- routing: which files run serial -----------------------------------
+# File-level and marker-agnostic, so it is computed ONCE and shared by the
+# default-lane and heavy-tier phases below: a file routes serial for what
+# its own code does (library/tools/lane_routing.py), whatever `-m` a phase
+# selects inside it.
+SERIAL_FILES=()
+PARALLEL_IGNORES=()
+ROUTER_FAILED=0
 if [ "${PARALLEL}" -eq 1 ]; then
-  echo "=== full-suite gate: parallel lanes (${PYTHON}, -n ${WORKERS}) ==="
+  echo "=== full-suite gate: lane routing (${HELPER_PYTHON} -m library.tools.lane_routing) ==="
   ROUTER_ERR="${REPORT_DIR}/router.err"
   ROUTER_OUT="${REPORT_DIR}/router.out"
   if "${HELPER_PYTHON}" -m library.tools.lane_routing tests \
@@ -246,150 +261,169 @@ if [ "${PARALLEL}" -eq 1 ]; then
     PARALLEL_IGNORES=()
     ROUTER_FAILED=1
   fi
+fi
 
-  if [ "${ROUTER_FAILED:-0}" -eq 1 ]; then
-    echo "=== full-suite gate: pytest -m 'not heavy_ml' (${PYTHON}) [router fallback] ==="
-    "${PYTHON}" -m pytest tests/ -m "not heavy_ml" -rs --tb=short \
-      "${RESOLVE_DRIVING[@]/#/--ignore=}" \
-      --junitxml="${MAIN_XML}"
-    MAIN_EXIT=$?
-    PARALLEL_EXIT=0
-    SERIAL_EXIT=0
-    PARALLEL_RAN=0
-    SERIAL_RAN=0
-  else
+# Runs one marker selection through the two lanes (parallel + serial, or
+# the single-process selection under --no-parallel / router failure) and
+# leaves the verdict inputs in PHASE_STATE / PHASE_DETAIL.  Both sharded
+# phases - the default lane and the heavy tier - go through here, so a
+# lane that silently drops tests, a dirty lane exit, or an undeclared
+# skip fails every phase the same way.
+#
+#   $1 = tag naming the phase in logs and scratch files (main, heavy)
+#   $2 = the pytest -m expression this phase runs
+#   $3 = path of this phase's merged JUnit report
+run_sharded_phase() {
+  local tag="$1" marker="$2" xml="$3"
+  local parallel_xml="${REPORT_DIR}/${tag}.parallel.xml"
+  local serial_xml="${REPORT_DIR}/${tag}.serial.xml"
+  local merged_xml="${REPORT_DIR}/${tag}.merged.xml"
+  local phase_result=""
+  local main_exit=0 parallel_exit=0 serial_exit=0
+  local parallel_ran=0 serial_ran=0 effective_exit=0
+  local merge_detail="" undeclared_n="" undeclared_out="" triage_out=""
+
+  if [ "${PARALLEL}" -eq 1 ] && [ "${ROUTER_FAILED:-0}" -eq 0 ]; then
     if [ "${#SERIAL_FILES[@]}" -gt 0 ]; then
-      echo "serial lane: ${SERIAL_FILES[*]}"
+      echo "[$tag] serial lane: ${SERIAL_FILES[*]}"
     else
-      echo "serial lane: empty (no file in this selection matches a serial clause)"
+      echo "[$tag] serial lane: empty (no file matches a serial clause)"
     fi
-    PARALLEL_ERR="${REPORT_DIR}/parallel.err"
-    echo "=== full-suite gate: parallel lane - pytest -n ${WORKERS} --dist loadfile ==="
-    "${PYTHON}" -m pytest tests/ -m "not heavy_ml" -rs --tb=short \
+    local parallel_err="${REPORT_DIR}/${tag}.parallel.err"
+    echo "=== full-suite gate [$tag]: parallel lane - pytest -n ${WORKERS} --dist loadfile -m '${marker}' (${PYTHON}) ==="
+    "${PYTHON}" -m pytest tests/ -m "${marker}" -rs --tb=short \
       "${RESOLVE_DRIVING[@]/#/--ignore=}" \
       "${PARALLEL_IGNORES[@]:-}" \
       -n "${WORKERS}" --dist loadfile \
-      --junitxml="${PARALLEL_XML}" 2>"${PARALLEL_ERR}"
-    PARALLEL_EXIT=$?
-    PARALLEL_RAN=1
+      --junitxml="${parallel_xml}" 2>"${parallel_err}"
+    parallel_exit=$?
+    parallel_ran=1
     # No upfront xdist probe: the gate interpreter can be a shim speaking
     # only the pytest argv protocol.  Detect lazily - exit 4 with
     # unrecognized-arguments and no lane report refuses as DID NOT RUN,
     # naming xdist.
-    XDIST_MISSING=0
-    if [ "${PARALLEL_EXIT}" -eq 4 ] && [ ! -f "${PARALLEL_XML}" ] \
-        && grep -qi "unrecognized arguments" "${PARALLEL_ERR}" 2>/dev/null; then
-      XDIST_MISSING=1
-      echo "parallel lane refused: $(grep -i "unrecognized arguments" "${PARALLEL_ERR}" | head -1)"
+    local xdist_missing=0
+    if [ "${parallel_exit}" -eq 4 ] && [ ! -f "${parallel_xml}" ] \
+        && grep -qi "unrecognized arguments" "${parallel_err}" 2>/dev/null; then
+      xdist_missing=1
+      echo "[$tag] parallel lane refused: $(grep -i "unrecognized arguments" "${parallel_err}" | head -1)"
     fi
-    SERIAL_EXIT=0
-    SERIAL_RAN=0
+    serial_exit=0
+    serial_ran=0
     if [ "${#SERIAL_FILES[@]}" -gt 0 ]; then
-      SERIAL_ERR="${REPORT_DIR}/serial.err"
-      echo "=== full-suite gate: serial lane - single-process over ${#SERIAL_FILES[@]} file(s) ==="
-      "${PYTHON}" -m pytest "${SERIAL_FILES[@]}" -m "not heavy_ml" -rs --tb=short \
-        --junitxml="${SERIAL_XML}" 2>"${SERIAL_ERR}"
-      SERIAL_EXIT=$?
-      SERIAL_RAN=1
+      local serial_err="${REPORT_DIR}/${tag}.serial.err"
+      echo "=== full-suite gate [$tag]: serial lane - single-process over ${#SERIAL_FILES[@]} file(s) -m '${marker}' ==="
+      "${PYTHON}" -m pytest "${SERIAL_FILES[@]}" -m "${marker}" -rs --tb=short \
+        --junitxml="${serial_xml}" 2>"${serial_err}"
+      serial_exit=$?
+      serial_ran=1
       # Exit 5 means nothing was collected: the serial files are all
-      # deselected by this selection (today that is the heavy_ml tier,
-      # which phase 2 runs separately).  A lane with nothing to run is
-      # empty, not failed - but only when its own report says zero
-      # tests; exit 5 with no report stays a failure.
-      if [ "${SERIAL_EXIT}" -eq 5 ] \
-          && [ "$("${HELPER_PYTHON}" -m library.tools.junit_lanes counts "${SERIAL_XML}" 2>/dev/null || true)" = "0 executed, 0 skipped" ]; then
-        echo "serial lane collected 0 tests under -m 'not heavy_ml' (deselected) - counting it empty"
-        SERIAL_EXIT=0
+      # deselected by this selection (the heavy_ml files under the main
+      # selection, the non-heavy files under the heavy selection).  A lane
+      # with nothing to run is empty, not failed - but only when its own
+      # report says zero tests; exit 5 with no report stays a failure.
+      if [ "${serial_exit}" -eq 5 ] \
+          && [ "$("${HELPER_PYTHON}" -m library.tools.junit_lanes counts "${serial_xml}" 2>/dev/null || true)" = "0 executed, 0 skipped" ]; then
+        echo "[$tag] serial lane collected 0 tests under -m '${marker}' (deselected) - counting it empty"
+        serial_exit=0
       fi
     fi
     # The merge refuses duplicate nodeids across lanes rather than
     # double-counting a test that ran in both.
-    MERGE_INPUTS=()
-    [ -f "${PARALLEL_XML}" ] && MERGE_INPUTS+=("${PARALLEL_XML}")
-    [ -f "${SERIAL_XML}" ] && MERGE_INPUTS+=("${SERIAL_XML}")
-    MERGE_DETAIL=""
-    if [ "${XDIST_MISSING}" -eq 1 ]; then
-      MAIN_RESULT="ran-nothing parallel lane needs pytest-xdist, which is not installed for ${PYTHON} (install: pip install -r requirements.txt)"
-    elif [ "${#MERGE_INPUTS[@]}" -eq 0 ]; then
-      MAIN_RESULT="ran-nothing no lane produced a JUnit report (the run produced no machine-readable result)"
-    elif ! MERGE_DETAIL="$("${HELPER_PYTHON}" -m library.tools.junit_lanes merge --out "${MERGED_XML}" "${MERGE_INPUTS[@]}" 2>&1)"; then
-      MAIN_RESULT="ran-nothing lane merge refused: ${MERGE_DETAIL}"
+    local merge_inputs=()
+    [ -f "${parallel_xml}" ] && merge_inputs+=("${parallel_xml}")
+    [ -f "${serial_xml}" ] && merge_inputs+=("${serial_xml}")
+    merge_detail=""
+    if [ "${xdist_missing}" -eq 1 ]; then
+      phase_result="ran-nothing parallel lane needs pytest-xdist, which is not installed for ${PYTHON} (install: pip install -r requirements.txt)"
+    elif [ "${#merge_inputs[@]}" -eq 0 ]; then
+      phase_result="ran-nothing no lane produced a JUnit report (the run produced no machine-readable result)"
+    elif ! merge_detail="$("${HELPER_PYTHON}" -m library.tools.junit_lanes merge --out "${merged_xml}" "${merge_inputs[@]}" 2>&1)"; then
+      phase_result="ran-nothing lane merge refused: ${merge_detail}"
     else
-      cp "${MERGED_XML}" "${MAIN_XML}"
-      echo "merged report: ${MERGE_DETAIL}"
+      cp "${merged_xml}" "${xml}"
+      echo "[$tag] merged report: ${merge_detail}"
       # Lane exit codes reach the verdict: the 2026-09-12 shape carries
       # its failure in the EXIT CODE while the JUnit report is clean, so
       # reading only the merge turns that FAIL into a PASS.  Take the
       # first nonzero lane exit when the merged report itself is clean.
-      EFFECTIVE_EXIT=0
-      [ "${PARALLEL_RAN}" -eq 1 ] && [ "${PARALLEL_EXIT}" -ne 0 ] && EFFECTIVE_EXIT="${PARALLEL_EXIT}"
-      [ "${EFFECTIVE_EXIT}" -eq 0 ] && [ "${SERIAL_RAN}" -eq 1 ] && [ "${SERIAL_EXIT}" -ne 0 ] && EFFECTIVE_EXIT="${SERIAL_EXIT}"
-      MAIN_RESULT="$(summarise "${MAIN_XML}" "${EFFECTIVE_EXIT}")"
-      [ -z "${MAIN_RESULT}" ] && MAIN_RESULT="ran-nothing the summariser itself produced no output"
+      effective_exit=0
+      [ "${parallel_ran}" -eq 1 ] && [ "${parallel_exit}" -ne 0 ] && effective_exit="${parallel_exit}"
+      [ "${effective_exit}" -eq 0 ] && [ "${serial_ran}" -eq 1 ] && [ "${serial_exit}" -ne 0 ] && effective_exit="${serial_exit}"
+      phase_result="$(summarise "${xml}" "${effective_exit}")"
+      [ -z "${phase_result}" ] && phase_result="ran-nothing the summariser itself produced no output"
       # The undeclared-skip hook goes blind under xdist (worker-local
       # findings the controller never sees), so re-derive the property
       # from the merged report and FAIL in the same direction.
-      UNDECLARED_OUT="${REPORT_DIR}/undeclared.out"
-      if ! "${HELPER_PYTHON}" -m library.tools.junit_lanes undeclared-skips "${MAIN_XML}" >"${UNDECLARED_OUT}" 2>&1; then
-        UNDECLARED_N="$(grep -c "^SKIPPED (undeclared)" "${UNDECLARED_OUT}" || true)"
-        cat "${UNDECLARED_OUT}"
-        MAIN_RESULT="bad undeclared skips in the merged report (${UNDECLARED_N}), same direction as the serial hook"
+      local undeclared_out="${REPORT_DIR}/${tag}.undeclared.out"
+      if ! "${HELPER_PYTHON}" -m library.tools.junit_lanes undeclared-skips "${xml}" >"${undeclared_out}" 2>&1; then
+        undeclared_n="$(grep -c "^SKIPPED (undeclared)" "${undeclared_out}" || true)"
+        cat "${undeclared_out}"
+        phase_result="bad undeclared skips in the merged report (${undeclared_n}), same direction as the serial hook"
+      fi
+    fi
+  else
+    if [ "${ROUTER_FAILED:-0}" -eq 1 ]; then
+      echo "=== full-suite gate [$tag]: pytest -m '${marker}' (${PYTHON}) [router fallback] ==="
+    else
+      echo "=== full-suite gate [$tag]: pytest -m '${marker}' (${PYTHON}) [serial control] ==="
+    fi
+    "${PYTHON}" -m pytest tests/ -m "${marker}" -rs --tb=short \
+      "${RESOLVE_DRIVING[@]/#/--ignore=}" \
+      --junitxml="${xml}"
+    main_exit=$?
+    phase_result="$(summarise "${xml}" "${main_exit}")"
+    [ -z "${phase_result}" ] && phase_result="ran-nothing the summariser itself produced no output"
+  fi
+  PHASE_STATE="${phase_result%% *}"
+  PHASE_DETAIL="${phase_result#* }"
+
+  # Per-lane executed/skipped counts print every run, so verdicts stay
+  # comparable between runs and between lanes.
+  echo
+  echo "LANE COUNTS [$tag]:"
+  if [ "${PARALLEL}" -eq 1 ] && [ "${ROUTER_FAILED:-0}" -eq 0 ]; then
+    if [ "${parallel_ran}" -eq 1 ]; then
+      echo "  parallel: $(lane_counts "${parallel_xml}") (exit ${parallel_exit})"
+    else
+      echo "  parallel: did not run"
+    fi
+    if [ "${serial_ran}" -eq 1 ]; then
+      echo "  serial:   $(lane_counts "${serial_xml}") (exit ${serial_exit})"
+    else
+      echo "  serial:   empty - no file matched a serial clause"
+    fi
+  else
+    echo "  single-process: $(lane_counts "${xml}") (exit ${main_exit})"
+  fi
+
+  # Throttle-versus-race triage on FAIL, advisory only, never changing the
+  # verdict.  A rate-limit refusal names itself; a race does not.  A
+  # THROTTLE-LIKE failure needs a serial-lane re-run before anyone calls
+  # it a race.
+  if [ "${PHASE_STATE}" = "bad" ] || [ "${PHASE_STATE}" = "crashed" ]; then
+    if [ -f "${xml}" ]; then
+      triage_out="$("${HELPER_PYTHON}" -m library.tools.junit_lanes triage "${xml}" 2>/dev/null || true)"
+      if [ -n "${triage_out}" ]; then
+        echo
+        echo "--------------------------------------------------------------------"
+        echo "FAILURE TRIAGE [$tag] (advisory - does not change the verdict):"
+        echo "${triage_out}"
+        echo "THROTTLE-LIKE needs a serial-lane re-run first; RACE-CANDIDATE"
+        echo "is the concurrency hunt's set."
+        echo "--------------------------------------------------------------------"
       fi
     fi
   fi
-else
-  echo "=== full-suite gate: pytest -m 'not heavy_ml' (${PYTHON}) [serial control] ==="
-  "${PYTHON}" -m pytest tests/ -m "not heavy_ml" -rs --tb=short \
-    "${RESOLVE_DRIVING[@]/#/--ignore=}" \
-    --junitxml="${MAIN_XML}"
-  MAIN_EXIT=$?
-  PARALLEL_EXIT=0
-  SERIAL_EXIT=0
-  PARALLEL_RAN=0
-  SERIAL_RAN=0
-  MAIN_RESULT="$(summarise "${MAIN_XML}" "${MAIN_EXIT}")"
-  [ -z "${MAIN_RESULT}" ] && MAIN_RESULT="ran-nothing the summariser itself produced no output"
-fi
-MAIN_STATE="${MAIN_RESULT%% *}"
-MAIN_DETAIL="${MAIN_RESULT#* }"
+}
 
-# Per-lane executed/skipped counts print every run, so verdicts stay
-# comparable between runs and between lanes.
-echo
-echo "LANE COUNTS:"
-if [ "${PARALLEL}" -eq 1 ] && [ "${ROUTER_FAILED:-0}" -eq 0 ]; then
-  if [ "${PARALLEL_RAN}" -eq 1 ]; then
-    echo "  parallel: $(lane_counts "${PARALLEL_XML}") (exit ${PARALLEL_EXIT})"
-  else
-    echo "  parallel: did not run"
-  fi
-  if [ "${SERIAL_RAN}" -eq 1 ]; then
-    echo "  serial:   $(lane_counts "${SERIAL_XML}") (exit ${SERIAL_EXIT})"
-  else
-    echo "  serial:   empty - no file in this selection matched a serial clause"
-  fi
-else
-  echo "  single-process: $(lane_counts "${MAIN_XML}") (exit ${MAIN_EXIT:-${EFFECTIVE_EXIT:-0}})"
-fi
-
-# Throttle-versus-race triage on FAIL, advisory only, never changing the
-# verdict.  A rate-limit refusal names itself; a race does not.  A
-# THROTTLE-LIKE failure needs a serial-lane re-run before anyone calls
-# it a race.
-if [ "${MAIN_STATE}" = "bad" ] || [ "${MAIN_STATE}" = "crashed" ]; then
-  if [ -f "${MAIN_XML}" ]; then
-    TRIAGE_OUT="$("${HELPER_PYTHON}" -m library.tools.junit_lanes triage "${MAIN_XML}" 2>/dev/null || true)"
-    if [ -n "${TRIAGE_OUT}" ]; then
-      echo
-      echo "--------------------------------------------------------------------"
-      echo "FAILURE TRIAGE (advisory - does not change the verdict):"
-      echo "${TRIAGE_OUT}"
-      echo "THROTTLE-LIKE needs a serial-lane re-run first; RACE-CANDIDATE"
-      echo "is the concurrency hunt's set."
-      echo "--------------------------------------------------------------------"
-    fi
-  fi
-fi
+# ---- phase 1: the default (fast) lane ----------------------------------
+# What a working lane may run between batch gates: everything except the
+# capability-gated heavy_ml tier and the slow heavy tier below.
+MAIN_XML="${REPORT_DIR}/main.xml"
+run_sharded_phase "main" "not heavy_ml and not heavy" "${MAIN_XML}"
+MAIN_STATE="${PHASE_STATE}"
+MAIN_DETAIL="${PHASE_DETAIL}"
 
 # ---- phase 2: the heavy ML selection, local-only -----------------------
 # The heavy_ml tests exist to prove a real measurement happened rather
@@ -433,10 +467,31 @@ fi
 HEAVY_STATE="${HEAVY_RESULT%% *}"
 HEAVY_DETAIL="${HEAVY_RESULT#* }"
 
+# ---- phase 3: the heavy (slow) tier ------------------------------------
+# The slow tier (docs/HEAVY_TIER.md) runs through the SAME sharded lanes
+# as the default selection: most of it is parallel-safe, and it carries
+# ~247 of ~383 test-seconds, so a single-process run of it alone would
+# cost ~4 minutes of wall.  Skipping it (`--skip-heavy`) is a
+# working-lane convenience only - the verdict below degrades to NARROWED
+# PASS naming the tier, because NOTHING MERGES WITHOUT THE HEAVY TIER
+# HAVING RUN ON IT.
+if [ "${RUN_HEAVY_TIER}" -eq 1 ]; then
+  HEAVY_TIER_XML="${REPORT_DIR}/heavy_tier.xml"
+  echo
+  run_sharded_phase "heavy" "heavy" "${HEAVY_TIER_XML}"
+  HEAVY_TIER_STATE="${PHASE_STATE}"
+  HEAVY_TIER_DETAIL="${PHASE_DETAIL}"
+else
+  HEAVY_TIER_STATE="ran-nothing"
+  HEAVY_TIER_DETAIL="--skip-heavy was passed"
+fi
+
 # ---- capability audit: what this run skipped ---------------------------
-# Collect missing capabilities from both JUnit reports, plus the heavy_ml
-# preflight.  A capability that is absent means the run is NARROWER than
-# a full environment, and the verdict must say so.
+# Collect missing capabilities from all three JUnit reports, plus the
+# heavy_ml preflight and the heavy-tier skip.  A capability that is
+# absent means the run is NARROWER than a full environment, and the
+# verdict must say so - and a skipped heavy tier narrows the run the
+# same way, BY NAME.
 NARROWED_CAPS=""
 NARROWED_COUNT=0
 
@@ -458,11 +513,42 @@ if [ "${RUN_HEAVY_ML}" -eq 1 ] && [ -f "${HEAVY_XML:-}" ]; then
   done < <(REPO_ROOT="${REPO_ROOT}" missing_caps "${HEAVY_XML}")
 fi
 
+# From heavy-tier JUnit XML
+if [ "${RUN_HEAVY_TIER}" -eq 1 ] && [ -f "${HEAVY_TIER_XML:-}" ]; then
+  while IFS=$'\t' read -r cap_name cap_count cap_hint; do
+    [ -z "${cap_name}" ] && continue
+    NARROWED_CAPS="${NARROWED_CAPS}  ${cap_name} (${cap_count} tests skipped) - install: ${cap_hint}"$'\n'
+    NARROWED_COUNT=$((NARROWED_COUNT + 1))
+  done < <(REPO_ROOT="${REPO_ROOT}" missing_caps "${HEAVY_TIER_XML}")
+fi
+
 # The heavy_ml interpreter check is the SAME defect - a missing capability
 # that narrows the run.  Report it through the same mechanism.
 if [ "${RUN_HEAVY_ML}" -eq 0 ]; then
   NARROWED_CAPS="${NARROWED_CAPS}  heavy_ml (entire tier skipped) - install: ${HEAVY_SKIP_REASON:-set FULL_SUITE_GATE_PYTHON to an interpreter with the ML stack}"$'\n'
   NARROWED_COUNT=$((NARROWED_COUNT + 1))
+fi
+
+# A skipped heavy tier is the same defect with a different cause: no
+# capability is missing, the runner simply asked for the fast lane.  That
+# lane's green must never read as a suite green, so the skip narrows the
+# run BY NAME through the same mechanism.
+if [ "${RUN_HEAVY_TIER}" -eq 0 ]; then
+  NARROWED_CAPS="${NARROWED_CAPS}  heavy (entire tier skipped) - rerun without --skip-heavy: nothing merges without the heavy tier having run on it"$'\n'
+  NARROWED_COUNT=$((NARROWED_COUNT + 1))
+fi
+
+# A heavy tier that was attempted but measured nothing is the same defect
+# from the other side: the tier did not run, so an unqualified PASS is
+# refused the same way.
+if [ "${RUN_HEAVY_TIER}" -eq 1 ]; then
+  case "${HEAVY_TIER_STATE}" in
+    ok|bad|crashed) ;;
+    *)
+      NARROWED_CAPS="${NARROWED_CAPS}  heavy (tier not measured) - ${HEAVY_TIER_DETAIL}"$'\n'
+      NARROWED_COUNT=$((NARROWED_COUNT + 1))
+      ;;
+  esac
 fi
 
 # ---- the verdict -------------------------------------------------------
@@ -479,6 +565,13 @@ case "${HEAVY_STATE}" in
   crashed) HEAVY_NOTE="heavy_ml CRASHED - ${HEAVY_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
   bad) HEAVY_NOTE="heavy_ml FAILED - ${HEAVY_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
   *)   HEAVY_NOTE="heavy_ml NOT MEASURED - ${HEAVY_DETAIL}" ;;
+esac
+
+case "${HEAVY_TIER_STATE}" in
+  ok)  HEAVY_TIER_NOTE="heavy ${HEAVY_TIER_DETAIL}" ;;
+  crashed) HEAVY_TIER_NOTE="heavy CRASHED - ${HEAVY_TIER_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
+  bad) HEAVY_TIER_NOTE="heavy FAILED - ${HEAVY_TIER_DETAIL}"; [ "${VERDICT}" = "PASS" ] && VERDICT="FAIL" ;;
+  *)   HEAVY_TIER_NOTE="heavy NOT MEASURED - ${HEAVY_TIER_DETAIL}" ;;
 esac
 
 # A PASS with missing capabilities is a NARROWED PASS, not PASS.
@@ -506,7 +599,7 @@ if [ "${NARROWED_COUNT}" -gt 0 ]; then
   echo "--------------------------------------------------------------------"
 fi
 
-echo "FULL-SUITE GATE: ${VERDICT}  |  main: ${MAIN_DETAIL}  |  ${HEAVY_NOTE}"
+echo "FULL-SUITE GATE: ${VERDICT}  |  main: ${MAIN_DETAIL}  |  ${HEAVY_TIER_NOTE}  |  ${HEAVY_NOTE}"
 
 [ "${VERDICT}" = "PASS" ] && exit 0
 exit 1

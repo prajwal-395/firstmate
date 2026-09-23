@@ -155,6 +155,7 @@ def _run(tmp_path, node_id, answer, inputs=None, yaml_body=""):
 
 # ── Path one: the brief is attached ──────────────────────────────────
 
+@pytest.mark.heavy
 def test_a_step_handed_a_brief_is_not_interviewed(tmp_path):
     request, _ = _run(
         tmp_path, "plan_vfx", {"a_verdict": "fine"},
@@ -168,6 +169,7 @@ def test_a_step_handed_a_brief_is_not_interviewed(tmp_path):
 
 # ── Path two: declined, then interviewed ─────────────────────────────
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("answer,expected", [
     ({"a_verdict": "fine", bi.FIELD: []}, bi.NOTHING_TO_ASK),
     ({"a_verdict": "fine", bi.FIELD: [
@@ -204,6 +206,7 @@ def test_a_declined_brief_asks_and_the_answer_is_recorded(
     assert [i.reading for i in bi.collected()] == [expected]
 
 
+@pytest.mark.heavy
 def test_a_project_with_no_brief_at_all_is_also_interviewed(tmp_path):
     request, _ = _run(tmp_path, "plan_vfx",
                       {"a_verdict": "fine", bi.FIELD: ["what is this for?"]})
@@ -213,6 +216,7 @@ def test_a_project_with_no_brief_at_all_is_also_interviewed(tmp_path):
     assert bi.collected()[0].entries[0]["question"] == "what is this for?"
 
 
+@pytest.mark.heavy
 def test_the_prompt_tells_the_step_to_decide_anyway(tmp_path):
     """Asking is not licence to hedge. The step still answers in full."""
     request, _ = _run(tmp_path, "plan_vfx", {"a_verdict": "fine"})
@@ -221,6 +225,7 @@ def test_the_prompt_tells_the_step_to_decide_anyway(tmp_path):
 
 # ── The reader that closes the loop ──────────────────────────────────
 
+@pytest.mark.heavy
 def test_the_questions_reach_the_run_summary_naming_the_step(tmp_path):
     _run(tmp_path, "plan_vfx",
          {"a_verdict": "ok", bi.FIELD: [

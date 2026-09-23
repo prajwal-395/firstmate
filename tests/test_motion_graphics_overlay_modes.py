@@ -195,6 +195,7 @@ def test_tight_renders_the_union_and_places_it_by_transform(
         "not the delivery frame")
 
 
+@pytest.mark.heavy
 def test_a_predicted_clamp_refusal_is_retried_from_pixels(
         tmp_path, monkeypatch):
     """The prediction is not the verdict: a graphic the predicted
@@ -230,6 +231,7 @@ def test_a_predicted_clamp_refusal_is_retried_from_pixels(
     assert probe_sidecar["element"] == "title_lockup"
 
 
+@pytest.mark.heavy
 def test_a_predicted_refusal_with_no_ink_stays_full_and_named(
         tmp_path, monkeypatch):
     """The retry is honest both ways: a predicted refusal whose probe
@@ -283,6 +285,7 @@ def test_staged_lower_third_renders_tight(tmp_path, monkeypatch):
         box["width"], box["height"])
 
 
+@pytest.mark.heavy
 def test_explicit_full_declares_itself_on_the_artefact(
         tmp_path, monkeypatch):
     """A project that declares full-canvas carrying never asks the
@@ -313,6 +316,7 @@ def test_tight_props_keep_the_planned_elements(tmp_path, monkeypatch):
             == planned["props"]["durationInFrames"])
 
 
+@pytest.mark.heavy
 def test_accents_stay_full_canvas_when_tight_is_asked(tmp_path, monkeypatch):
     out, _ = _render(monkeypatch, _planned([_el("frame_accents")]),
                      str(tmp_path), overlay_geometry="tight")

@@ -57,6 +57,7 @@ def test_a_nonsense_ceiling_raises_rather_than_defaulting(monkeypatch):
         run_pipeline.step_timeout_seconds()
 
 
+@pytest.mark.heavy
 def test_a_step_that_outlives_the_ceiling_still_times_out(tmp_path, monkeypatch):
     """The ceiling is real - it is generous, not absent."""
     script = tmp_path / "slow.py"

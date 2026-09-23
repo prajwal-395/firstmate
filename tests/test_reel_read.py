@@ -592,6 +592,7 @@ def _direct_reads(path: Path) -> set:
     }
 
 
+@pytest.mark.heavy
 def test_no_module_outside_the_readers_touches_resolve_directly():
     root = Path(__file__).resolve().parents[1]
     violators = {}

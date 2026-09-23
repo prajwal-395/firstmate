@@ -210,6 +210,7 @@ def test_mezzanine_is_reused_when_fresh(prores_with_sound, tmp_path):
     assert os.path.getmtime(first) == mtime
 
 
+@pytest.mark.heavy
 def test_mezzanine_rebuilds_when_the_source_is_newer(prores_with_sound,
                                                     tmp_path):
     import time

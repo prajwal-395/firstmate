@@ -167,6 +167,7 @@ def test_every_tool_type_the_engine_writes_was_probed():
         f"against a running Resolve.")
 
 
+@pytest.mark.heavy
 def test_no_tool_type_the_engine_writes_is_one_resolve_does_not_have():
     written = _tool_types_the_engine_writes()
     absent = sorted(t for t in written if tool_inputs.is_absent_tool(t))

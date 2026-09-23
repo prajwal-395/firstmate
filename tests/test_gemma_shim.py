@@ -132,6 +132,7 @@ def test_cold_request_starts_backend_and_is_proxied(ports, fake_backend_script):
         shim.stop()
 
 
+@pytest.mark.heavy
 def test_idle_teardown_stops_backend_process(ports, fake_backend_script):
     """After the idle window with no work, the backend process is GONE."""
     shim_port, backend_port = ports
@@ -167,6 +168,7 @@ def test_idle_teardown_stops_backend_process(ports, fake_backend_script):
         shim.stop()
 
 
+@pytest.mark.heavy
 def test_in_flight_request_blocks_teardown(ports, fake_backend_script):
     """Idle means no in-flight work AND no requests for the window."""
     shim_port, backend_port = ports
@@ -250,6 +252,7 @@ def test_backend_failure_is_a_clear_503_not_a_hang(ports):
         shim.stop()
 
 
+@pytest.mark.heavy
 def test_hold_blocks_teardown_and_scope_releases(ports, fake_backend_script):
     """A pipeline burst holds the backend across gaps; scope releases it."""
     shim_port, backend_port = ports
@@ -366,6 +369,7 @@ def test_no_launchd_socket_outside_launchd(ports):
         shim.stop()
 
 
+@pytest.mark.heavy
 def test_shim_exits_only_after_backend_stopped(ports, fake_backend_script):
     """The shim may only exit once the backend is stopped.
 
@@ -410,6 +414,7 @@ def test_shim_exits_only_after_backend_stopped(ports, fake_backend_script):
         shim.stop()
 
 
+@pytest.mark.heavy
 def test_shim_self_exit_disabled_stays_up(ports, fake_backend_script):
     """shim_idle_exit_s=None keeps the old shape: reap backend, stay up."""
     shim_port, backend_port = ports

@@ -33,6 +33,8 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
@@ -124,6 +126,7 @@ def _global_time_patches(tree: ast.AST):
     return offenders
 
 
+@pytest.mark.heavy
 def test_no_test_patches_the_global_sleep_or_clock():
     """The amplifier stays shut: no test stubs `time` itself.
 

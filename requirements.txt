@@ -83,7 +83,8 @@ fastapi>=0.100.0
 uvicorn>=0.23.0
 
 # Test-gate parallelism
-# scripts/full_suite_gate.sh shards the `not heavy_ml` selection across
+# scripts/full_suite_gate.sh shards each marker selection (`not heavy_ml
+# and not heavy`, `heavy`) across
 # xdist workers (`pytest -n <workers> --dist loadfile`); the serial
 # control (`--no-parallel`) and the heavy_ml tier run without it.
 # Measured basis: data/vep-parallelise-the-test-gate/report.md.

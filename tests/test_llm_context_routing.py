@@ -253,6 +253,7 @@ def test_the_qa_calls_still_have_something_to_ask(node_id, already_in_hand,
     assert still_asked in asked, asked
 
 
+@pytest.mark.heavy
 def test_a_step_with_something_to_ask_still_calls_the_model(tmp_path):
     """The counterpart: the skip is about the schema, not about a name."""
     import threading
@@ -345,6 +346,7 @@ def test_the_handoff_asks_for_a_table_the_bridge_really_builds(node_id):
         )
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("node_id", sorted(BRIDGE_TABLES))
 def test_a_bridge_table_reaches_the_prompt(node_id, tmp_path):
     """The regression this pins: built, then projected away.

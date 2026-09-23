@@ -196,6 +196,7 @@ def _spawn(source, lock_dir):
                             text=True, encoding="utf-8")
 
 
+@pytest.mark.heavy
 def test_a_waiter_waits(lock_dir):
     """Two processes, one guarded operation, and the second one waits.
 
@@ -261,6 +262,7 @@ _WAITER_STATS = textwrap.dedent("""
 """)
 
 
+@pytest.mark.heavy
 def test_a_contended_acquisition_records_its_wait_and_its_holder(lock_dir):
     """Two processes, one flock: the waiter names how long and behind whom.
 
@@ -575,6 +577,7 @@ def test_an_excursion_still_refuses_without_a_lease(lock_dir, unguarded):
 # bypasses it because a human-initiated action never queues behind its
 # own owner's hold.
 
+@pytest.mark.heavy
 def test_an_acquisition_waits_while_the_captain_is_in_resolve(lock_dir,
                                                                unguarded):
     """Set signal, acquire in a thread, prove it waits, clear it, proceed.
@@ -629,6 +632,7 @@ def test_absent_signal_leaves_acquisition_exactly_as_today(lock_dir,
     assert time.time() - started < 5.0
 
 
+@pytest.mark.heavy
 def test_a_signal_that_never_clears_raises_instead_of_wedging(lock_dir,
                                                                unguarded):
     """The stale decision: bounded wait, then a refusal that names the hold.

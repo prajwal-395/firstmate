@@ -302,6 +302,7 @@ def test_the_post_bridge_still_reads_every_word_timing(tmp_path):
 
 # ── End to end: what actually lands in a recorded request ─────────────
 
+@pytest.mark.heavy
 def test_a_recorded_request_carries_the_transcript_and_no_word_timings(tmp_path):
     """Driven through `present_llm_step`, so the file on disk is the proof."""
     import threading

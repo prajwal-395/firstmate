@@ -30,6 +30,8 @@ import ast
 import json
 import pathlib
 
+import pytest
+
 from library.tools.creative_direction import (
     DIRECTION_KEYS,
     MECHANICALLY_READ_KEYS,
@@ -85,6 +87,7 @@ def _keys_read_off(name_set, tree):
 
 # ── ENFORCING: the creative direction ────────────────────────────────
 
+@pytest.mark.heavy
 def test_no_code_reads_a_creative_direction_key_that_cannot_exist():
     """The defect this change closes, made unrepeatable.
 
@@ -237,6 +240,7 @@ def _every_key_read_under_library(sources):
     return keys
 
 
+@pytest.mark.heavy
 def test_unread_fields_across_the_pipeline(capsys):
     """Reports; never fails. The captain decides reader-or-delete."""
     sources = {p: p.read_text(encoding="utf-8") for p in _python_sources()}

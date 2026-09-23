@@ -587,6 +587,7 @@ def _overlay_dir(project_folder):
         "reel_look", "frame_overlays")
 
 
+@pytest.mark.heavy
 def test_two_run_lengths_share_one_overlay_artefact(tmp_path):
     """One still is one file, however many lengths use it.
 
@@ -611,6 +612,7 @@ def test_two_run_lengths_share_one_overlay_artefact(tmp_path):
             os.listdir(_overlay_dir(tmp_path))].__len__() == 1
 
 
+@pytest.mark.heavy
 def test_a_shorter_reuse_extends_nothing_and_renders_nothing(tmp_path):
     """A run shorter than the render on disk trims it, and renders nothing."""
     look = _upright_frame_project(tmp_path)
@@ -625,6 +627,7 @@ def test_a_shorter_reuse_extends_nothing_and_renders_nothing(tmp_path):
     assert _rendered_frames(second[0]["overlay_path"]) >= 220
 
 
+@pytest.mark.heavy
 def test_a_longer_run_extends_the_shared_render(tmp_path):
     """A run longer than the render on disk re-renders it, still as one file."""
     look = _upright_frame_project(tmp_path)

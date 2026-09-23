@@ -325,6 +325,7 @@ def _drive(tmp_path, node_id, answer, outputs=("speech_sequence",)):
     return seen, result
 
 
+@pytest.mark.heavy
 @pytest.mark.parametrize("answer,expected", [
     ({"speech_sequence": {"body_sequence": []}, dc.FIELD: []},
      dc.NOTHING_CONTRADICTED),
@@ -358,6 +359,7 @@ def test_the_question_reaches_the_prompt_and_the_answer_is_recorded(
     assert [f.reading for f in dc.collected()] == [expected]
 
 
+@pytest.mark.heavy
 def test_a_step_that_does_not_flag_is_not_asked(tmp_path):
     seen, _ = _drive(tmp_path, "validate", {"a_verdict": "fine"},
                      outputs=("a_verdict",))

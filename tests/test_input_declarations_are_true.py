@@ -60,6 +60,7 @@ def rows(dag, manifests):
 
 # ── The survey covers the pipeline ──────────────────────────────────
 
+@pytest.mark.heavy
 def test_every_step_and_every_declared_input_is_surveyed(dag, manifests,
                                                          rows):
     surveyed = {(r.node_id, r.name) for r in rows}
@@ -283,6 +284,7 @@ def test_a_key_restored_around_the_projection_reaches_the_prompt(rows):
     assert by_key[("plan_sfx", "creative_brief")].prompt_reads
 
 
+@pytest.mark.heavy
 def test_the_cli_agrees_with_the_suite():
     assert input_contract.main(["--bad"]) == 0
 
@@ -400,6 +402,7 @@ def test_one_use_anywhere_keeps_a_key_out_of_the_finding(tmp_path):
     assert dead == {}
 
 
+@pytest.mark.heavy
 def test_the_new_findings_report_and_do_not_fail(rows):
     """Out of scope for this change: making a pre-existing finding fail
     the build. `disagreements` - the failing set - is unchanged."""

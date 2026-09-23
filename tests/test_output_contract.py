@@ -103,6 +103,7 @@ def test_an_output_no_route_carries_is_a_disagreement():
     assert "NO ROUTE" in refusal[0]
 
 
+@pytest.mark.heavy
 def test_a_stale_exemption_is_a_disagreement(rows):
     """An entry recorded as unread whose output now HAS a reader fails.
 
@@ -210,6 +211,7 @@ def test_a_finding_says_what_it_costs():
 
 # ── The field-level half ─────────────────────────────────────────────
 
+@pytest.mark.heavy
 def test_uncalled_does_not_report_a_function_that_is_called():
     """The direction that would make the report worthless."""
     reported = {name for name, _path, _line in uncalled_functions()}
@@ -219,6 +221,7 @@ def test_uncalled_does_not_report_a_function_that_is_called():
             f"{called} is called and must not be reported as uncalled")
 
 
+@pytest.mark.heavy
 def test_uncalled_reports_something_and_names_where():
     """And the direction that would make it a gate that cannot fail."""
     findings = uncalled_functions()

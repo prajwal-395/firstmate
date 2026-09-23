@@ -13,5 +13,6 @@ testpaths = [
 ]
 markers = [
     "heavy_ml: marks tests that require heavy ml dependencies like whisperx or parselmouth",
+    "heavy: marks tests whose worst observed duration across repeated full-suite runs is >= 1.0s (docs/HEAVY_TIER.md) - the slow tier the default lane deselects; NOT optional, the batch gate runs it before anything merges",
     "serial: marks tests that must run in the gate's serial lane (library/tools/lane_routing.py clause 6); takes a reason",
 ]

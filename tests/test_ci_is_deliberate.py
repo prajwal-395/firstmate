@@ -178,6 +178,7 @@ def test_the_local_layer_exists_and_is_runnable():
     )
 
 
+@pytest.mark.heavy
 def test_the_local_gate_cannot_report_a_pass_it_did_not_earn(tmp_path):
     """The defect this project spent two days removing, in its purest form.
 
@@ -365,6 +366,63 @@ def test_the_heavy_ml_tier_is_refused_rather_than_failed_when_it_cannot_run():
         "the refusal does not name the interpreter that could not import "
         "the dependency, so the verdict says a tier did not run without "
         "saying what would make it run"
+    )
+
+
+def test_the_heavy_tier_runs_as_its_own_phase_of_the_local_gate():
+    """The slow tier is tiered, not skipped: its own `-m heavy` phase.
+
+    Sibling to `test_the_local_gate_runs_the_heavy_ml_tier_the_hosted_job
+    _gave_up`: the default selection must deselect the heavy marker and a
+    later phase must run exactly that selection through the same sharded
+    lanes, or the tier quietly becomes deletion.
+    """
+    source = LOCAL_GATE.read_text(encoding="utf-8")
+    assert '"not heavy_ml and not heavy"' in source, (
+        "the gate's default selection no longer deselects the heavy tier, "
+        "so the slow tests run in every working-lane run again"
+    )
+    assert 'run_sharded_phase "heavy" "heavy"' in source, (
+        "the gate no longer runs the heavy selection as its own phase, so "
+        "tiering the tests drops that coverage entirely rather than "
+        "moving it"
+    )
+
+
+def test_a_skipped_heavy_tier_narrows_the_verdict_by_name():
+    """`--skip-heavy` is a working-lane convenience, never a suite green.
+
+    A run that skips the heavy tier must degrade to NARROWED PASS naming
+    the tier - "the fast lane was green" must never read as "the suite
+    was green" - and the gate's own help must say nothing merges without
+    the tier, because the next reader of the word "heavy" will assume it
+    means "optional".
+    """
+    source = LOCAL_GATE.read_text(encoding="utf-8")
+    assert "--skip-heavy" in source, (
+        "the gate has no --skip-heavy flag, so a working lane cannot run "
+        "the default tier alone"
+    )
+    assert "heavy (entire tier skipped)" in source, (
+        "a skipped heavy tier is not named in the verdict machinery, so a "
+        "fast-lane green reads as a suite green"
+    )
+    assert "NOTHING MERGES WITHOUT THE HEAVY TIER HAVING RUN" in source, (
+        "the gate no longer says the heavy tier is mandatory, so the next "
+        "reader assumes heavy means optional"
+    )
+
+
+def test_a_failed_heavy_tier_fails_the_verdict():
+    """A red slow tier is a red gate, the same as every other phase."""
+    source = LOCAL_GATE.read_text(encoding="utf-8")
+    assert 'HEAVY_TIER_NOTE="heavy FAILED' in source, (
+        "a failed heavy tier does not fail the verdict, so a red slow "
+        "tier still reports a pass"
+    )
+    assert 'HEAVY_TIER_NOTE="heavy NOT MEASURED' in source, (
+        "the gate cannot say the heavy tier did not run, rather than "
+        "folding an unmeasured tier into a pass"
     )
 
 

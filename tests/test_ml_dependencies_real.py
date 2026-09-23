@@ -27,6 +27,7 @@ def hello_wav(tmp_path):
         
     return wav_path
 
+@pytest.mark.heavy
 @pytest.mark.heavy_ml
 def test_prosody_produces_real_measurement(hello_wav, tmp_path):
     """Prosody analysis must produce a real measurement using parselmouth,
@@ -54,6 +55,7 @@ def test_prosody_produces_real_measurement(hello_wav, tmp_path):
     assert "intensity_contour_50ms" in prosody
     assert len(prosody["intensity_contour_50ms"]) > 0
 
+@pytest.mark.heavy
 @pytest.mark.heavy_ml
 def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
     """speaking_rate is computed from the speech_regions handed in, during a
@@ -109,6 +111,7 @@ def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
     hnr = vq.get("hnr_db")
     assert hnr is None or isinstance(hnr, float), f"hnr_db is not measured: {hnr!r}"
 
+@pytest.mark.heavy
 @pytest.mark.heavy_ml
 def test_transcription_produces_real_timed_words(hello_wav, tmp_path):
     """Transcription must produce timed words using whisperx when given a real speech file."""

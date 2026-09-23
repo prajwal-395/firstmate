@@ -1,6 +1,6 @@
 """Which lane a test file runs in: parallel or serial.
 
-The full-suite gate shards the ``not heavy_ml`` selection across xdist
+The full-suite gate shards each marker selection across xdist
 workers (parallel lane) and runs the remainder single-process (serial
 lane).  A test belongs in the SERIAL lane iff it can contend for state
 shared across worker processes.  Six clauses, each with a checkable

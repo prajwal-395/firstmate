@@ -333,6 +333,7 @@ def test_validation_verdict_goal_refuses_on_the_compile_manifest_gap():
 
 # ── The blindness, pinned ─────────────────────────────────────────────
 
+@pytest.mark.heavy
 def test_no_plan_names_a_blind_capability():
     """Across every requirement in the registry, no completed plan names
     one of the five deliberately empty-effect operations.

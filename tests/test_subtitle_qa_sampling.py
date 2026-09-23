@@ -82,6 +82,7 @@ def test_the_old_fixed_timestamps_would_have_missed_it(tmp_path):
     assert _probe_alpha(str(mov), 3.5) >= ALPHA_INK_THRESHOLD
 
 
+@pytest.mark.heavy
 def test_an_empty_overlay_still_fails(tmp_path, monkeypatch):
     """The thing the gate exists to catch must still be caught.
 

@@ -58,7 +58,8 @@ Two test files are excluded by name because they drive the **running** DaVinci R
 and switch the current timeline out from under whoever is using the app. CI has no
 Resolve, so they skip there and the exclusion costs no coverage.
 
-The `not heavy_ml` selection runs in two lanes: a parallel lane (`pytest -n
+The `not heavy_ml and not heavy` selection (the default lane) and the
+`heavy` selection (the slow tier - docs/HEAVY_TIER.md) EACH run in two lanes: a parallel lane (`pytest -n
 <workers> --dist loadfile`) over everything the boundary routes parallel, and a
 serial lane over exactly the files it routes serial. The boundary is executable
 code run fresh on every invocation (`library/tools/lane_routing.py`), and the two
@@ -71,8 +72,9 @@ The `heavy_ml` selection needs an interpreter carrying the ML stack **at the ver
 `requirements.txt` declares** - importable is not enough, and a wrong version reports
 success while measuring nothing. Building that interpreter, verifying it, and pointing
 `FULL_SUITE_GATE_PYTHON` at it are in [`ML_ENVIRONMENT.md`](ML_ENVIRONMENT.md). When the
-heavy tier cannot run, it is reported through the **same capability mechanism** as every
-other environment gap rather than as a special case.
+heavy_ml tier cannot run, it is reported through the **same capability mechanism** as every
+other environment gap rather than as a special case. A skipped `heavy` tier narrows the
+run the same way, by name - see [`HEAVY_TIER.md`](HEAVY_TIER.md).
 
 ### Why layer 2 cannot be replaced by layer 1
 

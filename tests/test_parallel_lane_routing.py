@@ -11,11 +11,12 @@ the measured unsafe set routing serial.
 A future test that matches an unsafe shape without the marker fails
 here with the clause reason, and the fix is the marker.
 """
-
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -276,6 +277,7 @@ class TestFailClosed:
 
 
 class TestWholeTreePinning:
+    @pytest.mark.heavy
     def test_every_file_lands_in_exactly_one_lane(self):
         routes = route_suite(REPO_ROOT)
         assert routes, "the suite has no test files"
@@ -283,6 +285,7 @@ class TestWholeTreePinning:
             assert route.lane in (SERIAL, PARALLEL), route
             assert route.reason, f"{route.path} has no routing reason"
 
+    @pytest.mark.heavy
     def test_measured_unsafe_set_routes_serial(self):
         by_rel = {
             str(r.path.relative_to(REPO_ROOT)): r for r in route_suite(REPO_ROOT)
@@ -292,6 +295,7 @@ class TestWholeTreePinning:
             assert by_rel[rel].lane == SERIAL, (
                 f"{rel} routes {by_rel[rel].lane}: {by_rel[rel].reason}")
 
+    @pytest.mark.heavy
     def test_measured_safe_shapes_stay_parallel(self):
         by_rel = {
             str(r.path.relative_to(REPO_ROOT)): r for r in route_suite(REPO_ROOT)
@@ -301,6 +305,7 @@ class TestWholeTreePinning:
             assert by_rel[rel].lane == PARALLEL, (
                 f"{rel} routes serial: {by_rel[rel].reason}")
 
+    @pytest.mark.heavy
     def test_serial_lane_holds_nothing_undeclared(self):
         """A new serial file must be a Resolve driver, the heavy_ml
         tier, or an explicit opt-out - never an accidental match."""

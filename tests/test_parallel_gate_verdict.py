@@ -7,7 +7,6 @@ level and the two load-bearing gate behaviours at the script level -
 lane exit codes reaching the verdict, and the lazy xdist refusal -
 using interpreter shims, never a suite run.
 """
-
 from __future__ import annotations
 
 import os
@@ -16,6 +15,8 @@ import subprocess
 import sys
 import textwrap
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
@@ -177,6 +178,7 @@ class TestLaneExitsReachTheVerdict:
     """Acceptance criterion 1 at the script level: a clean merged
     report with a dirty lane exit is FAIL, the 2026-09-12 shape."""
 
+    @pytest.mark.heavy
     def test_clean_lane_reports_with_dirty_exits_fail(self, tmp_path):
         shim = tmp_path / "lanes_clean_report_dirty_exit.sh"
         shim.write_text(textwrap.dedent("""\
@@ -218,6 +220,7 @@ class TestLazyXdistDetect:
     exit 4 with unrecognized-arguments and no lane report refuses as
     DID NOT RUN, naming xdist."""
 
+    @pytest.mark.heavy
     def test_missing_xdist_is_did_not_run(self, tmp_path):
         shim = tmp_path / "no_xdist.sh"
         shim.write_text(textwrap.dedent("""\

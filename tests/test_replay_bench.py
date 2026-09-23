@@ -244,6 +244,7 @@ def test_the_context_carries_the_project_folder_the_run_recorded(project, store)
     assert result["project_folder_substitutions"] >= 1
 
 
+@pytest.mark.heavy
 def test_compare_at_one_revision_against_itself_finds_no_difference(project, store):
     snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     out = bench.compare("fx", "creative_direction",
@@ -253,6 +254,7 @@ def test_compare_at_one_revision_against_itself_finds_no_difference(project, sto
     assert out["context_section_deltas"] == []
 
 
+@pytest.mark.heavy
 def test_compare_diffs_answers_when_both_are_supplied(project, store, tmp_path):
     snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
     a = tmp_path / "a.json"
@@ -276,6 +278,7 @@ def test_a_step_that_is_not_in_the_dag_is_named_not_guessed(project, store):
         bench.replay("fx", "no_such_step", store=store)
 
 
+@pytest.mark.heavy
 def test_verify_reports_a_step_whose_state_has_moved(project, store):
     """No archive here, so the archive is synthesised - and made wrong."""
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
@@ -303,6 +306,7 @@ def test_verify_reports_a_step_whose_state_has_moved(project, store):
     assert report["rows"][0]["residual_sections"]
 
 
+@pytest.mark.heavy
 def test_verify_reproduces_a_qa_retry_rather_than_excusing_it(project, store):
     """The archive is last-write-wins, so a surviving file may be a retry."""
     snap = snapshot_mod.capture(str(project), snapshot_id="fx", store=store)
