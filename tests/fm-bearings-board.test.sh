@@ -61,7 +61,7 @@ case "${1-}" in
     exit 0
     ;;
   '')
-    if [ -e "$state/end-before-next-list" ]; then
+    if [ -e "$state/end-before-next-list" ] && [ -s "$state/open" ]; then
       : > "$state/open"
       rm -f "$state/end-before-next-list"
     fi
@@ -777,6 +777,34 @@ test_build_refuses_a_nondecision_reconcile_value() {
   pass "build reserves reconcile across non-decision cards"
 }
 
+test_rebuild_against_an_open_board_issues_no_open_call() {
+  local home data board out
+  home=$(make_home no-new-tab)
+  data="$home/payload.json"
+  board="$home/.lavish/bearings-board.html"
+  mv "$home/fakebin/lavish-axi" "$home/fakebin/lavish-axi.real"
+  cat > "$home/fakebin/lavish-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+state=${LAVISH_FAKE_STATE:?}
+case "${1-}" in
+  ''|--version|poll|end) ;;
+  *) printf 'open-call: %s\n' "$*" >> "$state/open-calls" ;;
+esac
+exec "${0}.real" "$@"
+SH
+  chmod +x "$home/fakebin/lavish-axi" "$home/fakebin/lavish-axi.real"
+  write_valid_payload "$data"
+  run_board "$home" build "$data" >/dev/null || fail "the first build failed"
+  : > "$home/lavish-state/open-calls"
+  jq '.generated = "2026-08-19T01:00Z"' "$data" > "$data.tmp" && mv "$data.tmp" "$data"
+  out=$(run_board "$home" build "$data") || fail "the rebuild against the open board failed: $out"
+  assert_contains "$out" "session: live" "the rebuild against the open board did not stay live: $out"
+  [ ! -s "$home/lavish-state/open-calls" ] \
+    || fail "the rebuild against the open board opened a new session tab"
+  pass "rebuild against an open board issues no open call"
+}
+
 test_path_is_stable_and_home_scoped
 test_build_refuses_malformed_payloads_before_touching_the_board
 test_charted_kind_is_optional_and_accepts_both_values
@@ -795,3 +823,4 @@ test_build_fails_when_reconcile_cannot_establish_a_listener
 test_every_decision_card_carries_the_reconcile_choice
 test_build_refuses_a_payload_that_occupies_the_reconcile_value
 test_build_refuses_a_nondecision_reconcile_value
+test_rebuild_against_an_open_board_issues_no_open_call
