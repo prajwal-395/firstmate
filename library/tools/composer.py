@@ -30,9 +30,9 @@ than gaps:
   backwards from requirements alone can never select them, because
   verdicts and optional productions are invisible as goals.  No plan this
   module returns ever names one, and `tests/test_composer.py` pins that.
-* THE MIDDLE OF THE DAG.  Fourteen producer nodes have no registered
+* THE MIDDLE OF THE DAG.  Thirteen producer nodes have no registered
   operation at all (`scan`, `catalog`, `speech_sequence`,
-  `review_rough_cut`, `creative_direction`, `music_selection` and the
+  `review_rough_cut`, `music_selection` and the
   rest).  A goal whose chain passes through one is unreachable BY
   CAPABILITIES ALONE - reaching it would mean adding a capability, which
   this module will not do on the caller's behalf.  It refuses instead,

@@ -339,6 +339,11 @@ def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know
         # every real post-bridge uses.
         if op.caller_supplied:
             continue
+        # A prompt capability has no Python body, so there is no
+        # signature to bind - and nothing that could bind `{}`. Its
+        # refusal is proved behaviorally below rather than trusted.
+        if op.is_prompt:
+            continue
         parameters = inspect.signature(op.run).parameters
         if any(p.kind is inspect.Parameter.VAR_KEYWORD
                for p in parameters.values()):
@@ -522,6 +527,10 @@ def test_the_enumeration_names_only_spellings_that_are_really_used():
 
     used = set()
     for op in operations.all():
+        # A prompt capability takes no parameters - it IS the question
+        # the runner asks a model, not a signature the registry binds.
+        if op.is_prompt:
+            continue
         used |= set(inspect.signature(op.run).parameters)
     stale = [n for n in operations.MERGED_INPUT_PARAMETERS if n not in used]
     assert stale == [], (
@@ -584,6 +593,44 @@ def test_a_pre_bridge_is_not_guarded(tmp_path):
     so the guard cannot quietly widen to every merged-dict body."""
     op = operations.get("duration_zone.build")
     assert op.missing_model_answer({"anything": 1}) == ()
+
+
+def test_a_prompt_capability_refuses_naming_the_runner(tmp_path):
+    """A capability that IS a prompt has no function to call: the runner
+    asks a model to answer it, and an operation runs alone with no
+    model. With its contract satisfied it must REFUSE naming the prompt
+    and the way out - a `TypeError` here would be the crash the
+    unbindable-argument refusal exists to stop, wearing a new shape."""
+    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pipeline_data.json").write_text(json.dumps({
+        "project_folder": str(tmp_path),
+        "step_outputs": {
+            "catalog": {"clip_catalog": []},
+            "semantic_analysis": {"semantic_analysis_documents": []},
+            "temporal_index": {"temporal_event_indices": []},
+        }}), encoding="utf-8")
+
+    op = operations.get("creative.direct")
+    assert op.unmet(str(tmp_path)) == []
+    result = op.execute(str(tmp_path))
+
+    assert result.refused
+    assert "handoff.md" in result.error
+    assert "creative_direction" in result.error
+    assert "run the DAG" in result.error
+
+
+def test_a_prompt_capability_still_refuses_its_missing_inputs_first(
+        empty_project):
+    """The contract bites before the prompt does. A prompt capability
+    with unsatisfied requirements refuses naming what is missing and
+    who produces it - the runner refusal above must not swallow the
+    precondition refusal."""
+    result = operations.get("creative.direct").execute(empty_project)
+
+    assert result.refused
+    assert "clip_catalog" in result.error
+    assert "catalog" in result.error
 
 
 def _any_step_declares(name: str) -> bool:
@@ -719,6 +766,11 @@ def test_the_scope_does_not_leak_into_a_step_that_never_asked_for_one():
     where = scope_mod.project()
     checked = 0
     for operation in operations.all():
+        # A prompt capability never reaches `_arguments`: the runner
+        # carries its address, not the registry, so there is no binding
+        # to leak through.
+        if operation.is_prompt:
+            continue
         parameters = inspect.signature(operation.run).parameters
         if operations.SCOPE_PARAMETER in parameters:
             continue
@@ -784,6 +836,11 @@ def test_every_registered_operation_can_say_what_it_is_owed():
     find out there. Asked of the REGISTRY, so a new entry in the shape
     the four region ones were in is caught at once."""
     for operation in operations.all():
+        # A prompt capability owes the model's whole answer, not one
+        # argument - its refusal is the prompt refusal proved below,
+        # not an unbound-parameter one.
+        if operation.is_prompt:
+            continue
         unbound = operation.unbound_parameters({})
         if not unbound:
             continue

@@ -398,6 +398,30 @@ class Operation:
     """
 
     @property
+    def is_prompt(self) -> bool:
+        """Whether this capability IS a prompt rather than a function.
+
+        The captain's ruling, 2026-09-23: a capability may be a prompt.
+        A node whose entire implementation is a prompt (`runtime: llm`
+        with `entry_point: handoff.md` in its manifest - the declaration
+        `library/processes/edit_video/run_pipeline.py` already
+        dispatches on) has no function to name, so the registry names
+        the prompt file as its `body` and leaves `attr` empty.
+
+        Syntactic here (`body` names a `.md` file), truthful by gate:
+        `tests/test_operations_add_no_second_implementation.py`
+        refuses a prompt entry unless the owning step's own manifest
+        declares exactly that runtime and entry point - so the registry
+        cannot relabel a Python step as a prompt to dodge `run`.
+        """
+        return self.body.endswith(".md")
+
+    @property
+    def prompt_path(self) -> Path:
+        """The prompt file this capability is, under its owning step."""
+        return STEPS_ROOT / self.owning_dir / self.body
+
+    @property
     def requires(self) -> tuple:
         """Every requirement this operation's OWNING NODE has.
 
@@ -460,7 +484,21 @@ class Operation:
         `tests/test_operations_add_no_second_implementation.py` still
         plants all three shapes, because a future edit here would make
         them reachable again.
+
+        A prompt capability (`is_prompt`) has no `run` at all and raises
+        here by design: there is no function to point at, and returning
+        any fallback callable would be the registry owning logic through
+        the hole the paragraph above closes. The refusal names the
+        prompt the runner asks a model for instead.
         """
+        if self.is_prompt:
+            raise OperationError(
+                f"{self.name} is a PROMPT capability, not a function: "
+                f"its implementation is {self.owning_dir}/{self.body}, "
+                f"which the runner asks a model to answer. There is no "
+                f"attribute to resolve because there is no body to point "
+                f"at - and a fallback that returned one would be this "
+                f"module owning logic, which this property exists to stop.")
         return getattr(load_step_module(self.owning_dir, self.body),
                        self.attr)
 
@@ -587,6 +625,17 @@ class Operation:
         inputs = self.gather(project_folder)
         inputs.update(overrides)
 
+        # A PROMPT capability has no function to call: the runner asks a
+        # model to answer the prompt, and an operation runs ALONE with no
+        # model. Refused naming the prompt and the way out, placed here -
+        # after the contract check, before the splat - because `run`
+        # raises by design rather than returning something to bind.
+        if self.is_prompt:
+            return OperationResult(
+                operation=self.name, owning_node=self.owning_node,
+                scope=where, status=REFUSED,
+                error=self._teach_prompt())
+
         # The step's own function, its own signature. Bound here so the
         # unbindable case below is asked of the SAME dict that would have
         # been splatted into the call.
@@ -628,6 +677,24 @@ class Operation:
         return OperationResult(
             operation=self.name, owning_node=self.owning_node,
             scope=where, status=COMPLETED, payload=payload)
+
+    def _teach_prompt(self) -> str:
+        """The refusal for a capability that IS a prompt.
+
+        Names the prompt file, says who answers it (the runner asking
+        a model, never an operation running alone), and gives the way
+        out. Composing still works: the contract this refuses under is
+        derived from the owning node like every other operation, so a
+        plan may name this capability even though executing it alone
+        cannot.
+        """
+        return (
+            f"{self.name} is the PROMPT of {self.owning_node}: its "
+            f"implementation is {self.owning_dir}/{self.body}, which the "
+            f"runner asks a model to answer - and an operation runs "
+            f"ALONE, with no model to ask.\n"
+            f"\nRun {self.owning_node} so the runner asks the model for "
+            f"it, or run the DAG.")
 
     def _teach(self, missing: list) -> str:
         """The refusal, written so the reader can work out their next move.
@@ -964,7 +1031,9 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
 
 # ── The registry ────────────────────────────────────────────────────
 #
-# Every entry points at a public function this repository already has.
+# Every entry points at a public function this repository already has -
+# or, since the captain's 2026-09-23 ruling, at the prompt file that IS
+# a step's whole implementation (`body="handoff.md"`, `attr=""`).
 # Adding an operation means naming work that exists; if the name you
 # want has no function behind it, split the body first - that is what
 # increment 4a did for ten of them.
@@ -1011,6 +1080,20 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="ocr_extraction",
         owning_dir="step_1_07_ocr_extraction", body="step.py",
         attr="extract_ocr",
+    ),
+    Operation(
+        name="creative.direct",
+        summary="Decide the video's creative direction from the preflight reads",
+        owning_node="creative_direction",
+        owning_dir="step_2_01_creative_direction", body="handoff.md",
+        attr="",
+        # A PROMPT capability, per the captain's 2026-09-23 ruling that a
+        # capability may be a prompt: this node is `runtime: llm` with
+        # `entry_point: handoff.md` and no Python body to name, so `run`
+        # raises and `execute` refuses naming the runner - while
+        # `requires`/`effect` derive from `creative_direction` like every
+        # other operation (eleven state keys fall out, no vocabulary
+        # work). The Ruling 1 gate checks the manifest agrees.
     ),
     Operation(
         name="speech.enrich",

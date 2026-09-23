@@ -104,6 +104,8 @@ def _dotted(path: Path) -> str:
 
 def violation(op) -> str:
     """None if the operation obeys Ruling 1; otherwise why it does not."""
+    if getattr(op, "is_prompt", False):
+        return _prompt_violation(op)
     source = _source_file(op.run)
     owner = STEPS / op.owning_dir
 
@@ -137,6 +139,51 @@ def violation(op) -> str:
 # ── The rule, over the real registry ────────────────────────────────
 
 
+def _prompt_violation(op) -> str:
+    """None if a prompt capability names its step's own declared prompt.
+
+    The third legal shape, per the captain's 2026-09-23 ruling that a
+    capability may be a prompt: the operation names no function, so
+    there is no callable to locate - and that is exactly what would
+    make an unchecked prompt entry a hole (any Python step relabelled
+    as a prompt to dodge `run`). So the gate checks the tree's own
+    declaration instead: the prompt file must exist under the owning
+    step, that step's manifest must declare `runtime: llm` with this
+    very file as its entry point, and no function may be named beside
+    it. A prompt entry that fails any of those is refused like any
+    other second implementation.
+    """
+    owner = STEPS / op.owning_dir
+
+    if not owner.is_dir():
+        return f"owning_dir {op.owning_dir!r} is not a step directory"
+
+    prompt = owner / op.body
+    if not prompt.is_file():
+        return (f"{op.name} names prompt {op.body!r} but {prompt} is "
+                f"not a file - a prompt capability names the owning "
+                f"step's own prompt file")
+
+    try:
+        manifest = json.loads(
+            (owner / "manifest.json").read_text(encoding="utf-8"))
+    except OSError:
+        return (f"{op.name} names a prompt but {op.owning_dir} has no "
+                f"manifest declaring it one")
+    declared = ((manifest.get("implementation") or {}).get("default")
+                or {})
+    if declared.get("runtime") != "llm" or \
+            declared.get("entry_point") != op.body:
+        return (f"{op.name} names prompt {op.body!r} but "
+                f"{op.owning_dir}/manifest.json does not declare it: "
+                f"implementation.default is {declared!r}, not "
+                f"{{'runtime': 'llm', 'entry_point': {op.body!r}}}")
+    if op.attr:
+        return (f"{op.name} is a prompt capability yet names attr "
+                f"{op.attr!r} - a prompt names no function")
+    return None
+
+
 @pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
 def test_no_operation_introduces_a_second_implementation(op):
     assert violation(op) is None, f"{op.name}: {violation(op)}"
@@ -144,7 +191,16 @@ def test_no_operation_introduces_a_second_implementation(op):
 
 @pytest.mark.parametrize("op", operations.all(), ids=lambda o: o.name)
 def test_every_operation_resolves_to_a_real_callable(op):
-    """`run` is a property, so a typo in `attr` is only found by resolving."""
+    """`run` is a property, so a typo in `attr` is only found by resolving.
+
+    Prompt capabilities have no `run` and raise instead of resolving -
+    asserted here so a future fallback returning a callable fails
+    loudly rather than reopening the hole the `run` docstring closes.
+    """
+    if getattr(op, "is_prompt", False):
+        with pytest.raises(operations.OperationError):
+            op.run
+        return
     assert callable(op.run), f"{op.name}: run did not resolve to a callable"
 
 
@@ -285,6 +341,21 @@ def test_the_rule_refuses_a_callable_the_registry_defines_itself():
     planted = _Planted("planted.wrapped", "step_4_01_plan_subtitles",
                        lambda **kw: None)
     assert "neither library/steps/" in (violation(planted) or "")
+
+
+def test_the_rule_refuses_a_prompt_no_manifest_declares():
+    """AGENTS.md 10.4 on the prompt shape: the manifest check must fail.
+
+    Planted rather than trusted - a prompt branch that only ever sees
+    `creative.direct` is a check nobody has seen refuse. `scan` is a
+    deterministic step with no prompt file, so a prompt entry owned by
+    it is refused naming the file.
+    """
+    planted = operations.Operation(
+        name="planted.prompt", summary="a prompt nobody declared",
+        owning_node="scan", owning_dir="step_1_01_scan_project",
+        body="handoff.md", attr="")
+    assert "handoff.md" in (violation(planted) or "")
 
 
 def test_the_rule_accepts_the_two_legal_shapes():
