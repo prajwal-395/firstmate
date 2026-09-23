@@ -7,13 +7,16 @@ file pins the mirror - `Operation.effect` filters that same registry
 on `owning_node in r.produced_by` - so an effect can be matched against
 a precondition without a second vocabulary.
 
-Seventeen of the 26 operations have a non-empty derived effect.  Nine
-are empty, each for a verified reason recorded in
-`operations.EMPTY_EFFECT_REASONS` (verdict / artifact / unmodelled
-analysis - see that mapping for the per-operation evidence).  The
-tripwire below fails when a new operation is added without one: an
-operation whose owning node produces no requirement must be classified
-there, with its reason, or the suite refuses it.
+Thirty-four of the 39 operations have a non-empty derived effect.
+Five are empty, each for a verified reason recorded in
+`operations.EMPTY_EFFECT_REASONS` (artifact / unmodelled analysis -
+see that mapping for the per-operation evidence).  The VERDICT kind the
+tree was checked against is gone from the blind set by the captain's
+ruling 2026-09-23: verdicts compose as `verdict.*` goals through
+`requirements.VERDICTS`.  The tripwire below fails when a new operation
+is added without one: an operation whose owning node produces no
+requirement must be classified there, with its reason, or the suite
+refuses it.
 """
 
 import sys
@@ -82,7 +85,7 @@ def test_effect_speaks_only_the_requirement_vocabulary(op):
         assert op.owning_node in req.produced_by
 
 
-def test_empty_effect_operations_are_exactly_the_reasoned_nine():
+def test_empty_effect_operations_are_exactly_the_reasoned_five():
     """The tripwire: a new operation without an effect refuses the suite.
 
     BOTH directions, because each alone keeps passing while the mapping
@@ -112,9 +115,11 @@ def test_empty_effect_reasons_are_real():
         assert isinstance(reason, str) and len(reason) >= 100, (
             f"{name}: a reason shorter than this is a placeholder, not a justification"
         )
-        assert any(kind in reason for kind in ("VERDICT", "ARTIFACT", "ANALYSIS")), (
-            f"{name}: the reason must name its kind - VERDICT, ARTIFACT "
-            f"or ANALYSIS, the three the tree was checked against"
+        assert any(kind in reason for kind in ("ARTIFACT", "ANALYSIS")), (
+            f"{name}: the reason must name its kind - ARTIFACT "
+            f"or ANALYSIS, the two the tree was checked against "
+            f"(VERDICT left the blind set by the captain's ruling "
+            f"2026-09-23)"
         )
         assert by_name[name].owning_node in reason, (
             f"{name}: the reason must name the owning node it excuses, "
@@ -126,9 +131,13 @@ def test_requires_and_effect_share_one_registry():
     """The composition property: an effect can satisfy a precondition.
 
     Every requirement named by any operation's `effect` is askable
-    through `requires` - both properties read the same
+    through `requires` - with the one designed exception: a `verdict`
+    requirement is a goal only (no consumers by construction), so no
+    operation requires one.  Both properties still read the same
     `all_requirements()` pool, so a producer found working backwards
-    from a goal is a consumer some operation will refuse without.
+    from a goal is a consumer some operation will refuse without -
+    except a verdict producer, which the composer names as the plan's
+    own last step.
     """
     pool = {r.name for r in R.all_requirements()}
     for op in operations.all():

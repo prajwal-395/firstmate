@@ -15,7 +15,7 @@ stopped being runnable-or-honest.
 **Refusal.**  Every other goal refuses naming what nothing produces: a
 producer-less goal names itself, a goal behind a step with no operation
 names the deepest requirement the traversal met and which step owns it.
-`test_no_plan_names_a_blind_capability` pins the converse - the nine
+`test_no_plan_names_a_blind_capability` pins the converse - the six
 deliberately empty-effect operations are never selected, no matter how
 many capabilities the composer learns. The ever-selected SET is
 deliberately not pinned: it grows with every coverage lane by design,
@@ -266,7 +266,9 @@ def test_completed_plan_is_closed():
     or assumed - no plan step refuses on the plan's own ordering."""
     by_node = {op.name: op for op in O.all()}
     for goal in ("state.judge_reels.reel_selection",
-                 "state.verify_reels.reel_build"):
+                  "state.verify_reels.reel_build",
+                  "verdict.validate_sfx_library.sfx_library_status",
+                  "verdict.verify_reels.reel_verification"):
         comp = C.compose(goal)
         assert comp.completed
         produced: set[str] = set()
@@ -282,11 +284,58 @@ def test_completed_plan_is_closed():
             produced.update(r.name for r in op.effect)
 
 
+# ── Verdicts, which are no longer blind ───────────────────────────────
+#
+# The captain's ruling 2026-09-23: a verdict is expressible as a goal AS
+# ITS OWN requirement kind.  These pin the MEASUREMENT, not the
+# mechanism - whether each of the three verdict operations is now
+# reachable, and what stops the one that is not.
+
+def test_sfx_verdict_goal_completes_through_its_gate():
+    comp = C.compose("verdict.validate_sfx_library.sfx_library_status")
+    assert comp.completed
+    assert comp.operations == ("sfx_library.validate",)
+    assert comp.assumes_machine == ("env.sfx_library",)
+    assert comp.assumes_outside == ()
+
+
+def test_reel_verify_goal_completes_behind_the_build():
+    """The verifying half of the one end-to-end capability is reachable:
+    the verdict goal plans the build first, then the verify."""
+    build = C.compose("state.verify_reels.reel_build")
+    assert build.completed
+    comp = C.compose("verdict.verify_reels.reel_verification")
+    assert comp.completed
+    assert comp.operations == (*build.operations, "reel.verify")
+    # The route-selection path agrees: with no change spec the
+    # `verify_reels` selector stands on the verdict route.
+    routed = C.compose_with_change("verdict.verify_reels.reel_verification")
+    assert routed.completed
+    assert routed.operations == comp.operations
+    assert routed.selection[-1].operation == "reel.verify"
+
+
+def test_validation_verdict_goal_refuses_on_the_compile_manifest_gap():
+    """The kind exists but this goal still cannot close: `validate`
+    needs `state.validate.render_output`, which strands on
+    `state.render.assembly_manifest` produced by `compile_manifest` -
+    the pre-existing gap (no registered operation owns that node), not
+    a failure of the verdict kind.  The day `compile_manifest` owns a
+    capability this refusal turns into a plan, and this test must be
+    updated to say so."""
+    comp = C.compose("verdict.validate.validation_result")
+    assert comp.refused
+    assert comp.blocker == "state.render.assembly_manifest"
+    assert comp.blocker_producers == ("compile_manifest",)
+    assert comp.chain[0] == "verdict.validate.validation_result"
+    assert comp.chain[-1] == comp.blocker
+
+
 # ── The blindness, pinned ─────────────────────────────────────────────
 
 def test_no_plan_names_a_blind_capability():
     """Across every requirement in the registry, no completed plan names
-    one of the nine deliberately empty-effect operations.
+    one of the five deliberately empty-effect operations.
 
     This asserts the INVARIANT the name claims - a plan naming a
     capability nothing can reach would be a plan that cannot run -
@@ -306,6 +355,15 @@ def test_no_plan_names_a_blind_capability():
     assert seen.isdisjoint(O.EMPTY_EFFECT_REASONS), (
         f"a plan selected a capability with no derived effect: "
         f"{sorted(seen & set(O.EMPTY_EFFECT_REASONS))}")
+    # `reel.gate_stills` is the one capability that LOOKS reachable
+    # without being plannable: it shares `verify_reels`' verdict effect
+    # by the node granularity `Operation.effect` declares, but it grabs
+    # stills for the gate on caller-supplied arguments and produces no
+    # verdict.  The route selector names `reel.verify`; no plan may
+    # name the stills grab.
+    assert "reel.gate_stills" not in seen, (
+        "a plan named the stills grab for a verdict goal - the "
+        "node-granular effect leaked into selection")
 
 
 def test_representative_prefers_the_runnable_project_half():

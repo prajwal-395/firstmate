@@ -137,9 +137,9 @@ def test_derived_state_keys_can_refuse(req):
 
     Walked separately from the hand-written registry because its
     witnesses are GENERATED from the DAG rather than authored, so mixing
-    them would bury the ten hand-written rows under ninety-odd trivially
-    refutable ones. Sampled rather than exhaustive for the same reason -
-    they are all the same shape by construction, and
+    them would bury the sixteen hand-written rows under ninety-odd
+    trivially refutable ones. Sampled rather than exhaustive for the
+    same reason - they are all the same shape by construction, and
     `test_requirements.py` pins that construction.
     """
     assert req.check(req.refuting_context()).is_unsatisfied
@@ -189,6 +189,45 @@ def test_a_requirement_no_step_consumes_is_refused():
             refuting_context=lambda: R.Context(),
             satisfying_context=lambda: R.Context(),
         )
+
+
+def test_a_verdict_is_a_goal_only():
+    """The verdict kind holds the opposite shape, enforced both ways.
+
+    A verdict names the node that judges and NO consumers: the composer
+    asks it as a goal, and no run ever asks it as a precondition.  A
+    verdict with consumers would be asked before the judging step runs
+    - the circular `sfx.index_loads` shape - and a verdict with no
+    producer is unaskable even as a goal.  Neither registers.
+    """
+    with pytest.raises(ValueError, match="must name no consumers"):
+        R.Requirement(
+            name="verdict.consumed", kind=R.KIND_VERDICT,
+            describe="a judgement a run refuses without",
+            produced_by=("scan",), consumers=("scan",),
+            check=lambda ctx: R.SATISFIED(R.MEASURED),
+            refuting_context=lambda: R.Context(),
+            satisfying_context=lambda: R.Context(),
+        )
+    with pytest.raises(ValueError, match="must name what produces"):
+        R.Requirement(
+            name="verdict.unproduced", kind=R.KIND_VERDICT,
+            describe="a judgement nothing produces",
+            produced_by=(), consumers=(),
+            check=lambda ctx: R.SATISFIED(R.MEASURED),
+            refuting_context=lambda: R.Context(),
+            satisfying_context=lambda: R.Context(),
+        )
+    built = R.Requirement(
+        name="verdict.produced", kind=R.KIND_VERDICT,
+        describe="a judgement one node produces",
+        produced_by=("scan",), consumers=(),
+        check=lambda ctx: R.SATISFIED(R.MEASURED),
+        refuting_context=lambda: R.Context(),
+        satisfying_context=lambda: R.Context(),
+    )
+    assert built.produced_by == ("scan",)
+    assert built.consumers == ()
 
 
 def test_a_pass_cannot_invent_a_source():

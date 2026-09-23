@@ -34,9 +34,9 @@ So the defect is not "there is no contract".  It is **the contract could
 only say a key was present, never that its content satisfied the
 requirement.**
 
-The four kinds
+The five kinds
 --------------
-All four are MECHANICAL.  None encodes taste and none carries a number
+All five are MECHANICAL.  None encodes taste and none carries a number
 this module invented (the standing ruling on thresholds - a mechanical
 proxy fitted to the captain's verdicts failed to predict them, so what is
 checkable here is presence, provenance from a declared list, and
@@ -54,6 +54,17 @@ buildability; coherence is not).
   available" could only ever be prose.
 * ``coverage``    - the data spans what was asked for.  No expression
   before this module.
+* ``verdict``     - a node produced its judgement.  The captain's ruling,
+  2026-09-23: a verdict is expressible as a goal, AS ITS OWN KIND - not
+  by loosening what a requirement means.  A verdict requirement is a
+  GOAL ONLY: it names a producer and no consumers, so no run ever asks
+  it as a precondition and the composer alone reads it.  Making a
+  node's own judgement its prerequisite would be the circular
+  `sfx.index_loads` shape recorded under DELETED - the step refused
+  before the step that diagnoses the problem could say so.  Scoped to
+  the three VERDICT rows of `operations.EMPTY_EFFECT_REASONS`
+  (`VERDICTS` below); the artifact and optional-edge cases are separate
+  questions and get no requirement here.
 
 A refusal says what to run; a pass says how it passed
 -----------------------------------------------------
@@ -129,9 +140,11 @@ KIND_STATE_KEY = "state_key"
 KIND_PREDICATE = "predicate"
 KIND_ENVIRONMENT = "environment"
 KIND_COVERAGE = "coverage"
+KIND_VERDICT = "verdict"
 
 KINDS: Tuple[str, ...] = (
-    KIND_STATE_KEY, KIND_PREDICATE, KIND_ENVIRONMENT, KIND_COVERAGE)
+    KIND_STATE_KEY, KIND_PREDICATE, KIND_ENVIRONMENT, KIND_COVERAGE,
+    KIND_VERDICT)
 
 
 # ── How a requirement was satisfied ──────────────────────────────────
@@ -282,6 +295,31 @@ class Requirement:
             raise ValueError(
                 f"{self.name}: describe is used verbatim in the refusal "
                 f"and must not be empty")
+        if self.kind == KIND_VERDICT:
+            # A verdict is a GOAL ONLY - the composer's vocabulary, never
+            # a run's precondition.  It must name the node that judges
+            # (a verdict nobody produces is unaskable even as a goal)
+            # and must name NO consumers (a judgement asked as a
+            # precondition is the circular `sfx.index_loads` shape: the
+            # run would refuse before the judging step could speak).
+            # This is not a loosening of the rule below.  That rule
+            # refuses a precondition nothing asks; a verdict is a
+            # different thing with the opposite shape, enforced here in
+            # both directions.
+            if not self.produced_by:
+                raise ValueError(
+                    f"{self.name}: a verdict requirement must name what "
+                    f"produces the judgement it names as a goal. With no "
+                    f"producer no capability can reach it, so it is not "
+                    f"a goal but a second spelling of an unknown one.")
+            if self.consumers:
+                raise ValueError(
+                    f"{self.name}: a verdict requirement must name no "
+                    f"consumers - it is asked as a goal, never as a "
+                    f"precondition. A judgement a run refuses without "
+                    f"is the circular prerequisite this kind exists to "
+                    f"avoid.")
+            return
         if not self.consumers:
             raise ValueError(
                 f"{self.name}: a requirement no step consumes is a "
@@ -1247,6 +1285,93 @@ COVERAGE: Tuple[Requirement, ...] = (
 )
 
 
+# ── verdict: a judgement a node produced, as a goal ────────────────
+#
+# The captain's ruling, 2026-09-23: a verdict is expressible as a goal,
+# AS ITS OWN KIND.  Three operations have a deliberately empty derived
+# effect because their product is pass/fail rather than a state key no
+# consumer names - `sfx_library.validate`, `reel.verify`,
+# `validation.resolve` - and a composer working backwards from
+# requirements alone could never select one.  These three requirements
+# are that expression, and the scope ends here: the three ARTIFACT and
+# three ANALYSIS cases in `operations.EMPTY_EFFECT_REASONS` get no
+# requirement in passing.
+#
+# Each names the producing node and NO consumers (`Requirement.__post_init__`
+# enforces both directions).  The check reads the node's own verdict
+# record through `value_for` - the same producer-first precedence every
+# other requirement uses - and checks PRESENCE, not approval: the
+# requirement says the judgement was produced, not what it said.  For
+# `verify_reels` presence IS approval (a failure raises rather than
+# returning, so the key existing means the reels conformed); for the
+# other two the run fails downstream of a bad verdict, which is the
+# runner's job, not this requirement's.
+#
+# Nothing in any run ever asks one: with no consumers `applies_to` is
+# false for every run set, so `evaluate`, `check`, `describe_refusal`
+# and the runner's report/refuse split never see them.  They exist in
+# `all_requirements()` so that `Operation.effect` - which filters that
+# pool on `owning_node in r.produced_by` and is NOT touched here -
+# derives a non-empty effect for the three verdict operations, and so
+# that the composer can name them as goals.  That derivation is the
+# whole mechanism: no effect is listed beside any operation.
+
+def _verdict_requirement(node_id: str, key: str,
+                         describe: str) -> Requirement:
+    """One verdict requirement: produced by `node_id`, consumed by none."""
+
+    def check(ctx: Context) -> Satisfaction:
+        if ctx.value_for(node_id, key) is None:
+            return UNSATISFIED(
+                f"{node_id} has produced no {key}, so there is no "
+                f"verdict to compose toward",
+                missing=key, produced_by=(node_id,))
+        return SATISFIED(IN_STATE)
+
+    def refuting() -> Context:
+        return Context()
+
+    def satisfying() -> Context:
+        return Context(state={"step_outputs": {
+            node_id: {key: {"_witness": True}}}})
+
+    return Requirement(
+        name=f"verdict.{node_id}.{key}", kind=KIND_VERDICT,
+        describe=describe, produced_by=(node_id,), consumers=(),
+        check=check, refuting_context=refuting,
+        satisfying_context=satisfying)
+
+
+# Each entry carries its evidence as a comment - which manifest
+# declares the output key and which code route (never an edge) reads
+# the verdict - so the entry can be checked against the tree the way
+# `operations.EMPTY_EFFECT_REASONS` was.  A comment, not a field,
+# because the requirement vocabulary is names, producers and
+# consumers, and a fourth member would be a second vocabulary.
+
+VERDICTS: Tuple[Requirement, ...] = (
+    # `library/steps/step_0_01_validate_sfx_library/manifest.json`
+    # `interface.outputs` declares `sfx_library_status`; the gate is the
+    # step's own exit code and `output_contract` reports that record
+    # NOBODY reads.
+    _verdict_requirement(
+        "validate_sfx_library", "sfx_library_status",
+        "validate_sfx_library produced its judgement of the SFX library"),
+    # `library/steps/step_7_02_verify_reels/manifest.json`
+    # `interface.outputs` declares `reel_verification`; the only reader
+    # is `manage_project.py` by code route, not an edge.
+    _verdict_requirement(
+        "verify_reels", "reel_verification",
+        "verify_reels produced its conformance verdict over the built reels"),
+    # `library/steps/step_6_02_validate_output/manifest.json`
+    # `interface.outputs` declares `validation_result`; the only reader
+    # is `run_pipeline.check_validation_verdict` by code route.
+    _verdict_requirement(
+        "validate", "validation_result",
+        "validate produced its verdict over the rendered output"),
+)
+
+
 # ── The gap: one requirement the captain has not authorised ──────────
 
 UNAUTHORISED: Dict[str, str] = {}
@@ -1337,7 +1462,7 @@ DELETED: Dict[str, str] = {
 # ── The registry ─────────────────────────────────────────────────────
 
 HAND_WRITTEN: Tuple[Requirement, ...] = (
-    ENVIRONMENT + PREDICATES + EXTERNAL_STATE + COVERAGE)
+    ENVIRONMENT + PREDICATES + EXTERNAL_STATE + COVERAGE + VERDICTS)
 
 
 def all_requirements(dag: Optional[dict] = None,
@@ -1359,7 +1484,7 @@ def registry() -> Tuple[Requirement, ...]:
     The derived half is walked separately, because its witnesses are
     generated from the DAG rather than authored, and a test that mixed
     the two would report 150-odd trivially-refutable rows and hide the
-    ten that were written by hand.
+    sixteen that were written by hand.
     """
     return HAND_WRITTEN
 

@@ -97,10 +97,10 @@ def test_the_runner_injected_half_is_derived_and_is_a_state_key():
     assert only.produced_by == ()
 
 
-def test_the_four_kinds_are_all_present():
+def test_the_five_kinds_are_all_present():
     kinds = {r.kind for r in R.all_requirements()}
     assert kinds == set(R.KINDS), (
-        f"expected all four kinds to be in use, got {sorted(kinds)}")
+        f"expected all five kinds to be in use, got {sorted(kinds)}")
 
 
 # ── The test seam stays out of production ────────────────────────────

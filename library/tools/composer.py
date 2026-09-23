@@ -23,13 +23,28 @@ The composer can only select capabilities - registered operations - so it
 inherits both limits of the layer underneath, and both are TRUE rather
 than gaps:
 
-* THE NINE.  Nine operations have a deliberately empty derived effect
-  (`operations.EMPTY_EFFECT_REASONS`: three VERDICTS whose effect is a
-  judgement, three ARTIFACTS written to disk rather than state, and three
-  ANALYSIS whose edges are optional or absent).  A composer working
-  backwards from requirements alone can never select them, because
-  verdicts and optional productions are invisible as goals.  No plan this
-  module returns ever names one, and `tests/test_composer.py` pins that.
+* THE FIVE.  Five operations have a deliberately empty derived effect
+  (`operations.EMPTY_EFFECT_REASONS`: two ARTIFACTS written to disk
+  rather than state, and three ANALYSIS whose edges are optional or
+  absent).  A composer working backwards from requirements alone can
+  never select them, because optional productions are invisible as
+  goals.  No plan this module returns ever names one, and
+  `tests/test_composer.py` pins that.  (`reel.gate_stills`, the third
+  artifact, shares `verify_reels`' verdict effect by the node
+  granularity `Operation.effect` declares - and is still never
+  planned: that test pins it explicitly, and the route-selection
+  guard covers the selector naming `reel.verify`.)
+*
+  THE VERDICTS, WHICH ARE NO LONGER BLIND.  The tree was checked
+  against a third kind - VERDICT, the effect that is pass/fail rather
+  than a state key - and the captain ruled on it 2026-09-23: a verdict
+  is expressible as a goal AS ITS OWN requirement kind, not by
+  loosening what a requirement means.  `requirements.VERDICTS` is that
+  kind, so `sfx_library.validate`, `reel.verify` and
+  `validation.resolve` derive non-empty effects and compose as
+  `verdict.*` goals.  Whether each one REACHES is measured per goal,
+  not promised by the kind: a verdict whose own preconditions strand
+  still refuses, naming what stops it.
 * THE MIDDLE OF THE DAG.  Thirteen producer nodes have no registered
   operation at all (`scan`, `catalog`, `speech_sequence`,
   `review_rough_cut`, `music_selection` and the
@@ -590,9 +605,43 @@ def _select_build_reels(node_id: str, owned: tuple,
         measured_basis_cited=cited)
 
 
+def _select_verify_reels(node_id: str, owned: tuple,
+                         change_spec, tracks) -> RouteSelection:
+    """The verdict route stands; the sibling serves no change.
+
+    `verify_reels` owns two operations sharing one derived effect, and
+    the sharing is the node granularity `Operation.effect` declares -
+    not two routes to the verdict.  `reel.verify` runs the conformance
+    verifier over the built reels on gathered inputs alone.
+    `reel.gate_stills` is out of the candidate set by its own contract
+    (`caller_supplied=True`): the gate hands it a reel label, timeline
+    name and frames, and it grabs stills for the gate to judge rather
+    than producing any verdict.  No change gate reads tracks for this
+    node, so a change spec does not route here either - the static
+    tie-break stands, by design rather than by inheritance.
+    """
+    default = representative(node_id)
+    assert default == "reel.verify", (
+        f"the verdict route is reel.verify, not {default!r}: the "
+        f"selector below names it, so a tie-break that moved must fail "
+        f"here rather than plan the stills grab as the verdict")
+    others = sorted(op.name for op in owned if op.name != default)
+    return RouteSelection(
+        node=node_id, operation=default,
+        decided_by=REPRESENTATIVE_FALLBACK,
+        reason=("the verdict route stands (reel.verify): it runs the "
+                "conformance verifier over the built reels on gathered "
+                "inputs alone. reel.gate_stills is out of the candidate "
+                "set by its own contract - caller-supplied, it grabs "
+                "stills for the gate to judge rather than producing any "
+                "verdict. No change gate reads tracks for this node, so "
+                "a change spec does not route here."),
+        alternatives=tuple(others))
+
+
 def _select_representative_fallback(node_id: str, owned: tuple,
-                                    change_spec,
-                                    tracks) -> RouteSelection:
+                                     change_spec,
+                                     tracks) -> RouteSelection:
     """Explicit stand-pat for a node with no change gate.
 
     Several nodes own sibling operations with one shared effect but
@@ -620,16 +669,21 @@ _SELECTORS = {
     "render_subtitles": _select_representative_fallback,
     "select_reels": _select_representative_fallback,
     "temporal_index": _select_representative_fallback,
+    "verify_reels": _select_verify_reels,
 }
 """Every routable multi-operation node, mapped to its selector.
 
 "Routable" means owning more than one operation with a non-empty
 derived effect - the set `compose` can actually name.  Empty-effect
-operations (THE NINE) are composer-blind by design and never reach
+operations (THE FIVE) are composer-blind by design and never reach
 selection, so they need none.  The risk-4 guard
 (`tests/test_ren_selection_between_equivalent_routes.py`) fails the
 moment a node outgrows this map: a new route must arrive
-chosen-by-design, never inheriting the tie-break in silence."""
+chosen-by-design, never inheriting the tie-break in silence.
+`verify_reels` is the case that proved it: the verdict kind gave the
+node a derived effect, so its two siblings - the verdict route and
+the caller-supplied stills grab - arrived here, and the entry records
+that only one of them serves a change."""
 
 
 def selector_coverage() -> tuple[str, ...]:

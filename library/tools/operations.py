@@ -69,7 +69,7 @@ the one that exists, and the hand-written half would be prose in a
 costume.  That is the defect this refactor removes, so `requires` is a
 property with no setter and `_REGISTRY` carries no requirement literals.
 
-What an operation EFFECTS, and why nine are empty
+What an operation EFFECTS, and why six are empty
 -------------------------------------------------
 `Operation.effect` is the exact mirror of `requires`: every requirement
 in `library/tools/requirements.py` whose `produced_by` includes this
@@ -77,32 +77,38 @@ operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
 precondition, so nothing would compose.
 
-Eighteen of the 27 operations have a non-empty effect.  Nine are empty,
-and the emptiness is TRUE, not a gap: `run_scope.prerequisites`
-derives one condition per REQUIRED input, so a node that no consumer
-requires anything from produces no requirement.  The nine are three
-kinds, each verified against the tree (see `EMPTY_EFFECT_REASONS` for
-the per-operation evidence):
+Thirty-four of the 39 operations have a non-empty effect.  Five are
+empty, and the emptiness is TRUE, not a gap:
+`run_scope.prerequisites` derives one condition per REQUIRED input, so
+a node that no consumer requires anything from produces no requirement.
+The five are two kinds, each verified against the tree (see
+`EMPTY_EFFECT_REASONS` for the per-operation evidence):
 
-* VERDICT - the effect is pass/fail, not a state key.  The gate raises
-  or exits non-zero on failure, so there is no downstream consumer to
-  name one: `sfx_library.validate`, `reel.verify`,
-  `validation.resolve`.
 * ARTIFACT - the product lands on disk for a caller, a gate or Resolve
-  placement rather than travelling a DAG edge: `reel.gate_stills`,
+  placement rather than travelling a DAG edge:
   `motion_graphics.render`, `motion_graphics.render_segment`.
+  (`reel.gate_stills`, the third artifact, shares `verify_reels`'
+  verdict effect by the node granularity `Operation.effect`
+  declares - a stills grab planned as a verdict would be the
+  confidently-wrong result this layer exists to stop, so the route
+  selector names `reel.verify` and no plan names the grab.)
 * ANALYSIS the requirement layer does not model - real state whose
   edges are OPTIONAL or absent, which `prerequisites` deliberately
   excludes: `prosody.analyse`, `color_grade.resolve`
   (optional consumers), `ocr.extract` (no outgoing edge, no reader).
 
-The composition consequence is stated plainly rather than patched
-around: a composer working backwards from requirements alone can never
-select these nine, because verdicts and optional productions are
-invisible as goals.  Teaching the requirement layer about optional
-edges is future work; hand-writing nine effects in a second vocabulary
-to make the field look complete would be the defect this module
-removes, in a new costume.
+The third kind the tree was checked against - VERDICT, the effect that
+is pass/fail rather than a state key - is GONE from the blind set, by
+the captain's ruling 2026-09-23: a verdict is expressible as a goal as
+its own requirement kind (`requirements.VERDICTS`), so
+`sfx_library.validate`, `reel.verify` and `validation.resolve` each
+derive a non-empty effect from that pool with nothing listed here.
+The composition consequence below still holds for the five that remain:
+a composer working backwards from requirements alone can never select
+them, because optional productions are invisible as goals.  Teaching
+the requirement layer about optional edges is future work;
+hand-writing five effects in a second vocabulary to make the field look
+complete would be the defect this module removes, in a new costume.
 
 This follows the layer's own enforced doctrine, not just this
 module's taste: `Requirement.__post_init__`
@@ -456,10 +462,10 @@ class Operation:
         producing the spine its step meshes) - the vocabulary is keyed
         by node id, so anything finer would be a second vocabulary.
 
-        Empty for the nine operations named in `EMPTY_EFFECT_REASONS`,
+        Empty for the five operations named in `EMPTY_EFFECT_REASONS`,
         and the emptiness is the truth: no requirement in the registry
         names those nodes as a producer, so running one satisfies no
-        precondition.  See the module docstring for the three kinds and
+        precondition.  See the module docstring for the two kinds and
         the composition consequence.
         """
         from library.tools import requirements
@@ -938,7 +944,7 @@ class Operation:
 
 # ── Operations whose derived effect is empty ────────────────────────
 #
-# Nine operations satisfy no requirement in the registry, each for a
+# Five operations satisfy no requirement in the registry, each for a
 # reason that was verified against the tree rather than assumed.  The
 # mapping is operation name to the reason its effect is empty anyway -
 # the justification `tests/test_operations_declare_effect.py` demands
@@ -952,42 +958,27 @@ class Operation:
 # genuinely cannot be expressed here, that means the requirement layer
 # is not the right home for effects - say so and revisit the design
 # rather than hand-writing the entry.
+#
+# The mapping held NINE entries until the captain's ruling 2026-09-23.
+# The three VERDICT rows (`sfx_library.validate`, `reel.verify`,
+# `validation.resolve`) are GONE because those nodes now produce
+# something: each is the `produced_by` of a `requirements.VERDICTS`
+# entry, so their effects derive non-empty.  The old rows are not
+# reproduced here - their evidence (the exit code, the raise sites,
+# the code-route readers) is what motivated the verdict kind, and
+# `requirements.VERDICTS` carries the per-entry evidence now.
+#
+# `reel.gate_stills` left with the verdicts without being one: it is
+# owned by `verify_reels`, so it shares that node's verdict effect by
+# the node granularity `Operation.effect` declares.  It keeps no row
+# because its effect is no longer empty - and no plan may name it for
+# that effect, which the route selector (`composer._select_verify_reels`)
+# and `tests/test_composer.py` pin.  Only ARTIFACT and ANALYSIS rows
+# remain.
 
 EMPTY_EFFECT_REASONS: dict[str, str] = {
-    # VERDICT - the effect is pass/fail, not a state key.
-    "sfx_library.validate":
-        "VERDICT. The gate is the step's own exit code, not its record "
-        "(`library/steps/step_0_01_validate_sfx_library/step.py:main` "
-        "writes `sfx_library_status` then `sys.exit(1)`; the manifest "
-        "says so verbatim). `output_contract` reports that record "
-        "NOBODY, and no DAG edge leaves `validate_sfx_library`, so no "
-        "requirement names it as a producer.",
-    "reel.verify":
-        "VERDICT. A failure raises (`ReelVerifyRefused` / "
-        "`ReelVerificationRefused` at six sites in "
-        "`library/steps/step_7_02_verify_reels/step.py`) rather than "
-        "returning - the manifest says the key existing MEANS the reels "
-        "conformed. `verify_reels` is terminal (no outgoing edge); its "
-        "only reader is `manage_project.py` by code route, not an edge, "
-        "so no requirement names it as a producer.",
-    "validation.resolve":
-        "VERDICT. One verdict leaves the node "
-        "(`library/steps/step_6_02_validate_output/post_bridge.py:"
-        "resolve_validation` returns `validation_result.status`), and "
-        "`run_pipeline.check_validation_verdict` fails the run on "
-        "`fail`. `validate` is terminal (no outgoing edge); its only "
-        "reader is `run_pipeline.py` by code route, so no requirement "
-        "names it as a producer.",
     # ARTIFACT - the product lands on disk for a caller, a gate or
     # placement rather than travelling a DAG edge.
-    "reel.gate_stills":
-        "ARTIFACT. Caller-supplied (`caller_supplied=True`): the gate "
-        "hands it a reel label, timeline name and frames, and the "
-        "stills bank into `7_02_verify_reels/gate_stills/` for the gate "
-        "to judge "
-        "(`library/steps/step_7_02_verify_reels/step.py:"
-        "grab_gate_stills`). No edge carries them, and the owning node "
-        "`verify_reels` produces no requirement.",
     "motion_graphics.render":
         "ARTIFACT. The post-bridge renders the overlay artefacts to "
         "disk "

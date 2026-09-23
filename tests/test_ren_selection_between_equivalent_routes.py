@@ -261,10 +261,13 @@ def test_siblings_keep_declaring_the_same_effect():
 def _routable_multi_operation_nodes():
     """Nodes owning >1 operation with a non-empty derived effect.
 
-    Empty-effect operations are composer-blind by design (THE NINE:
-    verdicts, disk artefacts, analyses the composer can never name),
-    so no route choice exists there. Everything else the composer
-    can name must have an explicit selector entry."""
+    Empty-effect operations are composer-blind by design (THE FIVE:
+    disk artefacts, analyses the composer can never name), so no route
+    choice exists there. Everything else the composer can name must
+    have an explicit selector entry. (`verify_reels` outgrew the map
+    the hour the verdict kind gave it a derived effect: its siblings
+    share one effect by node granularity, and `composer._SELECTORS`
+    records that only the verdict route serves a change.)"""
     from collections import defaultdict
 
     groups: dict = defaultdict(set)
