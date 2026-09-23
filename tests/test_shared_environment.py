@@ -453,21 +453,6 @@ def test_an_explicit_interpreter_wins_outright(tmp_path, monkeypatch):
     assert ne.python_interpreter(tmp_path)[0] == str(chosen)
 
 
-def test_the_panel_reads_the_ladder_rather_than_its_own_venv_path():
-    """The panel was the first place to get this right and the last to move.
-
-    It refused correct machines: a lane with no `.venv` was told to make
-    one, when the interpreter it needed already existed outside every
-    checkout.
-    """
-    from library.tools.panel import run_view
-
-    source = (REPO_ROOT / "library" / "tools" / "panel"
-              / "run_view.py").read_text(encoding="utf-8")
-    assert "shared_environment.python_interpreter" in source
-    assert run_view.pipeline_interpreter.__module__ == "library.tools.panel.run_view"
-
-
 def test_vep_home_is_one_root_both_halves_sit_under(monkeypatch, tmp_path):
     """The Node store and the ML venv are siblings, by construction.
 

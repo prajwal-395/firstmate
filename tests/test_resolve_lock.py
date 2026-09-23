@@ -440,8 +440,7 @@ def _lease_call_sites() -> list:
     pattern = re.compile(
         r"(?:with\s+|@)(?:[\w.]+\.)?(?:resolve_lease|under_lease|"
         r"cursor_fence|prefer_lease)\b")
-    roots = ("library", "tests", "scripts", "resolve_scripts",
-             "resolve_workflow_integration")
+    roots = ("library", "tests", "scripts")
     found = []
     for root in roots:
         for path in (REPO / root).rglob("*.py"):

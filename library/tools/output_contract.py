@@ -647,8 +647,7 @@ def uncalled_functions() -> List[Tuple[str, str, int]]:
     called = set()
     named = set()
     roots = [_REPO_ROOT / "manage_project.py"]
-    for folder in ("library", "tests", "scripts", "resolve_scripts",
-                   "resolve_workflow_integration"):
+    for folder in ("library", "tests", "scripts"):
         root = _REPO_ROOT / folder
         if root.is_dir():
             roots.extend(p for p in root.rglob("*.py")

@@ -158,8 +158,7 @@ them, the same bargain `project_migration.revert_from_manifest` strikes
 with copies.
 
 This module holds no Resolve calls and does no I/O, so every rule in it
-is testable without the application running - the same split
-`library/tools/panel/` uses (AGENTS.md 15).
+is testable without the application running.
 `library/tools/execution/organise_media_pool.py` is the half that talks
 to Resolve.
 

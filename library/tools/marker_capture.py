@@ -6,17 +6,14 @@ immediately and immediately showed its one gap - their first note landed
 on a frame with FOUR clips stacked under it, and the reader could only
 list all four.  A picture of the frame removes the guess.
 
-This module is the writing half.  From the captain's side it is one click
-in Workspace > Scripts: playhead on the moment, click, done.  Underneath
-it reads the playhead, grabs the still Resolve is showing, exports it as
+This module is the writing half.  It reads the playhead, grabs the still
+Resolve is showing, exports it as
 a PNG into `<project>/marker_feedback/stills/`, and writes a
 `marker_payload` record into the marker's `customData` - creating the
 marker if there is none there, and updating it in place if there is, in
 both cases without touching a character of what the captain typed.
 
-The entry point Resolve calls is `resolve_scripts/Capture Frame for
-Firstmate.py`; `scripts/install_resolve_scripts.sh` puts it where
-Workspace > Scripts can see it.  Nothing in the pipeline writes into the
+Nothing in the pipeline writes into the
 captain's application support folder as a side effect of anything.
 
 ── What the API actually did ───────────────────────────────────────────
@@ -200,9 +197,9 @@ AGENTS.md until it was split by subsystem; the wording is unchanged,
 so each rule is findable by its own words, and AGENTS.md 15
 keeps the headline and points here.
 
-Playhead on the moment, one click in **Workspace > Scripts > Capture Frame for Firstmate**, and the
+Playhead on the moment, capture the frame, and the
 frame plus whatever the captain typed is captured. `library/tools/marker_capture.py` is the whole
-of it; `resolve_scripts/` is the entry point Resolve calls.
+of it.
 - **The repository is the source of truth.** The installer stamps the checkout's path. **Nothing else may write into the application support folder.**
 - **`GrabStill` returns the GRADED, CONFORMED frame** regardless of the active Resolve page.
 - **The still goes to `<project>/marker_feedback/stills/`** (`Kind.CAPTURED`). A timeline whose footage sits under no project is REFUSED.

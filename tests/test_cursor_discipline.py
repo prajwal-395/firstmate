@@ -12,8 +12,7 @@ it at all (`timeline_serializer`'s `timeline=` handle,
 asserting it can be enforced while the setter set grows silently.
 
 So this test registers every `SetCurrentTimeline` site in shipped code
-(`library/`, `resolve_scripts/`, `resolve_workflow_integration/`,
-`bin/`) with its owner and migration state. Adding a new call site
+(`library/`, `bin/`) with its owner and migration state. Adding a new call site
 fails here with instructions: route the establishment through
 `resolve_lock`, or register the site with a reason. Removing one means
 deleting its registry row - a row no longer needed is a lie about what
@@ -37,8 +36,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-SCOPES = ("library", "resolve_scripts", "resolve_workflow_integration",
-          "bin")
+SCOPES = ("library", "bin")
 
 #: file -> (expected site count, owner note). `state` is one of:
 #: `shared` (the implementation itself), `probe` (capability checks that

@@ -304,24 +304,17 @@ def require_dependencies(directory: Optional[str | Path] = None) -> Path:
 
 # ── the PYTHON half: which interpreter carries the ML stack ──────────
 #
-# Same defect, one layer up, and found the same day.  THREE places
-# assumed the interpreter was `<checkout>/.venv/bin/python3`:
-#
-#   library/tools/panel/run_view.py   refused by name when absent
-#   resolve_workflow_integration/.../main.js:261
-#                                     fell back to `/usr/bin/python3`,
-#                                     which has none of the ML stack, so
-#                                     the bridge died inside a step's
-#                                     import rather than saying why
-#   scripts/full_suite_gate.sh        `FULL_SUITE_GATE_PYTHON` or the
-#                                     ambient `python3`
+# Same defect, one layer up, and found the same day.  Callers
+# assumed the interpreter was `<checkout>/.venv/bin/python3`,
+# which has none of the ML stack on machines without one, so
+# the failure surfaced inside a step's import rather than saying why.
+# `scripts/full_suite_gate.sh` takes `FULL_SUITE_GATE_PYTHON` or the
+# ambient `python3`.
 #
 # Measured 2026-09-14: NO checkout on the build machine has a `.venv`.
 # The working environment is the durable one at
 # `~/.local/share/vep/venv-py312`, which `docs/ML_ENVIRONMENT.md` put
-# outside every checkout deliberately - so the plugin's button inside
-# Resolve was resolving to a path that does not exist, on the one
-# surface the captain actually presses.
+# outside every checkout deliberately.
 
 DURABLE_VENV_DIRNAME = "venv-py312"
 """The venv `docs/ML_ENVIRONMENT.md` builds, under `vep_home()`.
@@ -343,18 +336,15 @@ INTERPRETER_CANDIDATES = (
 `(kind, spec)` in order of preference. `kind` says what `spec` is
 relative to: an environment variable, `vep_home()`, or the checkout.
 
-It is data because the ladder has callers that cannot import this
-module and must still obey it - `scripts/full_suite_gate.sh` and
-`resolve_workflow_integration/com.videoeditingpilot.vep/js/interpreter.js`
-both ASK it, through `interpreter_report()` below, rather than carrying
-their own copy. A ladder duplicated in prose would have drifted the
-first time it changed; a ladder duplicated in a second language already
-did (the plugin's mirrored array, removed 2026-09-15). A caller that
-queries cannot drift, because there is nothing on its side to drift.
+It is data because the ladder has a caller that cannot import this
+module and must still obey it - `scripts/full_suite_gate.sh`
+ASKS it, through `interpreter_report()` below, rather than carrying
+its own copy. A ladder duplicated in prose would have drifted the
+first time it changed. A caller that queries cannot drift, because
+there is nothing on its side to drift.
 
-There is NO stock-interpreter rung, and there must not be one. The panel
-has refused rather than fall back since it was written (AGENTS.md 15,
-`library/tools/panel/__init__.py`), for the reason a fallback fails:
+There is NO stock-interpreter rung, and there must not be one, for
+the reason a fallback fails:
 `run_pipeline.py` imports whisperx, mlx_vlm and torch through its steps,
 so a stock interpreter does not fail at launch where the message would
 be read - it fails forty seconds in, inside a step, with a traceback
@@ -366,8 +356,7 @@ def interpreter_candidates(repo_root: Optional[str | Path] = None):
     """`INTERPRETER_CANDIDATES` resolved to real paths, in order.
 
     A rung whose environment variable is unset yields nothing; a rung
-    that needs a checkout and has none is skipped, which is what lets
-    this answer for the Resolve plugin as well as for a checkout.
+    that needs a checkout and has none is skipped.
     """
     for kind, spec in INTERPRETER_CANDIDATES:
         if kind == "env":
@@ -395,9 +384,9 @@ def python_interpreter(repo_root: Optional[str | Path] = None):
 def _no_interpreter_message(repo_root: Optional[str | Path] = None) -> str:
     """Every rung that was tried, by path, and how to build the one that counts.
 
-    Naming only the last rung is what made this defect survive: the
-    plugin reported `/usr/bin/python3` failing on an import, which is
-    true and says nothing about where the interpreter should have been.
+    Naming only the last rung is what let this defect survive: a report
+    of a stock interpreter failing on an import is true and says
+    nothing about where the interpreter should have been.
     """
     tried = [str(c) for c in interpreter_candidates(repo_root)]
     lines = [
@@ -417,19 +406,17 @@ def _no_interpreter_message(repo_root: Optional[str | Path] = None) -> str:
 
 # ── the query endpoint: the ladder as data for callers that cannot import it
 #
-# `js/interpreter.js` (Resolve's Electron host) and
-# `scripts/full_suite_gate.sh` both reach the ladder this way.  The query
-# vehicle may be ANY `python3` - including a stock one that could never
-# run the pipeline - because answering it evaluates only stdlib path
-# predicates (`is_file`, `X_OK`) whose answer does not depend on the
-# asker's version.  The asker NEVER runs pipeline code; the bridge is
-# launched only with the answered path, and an unanswered query refuses.
-# That is what keeps the bootstrap from being a fallback wearing a query's
-# clothes.
+# `bin/vep` and `scripts/full_suite_gate.sh` both reach the ladder this
+# way.  The query vehicle may be ANY `python3` - including a stock one
+# that could never run the pipeline - because answering it evaluates
+# only stdlib path predicates (`is_file`, `X_OK`) whose answer does not
+# depend on the asker's version.  The asker NEVER runs pipeline code;
+# the resolved interpreter is launched only with the answered path, and
+# an unanswered query refuses.  That is what keeps the bootstrap from
+# being a fallback wearing a query's clothes.
 #
-# The constraint this imposes is real and is pinned by
-# `tests/test_plugin_interpreter_query.py`: this module must stay
-# parseable by the oldest stock interpreter a machine may carry (grammar
+# The constraint this imposes is real: this module must stay parseable
+# by the oldest stock interpreter a machine may carry (grammar
 # `ast.parse(..., feature_version=(3, 9))`, stdlib use to long-stable
 # calls), or the vehicle cannot even ask.
 

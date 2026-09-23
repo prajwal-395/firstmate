@@ -22,14 +22,11 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `library/tools/`: shared utilities for Resolve scripting, vision analysis and file management.
 - `library/schemas/`: Pydantic schemas for pipeline state and project configuration.
 - `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
-- `library/tools/panel/`: the Resolve panel's logic, with no Qt and no Resolve in it (§15).
 - Brand templates live with the project as `brand.json` (§10.1).
 - `library/profiles/`: declared run configurations - which steps a run fires and where it stops (§3).
 - `library/presets/`: Fusion macros and DaVinci's own built-in effect settings. Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
-- `resolve_scripts/`: the entry points DaVinci Resolve's Workspace > Scripts menu calls - the capture button (§15) and the pipeline panel. Installed by `scripts/install_resolve_scripts.sh`.
-- `resolve_workflow_integration/`: the Electron plugin Resolve's Workspace > Workflow Integrations menu loads (§15). Installed by `scripts/install_workflow_integration.sh`.
 - `tests/`: unit and integration tests for the engine.
 - `manage_project.py`: top-level CLI for creating, listing and running projects.
 - `requirements.txt`: Python dependencies.
@@ -690,24 +687,9 @@ Detail: `library/tools/marker_routing.py`.
 reads that instead of inferring - but only where inference has nothing.**
 Detail: `library/tools/timeline_decisions.py`.
 
-### The panel beside the timeline
-
-**The panel's whole reason to exist is that it knows where the PLAYHEAD is.**
-`library/tools/panel/__init__.py`. [why](docs/RULE_EVIDENCE.md#the-panel-handed-the-model-a-filename)
-
-### What Resolve's script host does not give an entry point
-
-**`__file__` IS NOT DEFINED in Resolve's script host; verify an entry point from inside it, not as a file.**
-`tests/test_resolve_scripts_bootstrap.py`. [why - the two menu entries that did nothing at all](docs/RULE_EVIDENCE.md#the-menu-entries-that-did-nothing)
-
-### The plugin inside Resolve's own window
-
-**A Workflow Integration is the OTHER surface, and it is an Electron app driven through Resolve's JavaScript API.**
-Detail: `resolve_workflow_integration/README.md`. [why](docs/workflow_integration/README.md)
-
 ### The button that captures the frame
 
-**Workspace > Scripts > Capture Frame for Firstmate**
+**Capture the frame the captain is looking at, onto the marker there.**
 Detail: `library/tools/marker_capture.py`.
 
 **A note's identity is its REEL and its WORDS, outliving the rebuild.**

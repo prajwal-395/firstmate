@@ -1,9 +1,0 @@
-{
-    "name": "vep-pipeline-workflow-integration",
-    "version": "0.1.0",
-    "description": "VEP Pipeline - a DaVinci Resolve Studio Workflow Integration",
-    "main": "main.js",
-    "scripts": {
-        "start": "electron ."
-    }
-}

@@ -125,34 +125,28 @@ directory appears in the module's code.
 
 ## The Python half: which interpreter, and where
 
-Found the same day, by the captain, from the other end: the Resolve
-Workflow Integration plugin's button did nothing useful.
-
-`resolve_workflow_integration/com.videoeditingpilot.vep/main.js` resolved
-its interpreter as `<REPO_ROOT>/.venv/bin/python3`, falling back to
-`/usr/bin/python3`. **No checkout on the build machine has a `.venv`** -
-the working environment is the durable one at
+Found the same day, by the captain, from the other end: a caller
+resolved its interpreter as `<REPO_ROOT>/.venv/bin/python3`, falling
+back to `/usr/bin/python3`. **No checkout on the build machine has a
+`.venv`** - the working environment is the durable one at
 `~/.local/share/vep/venv-py312`, which `ML_ENVIRONMENT.md` put outside
-every checkout deliberately. So the plugin always took the fallback, and
-`/usr/bin/python3` carries none of whisperx, mlx_vlm or torch. The bridge
-died inside a step's import, reporting a package nobody had mentioned, on
-the surface the captain actually presses.
+every checkout deliberately. So the caller always took the fallback,
+and `/usr/bin/python3` carries none of whisperx, mlx_vlm or torch. The
+call died inside a step's import, reporting a package nobody had
+mentioned.
 
-Three places carried the same assumption:
+Two places carried the same assumption:
 
 | | was | now |
 |---|---|---|
-| `library/tools/panel/run_view.py` | `<checkout>/.venv` or REFUSE | the ladder, refusing with every rung it tried |
-| `.../main.js` | `<checkout>/.venv`, else `/usr/bin/python3` | the same ladder, refusing rather than falling back |
 | `scripts/full_suite_gate.sh` | `FULL_SUITE_GATE_PYTHON`, else ambient `python3` | the variable still wins; the default now asks the ladder |
 | `manage_project.py`'s advice | "make a venv in this checkout" | build the per-machine one; the checkout's is named as the alternative |
 
 ### The ladder is QUERIED, because two callers cannot import it
 
-`main.js` is JavaScript inside Resolve's Electron host and
-`scripts/full_suite_gate.sh` is bash. Neither can import a Python
-module, so both ASK the ladder instead of carrying it: `js/interpreter.js`
-shells out to any `python3` to run
+`bin/vep` is bash and `scripts/full_suite_gate.sh` is bash. Neither can
+import a Python module, so both ASK the ladder instead of carrying it:
+they shell out to any `python3` to run
 `python -m library.tools.shared_environment --resolve-interpreter`, and
 the gate does the same through `python_interpreter()` directly. A rung
 literal mirrored into a second language was tried first (PR 1141, a test
@@ -163,18 +157,17 @@ cannot drift, because there is nothing on its side to drift.
 Stamp-vs-query was decided for query, against the environment moving
 after install: stamping the answered path at install time goes stale the
 moment the durable venv is built later, a checkout `.venv` appears or
-vanishes, or `PIPELINE_PYTHON` is set for one series - and the plugin
-survives Resolve restarts, so a stale stamp answers wrongly for weeks
-with nothing re-asking. The query costs tens of milliseconds of
-stdlib-only startup per bridge call and is current on every call by
-construction.
+vanishes, or `PIPELINE_PYTHON` is set for one series - and a stamp is
+never re-asked, so it answers wrongly for weeks. The query costs tens
+of milliseconds of stdlib-only startup per call and is current on every
+call by construction.
 
 The bootstrap is neither a second ladder nor the old fallback: answering
 evaluates only stdlib path predicates whose answer is identical whichever
-interpreter asks (the module stays parseable by a stock 3.9, pinned by
-`tests/test_plugin_interpreter_query.py`), and the bootstrap never
-executes pipeline code - the bridge launches only with the answered path,
-and every other outcome refuses loudly where the message is read.
+interpreter asks (the module stays parseable by a stock 3.9), and the
+bootstrap never executes pipeline code - the caller launches only the
+answered path, and every other outcome refuses loudly where the message
+is read.
 
 ```
 INTERPRETER_CANDIDATES = (
@@ -344,8 +337,6 @@ question.
 - `library/tools/shared_environment.py` - the resolution, and the reasoning.
 - `scripts/install_node_deps.sh` - the one way to fill the Node store.
 - [`ML_ENVIRONMENT.md`](ML_ENVIRONMENT.md) - how the Python venv is built
-  and verified. Unchanged by this; four callers now find what it builds.
-- `resolve_workflow_integration/com.videoeditingpilot.vep/main.js` - the
-  one caller that carries the ladder in another language.
+  and verified. Unchanged by this; two callers now find what it builds.
 - [`CI_LAYERS.md`](CI_LAYERS.md) - why layer 1 is local, and what those
   61 skips cost it.

@@ -158,5 +158,4 @@ select = [
 "tests/test_vfx_plan_basis.py" = ["PLW1510"]                       # 1
 "tests/test_vfx_reaches_the_manifest.py" = ["PLW1510"]             # 1
 "tests/test_vision_schema_adapter.py" = ["PLW1510"]                # 1
-"tests/test_window_frames.py" = ["PLW1510"]                        # 1
-"tests/test_workflow_integration_plugin.py" = ["PLW1510"]          # 1
+"tests/test_window_frames.py" = ["PLW1510"]                  # 1

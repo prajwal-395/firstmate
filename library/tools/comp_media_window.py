@@ -67,9 +67,7 @@ copy of the captain's project cannot be used to test his reels, and why
 every measurement above was mirrored back onto the copy from the
 captain's own `ExportFusionComp` output before it was rendered.
 
-This engine calls `DuplicateTimeline` nowhere (the only occurrence in
-the tree is a line in `docs/workflow_integration/live_api_surface.json`
-listing Resolve's API).  A reel is staged by `CreateEmptyTimeline` plus
+This engine calls `DuplicateTimeline` nowhere.  A reel is staged by `CreateEmptyTimeline` plus
 `AppendToTimeline` plus the comp pass, so the comp pass IS the staging
 step where a media window is established, and that is where the conform
 is wired: `library/tools/execution/apply_fusion_comps.py`.
