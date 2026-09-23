@@ -77,7 +77,7 @@ operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
 precondition, so nothing would compose.
 
-Fourteen of the 23 operations have a non-empty effect.  Nine are empty,
+Fifteen of the 24 operations have a non-empty effect.  Nine are empty,
 and the emptiness is TRUE, not a gap: `run_scope.prerequisites`
 derives one condition per REQUIRED input, so a node that no consumer
 requires anything from produces no requirement.  The nine are three
@@ -118,7 +118,7 @@ analysis operations that DO write state keys (`prosody.analyse`,
 `ocr.extract`) stay empty for the narrower reason above - optional or
 absent edges, which `prerequisites` deliberately excludes - and would
 become derivable the day the layer models optional edges, like the
-other fourteen.
+other fifteen.
 
 Executing
 ---------
@@ -1048,6 +1048,23 @@ _REGISTRY: tuple[Operation, ...] = (
         owning_node="build_reels",
         owning_dir="step_7_01_build_reels", body="step.py",
         attr="build_reels",
+    ),
+    Operation(
+        name="reel.touchup",
+        summary="Change one built reel's own timeline in place, instead of rebuilding it",
+        owning_node="build_reels",
+        owning_dir="step_7_01_build_reels", body="step.py",
+        attr="touch_reel",
+        # Its arguments are caller-decided - the structured change:
+        # which reel, which item, what changes - handed in by the
+        # fix that computed it, the way `touch-reel` takes `--edits`.
+        # The runner never drives it. See
+        # `Operation.caller_supplied`.
+        caller_supplied=True,
+        # PROJECT only. The change addresses items by (row, position)
+        # on one reel's timeline, so a region address would promise a
+        # scope the touchup does not keep.
+        scopes=(PROJECT,),
     ),
     Operation(
         name="reel.ask",

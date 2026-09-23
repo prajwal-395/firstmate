@@ -160,11 +160,69 @@ def live_rows_of_tracks(tracks: list) -> dict:
 # ── Preconditions, evaluated against the live timeline ────────────
 #
 # The pipeline's `requirements` layer answers these against its own
-# records (state, recorded, supplied). The two functions below answer
-# the same questions against what is actually on the timeline, which is
+# records (state, recorded, supplied). The functions below answer the
+# same questions against what is actually on the timeline, which is
 # the truth when he has hand-edited it. They CHANGE nothing about how
 # preconditions are declared and nothing about what the pipeline does
 # with the answer - they are the evaluation path the later work calls.
+#
+# Which names evaluate, and which refuse
+# --------------------------------------
+# The requirement names are the ones `requirements.all_requirements()`
+# already carries, and that vocabulary is NOT widened here. Three cases:
+#
+# * LIVE-READABLE declared names (`LIVE_REQUIREMENTS`): the question is
+#   genuinely a timeline property - "the reel build output exists" -
+#   so it is answered from the live rows, and the screen wins over the
+#   paperwork exactly as before.
+# * Every OTHER declared name: answered by the requirement's OWN check
+#   against a `requirements.Context` (caller-supplied, else empty), and
+#   reported verbatim - satisfied or not. A disk requirement with no
+#   project folder reports UNSATISFIED naming the folder, never a pass;
+#   a machine requirement probes the machine. Nothing here flips a
+#   refusal into a pass: override policy stays with
+#   `requirements.evaluate` and the caller.
+# * Anything else: RAISES. `rough_cut_exists` is the one legacy
+#   exception - it is not in the vocabulary and is kept evaluating
+#   because the oracle's own tests pin it, but no new undeclared name
+#   is added beside it (`external_inputs.CHECKS` holds the same line:
+#   a check that does not exist is not a check that passes).
+
+
+LEGACY_PRECONDITION = "rough_cut_exists"
+"""The one undeclared name this module evaluates, kept for its own tests.
+
+`tests/test_timeline_oracle.py` pins the picture evaluation under this
+name, and the CLI defaults to it. It is NOT added to the requirement
+vocabulary - `tests/test_ren_one_real_edit.py` pins that it stays out -
+so no new undeclared name joins it."""
+
+
+LIVE_REQUIREMENTS = ("state.verify_reels.reel_build",)
+"""Declared names whose question is genuinely a timeline property.
+
+`state.verify_reels.reel_build` ("verify_reels needs reel_build from
+build_reels") asks whether the reel build output exists. Read off the
+screen rather than the paperwork, that is whether the live timeline
+SHOWS the built reel - exactly what `live_has_picture` measures. A
+declared name with no such reading is not listed here: it is answered
+by its own requirement check instead (see
+`evaluate_precondition_against_live`), because answering a disk or
+machine question from row counts would be the confident wrong answer -
+worse than a refusal."""
+
+
+LIVE_PRECONDITIONS: tuple = (LEGACY_PRECONDITION,) + LIVE_REQUIREMENTS
+"""Every name this module answers from the live rows.
+
+Reconciliation alias (vep-reconcile-the-two-gap-closers): the sibling
+lane (`vep-ren-register-the-touchup-capability`) named this tuple
+`LIVE_PRECONDITIONS` holding both the legacy name and the plan-declared
+reel goal, with the identical picture judgement for each. This lane's
+`LIVE_REQUIREMENTS` is the declared subset; the legacy name lives in
+`LEGACY_PRECONDITION`. The tuple joins them so both spellings resolve
+to the same two names - no third spelling is added, and the three-case
+evaluation below is unchanged."""
 
 
 def live_has_picture(live_rows: Mapping) -> bool:
@@ -194,33 +252,127 @@ def live_clip_count(live_rows: Mapping) -> int:
 
 
 def evaluate_precondition_against_live(
-    name: str, expected_rows: Mapping, live_rows: Mapping
+    name: str,
+    expected_rows: Mapping,
+    live_rows: Mapping,
+    context=None,
 ) -> dict:
     """One named precondition, judged against the live timeline.
 
-    `name` is currently `"rough_cut_exists"` only - the one precondition
-    this lane was asked to make evaluable. An unknown name RAISES rather
-    than answering, because a check that does not exist is not a check
-    that passes (`external_inputs.CHECKS` holds the same line).
+    Three cases, and only the first two answer:
 
-    Returns plain data: whether the LIVE timeline satisfies it, what the
-    records expected, and the hand-edit description beside it. The caller
-    decides what to do; this reports.
+    * `name` is the legacy `"rough_cut_exists"` or a live-readable
+      declared name in `LIVE_REQUIREMENTS`: answered from the live rows
+      - whether the LIVE timeline shows the cut the records claim -
+      with the hand-edit description beside it.
+    * `name` is any OTHER name in `requirements.all_requirements()`:
+      answered by the requirement's OWN check against `context` (a
+      `requirements.Context`, or an empty one when none is given) and
+      reported verbatim - satisfied or not, never flipped. A name the
+      requirement layer cannot answer from that context reports
+      UNSATISFIED saying what is missing, not a pass.
+    * Anything else RAISES rather than answering, because a check that
+      does not exist is not a check that passes
+      (`external_inputs.CHECKS` holds the same line).
+
+    Returns plain data. The caller decides what to do; this reports.
     """
-    if name != "rough_cut_exists":
-        raise TimelineOracleError(
-            f"unknown live precondition {name!r}; the only one this "
-            f"module evaluates is 'rough_cut_exists'."
+    if name == LEGACY_PRECONDITION or name in LIVE_REQUIREMENTS:
+        return _evaluate_picture_precondition(
+            name, expected_rows or {}, live_rows or {}
         )
-    expected = live_has_picture(expected_rows or {})
-    live = live_has_picture(live_rows or {})
-    diff = describe_hand_edits(expected_rows or {}, live_rows or {})
+    requirement = _declared_requirement(name)
+    if requirement is None:
+        raise TimelineOracleError(
+            f"unknown live precondition {name!r}; this module evaluates "
+            f"the legacy {LEGACY_PRECONDITION!r}, the live-readable "
+            f"declared requirement(s) {list(LIVE_REQUIREMENTS)}, and "
+            f"every other name in requirements.all_requirements() via "
+            f"its own check. A name in none of those is not a check "
+            f"that passes."
+        )
+    return _evaluate_declared_precondition(
+        requirement, expected_rows or {}, live_rows or {}, context
+    )
+
+
+def _declared_requirement(name: str):
+    """The requirement of that name, or None when the vocabulary has none.
+
+    The vocabulary is read, never widened: a live-timeline property
+    with no name here is a finding to report, not a name to invent.
+    """
+    from library.tools import requirements as _requirements
+
+    for requirement in _requirements.all_requirements():
+        if requirement.name == name:
+            return requirement
+    return None
+
+
+def _evaluate_picture_precondition(
+    name: str, expected_rows: Mapping, live_rows: Mapping
+) -> dict:
+    """Whether the LIVE timeline shows the cut the records claim.
+
+    The screen wins over the paperwork: records can claim a cut while
+    the timeline shows none, or claim none while he has already cut one
+    by hand. Either way the timeline answers.
+    """
+    expected = live_has_picture(expected_rows)
+    live = live_has_picture(live_rows)
+    diff = describe_hand_edits(expected_rows, live_rows)
     return {
         "precondition": name,
+        "basis": "live_timeline",
+        "declared": name in LIVE_REQUIREMENTS,
         "expected_picture": bool(expected),
         "live_picture": bool(live),
         "satisfied_by_live_timeline": bool(live),
         "records_agree_with_live": bool(expected) == bool(live),
+        "hand_edits": diff["intents"],
+        "changed": diff["changed"],
+    }
+
+
+def _evaluate_declared_precondition(
+    requirement, expected_rows: Mapping, live_rows: Mapping, context
+) -> dict:
+    """A declared, non-live-readable name via its own requirement check.
+
+    The check is the requirement's, run against `context` (an empty
+    `requirements.Context` when the caller gives none), and the verdict
+    is reported VERBATIM - satisfied or not. This never flips a refusal
+    into a pass and never invents satisfaction the check did not
+    return: an UNSATISFIED verdict names what is missing and what
+    produces it, which is what the caller needs to supply or run. The
+    live diff rides beside the verdict so the caller sees his hand
+    edits on the same surface.
+    """
+    from library.tools import requirements as _requirements
+
+    if context is None:
+        context = _requirements.Context()
+    try:
+        verdict = requirement.check(context)
+    except Exception as unreadable:
+        raise TimelineOracleError(
+            f"the requirement check for {requirement.name!r} could not "
+            f"be answered ({unreadable}); refusing rather than judging "
+            f"what cannot be seen."
+        ) from unreadable
+    diff = describe_hand_edits(expected_rows, live_rows)
+    return {
+        "precondition": requirement.name,
+        "basis": "requirement_check",
+        "declared": True,
+        "kind": requirement.kind,
+        "describe": requirement.describe,
+        "satisfied": bool(verdict.satisfied),
+        "source": verdict.source,
+        "reason": verdict.reason,
+        "missing": verdict.missing,
+        "produced_by": list(verdict.produced_by or ()),
         "hand_edits": diff["intents"],
         "changed": diff["changed"],
     }
@@ -371,30 +523,64 @@ def _intents_for_row(row: Mapping) -> list:
 def render_report(evaluation: Mapping) -> str:
     """The evaluation, in the sentences he has to read.
 
-    Every sentence says what HE did and that it is carried. No sentence
-    says drift, correct, fix, or reconcile: this lane detects and
-    describes, and deciding what to do about it is his call.
+    Every sentence says what HE did and that it is carried, or what the
+    records say and whether the run may proceed. No sentence says
+    drift, correct, fix, or reconcile: this lane detects and describes,
+    and deciding what to do about it is his call.
     """
     lines = []
     if evaluation.get("precondition"):
-        live = "shows" if evaluation.get("live_picture") else "shows no"
-        lines.append(
-            f"The live timeline {live} picture "
-            f"({evaluation.get('precondition')}: "
-            f"{'satisfied' if evaluation.get('satisfied_by_live_timeline') else 'not satisfied'} "
-            f"against the live cut)."
-        )
-        if not evaluation.get("records_agree_with_live", True):
-            lines.append(
-                "The pipeline records disagree with the live cut - the "
-                "timeline wins, because it is what you are looking at."
-            )
+        if "live_picture" in evaluation:
+            lines.extend(_render_picture_lines(evaluation))
+        elif "satisfied" in evaluation:
+            lines.extend(_render_verdict_lines(evaluation))
     intents = list(evaluation.get("hand_edits") or ())
     if not intents and not evaluation.get("changed"):
         lines.append("Nothing moved: the live cut matches the records.")
     for intent in intents:
         lines.append(intent.get("sentence", ""))
     return "\n".join(line for line in lines if line)
+
+
+def _render_picture_lines(evaluation: Mapping) -> list:
+    """The live-picture verdict, in his terms."""
+    live = "shows" if evaluation.get("live_picture") else "shows no"
+    lines = [
+        f"The live timeline {live} picture "
+        f"({evaluation.get('precondition')}: "
+        f"{'satisfied' if evaluation.get('satisfied_by_live_timeline') else 'not satisfied'} "
+        f"against the live cut)."
+    ]
+    if not evaluation.get("records_agree_with_live", True):
+        lines.append(
+            "The pipeline records disagree with the live cut - the "
+            "timeline wins, because it is what you are looking at."
+        )
+    return lines
+
+
+def _render_verdict_lines(evaluation: Mapping) -> list:
+    """A declared requirement's own verdict, quoted rather than judged.
+
+    Satisfied names HOW it held; unsatisfied quotes the requirement's
+    own reason and what makes it - the remedy the layer already wrote,
+    carried onto this surface.
+    """
+    name = evaluation.get("precondition")
+    if evaluation.get("satisfied"):
+        return [f"{name}: holds ({evaluation.get('source')})."]
+    lines = [f"{name}: does not hold - {evaluation.get('reason')}"]
+    producers = list(evaluation.get("produced_by") or ())
+    if producers:
+        lines.append(
+            f"To hold it, run: {', '.join(producers)}."
+        )
+    elif evaluation.get("missing"):
+        lines.append(
+            f"Missing: {evaluation.get('missing')} - nothing in the "
+            f"pipeline writes it, so it is supplied from outside."
+        )
+    return lines
 
 
 # ── Loading either side off disk ──────────────────────────────────
@@ -491,8 +677,11 @@ def main(argv=None) -> int:
                              "reading Resolve (demonstration without a "
                              "running Resolve)")
     parser.add_argument("--precondition", default="rough_cut_exists",
-                        help="the live precondition to evaluate "
-                             "(only 'rough_cut_exists')")
+                        help="the precondition to evaluate: the legacy "
+                             "'rough_cut_exists', a live-readable "
+                             "declared name, or any other name in "
+                             "requirements.all_requirements() (answered "
+                             "by its own check)")
     parser.add_argument("--project-folder", default=None,
                         help="pipeline project folder: refuses when a "
                              "build holds it")
@@ -521,10 +710,14 @@ def main(argv=None) -> int:
             timeline_label = args.timeline
         expected = load_rows(args.expected_rows) if args.expected_rows else {}
         diff = describe_hand_edits(expected, live)
+        from library.tools import requirements as _requirements
+
+        context = _requirements.Context(
+            project_folder=args.project_folder or "")
         evaluation = {
             "timeline": timeline_label,
             **evaluate_precondition_against_live(
-                args.precondition, expected, live),
+                args.precondition, expected, live, context),
         }
         # The diff's own sentences plus the evaluation: one surface.
         evaluation["report"] = render_report(evaluation)

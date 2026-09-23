@@ -204,6 +204,53 @@ def ask_reels(data: dict) -> dict:
     return {"reel_ask": record}
 
 
+def touch_reel(project_folder: str, spec: dict) -> dict:
+    """Apply a structured change to one built reel's existing timeline.
+
+    The `reel.touchup` operation. Its arguments come from a CALLER,
+    not from gathering - which reel, which item, what changes, stated
+    structurally - so the runner never drives it (see
+    `Operation.caller_supplied`). Reads nothing but its arguments,
+    REFUSES what is malformed, and calls
+    `library.tools.reel_touchup.apply_touchup`. That is the same shape
+    `build_reels` and `ask_reels` above have: this body owns no
+    touchup logic, and the composed-edit path stays one
+    implementation rather than growing a second beside it (Ruling 1,
+    `tests/test_operations_add_no_second_implementation.py`).
+
+    Malformed input RAISES: no project folder or a spec naming no
+    edits (`ValueError`), or a spec that is not a mapping at all
+    (`TypeError`). Anything Resolve-side - no such timeline, an
+    unclassifiable change, a mid-flight failure - raises the tool's
+    own `TouchupRefused` / `TouchupError` unwrapped, the way
+    `manage_project.py touch-reel` reports them.
+
+    Returns the RECORD of what was touched under `reel_touchup`: the
+    receipt `apply_touchup` wrote, carrying the gate class, the cost
+    statement and the verification read.
+    """
+    from library.tools import reel_touchup
+
+    if not project_folder:
+        raise ValueError(
+            "touch_reel needs a project_folder - the reel plan it "
+            "resolves the reel number through lives there, and there "
+            "is nothing to infer it from")
+    if not isinstance(spec, dict):
+        raise TypeError(
+            f"touch_reel needs a spec mapping (got {type(spec).__name__!r}) - "
+            f"the change stated structurally: which reel, which item, "
+            f"what changes")
+    if not spec.get("edits"):
+        raise ValueError(
+            "touch_reel needs a spec naming at least one edit - a "
+            "touchup with nothing to do is a caller that failed to say "
+            "what it wants")
+
+    receipt = reel_touchup.apply_touchup(project_folder, dict(spec))
+    return {"reel_touchup": receipt}
+
+
 def main():
     import json
     import sys

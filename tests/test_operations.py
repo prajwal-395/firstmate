@@ -83,8 +83,8 @@ def test_the_registry_carries_reel_operations():
         "by running a script directly - which is the defect the "
         "operation registry exists to remove")
     assert {op.name for op in REEL_OPERATIONS} == {
-        "reel.candidates", "reel.select", "reel.build", "reel.ask",
-        "reel.verify", "reel.gate_stills"}
+        "reel.candidates", "reel.select", "reel.build", "reel.touchup",
+        "reel.ask", "reel.verify", "reel.gate_stills"}
 
 
 def test_building_a_reel_is_addressable_and_not_only_a_subcommand():

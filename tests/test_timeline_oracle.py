@@ -12,7 +12,11 @@ Each test fails if its mechanism is removed:
   raises rather than reading;
 - the precondition is evaluable against the LIVE timeline: records
   claiming no cut while the timeline shows one answer from the screen,
-  not the paperwork.
+  not the paperwork;
+- a DECLARED name the plans speak evaluates too: the live-readable one
+  (`state.verify_reels.reel_build`) from the screen, every other
+  requirement name via its own check - and a name in neither the
+  vocabulary nor the legacy one raises rather than answering.
 """
 
 import json
@@ -172,6 +176,71 @@ def test_an_unknown_precondition_raises_rather_than_answering():
     live = _rows(_Timeline(_v1(_Item("LC4930.MXF", 0, 684))))
     with pytest.raises(oracle.TimelineOracleError):
         oracle.evaluate_precondition_against_live("does_it_slap", {}, live)
+
+
+def test_a_declared_live_name_answers_from_the_screen():
+    """`state.verify_reels.reel_build` is the declared reading of picture."""
+    expected = _rows(_Timeline({"video": {"V1": []}}))
+    live = _rows(_Timeline(_v1(_Item("LC4930.MXF", 0, 684))))
+    evaluation = oracle.evaluate_precondition_against_live(
+        "state.verify_reels.reel_build", expected, live)
+    assert evaluation["declared"] is True
+    assert evaluation["basis"] == "live_timeline"
+    assert evaluation["satisfied_by_live_timeline"] is True
+    assert evaluation["records_agree_with_live"] is False
+    assert "the timeline wins" in oracle.render_report(evaluation)
+
+
+def test_a_declared_live_name_reports_an_empty_timeline():
+    live = _rows(_Timeline({"video": {"V1": []}}))
+    evaluation = oracle.evaluate_precondition_against_live(
+        "state.verify_reels.reel_build", {}, live)
+    assert evaluation["satisfied_by_live_timeline"] is False
+    assert "not satisfied" in oracle.render_report(evaluation)
+
+
+def test_every_precondition_the_rebuild_declares_evaluates():
+    """Each of `reel.build`'s six names answers rather than raising.
+
+    Live-readable or not: the screen answers what is on it and the
+    requirement's own check answers the rest - verbatim, never flipped.
+    """
+    from library.tools import operations as _operations
+
+    build = next(op for op in _operations.all() if op.name == "reel.build")
+    assert len(build.requires) == 6
+    for requirement in build.requires:
+        evaluation = oracle.evaluate_precondition_against_live(
+            requirement.name, {}, {})
+        assert evaluation["precondition"] == requirement.name
+        assert evaluation["declared"] is True
+        assert evaluation["basis"] == "requirement_check"
+        assert evaluation["kind"] == requirement.kind
+
+
+def test_a_delegated_refusal_names_what_is_missing():
+    """No folder, no transcript: UNSATISFIED, reported - never a pass."""
+    evaluation = oracle.evaluate_precondition_against_live(
+        "timeline_transcript.on_file", {}, {})
+    assert evaluation["satisfied"] is False
+    assert evaluation["missing"] == "timeline_transcript"
+    report = oracle.render_report(evaluation)
+    assert "timeline_transcript.on_file" in report
+    assert "does not hold" in report
+    assert "Missing: timeline_transcript" in report
+
+
+def test_a_delegated_machine_verdict_probes_the_machine():
+    """`env.resolve_scripting` answers from this machine, honestly."""
+    evaluation = oracle.evaluate_precondition_against_live(
+        "env.resolve_scripting", {}, {})
+    assert evaluation["satisfied"] in (True, False)
+    assert evaluation["kind"] == "environment"
+    report = oracle.render_report(evaluation)
+    if evaluation["satisfied"]:
+        assert "holds" in report
+    else:
+        assert "does not hold" in report
 
 
 def test_exact_names_win_and_prefixes_refuse():
