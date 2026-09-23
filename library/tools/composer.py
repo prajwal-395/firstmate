@@ -139,6 +139,14 @@ class Composition:
     detail: str = ""
     """The requirement's own `describe`, for the one line the refusal
     quotes.  Empty on a completed plan and on an unknown goal."""
+    selection: tuple[RouteSelection, ...] = ()
+    """The post-composition route choice, one entry per planned node.
+
+    Empty on every `compose` plan - the context-free path names the
+    representative and narrates nothing - and populated by
+    `compose_with_change`, where the selector may have preferred a
+    sibling.  `describe_plan` renders it; `as_record` carries it only
+    when non-empty."""
 
     def __post_init__(self):
         if self.status not in STATUSES:
@@ -194,7 +202,7 @@ class Composition:
 
     def as_record(self) -> dict:
         """The flat form for a log line or a hook payload."""
-        return {
+        record = {
             "goal": self.goal,
             "status": self.status,
             "operations": list(self.operations),
@@ -206,6 +214,9 @@ class Composition:
             "blocker_is_machine": self.blocker_is_machine,
             "chain": list(self.chain),
         }
+        if self.selection:
+            record["selection"] = [s.as_record() for s in self.selection]
+        return record
 
 
 def representative(node_id: str) -> str:
@@ -391,6 +402,369 @@ def compose(goal: str) -> Composition:
         assumes_outside=tuple(sorted(outside)))
 
 
+# ── Post-composition selection between equivalent routes ──────────
+#
+# `_closure` plans over NODES and `representative` attaches one
+# operation per node by a static tie-break, so the search itself can
+# never prefer the cheap route: two siblings with identical `requires`
+# and `effect` are indistinguishable at that layer, correctly.  The
+# selector below runs AFTER composition, where runtime context exists:
+# the asked change (structured) and the gate's verdict over a live
+# track read.  It steers no declaration - every sibling keeps
+# declaring the same effect - it only names which sibling serves the
+# asked change.
+#
+# `compose` stays the context-free path (representative throughout, a
+# pure function of the registry); `compose_with_change` is the entry
+# point that consults the selector.
+
+
+@dataclass(frozen=True)
+class RouteSelection:
+    """Which sibling serves one planned node, and why.
+
+    `decided_by` is `"selector"` when runtime context chose, or
+    `"representative"` when the static tie-break stands (no change
+    spec, no track read, a node with no change gate, or a gate
+    refusal falling back to the full route).  `gate_class` is the
+    `reel_touchup.qualify` verdict (`"composed"`,
+    `"composed_with_rederivation"`, or `"refused"`) and empty when
+    the gate was never consulted.  `reason` narrates the choice for
+    the plan record: which route won, what the other route would
+    have done differently, and - when the rebuild is the fallback -
+    that the rebuild is not an always-available slow path.
+    """
+
+    node: str
+    operation: str
+    decided_by: str
+    gate_class: str = ""
+    reason: str = ""
+    alternatives: tuple[str, ...] = ()
+    measured_basis_cited: bool = False
+
+    def as_record(self) -> dict:
+        """The flat form for a log line or a hook payload."""
+        return {
+            "node": self.node,
+            "operation": self.operation,
+            "decided_by": self.decided_by,
+            "gate_class": self.gate_class,
+            "reason": self.reason,
+            "alternatives": list(self.alternatives),
+            "measured_basis_cited": self.measured_basis_cited,
+        }
+
+
+SELECTOR = "selector"
+REPRESENTATIVE_FALLBACK = "representative"
+
+MEASURED_TOUCHUP_BASIS = {
+    "edit_classes": ("swap_pixels",),
+    "reel": 26,
+    "date": "2026-09-22",
+    "cache": "warm Fusion cache",
+    "touchup_seconds": 2.37,
+    "rebuild_seconds": 208,
+    "ratio": "~88x",
+}
+"""The ONE measured cost basis the selector may cite, quoted verbatim.
+
+One reel (Reel 26), one edit class (the ending swap: `swap_pixels`),
+2026-09-22, warm Fusion cache: 2.37s touchup vs 208s rebuild, ~88x.
+Tie-breaking justification in the plan record, never arithmetic to
+optimise over - and cited ONLY for the class it was measured on
+(risk 5: it testifies about nothing else, so entry motion and
+property setting never borrow it)."""
+
+DIVERGENCE_NOTE = (
+    "same state key, different pixel truth: a rebuild re-derives "
+    "captions, grades and overlays from current state, while a "
+    "touchup deliberately does not (no Fusion pass, no caption "
+    "re-render) - it keeps the approved body pixels as they stand.")
+"""Why the cheap route is not just the slow route done faster."""
+
+REBUILD_FALLBACK_CAVEAT = (
+    "the rebuild is not an always-available slow path: on the "
+    "measured reel (Reel 26) it refuses at verify today on an "
+    "unrelated body-caption finding, so a refused touchup routed "
+    "to the rebuild risks a ~208s refusal, not a ~208s success.")
+"""Why falling back to the rebuild narrates its own viability."""
+
+
+def _select_build_reels(node_id: str, owned: tuple,
+                         change_spec, tracks) -> RouteSelection:
+    """Choose among `build_reels`' change-serving siblings.
+
+    Candidates are the default full route (`representative`, today
+    `reel.build`) plus every caller-supplied sibling - `reel.touchup`,
+    `reel.entry_motion`, `reel.set_properties`.  `reel.ask` shares the
+    derived effect but takes no change spec and writes asks, not reel
+    state, so it is out of the candidate set by its own contract,
+    not by a bent declaration.  The gate (`reel_touchup.qualify`,
+    pure over the track read) decides: `composed` routes to the
+    narrowest operation covering the spec's edit kinds, a refusal
+    routes to the rebuild with the refusal and the fallback caveat
+    surfaced.
+    """
+    from library.tools import operations as ops_mod
+
+    default = representative(node_id)
+    siblings = sorted(op.name for op in owned if op.caller_supplied)
+    candidates = [default] + [s for s in siblings if s != default]
+
+    if change_spec is None:
+        return RouteSelection(
+            node=node_id, operation=default,
+            decided_by=REPRESENTATIVE_FALLBACK,
+            reason=("no change spec supplied: the static tie-break "
+                    f"stands ({default}). The cheap route is chosen "
+                    "only when a change is actually asked."),
+            alternatives=tuple(candidates[1:]))
+    if tracks is None:
+        return RouteSelection(
+            node=node_id, operation=default,
+            decided_by=REPRESENTATIVE_FALLBACK,
+            reason=("a change was asked but no live track read was "
+                    "supplied: the gate reads tracks, not prose, so "
+                    f"the static tie-break stands ({default})."),
+            alternatives=tuple(candidates[1:]))
+
+    from library.tools import reel_touchup as touchup_mod
+
+    try:
+        qualification = touchup_mod.qualify(tracks, change_spec)
+    except touchup_mod.TouchupRefused as refused:
+        return RouteSelection(
+            node=node_id, operation=default,
+            decided_by=SELECTOR, gate_class="refused",
+            reason=(f"the touchup gate refused ({refused}). "
+                    f"Falling back to {default}. {DIVERGENCE_NOTE} "
+                    f"{REBUILD_FALLBACK_CAVEAT}"),
+            alternatives=tuple(candidates[1:]))
+
+    edits = [e.get("op") for e in (change_spec.get("edits") or ())
+             if isinstance(e, Mapping)]
+    if edits and all(op == "set_properties" for op in edits):
+        chosen = "reel.set_properties"
+        why_narrow = ("every edit writes properties in place (no "
+                      "delete, no place)")
+    elif edits and all(op == "entry_motion" for op in edits):
+        chosen = "reel.entry_motion"
+        why_narrow = ("every edit animates an overlay entry in place")
+    else:
+        chosen = "reel.touchup"
+        why_narrow = ("the spec spans the touchup's mixed edit kinds")
+    if chosen not in ops_mod.names():
+        raise ComposerError(
+            f"selector chose {chosen!r} for {node_id!r}, which the "
+            f"registry no longer names; refusing rather than "
+            f"planning a route nothing owns")
+    gate_class = qualification.gate_class
+    basis = ""
+    cited = False
+    if (gate_class == touchup_mod.COMPOSED
+            and edits and all(op == "swap_pixels" for op in edits)):
+        cited = True
+        basis = (f" Measured basis (cited, not optimised over): "
+                 f"{MEASURED_TOUCHUP_BASIS['touchup_seconds']}s "
+                 f"touchup vs {MEASURED_TOUCHUP_BASIS['rebuild_seconds']}s "
+                 f"rebuild "
+                 f"({MEASURED_TOUCHUP_BASIS['ratio']}) on Reel "
+                 f"{MEASURED_TOUCHUP_BASIS['reel']}, "
+                 f"{MEASURED_TOUCHUP_BASIS['date']}, "
+                 f"{MEASURED_TOUCHUP_BASIS['cache']}.")
+    elif gate_class == touchup_mod.COMPOSED_WITH_REDERIVATION:
+        basis = (f" {qualification.cost_statement}")
+    else:
+        basis = (" No measured cost basis is cited for this edit "
+                 "class: the 88x figure was an ending swap "
+                 "(`swap_pixels`) on Reel 26, 2026-09-22, and "
+                 "testifies about nothing else.")
+    return RouteSelection(
+        node=node_id, operation=chosen, decided_by=SELECTOR,
+        gate_class=gate_class,
+        reason=(f"gate {gate_class}: {why_narrow}, so {chosen} "
+                f"serves the change.{basis} {DIVERGENCE_NOTE}"),
+        alternatives=tuple(c for c in candidates if c != chosen),
+        measured_basis_cited=cited)
+
+
+def _select_representative_fallback(node_id: str, owned: tuple,
+                                    change_spec,
+                                    tracks) -> RouteSelection:
+    """Explicit stand-pat for a node with no change gate.
+
+    Several nodes own sibling operations with one shared effect but
+    no sibling takes a structured change - there is no gate to ask
+    and no track read to ask it over - so the static tie-break
+    stands.  The entry exists so the coverage guard can tell
+    "considered, nothing to select" apart from "never considered":
+    adding a caller-supplied sibling here must update this entry,
+    not silently inherit it.
+    """
+    default = representative(node_id)
+    others = sorted(op.name for op in owned if op.name != default)
+    return RouteSelection(
+        node=node_id, operation=default,
+        decided_by=REPRESENTATIVE_FALLBACK,
+        reason=(f"no change gate for {node_id}: the static tie-break "
+                f"stands ({default}). A future caller-supplied "
+                f"sibling must give this node a real selector."),
+        alternatives=tuple(others))
+
+
+_SELECTORS = {
+    "build_reels": _select_build_reels,
+    "plan_subtitles": _select_representative_fallback,
+    "render_subtitles": _select_representative_fallback,
+    "select_reels": _select_representative_fallback,
+    "temporal_index": _select_representative_fallback,
+}
+"""Every routable multi-operation node, mapped to its selector.
+
+"Routable" means owning more than one operation with a non-empty
+derived effect - the set `compose` can actually name.  Empty-effect
+operations (THE NINE) are composer-blind by design and never reach
+selection, so they need none.  The risk-4 guard
+(`tests/test_ren_selection_between_equivalent_routes.py`) fails the
+moment a node outgrows this map: a new route must arrive
+chosen-by-design, never inheriting the tie-break in silence."""
+
+
+def selector_coverage() -> tuple[str, ...]:
+    """Every node with an explicit selector entry, sorted."""
+    return tuple(sorted(_SELECTORS))
+
+
+def select_operation(node_id: str, change_spec=None,
+                     tracks=None) -> RouteSelection:
+    """Name the sibling serving `node_id` for the asked change.
+
+    Single-route nodes return the representative without consulting
+    anything.  Multi-route nodes go through their `_SELECTORS`
+    entry; a node that outgrew the map REFUSES rather than silently
+    inheriting the tie-break.  A non-mapping change spec is a caller
+    error and raises: garbage must never route to a 208s rebuild in
+    silence.
+    """
+    from library.tools import operations as ops_mod
+
+    owned = ops_mod.by_node(node_id)
+    if not owned:
+        raise ComposerError(
+            f"no registered operation is owned by {node_id!r}; the "
+            f"composer plans capabilities, not bare nodes")
+    effects: dict[tuple, list] = {}
+    for op in owned:
+        key = tuple(r.name for r in op.effect)
+        if key:
+            effects.setdefault(key, []).append(op.name)
+    if not any(len(group) > 1 for group in effects.values()):
+        default = representative(node_id)
+        others = sorted(op.name for op in owned if op.name != default)
+        return RouteSelection(
+            node=node_id, operation=default,
+            decided_by=REPRESENTATIVE_FALLBACK,
+            reason=(f"sole route to its effect: the static tie-break "
+                    f"stands ({default})."),
+            alternatives=tuple(others))
+    if change_spec is not None and not isinstance(change_spec, Mapping):
+        raise ComposerError(
+            f"a change spec has to be a mapping naming edits "
+            f"(e.g. {{'reel': 26, 'edits': [...]}}), not "
+            f"{change_spec!r}; refusing rather than routing prose "
+            f"to a rebuild")
+    handler = _SELECTORS.get(node_id)
+    if handler is None:
+        contenders = sorted(
+            name for group in effects.values() if len(group) > 1
+            for name in group)
+        raise ComposerError(
+            f"no selector covers {node_id!r}, whose siblings "
+            f"{contenders} share one effect; refusing rather than "
+            f"letting a new route inherit the tie-break in silence")
+    return handler(node_id, owned, change_spec, tracks)
+
+
+def compose_with_change(goal: str, change_spec=None,
+                        tracks=None) -> Composition:
+    """Resolve `goal` as `compose` does, then select the route.
+
+    `_closure` still plans over nodes (shortest capability set, same
+    refusals by name) and a refusal returns unchanged - there is no
+    route to choose.  On a completed plan each node goes through
+    `select_operation`: with a change spec and a track read the gate
+    may prefer a cheap sibling; without either the representative
+    stands, so `compose_with_change(goal)` with no change plans
+    exactly what `compose(goal)` plans.
+
+    `change_spec` is the structured change (`{"reel": N, "edits":
+    [...], "exclude": ...}`); `tracks` is the live track read the
+    gate qualifies it over - the same `reel_read.read_tracks` rows
+    `timeline_oracle.snapshot_live_rows` projects (the gate reads
+    the tracks, not the projection).  Neither is measured here.
+    """
+    from library.tools import operations as ops_mod
+    from library.tools import requirements as req_mod
+
+    name = (goal or "").strip()
+    if not name:
+        raise ComposerError(
+            "a goal has to name a requirement, e.g. "
+            "state.verify_reels.reel_build")
+
+    by_name = {r.name: r for r in req_mod.all_requirements()}
+    op_nodes = {op.owning_node for op in ops_mod.all()}
+    all_producers = {n: tuple(sorted(set(r.produced_by)))
+                     for n, r in by_name.items()}
+    capable = {n: tuple(sorted(set(r.produced_by) & op_nodes))
+               for n, r in by_name.items()}
+    needs = {op.owning_node: tuple(r.name for r in op.requires)
+             for op in ops_mod.all()}
+
+    req = by_name.get(name)
+    if req is None or not all_producers.get(name):
+        return Composition(
+            goal=name, status=REFUSED, unknown_goal=req is None,
+            blocker=name, blocker_producers=(),
+            blocker_is_machine=req is not None and req.kind
+            == req_mod.KIND_ENVIRONMENT,
+            detail="" if req is None else req.describe)
+
+    nodes, blocker, producers, chain = _closure(name, all_producers,
+                                                capable, needs)
+    if nodes is None:
+        by_blocker = by_name.get(blocker)
+        return Composition(
+            goal=name, status=REFUSED, blocker=blocker,
+            blocker_producers=producers,
+            blocker_is_machine=by_blocker is not None
+            and by_blocker.kind == req_mod.KIND_ENVIRONMENT,
+            chain=() if len(chain) < 2 else chain,
+            detail="" if by_blocker is None else by_blocker.describe)
+
+    selections = tuple(select_operation(n, change_spec, tracks)
+                       for n in nodes)
+    ordered_ops = tuple(s.operation for s in selections)
+    kinds = {n: r.kind for n, r in by_name.items()}
+    machine: list[str] = []
+    outside: list[str] = []
+    for node in nodes:
+        for req_name in needs.get(node, ()):
+            if all_producers.get(req_name):
+                continue
+            target = (machine if kinds.get(req_name)
+                      == req_mod.KIND_ENVIRONMENT else outside)
+            if req_name not in target:
+                target.append(req_name)
+    return Composition(
+        goal=name, status=COMPLETED, operations=ordered_ops,
+        assumes_machine=tuple(sorted(machine)),
+        assumes_outside=tuple(sorted(outside)),
+        selection=selections)
+
+
 def reachable_goals() -> tuple[str, ...]:
     """Every requirement name at least one capability produces.
 
@@ -424,6 +798,11 @@ def describe_plan(comp: Composition) -> str:
             said = by_name.get(req_name)
             what = f" - {said.describe}" if said is not None else ""
             lines.append(f"  - {req_name}{what}")
+    for sel in comp.selection:
+        lines.append("")
+        lines.append(f"route for {sel.node}: {sel.operation} "
+                     f"({sel.decided_by})")
+        lines.append(f"  {sel.reason}")
     return "\n".join(lines)
 
 
@@ -438,6 +817,16 @@ def main(argv=None) -> int:
                         "state.verify_reels.reel_build")
     parser.add_argument("--list", action="store_true",
                         help="list every goal a capability produces")
+    parser.add_argument("--change-spec", default=None,
+                        help=("inline JSON change spec, e.g. "
+                              "'{\"reel\": 26, \"edits\": [...]}': "
+                              "select the route serving the asked "
+                              "change instead of the representative"))
+    parser.add_argument("--tracks-file", default=None,
+                        help=("path to a JSON track read "
+                              "(`reel_read.read_tracks`) the change "
+                              "gate qualifies over; required with "
+                              "--change-spec"))
     args = parser.parse_args(argv)
 
     if args.list:
@@ -453,8 +842,35 @@ def main(argv=None) -> int:
               file=sys.stderr)
         return 2
 
+    change_spec = None
+    tracks = None
+    if args.change_spec is not None:
+        import json
+
+        try:
+            change_spec = json.loads(args.change_spec)
+        except json.JSONDecodeError as exc:
+            print(f"REFUSED: --change-spec is not JSON ({exc})",
+                  file=sys.stderr)
+            return 2
+        if args.tracks_file is None:
+            print("REFUSED: --change-spec needs --tracks-file: the "
+                  "gate reads tracks, not prose",
+                  file=sys.stderr)
+            return 2
+        try:
+            with open(args.tracks_file, encoding="utf-8") as handle:
+                tracks = json.load(handle)
+        except (OSError, ValueError) as exc:
+            print(f"REFUSED: cannot read --tracks-file ({exc})",
+                  file=sys.stderr)
+            return 2
+
     try:
-        comp = compose(args.goal)
+        if change_spec is None:
+            comp = compose(args.goal)
+        else:
+            comp = compose_with_change(args.goal, change_spec, tracks)
     except ComposerError as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return 2
