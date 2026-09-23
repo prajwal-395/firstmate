@@ -524,8 +524,6 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 
 **A reel is BUILT only once the captain approves it, and PROPOSED fails that gate as REJECTED does.** `library/tools/reel_proposal.py`; its four qualities: `library/tools/reel_quality_bar.py`.
 
-**A gate that cannot fail is worse than no gate, because it reads as coverage.** If you cannot make it read real state, delete it. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
-
 **Reaching the ENGINE is not reaching the REELS until MEASURED.** `library/tools/reel_divergence.py`. [why](docs/RULE_EVIDENCE.md#logo-on-one-reel)
 
 **A replace is a diff: promotion refuses an undeclared row loss.** `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
@@ -538,7 +536,7 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 
 **A recommendation is APPLICABLE where it is made, or it is an OBSERVATION that names who owns it.** `library/tools/cohesion_scope.py`. [why](docs/RULE_EVIDENCE.md#the-review-recommended-what-it-could-not-do)
 
-**A SKIPPED test must name an environment that runs it, and a test body must be able to fail.** `tests/test_no_unfailable_tests.py`. [why](docs/RULE_EVIDENCE.md#five-tests-skipped-in-every-environment)
+**The default answer to "should this have a test" is NO: a test earns its place by naming a defect; expensive tests justify their cost.** A gate that cannot fail is worse than no gate, because it reads as coverage; a SKIPPED test names a running environment, and a test body must be able to fail. Detail: `docs/TEST_AUTHORING.md`. [why](docs/RULE_EVIDENCE.md#gates-that-cannot-fail)
 
 **A gate that FAILS correct output is no more coverage than one that cannot fail.** `library/tools/pipeline_skills.py`. [why](docs/RULE_EVIDENCE.md#gates-that-fail-correct-output)
 
