@@ -241,7 +241,9 @@ lavish_board_live() {  # <establish output> <canonical-board-path>
 }
 
 # Establish the board session and PROVE it is live before anything arms a poll
-# on it. A session the captain ended is reopened once - the captain asked for
+# on it. An already-listed-open board is that proof without opening anything,
+# so a rebuild refreshes the open tab instead of opening a new one. A session
+# the captain ended is reopened once - the captain asked for
 # this board, which is exactly the attention `--reopen` exists for - and a
 # session that is still not live after that refuses the build rather than
 # arming a poll that can never attach.
@@ -249,6 +251,10 @@ establish_board_session() {  # <board>
   local board=$1 real out status version
   BOARD_SESSION_REOPENED=0
   real=$(board_realpath "$board") || fail "cannot resolve the board path: $board"
+  if lavish_session_listed_open "$real"; then
+    printf 'session: live\n'
+    return 0
+  fi
   out=$(lavish-axi "$board") || fail "cannot establish the board Lavish session"
   printf '%s\n' "$out"
   if lavish_board_live "$out" "$real"; then
