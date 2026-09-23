@@ -112,6 +112,7 @@ import argparse
 import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Optional
 
 COMPLETED = "completed"
 REFUSED = "refused"
@@ -457,7 +458,10 @@ class RouteSelection:
     the gate was never consulted.  `reason` narrates the choice for
     the plan record: which route won, what the other route would
     have done differently, and - when the rebuild is the fallback -
-    that the rebuild is not an always-available slow path.
+    that the rebuild is not an always-available slow path.  `style`
+    echoes the style context the call arrived with (None when the
+    video declares none): the seam follow-up selectors branch on,
+    recorded here rather than inferred later.
     """
 
     node: str
@@ -467,6 +471,7 @@ class RouteSelection:
     reason: str = ""
     alternatives: tuple[str, ...] = ()
     measured_basis_cited: bool = False
+    style: Optional[dict] = None
 
     def as_record(self) -> dict:
         """The flat form for a log line or a hook payload."""
@@ -518,7 +523,8 @@ REBUILD_FALLBACK_CAVEAT = (
 
 
 def _select_build_reels(node_id: str, owned: tuple,
-                         change_spec, tracks) -> RouteSelection:
+                         change_spec, tracks,
+                         style=None) -> RouteSelection:
     """Choose among `build_reels`' change-serving siblings.
 
     Candidates are the default full route (`representative`, today
@@ -530,7 +536,11 @@ def _select_build_reels(node_id: str, owned: tuple,
     pure over the track read) decides: `composed` routes to the
     narrowest operation covering the spec's edit kinds, a refusal
     routes to the rebuild with the refusal and the fallback caveat
-    surfaced.
+    surfaced.  `style` is carried, not read: the seam a follow-up
+    selector branches on, echoed on the selection.  The reel identity
+    a follow-up matches it against is the change spec's `reel` - the
+    same identity `build_style_context` resolves the context with -
+    so the two meet without a second address.
     """
     from library.tools import operations as ops_mod
 
@@ -566,7 +576,8 @@ def _select_build_reels(node_id: str, owned: tuple,
             reason=(f"the touchup gate refused ({refused}). "
                     f"Falling back to {default}. {DIVERGENCE_NOTE} "
                     f"{REBUILD_FALLBACK_CAVEAT}"),
-            alternatives=tuple(candidates[1:]))
+            alternatives=tuple(candidates[1:]),
+            style=dict(style) if style is not None else None)
 
     edits = [e.get("op") for e in (change_spec.get("edits") or ())
              if isinstance(e, Mapping)]
@@ -612,11 +623,13 @@ def _select_build_reels(node_id: str, owned: tuple,
         reason=(f"gate {gate_class}: {why_narrow}, so {chosen} "
                 f"serves the change.{basis} {DIVERGENCE_NOTE}"),
         alternatives=tuple(c for c in candidates if c != chosen),
-        measured_basis_cited=cited)
+        measured_basis_cited=cited,
+        style=dict(style) if style is not None else None)
 
 
 def _select_verify_reels(node_id: str, owned: tuple,
-                         change_spec, tracks) -> RouteSelection:
+                         change_spec, tracks,
+                         style=None) -> RouteSelection:
     """The verdict route stands; the sibling serves no change.
 
     `verify_reels` owns two operations sharing one derived effect, and
@@ -629,6 +642,8 @@ def _select_verify_reels(node_id: str, owned: tuple,
     than producing any verdict.  No change gate reads tracks for this
     node, so a change spec does not route here either - the static
     tie-break stands, by design rather than by inheritance.
+    `style` is carried, not read: the seam a follow-up selector
+    branches on, echoed on the selection.
     """
     default = representative(node_id)
     assert default == "reel.verify", (
@@ -646,12 +661,14 @@ def _select_verify_reels(node_id: str, owned: tuple,
                 "stills for the gate to judge rather than producing any "
                 "verdict. No change gate reads tracks for this node, so "
                 "a change spec does not route here."),
-        alternatives=tuple(others))
+        alternatives=tuple(others),
+        style=dict(style) if style is not None else None)
 
 
 def _select_representative_fallback(node_id: str, owned: tuple,
                                      change_spec,
-                                     tracks) -> RouteSelection:
+                                     tracks,
+                                     style=None) -> RouteSelection:
     """Explicit stand-pat for a node with no change gate.
 
     Several nodes own sibling operations with one shared effect but
@@ -660,7 +677,8 @@ def _select_representative_fallback(node_id: str, owned: tuple,
     stands.  The entry exists so the coverage guard can tell
     "considered, nothing to select" apart from "never considered":
     adding a caller-supplied sibling here must update this entry,
-    not silently inherit it.
+    not silently inherit it.  `style` is carried, not read: the seam
+    a follow-up selector branches on, echoed on the selection.
     """
     default = representative(node_id)
     others = sorted(op.name for op in owned if op.name != default)
@@ -670,7 +688,8 @@ def _select_representative_fallback(node_id: str, owned: tuple,
         reason=(f"no change gate for {node_id}: the static tie-break "
                 f"stands ({default}). A future caller-supplied "
                 f"sibling must give this node a real selector."),
-        alternatives=tuple(others))
+        alternatives=tuple(others),
+        style=dict(style) if style is not None else None)
 
 
 _SELECTORS = {
@@ -702,7 +721,7 @@ def selector_coverage() -> tuple[str, ...]:
 
 
 def select_operation(node_id: str, change_spec=None,
-                     tracks=None) -> RouteSelection:
+                      tracks=None, style=None) -> RouteSelection:
     """Name the sibling serving `node_id` for the asked change.
 
     Single-route nodes return the representative without consulting
@@ -710,7 +729,15 @@ def select_operation(node_id: str, change_spec=None,
     entry; a node that outgrew the map REFUSES rather than silently
     inheriting the tie-break.  A non-mapping change spec is a caller
     error and raises: garbage must never route to a 208s rebuild in
-    silence.
+    silence.  `style` is the style context
+    (`video_prefs.build_style_context`: the `style` id, the merged
+    preferences, and the addressed `reel` where the caller has one -
+    the change spec's `reel` on the reels path, absent on a
+    single-video project), or None when the video declares none -
+    the context a follow-up selector branches on.  It reaches every
+    handler and is echoed on the selection; routing today reads
+    nothing from it, so a video with no style plans exactly what it
+    always planned.
     """
     from library.tools import operations as ops_mod
 
@@ -732,7 +759,8 @@ def select_operation(node_id: str, change_spec=None,
             decided_by=REPRESENTATIVE_FALLBACK,
             reason=(f"sole route to its effect: the static tie-break "
                     f"stands ({default})."),
-            alternatives=tuple(others))
+            alternatives=tuple(others),
+            style=dict(style) if style is not None else None)
     if change_spec is not None and not isinstance(change_spec, Mapping):
         raise ComposerError(
             f"a change spec has to be a mapping naming edits "
@@ -748,11 +776,11 @@ def select_operation(node_id: str, change_spec=None,
             f"no selector covers {node_id!r}, whose siblings "
             f"{contenders} share one effect; refusing rather than "
             f"letting a new route inherit the tie-break in silence")
-    return handler(node_id, owned, change_spec, tracks)
+    return handler(node_id, owned, change_spec, tracks, style)
 
 
 def compose_with_change(goal: str, change_spec=None,
-                        tracks=None) -> Composition:
+                         tracks=None, style=None) -> Composition:
     """Resolve `goal` as `compose` does, then select the route.
 
     `_closure` still plans over nodes (shortest capability set, same
@@ -761,7 +789,9 @@ def compose_with_change(goal: str, change_spec=None,
     `select_operation`: with a change spec and a track read the gate
     may prefer a cheap sibling; without either the representative
     stands, so `compose_with_change(goal)` with no change plans
-    exactly what `compose(goal)` plans.
+    exactly what `compose(goal)` plans.  `style` is the style context
+    (`video_prefs.build_style_context`), carried to every selection
+    and echoed on it; routing reads nothing from it yet.
 
     `change_spec` is the structured change (`{"reel": N, "edits":
     [...], "exclude": ...}`); `tracks` is the live track read the
@@ -808,7 +838,7 @@ def compose_with_change(goal: str, change_spec=None,
             chain=() if len(chain) < 2 else chain,
             detail="" if by_blocker is None else by_blocker.describe)
 
-    selections = tuple(select_operation(n, change_spec, tracks)
+    selections = tuple(select_operation(n, change_spec, tracks, style)
                        for n in nodes)
     ordered_ops = tuple(s.operation for s in selections)
     kinds = {n: r.kind for n, r in by_name.items()}

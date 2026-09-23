@@ -562,6 +562,21 @@ def load_pipeline_state(project_dir: str) -> dict:
             import sys
             print(describe_brand_absence(), file=sys.stderr)
 
+    # The video's own preferences (project layer in style.yaml,
+    # per-video layer in video.yaml - see library/tools/video_prefs).
+    # Loaded here so every run reads them with no command from the
+    # captain; a video that declares nothing contributes nothing, and
+    # a malformed declaration refuses the run by name.  Carried, not
+    # yet honoured: no step reads this key until its follow-up lands.
+    # The edit_video process addresses no reel; a caller that has one
+    # (the Ren change spec's `reel`) passes it to `build_style_context`.
+    if "video_preferences" not in state:
+        from library.tools import video_prefs as video_prefs_mod
+        loaded_prefs = video_prefs_mod.load_video_preferences(
+            project_dir)
+        if loaded_prefs is not None:
+            state["video_preferences"] = loaded_prefs
+
     # Fall back to manifest defaults for anything still missing
     manifest_path = LIBRARY_ROOT / "processes" / "edit_video" / "manifest.json"
     if manifest_path.exists():
