@@ -408,9 +408,14 @@ def preconditions_hold(evaluations) -> tuple[bool, list]:
 #
 # Read off the registry and the loop, never hardcoded: the reels
 # process's execution order, every operation each node owns, and - for
-# caller-supplied operations the runner cannot drive - the unbound
-# deduction, verified on main (`spec` unbound for the three touchup
-# siblings, `reel_label`/`timeline_name`/`frames` for the stills grab).
+# caller-supplied operations the runner cannot drive - the skip, which
+# is what `manage_project.cmd_build_reels` does with them: the loop
+# is not the caller that supplies their arguments, so it leaves them
+# out and runs the rest (`reel.build`, `reel.ask`, `reel.verify`).
+# The unbound deduction below names what each skipped op would have
+# refused on had the loop driven it (`spec` unbound for the three
+# touchup siblings, `reel_label`/`timeline_name`/`frames` for the
+# stills grab).
 
 
 def old_path_walk() -> list:
@@ -434,11 +439,11 @@ def old_path_walk() -> list:
                     {
                         "node": node_id,
                         "operation": op.name,
-                        "would": "refuse",
+                        "would": "skip",
                         "why": (
-                            f"caller-supplied: the runner cannot drive "
-                            f"it - {', '.join(required)} unbound without "
-                            f"a caller, so the loop refuses here."
+                            f"caller-supplied: the loop is not the caller "
+                            f"that supplies {', '.join(required)} - it "
+                            f"leaves this op out and runs the rest."
                         ),
                     }
                 )
@@ -732,11 +737,12 @@ def render_report(record: dict) -> str:
             f"{entry['operation']}: {entry['why']}"
         )
     lines.append(
-        "   NOTE: as coded, the loop refuses at the first "
-        "caller-supplied op after `reel.build` completes - "
-        "`reel.ask` and `verify_reels` never run. Part two "
-        "must route around that; it is reported here, not "
-        "fixed here."
+        "   NOTE: the loop leaves the caller-supplied ops out - "
+        "`reel.touchup`, `reel.entry_motion`, `reel.set_properties` "
+        "and `reel.gate_stills` take arguments only a caller supplies "
+        "- and runs the rest, so `reel.ask` and `verify_reels` run. "
+        "Part two measures that path against the composed one; the "
+        "contrast is reported here, not run here."
     )
     lines.append("")
 

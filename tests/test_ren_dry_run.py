@@ -285,8 +285,17 @@ def test_dry_run_wires_plan_selection_gate_and_preconditions(tmp_path):
     walk = record["old_path"]["walk"]
     assert walk, "the old path walks no operations at all"
     assert all(set(e) >= {"node", "operation", "would", "why"} for e in walk)
-    assert all(e["would"] in ("run", "refuse") for e in walk)
+    assert all(e["would"] in ("run", "skip") for e in walk)
     assert any(e["would"] == "run" for e in walk)
+    # The loop leaves the caller-supplied ops out and runs the rest,
+    # so the walk marks exactly those as skipped.
+    from library.tools import processes as processes_mod
+
+    reels_nodes = set(processes_mod.execution_order(processes_mod.REELS))
+    assert {e["operation"] for e in walk if e["would"] == "skip"} == {
+        op.name for op in ops_mod.all()
+        if op.caller_supplied and op.owning_node in reels_nodes
+    }
 
 
 def test_dry_run_refuses_a_missing_replacement_file(tmp_path):

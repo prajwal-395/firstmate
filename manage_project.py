@@ -1519,6 +1519,21 @@ def cmd_build_reels(args):
 
     for node_id in processes.execution_order(processes.REELS):
         for op in operations.by_node(node_id):
+            if op.caller_supplied:
+                # Caller-supplied operations take arguments only a
+                # caller supplies - the touchup's change spec, the
+                # stills grab's reel label and frames - handed in by
+                # the fix or gate that computed them. This loop is not
+                # such a caller, so it does not drive them: as coded
+                # it walked every owned op, and on a ready project
+                # `reel.build` completed and the loop then REFUSED at
+                # `reel.touchup` (`spec` unbound) before `reel.ask`
+                # ever ran. Skipped, never executed, and nothing is
+                # recorded for one. (The dry run's old-path walk in
+                # `library/tools/ren_dry_run.py` reads the same flag.)
+                print(f"{op.name}: skipped (caller-supplied)",
+                      file=sys.stderr)
+                continue
             result = op.execute(
                 project_folder,
                 skip_captions=args.skip_captions,
