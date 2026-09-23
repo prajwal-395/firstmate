@@ -31,10 +31,18 @@ trap cleanup_kimi_harness EXIT
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  # A fake `herdr` CLI emulating the spawn-time container lifecycle plus the
+  # Kimi screen state machine the delivery checks read. Container calls
+  # (workspace/tab create) succeed with fixed ids; `pane send-text` logs the
+  # launch literal vs the brief pointer exactly like the old send-keys fake
+  # did; `pane send-keys enter` drives the Kimi state; `pane read` serves the
+  # screens; `agent get` reports working while the pointer is unconfirmed.
+  # `pane get` always reports pane_not_found: spawn never inspects presence,
+  # and teardown's gate treats that structured absence as confirmed gone.
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
-printf '%s\n' "$*" >> "$FM_FAKE_TMUX_CALL_LOG"
+printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CALL_LOG"
 state=$(cat "$FM_FAKE_KIMI_STATE" 2>/dev/null || true)
 fake_screen() {
   case "$state" in
@@ -52,86 +60,103 @@ fake_screen() {
       ;;
   esac
 }
-fake_cursor_y() {
+fake_agent_status() {
   case "$state" in
-    pointer-typed) printf '3\n' ;;
-    ready|delivered) printf '3\n' ;;
-    *) printf '1\n' ;;
+    pointer-typed) printf 'working' ;;
+    *) printf 'idle' ;;
   esac
 }
 case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "$FM_FAKE_PANE_PATH"; exit 0 ;;
-  *"#{cursor_y}"*) fake_cursor_y; exit 0 ;;
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
 esac
 case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
-  send-keys)
-    prev=
-    literal=
-    for arg in "$@"; do
-      if [ "$prev" = -l ]; then literal=$arg; break; fi
-      prev=$arg
-    done
-    if [ -n "$literal" ]; then
-      case "$literal" in
-        *' --auto')
-          printf '%s\n' "$literal" >> "$FM_FAKE_LAUNCH_LOG"
-          printf 'launched\n' > "$FM_FAKE_KIMI_STATE"
-          ;;
-        *)
-          printf '%s\n' "$literal" >> "$FM_FAKE_POINTER_LOG"
-          printf 'pointer-typed\n' > "$FM_FAKE_KIMI_STATE"
-          ;;
-      esac
-      exit 0
-    fi
-    case " $* " in
-      *' Enter '*)
-        case "$state" in
-          launched)
-            if [ "${FM_FAKE_KIMI_READY:-yes}" = yes ]; then
-              printf 'ready\n' > "$FM_FAKE_KIMI_STATE"
-            fi
+  workspace)
+    case "${2:-}" in
+      list) printf '{"result":{"workspaces":[]}}\n' ;;
+      create) printf '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"seedtab1"},"root_pane":{"pane_id":"seedpane1"}}}\n' ;;
+    esac
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list) printf '{"result":{"tabs":[]}}\n' ;;
+      create) printf '{"result":{"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}\n' ;;
+      close) exit 0 ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      get)
+        # Presence + worktree discovery read. The pane resolves with the
+        # worktree as its foreground cwd while the test runs; once the test
+        # retires the endpoint (FM_FAKE_HERDR_PANES_GONE=1) it reports the
+        # structured absence teardown's gate requires.
+        if [ "${FM_FAKE_HERDR_PANES_GONE:-0}" = 1 ]; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        else
+          printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' \
+            "$3" "${FM_FAKE_PANE_PATH:-/nonexistent}"
+        fi ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close|run) exit 0 ;;
+      send-text)
+        # Adapter shape: pane send-text <pane> <text> --session <session>.
+        literal=$4
+        case "$literal" in
+          *' --auto')
+            printf '%s\n' "$literal" >> "$FM_FAKE_LAUNCH_LOG"
+            printf 'launched\n' > "$FM_FAKE_KIMI_STATE"
             ;;
-          pointer-typed)
-            if [ "${FM_FAKE_KIMI_DELIVERY:-yes}" = yes ]; then
-              if [ "${FM_FAKE_KIMI_SWALLOW_FIRST:-no}" = yes ] \
-                 && [ ! -f "$FM_FAKE_KIMI_SWALLOWED" ]; then
-                : > "$FM_FAKE_KIMI_SWALLOWED"
-              else
-                printf 'delivered\n' > "$FM_FAKE_KIMI_STATE"
-              fi
-            else
-              printf 'ready\n' > "$FM_FAKE_KIMI_STATE"
-            fi
+          *)
+            printf '%s\n' "$literal" >> "$FM_FAKE_POINTER_LOG"
+            printf 'pointer-typed\n' > "$FM_FAKE_KIMI_STATE"
             ;;
         esac
-        ;;
+        exit 0 ;;
+      send-keys)
+        # Adapter shape: pane send-keys <pane> enter --session <session>.
+        case " $* " in
+          *' enter '*)
+            case "$state" in
+              launched)
+                if [ "${FM_FAKE_KIMI_READY:-yes}" = yes ]; then
+                  printf 'ready\n' > "$FM_FAKE_KIMI_STATE"
+                fi
+                ;;
+              pointer-typed)
+                if [ "${FM_FAKE_KIMI_DELIVERY:-yes}" = yes ]; then
+                  if [ "${FM_FAKE_KIMI_SWALLOW_FIRST:-no}" = yes ] \
+                     && [ ! -f "$FM_FAKE_KIMI_SWALLOWED" ]; then
+                    : > "$FM_FAKE_KIMI_SWALLOWED"
+                  else
+                    printf 'delivered\n' > "$FM_FAKE_KIMI_STATE"
+                  fi
+                else
+                  printf 'ready\n' > "$FM_FAKE_KIMI_STATE"
+                fi
+                ;;
+            esac
+            ;;
+        esac
+        exit 0 ;;
+      read) fake_screen; exit 0 ;;
     esac
-    exit 0
-    ;;
-  capture-pane)
-    start= end= prev=
-    for arg in "$@"; do
-      case "$prev" in
-        -S) start=$arg ;;
-        -E) end=$arg ;;
-      esac
-      case "$arg" in -S|-E) prev=$arg ;; *) prev= ;; esac
-    done
-    case "$start:$end" in
-      *[!0-9:]*|'':*|*:'') fake_screen ;;
-      *) fake_screen | awk -v start="$start" -v end="$end" \
-           'NR - 1 >= start && NR - 1 <= end' ;;
-    esac
-    exit 0
-    ;;
+    exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "$(fake_agent_status)"
+    exit 0 ;;
+  server) exit 0 ;;
+  session)
+    # Presentation lock resolution: exactly one running session with a
+    # stable fake socket path, so the lock hash never collides with live
+    # fleet locks.
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-kimi-fake-herdr.sock"}]}\n'
+    exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/herdr"
   fm_fake_exit0 "$fakebin" treehouse gh-axi gh
   fm_fake_exit0 "$fakebin" kimi
   ln -s "$JQ_BIN" "$fakebin/jq"
@@ -161,23 +186,27 @@ EOF
   : > "$case_dir/launch.log"
   : > "$case_dir/pointer.log"
   : > "$case_dir/kimi.state"
-  : > "$case_dir/tmux-calls.log"
+  : > "$case_dir/herdr-calls.log"
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin"
 }
 
 run_spawn() {
   local case_dir=$1 home=$2 proj=$3 wt=$4 fakebin=$5 id=$6
   shift 6
+  # The suite itself may run inside a herdr pane; its launcher binding must
+  # not leak into the spawn, which would otherwise try to verify a parent
+  # workspace against the fake backend instead of taking the per-home path.
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
   HOME="$home" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" \
     FM_FAKE_LAUNCH_LOG="$case_dir/launch.log" \
     FM_FAKE_POINTER_LOG="$case_dir/pointer.log" \
     FM_FAKE_KIMI_STATE="$case_dir/kimi.state" \
     FM_FAKE_KIMI_SWALLOWED="$case_dir/kimi.swallowed" \
     FM_FAKE_KIMI_SWALLOW_FIRST="${FM_FAKE_KIMI_SWALLOW_FIRST:-no}" \
-    FM_FAKE_TMUX_CALL_LOG="$case_dir/tmux-calls.log" \
+    FM_FAKE_HERDR_CALL_LOG="$case_dir/herdr-calls.log" \
     FM_FAKE_BRIEF_REAL="$(cd "$home/data/$id" && pwd -P)/launch-brief.md" \
     FM_KIMI_READY_POLLS=2 FM_KIMI_DELIVERY_POLLS=2 FM_KIMI_POLL_INTERVAL=0 \
     PATH="$fakebin:$BASE_PATH" \
@@ -221,9 +250,9 @@ test_kimi_launch_then_send_is_verified() {
   assert_grep 'effort=high' "$meta" "kimi meta did not retain the unsupported effort axis"
   assert_grep "tasktmp=$task_tmp" "$meta" "kimi meta did not record its task temp root"
   assert_present "$task_tmp/gotmp" "kimi spawn did not create its Go temp directory"
-  assert_grep "export GOTMPDIR=$task_tmp/gotmp" "$CASE_DIR/tmux-calls.log" \
+  assert_grep "export GOTMPDIR=$task_tmp/gotmp" "$CASE_DIR/herdr-calls.log" \
     "kimi spawn did not export its Go temp directory into the pane"
-  assert_grep "export FM_TASK_ID=$id" "$CASE_DIR/tmux-calls.log" \
+  assert_grep "export FM_TASK_ID=$id" "$CASE_DIR/herdr-calls.log" \
     "kimi spawn did not mark the pane with its task id"
   assert_grep 'BEGIN FIRSTMATE KIMI TURN-END HOOK' "$HOME_DIR/.kimi-code/config.toml" \
     "kimi spawn did not install its guarded global hook region"
@@ -422,8 +451,8 @@ test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation() {
   out=$(run_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id") || rc=$?
   [ "$rc" -ne 0 ] || fail "Kimi spawn accepted malformed global config"
   assert_contains "$out" "malformed TOML" "Kimi spawn omitted the concrete config refusal"
-  if grep -Eq '(^| )new-(session|window)( |$)' "$CASE_DIR/tmux-calls.log"; then
-    fail "unsafe Kimi config refusal created a tmux container or pane"
+  if grep -Eq '(^| )(workspace create|tab create)( |$)' "$CASE_DIR/herdr-calls.log"; then
+    fail "unsafe Kimi config refusal created a herdr container or pane"
   fi
   pass "fm-spawn: unsafe Kimi global config refuses before pane creation"
 }
@@ -441,7 +470,8 @@ test_kimi_teardown_removes_pointer_and_registry_token() {
   HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" \
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
-    FM_SPAWN_NO_GUARD=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
+    FM_SPAWN_NO_GUARD=1 FM_FAKE_HERDR_CALL_LOG="$CASE_DIR/herdr-calls.log" \
+    FM_FAKE_HERDR_PANES_GONE=1 PATH="$FAKEBIN_DIR:$BASE_PATH" \
     "$TEARDOWN" "$id" --force >/dev/null 2>&1 || fail "Kimi teardown failed"
   assert_absent "$WT_DIR/.fm-kimi-turnend" "Kimi token pointer survived teardown"
   assert_absent "$HOME_DIR/.kimi-code/fm-turn-end.d/$token" "Kimi registry token survived teardown"
@@ -479,8 +509,8 @@ test_kimi_missing_binary_refuses_before_pane_creation() {
   [ "$rc" -ne 0 ] || fail "missing Kimi executable should refuse the spawn"
   assert_contains "$out" "searched PATH for 'kimi'" "missing Kimi diagnostic omitted PATH"
   assert_contains "$out" "fallback '$fallback'" "missing Kimi diagnostic omitted expanded fallback"
-  if grep -Eq '(^| )new-(session|window)( |$)' "$CASE_DIR/tmux-calls.log"; then
-    fail "missing Kimi executable created a tmux container or pane"
+  if grep -Eq '(^| )(workspace create|tab create)( |$)' "$CASE_DIR/herdr-calls.log"; then
+    fail "missing Kimi executable created a herdr container or pane"
   fi
   pass "fm-spawn: missing Kimi executable refuses before pane creation"
 }
@@ -587,47 +617,50 @@ SH
 }
 
 test_kimi_busy_signature_is_scoped_to_spinner_lines() {
-  local capture
+  local fixture
   # shellcheck source=/dev/null
-  . "$ROOT/bin/fm-tmux-lib.sh"
+  . "$ROOT/bin/fm-composer-lib.sh"
   unset FM_BUSY_REGEX
-  capture="$TMP_ROOT/busy-pane"
-  tmux() {
-    case "${1:-}" in
-      capture-pane) cat "$capture" ;;
-      *) return 0 ;;
-    esac
-  }
   # These fixtures reproduce the observed spinner shape rather than byte-exact
   # transcriptions. Leading whitespace is deliberately varied; separator whitespace
-  # follows the captured contract.
+  # follows the captured contract. They feed the shared harness-scoped line
+  # matcher directly: the removed tmux pane reader only ever passed its
+  # non-blank tail rows through unchanged, and none of these fixtures has a
+  # blank row for that reduction to remove.
+  busy() { printf '%s' "$fixture" | fm_busy_lines_match "$1"; }
   local phase
   for phase in 🌑 🌒 🌓 🌔 🌕 🌖 🌗 🌘; do
-    printf '  %s · Tip: Kimi is working\n│ > │\n' "$phase" > "$capture"
-    fm_pane_is_busy fake kimi || fail "Kimi spinner phase $phase was not recognized as busy"
+    printf -v fixture '  %s · Tip: Kimi is working\n│ > │\n' "$phase"
+    busy kimi || fail "Kimi spinner phase $phase was not recognized as busy"
   done
-  printf 'ordinary response ending with 🌕\n│ > │\n' > "$capture"
-  if fm_pane_is_busy fake kimi; then
+  fixture='ordinary response ending with 🌕
+│ > │'
+  if busy kimi; then
     fail "a moon outside Kimi's spinner-line shape was misread as busy"
   fi
-  printf '🌕 Full moon details\n│ > │\n' > "$capture"
-  if fm_pane_is_busy fake kimi; then
+  fixture='🌕 Full moon details
+│ > │'
+  if busy kimi; then
     fail "moon-led Kimi output without the middot separator was misread as busy"
   fi
-  printf '  🌗 · Tip: /plugins: manage plugins ...\n│ > │\n' > "$capture"
-  if fm_pane_is_busy fake codex; then
+  fixture='  🌗 · Tip: /plugins: manage plugins ...
+│ > │'
+  if busy codex; then
     fail "Kimi's real spinner signature leaked into another harness"
   fi
-  printf 'tip: ctrl+c: cancel\n│ > │\n' > "$capture"
-  if fm_pane_is_busy fake kimi; then
+  fixture='tip: ctrl+c: cancel
+│ > │'
+  if busy kimi; then
     fail "kimi's independently rotating idle tip was misread as busy"
   fi
-  printf 'Ctrl+c:cancel\n│ > │\n' > "$capture"
-  if fm_pane_is_busy fake kimi; then
+  fixture='Ctrl+c:cancel
+│ > │'
+  if busy kimi; then
     fail "Grok's exact busy token leaked into Kimi's harness-scoped matcher"
   fi
-  printf 'auto  K2.7 Coding thinking  /some/path\n│ > │\n' > "$capture"
-  if fm_pane_is_busy fake kimi; then
+  fixture='auto  K2.7 Coding thinking  /some/path
+│ > │'
+  if busy kimi; then
     fail "Kimi's idle thinking-effort status label was misread as busy"
   fi
   pass "busy detection: real Kimi moon-plus-middot captures require its harness while idle labels stay idle"

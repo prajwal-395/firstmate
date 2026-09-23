@@ -4,7 +4,7 @@
 # An ordinary text steer to a task recorded in this home no longer types its
 # payload: fm-send appends a durable sequenced record to state/<id>.inbox/ and
 # rings one constant self-describing doorbell line, best-effort. These tests
-# drive the real fm-send executable over a stubbed tmux and pin:
+# drive the real fm-send executable over a stubbed herdr and pin:
 #   1. The payload is durably recorded and never typed; only the doorbell
 #      crosses the terminal, and the send exits 0 at enqueue.
 #   2. Multi-line steers are legal and round-trip byte-exact.
@@ -37,46 +37,52 @@ SEND="$ROOT/bin/fm-send.sh"
 TMP_ROOT=$(fm_test_tmproot fm-send-inbox)
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 
-# Stub tmux: logs literal typed text to FM_SEND_LOG and lets the submit and
-# composer paths reach clean verdicts. FM_FAKE_TMUX_COMPOSER=pending renders a
-# composer visibly holding text; FM_FAKE_TMUX_SEND_FAIL=1 fails send-keys.
+# Stub herdr: logs literal send-text payloads to FM_SEND_LOG and lets the
+# submit and composer paths reach clean verdicts. FM_FAKE_HERDR_COMPOSER=pending
+# renders a composer visibly holding text; FM_FAKE_HERDR_SEND_FAIL=1 fails
+# send-text.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20},"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
 case "${1:-}" in
-  send-keys)
-    [ "${FM_FAKE_TMUX_SEND_FAIL:-0}" = 1 ] && exit 1
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    if [ "$literal" = 1 ]; then
-      printf '%s\n' "${1:-}" >> "$FM_SEND_LOG"
-    fi
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-send-inbox-fake-herdr.sock"}]}\n'
     exit 0 ;;
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    if [ "${FM_FAKE_TMUX_COMPOSER:-}" = pending ]; then
-      printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
-    else
-      printf '╭────╮\n│    │\n╰────╯\n'
-    fi
+  server) exit 0 ;;
+  pane)
+    case "${2:-}" in
+      send-text)
+        [ "${FM_FAKE_HERDR_SEND_FAIL:-0}" = 1 ] && exit 1
+        printf '%s\n' "${4:-}" >> "$FM_SEND_LOG"
+        exit 0 ;;
+      send-keys|close|run) exit 0 ;;
+      read)
+        if [ "${FM_FAKE_HERDR_COMPOSER:-}" = pending ]; then
+          printf '╭──────────────╮\n│ leftover txt │\n╰──────────────╯\n'
+        else
+          printf '╭────╮\n│    │\n╰────╯\n'
+        fi
+        exit 0 ;;
+      get) printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"/"}}}\n' "$3" ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+    esac
     exit 0 ;;
-  list-windows) printf 'fm-t1\n'; exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/herdr"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -167,7 +173,7 @@ test_resend_enqueues_new_sequence() {
 test_pending_composer_skips_ring_advisorily() {
   local dir err rc
   dir=$(setup_case pendingskip); err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_TMUX_COMPOSER=pending -- t1 "steer past a stuck composer"; rc=$?
+  run_send "$dir" "$err" FM_FAKE_HERDR_COMPOSER=pending -- t1 "steer past a stuck composer"; rc=$?
   expect_code 0 "$rc" "a skipped ring is still a sent steer"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
   [ ! -s "$dir/send.log" ] || fail "a visibly pending composer should skip the ring:"$'\n'"$(cat "$dir/send.log")"
@@ -179,7 +185,7 @@ test_pending_composer_skips_ring_advisorily() {
 test_failed_ring_is_still_sent() {
   local dir err rc
   dir=$(setup_case ringfail); err="$dir/send.err"
-  run_send "$dir" "$err" FM_FAKE_TMUX_SEND_FAIL=1 -- t1 "steer into a dead pane"; rc=$?
+  run_send "$dir" "$err" FM_FAKE_HERDR_SEND_FAIL=1 -- t1 "steer into a dead pane"; rc=$?
   expect_code 0 "$rc" "a failed doorbell must not fail the send"
   [ -f "$dir/home/state/t1.inbox/001.msg" ] || fail "the steer was not recorded"
   assert_contains "$(cat "$err")" "watcher will re-ring" \

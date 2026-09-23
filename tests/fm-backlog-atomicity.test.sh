@@ -30,6 +30,12 @@ set -u
 # in fm_tasks_axi_backend, so the backend cases must start from a clean slate.
 unset TASKS_AXI_BACKEND || :
 
+# An ambient herdr parent identity (HERDR_PANE_ID/HERDR_SOCKET_PATH when the
+# developer runs inside a herdr pane) would trip the spawn path's
+# cross-session launcher-identity refusal against the fake-herdr session, so
+# the spawn cases start with no parent binding, like the other ported suites.
+unset HERDR_PANE_ID HERDR_SOCKET_PATH HERDR_SESSION || :
+
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
@@ -88,13 +94,73 @@ Delivery contract: mode=no-mistakes
 EOF
   done
 
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
-case "${1:-}" in display-message) printf 'firstmate\n'; exit 0 ;; esac
+set -u
+STATEDIR="${FM_FAKE_HERDR_STATE_DIR:-$(dirname "$0")/../herdr-state}"
+mkdir -p "$STATEDIR" 2>/dev/null || true
+[ -f "$STATEDIR/next" ] || printf '1\n' > "$STATEDIR/next"
+herdr_next() { local n; n=$(cat "$STATEDIR/next"); printf '%s' "$n"; printf '%s\n' $((n + 1)) > "$STATEDIR/next"; }
+is_closed() { grep -Fxq "$1" "$STATEDIR/closed" 2>/dev/null; }
+closed_add() { is_closed "$1" || printf '%s\n' "$1" >> "$STATEDIR/closed"; }
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
+case "${1:-}" in
+  session)
+    ses_name=default
+    ses_prev=
+    for ses_arg in "$@"; do
+      if [ "$ses_prev" = "--session" ]; then ses_name=$ses_arg; fi
+      ses_prev=$ses_arg
+    done
+    printf '{"sessions":[{"name":"%s","running":true,"socket_path":"/tmp/fm-atomicity-fake-herdr.sock"}]}\n' "$ses_name"
+    exit 0 ;;
+  server) exit 0 ;;
+  workspace)
+    case "${2:-}" in
+      list) printf '{"result":{"workspaces":[]}}\n' ;;
+      create)
+        n=$(herdr_next)
+        printf '{"result":{"workspace":{"workspace_id":"w%s"},"tab":{"tab_id":"seedtab%s"},"root_pane":{"pane_id":"seedpane%s"}}}\n' "$n" "$n" "$n"
+        ;;
+    esac
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list) printf '{"result":{"tabs":[]}}\n' ;;
+      create)
+        n=$(herdr_next)
+        printf '{"result":{"tab":{"tab_id":"t%s"},"root_pane":{"pane_id":"p%s"}}}\n' "$n" "$n"
+        ;;
+      close) exit 0 ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      list) printf '{"result":{"panes":[]}}\n' ;;
+      get)
+        if is_closed "$3"; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        else
+          printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}"
+        fi ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close)
+        closed_add "$3"
+        exit 0 ;;
+    esac
+    exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
+esac
 exit 0
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/herdr"
   fm_fake_exit0 "$fakebin" treehouse gh gh-axi no-mistakes
 
   fm_git_init_commit "$case_dir/project"
@@ -440,25 +506,67 @@ SH
 
 break_launch_delivery() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<'SH'
+  cat > "$case_dir/fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-case "$*" in *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
+set -u
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
 case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  send-keys) exit 1 ;;
+  session)
+    ses_name=default
+    ses_prev=
+    for ses_arg in "$@"; do
+      if [ "$ses_prev" = "--session" ]; then ses_name=$ses_arg; fi
+      ses_prev=$ses_arg
+    done
+    printf '{"sessions":[{"name":"%s","running":true,"socket_path":"/tmp/fm-atomicity-fake-herdr.sock"}]}\n' "$ses_name"
+    exit 0 ;;
+  server) exit 0 ;;
+  workspace)
+    case "${2:-}" in
+      list) printf '{"result":{"workspaces":[]}}\n' ;;
+      create) printf '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"seedtab1"},"root_pane":{"pane_id":"seedpane1"}}}\n' ;;
+    esac
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list) printf '{"result":{"tabs":[]}}\n' ;;
+      create) printf '{"result":{"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}\n' ;;
+      close) exit 0 ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      list) printf '{"result":{"panes":[]}}\n' ;;
+      get)
+        printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}" ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close|run|send-keys|read) exit 0 ;;
+      send-text) exit 1 ;;
+    esac
+    exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$case_dir/fakebin/tmux"
+  chmod +x "$case_dir/fakebin/herdr"
 }
 
 track_teardown_resource_actions() {  # <case-dir>
   local case_dir=$1
-  cat > "$case_dir/fakebin/tmux" <<SH
+  mv "$case_dir/fakebin/herdr" "$case_dir/fakebin/herdr.real"
+  cat > "$case_dir/fakebin/herdr" <<SH
 #!/usr/bin/env bash
-: > "$case_dir/backend-resource-action"
-exit 0
+printf '%s\n' "\$*" >> "$case_dir/backend-resource-action"
+exec "$case_dir/fakebin/herdr.real" "\$@"
 SH
+  chmod +x "$case_dir/fakebin/herdr"
   cat > "$case_dir/fakebin/treehouse" <<SH
 #!/usr/bin/env bash
 : > "$case_dir/local-copy-resource-action"
@@ -579,8 +687,12 @@ write_task_meta() {  # <case-dir> <id> <kind> <mode> [extra-line...]
   local case_dir=$1 id=$2 kind=$3 mode=$4
   shift 4
   fm_write_meta "$(home_of "$case_dir")/state/$id.meta" \
-    "window=firstmate:fm-$id" \
+    "window=fmtest:p-$id" \
     "endpoint_task_id=$id" \
+    "herdr_session=fmtest" \
+    "herdr_workspace_id=wtest" \
+    "herdr_tab_id=ttest" \
+    "herdr_pane_id=p-$id" \
     "worktree=$case_dir/absent-worktree" \
     "project=$case_dir/absent-project" \
     "harness=claude" \
@@ -1929,27 +2041,6 @@ test_recovery_reports_an_owned_row_read_failure() {
   pass "session start reports owned backlog rows it cannot read"
 }
 
-test_orca_cleanup_recovery_never_transitions_the_backlog() {
-  local case_dir id meta out
-  id=atomic-orca-cleanup-recovery-b8
-  case_dir=$(make_home orca-cleanup-recovery)
-  add_item "$case_dir" "$id"
-  write_task_meta "$case_dir" "$id" ship local-only "cleanup_recovery=orca"
-  meta="$(home_of "$case_dir")/state/$id.meta"
-
-  out=$(run_bootstrap "$case_dir")
-  [ "$(row_state "$case_dir" "$id")" = queued ] \
-    || fail "session start treated cleanup recovery as a launched worker: $out"
-  assert_present "$meta" "session start removed the cleanup recovery record"
-
-  out=$(run_teardown "$case_dir" "$id") \
-    || fail "cleanup recovery teardown failed: $out"
-  [ "$(row_state "$case_dir" "$id")" = queued ] \
-    || fail "cleanup recovery teardown completed work that never launched"
-  assert_absent "$meta" "cleanup recovery teardown retained its task record"
-  pass "Orca cleanup recovery is excluded from backlog lifecycle transitions"
-}
-
 test_recovery_marks_an_owned_record_in_flight() {
   local case_dir id out
   id=atomic-heal-b8
@@ -3048,7 +3139,6 @@ test_completion_refuses_a_close_target_symlinked_to_a_directory
 test_completion_fails_when_its_close_marker_cannot_be_removed
 test_recovery_retries_when_a_close_marker_cannot_be_removed
 test_recovery_reports_an_owned_row_read_failure
-test_orca_cleanup_recovery_never_transitions_the_backlog
 test_recovery_marks_an_owned_record_in_flight
 test_recovery_rejects_an_internal_worker_record_symlink
 test_recovery_ignores_a_symlinked_worker_record

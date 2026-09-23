@@ -40,7 +40,7 @@ Accepting persists to `~/.gemini/trustedFolders.json`, so the spawn's environmen
 
 A Gemini worker needs a credential it can use without a dialog, and firstmate does not manage one.
 Export `GEMINI_API_KEY` into the environment BEFORE the session-provider daemon starts, or complete `gemini`'s own sign-in.
-The daemon matters: a long-lived tmux or Herdr server hands panes the environment it was started with, so a key exported after that server came up never reaches a worker.
+The daemon matters: a long-lived Herdr server hands panes the environment it was started with, so a key exported after that server came up never reaches a worker.
 The headless probe `gemini --skip-trust -p '<prompt>'` exits 41 with `you must specify the GEMINI_API_KEY environment variable` when no credential is resolvable, which is the cheapest pre-dispatch confirmation.
 A first run also shows an auth-method picker (`How would you like to authenticate for this project?`, default `● 2. Use Gemini API Key`); answering it once writes `security.auth.selectedType` to the user `settings.json` and it does not return.
 
@@ -68,7 +68,7 @@ Do not close that by matching `MainThread`: it would make every node process's a
 The same verified tool process carried the CLAUDE primary's value (`claude-code_2-1-260_agent`), so it identifies the launcher, not the running harness.
 
 Pane liveness has the same problem and needs its own answer, because the marker is not visible to a process scan.
-A live gemini pane's foreground group reads `comm=MainThread` and `argv0=<node path>`, so neither of `bin/backends/tmux.sh`'s existing name sources can see it, and `bin/fm-control.sh` refused every lifecycle verb with `endpoint reads 'ambiguous'` until this was closed.
+A live gemini pane's foreground group reads `comm=MainThread` and `argv0=<node path>`, so neither of the agent-process classifier's existing name sources can see it, and `bin/fm-control.sh` refused every lifecycle verb with `endpoint reads 'ambiguous'` until this was closed.
 `../../../../../bin/fm-gemini-lib.sh` owns the narrow structural rule that fixes it: identity comes from argv[1], the script argument, accepted only when it is named `gemini` or lives under `@google/gemini-cli/`.
 It is structural and runs no subprocess, for the same reason cursor's rule does not: probing a stranger's binary during a liveness poll is the hazard being avoided.
 A bare interpreter, an unrelated node script, and a gemini name appearing later on a command line are all rejected, so a stranger's node pane is never reported as a live agent.

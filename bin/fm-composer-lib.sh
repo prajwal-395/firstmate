@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # bin/fm-composer-lib.sh - the ONE fleet-wide owner of composer classification:
 # every shape a verified harness draws, every glyph, every container proof, and
-# the empty|pending|pending-unproven|dialog|unknown verdict, shared by every
-# session-provider adapter (tmux via bin/fm-tmux-lib.sh, and
-# bin/backends/{herdr,orca,cmux,zellij}.sh) and by fm-spawn.sh's kimi
-# launch-readiness check.
+# the empty|pending|pending-unproven|dialog|unknown verdict, shared by the
+# herdr session-provider adapter (bin/backends/herdr.sh) and by fm-spawn.sh's
+# kimi launch-readiness check.
 #
 # WHY THIS EXISTS (tasks fm-composer-shellglyph-safety and
 # fm-composer-thin-adapter-refactor-r1): the adapters each carried their own
@@ -22,24 +21,23 @@
 # adapter code. Capability differences change how CONFIDENTLY a shape can be
 # judged; they never change what the shapes ARE:
 #   styled=1    the capture preserves ANSI styling, so ghost/placeholder text
-#               is detectable and can be stripped (tmux -e, herdr --format
-#               ansi, zellij dump-screen --ansi). With styled=0 (cmux, orca)
-#               ghost text is unreadable, so a bare glyph row or left-bar row
-#               carrying trailing non-idle text degrades to `unknown` rather
-#               than `pending`: the text may be the harness's own idle
-#               suggestion, and a false `pending` blocks every safe caller.
-#   cursor=1    a cursor row is supplied (tmux #{cursor_y} only). The cursor
+#               is detectable and can be stripped (herdr --format
+#               ansi). With styled=0 ghost text is unreadable, so a bare glyph
+#               row or left-bar row carrying trailing non-idle text degrades to
+#               `unknown` rather than `pending`: the text may be the harness's
+#               own idle suggestion, and a false `pending` blocks every safe caller.
+#   cursor=1    a cursor row is supplied. The cursor
 #               anchors shape selection: the shape containing the cursor is the
 #               composer. Without it, the bottom-most shape wins.
-#   identity=1  a native agent identity/state probe exists (herdr `agent get`;
-#               the tmux pi foreground-process probe). Identity is what makes
+#   identity=1  a native agent identity/state probe exists (herdr `agent get`).
+#               Identity is what makes
 #               Pi's blank separated composer provable; with identity=0 that
 #               shape stays `unknown`.
 #   rows=<n>    the capture's bounded row count (informational).
 #
 # THE STRICT BLANK-ROW RULE (captain decision blank-row-injection-posture,
 # 2026-08-09): a blank or otherwise unidentified input row with no positive
-# container proof is `unknown` and callers defer. This replaced tmux's
+# container proof is `unknown` and callers defer. This replaced the old
 # permissive "blank cursor row = empty = safe to inject" rule fleet-wide: a
 # blank row under the cursor can be a modal dialog, a dead shell between
 # transcript rules, or a mid-redraw pane, and the away-mode injector types
@@ -64,7 +62,7 @@
 #   separated  - pi: content rows between two solid horizontal `─` rules, no
 #                glyph and no side border. Provable only with a live agent
 #                identity reporting an idle/done pi (herdr `agent
-#                get`; the tmux foreground-process probe), because a blank
+#                get`), because a blank
 #                region between two transcript rules is otherwise exactly the
 #                strict rule's unidentifiable blank row.
 #
@@ -103,7 +101,7 @@
 # one CHARACTER under UTF-8, which used to leave partial multibyte residue.
 #
 # Re-sourcing is a cheap idempotent redefinition, so this file needs no
-# include guard (matching bin/fm-tmux-lib.sh).
+# include guard.
 
 # fm_composer_strip_ansi: drop every CSI escape sequence, leaving plain text.
 # Used for STRUCTURAL row/shape detection, where ghost text must be KEPT so the
@@ -172,8 +170,7 @@ fm_composer_normalize_trim_var() {  # <varname>
 
 # fm_composer_strip_ghost: the ONE fleet-wide ANSI-aware extractor of "real typed
 # content" from a captured, styled composer row. Reads the styled line on stdin
-# (from `tmux capture-pane -e`, `herdr pane read --format ansi`, or
-# `zellij action dump-screen --ansi`) and prints the
+# (from `herdr pane read --format ansi`) and prints the
 # plain, non-ghost text on stdout, dropping:
 #   - dim/faint runs (SGR 2): how claude and codex render ghost/suggestion text.
 #     A reset (SGR 0) or normal-intensity (SGR 22) ends a dim run.
@@ -277,12 +274,9 @@ fm_composer_strip_ghost() {
 
 # --- Delivery-only rendered busy footers (backend-agnostic) -------------------
 #
-# These live here, in the ONE shared composer/delivery owner, rather than in any
-# single backend adapter, because every backend needs them for the SAME job:
-# proving a submitted Enter actually landed. Keeping them in bin/fm-tmux-lib.sh
-# made cursor's signature reachable only from tmux, even though herdr, zellij,
-# cmux, and orca run the same harnesses and face the same acknowledgement
-# problem.
+# These live here, in the ONE shared composer/delivery owner, rather than in
+# the backend adapter, because proving a submitted Enter actually landed needs
+# them for the SAME job there.
 #
 # This is a DELIVERY guard, deliberately NOT a worker-state source. The semantic
 # busy contract - what firstmate records and supervises on - is owned by
@@ -311,8 +305,8 @@ fm_composer_strip_ghost() {
 # part of that union for the same reason the others are: without it a cursor
 # submit could never be acknowledged, because cursor parks its terminal cursor
 # outside its composer and the composer verdict is therefore always `unknown`.
-# agy's `esc to cancel` is part of the union for the same reason: an explicit
-# tmux agy endpoint reaches the submit core with no recorded harness, and its
+# agy's `esc to cancel` is part of the union for the same reason: a harness-less
+# agy endpoint reaches the submit core with no recorded harness, and its
 # bare `>` composer verdict is `unknown`, so the busy footer is the only
 # turn-started acknowledgement that path can read.
 FM_DELIVERY_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working(\.\.\.|…)|Ctrl\+c:cancel|ctrl\+c to stop|esc[[:space:]]+to[[:space:]]+cancel'
@@ -1256,8 +1250,7 @@ EOF
     fm_composer_normalize_trim_var content
     # A styled agent-glyph placeholder disappears above when ghost stripping
     # proves it is furniture. If the same placeholder-looking bytes survive
-    # styling, they are real user input and must remain in the extracted content
-    # (the zellij paste proof depends on observing exactly what was typed).
+    # styling, they are real user input and must remain in the extracted content.
     # OpenCode's left-bar hint and legacy shell-glyph boxed placeholders have no
     # such styling proof, so their structurally fixed positions remain the two
     # idle-regex exceptions here.
@@ -1297,7 +1290,7 @@ EOF
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" "$cy"
   if [ -n "$cy" ]; then
-    # Cursor mode (tmux): the shape CONTAINING the cursor is the composer.
+    # Cursor mode: the shape CONTAINING the cursor is the composer.
     if [ "$FM_COMPOSER_SCAN_UNSAFE" = 1 ]; then
       printf 'unknown'; return 0
     fi
@@ -1388,8 +1381,8 @@ EOF
 # --- Submit confirmation window ---------------------------------------------
 #
 # THE ONE owner of how long a submit core waits for its confirming evidence,
-# shared by every backend that confirms a submit (the retry core below and the
-# tmux core in bin/fm-tmux-lib.sh).
+# shared by every submit path that confirms (the retry core below and the
+# herdr core in bin/backends/herdr.sh).
 #
 # Why the window cannot be a constant. Every submit core waits for evidence
 # that the harness ACCEPTED our Enter: a turn starting, or our text leaving
@@ -1476,7 +1469,7 @@ fm_submit_confirm_wait() {  # <state-fn> <target> <budget> [expected-label] -> v
 }
 
 # fm_composer_submit_retry_core: the ONE verify-and-retry-Enter submit loop
-# for the cursor-less backends (cmux, orca, zellij), parameterised by the
+# for adapters whose capture supplies no cursor row, parameterised by the
 # adapter's send-key and composer-state functions. The caller has already
 # typed the text ONCE (send_literal) and settled; this loop submits with
 # Enter, re-reading the composer verdict, and retries Enter ONLY - never
@@ -1484,7 +1477,7 @@ fm_submit_confirm_wait() {  # <state-fn> <target> <budget> [expected-label] -> v
 # retyping would duplicate it. Proven pending (and pending-unproven) retries
 # consume the budget; any other verdict returns immediately, so `unknown`
 # stays a loud refusal rather than a blind retry into an unreadable pane.
-# tmux and herdr keep richer cores that consume this same shared verdict plus
+# Herdr keeps a richer core that consumes this same shared verdict plus
 # fm_composer_queued_enter_verdict; no shape knowledge lives in any loop.
 # <typed-chars> sizes the FIRST attempt's window to the submitted line (see
 # the submit confirmation window above). Only the first attempt pays it: once
@@ -1514,7 +1507,7 @@ fm_composer_submit_retry_core() {  # <send-key-fn> <state-fn> <target> <retries>
 #   pending + unknown -> pending (unreadable busy is not proof of a queue)
 # Every other composer verdict is returned unchanged, so pending-unproven,
 # empty, and unknown never receive this conversion.
-# Adapters supply their own busy primitive (tmux: fm_pane_is_busy; herdr:
+# Adapters supply their own busy primitive (herdr:
 # native agent_status=working, or a rendered busy footer on an idle native
 # baseline). This function does not read a pane.
 fm_composer_queued_enter_verdict() {  # <composer-state> <busy|idle|unknown>

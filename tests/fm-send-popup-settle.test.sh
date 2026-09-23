@@ -6,8 +6,8 @@
 # for a leading `$<skill>` invocation (e.g. `$no-mistakes`). Submitting before the
 # popup settles lets it swallow the Enter, so the line never submits. fm-send
 # absorbs this by pausing `settle` seconds AFTER typing and BEFORE the (retried)
-# Enter - the first sleep fm_tmux_submit_core makes. These tests pin the
-# settle-SELECTION matrix hermetically (stubbed tmux + sleep, no real agent):
+# Enter - the first sleep the shared submit core makes. These tests pin the
+# settle-SELECTION matrix hermetically (stubbed herdr + sleep, no real agent):
 #
 # The settle matrix governs the TYPED plane (harness-native invocations and
 # explicit backend targets); a task-selector message that is not an invocation
@@ -20,11 +20,11 @@
 #                            -> non-codex safe default, still typed)
 #   plain text      -> inbox plane for a selector, 0.3 typed for an explicit target
 #
-# The popup-settle is the FIRST sleep recorded: fm_tmux_submit_core types the text,
+# The popup-settle is the FIRST sleep recorded: the shared submit core types the text,
 # then `sleep "$settle"`, then the Enter-retry loop (sleep 0.4 each) and finally
 # fm-send's own post-submit FM_SEND_SETTLE pause. So tail-vs-head matters: this
 # suite asserts on the HEAD sleep, distinct from fm-send-settle.test.sh which pins
-# the TAIL (post-submit) pause. The retried Enter in fm_tmux_submit_core remains the
+# the TAIL (post-submit) pause. The retried Enter in the shared submit core remains the
 # real safety net; this settle is only the optimization that lets the popup clear so
 # the first Enter lands.
 #
@@ -42,26 +42,42 @@ SEND="$ROOT/bin/fm-send.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-send-popup-settle)
 
-# Same stub shape as fm-send-settle.test.sh: a fake tmux that drives the submit
+# Same stub shape as fm-send-settle.test.sh: a fake herdr that drives the submit
 # path to a clean "empty" verdict on the first Enter, and a fake sleep that records
 # every requested duration (one per line) into FM_SLEEP_LOG instead of sleeping.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
 case "${1:-}" in
-  send-keys) exit 0 ;;
-  display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) printf 'win\n'; exit 0 ;;
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-popup-fake-herdr.sock"}]}\n'
+    exit 0 ;;
+  server) exit 0 ;;
+  pane)
+    case "${2:-}" in
+      send-text|send-keys) exit 0 ;;
+      read) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
+      get) printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"/"}}}\n' "$3" ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close|run) exit 0 ;;
+    esac
+    exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/herdr"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "${1:-}" >> "$FM_SLEEP_LOG"

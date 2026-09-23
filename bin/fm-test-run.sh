@@ -302,11 +302,11 @@ cpu_count() {
 fm_test_family_table() {
   cat <<'EOF'
 fm-afk-contract.test.sh afk
-fm-afk-inject-e2e.test.sh afk
 fm-afk-inject-herdr-e2e.test.sh real-herdr-gated
 fm-afk-launch.test.sh real-herdr-gated
 fm-afk-pi-herdr-return-e2e.test.sh live-harness-optin
 fm-afk-return.test.sh afk
+fm-agent-process-liveness.test.sh pure-contract-unit
 fm-agy-harness.test.sh pure-contract-unit
 fm-agy-ladder-enforcement.test.sh backend-dispatch
 fm-agy-live-descent.test.sh backend-dispatch
@@ -319,8 +319,6 @@ fm-agy-survey-suppress.test.sh pure-contract-unit
 fm-arm-pretool-check.test.sh pure-contract-unit
 fm-ask-user-authority.test.sh pure-contract-unit
 fm-backend-autodetect-smoke.test.sh real-herdr-gated
-fm-backend-cmux-smoke.test.sh cmux
-fm-backend-cmux.test.sh cmux
 fm-backend-herdr-agent-exit-shell-e2e.test.sh real-herdr-gated
 fm-backend-herdr-eventwait-smoke.test.sh real-herdr-gated
 fm-backend-herdr-focus-flash-e2e.test.sh real-herdr-gated
@@ -332,10 +330,6 @@ fm-backend-herdr-smoke.test.sh real-herdr-gated
 fm-backend-herdr-stale-active-tab-e2e.test.sh real-herdr-gated
 fm-backend-herdr-workspace-per-home-e2e.test.sh real-herdr-gated
 fm-backend-herdr.test.sh backend-dispatch
-fm-backend-orca.test.sh orca
-fm-backend-tmux-smoke.test.sh backend-dispatch
-fm-backend-zellij-smoke.test.sh zellij
-fm-backend-zellij.test.sh zellij
 fm-backend.test.sh backend-dispatch
 fm-backlog-atomicity.test.sh session-bootstrap
 fm-backlog-handoff.test.sh secondmate
@@ -357,13 +351,9 @@ fm-classify-corr-token.test.sh standalone
 fm-classify-decision-key.test.sh pure-contract-unit
 fm-claude-stop-autoarm-live-e2e.test.sh live-harness-optin
 fm-claude-stop-autoarm.test.sh standalone
-fm-claude-trust-live-e2e.test.sh live-harness-optin
 fm-claude-trust.test.sh backend-dispatch
-fm-cmux-claude-composer-live-e2e.test.sh live-harness-optin
 fm-codex-continuity-live-e2e.test.sh live-harness-optin
-fm-composer-ghost.test.sh pure-contract-unit
 fm-composer-lib.test.sh pure-contract-unit
-fm-composer-matrix-live-e2e.test.sh live-harness-optin
 fm-control-herdr-smoke.test.sh real-herdr-gated
 fm-control-relaunch.test.sh backend-dispatch
 fm-control.test.sh backend-dispatch
@@ -408,7 +398,6 @@ fm-mail-check.test.sh watcher-wake-lock
 fm-mail.test.sh watcher-wake-lock
 fm-mate-route.test.sh standalone
 fm-muse-harness.test.sh pure-contract-unit
-fm-muse-signals-live-e2e.test.sh live-harness-optin
 fm-no-mistakes-required.test.sh standalone
 fm-omp-harness.test.sh pure-contract-unit
 fm-omp-primary-live-e2e.test.sh live-harness-optin
@@ -459,7 +448,6 @@ fm-secondmate-reconcile.test.sh secondmate
 fm-secondmate-restart.test.sh secondmate
 fm-secondmate-safety.test.sh secondmate
 fm-secondmate-sync.test.sh secondmate
-fm-send-inbox-doorbell-live-e2e.test.sh live-harness-optin
 fm-send-inbox.test.sh backend-dispatch
 fm-send-popup-settle.test.sh pure-contract-unit
 fm-send-remote-delivery.test.sh standalone
@@ -496,8 +484,6 @@ fm-test-fixture-cleanup.test.sh standalone
 fm-test-fixtures.test.sh standalone
 fm-test-isolation-proof.test.sh pure-contract-unit
 fm-test-run.test.sh pure-contract-unit
-fm-tmux-agent-liveness.test.sh backend-dispatch
-fm-tmux-submit-busy.test.sh pure-contract-unit
 fm-tool-update-check.test.sh watcher-wake-lock
 fm-trace-context-lib.test.sh pure-contract-unit
 fm-trace-context-spawn.test.sh backend-dispatch
@@ -587,7 +573,6 @@ tests/fm-backend-herdr.test.sh
 tests/fm-brief.test.sh
 tests/fm-captain-hold-lifecycle.test.sh
 tests/fm-cd-pretool-check.test.sh
-tests/fm-composer-ghost.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-crew-state.test.sh
 tests/fm-ensure-agents-md.test.sh
@@ -603,7 +588,6 @@ tests/fm-send-strict.test.sh
 tests/fm-spawn-batch.test.sh
 tests/fm-supervision-instructions.test.sh
 tests/fm-test-run.test.sh
-tests/fm-tmux-submit-busy.test.sh
 tests/fm-transition-lib.test.sh
 tests/fm-x-mode.test.sh
 EOF
@@ -621,7 +605,6 @@ tests/fm-backend-herdr.test.sh 29086
 tests/fm-brief.test.sh 8790
 tests/fm-captain-hold-lifecycle.test.sh 306677
 tests/fm-cd-pretool-check.test.sh 16232
-tests/fm-composer-ghost.test.sh 2165
 tests/fm-composer-lib.test.sh 5233
 tests/fm-crew-state.test.sh 22477
 tests/fm-ensure-agents-md.test.sh 863
@@ -637,7 +620,6 @@ tests/fm-send-strict.test.sh 4012
 tests/fm-spawn-batch.test.sh 2723
 tests/fm-supervision-instructions.test.sh 328
 tests/fm-test-run.test.sh 158480
-tests/fm-tmux-submit-busy.test.sh 2629
 tests/fm-transition-lib.test.sh 90
 tests/fm-x-mode.test.sh 29451
 EOF
@@ -679,7 +661,6 @@ tests/fm-grok-harness.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-review-diff.test.sh
 tests/fm-spawn-batch.test.sh
-tests/fm-composer-ghost.test.sh
 tests/fm-transition-lib.test.sh
 EOF
 }
@@ -696,7 +677,6 @@ tests/fm-herdr-lab.test.sh
 tests/fm-brief.test.sh
 tests/fm-send-popup-settle.test.sh
 tests/fm-send-strict.test.sh
-tests/fm-tmux-submit-busy.test.sh
 tests/fm-send-settle.test.sh
 tests/fm-supervision-instructions.test.sh
 EOF
@@ -791,9 +771,9 @@ list_portable_serial() {
 portable_serial_weight_hints() {
   cat <<'EOF'
 tests/fm-afk-contract.test.sh 16785
-tests/fm-afk-inject-e2e.test.sh 35986
 tests/fm-afk-pi-herdr-return-e2e.test.sh 103
 tests/fm-afk-return.test.sh 22109
+tests/fm-agent-process-liveness.test.sh 213
 tests/fm-agy-harness.test.sh 36683
 tests/fm-agy-ladder-enforcement.test.sh 11489
 tests/fm-agy-live-descent.test.sh 83992
@@ -804,12 +784,6 @@ tests/fm-agy-spend-gate-live-e2e.test.sh 103
 tests/fm-agy-spend-gate.test.sh 6746
 tests/fm-agy-survey-suppress.test.sh 141
 tests/fm-ask-user-authority.test.sh 159
-tests/fm-backend-cmux-smoke.test.sh 42
-tests/fm-backend-cmux.test.sh 4322
-tests/fm-backend-orca.test.sh 21685
-tests/fm-backend-tmux-smoke.test.sh 407
-tests/fm-backend-zellij-smoke.test.sh 23
-tests/fm-backend-zellij.test.sh 11047
 tests/fm-backend.test.sh 23237
 tests/fm-backlog-atomicity.test.sh 205520
 tests/fm-backlog-handoff.test.sh 125204
@@ -830,11 +804,8 @@ tests/fm-classify-corr-token.test.sh 23042
 tests/fm-classify-decision-key.test.sh 2153
 tests/fm-claude-stop-autoarm-live-e2e.test.sh 103
 tests/fm-claude-stop-autoarm.test.sh 60861
-tests/fm-claude-trust-live-e2e.test.sh 50
 tests/fm-claude-trust.test.sh 25728
-tests/fm-cmux-claude-composer-live-e2e.test.sh 53
 tests/fm-codex-continuity-live-e2e.test.sh 76
-tests/fm-composer-matrix-live-e2e.test.sh 83
 tests/fm-control-relaunch.test.sh 157718
 tests/fm-control.test.sh 40582
 tests/fm-cursor-harness.test.sh 30105
@@ -877,7 +848,6 @@ tests/fm-mail-check.test.sh 7027
 tests/fm-mail.test.sh 10416
 tests/fm-mate-route.test.sh 727
 tests/fm-muse-harness.test.sh 44846
-tests/fm-muse-signals-live-e2e.test.sh 105
 tests/fm-nm-test-contract.test.sh 2813
 tests/fm-no-mistakes-required.test.sh 292
 tests/fm-omp-harness.test.sh 48351
@@ -932,7 +902,6 @@ tests/fm-secondmate-restart.test.sh 129433
 tests/fm-secondmate-safety.test.sh 161515
 tests/fm-secondmate-sync.test.sh 56113
 tests/fm-send-agy-confirm.test.sh 4435
-tests/fm-send-inbox-doorbell-live-e2e.test.sh 49
 tests/fm-send-inbox.test.sh 39132
 tests/fm-send-remote-delivery.test.sh 77321
 tests/fm-send-resolve-key.test.sh 53843
@@ -965,7 +934,6 @@ tests/fm-teardown.test.sh 158845
 tests/fm-test-fixture-cleanup.test.sh 847
 tests/fm-test-fixtures.test.sh 2136
 tests/fm-test-isolation-proof.test.sh 5027
-tests/fm-tmux-agent-liveness.test.sh 6164
 tests/fm-tool-update-check.test.sh 14354
 tests/fm-trace-context-lib.test.sh 312
 tests/fm-trace-context-spawn.test.sh 95017
@@ -1786,7 +1754,7 @@ families_for_changed_path() {
       ;;
     bin/fm-composer-lib.sh)
       # The shared shape catalogue is vendor-rendered signal; a change to it
-      # re-selects the live guard (fm-composer-matrix-live-e2e) alongside the
+      # re-selects the live-harness guards alongside the
       # portable families.
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit

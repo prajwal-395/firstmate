@@ -28,7 +28,7 @@ The shared classifier keeps that text pending, and retry sends the second Enter 
 
 On 2026-07-03 two Grok 0.2.82 Herdr workers left `/no-mistakes` typed for minutes while send returned success.
 Old Herdr logic treated any pane delta as submission, including popup closure and placeholder fill.
-Tmux and Herdr now route captures through `../../../bin/fm-composer-lib.sh`, which classifies real text on every proven content row.
+Herdr routes captures through `../../../bin/fm-composer-lib.sh`, which classifies real text on every proven content row.
 `../../../docs/herdr-backend.md` owns the boundary and `../../../tests/fm-backend-herdr.test.sh` covers it.
 
 The "Run Grok Build in a project directory?" picker appears only outside a project, such as home, Desktop, Downloads, or `/tmp`.
@@ -41,9 +41,9 @@ Fresh placeholder `Type a message...` uses dark 24-bit TRUECOLOR, not SGR-2.
 `fm_composer_strip_ghost` in `../../../bin/fm-composer-lib.sh` drops dim or faint and truecolor below `FM_COMPOSER_GHOST_LUMA_MAX`, default 128.
 On Grok 0.2.93, real input `38;2;224;222;244` measured about 225 luminance, while borders and placeholder ranged from `38;2;50;47;70` through `38;2;110;106;134`, about 51-110, and were dropped.
 The truecolor rule assumes the fleet's dark theme; SGR-2 is theme-independent.
-Coverage is `../../../tests/fm-composer-ghost.test.sh` and `../../../tests/fm-backend-herdr.test.sh`.
+Coverage is `../../../tests/fm-composer-lib.test.sh` and `../../../tests/fm-backend-herdr.test.sh`.
 
-Tmux `#{cursor_y}` may point at the pristine composer's bottom border.
+A cursor row may point at the pristine composer's bottom border.
 The shared classifier locates the full box and all content rows, so border cursor and multi-row composers require no adapter offsets.
 
 ## Worker turn-end hook

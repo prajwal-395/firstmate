@@ -35,16 +35,72 @@ make_fakebin() {  # <dir>
 [ "${FAKE_NM_SLEEP:-0}" = 1 ] && sleep 30
 exit 0
 SH
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
+set -u
+# Fake herdr endpoint surface for the bearings fixtures. Every fixture window
+# resolves to a present pane with a live claude agent; `pane read` answers
+# the stale Phase 7 summary for fm-domain-alpha targets and quiet text
+# otherwise (mirroring the old fake-tmux capture-pane texts). Production no
+# longer invokes tmux anywhere, so the retired tmux fake is gone.
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
 case "${1:-}" in
-  display-message) case "$*" in *dead-*) exit 1 ;; *) printf '%%1\n' ;; esac ;;
-  capture-pane)
-    case "$*" in
-      *fm-domain-alpha*) printf 'stale terminal summary: Phase 7 started\n> \n' ;;
-      *) printf 'all quiet\n> \n' ;;
+  session)
+    ses_name=default
+    ses_prev=
+    for ses_arg in "$@"; do
+      if [ "$ses_prev" = "--session" ]; then ses_name=$ses_arg; fi
+      ses_prev=$ses_arg
+    done
+    printf '{"sessions":[{"name":"%s","running":true}]}\n' "$ses_name"
+    exit 0 ;;
+  server) exit 0 ;;
+  workspace)
+    case "${2:-}" in
+      list) printf '{"result":{"workspaces":[]}}\n' ;;
     esac
-    ;;
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list) printf '{"result":{"tabs":[]}}\n' ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      list) printf '{"result":{"panes":[]}}\n' ;;
+      get)
+        # Fixture ids named dead-* are authoritatively gone, mirroring the
+        # old fake-tmux display-message refusal on *dead-*.
+        case "$3" in
+          *dead-*)
+            printf '{"error":{"code":"pane_not_found","message":"no such pane"}}\n'
+            exit 1 ;;
+        esac
+        printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3" ;;
+      process-info)
+        pane=""
+        prev=
+        for arg in "$@"; do
+          if [ "$prev" = "--pane" ]; then pane=$arg; fi
+          prev=$arg
+        done
+        printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4243,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"claude","argv0":"claude"}]}}}\n' "$pane" ;;
+      read)
+        case "$*" in
+          *fm-domain-alpha*) printf 'stale terminal summary: Phase 7 started\n> \n' ;;
+          *) printf 'all quiet\n> \n' ;;
+        esac ;;
+    esac
+    exit 0 ;;
+  agent)
+    case "${2:-}" in
+      get) printf '{"result":{"agent":{"agent_status":"working"}}}\n' ;;
+    esac
+    exit 0 ;;
 esac
 exit 0
 SH
@@ -74,7 +130,7 @@ SH
 echo "curl $*" >> "$NET_LOG"
 exit 1
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/gh" "$fb/gh-axi" "$fb/curl"
+  chmod +x "$fb/no-mistakes" "$fb/herdr" "$fb/gh" "$fb/gh-axi" "$fb/curl"
   printf '%s\n' "$fb"
 }
 
@@ -190,8 +246,8 @@ refresh_local_secondmate_ledgers() {  # <parent-home>
   registry="$parent/data/secondmates.md"
   [ -f "$registry" ] && [ -r "$registry" ] || return 0
   # Once this fixture's fake backend exists, ledger production must use it too;
-  # otherwise child state depends on whether the CI host has a live tmux server.
-  [ ! -x "$parent/fakebin/tmux" ] || refresh_path="$parent/fakebin:$refresh_path"
+  # otherwise child state depends on whether the CI host has a live herdr server.
+  [ ! -x "$parent/fakebin/herdr" ] || refresh_path="$parent/fakebin:$refresh_path"
   while IFS= read -r line || [ -n "$line" ]; do
     secondmate_registry_parse_line "$line" || continue
     [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
@@ -3036,9 +3092,18 @@ EOF
     "window=fixture:fm-generation-race" "worktree=$worktree" "project=firstmate" \
     "harness=claude" "kind=ship" "mode=no-mistakes" "spawn_gen=old-generation"
   printf 'working: old generation\n' > "$home/state/generation-race.status"
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = display-message ]; then
+set -u
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
+case "${1:-}" in
+  server) exit 0 ;;
+esac
+if [ "${1:-}" = pane ] && [ "${2:-}" = get ]; then
   if mkdir "$RACE_ONCE" 2>/dev/null; then
     tmp="$RACE_META.tmp.$$"
     cat > "$tmp" <<EOF
@@ -3056,11 +3121,12 @@ EOF
     printf 'replacement-only report\n' > "$RACE_REPORT"
   fi
   # The old endpoint disappeared while a replacement reused the same target.
+  printf '{"error":{"code":"pane_not_found","message":"no such pane"}}\n'
   exit 1
 fi
 exit 0
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/herdr"
 
   json=$(PATH="$fakebin:$PATH" FM_HOME="$home" FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z \
     FM_SNAPSHOT_NOW_EPOCH=1783792800 NET_LOG="$home/net.log" \

@@ -154,82 +154,6 @@ test_unreadable_composer_still_refuses_immediately() {
   pass "submit core: an unreadable composer is still a loud refusal, not a retry"
 }
 
-# --- the tmux core, through a real fake tmux --------------------------------
-
-# shellcheck source=/dev/null
-. "$ROOT/bin/fm-tmux-lib.sh"
-
-fm_pane_is_busy() { [ "${FM_FAKE_PANE_BUSY:-0}" = 1 ]; }
-
-make_fake_tmux() {  # <dir>
-  local dir=$1 fakebin="$1/fakebin"
-  mkdir -p "$fakebin"
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-STATE="${FM_FAKE_STATE:?}"
-case "${1:-}" in
-  display-message)
-    for a in "$@"; do
-      case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac
-    done
-    exit 0 ;;
-  capture-pane)
-    count=$(cat "$STATE/reads")
-    count=$((count + 1))
-    printf '%s\n' "$count" > "$STATE/reads"
-    threshold=$(cat "$STATE/threshold")
-    if [ "$threshold" -ge 0 ] && [ "$count" -ge "$threshold" ]; then
-      printf '╭─────╮\n│ >   │\n╰─────╯\n'
-    else
-      printf '╭─────────────────────╮\n│ > still holding it  │\n╰─────────────────────╯\n'
-    fi
-    exit 0 ;;
-  send-keys)
-    shift
-    is_enter=0
-    while [ "$#" -gt 0 ]; do
-      case "$1" in -t) shift ;; -l) printf 'LITERAL\n' >> "$STATE/keys" ;; Enter) is_enter=1 ;; esac
-      shift
-    done
-    [ "$is_enter" = 0 ] || printf 'Enter\n' >> "$STATE/keys"
-    exit 0 ;;
-  list-windows) exit 0 ;;
-esac
-exit 1
-SH
-  chmod +x "$fakebin/tmux"
-  printf '%s\n' "$fakebin"
-}
-
-test_tmux_core_confirms_a_late_clearing_composer() {
-  local dir fakebin verdict
-  dir="$TMP_ROOT/tmux-late"
-  fakebin=$(make_fake_tmux "$dir")
-  make_fake_composer "$dir/state" 20 empty
-  verdict=$(
-    PATH="$fakebin:$PATH" FM_FAKE_STATE="$dir/state" \
-      fm_tmux_submit_enter_core win 3 0.05 1 400 2>/dev/null
-  )
-  [ "$verdict" = empty ] || fail "tmux core must confirm a composer clearing inside the sized window (got '$verdict')"
-  [ "$(grep -c LITERAL "$dir/state/keys" || true)" = 0 ] || fail "tmux core must never retype"
-  pass "fm_tmux_submit_enter_core: a composer clearing late inside the sized window confirms"
-}
-
-test_tmux_core_still_refuses_a_composer_that_never_clears() {
-  local dir fakebin verdict
-  dir="$TMP_ROOT/tmux-never"
-  fakebin=$(make_fake_tmux "$dir")
-  make_fake_composer "$dir/state" -1 empty
-  verdict=$(
-    PATH="$fakebin:$PATH" FM_FAKE_STATE="$dir/state" FM_FAKE_PANE_BUSY=0 \
-      fm_tmux_submit_enter_core win 3 0.05 '' 400 2>/dev/null
-  )
-  [ "$verdict" = pending ] || fail "tmux core must still refuse a composer that never clears (got '$verdict')"
-  [ "$(grep -c LITERAL "$dir/state/keys" || true)" = 0 ] || fail "tmux core must never retype"
-  pass "fm_tmux_submit_enter_core: a composer that never clears still refuses"
-}
-
 test_budget_without_a_length_is_unchanged
 test_budget_covers_measured_acceptance_latency
 test_budget_is_capped
@@ -238,5 +162,3 @@ test_late_clearing_composer_now_confirms
 test_same_composer_without_the_length_still_fails
 test_composer_that_never_clears_still_refuses
 test_unreadable_composer_still_refuses_immediately
-test_tmux_core_confirms_a_late_clearing_composer
-test_tmux_core_still_refuses_a_composer_that_never_clears

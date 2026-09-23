@@ -31,7 +31,70 @@ make_home() {  # <name>
 ## Done
 EOF
   fakebin=$(fm_fakebin "$home")
-  fm_fake_exit0 "$fakebin" tmux treehouse no-mistakes gh gh-axi
+  fm_fake_exit0 "$fakebin" treehouse no-mistakes gh gh-axi
+  # A herdr stub with close-then-gone pane state (per-home, beside the
+  # fakebin) so teardown flows validate, lock, close, and confirm against
+  # something instead of touching a live backend.
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+STATEDIR="$(dirname "$0")/../herdr-state"
+mkdir -p "$STATEDIR" 2>/dev/null || true
+is_closed() { grep -Fxq "$1" "$STATEDIR/closed" 2>/dev/null; }
+closed_add() { is_closed "$1" || printf '%s\n' "$1" >> "$STATEDIR/closed"; }
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
+case "${1:-}" in
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-hold-fake-herdr.sock"}]}\n'
+    exit 0 ;;
+  server) exit 0 ;;
+  workspace)
+    case "${2:-}" in
+      list) printf '{"result":{"workspaces":[]}}\n' ;;
+      create) printf '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"seedtab1"},"root_pane":{"pane_id":"seedpane1"}}}\n' ;;
+    esac
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list) printf '{"result":{"tabs":[]}}\n' ;;
+      create) printf '{"result":{"tab":{"tab_id":"t1"},"root_pane":{"pane_id":"p1"}}}\n' ;;
+      close) exit 0 ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      get)
+        if is_closed "$3"; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+          exit 1
+        else
+          printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"/"}}}\n' "$3"
+        fi
+        ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close)
+        closed_add "$3"
+        exit 0 ;;
+      run|send-text|send-keys) exit 0 ;;
+      read) exit 0 ;;
+    esac
+    exit 0 ;;
+  agent)
+    if is_closed "$3"; then
+      printf '{"error":{"code":"agent_not_found"}}\n'
+    else
+      printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    fi
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/herdr"
   printf '%s\n' "$home"
 }
 
@@ -191,7 +254,13 @@ run_shim() {  # <home> <command args...>
 write_origin_meta() {  # <home> <id> [kind]
   local home=$1 id=$2 kind=${3:-scout}
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" \
+    "window=default:rp-$id" \
+    "endpoint_task_id=$id" \
+    "backend=herdr" \
+    "herdr_session=default" \
+    "herdr_workspace_id=fakews" \
+    "herdr_tab_id=faketab-$id" \
+    "herdr_pane_id=rp-$id" \
     "worktree=$home/projects/missing-$id" \
     "project=$home/projects/sample" \
     "harness=codex" \
@@ -283,7 +352,9 @@ write_scout_with_attested_inventory() {  # <home> <scout-id> <keys>
   local home=$1 scout=$2 keys=$3
   mkdir -p "$home/data/$scout"
   fm_write_meta "$home/state/$scout.meta" \
-    "window=firstmate:fm-$scout" \
+    "window=default:rp-$scout" \
+    "endpoint_task_id=$scout" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$scout" "herdr_pane_id=rp-$scout" \
     "worktree=$home/projects/missing-$scout" \
     "project=$home/projects/sample" \
     "harness=codex" \
@@ -443,7 +514,9 @@ test_complete_accepts_a_migrated_inventory_on_beads() {
     "migrated from data/backlog.md id herald-retire-decision-github-delete on 2026-09-04" \
     >/dev/null 2>&1 || fail "could not record the migration marker note"
   fm_write_meta "$home/state/$scout.meta" \
-    "window=firstmate:fm-$scout" \
+    "window=default:rp-$scout" \
+    "endpoint_task_id=$scout" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$scout" "herdr_pane_id=rp-$scout" \
     "worktree=$home/projects/missing-$scout" \
     "project=$home/projects/sample" \
     "harness=codex" \
@@ -2699,7 +2772,8 @@ test_retained_row_artifacts_survive_captain_answers() {
   tasks_in "$home" add "$approved_id" "Ship the approved pull request $approved_pr" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the approved merge fixture"
   fm_write_meta "$home/state/$approved_id.meta" \
-    "window=firstmate:fm-$approved_id" "endpoint_task_id=$approved_id" "worktree=$wt" \
+    "window=default:rp-$approved_id" "endpoint_task_id=$approved_id" "worktree=$wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$approved_id" "herdr_pane_id=rp-$approved_id" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$approved_pr" "spawn_gen=fixture-$approved_id"
   printf 'done: PR %s merged\n' "$approved_pr" > "$home/state/$approved_id.status"
@@ -2726,7 +2800,8 @@ test_retained_row_artifacts_survive_captain_answers() {
   tasks_in "$home" add "$local_id" "Land the approved local-only change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the released local fixture"
   fm_write_meta "$home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+    "window=default:rp-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$local_id" "herdr_pane_id=rp-$local_id" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$local_id"
   printf 'done: local merge ready\n' > "$home/state/$local_id.status"
@@ -2857,7 +2932,9 @@ test_interrupted_cleanup_keeps_the_captain_call_recoverable() {
   tasks_in "$home" add "$id" "Investigate failed sample cleanup" --kind scout \
     --repo sample --start >/dev/null || fail "could not create the cleanup-failure fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "window=default:rp-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "endpoint_task_id=$id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Failed cleanup\n\nThe captain call remains open.\n' > "$home/data/$id/report.md"
@@ -2916,7 +2993,9 @@ test_answer_before_cleanup_replay_preserves_the_retained_report() {
   tasks_in "$home" add "$id" "Investigate answer before cleanup replay" --kind scout \
     --repo sample --start >/dev/null || fail "could not create the answer-before-replay fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "window=default:rp-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "endpoint_task_id=$id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Interrupted cleanup\n\nThe captain call remains open.\n' > "$home/data/$id/report.md"
@@ -2970,7 +3049,9 @@ test_unusable_pending_close_record_names_its_reason() {
   tasks_in "$home" add "$id" "Investigate the unusable pending close" --kind scout \
     --repo sample --start >/dev/null || fail "could not create the unusable pending-close fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "window=default:rp-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "endpoint_task_id=$id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Unusable pending close\n\nThe captain call remains open.\n' > "$home/data/$id/report.md"
@@ -3029,7 +3110,9 @@ EOF
     --repo sample --start --file "$data/backlog.md" >/dev/null) \
     || fail "could not create the relocated answer-before-replay fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "window=default:rp-$id" "worktree=$wt" "project=$home/projects/sample" \
+    "endpoint_task_id=$id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "harness=codex" "kind=scout" "mode=scout" "spawn_gen=fixture-$id"
   printf 'done: report complete\n' > "$home/state/$id.status"
   printf '# Relocated interrupted cleanup\n\nThe captain call remains open.\n' > "$data/$id/report.md"
@@ -3153,7 +3236,8 @@ test_merge_approval_releases_before_zero_done_retention() {
   tasks_in "$home" add "$id" "Ship zero-retention merge $pr" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the zero-retention fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "window=default:rp-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$pr" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -3195,7 +3279,8 @@ test_pr_merge_entrypoint_refuses_a_captain_held_task() {
   tasks_in "$home" add "$pr_id" "Ship the held pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the held PR fixture"
   fm_write_meta "$home/state/$pr_id.meta" \
-    "window=firstmate:fm-$pr_id" "endpoint_task_id=$pr_id" "worktree=$wt" \
+    "window=default:rp-$pr_id" "endpoint_task_id=$pr_id" "worktree=$wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$pr_id" "herdr_pane_id=rp-$pr_id" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$pr" "spawn_gen=fixture-$pr_id"
   run_captain "$home" hold "$pr_id" --reason "captain merge approval pending" >/dev/null \
@@ -3231,7 +3316,8 @@ test_local_merge_entrypoint_refuses_a_captain_held_task() {
   tasks_in "$home" add "$local_id" "Ship the held local change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the held local fixture"
   fm_write_meta "$home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+    "window=default:rp-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$local_id" "herdr_pane_id=rp-$local_id" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$local_id"
   run_captain "$home" hold "$local_id" --reason "captain local merge approval pending" \
@@ -3301,7 +3387,8 @@ test_local_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() 
   git -C "$wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     commit -qm 'untracked local delivery'
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "window=default:rp-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$id"
   before=$(git -C "$repo" rev-parse main)
@@ -3412,7 +3499,8 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   tasks_in "$home" add "$id" "Ship the original pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the original PR task"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$old_wt" \
+    "window=default:rp-$id" "endpoint_task_id=$id" "worktree=$old_wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$old_repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "spawn_gen=original-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -3467,7 +3555,8 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   fm_git_worktree "$new_repo" "$new_wt" "fm/$id"
   tasks_in "$home" reopen "$id" >/dev/null || fail "could not reopen the reused PR task"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$new_wt" \
+    "window=default:rp-$id" "endpoint_task_id=$id" "worktree=$new_wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$new_repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "spawn_gen=replacement-$id"
   tasks_in "$home" start "$id" >/dev/null || fail "could not start the reused PR task"
@@ -3502,7 +3591,8 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   tasks_in "$local_home" add "$local_id" "Ship the original local change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the original local task"
   fm_write_meta "$local_home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" \
+    "window=default:rp-$local_id" "endpoint_task_id=$local_id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$local_id" "herdr_pane_id=rp-$local_id" \
     "worktree=$local_old_wt" "project=$local_old_repo" "harness=codex" \
     "kind=ship" "mode=local-only" "spawn_gen=original-$local_id"
   printf 'done: local merge ready\n' > "$local_home/state/$local_id.status"
@@ -3568,7 +3658,8 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   tasks_in "$local_home" reopen "$local_id" >/dev/null \
     || fail "could not reopen the reused local task"
   fm_write_meta "$local_home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" \
+    "window=default:rp-$local_id" "endpoint_task_id=$local_id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$local_id" "herdr_pane_id=rp-$local_id" \
     "worktree=$local_new_wt" "project=$local_new_repo" "harness=codex" \
     "kind=ship" "mode=local-only" "spawn_gen=replacement-$local_id"
   tasks_in "$local_home" start "$local_id" >/dev/null \
@@ -3608,7 +3699,8 @@ test_merge_entrypoints_serialize_forced_teardown_before_task_reads() {
   tasks_in "$home" add "$id" "Ship the released pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the PR teardown-race fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "window=default:rp-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -3685,7 +3777,8 @@ SH
   tasks_in "$local_home" add "$local_id" "Ship the released local change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the local teardown-race fixture"
   fm_write_meta "$local_home/state/$local_id.meta" \
-    "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+    "window=default:rp-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$local_id" "herdr_pane_id=rp-$local_id" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
     "spawn_gen=fixture-$local_id"
   printf 'done: local merge ready\n' > "$local_home/state/$local_id.status"
@@ -3775,7 +3868,8 @@ test_released_merge_passes_the_entrypoint_and_lands() {
   tasks_in "$home" add "$id" "Ship the approved pull request" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the released merge fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "window=default:rp-$id" "endpoint_task_id=$id" "worktree=$wt" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
     "pr=$pr" "spawn_gen=fixture-$id"
   printf 'done: merge ready\n' > "$home/state/$id.status"
@@ -3812,7 +3906,9 @@ test_teardown_refuses_a_ship_when_the_captain_hold_cannot_be_read() {
   tasks_in "$home" add "$id" "Ship the sample change" --kind ship \
     --repo sample --start >/dev/null || fail "could not create the unreadable-hold fixture"
   fm_write_meta "$home/state/$id.meta" \
-    "window=firstmate:fm-$id" "worktree=$home/projects/missing-$id" \
+    "window=default:rp-$id" "worktree=$home/projects/missing-$id" \
+    "endpoint_task_id=$id" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=fakews" "herdr_tab_id=faketab-$id" "herdr_pane_id=rp-$id" \
     "project=$home/projects/sample" "harness=codex" "kind=ship" "mode=direct-PR" \
     "spawn_gen=fixture-$id"
   printf 'done: PR https://github.com/sample/sample/pull/7\n' > "$home/state/$id.status"

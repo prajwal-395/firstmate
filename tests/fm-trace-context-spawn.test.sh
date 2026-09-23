@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # tests/fm-trace-context-spawn.test.sh - spawn-path integration regressions for
-# native W3C trace context using fake tmux panes and real isolated git worktrees.
+# native W3C trace context using fake herdr panes and real isolated git worktrees.
 # See docs/verification/trace-context.md for the maintained coverage inventory.
 set -u
 
@@ -23,72 +23,105 @@ Verify the spawned process receives the expected trace context.
 EOF
 }
 
-# Fake tmux: answers the pane-path query and logs every literal `send-keys -l`
-# argument (the GOTMPDIR export, the TRACEPARENT export, and the launch command)
-# one per line, in send order, so ordering is observable.
+# Fake herdr: answers the session/server/workspace/tab/pane/agent surface a
+# ship spawn walks (mirroring the shared spawn-world fake), and logs every
+# `pane run` / `pane send-text` payload (the GOTMPDIR export, the TRACEPARENT
+# export, and the launch command) one per line, in send order, so ordering is
+# observable. FM_FAKE_TRACEPARENT_SEND_FAIL=1 fails the TRACEPARENT export;
+# FM_FAKE_TRACEPARENT_SEND_UNSAFE=1 fails it with the unclearable status;
+# FM_FAKE_TRACE_METADATA_APPEND_FAIL=1 makes the meta unwritable when the
+# TRACEPARENT export is attempted.
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
+  cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+STATEDIR="${FM_FAKE_HERDR_STATE_DIR:-$(dirname "$0")/../herdr-state}"
+mkdir -p "$STATEDIR" 2>/dev/null || true
+[ -f "$STATEDIR/next" ] || printf '1\n' > "$STATEDIR/next"
+herdr_next() { local n; n=$(cat "$STATEDIR/next"); printf '%s' "$n"; printf '%s\n' $((n + 1)) > "$STATEDIR/next"; }
+log_payload() {
+  [ -n "${FM_FAKE_LAUNCH_LOG:-}" ] || return 0
+  printf '%s\n' "$1" >> "$FM_FAKE_LAUNCH_LOG"
+}
+trace_knobs() {
+  case "$1" in
+    "export TRACEPARENT="*)
+      if [ "${FM_FAKE_TRACEPARENT_SEND_FAIL:-0}" = 1 ]; then return 1; fi
+      if [ "${FM_FAKE_TRACEPARENT_SEND_UNSAFE:-0}" = 1 ]; then return 2; fi
+      if [ "${FM_FAKE_TRACE_METADATA_APPEND_FAIL:-0}" = 1 ]; then
+        chmod a-w "$FM_FAKE_META_PATH"
+      fi
+      ;;
+  esac
+  return 0
+}
 case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
 esac
 case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows)
-    [ -z "${FM_FAKE_DUPLICATE_WINDOW:-}" ] || printf '%s\n' "$FM_FAKE_DUPLICATE_WINDOW"
-    exit 0
-    ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
-  send-keys)
-    if [ "${FM_FAKE_TRACEPARENT_SEND_FAIL:-0}" = 1 ]; then
-      for a in "$@"; do
-        case "$a" in
-          "export TRACEPARENT="*) exit 1 ;;
-        esac
-      done
-    fi
-    if [ "${FM_FAKE_TRACEPARENT_SEND_UNSAFE:-0}" = 1 ]; then
-      for a in "$@"; do
-        case "$a" in
-          "export TRACEPARENT="*) exit 2 ;;
-        esac
-      done
-    fi
-    if [ "${FM_FAKE_TRACE_METADATA_APPEND_FAIL:-0}" = 1 ]; then
-      for a in "$@"; do
-        case "$a" in
-          "export TRACEPARENT="*)
-            chmod a-w "$FM_FAKE_META_PATH"
-            ;;
-        esac
-      done
-    fi
-    # Capture the text payload of both send forms: the literal launch
-    # (`send-keys -t <target> -l <text>`) and a text line
-    # (`send-keys -t <target> <text> Enter`). Skip the flags, the target, and
-    # the trailing key so only the payload is logged, one per line, in order.
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      shift
-      skip_next=
-      for a in "$@"; do
-        if [ -n "$skip_next" ]; then skip_next=; continue; fi
-        case "$a" in
-          -t) skip_next=1; continue ;;
-          -l) continue ;;
-          Enter|C-m) continue ;;
-          *) printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG" ;;
-        esac
-      done
-    fi
-    exit 0
-    ;;
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-trace-fake-herdr.sock"}]}\n'
+    exit 0 ;;
+  server) exit 0 ;;
+  workspace)
+    case "${2:-}" in
+      list) printf '{"result":{"workspaces":[]}}\n' ;;
+      create)
+        n=$(herdr_next)
+        printf '{"result":{"workspace":{"workspace_id":"w%s"},"tab":{"tab_id":"seedtab%s"},"root_pane":{"pane_id":"seedpane%s"}}}\n' "$n" "$n" "$n"
+        ;;
+    esac
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list)
+        if [ -n "${FM_FAKE_HERDR_DUPLICATE_LABEL:-}" ]; then
+          printf '{"result":{"tabs":[{"tab_id":"tdup","label":"%s"}]}}\n' "$FM_FAKE_HERDR_DUPLICATE_LABEL"
+        else
+          printf '{"result":{"tabs":[]}}\n'
+        fi ;;
+      create)
+        n=$(herdr_next)
+        printf '{"result":{"tab":{"tab_id":"t%s"},"root_pane":{"pane_id":"p%s"}}}\n' "$n" "$n"
+        ;;
+      close) exit 0 ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      list)
+        if [ -n "${FM_FAKE_HERDR_DUPLICATE_LABEL:-}" ]; then
+          printf '{"result":{"panes":[{"pane_id":"pdup1","tab_id":"tdup"}]}}\n'
+        else
+          printf '{"result":{"panes":[]}}\n'
+        fi ;;
+      get)
+        printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}" ;;
+      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      close) exit 0 ;;
+      run)
+        trace_knobs "${4:-}" || exit $?
+        log_payload "${4:-}"
+        exit 0 ;;
+      send-text)
+        trace_knobs "${4:-}" || exit $?
+        log_payload "${4:-}"
+        exit 0 ;;
+      send-keys|read) exit 0 ;;
+    esac
+    exit 0 ;;
+  agent)
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$fakebin/tmux"
+  chmod +x "$fakebin/herdr"
   fm_fake_exit0 "$fakebin" treehouse
   printf '%s\n' "$fakebin"
 }
@@ -124,7 +157,7 @@ run_spawn() {
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$home/user-home"
-  env -u FM_TRACE_CONTEXT \
+  env -u FM_TRACE_CONTEXT -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
@@ -146,7 +179,7 @@ run_spawn_tc() {
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$home/user-home"
-  env FM_TRACE_CONTEXT="$tc" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION FM_TRACE_CONTEXT="$tc" \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
@@ -218,7 +251,7 @@ run_two_level() {
   # launches into (bin/fm-claude-trust.sh), so this runs against a throwaway
   # HOME; without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$base/user-home"
-  env FM_TRACE_CONTEXT="$penv" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION FM_TRACE_CONTEXT="$penv" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$prim" HOME="$base/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$prim/state" FM_DATA_OVERRIDE="$prim/data" \
     FM_PROJECTS_OVERRIDE="$prim/projects" FM_CONFIG_OVERRIDE="$prim/config" \
@@ -245,7 +278,7 @@ run_two_level() {
   wfake=$(make_spawn_fakebin "$base/w-fake")
   : > "$wlog"
   mkdir -p "$sm/user-home"
-  env FM_TRACE_CONTEXT="$TL_ENV_TC" TRACEPARENT="$TL_CARRIER" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION FM_TRACE_CONTEXT="$TL_ENV_TC" TRACEPARENT="$TL_CARRIER" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$sm" HOME="$sm/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$sm/state" FM_DATA_OVERRIDE="$sm/data" \
     FM_PROJECTS_OVERRIDE="$sm/projects" FM_CONFIG_OVERRIDE="$sm/config" \
@@ -395,12 +428,12 @@ test_duplicate_secondmate_spawn_does_not_converge_trace_context() {
   # launches into (bin/fm-claude-trust.sh), so this runs against a throwaway
   # HOME; without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$base/user-home"
-  out=$(env -u FM_TRACE_CONTEXT \
+  out=$(env -u FM_TRACE_CONTEXT -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$prim" HOME="$base/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$prim/state" FM_DATA_OVERRIDE="$prim/data" \
     FM_PROJECTS_OVERRIDE="$prim/projects" FM_CONFIG_OVERRIDE="$prim/config" \
     FM_SPAWN_NO_GUARD=1 CLAUDECODE=1 TMUX="fake,1,0" \
-    FM_FAKE_DUPLICATE_WINDOW="fm-$id" FM_FAKE_LAUNCH_LOG="$log" \
+    FM_FAKE_HERDR_DUPLICATE_LABEL="fm-$id" FM_FAKE_LAUNCH_LOG="$log" \
     PATH="$fake:$PATH" "$SPAWN" "$id" "$sm" --secondmate 2>&1)
   status=$?
 

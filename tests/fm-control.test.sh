@@ -62,82 +62,208 @@ verified_adapter_contract() {  # <harness> -> exit command, interrupt key, repea
 
 # --- fake session provider --------------------------------------------------
 #
-# A tmux stub whose whole model is four files under $FM_FAKE_DIR:
+# A herdr stub whose whole model is files under $FM_FAKE_DIR:
 #   command  the pane's foreground process name, which IS the agent-state
-#            classifier's input (bin/backends/tmux.sh).
-#   cwd      the pane's current path.
-#   literal  every `send-keys -l` payload, one per line - exactly what was
+#            classifier's input (bin/fm-agent-process-lib.sh, read through
+#            the herdr adapter's process-info).
+#   cwd      the pane's current path (served as foreground_cwd).
+#   literal  every `pane send-text` payload, one per line - exactly what was
 #            typed into the composer.
-#   keys     every named key send, one per line.
-#   pane     optional capture-pane override, for an adapter whose busy verdict
+#   keys     every named key send plus every `pane run` line, one per line.
+#   pane     optional capture override, for an adapter whose busy verdict
 #            is read from the rendered tail.
 # Two transitions make it a lifecycle model rather than a recorder: a literal
 # that is the harness's exit command flips `command` to a shell (the agent
 # stopped), and a literal carrying a launch brief flips it to the value in
 # `becomes` (a new agent came up). FM_FAKE_NEVER_DIES suppresses the first, so
 # a stubborn agent can be tested too.
-make_tmux_stub() {  # <dir> -> echoes fakebin dir
+make_herdr_stub() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  cat > "$fb/tmux" <<'SH'
+  cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
 D=$FM_FAKE_DIR
+printf '%s\n' "$*" >> "$D/herdr-calls"
+[ -f "$D/herdr-next" ] || printf '1\n' > "$D/herdr-next"
+herdr_next() { local n; n=$(cat "$D/herdr-next"); printf '%s' "$n"; printf '%s\n' $((n + 1)) > "$D/herdr-next"; }
+closed_add() { grep -Fxq "$1" "$D/herdr-closed" 2>/dev/null || printf '%s\n' "$1" >> "$D/herdr-closed"; }
+is_closed() { grep -Fxq "$1" "$D/herdr-closed" 2>/dev/null; }
+becomes=$(cat "$D/becomes" 2>/dev/null || printf 'claude')
+current=$(cat "$D/command" 2>/dev/null || printf 'zsh')
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
 case "${1:-}" in
-  send-keys)
-    shift
-    literal=0
-    while [ $# -gt 0 ]; do
-      case "$1" in
-        -t) shift 2 ;;
-        -l) literal=1; shift ;;
-        *) break ;;
-      esac
-    done
-    payload=${1:-}
-    if [ "$literal" = 1 ]; then
-      printf '%s\n' "$payload" >> "$D/literal"
-      if [ -z "${FM_FAKE_NEVER_DIES:-}" ] \
-         && { [ "$payload" = /exit ] || [ "$payload" = /quit ]; }; then
-        printf 'zsh' > "$D/command"
-      fi
-      case "$payload" in
-        *'encode launch-brief'*) cat "$D/becomes" > "$D/command" ;;
-      esac
-    else
-      printf '%s\n' "$payload" >> "$D/keys"
-      if [ -n "${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" ] \
-         && { [ "$payload" = Escape ] || [ "$payload" = C-c ]; }; then
-        printf 'zsh' > "$D/command"
-      fi
-      if [ "$payload" = Escape ] && [ -n "${FM_FAKE_MUSE_LOG:-}" ]; then
-        if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ]; then
-          : > "$D/muse-ack-pending"
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-control-fake-herdr.sock"}]}\n'
+    exit 0 ;;
+  server) exit 0 ;;
+  workspace)
+    case "${2:-}" in
+      list)
+        printf '{"result":{"workspaces":['
+        first=1
+        while IFS=$(printf '\t') read -r wsid wlabel; do
+          [ -n "$wsid" ] || continue
+          [ "$first" = 1 ] || printf ','
+          first=0
+          printf '{"workspace_id":"%s","label":"%s","focused":true}' "$wsid" "$wlabel"
+        done < "$D/herdr-ws" 2>/dev/null || true
+        printf ']}}\n'
+        ;;
+      create)
+        label="fake-lab"
+        prev=
+        for a in "$@"; do
+          [ "$prev" = --label ] && label=$a
+          prev=$a
+        done
+        n=$(herdr_next)
+        printf '%s\t%s\n' "w$n" "$label" >> "$D/herdr-ws"
+        printf '%s\t%s\t%s\t%s\n' "st$n" "w$n" "1" "sp$n" >> "$D/herdr-tabs"
+        printf '{"result":{"workspace":{"workspace_id":"w%s","label":"%s"},"tab":{"tab_id":"st%s"},"root_pane":{"pane_id":"sp%s"}}}\n' "$n" "$label" "$n" "$n"
+        ;;
+    esac
+    exit 0 ;;
+  tab)
+    case "${2:-}" in
+      list)
+        wsid=
+        prev=
+        for a in "$@"; do
+          [ "$prev" = --workspace ] && wsid=$a
+          prev=$a
+        done
+        printf '{"result":{"tabs":['
+        first=1
+        while IFS=$(printf '\t') read -r tabid tws tlabel tpane; do
+          [ -n "$tabid" ] || continue
+          [ -z "$wsid" ] || [ "$tws" = "$wsid" ] || continue
+          is_closed "$tpane" && continue
+          [ "$first" = 1 ] || printf ','
+          first=0
+          printf '{"tab_id":"%s","label":"%s","focused":true}' "$tabid" "$tlabel"
+        done < "$D/herdr-tabs" 2>/dev/null || true
+        printf ']}}\n'
+        ;;
+      create)
+        wsid= label=
+        prev=
+        for a in "$@"; do
+          [ "$prev" = --workspace ] && wsid=$a
+          [ "$prev" = --label ] && label=$a
+          prev=$a
+        done
+        n=$(herdr_next)
+        printf '%s\t%s\t%s\t%s\n' "t$n" "$wsid" "$label" "p$n" >> "$D/herdr-tabs"
+        printf '{"result":{"tab":{"tab_id":"t%s"},"root_pane":{"pane_id":"p%s"}}}\n' "$n" "$n"
+        ;;
+      close) exit 0 ;;
+    esac
+    exit 0 ;;
+  pane)
+    case "${2:-}" in
+      get)
+        pane=$3
+        if is_closed "$pane"; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
         else
-          printf '%s\n' '{"schema_version":1,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"run-1","event":{"kind":"terminal","terminal":"cancelled","reason":null}}}' >> "$FM_FAKE_MUSE_LOG"
+          cwd=$(cat "$D/cwd" 2>/dev/null || printf '/nonexistent')
+          printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$pane" "$cwd"
         fi
-      fi
+        ;;
+      process-info)
+        pane=
+        prev=
+        for a in "$@"; do
+          [ "$prev" = --pane ] && pane=$a
+          prev=$a
+        done
+        if is_closed "$pane"; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        elif [ "$current" = zsh ]; then
+          printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":424242,"foreground_processes":[{"pid":424242,"name":"zsh","argv":["zsh"],"cmdline":"zsh"}]}}}\n' "$pane"
+        else
+          printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":424242,"foreground_processes":[{"pid":424243,"name":"%s","argv":["%s"],"cmdline":"%s"}]}}}\n' "$pane" "$current" "$current" "$current"
+        fi
+        ;;
+      list)
+        printf '{"result":{"panes":['
+        first=1
+        while IFS=$(printf '\t') read -r tabid tws tlabel tpane; do
+          [ -n "$tabid" ] || continue
+          is_closed "$tpane" && continue
+          [ "$first" = 1 ] || printf ','
+          first=0
+          printf '{"pane_id":"%s","tab_id":"%s"}' "$tpane" "$tabid"
+        done < "$D/herdr-tabs" 2>/dev/null || true
+        printf ']}}\n'
+        ;;
+      close)
+        closed_add "$3"
+        exit 0 ;;
+      run)
+        printf '%s\n' "$4" >> "$D/keys"
+        exit 0 ;;
+      send-text)
+        pane=$3
+        literal=$4
+        printf '%s\n' "$literal" >> "$D/literal"
+        if [ -z "${FM_FAKE_NEVER_DIES:-}" ] \
+           && { [ "$literal" = /exit ] || [ "$literal" = /quit ]; }; then
+          printf 'zsh' > "$D/command"
+        fi
+        case "$literal" in
+          *'encode launch-brief'*) cat "$D/becomes" > "$D/command" ;;
+        esac
+        exit 0 ;;
+      send-keys)
+        key=$4
+        printf '%s\n' "$key" >> "$D/keys"
+        if [ -n "${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" ] \
+           && { [ "$key" = escape ] || [ "$key" = Escape ] || [ "$key" = ctrl+c ] || [ "$key" = C-c ]; }; then
+          printf 'zsh' > "$D/command"
+        fi
+        if { [ "$key" = escape ] || [ "$key" = Escape ]; } && [ -n "${FM_FAKE_MUSE_LOG:-}" ]; then
+          if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ]; then
+            : > "$D/muse-ack-pending"
+          else
+            printf '%s\n' '{"schema_version":1,"payload_type":"runtime.session","payload":{"kind":"run","run_id":"run-1","event":{"kind":"terminal","terminal":"cancelled","reason":null}}}' >> "$FM_FAKE_MUSE_LOG"
+          fi
+        fi
+        exit 0 ;;
+      read)
+        if [ -f "$D/pane" ]; then cat "$D/pane"; else printf '╭────╮\n│    │\n╰────╯\n'; fi
+        exit 0 ;;
+    esac
+    exit 0 ;;
+  agent)
+    pane=$3
+    # Real herdr reports an agent only when one is registered in the pane: a
+    # pane running an unattributed process answers agent_not_found, which the
+    # adapter reads as an agent-free (dead) endpoint, never as ambiguous.
+    # FM_FAKE_HERDR_BAD_AGENT=1 serves malformed output to prove the
+    # unreadable path fails closed.
+    if [ -n "${FM_FAKE_HERDR_BAD_AGENT:-}" ]; then
+      printf 'not json\n'
+    elif is_closed "$pane" || [ "$current" = zsh ]; then
+      printf '{"error":{"code":"agent_not_found"}}\n'
+    else
+      case "$current" in
+        *claude*|*codex*|*opencode*|*grok*|*kimi*|*rovo*|pi|pi-signed|pi-launcher|Pi|omp|agy|cursor-agent|muse|muse-bin-*)
+          printf '{"result":{"agent":{"agent":"%s","agent_status":"working"}}}\n' "$current" ;;
+        *) printf '{"error":{"code":"agent_not_found"}}\n' ;;
+      esac
     fi
     exit 0 ;;
-  display-message)
-    for a in "$@"; do
-      case "$a" in
-        *cursor_y*) printf '1\n'; exit 0 ;;
-        *pane_current_command*) cat "$D/command"; printf '\n'; exit 0 ;;
-        *pane_current_path*) cat "$D/cwd"; printf '\n'; exit 0 ;;
-      esac
-    done
-    printf 'fakepane\n'; exit 0 ;;
-  capture-pane)
-    if [ -f "$D/pane" ]; then cat "$D/pane"; else printf '╭────╮\n│    │\n╰────╯\n'; fi
-    exit 0 ;;
-  list-windows)
-    if [ -f "$D/windows" ]; then cat "$D/windows"; fi
-    exit 0 ;;
+  terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac
 exit 0
 SH
-  chmod +x "$fb/tmux"
+  chmod +x "$fb/herdr"
   cat > "$fb/sleep" <<'SH'
 #!/usr/bin/env bash
 if [ -n "${FM_FAKE_MUSE_DISAPPEAR_BEFORE_ACK:-}" ] \
@@ -158,9 +284,14 @@ new_case() {
   mkdir -p "$dir/home/state" "$dir/home/data" "$dir/fake"
   : > "$dir/fake/literal"
   : > "$dir/fake/keys"
+  : > "$dir/fake/herdr-calls"
+  : > "$dir/fake/herdr-closed"
+  : > "$dir/fake/herdr-ws"
+  : > "$dir/fake/herdr-tabs"
+  printf '1\n' > "$dir/fake/herdr-next"
   printf 'zsh' > "$dir/fake/command"
   printf 'claude' > "$dir/fake/becomes"
-  make_tmux_stub "$dir" >/dev/null
+  make_herdr_stub "$dir" >/dev/null
   printf '%s\n' "$dir"
 }
 
@@ -168,8 +299,8 @@ new_case() {
 # Builds the task's worktree (a real git worktree so the relaunch checkpoint
 # has something to account for), its brief, and its state/<id>.meta.
 add_task() {
-  local dir=$1 id=$2 harness=$3 kind=${4:-ship} backend=${5:-tmux}
-  local window=${6:-fmses:fm-$id}
+  local dir=$1 id=$2 harness=$3 kind=${4:-ship} backend=${5:-herdr}
+  local window=${6:-default:rp-$id}
   local home="$dir/home" proj="$dir/proj-$id" wt="$dir/wt-$id"
   fm_git_worktree "$proj" "$wt" "task-$id"
   mkdir -p "$home/data/$id"
@@ -177,6 +308,13 @@ add_task() {
   {
     echo "window=$window"
     echo "endpoint_task_id=$id"
+    echo "backend=$backend"
+    if [ "$backend" = herdr ]; then
+      echo "herdr_session=${window%%:*}"
+      echo "herdr_workspace_id=fakews"
+      echo "herdr_tab_id=faketab-$id"
+      echo "herdr_pane_id=${window##*:}"
+    fi
     echo "worktree=$wt"
     echo "project=$proj"
     echo "harness=$harness"
@@ -185,9 +323,7 @@ add_task() {
     echo "yolo=off"
     echo "model=default"
     echo "effort=default"
-    [ "$backend" = tmux ] || echo "backend=$backend"
   } > "$home/state/$id.meta"
-  printf '%s\n' "fm-$id" > "$dir/fake/windows"
   printf '%s' "$wt" > "$dir/fake/cwd"
 }
 
@@ -195,7 +331,8 @@ add_task() {
 # the stubbed provider on PATH. Echoes combined output; returns its exit code.
 run_control() {
   local dir=$1; shift
-  env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
+    PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
     FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_FAKE_MUSE_LOG="${FM_FAKE_MUSE_LOG:-}" \
@@ -213,9 +350,24 @@ literals() {  # <case-dir>
 }
 
 # Every named key EXCEPT Enter, which is submission mechanics shared with every
-# text send rather than a control-plane key.
+# text send rather than a control-plane key. Enter arrives normalized to
+# `enter` through the herdr adapter, so both spellings are excluded.
 keys_sent() {  # <case-dir>
-  grep -v '^Enter$' "$1/fake/keys" || true
+  grep -v -e '^Enter$' -e '^enter$' "$1/fake/keys" || true
+}
+
+# The herdr adapter normalizes control's key vocabulary on the way down
+# (Escape->escape, C-c->ctrl+c, C-u->ctrl+u), so expected sends are compared
+# in their normalized form while the harness contract table above keeps the
+# canonical names.
+herdr_key() {  # <key> -> normalized form, one per line
+  case "$1" in
+    Escape) printf 'escape\n' ;;
+    C-c) printf 'ctrl+c\n' ;;
+    C-u) printf 'ctrl+u\n' ;;
+    Enter) printf 'enter\n' ;;
+    *) printf '%s\n' "$1" ;;
+  esac
 }
 
 # --- 1. adapter contract across every verified harness -----------------------
@@ -253,8 +405,8 @@ test_interrupt_sends_each_harness_verified_key() {
     out=$(run_control "$dir" t1 interrupt); rc=$?
     expect_code 0 "$rc" "interrupt on $harness should succeed"$'\n'"$out"
     IFS=$'\t' read -r expected key repeat clear <<< "$(verified_adapter_contract "$harness")"
-    want=$(for _ in $(seq 1 "$repeat"); do printf '%s\n' "$key"; done)
-    [ -z "$clear" ] || want="$want"$'\n'"$clear"
+    want=$(for _ in $(seq 1 "$repeat"); do herdr_key "$key"; done)
+    [ -z "$clear" ] || want="$want"$'\n'"$(herdr_key "$clear")"
     got=$(keys_sent "$dir")
     [ "$got" = "$want" ] \
       || fail "interrupt on $harness should send $repeat x $key${clear:+ then $clear}, got: $got"
@@ -300,7 +452,7 @@ test_prefixed_recorded_harness_reaches_each_control_verb() {
   alive_as "$dir" grok-2
   out=$(run_control "$dir" t1 interrupt); rc=$?
   expect_code 0 "$rc" "interrupt should resolve a prefixed recorded harness"$'\n'"$out"
-  [ "$(keys_sent "$dir")" = C-c ] \
+  [ "$(keys_sent "$dir")" = ctrl+c ] \
     || fail "a grok-prefixed task should receive grok's interrupt key"
   assert_contains "$out" "harness=grok" \
     "interrupt should report the verified adapter that supplied its mechanics"
@@ -351,22 +503,19 @@ test_unverified_harness_is_refused() {
 # --- 2. backend capability matrix -------------------------------------------
 
 test_backend_key_capability_matrix() {
-  local backend key
-  for backend in tmux herdr zellij cmux; do
-    # C-u is the composer clear muse's interrupt needs; every session provider
-    # but Orca normalizes it (bin/backends/*.sh).
-    for key in Escape Enter C-c C-u; do
-      fm_control_backend_supports_key "$backend" "$key" \
-        || fail "$backend should be able to deliver $key"
-    done
+  local key
+  # C-u is the composer clear muse's interrupt needs; herdr normalizes it
+  # along with the other session-provider keys.
+  for key in Escape Enter C-c C-u; do
+    fm_control_backend_supports_key herdr "$key" \
+      || fail "herdr should be able to deliver $key"
   done
-  fm_control_backend_supports_key orca Escape \
-    && fail "orca's terminal API has no Escape and must not claim it"
-  fm_control_backend_supports_key orca C-u \
-    && fail "orca's terminal API has no composer clear and must not claim one"
-  fm_control_backend_supports_key orca C-c || fail "orca should deliver C-c"
-  fm_control_backend_supports_key orca Enter || fail "orca should deliver Enter"
-  pass "fm-control-lib: the backend key matrix matches each adapter's real send-key surface"
+  local backend
+  for backend in tmux zellij orca cmux bogus; do
+    fm_control_backend_supports_key "$backend" Escape \
+      && fail "removed backend '$backend' must not claim any key delivery"
+  done
+  pass "fm-control-lib: the backend key matrix matches the herdr send-key surface"
 }
 
 # A verified adapter is not automatically verified for every task kind, and the
@@ -393,63 +542,33 @@ test_harness_kind_capability() {
   pass "fm-control-lib: adapter capability is per task kind, not per adapter alone"
 }
 
-test_orca_refuses_an_escape_harness_interrupt() {
-  local dir out rc
-  dir=$(new_case orca-escape)
-  add_task "$dir" t1 claude ship orca "term-1"
-  # Orca records its endpoint as terminal=, which endpoint validation requires.
-  {
-    cat "$dir/home/state/t1.meta"
-    echo "terminal=term-1"
-    echo "orca_worktree_id=wt-1"
-  } > "$dir/home/state/t1.meta.new"
-  sed 's|^window=.*|window=fm-t1|' "$dir/home/state/t1.meta.new" > "$dir/home/state/t1.meta"
-  out=$(run_control "$dir" t1 interrupt); rc=$?
-  expect_code 1 "$rc" "an Escape harness on orca should refuse"
-  assert_contains "$out" "cannot deliver" "refusal should name the undeliverable key"
-  pass "fm-control interrupt: a backend that cannot deliver the harness's key refuses instead of sending another"
-}
-
-test_unverified_state_backends_refuse_stop_verbs() {
+test_removed_backends_refuse_stop_verbs() {
   local dir out rc backend
-  for backend in zellij cmux; do
-    dir=$(new_case "nostate-$backend")
-    if [ "$backend" = zellij ]; then
-      add_task "$dir" t1 claude ship zellij "sess:7"
-      {
-        echo "zellij_session=sess"
-        echo "zellij_tab_id=1"
-        echo "zellij_pane_id=7"
-      } >> "$dir/home/state/t1.meta"
-    else
-      add_task "$dir" t1 claude ship cmux "ws1:surface1"
-      {
-        echo "cmux_workspace_id=ws1"
-        echo "cmux_surface_id=surface1"
-      } >> "$dir/home/state/t1.meta"
-    fi
+  # tmux, zellij, orca, and cmux survive only in git history: a record that
+  # still names one is refused before any lifecycle byte is sent.
+  for backend in tmux zellij orca cmux; do
+    dir=$(new_case "removed-$backend")
+    add_task "$dir" t1 claude ship "$backend" "default:rp-t1"
     out=$(run_control "$dir" t1 exit); rc=$?
-    expect_code 1 "$rc" "exit on $backend should refuse"$'\n'"$out"
-    assert_contains "$out" "no recovery-grade agent-state classifier" \
-      "the $backend refusal should name the missing stop proof"
+    expect_code 1 "$rc" "exit on removed backend $backend should refuse"$'\n'"$out"
     [ -z "$(literals "$dir")" ] || fail "$backend must receive no exit command"
-    out=$(run_control "$dir" t1 relaunch --note x); rc=$?
-    expect_code 1 "$rc" "relaunch on $backend should refuse"$'\n'"$out"
-    assert_contains "$out" "no recovery-grade agent-state classifier" \
-      "the $backend relaunch refusal should name the missing stop proof"
+    [ -z "$(keys_sent "$dir")" ] || fail "$backend must receive no interrupt key"
+    out=$(run_control "$dir" t1 interrupt); rc=$?
+    expect_code 1 "$rc" "interrupt on removed backend $backend should refuse"$'\n'"$out"
+    [ -z "$(literals "$dir")" ] && [ -z "$(keys_sent "$dir")" ] \
+      || fail "$backend must receive no interrupt bytes"
   done
-  pass "fm-control: a backend that cannot prove an agent stopped refuses exit and relaunch"
+  pass "fm-control: removed backends refuse stop verbs before any lifecycle byte"
 }
 
-test_state_verified_backends_are_exactly_tmux_and_herdr() {
-  fm_control_backend_state_verified tmux || fail "tmux has a recovery-grade classifier"
+test_state_verified_backend_is_herdr() {
   fm_control_backend_state_verified herdr || fail "herdr has a recovery-grade classifier"
   local backend
-  for backend in zellij orca cmux; do
+  for backend in tmux zellij orca cmux bogus; do
     fm_control_backend_state_verified "$backend" \
       && fail "$backend has no recovery-grade classifier and must not claim one"
   done
-  pass "fm-control-lib: stop-proving verbs are gated on the backends that really classify agent state"
+  pass "fm-control-lib: stop-proving verbs are gated on herdr's agent-state classifier"
 }
 
 # --- 3. exact-id scoping ----------------------------------------------------
@@ -641,7 +760,7 @@ test_missing_endpoint_refuses() {
   local dir out rc
   dir=$(new_case gone)
   add_task "$dir" t1 claude
-  : > "$dir/fake/windows"
+  printf '%s\n' "rp-t1" >> "$dir/fake/herdr-closed"
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 1 "$rc" "a missing endpoint should refuse"
   assert_contains "$out" "recorded endpoint is gone" "the refusal should name the missing endpoint"
@@ -664,12 +783,15 @@ test_ambiguous_endpoint_refuses() {
   local dir out rc
   dir=$(new_case ambiguous)
   add_task "$dir" t1 claude
-  alive_as "$dir" some-unrelated-process
-  out=$(run_control "$dir" t1 exit); rc=$?
-  expect_code 1 "$rc" "an unattributed endpoint should refuse"
+  alive_as "$dir" claude
+  # Herdr resolves every present pane to alive or dead, so the unattributed
+  # refusal is reached through an unreadable agent read instead: garbage
+  # from `agent get` must fail closed, never succeed or invent a verdict.
+  out=$(FM_FAKE_HERDR_BAD_AGENT=1 run_control "$dir" t1 exit); rc=$?
+  expect_code 1 "$rc" "an unreadable endpoint should refuse"
   assert_contains "$out" "positively classified" "the refusal should name the missing attribution"
   [ -z "$(literals "$dir")" ] || fail "an unattributed endpoint must receive no bytes"
-  pass "fm-control exit: an endpoint whose process cannot be attributed refuses"
+  pass "fm-control exit: an endpoint whose agent state cannot be read refuses"
 }
 
 test_busy_agent_is_interrupted_before_the_exit_command() {
@@ -683,7 +805,7 @@ test_busy_agent_is_interrupted_before_the_exit_command() {
   printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
   out=$(run_control "$dir" t1 exit); rc=$?
   expect_code 0 "$rc" "exiting a busy agent should succeed"$'\n'"$out"
-  [ "$(keys_sent "$dir")" = "Escape" ] \
+  [ "$(keys_sent "$dir")" = "escape" ] \
     || fail "a busy agent should be interrupted once before its exit command, got: $(keys_sent "$dir")"
   [ "$(literals "$dir")" = "/exit" ] || fail "the exit command should follow the interrupt"
   pass "fm-control exit: a busy agent receives interrupt delivery before the exit command"
@@ -777,7 +899,7 @@ test_exit_accepts_agent_stopped_by_busy_interrupt() {
   expect_code 0 "$rc" "exit should accept a busy agent stopped by interrupt"$'\n'"$out"
   assert_contains "$out" "stopped t1 harness=claude" \
     "the authoritative gone-state should complete exit successfully"
-  [ "$(keys_sent "$dir")" = Escape ] \
+  [ "$(keys_sent "$dir")" = escape ] \
     || fail "exit should deliver the busy agent's interrupt sequence"
   [ -z "$(literals "$dir")" ] \
     || fail "exit should not type a command after interrupt already stopped the agent"
@@ -802,7 +924,7 @@ test_agent_that_does_not_stop_fails_closed() {
     "the failure should distinguish delivered lifecycle input from the unconfirmed exit"
   assert_not_contains "$out" "nothing was changed" \
     "the failure must not deny the lifecycle input that was delivered"
-  [ "$(keys_sent "$dir")" = Escape ] \
+  [ "$(keys_sent "$dir")" = escape ] \
     || fail "a stubborn busy agent should receive its interrupt sequence"
   [ "$(literals "$dir")" = /exit ] \
     || fail "a stubborn busy agent should receive its exit command"
@@ -832,7 +954,7 @@ test_grok_idle_footer_does_not_confirm_cancellation() {
   expect_code 0 "$rc" "grok interrupt delivery should succeed"$'\n'"$out"
   assert_contains "$out" "verified=agent-alive cancel=unconfirmed" \
     "an idle footer is not an explicit cancellation acknowledgement"
-  [ "$(keys_sent "$dir")" = "C-c" ] || fail "grok should receive C-c, got: $(keys_sent "$dir")"
+  [ "$(keys_sent "$dir")" = "ctrl+c" ] || fail "grok should receive C-c, got: $(keys_sent "$dir")"
   pass "fm-control interrupt: grok's idle footer does not confirm cancellation"
 }
 
@@ -974,9 +1096,8 @@ test_harness_family_resolution
 test_prefixed_recorded_harness_reaches_each_control_verb
 test_backend_key_capability_matrix
 test_harness_kind_capability
-test_orca_refuses_an_escape_harness_interrupt
-test_unverified_state_backends_refuse_stop_verbs
-test_state_verified_backends_are_exactly_tmux_and_herdr
+test_removed_backends_refuse_stop_verbs
+test_state_verified_backend_is_herdr
 test_window_label_is_refused_with_the_exact_id
 test_explicit_endpoint_is_refused
 test_unknown_task_is_refused
