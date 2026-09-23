@@ -7,7 +7,7 @@ file pins the mirror - `Operation.effect` filters that same registry
 on `owning_node in r.produced_by` - so an effect can be matched against
 a precondition without a second vocabulary.
 
-Fifteen of the 24 operations have a non-empty derived effect.  Nine
+Seventeen of the 26 operations have a non-empty derived effect.  Nine
 are empty, each for a verified reason recorded in
 `operations.EMPTY_EFFECT_REASONS` (verdict / artifact / unmodelled
 analysis - see that mapping for the per-operation evidence).  The

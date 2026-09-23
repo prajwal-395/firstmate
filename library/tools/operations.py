@@ -77,7 +77,7 @@ operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
 precondition, so nothing would compose.
 
-Fifteen of the 24 operations have a non-empty effect.  Nine are empty,
+Seventeen of the 26 operations have a non-empty effect.  Nine are empty,
 and the emptiness is TRUE, not a gap: `run_scope.prerequisites`
 derives one condition per REQUIRED input, so a node that no consumer
 requires anything from produces no requirement.  The nine are three
@@ -118,7 +118,7 @@ analysis operations that DO write state keys (`prosody.analyse`,
 `ocr.extract`) stay empty for the narrower reason above - optional or
 absent edges, which `prerequisites` deliberately excludes - and would
 become derivable the day the layer models optional edges, like the
-other fifteen.
+other seventeen.
 
 Executing
 ---------
@@ -1064,6 +1064,36 @@ _REGISTRY: tuple[Operation, ...] = (
         # PROJECT only. The change addresses items by (row, position)
         # on one reel's timeline, so a region address would promise a
         # scope the touchup does not keep.
+        scopes=(PROJECT,),
+    ),
+    Operation(
+        name="reel.entry_motion",
+        summary="Animate a placed overlay element in (and out) with a Fusion fade, without rebuilding its reel",
+        owning_node="build_reels",
+        owning_dir="step_7_01_build_reels", body="step.py",
+        attr="animate_entry",
+        # Its arguments are caller-decided - which reel, which item,
+        # how many frames of entrance and exit fade - handed in by
+        # the fix that computed them. The runner never drives it. See
+        # `Operation.caller_supplied`.
+        caller_supplied=True,
+        # PROJECT only, for the same reason as `reel.touchup`: the
+        # change addresses items by (row, position) on one reel's
+        # timeline.
+        scopes=(PROJECT,),
+    ),
+    Operation(
+        name="reel.set_properties",
+        summary="Change properties on an already-placed clip in place, without deleting and re-placing it",
+        owning_node="build_reels",
+        owning_dir="step_7_01_build_reels", body="step.py",
+        attr="set_clip_properties",
+        # Its arguments are caller-decided - which reel, which item,
+        # which properties - handed in by the fix that computed them.
+        # The runner never drives it. See
+        # `Operation.caller_supplied`.
+        caller_supplied=True,
+        # PROJECT only, for the same reason as `reel.touchup`.
         scopes=(PROJECT,),
     ),
     Operation(

@@ -84,6 +84,7 @@ def test_the_registry_carries_reel_operations():
         "operation registry exists to remove")
     assert {op.name for op in REEL_OPERATIONS} == {
         "reel.candidates", "reel.select", "reel.build", "reel.touchup",
+        "reel.entry_motion", "reel.set_properties",
         "reel.ask", "reel.verify", "reel.gate_stills"}
 
 

@@ -10,13 +10,21 @@ module is the path that connects the two.
 What the caller states, and what it does not
 --------------------------------------------
 The caller states the change STRUCTURALLY: which reel, which item,
-what changes - one of the five ops below.  Mapping a captain's
+what changes - one of the seven ops below.  Mapping a captain's
 natural-language note onto such a change is the NEXT task and is
 explicitly not this one; this module is the mechanism that task will
 call.
 
-The five ops
-------------
+The seven ops
+-------------
+The first five delete and re-place through the composition.  The last
+two are IN-PLACE: they write onto the staged item itself - no delete,
+no place - and ride `Qualification.in_place` rather than
+changes/insertions/removals.  They run before the composition off the
+same staging, so a capture taken after them carries them, and a spec
+mixing them with composition ops stays servable: one source item, one
+edit (`_check_single_claim`).
+
 - `move` - an overlay item to a different record position on the SAME
   row.  Same duration, same pixels.  A move across rows refuses: the
   composition addresses what it deletes by (row, position), so a
@@ -49,6 +57,26 @@ The five ops
 - `retime` - a played-length change with a ripple, planned by
   `composed_edit.plan_ripple` over the full read.  This is the class
   that pays the comp pass.
+- `set_properties` - IN-PLACE.  A property mapping written onto an
+  already-placed item with `composed_edit.set_properties` and judged
+  by read-back - no delete, no place.  Any row: nothing is vacated
+  and no comp is disturbed.  A key `set_properties` would silently
+  skip (read-only, None, a `<placeholder>`) REFUSES here instead,
+  naming it: a spec asking to set `Resolution` is a caller error,
+  not a no-op to wave through.
+- `entry_motion` - IN-PLACE.  An entrance and/or exit fade authored
+  as a Fusion comp (`fusion.comp_builder.build_effect_comp` over the
+  `fade_in_frames`/`fade_out_frames` keys, the same dispatch the comp
+  pass reads) and imported onto the staged item, then conformed by
+  the pass's own `comp_media_window.conform_item` and verified by
+  re-read.  Overlay rows (V3+ video) only: V1/V2 are comp-bearing
+  rows whose treatments the comp pass owns (same boundary as
+  `add_overlay`), audio rows carry no Fusion comps, and an item
+  already carrying a drawing comp refuses - a second treatment the
+  recorded manifest does not know would be dropped silently by the
+  next re-derivation.  The ramp must fit inside what the item plays
+  (`fade_in + fade_out <= duration - 1`), else the effect holds
+  across the whole clip (`fusion.played_window`).
 
 The qualification gate
 ----------------------
@@ -202,6 +230,11 @@ class Qualification:
     changes: list = field(default_factory=list)
     insertions: list = field(default_factory=list)
     removals: list = field(default_factory=list)
+    #: IN-PLACE edits - `set_properties` and `entry_motion` - as
+    #: `{"kind", "row", "item_index", "record_frame", ...}` dicts.
+    #: They write onto the staged item itself (no delete, no place)
+    #: and run before the composition, so the capture carries them.
+    in_place: list = field(default_factory=list)
     #: Cross-row moves, stated with both ends: `ItemChange` carries
     #: the target row but the source index, so the overlap check and
     #: the count planner read the move here rather than inferring it.
@@ -267,9 +300,10 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
 
     `spec` is `{"reel": N, "edits": [...], "exclude": [[row, idx]]}`.
     Each edit carries `op` - `move`, `swap_pixels`, `add_overlay`,
-    `remove_overlay` or `retime` - and the fields that op documents
-    in the module docstring.  Raises `TouchupRefused` for anything
-    unclassifiable, naming why.  Never falls back to a rebuild.
+    `remove_overlay`, `retime`, `set_properties` or `entry_motion` -
+    and the fields that op documents in the module docstring.
+    Raises `TouchupRefused` for anything unclassifiable, naming why.
+    Never falls back to a rebuild.
     """
     edits = list((spec or {}).get("edits") or ())
     if not edits:
@@ -285,6 +319,7 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
     insertions: list = []
     removals: list = []
     moves: list = []
+    in_place: list = []
     length_changing = False
 
     for position, edit in enumerate(edits):
@@ -298,18 +333,18 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
         if handler is None:
             raise TouchupRefused(
                 f"REFUSING: edit {position} names op {op!r}, and the "
-                f"gate knows five ops: "
+                f"gate knows seven ops: "
                 f"{sorted(_OP_HANDLERS)}. Anything else is "
                 f"unclassifiable - extend the gate deliberately "
                 f"rather than guessing what {op!r} means.")
         length_changing = handler(
             edit, position, tracks, spans, changes, insertions,
-            removals, moves, exclude, notes) or length_changing
+            removals, moves, exclude, notes, in_place) or length_changing
 
-    _prune_shadowed_rewrites(changes, removals, moves)
+    _prune_shadowed_rewrites(changes, removals, moves, in_place)
     _check_post_edit_overlaps(tracks, changes, insertions, removals,
                               moves)
-    _check_single_claim(changes, removals, moves)
+    _check_single_claim(changes, removals, moves, in_place)
 
     if length_changing:
         cost = ("composed_with_rederivation: this change alters a "
@@ -335,7 +370,7 @@ def qualify(tracks: Sequence[Mapping], spec: Mapping) -> Qualification:
         gate_class = COMPOSED
     return Qualification(gate_class=gate_class, changes=changes,
                          insertions=insertions, removals=removals,
-                         moves=moves,
+                         moves=moves, in_place=in_place,
                          cost_statement=cost, notes=notes)
 
 
@@ -413,13 +448,17 @@ def _check_post_edit_overlaps(tracks: Sequence[Mapping],
 
 def _prune_shadowed_rewrites(changes: list,
                                removals: Sequence[dict],
-                               moves: Sequence[dict]) -> None:
+                               moves: Sequence[dict],
+                               in_place: Sequence[dict]) -> None:
     """Drop rewrites of items another edit already claims.
 
     A remove plans zero-length rewrites for every kept item on its
     row, but a later edit in the same spec may move one of those
-    items - whose placement the move then verifies.  Re-placing it
-    at its old span too would put it on the timeline twice.  A
+    items - whose placement the move then verifies - or write onto
+    one in place.  Re-placing it at its old span too would put it on
+    the timeline twice (or churn a re-place the in-place write makes
+    needless: the composition's capture reads the staged item AFTER
+    the in-place write, so a pruned rewrite loses nothing).  A
     rewrite is identified structurally (a SHIFT to its own span),
     so only those go; a ripple shift to a NEW span still conflicts
     and `_check_single_claim` refuses it below.
@@ -428,6 +467,8 @@ def _prune_shadowed_rewrites(changes: list,
                for r in removals}
     claimed |= {(str(m.get("from_row")).upper(),
                  int(m.get("from_index"))) for m in moves}
+    claimed |= {(str(e.get("row")).upper(), int(e.get("item_index")))
+                for e in in_place}
     moved_ids = {id(m.get("change")) for m in moves}
     kept = []
     for change in changes:
@@ -445,11 +486,16 @@ def _prune_shadowed_rewrites(changes: list,
 
 def _check_single_claim(changes: Sequence[_ce.ItemChange],
                           removals: Sequence[dict],
-                          moves: Sequence[dict]) -> None:
+                          moves: Sequence[dict],
+                          in_place: Sequence[dict]) -> None:
     """One source item, one edit. Two edits addressing the same item -
     a rewrite of V4[2] plus a move of V4[2] - would place it twice.
     The overlap check cannot see that (the spans differ), so this
-    refuses it by position before anything is staged.
+    refuses it by position before anything is staged.  An in-place
+    write claims its item the same way: a move or a ripple shift of
+    an item another edit writes onto would re-place it around the
+    write, and two in-place writes on one item would need a merge
+    order the gate will not invent - state those as two touchups.
     """
     moved_ids = {id(m.get("change")) for m in moves}
     claims: dict = {}
@@ -466,6 +512,10 @@ def _check_single_claim(changes: Sequence[_ce.ItemChange],
         key = (str(move.get("from_row")).upper(),
                int(move.get("from_index")))
         claims.setdefault(key, []).append("move")
+    for entry in in_place:
+        key = (str(entry.get("row")).upper(),
+               int(entry.get("item_index")))
+        claims.setdefault(key, []).append(str(entry.get("kind")))
     doubled = {key: kinds for key, kinds in claims.items()
                if len(kinds) > 1}
     if doubled:
@@ -475,16 +525,18 @@ def _check_single_claim(changes: Sequence[_ce.ItemChange],
             f"one edit per item.")
 
 
-# ── The five ops ─────────────────────────────────────────────────────
+# ── The seven ops ────────────────────────────────────────────────────
 #
 # Each takes the edit, its position, the full read, the live spans and
 # the plan under construction.  Returns True when it alters a played
 # length.  Every one raises `TouchupRefused` for what it cannot
-# classify.
+# classify.  The last argument, `in_place`, is the list the two
+# IN-PLACE ops (`set_properties`, `entry_motion`) record into - the
+# composition ops ignore it.
 
 
 def _op_move(edit, position, tracks, spans, changes, insertions,
-             removals, moves, exclude, notes) -> bool:
+             removals, moves, exclude, notes, in_place) -> bool:
     row = str(edit.get("row") or "").upper()
     item_index = edit.get("item")
     to_row = str(edit.get("to_row") or row).upper()
@@ -549,7 +601,7 @@ def _op_move(edit, position, tracks, spans, changes, insertions,
 
 
 def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
-                    removals, moves, exclude, notes) -> bool:
+                    removals, moves, exclude, notes, in_place) -> bool:
     row = str(edit.get("row") or "").upper()
     item_index = edit.get("item")
     media = edit.get("media")
@@ -583,7 +635,7 @@ def _op_swap_pixels(edit, position, tracks, spans, changes, insertions,
 
 
 def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
-                    removals, moves, exclude, notes) -> bool:
+                    removals, moves, exclude, notes, in_place) -> bool:
     row = str(edit.get("row") or "").upper()
     media = edit.get("media")
     record = edit.get("record")
@@ -629,8 +681,8 @@ def _op_add_overlay(edit, position, tracks, spans, changes, insertions,
 
 
 def _op_remove_overlay(edit, position, tracks, spans, changes,
-                       insertions, removals, moves, exclude, notes
-                       ) -> bool:
+                       insertions, removals, moves, exclude, notes,
+                       in_place) -> bool:
     row = str(edit.get("row") or "").upper()
     item_index = edit.get("item")
     if not row or item_index is None:
@@ -683,7 +735,7 @@ def _op_remove_overlay(edit, position, tracks, spans, changes,
 
 
 def _op_retime(edit, position, tracks, spans, changes, insertions,
-               removals, moves, exclude, notes) -> bool:
+               removals, moves, exclude, notes, in_place) -> bool:
     row = str(edit.get("row") or "").upper()
     item_index = edit.get("item")
     duration = edit.get("duration")
@@ -732,12 +784,143 @@ def _op_retime(edit, position, tracks, spans, changes, insertions,
     return True
 
 
+def _op_set_properties(edit, position, tracks, spans, changes,
+                         insertions, removals, moves, exclude, notes,
+                         in_place) -> bool:
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    properties = edit.get("properties")
+    if not row or item_index is None or not isinstance(properties,
+                                                       Mapping):
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`set_properties`) needs "
+            f"`row`, `item` and a `properties` mapping (got "
+            f"{dict(edit)!r}).")
+    if not properties:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`set_properties`) names no "
+            f"properties. A touchup with nothing to write is a caller "
+            f"that failed to say what it wants.")
+    unsettable = {
+        key: ("read-only - Resolve reports it and will not take it "
+              "back" if key in _ce.READ_ONLY_PROPERTIES
+              else ("None - there is no value to write" if value is None
+                    else "a placeholder, not a value"))
+        for key, value in properties.items()
+        if (key in _ce.READ_ONLY_PROPERTIES or value is None
+            or (isinstance(value, str) and value.startswith("<")))}
+    if unsettable:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`set_properties`) asks to "
+            f"set what cannot be set: {unsettable}. "
+            f"`composed_edit.set_properties` would skip these "
+            f"silently, so the gate refuses them loudly instead.")
+    clip = _find_clip(tracks, row, int(item_index))
+    # Every unsettable key raised above, so what remains is all of it.
+    wanted = dict(properties)
+    in_place.append({"kind": "set_properties", "row": row,
+                     "item_index": int(item_index),
+                     "record_frame": int(clip["record_in"]),
+                     "properties": wanted})
+    notes.append(f"edit {position}: set {row}[{item_index}] "
+                 f"{sorted(wanted)} in place (no delete, no place - "
+                 f"SetProperty with read-back)")
+    return False
+
+
+def _op_entry_motion(edit, position, tracks, spans, changes,
+                     insertions, removals, moves, exclude, notes,
+                     in_place) -> bool:
+    row = str(edit.get("row") or "").upper()
+    item_index = edit.get("item")
+    try:
+        fade_in = int(edit.get("fade_in_frames") or 0)
+        fade_out = int(edit.get("fade_out_frames") or 0)
+    except (TypeError, ValueError):
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`entry_motion`) needs "
+            f"`fade_in_frames`/`fade_out_frames` as frame counts "
+            f"(got {edit.get('fade_in_frames')!r}/"
+            f"{edit.get('fade_out_frames')!r}).")
+    if not row or item_index is None:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`entry_motion`) needs "
+            f"`row` and `item` (got {dict(edit)!r}).")
+    if fade_in < 0 or fade_out < 0:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`entry_motion`) names a "
+            f"negative ramp ({fade_in}/{fade_out}f). A ramp runs "
+            f"forward or not at all.")
+    if fade_in == 0 and fade_out == 0:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`entry_motion`) animates "
+            f"nothing - both ramps are 0f. A touchup with nothing "
+            f"to draw is a caller that failed to say what it wants.")
+    if _is_audio_row(row):
+        raise TouchupRefused(
+            f"REFUSING: edit {position} puts entry motion on {row}, "
+            f"and entry motion is a Fusion video treatment - audio "
+            f"rows carry no Fusion comps.")
+    if row in COMP_ROWS:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} animates an item on {row}, "
+            f"and {row} is a comp-bearing row - the pass writes "
+            f"per-clip Fusion comps there "
+            f"(`execution/fusion_tracks.FUSION_COMP_TRACKS`), so a "
+            f"second treatment stacked beside the pass's own would "
+            f"be dropped silently by the next re-derivation, whose "
+            f"manifest does not know it. Rebuild the reel with "
+            f"`build-reels`, which plans the treatment whole, "
+            f"instead of touching it up.")
+    clip = _find_clip(tracks, row, int(item_index))
+    if _ce.treatment_comps(clip):
+        raise TouchupRefused(
+            f"REFUSING: edit {position} animates {row}[{item_index}], "
+            f"and that item already carries a drawing comp (or one "
+            f"that could not be read - an unreadable graph is not "
+            f"evidence of an empty one). A second treatment the "
+            f"recorded manifest does not know would be dropped "
+            f"silently by the next re-derivation, so this needs a "
+            f"rebuild, not a touchup.")
+    duration = int(clip["duration"])
+    if fade_in + fade_out > duration - 1:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`entry_motion`) wants "
+            f"fade_in {fade_in}f + fade_out {fade_out}f on "
+            f"{row}[{item_index}], which plays {duration}f. The "
+            f"ramps need one frame more of clip than of ramp between "
+            f"them - a ramp longer than its clip never reaches "
+            f"neutral, so the effect would hold across the whole "
+            f"clip (`fusion.played_window`).")
+    left_offset = clip.get("left_offset")
+    if left_offset is None:
+        raise TouchupRefused(
+            f"REFUSING: edit {position} (`entry_motion`) animates "
+            f"{row}[{item_index}], and the read did not say which "
+            f"source frame that item starts on (`left_offset` "
+            f"unreadable). The entry comp is keyed to the played "
+            f"window, so without it there is nothing to key to.")
+    in_place.append({"kind": "entry_motion", "row": row,
+                     "item_index": int(item_index),
+                     "record_frame": int(clip["record_in"]),
+                     "fade_in_frames": fade_in,
+                     "fade_out_frames": fade_out,
+                     "duration": duration,
+                     "left_offset": int(left_offset)})
+    notes.append(f"edit {position}: entry-motion {row}[{item_index}] "
+                 f"in {fade_in}f / out {fade_out}f over {duration}f "
+                 f"(authored Fusion fade, no rebuild)")
+    return False
+
+
 _OP_HANDLERS = {
     "move": _op_move,
     "swap_pixels": _op_swap_pixels,
     "add_overlay": _op_add_overlay,
     "remove_overlay": _op_remove_overlay,
     "retime": _op_retime,
+    "set_properties": _op_set_properties,
+    "entry_motion": _op_entry_motion,
 }
 
 
@@ -1410,6 +1593,146 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     return receipt
 
 
+def _apply_in_place(staged: Any, qualification: Qualification,
+                    comp_dir: str) -> dict:
+    """Write every in-place edit onto the staging copy. No delete, no place.
+
+    Runs BEFORE the composition, addressed by pre-edit record frame
+    (nothing has moved yet): a composition capture taken after this
+    reads the written state, so a re-place further down the path
+    carries the in-place write rather than losing it.  A write that
+    does not read back raises `TouchupError` - the staging stands for
+    diagnosis and the approved timeline was never touched.
+    """
+    from library.tools import reel_read as _read
+
+    applied: dict = {"properties": [], "entry_motion": []}
+    if not qualification.in_place:
+        return applied
+    rows = _live_rows(staged)
+    for entry in qualification.in_place:
+        row = str(entry.get("row")).upper()
+        items = rows.get(row) or []
+        hits = [item for item in items
+                if _live_prop(item, "GetStart", None)
+                == int(entry["record_frame"])]
+        if len(hits) != 1:
+            raise TouchupError(
+                f"the staging copy holds {len(hits)} items at "
+                f"{row}@{entry.get('record_frame')} for the "
+                f"{entry.get('kind')} write - the plan and the "
+                f"timeline disagree. Nothing further is written "
+                f"and the approved timeline stands.")
+        item = hits[0]
+        if entry.get("kind") == "set_properties":
+            diff = _ce.set_properties(
+                item, dict(entry.get("properties") or {}))
+            if diff:
+                raise TouchupError(
+                    f"the staged {row}@{entry.get('record_frame')} "
+                    f"did not take its properties: {diff}. A "
+                    f"property that will not read back is not "
+                    f"written - nothing further is edited and the "
+                    f"approved timeline stands.")
+            applied["properties"].append({
+                "row": row, "record_frame": entry["record_frame"],
+                "properties": dict(entry.get("properties") or {})})
+        else:
+            applied["entry_motion"].append(_import_entry_comp(
+                item, entry, comp_dir))
+    return applied
+
+
+def _import_entry_comp(item: Any, entry: Mapping, comp_dir: str) -> dict:
+    """Author the entry fade and put it on the staged item, verified.
+
+    The comp is built by the comp builder's own `fade_in_frames` /
+    `fade_out_frames` dispatch - the same keys the comp pass reads -
+    over the item's played window, sized to the SOURCE frame read off
+    the pool item (a canvas sized by guess paints a hard-edged
+    rectangle, so an unreadable resolution refuses).  After the
+    import the pass's own `comp_media_window.conform_item` judges the
+    media window, and the new comp must both exist and draw
+    something - judged by re-read, never by the import's return.
+    """
+    from library.tools import comp_media_window as _windows
+    from library.tools import pool_stream_meta as _pool_meta
+    from library.tools.fusion.comp_builder import build_effect_comp
+
+    row = str(entry.get("row")).upper()
+    record = int(entry["record_frame"])
+    duration = int(entry["duration"])
+    left = int(entry["left_offset"])
+    fade_in = int(entry.get("fade_in_frames") or 0)
+    fade_out = int(entry.get("fade_out_frames") or 0)
+
+    try:
+        pool_item = item.GetMediaPoolItem()
+    except Exception:  # noqa: BLE001 - a handle that will not answer
+        pool_item = None
+    source_frames = (_pool_source_frames(pool_item)
+                     if pool_item is not None else None)
+    if source_frames is None:
+        raise TouchupError(
+            f"the staged {row}@{record} will not say how many frames "
+            f"its source file holds, so no entry comp can be sized "
+            f"for it. Nothing was imported and the approved timeline "
+            f"stands.")
+    stream = (_pool_meta.pool_stream(pool_item)
+              if pool_item is not None else {})
+    if not stream.get("width") or not stream.get("height"):
+        raise TouchupError(
+            f"the staged {row}@{record} will not say what frame its "
+            f"source carries (`Resolution` unreadable), so no entry "
+            f"comp canvas can be sized. A guessed canvas paints a "
+            f"hard-edged rectangle (`fusion.comp_builder`: "
+            f"`MissingSourceFrame`) - nothing was imported and the "
+            f"approved timeline stands.")
+    res = (int(stream["width"]), int(stream["height"]))
+
+    content = build_effect_comp(
+        {"fade_in_frames": fade_in, "fade_out_frames": fade_out,
+         "source_in_frame": left,
+         "source_out_frame": left + duration - 1},
+        int(source_frames), res)
+    os.makedirs(comp_dir, exist_ok=True)
+    comp_path = os.path.join(
+        comp_dir, f"entry_{_safe_slug(row)}_{record}.comp")
+    with open(comp_path, "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+    before = _live_prop(item, "GetFusionCompCount", None)
+    imported = item.ImportFusionComp(comp_path)
+    names = list(item.GetFusionCompNameList() or [])
+    if not imported or before is None or len(names) != int(before) + 1:
+        raise TouchupError(
+            f"the staged {row}@{record} did not take its entry comp "
+            f"(import returned {imported!r}, comp count "
+            f"{before}->{len(names)}). Nothing further is edited and "
+            f"the approved timeline stands.")
+    fresh = item.GetFusionCompByIndex(len(names))
+    try:
+        tools = (fresh.GetToolList(False) or {}) if fresh else {}
+        reg_ids = [tool.GetAttrs("TOOLS_RegID")
+                   for tool in tools.values()]
+    except Exception:  # noqa: BLE001 - judged below, never raised here
+        reg_ids = None
+    from library.tools import reel_read as _read
+    if not _read.comp_draws_something({"tools": reg_ids}):
+        raise TouchupError(
+            f"the staged {row}@{record} imported {comp_path} but the "
+            f"new comp draws nothing - an entry motion that draws "
+            f"nothing is not rendered (`motion_graphics_plan`). "
+            f"Nothing further is edited and the approved timeline "
+            f"stands.")
+    window_receipt = _windows.conform_item(
+        item, duration, comp_path, index=len(names),
+        label=f"{row}@{record} entry")
+    return {"row": row, "record_frame": record,
+            "fade_in_frames": fade_in, "fade_out_frames": fade_out,
+            "comp": comp_path, "window": window_receipt}
+
+
 def _edit_staged(project_folder: str, project: Any, pool: Any,
                  source: Any, staged: Any, staging: str,
                  qualification: Qualification, rederiver: Any,
@@ -1443,6 +1766,12 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
     # cost separately from what the composition cost.
     receipt["stage_seconds"] = round(time.time() - stage_started,
                                      3)
+
+    # In-place writes land FIRST, before anything is deleted: the
+    # composition's capture reads the staged item as it stands, so a
+    # re-place further down carries the write instead of losing it.
+    receipt["in_place"] = _apply_in_place(
+        staged, qualification, comp_dir)
 
     insertions = _resolve_insertions(
         pool, staged, qualification.insertions)

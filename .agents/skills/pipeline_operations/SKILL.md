@@ -31,6 +31,8 @@ run at a declared scope. It owns no logic of its own.
 | `reel.select` | `select_reels` | project | Check the model's chosen moments against the cut and publish them PROPOSED |
 | `reel.build` | `build_reels` | project | Cut every APPROVED moment onto its own Resolve timeline, bad takes removed |
 | `reel.touchup` | `build_reels` | project | Change one built reel's own timeline in place, instead of rebuilding it |
+| `reel.entry_motion` | `build_reels` | project | Animate a placed overlay element in (and out) with a Fusion fade, without rebuilding its reel |
+| `reel.set_properties` | `build_reels` | project | Change properties on an already-placed clip in place, without deleting and re-placing it |
 | `reel.ask` | `build_reels` | project | Write every APPROVED reel's three visual asks without building anything |
 | `reel.verify` | `verify_reels` | project | Grade the built reel timelines against the plan they were built from |
 | `reel.gate_stills` | `verify_reels` | project | Grab gate stills at named reel-relative frames off one built reel timeline |

@@ -204,6 +204,110 @@ def ask_reels(data: dict) -> dict:
     return {"reel_ask": record}
 
 
+def _require_single_kind_spec(project_folder: str, spec: dict,
+                               kind: str) -> dict:
+    """The caller-supplied contract one in-place operation speaks.
+
+    `reel.entry_motion` animates and `reel.set_properties` writes
+    properties - one body each, in the shape `touch_reel` below has.
+    A spec naming another kind through this body is a caller that
+    addressed the wrong operation, so it raises rather than running
+    as the other one: two names for one behaviour would be the
+    second implementation Ruling 1 forbids
+    (`tests/test_operations_add_no_second_implementation.py`).
+    """
+    if not project_folder:
+        raise ValueError(
+            f"{kind} needs a project_folder - the reel plan it "
+            f"resolves the reel number through lives there, and there "
+            f"is nothing to infer it from")
+    if not isinstance(spec, dict):
+        raise TypeError(
+            f"{kind} needs a spec mapping (got {type(spec).__name__!r}) - "
+            f"the change stated structurally: which reel, which item, "
+            f"what changes")
+    edits = spec.get("edits")
+    if not edits:
+        raise ValueError(
+            f"{kind} needs a spec naming at least one edit - a "
+            f"touchup with nothing to do is a caller that failed to say "
+            f"what it wants")
+    intruders = sorted({str(edit.get("op")) for edit in edits
+                        if isinstance(edit, dict)
+                        and str(edit.get("op") or "") != kind})
+    if intruders:
+        raise ValueError(
+            f"{kind} runs {kind} edits, not {intruders} - address "
+            f"those through the operation that owns them "
+            f"(`reel.touchup` runs any edit kinds together)")
+    return dict(spec)
+
+
+def animate_entry(project_folder: str, spec: dict) -> dict:
+    """Animate a placed overlay element in (and out), in place.
+
+    The `reel.entry_motion` operation. Its arguments come from a
+    CALLER, not from gathering - which reel, which item, how many
+    frames of entrance and exit fade - so the runner never drives it
+    (see `Operation.caller_supplied`). Reads nothing but its
+    arguments, REFUSES what is malformed, and calls
+    `library.tools.reel_touchup.apply_touchup`. That is the same shape
+    `touch_reel` below has: this body owns no entry-motion logic,
+    and the composed-edit path stays one implementation rather than
+    growing a second beside it (Ruling 1,
+    `tests/test_operations_add_no_second_implementation.py`).
+
+    Malformed input RAISES: no project folder or a spec naming no
+    edits (`ValueError`), a spec that is not a mapping at all
+    (`TypeError`), or an edit of another kind (`ValueError`).
+    Anything Resolve-side raises the tool's own `TouchupRefused` /
+    `TouchupError` unwrapped, the way `manage_project.py touch-reel`
+    reports them.
+
+    Returns the RECORD of what was touched under `reel_touchup`: the
+    receipt `apply_touchup` wrote, carrying the gate class, the cost
+    statement and the verification read.
+    """
+    from library.tools import reel_touchup
+
+    receipt = reel_touchup.apply_touchup(
+        project_folder,
+        _require_single_kind_spec(project_folder, spec, "entry_motion"))
+    return {"reel_touchup": receipt}
+
+
+def set_clip_properties(project_folder: str, spec: dict) -> dict:
+    """Write properties onto an already-placed clip, in place.
+
+    The `reel.set_properties` operation. Its arguments come from a
+    CALLER, not from gathering - which reel, which item, which
+    properties - so the runner never drives it (see
+    `Operation.caller_supplied`). Reads nothing but its arguments,
+    REFUSES what is malformed, and calls
+    `library.tools.reel_touchup.apply_touchup`. That is the same shape
+    `touch_reel` below has: this body owns no property logic
+    (`composed_edit.set_properties` writes, with read-back), and the
+    composed-edit path stays one implementation rather than growing
+    a second beside it (Ruling 1,
+    `tests/test_operations_add_no_second_implementation.py`).
+
+    Malformed input RAISES like `animate_entry` above, and anything
+    Resolve-side raises the tool's own `TouchupRefused` /
+    `TouchupError` unwrapped.
+
+    Returns the RECORD of what was touched under `reel_touchup`: the
+    receipt `apply_touchup` wrote, carrying the gate class, the cost
+    statement and the verification read.
+    """
+    from library.tools import reel_touchup
+
+    receipt = reel_touchup.apply_touchup(
+        project_folder,
+        _require_single_kind_spec(project_folder, spec,
+                                  "set_properties"))
+    return {"reel_touchup": receipt}
+
+
 def touch_reel(project_folder: str, spec: dict) -> dict:
     """Apply a structured change to one built reel's existing timeline.
 

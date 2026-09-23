@@ -255,11 +255,28 @@ class FakeItem:
     def ImportFusionComp(self, path):
         """Measured: re-binds MediaIn to the POOL clip, window discarded."""
         with open(path, "r", encoding="utf-8") as handle:
-            payload = eval(handle.read())  # noqa: S307 - our own file
+            text = handle.read()
+        try:
+            payload = eval(text)  # noqa: S307 - our own file
+        except Exception:  # noqa: BLE001 - a real serialized .comp
+            payload = None
         rebound = {"MediaSource": "MediaPool", "MediaID": self.mpi.GetMediaId(),
                    "AudioTrack": "No_Audo_Track", "GlobalIn": 0,
                    "GlobalOut": self.mpi.frames - 1, "ClipTimeStart": 0,
                    "ClipTimeEnd": self.mpi.frames - 1}
+        if (not isinstance(payload, dict) or "keys" not in payload):
+            # A real serialized Fusion comp (the entry-motion path
+            # writes builder output, not the conform-export repr).
+            # Resolve ADDS it beside what the item carries and re-binds
+            # its MediaIn to the pool clip, discarding the authored
+            # window - which is why the caller conforms after import.
+            # The Merge stands in for the authored fade: it draws
+            # something, so `comp_draws_something` reads True.
+            self.comps.append(FakeComp({
+                "MediaIn1": FakeTool("MediaIn", rebound,
+                                     inert=self.inert_media_in),
+                "EntryFade1": FakeTool("Merge", {"Blend": 1.0})}))
+            return True
         self.comps = [FakeComp({
             "MediaIn1": FakeTool("MediaIn", rebound,
                                  inert=self.inert_media_in),
