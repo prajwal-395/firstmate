@@ -24,11 +24,15 @@ run at a declared scope. It owns no logic of its own.
 |---|---|---|---|
 | `sfx_library.validate` | `validate_sfx_library` | project | Check the SFX library can actually serve a run |
 | `footage.scan` | `scan` | project | Scan the project folder for raw video files |
+| `footage.catalog` | `catalog` | project | Extract per-file metadata into the ordered clip catalog |
 | `semantics.analyse` | `semantic_analysis` | project | Run the v3 vision pass over clips without a profile |
 | `prosody.analyse` | `prosody_analysis` | project | Measure pitch, pace, voice quality and intensity per clip |
 | `ocr.extract` | `ocr_extraction` | project | Extract on-screen text from the footage |
 | `speech.enrich` | `speech_sequence` | project | Enrich the model's speech sequence with WhisperX word timings from the temporal index |
+| `music.resolve` | `music_selection` | project | Resolve the model's music choice against the measured candidates |
 | `duration_zone.build` | `mesh_spine` | project | Resolve the project's target duration into the band the model is shown |
+| `aroll.assign` | `assign_aroll` | project | Map speech blocks and hook to their A-roll source files |
+| `broll.resolve` | `select_broll` | project | Resolve B-roll selections to placed cutaways with source ranges |
 | `reel.candidates` | `select_reels` | project | Measure every contiguous exchange in the cut, ranked and filtered by nothing |
 | `reel.select` | `select_reels` | project | Check the model's chosen moments against the cut and publish them PROPOSED |
 | `reel.build` | `build_reels` | project | Cut every APPROVED moment onto its own Resolve timeline, bad takes removed |

@@ -985,6 +985,13 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="scan_project_folder",
     ),
     Operation(
+        name="footage.catalog",
+        summary="Extract per-file metadata into the ordered clip catalog",
+        owning_node="catalog",
+        owning_dir="step_1_02_catalog_footage", body="step.py",
+        attr="catalog_footage",
+    ),
+    Operation(
         name="semantics.analyse",
         summary="Run the v3 vision pass over clips without a profile",
         owning_node="semantic_analysis",
@@ -1020,11 +1027,45 @@ _REGISTRY: tuple[Operation, ...] = (
         # region address would promise a scope the function does not keep.
     ),
     Operation(
+        name="music.resolve",
+        summary="Resolve the model's music choice against the measured candidates",
+        owning_node="music_selection",
+        owning_dir="step_2_04_music_selection", body="post_bridge.py",
+        attr="resolve_selection",
+        # The deterministic half of a hybrid step: the track CHOICE stays
+        # the model's answer (supplied as overrides, or run
+        # `music_selection` so the runner asks the model for it) and this
+        # validates it against the measured candidates and re-measures
+        # the file on disk. PROJECT only, and the default: the choice is
+        # one per project, so a region address would promise a scope the
+        # function does not keep.
+    ),
+    Operation(
         name="duration_zone.build",
         summary="Resolve the project's target duration into the band the model is shown",
         owning_node="mesh_spine",
         owning_dir="step_2_05_mesh_spine", body="bridge.py",
         attr="build_duration_zone",
+    ),
+    Operation(
+        name="aroll.assign",
+        summary="Map speech blocks and hook to their A-roll source files",
+        owning_node="assign_aroll",
+        owning_dir="step_3_01_assign_aroll", body="step.py",
+        attr="assign_a_roll",
+    ),
+    Operation(
+        name="broll.resolve",
+        summary="Resolve B-roll selections to placed cutaways with source ranges",
+        owning_node="select_broll",
+        owning_dir="step_3_02_select_broll", body="post_bridge.py",
+        attr="resolve_broll",
+        # The deterministic half of a hybrid step: the cutaway SELECTION
+        # stays the model's answer (supplied as overrides, or run
+        # `select_broll` so the runner asks the model for it) and this
+        # resolves each choice to a placed source range. PROJECT only,
+        # and the default: placement is over the whole spine, so a region
+        # address would promise a scope the function does not keep.
     ),
     # ── Reels ────────────────────────────────────────────────────────
     #

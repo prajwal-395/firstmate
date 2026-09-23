@@ -392,6 +392,37 @@ CALLER_DECIDED_POST_BRIDGE_ARGS: dict[str, tuple[str, ...]] = {
     # the whole gathered dict as the directory - the confidently
     # wrong result the enumeration exists to stop.
     "speech.enrich": ("temporal_index_dir",),
+    # `music.resolve` registers its post_bridge file's inner
+    # deterministic unit, not the stdin-driven entry point, so its
+    # three destructured parameters bind from nothing the DAG routes
+    # under those names: `selection` is the model's answer
+    # (`music_selection` in the merged dict, refused by
+    # `missing_model_answer` until supplied), and `candidates` /
+    # `target_duration` are the pre-bridge's catalogue output, which
+    # `main()` reads off `music_candidates` itself
+    # (`library/steps/step_2_04_music_selection/post_bridge.py:main`).
+    # The registry can only ever receive all three from the caller via
+    # `--set`, and the test below proves the refusal teaches exactly
+    # that instead of binding nothing.
+    "music.resolve": ("selection", "candidates", "target_duration"),
+    # `broll.resolve` registers its post_bridge file's inner
+    # deterministic unit, so its destructured parameters bind from
+    # nothing the DAG routes under those names: `broll_creative` is the
+    # model's answer (refused by `missing_model_answer` until
+    # supplied), `broll_interjections` / `semantic_docs` /
+    # `temporal_indices` are the model's second answer and two renamed
+    # gathered keys, which `main()` reads as `b_roll_interjections` /
+    # `semantic_analysis_documents` / `temporal_event_indices` itself,
+    # and `target_resolution` is derived by `main()` from the delivery
+    # format (`library/steps/step_3_02_select_broll/post_bridge.py:main`).
+    # The registry can only ever receive them from the caller via
+    # `--set`. Do NOT add any of these names to
+    # `MERGED_INPUT_PARAMETERS`: that would bind the whole gathered
+    # dict as a cutaway list - the confidently wrong result the
+    # enumeration exists to stop.
+    "broll.resolve": ("broll_creative", "broll_interjections",
+                      "semantic_docs", "temporal_indices",
+                      "target_resolution"),
 }
 
 
@@ -427,6 +458,58 @@ def test_destructured_post_bridge_unit_refuses_naming_its_args(tmp_path):
     assert "temporal_index_dir" in result.error, (
         "the refusal does not name the caller-decided argument")
     assert "--set temporal_index_dir" in result.error, (
+        "the refusal does not teach the way to supply it")
+
+
+def test_intake_post_bridge_units_refuse_naming_their_args(tmp_path):
+    """The classified half of the check above, for the intake lane's two
+    post-bridge units - proved by running them, not trusted.
+
+    With their requirements satisfied and the model's answer supplied
+    as overrides, `music.resolve` and `broll.resolve` reach the
+    argument binding - and the pre-bridge outputs, renamed gathered
+    keys and derived frame main() reads off the merged dict are not
+    there to bind. Each must REFUSE naming its arguments and the
+    `--set` way to supply them: a `TypeError` here would be the
+    defect the static check exists to stop, wearing a new shape.
+    """
+    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pipeline_data.json").write_text(json.dumps({
+        "project_folder": str(tmp_path),
+        "step_outputs": {
+            "creative_direction": {
+                "creative_direction": {"mood": "measured"}},
+            "catalog": {"clip_catalog": []},
+            "assign_aroll": {"a_roll_assignments": {}},
+            "semantic_analysis": {"semantic_analysis_documents": []},
+            "temporal_index": {"temporal_event_indices": []},
+            "mesh_spine": {"timed_spine": {"structure": []}},
+        }}), encoding="utf-8")
+
+    music = operations.get("music.resolve").execute(
+        str(tmp_path),
+        music_selection={"title": "t", "source": "library"})
+    assert music.refused, (
+        "music.resolve called its body with no selection, candidates "
+        "or target_duration rather than refusing")
+    for name in ("selection", "candidates", "target_duration"):
+        assert name in music.error, (
+            f"the refusal does not name the caller-decided {name}")
+    assert "--set selection" in music.error, (
+        "the refusal does not teach the way to supply it")
+
+    broll = operations.get("broll.resolve").execute(
+        str(tmp_path),
+        broll_creative=[],
+        b_roll_interjections=[])
+    assert broll.refused, (
+        "broll.resolve called its body with no placements rather than "
+        "refusing")
+    for name in ("broll_interjections", "semantic_docs",
+                 "temporal_indices", "target_resolution"):
+        assert name in broll.error, (
+            f"the refusal does not name the caller-decided {name}")
+    assert "--set broll_interjections" in broll.error, (
         "the refusal does not teach the way to supply it")
 
 

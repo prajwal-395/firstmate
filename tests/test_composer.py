@@ -77,17 +77,21 @@ def test_blank_goal_raises_rather_than_refusing():
 def test_goal_behind_a_step_with_no_operation_names_the_blocker():
     """The refusal names what nothing reaches AND which step owns it.
 
-    `state.mesh_spine.clip_catalog` is produced by `catalog`, which has
-    no registered operation - reaching it would mean adding a
-    capability, which the composer will not do on the caller's behalf.
+    `state.mesh_spine.creative_direction` is produced by
+    `creative_direction`, which has no registered operation - reaching
+    it would mean adding a capability, which the composer will not do
+    on the caller's behalf. `catalog` was the example here until the
+    intake lane registered `footage.catalog`; `creative_direction` is
+    the stable replacement because it is Class B - it waits on the
+    captain's design call, so no coverage lane takes it.
     """
-    comp = C.compose("state.mesh_spine.clip_catalog")
+    comp = C.compose("state.mesh_spine.creative_direction")
     assert comp.refused
-    assert comp.blocker == "state.mesh_spine.clip_catalog"
-    assert comp.blocker_producers == ("catalog",)
+    assert comp.blocker == "state.mesh_spine.creative_direction"
+    assert comp.blocker_producers == ("creative_direction",)
     reason = comp.refusal_reason()
-    assert "no capability produces state.mesh_spine.clip_catalog" in reason
-    assert "catalog" in reason
+    assert "no capability produces state.mesh_spine.creative_direction" in reason
+    assert "creative_direction" in reason
 
 
 def test_deep_strand_names_the_blocker_and_the_chain():
