@@ -345,3 +345,86 @@ It would also add a runtime 3D dependency to `remotion-subtitles/` for
 one element. If a project ships a model, the honest route is an
 asset-axis entry like this one, with the model file staged verbatim -
 not a second renderer beside the composition.
+
+## 10. Tests removed 2026-09-23 by the captain's ruling (record, not hedge)
+
+The captain, verbatim, after the case for keeping them was made and lost:
+"we shouldn't need to render anything to test these things though, like
+we need to remove those tests, they don't help, same with anything else
+that is resource intensive like that". On the non-rendering heavy tests:
+"yeah delete those two as well" - with the 121s / 78s costs and the
+orphaned-panel-fields ratchet stated to him first. What stops being
+checked is recorded here so a capability nobody guards stays legible.
+Each line is a capability, not a test name.
+
+Render-dependent set (Section 1 of the change):
+
+- Nothing now verifies that a declared entrance/exit character actually
+  changes the frame - the two characters that passed the source parse
+  and drew nothing (`exit: "typewriter"`, `glitch` as `textShadow`).
+- Nothing now verifies that a word-paced reveal lands on the word
+  (`typewriter`/`mask`/`draw` word-sync cue routing).
+- Nothing now verifies that each segment of a whole-span element draws
+  its own copy, or that a segment image reaches pixels.
+- Nothing now verifies that the Through-the-4th-Wall night card reaches
+  actual pixels in its declared rows.
+- Nothing now verifies that the drawn review listing renders, including
+  the rating in the declared star colour.
+- Nothing now verifies that a staged whole-picture scene renders through
+  the pipeline's own `npx remotion render` and measures on frames.
+- Nothing now verifies that the website-as-picture element and the
+  `flip` motion character draw.
+- Nothing now verifies that a full-frame card's image slot draws the
+  staged logo.
+- Nothing now verifies cued draw emphasis and current-word colour
+  emphasis on pixels.
+- Nothing now verifies that a declared motion graphic reaches actual
+  pixels inside the safe area via the production render path.
+- Nothing now verifies that declared timed-text moments reach actual
+  pixels in their declared colours and seconds.
+- Nothing now verifies that sibling list items draw at one glyph size
+  on pixels.
+- Nothing now verifies that subtitle emphasis words reach the overlay
+  and match the plan on a rendered frame.
+- Nothing now verifies that music candidates are handed measured
+  musical properties rather than filenames (ordering, true-peak and
+  range behaviour).
+- Nothing now verifies rhythm/tempo reading at choice time on real
+  audio (`librosa-beat-track`).
+- Nothing now verifies song-structure reading at choice time on real
+  audio.
+- Nothing now verifies the end-logo relight measurements.
+- Nothing now verifies the closing bulb-flash animation measurements.
+- Nothing now verifies that the built output's picture is shown and
+  measured (render watch on a real export).
+- Nothing now verifies that render checks grade geometry against the
+  declared frame on real fixtures.
+- Nothing now verifies that the frame-occupancy gate reads the picture
+  (caption ink vs picture, letterbox bars vs declared bars) on real
+  frames.
+- Nothing now verifies the inherited closing-clip mechanism on real
+  media.
+- Nothing now verifies that mastering brings the master to the delivery
+  loudness target, true-peak-safe, on real fixtures.
+- Nothing now verifies that speech loudness is measured rather than
+  invented for the mix separation.
+- Nothing now verifies that rough-cut review window frames land where
+  the reference says, on real frames.
+
+Resource-intensive but not rendering (Section 2 of the change):
+
+- Nothing will any longer detect fields that the pipeline produces and
+  nothing reads. That rot was accruing at a measurable rate and from
+  here it accrues unobserved. Recorded as a consequence of a decision
+  the captain made with the facts in hand, not as a complaint about it:
+  `tests/test_data_map.py` (`test_the_gate_is_clean_on_this_tree`) was
+  the entire enforcer of `data_map.UNREAD_BUDGET` (including
+  `DOC@timeline_decisions` 9 and `OUT@compile_manifest` 165) and of the
+  anchor/contract/snapshot checks around it. Verified statically after
+  the deletion: no other surviving test asserts those budgets or reads
+  `library/tools/data_map_observed.json` (`test_context_ships_it_once`
+  mentions `data_map` in comments only).
+- Nothing will any longer verify the `could_not_determine` declaration:
+  the three readings (empty vs absent vs declared), both halves of the
+  request carrying the field (`prompt` and `expected_schema`), attempt
+  numbering and the step summary, or survival across a `--rerun`.

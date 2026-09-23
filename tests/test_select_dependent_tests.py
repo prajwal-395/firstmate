@@ -65,9 +65,9 @@ def test_a_producer_change_selects_the_resolver_contract_set():
         assert contract in selected, contract
 
 
-def test_the_contract_set_is_the_nine_files_that_feed_resolve_plan():
+def test_the_contract_set_is_the_seven_files_that_feed_resolve_plan():
     """The named set exists and is complete: exactly the test files
-    that call `resolve_plan` directly. If a tenth file starts calling
+    that call `resolve_plan` directly. If an eighth file starts calling
     it, this test goes red until the set names it too."""
     import re
 

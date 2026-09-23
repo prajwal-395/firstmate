@@ -141,3 +141,20 @@ All five are correct behaviour and were left in place.
 `tests/test_full_frame_element.py`: 57 passed (the module this build drove;
 no library file was changed, so no wider tier was warranted). The full
 suite was not run, per the brief.
+
+## Tests removed 2026-09-23 by the captain's ruling (record, not hedge)
+
+The word-cue routing gap this document found ("no composition takes word
+timestamps") and the whole-span vocabulary gap ("no word for what was
+built") lose their pixel proofs with the 2026-09-23 deletion. The full
+capability-by-capability record lives in
+`docs/RENDER_CAPABILITY_CEILING.md` §10; the animated-reel lines are:
+
+- Nothing now verifies that a word-paced reveal lands on the word
+  (`typewriter`/`mask`/`draw` word-sync cue routing).
+- Nothing now verifies that each segment of a whole-span element draws
+  its own copy, or that a segment image reaches pixels.
+- Nothing now verifies that a staged whole-picture scene renders through
+  the pipeline's own `npx remotion render` and measures on frames.
+- Nothing now verifies cued draw emphasis and current-word colour
+  emphasis on pixels.

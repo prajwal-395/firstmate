@@ -51,10 +51,8 @@ CONTRACT_SETS = {
         "tests/test_motion_graphics_data_slot.py",
         "tests/test_motion_graphics_plan.py",
         "tests/test_reel_semantic_visual.py",
-        "tests/test_review_panel.py",
         "tests/test_semantic_visual.py",
         "tests/test_speaker_identity.py",
-        "tests/test_website_panel.py",
     ],
 }
 
