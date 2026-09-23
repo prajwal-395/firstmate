@@ -1295,7 +1295,6 @@ def compile_manifest(out_dir: str) -> dict:
     spine_data = load(out_dir, "mesh_spine.json") or load(out_dir, "step_2_05.json")
     aroll_data = load(out_dir, "assign_aroll.json") or load(out_dir, "step_3_01.json")
     broll_data = load(out_dir, "select_broll.json") or load(out_dir, "step_3_02.json")
-    speech_data = load(out_dir, "speech_sequence.json") or load(out_dir, "step_2_02.json")
     transition_data = load(out_dir, "plan_transitions.json") or load(out_dir, "step_4_02.json")
     sfx_data = load(out_dir, "plan_sfx.json") or load(out_dir, "step_4_04.json")
     music_data = load(out_dir, "music_selection.json") or load(out_dir, "step_2_04.json")
