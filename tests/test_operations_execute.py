@@ -428,6 +428,21 @@ CALLER_DECIDED_POST_BRIDGE_ARGS: dict[str, tuple[str, ...]] = {
     "broll.resolve": ("broll_creative", "broll_interjections",
                       "semantic_docs", "temporal_indices",
                       "target_resolution"),
+    # `transitions.resolve`, `vfx.resolve` and `sfx.resolve` register
+    # their post_bridge files' inner deterministic units, not the
+    # stdin-driven entry points, so `creative_plan` - the model's plan,
+    # which each `main()` reads off the merged dict under its own
+    # llm key (`transition_creative`, `vfx_creative`, `sfx_creative`)
+    # and passes positionally - binds from nothing the DAG routes.
+    # The registry can only ever receive the plan from the caller via
+    # `--set`, and the test below proves the refusal teaches exactly
+    # that instead of binding nothing. Do NOT add the name to
+    # `MERGED_INPUT_PARAMETERS` instead: that would bind the whole
+    # gathered dict as the plan - the confidently wrong result the
+    # enumeration exists to stop.
+    "transitions.resolve": ("creative_plan",),
+    "vfx.resolve": ("creative_plan",),
+    "sfx.resolve": ("creative_plan",),
 }
 
 
@@ -515,6 +530,55 @@ def test_intake_post_bridge_units_refuse_naming_their_args(tmp_path):
         assert name in broll.error, (
             f"the refusal does not name the caller-decided {name}")
     assert "--set broll_interjections" in broll.error, (
+        "the refusal does not teach the way to supply it")
+
+
+@pytest.mark.parametrize("operation,answer_key", [
+    ("transitions.resolve", "transition_creative"),
+    ("vfx.resolve", "vfx_creative"),
+    ("sfx.resolve", "sfx_creative"),
+])
+def test_planner_post_bridge_units_refuse_naming_the_plan(
+        tmp_path, operation, answer_key):
+    """The classified half of the check above, proved by running it,
+    for the three planner lanes.
+
+    With their requirements satisfied and the model's answer supplied
+    as overrides, `transitions.resolve`, `vfx.resolve` and
+    `sfx.resolve` reach the argument binding - and `creative_plan`
+    is not there to bind. Each must REFUSE naming the plan and the
+    `--set` way to supply it: a `TypeError` here would be the defect
+    the static check exists to stop, wearing a new shape.
+    """
+    spine = {"structure": []}
+    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pipeline_data.json").write_text(json.dumps({
+        "project_folder": str(tmp_path),
+        "step_outputs": {
+            "assign_aroll": {"a_roll_assignments": []},
+            "catalog": {"clip_catalog": [], "project_fps": 30.0},
+            "creative_direction": {
+                "creative_direction": {"mood": "measured"}},
+            "mesh_spine": {"audio_spine": spine, "timed_spine": spine},
+            "review_rough_cut": {"rough_cut_review": {"passed": True}},
+            "temporal_index": {"temporal_event_indices": [],
+                               "index_dir": str(tmp_path)},
+            "music_selection": {"music_selection": {"track": "t"}},
+            "music_analysis": {"music_analysis": {}},
+            "select_broll": {"b_roll_assignments": []},
+            "semantic_analysis": {"semantic_analysis_documents": []},
+            "plan_transitions": {"transition_spec": []},
+        }}), encoding="utf-8")
+
+    result = operations.get(operation).execute(
+        str(tmp_path), **{answer_key: []})
+
+    assert result.refused, (
+        f"{operation} called its body with no creative_plan "
+        f"rather than refusing")
+    assert "creative_plan" in result.error, (
+        "the refusal does not name the caller-decided argument")
+    assert "--set creative_plan" in result.error, (
         "the refusal does not teach the way to supply it")
 
 

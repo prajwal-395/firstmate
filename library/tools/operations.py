@@ -1311,6 +1311,56 @@ _REGISTRY: tuple[Operation, ...] = (
         scopes=(REGION,),
     ),
     Operation(
+        name="rough_cut.review",
+        summary="Run the mechanical duration, continuity and source checks over the rough cut",
+        owning_node="review_rough_cut",
+        owning_dir="step_3_03_review_rough_cut", body="step.py",
+        attr="run_mechanical_checks",
+    ),
+    Operation(
+        name="transitions.resolve",
+        summary="Resolve the model's transition plan to execution specs",
+        owning_node="plan_transitions",
+        owning_dir="step_4_02_plan_transitions", body="post_bridge.py",
+        attr="resolve_transitions",
+        # The deterministic half of a hybrid step: the transition
+        # SELECTION stays the model's answer (supplied as overrides, or
+        # run `plan_transitions` so the runner asks the model for it)
+        # and this resolves each entry against the timed spine and the
+        # real beat grid. PROJECT only, and the default: the resolution
+        # reads the whole spine by design, so a region address would
+        # promise a scope the function does not keep.
+    ),
+    Operation(
+        name="vfx.resolve",
+        summary="Resolve the model's VFX plan to execution specs",
+        owning_node="plan_vfx",
+        owning_dir="step_4_03_plan_vfx", body="post_bridge.py",
+        attr="resolve_vfx",
+        # The deterministic half of a hybrid step: the effect SELECTION
+        # stays the model's answer (supplied as overrides, or run
+        # `plan_vfx` so the runner asks the model for it) and this
+        # resolves each entry against the timed spine, dropping what
+        # names no real block. PROJECT only, and the default: the
+        # resolution reads the whole spine by design, so a region
+        # address would promise a scope the function does not keep.
+    ),
+    Operation(
+        name="sfx.resolve",
+        summary="Resolve the model's SFX plan to playable placements",
+        owning_node="plan_sfx",
+        owning_dir="step_4_04_plan_sfx", body="post_bridge.py",
+        attr="resolve_sfx",
+        # The deterministic half of a hybrid step: the sound SELECTION
+        # stays the model's answer (supplied as overrides, or run
+        # `plan_sfx` so the runner asks the model for it) and this
+        # places each entry against the timed spine, the temporal
+        # index and the real downbeat grid. PROJECT only, and the
+        # default: the placement reads the whole spine by design, so
+        # a region address would promise a scope the function does not
+        # keep.
+    ),
+    Operation(
         name="transcript.reindex",
         summary="Re-measure the speech in one region, back at the raw footage",
         owning_node="temporal_index",

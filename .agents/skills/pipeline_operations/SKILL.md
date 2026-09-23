@@ -46,6 +46,10 @@ run at a declared scope. It owns no logic of its own.
 | `music.analyse` | `music_analysis` | project | Analyse the selected track for beat grid, BPM, key and structure |
 | `subtitles.plan` | `plan_subtitles` | project, region | Generate subtitle entries from the spine's own word timestamps |
 | `subtitles.splice` | `plan_subtitles` | region | Put a region's re-planned captions back into the stored plan |
+| `rough_cut.review` | `review_rough_cut` | project | Run the mechanical duration, continuity and source checks over the rough cut |
+| `transitions.resolve` | `plan_transitions` | project | Resolve the model's transition plan to execution specs |
+| `vfx.resolve` | `plan_vfx` | project | Resolve the model's VFX plan to execution specs |
+| `sfx.resolve` | `plan_sfx` | project | Resolve the model's SFX plan to playable placements |
 | `transcript.reindex` | `temporal_index` | region | Re-measure the speech in one region, back at the raw footage |
 | `transcript.splice` | `temporal_index` | region | Put a re-measured region back into the per-clip speech index |
 | `subtitles.render` | `render_subtitles` | project, region | Render one overlay artefact per captioned spine block |
