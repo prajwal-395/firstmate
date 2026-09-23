@@ -23,12 +23,11 @@ The composer can only select capabilities - registered operations - so it
 inherits both limits of the layer underneath, and both are TRUE rather
 than gaps:
 
-* THE FIVE.  Five operations have a deliberately empty derived effect
+* THE TWO.  Two operations have a deliberately empty derived effect
   (`operations.EMPTY_EFFECT_REASONS`: two ARTIFACTS written to disk
-  rather than state, and three ANALYSIS whose edges are optional or
-  absent).  A composer working backwards from requirements alone can
-  never select them, because optional productions are invisible as
-  goals.  No plan this module returns ever names one, and
+  rather than state).  A composer working backwards from requirements
+  alone can never select them, because artifact productions are
+  invisible as goals.  No plan this module returns ever names one, and
   `tests/test_composer.py` pins that.  (`reel.gate_stills`, the third
   artifact, shares `verify_reels`' verdict effect by the node
   granularity `Operation.effect` declares - and is still never
@@ -45,6 +44,22 @@ than gaps:
   `verdict.*` goals.  Whether each one REACHES is measured per goal,
   not promised by the kind: a verdict whose own preconditions strand
   still refuses, naming what stops it.
+*
+  THE OPTIONALS, WHICH ARE NO LONGER BLIND EITHER.  The tree was
+  checked against a fourth kind - OPTIONAL, the edge that may or may
+  not carry state - and the captain ruled on it 2026-09-23, board
+  answer "add-optional": ADD OPTIONALITY TO THE VOCABULARY, as its
+  own kind and not by loosening `produced_by` or widening an existing
+  kind.  `requirements.OPTIONALS` is that kind, so `prosody.analyse`,
+  `color_grade.resolve`, `ocr.extract`, `transitions.resolve`,
+  `sfx.resolve` and `vfx.resolve` derive non-empty effects and compose
+  as `optional.*` goals - the three mechanism-B edges
+  (`transition_spec`, `sfx_spec`, `enhancement_spec` for
+  `compile_manifest`) alongside the four mechanism-A productions.  The
+  seventh node, `creative_cohesion`, owns no registered operation, so
+  its goal refuses by name with the producer to run in the DAG - the
+  middle-of-the-DAG answer below, not a failure of the kind.  Whether
+  each one REACHES is measured per goal, not promised by the kind.
 * THE MIDDLE OF THE DAG.  Thirteen producer nodes have no registered
   operation at all (`scan`, `catalog`, `speech_sequence`,
   `review_rough_cut`, `music_selection` and the
@@ -60,15 +75,10 @@ than gaps:
   `state.verify_reels.reel_build`).  Everything else refuses.  That
   proportion is a finding about registry coverage, not about this
   module: as operations are registered for middle-DAG nodes, more goals
-  resolve with nothing changed here.
-
-* THE TWO OPTIONAL-EDGE ONES.  `prosody.analyse` and `color_grade.resolve`
-  write real state with real readers and stay invisible only because
-  their consumers declare those inputs OPTIONAL, which
-  `run_scope.prerequisites` deliberately excludes.  If the blind set ever
-  needs shrinking, modelling optional edges is the cheapest route - not
-  widening the effect vocabulary.  (`ocr.extract`, the ninth, is not a
-  modelling gap at all: nothing reads its output.)
+  resolve with nothing changed here.  `creative_cohesion` is the live
+  instance: `optional.compile_manifest.cohesion_review` names its
+  production as a goal, and the composition refuses naming the node -
+  the edge is expressed, the capability is not registered.
 
 What a precondition without a producer becomes
 ----------------------------------------------
@@ -675,7 +685,7 @@ _SELECTORS = {
 
 "Routable" means owning more than one operation with a non-empty
 derived effect - the set `compose` can actually name.  Empty-effect
-operations (THE FIVE) are composer-blind by design and never reach
+operations (THE TWO) are composer-blind by design and never reach
 selection, so they need none.  The risk-4 guard
 (`tests/test_ren_selection_between_equivalent_routes.py`) fails the
 moment a node outgrows this map: a new route must arrive

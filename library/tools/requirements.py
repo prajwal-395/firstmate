@@ -34,9 +34,9 @@ So the defect is not "there is no contract".  It is **the contract could
 only say a key was present, never that its content satisfied the
 requirement.**
 
-The five kinds
+The six kinds
 --------------
-All five are MECHANICAL.  None encodes taste and none carries a number
+All six are MECHANICAL.  None encodes taste and none carries a number
 this module invented (the standing ruling on thresholds - a mechanical
 proxy fitted to the captain's verdicts failed to predict them, so what is
 checkable here is presence, provenance from a declared list, and
@@ -63,8 +63,20 @@ buildability; coherence is not).
   `sfx.index_loads` shape recorded under DELETED - the step refused
   before the step that diagnoses the problem could say so.  Scoped to
   the three VERDICT rows of `operations.EMPTY_EFFECT_REASONS`
-  (`VERDICTS` below); the artifact and optional-edge cases are separate
-  questions and get no requirement here.
+  (`VERDICTS` below); the artifact cases are a separate question and
+  get no requirement here.
+* ``optional``    - an edge that MAY OR MAY NOT carry state.  The
+  captain's ruling, 2026-09-23, board answer "add-optional": ADD
+  OPTIONALITY TO THE VOCABULARY.  An optional requirement is a GOAL
+  ONLY, like a verdict: it names the producing node and no consumers,
+  so no run ever asks it as a precondition and the composer alone
+  reads it.  Asking one as a precondition would be either vacuous (an
+  absent optional input is legitimate, so it could never refuse) or a
+  lie (refusing one would refuse a run the runner accepts) - and a
+  requirement that cannot refuse violates the anti-vacuity gate this
+  layer is built on.  Scoped to the eight OPTIONAL edges of the seven
+  blind nodes (`OPTIONALS` below); the artifact cases stay out, and a
+  required edge never needs one.
 
 A refusal says what to run; a pass says how it passed
 -----------------------------------------------------
@@ -141,10 +153,11 @@ KIND_PREDICATE = "predicate"
 KIND_ENVIRONMENT = "environment"
 KIND_COVERAGE = "coverage"
 KIND_VERDICT = "verdict"
+KIND_OPTIONAL = "optional"
 
 KINDS: Tuple[str, ...] = (
     KIND_STATE_KEY, KIND_PREDICATE, KIND_ENVIRONMENT, KIND_COVERAGE,
-    KIND_VERDICT)
+    KIND_VERDICT, KIND_OPTIONAL)
 
 
 # ── How a requirement was satisfied ──────────────────────────────────
@@ -319,6 +332,36 @@ class Requirement:
                     f"precondition. A judgement a run refuses without "
                     f"is the circular prerequisite this kind exists to "
                     f"avoid.")
+            return
+        if self.kind == KIND_OPTIONAL:
+            # An optional edge is a GOAL ONLY - the composer's
+            # vocabulary, never a run's precondition.  It must name the
+            # node that produces the state (optionality nobody produces
+            # is unaskable even as a goal) and must name NO consumers
+            # (an optional input a run refuses without is the lie this
+            # kind exists to avoid: the runner accepts the absence, so
+            # the requirement must too - by never being asked).
+            # This is not a loosening of the rule below.  That rule
+            # refuses a precondition nothing asks; an optional edge is
+            # a different thing with the opposite shape, enforced here
+            # in both directions - the same construction the verdict
+            # kind uses, for the same settled reason: express
+            # optionality as its own thing, never by making what a
+            # requirement means vaguer.
+            if not self.produced_by:
+                raise ValueError(
+                    f"{self.name}: an optional requirement must name "
+                    f"what produces the state the edge may carry. With "
+                    f"no producer no capability can reach it, so it is "
+                    f"not a goal but a second spelling of an unknown "
+                    f"one.")
+            if self.consumers:
+                raise ValueError(
+                    f"{self.name}: an optional requirement must name no "
+                    f"consumers - it is asked as a goal, never as a "
+                    f"precondition. A run that refused without an "
+                    f"optional input would refuse a run the runner "
+                    f"accepts.")
             return
         if not self.consumers:
             raise ValueError(
@@ -1372,6 +1415,165 @@ VERDICTS: Tuple[Requirement, ...] = (
 )
 
 
+# ── optional: an edge that may or may not carry state, as a goal ───
+#
+# The captain's ruling, 2026-09-23, board answer "add-optional": ADD
+# OPTIONALITY TO THE VOCABULARY.  Seven nodes write real state the
+# requirement layer cannot see, for two different reasons - and a
+# repair that fixes only one mechanism looks like it worked while
+# leaving nodes broken, so both are expressed here:
+#
+# MECHANISM A - the edge is marked NOT REQUIRED, so the requirement
+# layer never sees it at all (`run_scope.prerequisites` derives one
+# condition per REQUIRED input only).  Four nodes:
+# `creative_cohesion`, `prosody_analysis`, `color_grade`,
+# `ocr_extraction`.
+#
+# MECHANISM B - the producer DOES declare the key, just for a
+# DIFFERENT consumer, because `prerequisites` derives one condition
+# per REQUIRED input only.  Three nodes: `plan_transitions`
+# (`transition_spec`), `plan_sfx` (`sfx_spec`), `plan_vfx`
+# (`enhancement_spec`) - each bound to a required consumer elsewhere
+# while `compile_manifest` reads the same key through an OPTIONAL
+# input.
+#
+# Each names the producing node and NO consumers
+# (`Requirement.__post_init__` enforces both directions).  The name is
+# `optional.<consumer>.<key>` - the same consumer-and-key shape the
+# derived `state.<consumer>.<key>` requirements use, so a hard edge
+# and a may-or-may-not edge read as what they are - with the producer
+# in `produced_by`, so the name together with that field says the
+# whole edge.  The check reads the producer's key through `value_for`
+# - the same producer-first precedence every other requirement uses -
+# and checks PRESENCE, not take-up: the requirement says the state
+# exists to be carried, never that the consumer took it.
+#
+# Nothing in any run ever asks one: with no consumers `applies_to` is
+# false for every run set, so `evaluate`, `check`, `describe_refusal`
+# and the runner's report/refuse split never see them.  They exist in
+# `all_requirements()` so that `Operation.effect` - which filters that
+# pool on `owning_node in r.produced_by` and is NOT touched here -
+# derives a non-empty effect for the six operations owned by these
+# nodes, and so that the composer can name them as goals.  That
+# derivation is the whole mechanism: no effect is listed beside any
+# operation.  The seventh node, `creative_cohesion`, owns no
+# registered operation, so its goal refuses by name with
+# `creative_cohesion` as the producer to run in the DAG - the
+# composer's designed middle-of-the-DAG answer, not a second
+# vocabulary.
+#
+# This is its own kind, not a loosened requirement and not a widened
+# one.  The alternative - a flag on an existing requirement - would
+# either change what some run refuses (an optional precondition that
+# refuses is the lie above; one that never refuses is vacuous, and a
+# gate that cannot fail is worse than no gate) or be metadata nothing
+# reads.  The verdict kind is the shape studied and followed: KINDS
+# grows by one, `__post_init__` enforces the new shape in both
+# directions, and the `owning_node in r.produced_by` filter carries
+# zero changed lines.
+
+def _optional_requirement(consumer: str, producer: str, key: str,
+                          describe: str) -> Requirement:
+    """One optional edge: `producer` may carry `key` for `consumer`."""
+
+    def check(ctx: Context) -> Satisfaction:
+        if ctx.value_for(producer, key) is None:
+            return UNSATISFIED(
+                f"{producer} has produced no {key}, so there is no "
+                f"optional state to compose toward",
+                missing=key, produced_by=(producer,))
+        return SATISFIED(IN_STATE)
+
+    def refuting() -> Context:
+        return Context()
+
+    def satisfying() -> Context:
+        return Context(state={"step_outputs": {
+            producer: {key: {"_witness": True}}}})
+
+    return Requirement(
+        name=f"optional.{consumer}.{key}", kind=KIND_OPTIONAL,
+        describe=describe, produced_by=(producer,), consumers=(),
+        check=check, refuting_context=refuting,
+        satisfying_context=satisfying)
+
+
+# Each entry carries its evidence as a comment - which manifest
+# declares the OPTIONAL input, which DAG edge maps the key, and which
+# required consumer (if any) already binds the same key - so the entry
+# can be checked against the tree the way
+# `operations.EMPTY_EFFECT_REASONS` was.  A comment, not a field,
+# because the requirement vocabulary is names, producers and
+# consumers, and a fourth member would be a second vocabulary.
+
+OPTIONALS: Tuple[Requirement, ...] = (
+    # MECHANISM A.
+    # `library/steps/step_2_01_creative_direction/manifest.json`
+    # declares `prosody_analysis` OPTIONAL; the DAG maps
+    # `prosody_analysis -> creative_direction` for that key; the
+    # producer's manifest declares the `prosody_analysis` output.  No
+    # REQUIRED consumer exists, so the layer never saw the production.
+    _optional_requirement(
+        "creative_direction", "prosody_analysis", "prosody_analysis",
+        "prosody_analysis measured the prosody creative_direction may read"),
+    # `library/steps/step_2_02_speech_sequence/manifest.json`
+    # declares `prosody_analysis` OPTIONAL; the DAG maps
+    # `prosody_analysis -> speech_sequence` for that key.  Same
+    # production, second may-or-may-not edge.
+    _optional_requirement(
+        "speech_sequence", "prosody_analysis", "prosody_analysis",
+        "prosody_analysis measured the prosody speech_sequence may read"),
+    # `library/steps/step_5_04_compile_manifest/manifest.json`
+    # declares `color_grade_spec` OPTIONAL; the DAG maps
+    # `color_grade -> compile_manifest` for that key; the producer's
+    # manifest declares the `color_grade_spec` output.
+    _optional_requirement(
+        "compile_manifest", "color_grade", "color_grade_spec",
+        "color_grade resolved the grade compile_manifest may take"),
+    # `library/steps/step_5_04_compile_manifest/manifest.json`
+    # declares `cohesion_review` OPTIONAL; the DAG maps
+    # `creative_cohesion -> compile_manifest` for that key; the
+    # producer's manifest declares the `cohesion_review` output.  No
+    # operation owns `creative_cohesion`, so this goal refuses by name
+    # until a capability lane registers one.
+    _optional_requirement(
+        "compile_manifest", "creative_cohesion", "cohesion_review",
+        "creative_cohesion wrote the review compile_manifest may take"),
+    # The degenerate case: production without take-up.
+    # `library/steps/step_1_07_ocr_extraction/manifest.json` declares
+    # the `ocr_extraction` output and NO edge leaves the node, no code
+    # reader and no tool consumer take it (`output_contract`
+    # `UNREAD_FINDINGS`), and the step is DESELECTED BY DEFAULT.  The
+    # consumer slot names the producer because there is no consumer -
+    # the requirement says the state exists as a goal, never that
+    # anyone takes it.
+    _optional_requirement(
+        "ocr_extraction", "ocr_extraction", "ocr_extraction",
+        "ocr_extraction read the on-screen text nothing takes yet"),
+    # MECHANISM B.
+    # `library/steps/step_5_04_compile_manifest/manifest.json`
+    # declares `transition_spec` OPTIONAL; the DAG maps
+    # `plan_transitions -> compile_manifest` for that key.  The same
+    # key IS required elsewhere - `state.creative_cohesion.
+    # transition_spec`, `state.plan_sfx.transition_spec` - so the
+    # producer was visible and this edge was not.
+    _optional_requirement(
+        "compile_manifest", "plan_transitions", "transition_spec",
+        "plan_transitions planned the transitions compile_manifest may take"),
+    # Same shape: `sfx_spec` OPTIONAL at `compile_manifest`, required
+    # at `creative_cohesion` (`state.creative_cohesion.sfx_spec`).
+    _optional_requirement(
+        "compile_manifest", "plan_sfx", "sfx_spec",
+        "plan_sfx planned the sound compile_manifest may take"),
+    # Same shape: `enhancement_spec` OPTIONAL at `compile_manifest`,
+    # required at `render_motion_graphics`
+    # (`state.render_motion_graphics.enhancement_spec`).
+    _optional_requirement(
+        "compile_manifest", "plan_vfx", "enhancement_spec",
+        "plan_vfx planned the effects compile_manifest may take"),
+)
+
+
 # ── The gap: one requirement the captain has not authorised ──────────
 
 UNAUTHORISED: Dict[str, str] = {}
@@ -1462,7 +1664,8 @@ DELETED: Dict[str, str] = {
 # ── The registry ─────────────────────────────────────────────────────
 
 HAND_WRITTEN: Tuple[Requirement, ...] = (
-    ENVIRONMENT + PREDICATES + EXTERNAL_STATE + COVERAGE + VERDICTS)
+    ENVIRONMENT + PREDICATES + EXTERNAL_STATE + COVERAGE + VERDICTS
+    + OPTIONALS)
 
 
 def all_requirements(dag: Optional[dict] = None,
@@ -1484,7 +1687,7 @@ def registry() -> Tuple[Requirement, ...]:
     The derived half is walked separately, because its witnesses are
     generated from the DAG rather than authored, and a test that mixed
     the two would report 150-odd trivially-refutable rows and hide the
-    sixteen that were written by hand.
+    twenty-four that were written by hand.
     """
     return HAND_WRITTEN
 

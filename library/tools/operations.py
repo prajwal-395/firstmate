@@ -69,19 +69,19 @@ the one that exists, and the hand-written half would be prose in a
 costume.  That is the defect this refactor removes, so `requires` is a
 property with no setter and `_REGISTRY` carries no requirement literals.
 
-What an operation EFFECTS, and why six are empty
+What an operation EFFECTS, and why two are empty
 -------------------------------------------------
 `Operation.effect` is the exact mirror of `requires`: every requirement
 in `library/tools/requirements.py` whose `produced_by` includes this
 operation's `owning_node`.  Same vocabulary, same derivation discipline -
 an effect in a different language could never be matched against a
-precondition, so nothing would compose.
+precondition, so nothing composes.
 
-Thirty-four of the 39 operations have a non-empty effect.  Five are
+Thirty-seven of the 39 operations have a non-empty effect.  Two are
 empty, and the emptiness is TRUE, not a gap:
 `run_scope.prerequisites` derives one condition per REQUIRED input, so
 a node that no consumer requires anything from produces no requirement.
-The five are two kinds, each verified against the tree (see
+The two are one kind, verified against the tree (see
 `EMPTY_EFFECT_REASONS` for the per-operation evidence):
 
 * ARTIFACT - the product lands on disk for a caller, a gate or Resolve
@@ -92,22 +92,22 @@ The five are two kinds, each verified against the tree (see
   declares - a stills grab planned as a verdict would be the
   confidently-wrong result this layer exists to stop, so the route
   selector names `reel.verify` and no plan names the grab.)
-* ANALYSIS the requirement layer does not model - real state whose
-  edges are OPTIONAL or absent, which `prerequisites` deliberately
-  excludes: `prosody.analyse`, `color_grade.resolve`
-  (optional consumers), `ocr.extract` (no outgoing edge, no reader).
 
-The third kind the tree was checked against - VERDICT, the effect that
-is pass/fail rather than a state key - is GONE from the blind set, by
-the captain's ruling 2026-09-23: a verdict is expressible as a goal as
-its own requirement kind (`requirements.VERDICTS`), so
-`sfx_library.validate`, `reel.verify` and `validation.resolve` each
-derive a non-empty effect from that pool with nothing listed here.
-The composition consequence below still holds for the five that remain:
+The two kinds the tree was checked against - VERDICT, the effect that
+is pass/fail rather than a state key, and ANALYSIS, the production no
+REQUIRED edge carries - are both GONE from the blind set, by the
+captain's rulings 2026-09-23: a verdict is expressible as a goal as
+its own requirement kind (`requirements.VERDICTS`), and an edge that
+may or may not carry state is expressible as a goal as its own
+requirement kind (`requirements.OPTIONALS`), so
+`sfx_library.validate`, `reel.verify`, `validation.resolve`,
+`prosody.analyse`, `color_grade.resolve`, `ocr.extract`,
+`transitions.resolve`, `sfx.resolve` and `vfx.resolve` each derive a
+non-empty effect from those pools with nothing listed here.
+The composition consequence below still holds for the two that remain:
 a composer working backwards from requirements alone can never select
-them, because optional productions are invisible as goals.  Teaching
-the requirement layer about optional edges is future work;
-hand-writing five effects in a second vocabulary to make the field look
+them, because artifact productions are invisible as goals.
+Hand-writing two effects in a second vocabulary to make the field look
 complete would be the defect this module removes, in a new costume.
 
 This follows the layer's own enforced doctrine, not just this
@@ -119,12 +119,15 @@ models exactly one thing - a prior step wrote this into state - and
 excludes both machine facts and a step's own subject matter.  A
 verdict (a gate's exit code, a raise) and an artifact handed to a
 caller or a gate are both the excluded half, so expressing them as
-`produced_by` entries would extend what the field means.  The two
-analysis operations that DO write state keys (`prosody.analyse`,
-`ocr.extract`) stay empty for the narrower reason above - optional or
-absent edges, which `prerequisites` deliberately excludes - and would
-become derivable the day the layer models optional edges, like the
-other eighteen.
+`produced_by` entries would extend what the field means.  An
+OPTIONAL edge is neither excluded half: the producer wrote a state
+key some consumer takes, so naming the producer says exactly what
+the field means - which is why `requirements.OPTIONALS` derives
+through the same filter with zero changed lines.  What stays
+unmodelled is production nothing takes through any edge at all when
+no goal names it either - and after this change there is none left
+in the registry: even `ocr.extract`, with no edge and no reader,
+derives its effect from the goal that names its production.
 
 Executing
 ---------
@@ -462,10 +465,10 @@ class Operation:
         producing the spine its step meshes) - the vocabulary is keyed
         by node id, so anything finer would be a second vocabulary.
 
-        Empty for the five operations named in `EMPTY_EFFECT_REASONS`,
+        Empty for the two operations named in `EMPTY_EFFECT_REASONS`,
         and the emptiness is the truth: no requirement in the registry
         names those nodes as a producer, so running one satisfies no
-        precondition.  See the module docstring for the two kinds and
+        precondition.  See the module docstring for the kind and
         the composition consequence.
         """
         from library.tools import requirements
@@ -944,7 +947,7 @@ class Operation:
 
 # ── Operations whose derived effect is empty ────────────────────────
 #
-# Five operations satisfy no requirement in the registry, each for a
+# Two operations satisfy no requirement in the registry, each for a
 # reason that was verified against the tree rather than assumed.  The
 # mapping is operation name to the reason its effect is empty anyway -
 # the justification `tests/test_operations_declare_effect.py` demands
@@ -959,22 +962,27 @@ class Operation:
 # is not the right home for effects - say so and revisit the design
 # rather than hand-writing the entry.
 #
-# The mapping held NINE entries until the captain's ruling 2026-09-23.
+# The mapping held NINE entries until the captain's rulings 2026-09-23.
 # The three VERDICT rows (`sfx_library.validate`, `reel.verify`,
 # `validation.resolve`) are GONE because those nodes now produce
 # something: each is the `produced_by` of a `requirements.VERDICTS`
-# entry, so their effects derive non-empty.  The old rows are not
-# reproduced here - their evidence (the exit code, the raise sites,
-# the code-route readers) is what motivated the verdict kind, and
-# `requirements.VERDICTS` carries the per-entry evidence now.
+# entry, so their effects derive non-empty.  The three ANALYSIS rows
+# (`prosody.analyse`, `color_grade.resolve`, `ocr.extract`) are GONE
+# for the same reason in the other direction: each is the
+# `produced_by` of a `requirements.OPTIONALS` entry, so their effects
+# derive non-empty too.  The old rows are not reproduced here - their
+# evidence (the exit code, the raise sites, the code-route readers on
+# the verdict side; the optional edges and the absent one on the
+# analysis side) is what motivated the two kinds, and
+# `requirements.VERDICTS` and `requirements.OPTIONALS` carry the
+# per-entry evidence now.
 #
 # `reel.gate_stills` left with the verdicts without being one: it is
 # owned by `verify_reels`, so it shares that node's verdict effect by
 # the node granularity `Operation.effect` declares.  It keeps no row
 # because its effect is no longer empty - and no plan may name it for
 # that effect, which the route selector (`composer._select_verify_reels`)
-# and `tests/test_composer.py` pin.  Only ARTIFACT and ANALYSIS rows
-# remain.
+# and `tests/test_composer.py` pin.  Only ARTIFACT rows remain.
 
 EMPTY_EFFECT_REASONS: dict[str, str] = {
     # ARTIFACT - the product lands on disk for a caller, a gate or
@@ -994,29 +1002,6 @@ EMPTY_EFFECT_REASONS: dict[str, str] = {
         "rendering ONE segment onto no master spine. No edge carries "
         "it, and the owning node `render_motion_graphics` produces no "
         "requirement.",
-    # ANALYSIS the requirement layer does not model - real state whose
-    # edges are OPTIONAL or absent, which `prerequisites` excludes.
-    "prosody.analyse":
-        "ANALYSIS. Real state with real readers "
-        "(`output_contract`: `creative_direction.prosody_analysis`, "
-        "`speech_sequence.prosody_analysis`), but both manifests "
-        "declare the `prosody_analysis` input OPTIONAL - and "
-        "`run_scope.prerequisites` derives one condition per REQUIRED "
-        "input only. So no requirement names `prosody_analysis` as a "
-        "producer.",
-    "color_grade.resolve":
-        "ANALYSIS. Real state with a real reader "
-        "(`output_contract`: `compile_manifest.color_grade_spec`), but "
-        "that manifest declares `color_grade_spec` OPTIONAL - and "
-        "`run_scope.prerequisites` derives one condition per REQUIRED "
-        "input only. So no requirement names `color_grade` as a "
-        "producer.",
-    "ocr.extract":
-        "ANALYSIS. Real state with NO reader: `output_contract` carries "
-        "an explicit FINDING that `ocr_extraction.ocr_extraction` has "
-        "no edge, no code reader and no tool consumer, `ocr_extraction` "
-        "has no outgoing DAG edge, and the step is DESELECTED BY "
-        "DEFAULT. So no requirement names it as a producer.",
 }
 
 
