@@ -74,50 +74,152 @@ def test_blank_goal_raises_rather_than_refusing():
         C.compose("   ")
 
 
-def test_goal_behind_a_step_with_no_operation_names_the_blocker():
+# ── Refusal subjects the tests own ──────────────────────────────────
+#
+# The two tests below used to borrow their subjects from the product's
+# coverage frontier - `state.mesh_spine.clip_catalog`, then the intake
+# lane's retarget to `creative_direction`, then
+# `state.compile_manifest.subtitle_overlay` - and every coverage lane
+# that registered the missing capability turned the refusal into a
+# completion. Both then died on `assert comp.refused`, which is the
+# PRECONDITION above the invariants rather than an invariant itself,
+# so the invariant assertions never ran at all. A subject borrowed
+# from the frontier drifts by design, so both tests now compose
+# SYNTHETIC goals in the reserved `synthetic.*` namespace, which no
+# coverage lane will ever register: a goal no operation produces
+# refuses forever by construction, and each test machine-checks that
+# premise against `reachable_goals()` instead of assuming it. The one
+# real goal that still refuses anywhere is deliberately NOT used as a
+# subject - aiming at it would repeat the frontier-pinning mistake
+# with a smaller target.
+
+def _synthetic_requirement(name, produced_by, consumers, describe):
+    """A requirement-shaped fixture the composer can strand on.
+
+    `state_key` kind, so the constructor asks nothing beyond a
+    non-empty describe and consumers. The check never runs inside
+    `compose`, which reads only names, producers and consumers.
+    """
+    def _never_satisfies(ctx):
+        return R.UNSATISFIED(
+            "a synthetic test fixture is never satisfied",
+            missing=name, produced_by=tuple(produced_by))
+    return R.Requirement(
+        name=name, kind=R.KIND_STATE_KEY, describe=describe,
+        produced_by=tuple(produced_by), consumers=tuple(consumers),
+        check=_never_satisfies,
+        refuting_context=lambda: R.Context(),
+        satisfying_context=lambda: R.Context())
+
+
+def _with_synthetic_requirements(monkeypatch, *reqs):
+    """Append fixture requirements to the vocabulary the composer reads.
+
+    `Operation.requires` and `Operation.effect` derive live from
+    `requirements.all_requirements()`, so this one seam moves the whole
+    vocabulary `compose` plans over; the composer itself is unpatched
+    and computes the refusal. Each test asserts its premise
+    (`reachable_goals`) so a fixture that failed to land fails the
+    test instead of passing it vacuously.
+    """
+    real = R.all_requirements
+    monkeypatch.setattr(
+        R, "all_requirements",
+        lambda *args, **kwargs: [*real(*args, **kwargs), *reqs])
+
+
+SYNTHETIC_UNPRODUCED_GOAL = "synthetic.composer_test.unproduced_goal"
+SYNTHETIC_UNWIRED_STEP = "synthetic_composer_test_unwired_step"
+
+
+def test_goal_behind_a_step_with_no_operation_names_the_blocker(
+        monkeypatch):
     """The refusal names what nothing reaches AND which step owns it.
 
-    `state.mesh_spine.creative_direction` is produced by
-    `creative_direction`, which has no registered operation - reaching
-    it would mean adding a capability, which the composer will not do
-    on the caller's behalf. `catalog` was the example here until the
-    intake lane registered `footage.catalog`; `creative_direction` is
-    the stable replacement because it is Class B - it waits on the
-    captain's design call, so no coverage lane takes it.
+    This version SUPERSEDES the intake lane's retarget of the same
+    test to `creative_direction` (PR 1335, branch
+    fm/vep-cover-the-intake-nodes): that subject completed the hour
+    the captain answered the design call it was waiting on, which is
+    exactly the drift this synthetic subject removes. A test whose
+    stability rests on a captain decision staying open breaks the
+    moment the captain decides; a goal in the reserved `synthetic.*`
+    namespace refuses no matter what the captain decides next.
     """
-    comp = C.compose("state.mesh_spine.creative_direction")
+    _with_synthetic_requirements(monkeypatch, _synthetic_requirement(
+        SYNTHETIC_UNPRODUCED_GOAL, (SYNTHETIC_UNWIRED_STEP,),
+        ("synthetic_composer_test_consumer",),
+        "a synthetic test goal nothing in the pipeline writes"))
+    assert SYNTHETIC_UNPRODUCED_GOAL not in C.reachable_goals(), (
+        "the test premise failed: a capability now produces the "
+        "synthetic goal, so it no longer refuses by construction")
+    comp = C.compose(SYNTHETIC_UNPRODUCED_GOAL)
     assert comp.refused
-    assert comp.blocker == "state.mesh_spine.creative_direction"
-    assert comp.blocker_producers == ("creative_direction",)
+    assert comp.blocker == SYNTHETIC_UNPRODUCED_GOAL
+    assert comp.blocker_producers == (SYNTHETIC_UNWIRED_STEP,)
     reason = comp.refusal_reason()
-    assert "no capability produces state.mesh_spine.creative_direction" in reason
-    assert "creative_direction" in reason
+    assert f"no capability produces {SYNTHETIC_UNPRODUCED_GOAL}" in reason
+    assert SYNTHETIC_UNWIRED_STEP in reason
 
 
-def test_deep_strand_names_the_blocker_and_the_chain():
+SYNTHETIC_DEEP_GOAL = "synthetic.composer_test.deep_goal"
+SYNTHETIC_DEEP_MID = "synthetic.composer_test.mid_requirement"
+SYNTHETIC_DEEP_TOP_STEP = "synthetic_composer_test_top_step"
+SYNTHETIC_DEEP_MID_STEP = "synthetic_composer_test_mid_step"
+
+
+def test_deep_strand_names_the_blocker_and_the_chain(monkeypatch):
     """A goal several capabilities down refuses at the requirement that
     stranded, with the path back to the goal - not just the goal.
 
-    This asserts the INVARIANT, not the frontier: which requirement
-    strands moves every time a coverage lane lands (it was
-    `state.mesh_spine.speech_sequence` until `speech.enrich` was
-    registered, `state.semantic_analysis.raw_footage_files` after),
-    so naming the blocker here would fail each of the remaining
-    coverage lanes on a literal that is not an assertion about
-    correctness. What is asserted is the shape every deep refusal
-    must have: a named blocker, the chain of requirements from the
-    goal down to it, and a refusal reason quoting both. The shallow
-    cases - blocker is the goal itself, empty chain - already have
-    their own tests above; this one pins that a DEEP strand still
-    names where it stranded and how it got there."""
-    comp = C.compose("state.compile_manifest.subtitle_overlay")
+    This asserts the INVARIANT, not the frontier: naming the blocker
+    here would fail each remaining coverage lane on a literal that is
+    not an assertion about correctness. What is asserted is the shape
+    every deep refusal must have: a named blocker, the chain of
+    requirements from the goal down to it, and a refusal reason
+    quoting both. The shallow cases - blocker is the goal itself,
+    empty chain - already have their own tests above; this one pins
+    that a DEEP strand still names where it stranded and how it got
+    there.
+
+    The depth is synthetic but the traversal is real: the goal's
+    owning step holds the test's one capability, whose precondition is
+    produced by a step holding none, so `compose` must descend one
+    level and strand there. A synthetic goal that refused immediately
+    would silently turn this into a third shallow test - the
+    `len(chain) >= 2` assertion is what keeps it deep.
+    """
+    _with_synthetic_requirements(
+        monkeypatch,
+        _synthetic_requirement(
+            SYNTHETIC_DEEP_MID, (SYNTHETIC_DEEP_MID_STEP,),
+            (SYNTHETIC_DEEP_TOP_STEP,),
+            "a synthetic mid-chain requirement its owning step never "
+            "gets an operation for"),
+        _synthetic_requirement(
+            SYNTHETIC_DEEP_GOAL, (SYNTHETIC_DEEP_TOP_STEP,),
+            ("synthetic_composer_test_consumer",),
+            "a synthetic goal behind a capable step with a stranded "
+            "precondition"))
+    real_ops = O.all
+    monkeypatch.setattr(
+        O, "all", lambda: (*real_ops(), O.Operation(
+            name="synthetic.composer_test.op",
+            summary="the test's one capability, closing the goal's "
+            "first step but stranded on its precondition",
+            owning_node=SYNTHETIC_DEEP_TOP_STEP,
+            owning_dir="step_9_99_synthetic_fixture",
+            body="step.py", attr="run")))
+    assert SYNTHETIC_DEEP_MID not in C.reachable_goals(), (
+        "the test premise failed: a capability now produces the "
+        "synthetic mid-chain requirement, so the strand is gone")
+    comp = C.compose(SYNTHETIC_DEEP_GOAL)
     assert comp.refused
     assert comp.blocker, (
         "a refused deep strand names no blocker")
     assert len(comp.chain) >= 2, (
         f"a deep strand carries the path from goal to blocker, "
         f"not an empty one: {comp.chain!r}")
-    assert comp.chain[0] == "state.compile_manifest.subtitle_overlay"
+    assert comp.chain[0] == SYNTHETIC_DEEP_GOAL
     assert comp.chain[-1] == comp.blocker
     reason = comp.refusal_reason()
     assert "no capability produces" in reason
