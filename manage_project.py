@@ -64,7 +64,7 @@ ML_DEPENDENT_COMMANDS = ("run",)
 ALL_COMMANDS = (
     "init-root", "list", "new", "propose-reels", "build-reels", "drift",
     "deliver-reel",
-    "watch-reel", "hear-reel", "touch-reel", "status",
+    "watch-reel", "hear-reel", "touch-reel", "ren-dry-run", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "dashboard", "archive", "notes",
@@ -1890,6 +1890,33 @@ def cmd_touch_reel(args):
         print(f"  {receipt['retirement']}")
 
 
+def cmd_ren_dry_run(args):
+    """Dry-run the composed edit path for the Reel 26 ending swap.
+
+    Part one of two, and it ends at the dry run: compose the reel goal,
+    read the live timeline, qualify the touchup, print EXACTLY what it
+    WOULD execute plus what the old path would have executed instead,
+    and stop. Never executes.
+
+    Owns no logic: every line of the join lives in
+    `library/tools/ren_dry_run.py`, which wires the composer, the
+    oracle and the touchup gate without reimplementing any of them.
+    """
+    from library.tools import ren_dry_run as _ren
+
+    argv = [args.project,
+            "--reel", str(args.reel),
+            "--row", args.row,
+            "--old-clip", args.old_clip,
+            "--new-clip", args.new_clip,
+            "--new-media", args.new_media,
+            "--timeline", args.timeline,
+            "--tracks-file", args.tracks_file,
+            "--expected-rows", args.expected_rows,
+            "--out", args.out]
+    sys.exit(_ren.main(argv))
+
+
 def _commit_run_tail(project_folder: str) -> None:
     """Commit whatever the run's final state write left uncommitted.
 
@@ -2254,6 +2281,47 @@ def main():
              "replace. Repeatable. Absent means a touch-up over a "
              "signed-off reel refuses by name")
     touch_reel_parser.set_defaults(func=cmd_touch_reel)
+
+    ren_dry_run_parser = sub.add_parser(
+        "ren-dry-run",
+        help="Dry-run the composed edit path (plan, read live, print, "
+             "stop - never executes)")
+    ren_dry_run_parser.add_argument(
+        "project", help="Project slug, or an absolute path "
+                        "to the project directory")
+    ren_dry_run_parser.add_argument(
+        "--reel", type=int, default=26,
+        help="The built reel number to change (default 26)")
+    ren_dry_run_parser.add_argument(
+        "--row", default="V7",
+        help="The overlay row the swap addresses (default V7)")
+    ren_dry_run_parser.add_argument(
+        "--old-clip", default="logo_bulb_23976.mov",
+        help="The clip name on the live timeline to swap out")
+    ren_dry_run_parser.add_argument(
+        "--new-clip", default="logo_bulb_lines_23976.mov",
+        help="The replacement clip name (reported; the path comes "
+             "from --new-media)")
+    ren_dry_run_parser.add_argument(
+        "--new-media", default="",
+        help="The replacement file's path on disk. Required: a touchup "
+             "never renders media")
+    ren_dry_run_parser.add_argument(
+        "--timeline", default="",
+        help="The timeline's EXACT name (default: the plan's approved "
+             "name for --reel)")
+    ren_dry_run_parser.add_argument(
+        "--tracks-file", default="",
+        help="JSON track read INSTEAD of reading Resolve "
+             "(demonstration without a running Resolve)")
+    ren_dry_run_parser.add_argument(
+        "--expected-rows", default="",
+        help="JSON file carrying the expected rows instead of the "
+             "newest build snapshot")
+    ren_dry_run_parser.add_argument(
+        "--out", default="",
+        help="Write the JSON record here as well")
+    ren_dry_run_parser.set_defaults(func=cmd_ren_dry_run)
 
     p_status = sub.add_parser("status", help="Show project status")
     p_status.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
