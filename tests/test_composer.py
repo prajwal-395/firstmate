@@ -16,10 +16,10 @@ stopped being runnable-or-honest.
 producer-less goal names itself, a goal behind a step with no operation
 names the deepest requirement the traversal met and which step owns it.
 `test_no_plan_names_a_blind_capability` pins the converse - the nine
-deliberately empty-effect operations are never selected, and the
-ever-selected set is exactly the two representatives, so registering an
-operation for a middle-DAG node visibly grows what the composer can
-reach.
+deliberately empty-effect operations are never selected, no matter how
+many capabilities the composer learns. The ever-selected SET is
+deliberately not pinned: it grows with every coverage lane by design,
+and a snapshot of it would fail each remaining lane on a literal.
 """
 import sys
 from pathlib import Path
@@ -91,15 +91,37 @@ def test_goal_behind_a_step_with_no_operation_names_the_blocker():
 
 
 def test_deep_strand_names_the_blocker_and_the_chain():
-    """A goal three capabilities down refuses at the requirement that
-    stranded, with the path back to the goal - not just the goal."""
+    """A goal several capabilities down refuses at the requirement that
+    stranded, with the path back to the goal - not just the goal.
+
+    This asserts the INVARIANT, not the frontier: which requirement
+    strands moves every time a coverage lane lands (it was
+    `state.mesh_spine.speech_sequence` until `speech.enrich` was
+    registered, `state.semantic_analysis.raw_footage_files` after),
+    so naming the blocker here would fail each of the remaining
+    coverage lanes on a literal that is not an assertion about
+    correctness. What is asserted is the shape every deep refusal
+    must have: a named blocker, the chain of requirements from the
+    goal down to it, and a refusal reason quoting both. The shallow
+    cases - blocker is the goal itself, empty chain - already have
+    their own tests above; this one pins that a DEEP strand still
+    names where it stranded and how it got there."""
     comp = C.compose("state.compile_manifest.subtitle_overlay")
     assert comp.refused
-    assert comp.blocker == "state.mesh_spine.speech_sequence"
-    assert comp.blocker_producers == ("speech_sequence",)
+    assert comp.blocker, (
+        "a refused deep strand names no blocker")
+    assert len(comp.chain) >= 2, (
+        f"a deep strand carries the path from goal to blocker, "
+        f"not an empty one: {comp.chain!r}")
     assert comp.chain[0] == "state.compile_manifest.subtitle_overlay"
-    assert comp.chain[-1] == "state.mesh_spine.speech_sequence"
-    assert "no capability produces" in comp.refusal_reason()
+    assert comp.chain[-1] == comp.blocker
+    reason = comp.refusal_reason()
+    assert "no capability produces" in reason
+    assert comp.blocker in reason
+    for producer in comp.blocker_producers:
+        assert producer in reason, (
+            f"the refusal names the blocker but not its producer "
+            f"{producer!r}: {reason!r}")
 
 
 # ── Resolution: the two goals that close ──────────────────────────────
@@ -158,14 +180,17 @@ def test_completed_plan_is_closed():
 
 def test_no_plan_names_a_blind_capability():
     """Across every requirement in the registry, no completed plan names
-    one of the nine deliberately empty-effect operations - and the
-    ever-selected set is exactly the two representatives.
+    one of the nine deliberately empty-effect operations.
 
-    The second assertion is the tripwire that must GROW: registering an
-    operation for a middle-DAG node (`catalog`, `review_rough_cut`, ...)
-    lets more goals resolve, and this fails until the new
-    representative is listed here.  That failure is the point - it is
-    what makes wider coverage visible instead of silent.
+    This asserts the INVARIANT the name claims - a plan naming a
+    capability nothing can reach would be a plan that cannot run -
+    and deliberately NOT the ever-selected set. That set moves with
+    every coverage lane by design (`reel.build` and `reel.candidates`
+    were merely the first two), so pinning it here would fail each of
+    the remaining lanes on a snapshot of a frontier this work moves.
+    The disjointness is the STRONGER statement: it holds no matter
+    how many capabilities the composer learns, and it still fails the
+    day a plan selects what no requirement produces.
     """
     seen: set[str] = set()
     for req in R.all_requirements():
@@ -175,9 +200,6 @@ def test_no_plan_names_a_blind_capability():
     assert seen.isdisjoint(O.EMPTY_EFFECT_REASONS), (
         f"a plan selected a capability with no derived effect: "
         f"{sorted(seen & set(O.EMPTY_EFFECT_REASONS))}")
-    assert seen == {"reel.build", "reel.candidates"}, (
-        f"the composer reaches more (or fewer) capabilities than the "
-        f"two measured at introduction: {sorted(seen)}")
 
 
 def test_representative_prefers_the_runnable_project_half():

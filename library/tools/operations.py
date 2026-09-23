@@ -1006,6 +1006,20 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="extract_ocr",
     ),
     Operation(
+        name="speech.enrich",
+        summary="Enrich the model's speech sequence with WhisperX word timings from the temporal index",
+        owning_node="speech_sequence",
+        owning_dir="step_2_02_speech_sequence", body="post_bridge.py",
+        attr="enrich_speech_sequence",
+        # The deterministic half of a hybrid step: the passage SELECTION
+        # stays the model's answer (supplied as overrides, or run
+        # `speech_sequence` so the runner asks the model for it) and this
+        # resolves each passage to real source timings by text alignment,
+        # replacing the LLM's hint outright. PROJECT only, and the
+        # default: the alignment searches the whole clip by design, so a
+        # region address would promise a scope the function does not keep.
+    ),
+    Operation(
         name="duration_zone.build",
         summary="Resolve the project's target duration into the band the model is shown",
         owning_node="mesh_spine",

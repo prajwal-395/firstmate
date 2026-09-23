@@ -27,6 +27,7 @@ run at a declared scope. It owns no logic of its own.
 | `semantics.analyse` | `semantic_analysis` | project | Run the v3 vision pass over clips without a profile |
 | `prosody.analyse` | `prosody_analysis` | project | Measure pitch, pace, voice quality and intensity per clip |
 | `ocr.extract` | `ocr_extraction` | project | Extract on-screen text from the footage |
+| `speech.enrich` | `speech_sequence` | project | Enrich the model's speech sequence with WhisperX word timings from the temporal index |
 | `duration_zone.build` | `mesh_spine` | project | Resolve the project's target duration into the band the model is shown |
 | `reel.candidates` | `select_reels` | project | Measure every contiguous exchange in the cut, ranked and filtered by nothing |
 | `reel.select` | `select_reels` | project | Check the model's chosen moments against the cut and publish them PROPOSED |

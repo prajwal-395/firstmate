@@ -299,6 +299,23 @@ def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know
       manifest declares, which is `validate_sfx_library(inputs)` and
       both reel nodes.
 
+    A third shape lives in these files and is NOT a merged-dict
+    holding: `speech.enrich` registers its post_bridge file's inner
+    deterministic unit (`enrich_speech_sequence`), not the
+    stdin-driven entry point, so its destructured parameters bind BY
+    NAME - `speech_sequence` from the model's answer (supplied as
+    overrides, or refused by `missing_model_answer`) - or arrive from
+    the caller via `--set` (`temporal_index_dir`, which nothing the
+    DAG routes carries and `main()` derives from
+    `temporal_index.index_dir`). Neither holds the whole dict, so a
+    required parameter that is a known merged spelling, a declared
+    step input, the address, or a classified caller-decided argument
+    (below) is not unexplained here. What REMAINS unexplained is
+    still the original defect - a fourth spelling binding `{}` - and
+    the classified arguments are proved behaviorally in
+    `test_destructured_post_bridge_unit_refuses_naming_its_args`
+    rather than trusted.
+
     An operation that declares `caller_supplied` is skipped entirely:
     the runner never drives it, so there is no merged dict for it to
     bind. `tests/test_operations_add_no_second_implementation.py` still
@@ -332,7 +349,14 @@ def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know
                                    inspect.Parameter.KEYWORD_ONLY)]
 
         if op.body in ("bridge.py", operations.POST_BRIDGE):
-            suspects = required
+            decided = CALLER_DECIDED_POST_BRIDGE_ARGS.get(op.name, ())
+            suspects = [
+                name for name in required
+                if name not in operations.MERGED_INPUT_PARAMETERS
+                and not _any_step_declares(name)
+                and name != operations.SCOPE_PARAMETER
+                and name not in decided
+            ]
         elif len(required) == 1 and not _any_step_declares(required[0]):
             suspects = required
         else:
@@ -343,10 +367,67 @@ def test_no_operation_takes_a_merged_dict_under_a_name_this_module_does_not_know
                 unexplained.append(f"{op.name} ({op.body}): {name}")
 
     assert unexplained == [], (
-        "these operations take the whole input dict under a name "
-        "operations.MERGED_INPUT_PARAMETERS does not know, so they would "
-        "bind nothing and raise TypeError. Add the spelling there "
-        f"deliberately: {unexplained}")
+        "these operations take a required parameter no binding in "
+        "`Operation._arguments` understands: not a known merged-dict "
+        "spelling, not a declared step input, not the address, and not "
+        "a classified caller-decided argument. A merged-dict spelling "
+        "missing from `operations.MERGED_INPUT_PARAMETERS` binds "
+        "nothing and raises TypeError - add it there deliberately. A "
+        "caller-decided argument belongs in "
+        f"`CALLER_DECIDED_POST_BRIDGE_ARGS` with its reason: {unexplained}")
+
+
+CALLER_DECIDED_POST_BRIDGE_ARGS: dict[str, tuple[str, ...]] = {
+    # `speech.enrich` registers its post_bridge file's inner
+    # deterministic unit, not the stdin-driven entry point, so
+    # `temporal_index_dir` binds from nothing the DAG routes: the
+    # gathered inputs carry `temporal_index` (the manifest's declared
+    # input) and `main()` derives the directory from
+    # `temporal_index.index_dir` itself
+    # (`library/steps/step_2_02_speech_sequence/post_bridge.py:main`).
+    # The registry can only ever receive the directory from the
+    # caller via `--set`, and the test below proves the refusal
+    # teaches exactly that instead of binding nothing. Do NOT add
+    # the name to `MERGED_INPUT_PARAMETERS` instead: that would bind
+    # the whole gathered dict as the directory - the confidently
+    # wrong result the enumeration exists to stop.
+    "speech.enrich": ("temporal_index_dir",),
+}
+
+
+def test_destructured_post_bridge_unit_refuses_naming_its_args(tmp_path):
+    """The classified half of the check above, proved by running it.
+
+    With its requirements satisfied and the model's answer supplied
+    as overrides, `speech.enrich` reaches the argument binding - and
+    `temporal_index_dir` is not there to bind. It must REFUSE naming
+    the argument and the `--set` way to supply it: a `TypeError`
+    here would be the defect the static check exists to stop,
+    wearing a new shape.
+    """
+    (tmp_path / "pipeline_output").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "pipeline_data.json").write_text(json.dumps({
+        "project_folder": str(tmp_path),
+        "step_outputs": {
+            "creative_direction": {
+                "creative_direction": {"mood": "measured"}},
+            "semantic_analysis": {"semantic_analysis_documents": []},
+            "temporal_index": {"temporal_event_indices": [],
+                               "index_dir": str(tmp_path)},
+        }}), encoding="utf-8")
+
+    result = operations.get("speech.enrich").execute(
+        str(tmp_path),
+        speech_sequence={"body_sequence": []},
+        topics_toon="", transcripts_toon="")
+
+    assert result.refused, (
+        "speech.enrich called its body with no temporal_index_dir "
+        "rather than refusing")
+    assert "temporal_index_dir" in result.error, (
+        "the refusal does not name the caller-decided argument")
+    assert "--set temporal_index_dir" in result.error, (
+        "the refusal does not teach the way to supply it")
 
 
 def test_the_enumeration_names_only_spellings_that_are_really_used():
