@@ -157,7 +157,7 @@ run_spawn() {
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$home/user-home"
-  env -u FM_TRACE_CONTEXT \
+  env -u FM_TRACE_CONTEXT -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
@@ -179,7 +179,7 @@ run_spawn_tc() {
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$home/user-home"
-  env FM_TRACE_CONTEXT="$tc" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION FM_TRACE_CONTEXT="$tc" \
     FM_ROOT_OVERRIDE='' FM_HOME="$home" HOME="$home/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
@@ -251,7 +251,7 @@ run_two_level() {
   # launches into (bin/fm-claude-trust.sh), so this runs against a throwaway
   # HOME; without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$base/user-home"
-  env FM_TRACE_CONTEXT="$penv" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION FM_TRACE_CONTEXT="$penv" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$prim" HOME="$base/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$prim/state" FM_DATA_OVERRIDE="$prim/data" \
     FM_PROJECTS_OVERRIDE="$prim/projects" FM_CONFIG_OVERRIDE="$prim/config" \
@@ -278,7 +278,7 @@ run_two_level() {
   wfake=$(make_spawn_fakebin "$base/w-fake")
   : > "$wlog"
   mkdir -p "$sm/user-home"
-  env FM_TRACE_CONTEXT="$TL_ENV_TC" TRACEPARENT="$TL_CARRIER" \
+  env -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION FM_TRACE_CONTEXT="$TL_ENV_TC" TRACEPARENT="$TL_CARRIER" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$sm" HOME="$sm/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$sm/state" FM_DATA_OVERRIDE="$sm/data" \
     FM_PROJECTS_OVERRIDE="$sm/projects" FM_CONFIG_OVERRIDE="$sm/config" \
@@ -428,7 +428,7 @@ test_duplicate_secondmate_spawn_does_not_converge_trace_context() {
   # launches into (bin/fm-claude-trust.sh), so this runs against a throwaway
   # HOME; without it this suite would write the developer's real ~/.claude.json.
   mkdir -p "$base/user-home"
-  out=$(env -u FM_TRACE_CONTEXT \
+  out=$(env -u FM_TRACE_CONTEXT -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$prim" HOME="$base/user-home" CLAUDE_CONFIG_DIR='' \
     FM_STATE_OVERRIDE="$prim/state" FM_DATA_OVERRIDE="$prim/data" \
     FM_PROJECTS_OVERRIDE="$prim/projects" FM_CONFIG_OVERRIDE="$prim/config" \
