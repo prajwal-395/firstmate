@@ -261,8 +261,13 @@ def test_the_local_gate_refuses_a_pass_when_pytest_exits_nonzero_without_failure
         encoding="utf-8",
     )
     shim.chmod(0o755)
+    # --no-parallel: this pins the single-process accounting.  The
+    # default sharded path would run the shim once per lane and the
+    # identical nodeids would trip the cross-lane duplicate refusal;
+    # the sharded composition of the same shape is pinned in
+    # tests/test_parallel_gate_verdict.py with a lane-aware shim.
     result = subprocess.run(
-        [str(LOCAL_GATE), "--skip-heavy-ml"],
+        [str(LOCAL_GATE), "--skip-heavy-ml", "--no-parallel"],
         capture_output=True,
         encoding="utf-8",
         check=False,

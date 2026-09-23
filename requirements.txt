@@ -82,6 +82,13 @@ sam2>=1.0.0
 fastapi>=0.100.0
 uvicorn>=0.23.0
 
+# Test-gate parallelism
+# scripts/full_suite_gate.sh shards the `not heavy_ml` selection across
+# xdist workers (`pytest -n <workers> --dist loadfile`); the serial
+# control (`--no-parallel`) and the heavy_ml tier run without it.
+# Measured basis: data/vep-parallelise-the-test-gate/report.md.
+pytest-xdist>=3.6
+
 # Resolve subsystem
 faiss-cpu>=1.7
 

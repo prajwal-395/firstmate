@@ -58,6 +58,15 @@ Two test files are excluded by name because they drive the **running** DaVinci R
 and switch the current timeline out from under whoever is using the app. CI has no
 Resolve, so they skip there and the exclusion costs no coverage.
 
+The `not heavy_ml` selection runs in two lanes: a parallel lane (`pytest -n
+<workers> --dist loadfile`) over everything the boundary routes parallel, and a
+serial lane over exactly the files it routes serial. The boundary is executable
+code run fresh on every invocation (`library/tools/lane_routing.py`), and the two
+lane reports merge into one the verdict reads unchanged - same vocabulary, same
+failure directions. `scripts/full_suite_gate.sh --no-parallel` runs the legacy
+single-process selection instead: the control a parallel result is compared
+against, on the same commit, by executed count and pass/fail/skip set.
+
 The `heavy_ml` selection needs an interpreter carrying the ML stack **at the versions
 `requirements.txt` declares** - importable is not enough, and a wrong version reports
 success while measuring nothing. Building that interpreter, verifying it, and pointing

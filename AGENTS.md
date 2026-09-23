@@ -354,10 +354,10 @@ Detail: `tests/test_tests_never_reach_real_projects.py`.
 - `tests/test_ci_can_fail.py` reads the workflow and fails the moment either hole reopens.
 
 **CI is THREE LAYERS, and only the last is on GitHub.**
-Detail: `docs/CI_LAYERS.md`. Nothing fires on push, dispatch, or your PR: one
-clean-room gate runs per BATCH on the `run-tests` label, proving the project installs
-from its declared manifests. The full-suite gate is LOCAL and free - firstmate
-runs `scripts/full_suite_gate.sh` (4m54s) before a batch merges.
+Detail: `docs/CI_LAYERS.md`. No push/dispatch/PR fires anything: one
+clean-room gate per BATCH on the `run-tests` label proving install from declared
+manifests. The full-suite gate is LOCAL, free - firstmate runs
+`scripts/full_suite_gate.sh` (4m54s) per batch, parallel by default; control: `--no-parallel`.
 
 - **Run the tests of everything that depends on your change, in both directions** - the modules it uses AND every module that uses it - and expect no CI verdict on your PR.
   Captain's rule, 2026-09-03: *"is there a reason why we run all these test locally

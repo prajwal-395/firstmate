@@ -13,4 +13,5 @@ testpaths = [
 ]
 markers = [
     "heavy_ml: marks tests that require heavy ml dependencies like whisperx or parselmouth",
+    "serial: marks tests that must run in the gate's serial lane (library/tools/lane_routing.py clause 6); takes a reason",
 ]
