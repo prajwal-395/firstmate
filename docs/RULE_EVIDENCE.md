@@ -7890,3 +7890,30 @@ cut upstream, and only the anchor could produce 523. Plus a
 fleet-wide total as a cheap backstop: reels the operation did not
 touch must read back exactly what they held. `library/tools/marker_gate.py`,
 `tests/test_marker_gate.py`.
+
+## unversioned-brand-masters
+
+Found 2026-09-17 while verifying the logo frame-rate fix (PR 1181):
+`lucie/_shared/brand-assets/motion/` - five files, two of them the
+masters everything else derives from - was not a git repository and
+was not inside one. As of the geo-podcast store's `eea1cb5`, every
+reel plans its closing logo at `logo_reveal_23976.mov`: a GENERATED
+file, with a documented-but-unreproduced ffmpeg recipe, that had no
+history, no undo and no integrity record. The declaration naming it
+IS versioned, which is what made the asymmetry easy to miss - a
+reader of the project log sees the repoint, the provenance comment,
+even the recipe pointer, and nothing says the file itself could
+vanish without a trace. Delete or overwrite it and every reel build
+loses its ending with nothing to restore from.
+
+The rule, now AGENTS.md 14: series-shared masters live in their own
+store, beside the projects that share them - never the engine (a
+Lucie logo fails substitution), never a copy per project store
+(which diverges, and fights the project store's text-only
+allow-list). `library/tools/brand_library.py` is the store's
+companion (`init_shared_repo` once, a `MANIFEST.json` per asset
+directory, `verify_manifest` plus the plan-time reader), and
+`docs/BRAND_LIBRARY_STORE.md` records the selection. The recipe
+half of the same gap - PR 1181's body and the project.yaml comment
+are the only copies - moves into the manifest's per-file `recipe`
+field next.

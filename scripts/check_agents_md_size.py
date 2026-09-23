@@ -137,24 +137,31 @@ CEILING = 52936
 # `MAX_UNIFORM_PARAMETER_SETS` and now states as prose beside them. `## 10`'s
 # budget is set to what it now measures plus the 6 it already had, and the 11
 # characters left over went off the CEILING rather than back into the spare.
+# MOVED 2026-09-22, `## 2`/`## 3`/`## 4`/`## 5`/`## 10`/`## 11`/`## 15`/
+# `## 16` -> `## 14`, 173 characters: `## 14` gained one index row for the
+# series-shared brand store (`library/tools/brand_library.py`,
+# `docs/BRAND_LIBRARY_STORE.md`). No donor had content moved, so every donor
+# budget is set to what its section now MEASURES - none has slack left to
+# spend, and the next addition rebalances again. Sum unchanged, ceiling
+# untouched.
 SECTION_BUDGETS = {
     "## How to read this file": 268,
     "## 1. Identity and purpose": 234,
-    "## 2. Repo layout": 2144,
-    "## 3. Pipeline execution": 5404,
-    "## 4. Dashboard": 3120,
-    "## 5. DaVinci Resolve integration - CRITICAL RULES": 3900,
+    "## 2. Repo layout": 2124,
+    "## 3. Pipeline execution": 5337,
+    "## 4. Dashboard": 3118,
+    "## 5. DaVinci Resolve integration - CRITICAL RULES": 3884,
     "## 6. The spine contract": 1282,
     "## 7. Data flow": 826,
     "## 8. Project management": 1701,
     "## 9. Environment and dependencies": 5948,
-    "## 10. Cross-cutting rules": 16883,
-    "## 11. Third-Party Asset Licenses": 1313,
+    "## 10. Cross-cutting rules": 16882,
+    "## 11. Third-Party Asset Licenses": 1273,
     "## 12. The look": 558,
     "## 13. Intros, outros and end cards": 1114,
-    "## 14. General assets vs project assets": 2127,
-    "## 15. Notes the captain types onto the timeline": 1800,
-    "## 16. Motion graphics": 2357,
+    "## 14. General assets vs project assets": 2300,
+    "## 15. Notes the captain types onto the timeline": 1781,
+    "## 16. Motion graphics": 2349,
     "## Maintaining this file": 553,
 }
 

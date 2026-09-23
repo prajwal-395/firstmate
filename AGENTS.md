@@ -659,6 +659,7 @@ Question one decides where it lives; two and three decide whether it is finished
 - **A brand template may set per-series PARAMETERS and may not contain ARTWORK**: no on-screen copy, no coordinates or frames describing one finished episode.
 - Artwork is a project asset, declared by reference through `content.bookends` and staged verbatim (§13).
 - **Per-series typefaces live per project, not in the engine.** Font files and their licences belong with the project that owns the series; the engine stays series-neutral.
+- **Series-shared masters live in their own store.** `library/tools/brand_library.py`; `docs/BRAND_LIBRARY_STORE.md`. [why](docs/RULE_EVIDENCE.md#unversioned-brand-masters)
 
 **Timed text is artwork, and the project wins.**
 A timed text moment is copy the viewer reads, so it is ARTWORK and belongs with the project - which is what makes a timed-text declaration legal at all under question three.

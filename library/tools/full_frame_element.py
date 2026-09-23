@@ -141,6 +141,7 @@ import sys
 from dataclasses import dataclass, field, replace
 from typing import Any, Optional, Sequence
 
+from library.tools import brand_library as _brandlib
 from library.tools import motion_graphics_vocabulary as _mg
 from library.tools.remotion_batch import (
     RemotionBatchError,
@@ -722,6 +723,19 @@ class PlannedCard:
     judder nobody planned.  REPORTED, never a gate: the engine places
     what the project declared, and conforming the asset file is the
     project's act, not a refusal the plan may take on its behalf."""
+
+    library_note: str = ""
+    """What the series-shared store says about this file, when it says
+    anything.
+
+    Empty for a clip no manifest covers - most clips - and for a
+    covered file whose bytes match.  A covered file that is missing,
+    changed, or never recorded gets one SAYABLE line here and on
+    stderr at plan time, because a reel built on a moved master
+    bakes the move into Resolve.  REPORTED, never a gate, for the
+    same reason as ``conform_note``: the reader is
+    ``brand_library.library_note_for_asset``, which itself never
+    raises."""
 
     @property
     def reel_end_frame(self) -> int:
@@ -1672,6 +1686,15 @@ def _plan_clip(declaration: dict, index: int, reel_start_frame: int,
             f"decimation). A clip at the reel's own rate plays 1:1 - "
             f"conform the asset file rather than retiming per reel.")
         print(f"  {conform_note}", file=sys.stderr)
+    # What the shared store says about this file, when it says
+    # anything: a covered master that moved on disk is SAID - on the
+    # card and on stderr - rather than left for the build to bake in.
+    # This REPORTS, it never gates, and the reader itself never
+    # raises, so planning a clip with no store behind it costs one
+    # silent manifest lookup and nothing else.
+    library_note = _brandlib.library_note_for_asset(path)
+    if library_note:
+        print(f"  {library_note}", file=sys.stderr)
     return PlannedCard(
         index=index,
         element=declaration["element"],
@@ -1684,6 +1707,7 @@ def _plan_clip(declaration: dict, index: int, reel_start_frame: int,
         source_frames=measured.frame_count,
         rendered_path=path,
         conform_note=conform_note,
+        library_note=library_note,
     )
 
 
