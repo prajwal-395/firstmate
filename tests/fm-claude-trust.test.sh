@@ -669,6 +669,7 @@ test_declined_consent_refusal_hands_back_endpoint_and_slot() {
   printf '{"slots":{}}\n' > "$pool/treehouse-state.json"
   fakebin="$case_dir/fakebin"
   mkdir -p "$fakebin"
+  fm_test_fake_herdr_spawn "$fakebin"
   cat > "$fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
@@ -700,6 +701,7 @@ SH
 {"hasCompletedOnboarding":true,"projects":{"$proj_real":{"hasTrustDialogAccepted":true,"hasClaudeMdExternalIncludesApproved":false,"hasClaudeMdExternalIncludesWarningShown":true}}}
 JSON
   out=$(FM_TEST_CLAUDE_CONFIG_DIR="$config" FM_TMUX_KILL_LOG="$kill_log" FM_TREEHOUSE_LOG="$tree_log" \
+    FM_FAKE_HERDR_CALL_LOG="$case_dir/herdr-calls.log" \
     fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" claude \
     --mode no-mistakes --yolo off)
   expect_code 1 $? "a spawn against a genuine import decline must fail: $out"
@@ -708,8 +710,8 @@ JSON
   assert_contains "$out" "returned worktree slot" "the refusal did not report handing its slot back"
   [ ! -e "$home/state/$id.meta" ] && [ ! -L "$home/state/$id.meta" ] \
     || fail "a refused spawn published a task record no worker backs"
-  grep -Fq "kill-window" "$kill_log" \
-    || fail "a refused spawn left its endpoint open: no kill-window was issued"
+  grep -Fq "pane close" "$case_dir/herdr-calls.log" \
+    || fail "a refused spawn left its endpoint open: no pane close was issued"
   grep -Fq "return" "$tree_log" \
     || fail "a refused spawn left its slot leased: no treehouse return was issued"
   [ ! -e "$pool/s1/.fm-slot-owner" ] \

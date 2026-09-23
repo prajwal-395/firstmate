@@ -1229,7 +1229,18 @@ inject_msg() {  # <message> [state]
   msg=$(_collapse_newlines "$msg")
   fm_operational_input_encode away-supervisor "$msg" encoded || return 1
   msg=$encoded
-  target="${FM_SUPERVISOR_TARGET:-$FM_SUPERVISOR_TARGET_DEFAULT}"
+  # Resolve the supervisor pane: explicit override wins, else the same
+  # discovery the startup path runs. Refuse rather than inject into an
+  # undiscoverable target (the removed tmux "firstmate:0" default died with
+  # its backend; herdr has no equivalent always-there pane).
+  if [ -n "${FM_SUPERVISOR_TARGET:-}" ]; then
+    target=$FM_SUPERVISOR_TARGET
+  elif target=$(discover_supervisor_target 2>/dev/null); then
+    :
+  else
+    log "inject deferred: supervisor pane undiscoverable (no FM_SUPERVISOR_TARGET or HERDR_ENV/HERDR_PANE_ID)"
+    return 1
+  fi
   # BACKEND-AWARE: dispatches through bin/fm-backend.sh so the supervisor pane
   # is checked via the backend adapter. Falls back to herdr
   # when unset (sourced/test contexts that never ran fm_super_main's startup

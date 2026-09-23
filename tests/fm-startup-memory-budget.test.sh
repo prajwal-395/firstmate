@@ -5,6 +5,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-startup-memory-budget)
@@ -55,6 +57,10 @@ case "${1:-}:${2:-}" in
   mv:--help) printf '%s\n' 'usage: tasks-axi mv <id> [<id>...]' ;;
 esac
 SH
+  # The propagation doorbell rides the herdr send-text path; the send-world
+  # rig logs its payload to FM_SEND_LOG so the doorbell assertions keep
+  # reading the same log file.
+  fm_test_fake_herdr_send "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 [ -z "${FM_FAKE_TMUX_LOG:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_TMUX_LOG"
@@ -89,7 +95,7 @@ new_bootstrap_world() {
 
 run_bootstrap() {
   local root=$1 home=$2 fakebin=$3
-  PATH="$fakebin:$BASE_PATH" FM_BACKEND=tmux FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
+  PATH="$fakebin:$BASE_PATH" FM_BACKEND=herdr FM_HOME="$home" FM_ROOT_OVERRIDE="$root" \
     "$BOOTSTRAP"
 }
 
@@ -248,7 +254,7 @@ inbox_record_body() {  # <record>
 run_config_push() {
   local root=$1 home=$2 fakebin=$3 log=$4
   PATH="$fakebin:$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$root" FM_SEND_SETTLE=0 \
-    FM_FAKE_TMUX_LOG="$log" "$CONFIG_PUSH"
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_LOG="$log" "$CONFIG_PUSH"
 }
 
 test_primary_budget_converges_with_exact_reread_and_safe_failures() {

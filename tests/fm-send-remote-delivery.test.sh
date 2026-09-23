@@ -33,6 +33,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$ROOT/bin/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-marker-lib.sh
@@ -50,7 +52,10 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 # FM_SEND_LOG. The default composer reads empty (clean submit);
 # FM_FAKE_TMUX_PENDING=1 keeps a proven pending composer with no busy footer,
 # so the real submit core exhausts its Enter budget and reports the pending
-# verdict. The ssh stub counts invocations, logs the wire line, and either
+# verdict. The tmux stub is vestigial on the herdr-only fleet (local submits
+# ride herdr send-text now): make_stubs also installs the shared send-world
+# herdr rig, whose FM_FAKE_HERDR_COMPOSER=pending renders the same proven
+# pending composer. The ssh stub counts invocations, logs the wire line, and either
 # fails with FM_FAKE_SSH_RC (emitting FM_FAKE_SSH_STDERR as the remote
 # stderr), or decodes the entrypoint argv and executes the REAL host-local
 # command against the decoded remote home - with FM_FAKE_SSH_AMBIGUOUS=1
@@ -59,6 +64,7 @@ TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
+  fm_test_fake_herdr_send "$fb"
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -225,7 +231,7 @@ test_remote_steer_lands_in_remote_inbox() {
   home=$(setup_remote_parent_home remote-inbox "$rhome")
 
   rc=0
-  send_env "$fb" "$home" "$ssh_log" \
+  send_env "$fb" "$home" "$ssh_log" FM_FAKE_HERDR_SEND_FAIL=1 \
     "$SEND" rsm "please rename the metric" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
   expect_code 0 "$rc" "a durably recorded remote steer must exit 0: $err"
@@ -244,8 +250,8 @@ test_remote_steer_lands_in_remote_inbox() {
     *"$FM_FROMFIRST_MARK"*) : ;;
     *) fail "the remote record must carry the from-firstmate marker: $body" ;;
   esac
-  # The doorbell could not reach the fixture pane (no herdr CLI here); that
-  # never fails the send, and the notice still names the durable record.
+  # The doorbell is forced to fail (FM_FAKE_HERDR_SEND_FAIL=1); that never
+  # fails the send, and the notice still names the durable record.
   assert_contains "$err" "durably recorded" \
     "a failed doorbell must be reported as a notice on a durably sent steer"
   assert_not_contains "$err" "error:" "a durably recorded steer must not carry an error report"
@@ -719,7 +725,7 @@ test_local_secondmate_pending_keeps_expectation_armed() {
   # secondmate target, so this pins the kept armed-expectation semantics there.
   : > "$log"
   rc=0
-  env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 \
+  env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 FM_FAKE_HERDR_COMPOSER=pending FM_FAKE_HERDR_AGENT_STATUS=idle \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" lsm "/audit the ledger" >/dev/null 2>&1 || rc=$?
   expect_code 3 "$rc" "an unconfirmed local secondmate submit must exit delivered-unconfirmed"
@@ -746,7 +752,7 @@ test_local_pending_reports_delivered_unconfirmed() {
   # governs it.
   : > "$log"
   rc=0
-  env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 \
+  env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 FM_FAKE_HERDR_COMPOSER=pending FM_FAKE_HERDR_AGENT_STATUS=idle \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" sess:win "steer text" >"$dir/out" 2>"$dir/err" || rc=$?
   err=$(cat "$dir/err")
@@ -772,7 +778,7 @@ test_local_pending_does_not_close_resolve_key() {
   # ladder still governs it; a plain-text answer would close at enqueue instead.
   : > "$log"
   rc=0
-  env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 \
+  env PATH="$fb:$PATH" FM_FAKE_TMUX_PENDING=1 FM_FAKE_HERDR_COMPOSER=pending FM_FAKE_HERDR_AGENT_STATUS=idle \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" t2 --resolve-key creds "/vault fetch deploy-token" >/dev/null 2>&1 || rc=$?
   expect_code 3 "$rc" "an unconfirmed local answer must exit with the delivered-unconfirmed status"

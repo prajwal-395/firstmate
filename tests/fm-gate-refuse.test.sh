@@ -139,10 +139,11 @@ run_spawn() {
   local cwd=$1 home=$2 id=$3 proj=$4 pane=$5 fakebin=$6; shift 6
   fm_test_spawn_brief "$home" "$id" brief
   ( cd "$cwd" && env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS \
+      -u HERDR_PANE_ID -u HERDR_SOCKET_PATH -u HERDR_SESSION \
       FM_ROOT_OVERRIDE='' FM_HOME="$home" \
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-      FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" TMUX=fake,1,0 \
+      FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$pane" \
       PATH="$fakebin:$PATH" "$@" \
       "$SPAWN" "$id" "$proj" codex --mode no-mistakes --yolo off ) 2>&1
 }
@@ -180,12 +181,15 @@ test_spawn_refuses_and_admits() {
 
 # --- fm-send ----------------------------------------------------------------
 
-# A fake tmux that logs send-keys to FM_TMUX_LOG and reports live endpoints
-# (mirrors tests/fm-send-strict), so a successful send is observable and a
-# refused one leaves an empty log (proving no message was typed).
+# A fake backend that makes sends observable and reports live endpoints
+# (mirrors tests/fm-send-strict): the shared herdr send rig logs each
+# `pane send-text` argv line, so a successful send is observable and a
+# refused one leaves an empty log (proving no message was typed). The tmux
+# stub below is vestigial.
 make_send_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
+  fm_test_fake_herdr_send "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -220,7 +224,7 @@ run_send() {
   local cwd=$1 home=$2 fakebin=$3 log=$4 target=$5 text=$6; shift 6
   ( cd "$cwd" && env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS \
       "PATH=$fakebin:$PATH" "FM_HOME=$home" "FM_ROOT_OVERRIDE=$home" \
-      "FM_TMUX_LOG=$log" "FM_SEND_SETTLE=0" "$@" \
+      "FM_TMUX_LOG=$log" "FM_SEND_LOG=$log" "FM_SEND_SETTLE=0" "$@" \
       "$SEND" "$target" "$text" ) 2>&1
 }
 
@@ -254,9 +258,9 @@ test_send_refuses_and_admits() {
   [ "$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" \
       "$home/state/lane-ok.inbox/001.msg")" = "hello captain" ] \
     || fail "send: normal steer was not durably enqueued"
-  assert_not_contains "$(cat "$log")" "literal=1 arg=hello captain" \
+  assert_not_contains "$(cat "$log")" "hello captain" \
     "send: normal steer payload must not be typed"
-  assert_contains "$(cat "$log")" "target=sess:fm-lane-ok literal=1 arg=: Firstmate instruction waiting" \
+  assert_contains "$(cat "$log")" "pane send-text fm-lane-ok : Firstmate instruction waiting" \
     "send: normal steer should ring the durable inbox doorbell"
   pass "fm-send: refuses on marker and gate-worktree backstop; a normal steer uses the inbox"
 }
@@ -270,6 +274,7 @@ make_teardown_case() {
   local name=$1 case_dir fakebin t
   case_dir="$TMP/$name"; fakebin="$case_dir/fakebin"
   mkdir -p "$case_dir/state" "$case_dir/config" "$case_dir/data" "$fakebin"
+  fm_test_fake_herdr_spawn "$fakebin"
   for t in treehouse tmux; do
     printf '#!/usr/bin/env bash\nexit 0\n' > "$fakebin/$t"
     chmod +x "$fakebin/$t"
@@ -303,9 +308,11 @@ SH
   git -C "$case_dir/wt" push -q origin fm/task-x1
   git -C "$case_dir/project" fetch -q origin
   fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=firstmate:fm-task-x1" "endpoint_task_id=task-x1" \
+    "window=default:fm-task-x1" "endpoint_task_id=task-x1" \
     "worktree=$case_dir/wt" "project=$case_dir/project" \
-    "kind=ship" "mode=no-mistakes" "spawn_gen=spawn-gate-refuse-task-x1"
+    "kind=ship" "mode=no-mistakes" "spawn_gen=spawn-gate-refuse-task-x1" \
+    "backend=herdr" "herdr_session=default" "herdr_workspace_id=w1" \
+    "herdr_tab_id=w1:t1" "herdr_pane_id=fm-task-x1"
   touch "$case_dir/state/.last-watcher-beat"
   printf '%s\n' "$case_dir"
 }
@@ -314,7 +321,8 @@ SH
 run_teardown() {
   local cwd=$1 case_dir=$2; shift 2
   ( cd "$cwd" && env -u NO_MISTAKES_GATE -u FM_GATE_REFUSE_BYPASS \
-      "FM_ROOT_OVERRIDE=$ROOT" "FM_STATE_OVERRIDE=$case_dir/state" \
+      "FM_ROOT_OVERRIDE=$ROOT" "FM_HOME=$case_dir" \
+      "FM_STATE_OVERRIDE=$case_dir/state" \
       "FM_DATA_OVERRIDE=$case_dir/data" "FM_CONFIG_OVERRIDE=$case_dir/config" \
       "PATH=$case_dir/fakebin:$PATH" "$@" \
       "$TEARDOWN" task-x1 ) 2>&1

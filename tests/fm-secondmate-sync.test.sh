@@ -30,6 +30,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=tests/remote-herdr-fixture.sh
 . "$(dirname "${BASH_SOURCE[0]}")/remote-herdr-fixture.sh"
 
@@ -42,7 +44,7 @@ BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 fm_git_identity fmtest fmtest@example.com
 
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-sync)
-export FM_BACKEND=tmux
+export FM_BACKEND=herdr
 
 # --- world builders --------------------------------------------------------
 
@@ -321,6 +323,7 @@ make_fake_toolchain() {
   local dir=$1 fakebin
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
+  fm_test_fake_herdr_send "$fakebin"
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi
   fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
   cat > "$fakebin/gh-axi" <<'SH'
@@ -425,7 +428,7 @@ test_bootstrap_sweep_nudges_only_instruction_change() {
   fakebin=$(make_fake_toolchain "$w")
   log="$w/tmux.log"
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
-    FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" \
+    FM_SEND_SETTLE=0 FM_FAKE_TMUX_LOG="$log" FM_SEND_LOG="$log" \
     "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
   info_line=$(printf '%s\n' "$out" | grep '^BOOTSTRAP_INFO: nudged fm-sm-instr ' || true)
@@ -433,8 +436,10 @@ test_bootstrap_sweep_nudges_only_instruction_change() {
   assert_contains "$info_line" "firstmate was updated to the latest - please re-read your AGENTS.md to pick up the new instructions." \
     "successful nudge report should include the exact message sent"
   assert_not_contains "$out" "NUDGE_SECONDMATES:" "successful nudge must not leave a firstmate action item"
-  assert_not_contains "$out" "sm-readme" "readme-only advance is not nudged"
-  assert_not_contains "$out" "sm-current" "already-current secondmate is not nudged"
+  # Nudge selectivity is about nudged lines, not name mentions: the liveness
+  # sweep legitimately names every mate it skips.
+  nudged_others=$(printf '%s\n' "$out" | grep '^BOOTSTRAP_INFO: nudged ' | grep -v 'fm-sm-instr' || true)
+  [ -z "$nudged_others" ] || fail "readme-only or current secondmate was nudged: $nudged_others"
   # The nudge rides fm-send's durable inbox plane: the marked message lands in
   # the secondmate task's steering-inbox record while only the doorbell is typed.
   assert_contains "$(cat "$w/home/state/sm-instr.inbox/001.msg")" "[fm-from-firstmate]" \
@@ -572,7 +577,11 @@ test_bootstrap_nudge_retry_is_idempotent() {
 
   out2=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     FM_SEND_SETTLE=0 "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
-  [ -z "$out2" ] || fail "idempotent retry should converge to silence, got: $out2"
+  # Idempotent means no action items: liveness info lines may name mates, but
+  # no nudge, no retry marker, and no NUDGE_SECONDMATES item may remain.
+  assert_not_contains "$out2" "NUDGE_SECONDMATES:" "idempotent retry left a firstmate action item"
+  assert_not_contains "$out2" "nudged " "idempotent retry re-nudged"
+  [ -z "$(ls "$w/home/state/.secondmate-nudge-pending" 2>/dev/null)" ] || fail "idempotent retry left a retry marker"
   pass "T8d bootstrap nudge retry is idempotent after success"
 }
 

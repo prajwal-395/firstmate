@@ -11,7 +11,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/secondmate-helpers.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-safety)
-export FM_BACKEND=tmux
+export FM_BACKEND=herdr
 
 file_mode() {
   if [ "$(uname)" = Darwin ]; then
@@ -1530,7 +1530,8 @@ test_secondmate_teardown_retires_empty_home() {
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1539,6 +1540,11 @@ mode=secondmate
 yolo=off
 home=$subhome
 projects=alpha
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/teardown-fake")
@@ -1617,6 +1623,16 @@ test_secondmate_teardown_sweeps_process_events_before_removal() {
   install_fake_process_event_sweep "$subhome" "$sweep_log"
   subhome_abs=$(cd "$subhome" && pwd -P)
   fm_write_secondmate_meta "$home/state/domain.meta" "$subhome"
+  # Herdr endpoint binding the validation requires: session default matches
+  # the fake session list so the presentation lock resolves.
+  sed -i.bak 's/^window=.*/window=default:fm-domain/' "$home/state/domain.meta"
+  rm -f "$home/state/domain.meta.bak"
+  printf '%s\n' \
+    'backend=herdr' \
+    'herdr_session=default' \
+    'herdr_workspace_id=w1' \
+    'herdr_tab_id=w1:t1' \
+    'herdr_pane_id=fm-domain' >> "$home/state/domain.meta"
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/procevent-teardown-fake")
   log="$TMP_ROOT/procevent-teardown-fake/tmux.log"
@@ -1644,6 +1660,14 @@ test_secondmate_teardown_refuses_process_events_without_sweep_script() {
   printf 'adapter=lavish\n' > "$subhome/state/procevent/source.source"
   printf '%s\n999999\ntoken\nidentity\n' "$subhome" > "$claim_root/source.claim"
   fm_write_secondmate_meta "$home/state/domain.meta" "$subhome"
+  sed -i.bak 's/^window=.*/window=default:fm-domain/' "$home/state/domain.meta"
+  rm -f "$home/state/domain.meta.bak"
+  printf '%s\n' \
+    'backend=herdr' \
+    'herdr_session=default' \
+    'herdr_workspace_id=w1' \
+    'herdr_tab_id=w1:t1' \
+    'herdr_pane_id=fm-domain' >> "$home/state/domain.meta"
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/procevent-refusal-fake")
   log="$TMP_ROOT/procevent-refusal-fake/tmux.log"
@@ -1677,6 +1701,14 @@ test_secondmate_teardown_preserves_process_events_on_later_refusal() {
   printf 'FMX_PAIRING_TOKEN=test-token\n' > "$home/.env"
   printf 'work_home=secondmate:domain\nwork_id=domain\n' > "$home/state/public-followup/registry/obligation"
   fm_write_secondmate_meta "$home/state/domain.meta" "$subhome"
+  sed -i.bak 's/^window=.*/window=default:fm-domain/' "$home/state/domain.meta"
+  rm -f "$home/state/domain.meta.bak"
+  printf '%s\n' \
+    'backend=herdr' \
+    'herdr_session=default' \
+    'herdr_workspace_id=w1' \
+    'herdr_tab_id=w1:t1' \
+    'herdr_pane_id=fm-domain' >> "$home/state/domain.meta"
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/procevent-later-refusal-fake")
   log="$TMP_ROOT/procevent-later-refusal-fake/tmux.log"
@@ -1719,6 +1751,16 @@ test_secondmate_force_teardown_sweeps_nested_homes() {
   childhome_abs=$(cd "$childhome" && pwd -P)
   fm_write_secondmate_meta "$home/state/domain.meta" "$subhome"
   fm_write_secondmate_meta "$subhome/state/nested.meta" "$childhome"
+  for _meta in "$home/state/domain.meta" "$subhome/state/nested.meta"; do
+    sed -i.bak 's/^window=.*/window=default:fm-domain/' "$_meta"
+    rm -f "$_meta.bak"
+    printf '%s\n' \
+      'backend=herdr' \
+      'herdr_session=default' \
+      'herdr_workspace_id=w1' \
+      'herdr_tab_id=w1:t1' \
+      'herdr_pane_id=fm-domain' >> "$_meta"
+  done
   cat > "$home/data/secondmates.md" <<EOF
 - domain - design domain (home: $subhome; scope: design domain; projects: alpha; added 2026-06-22)
 - nested - nested domain (home: $childhome; scope: nested domain; projects: beta; added 2026-06-22)
@@ -1762,6 +1804,16 @@ test_secondmate_force_teardown_preserves_nested_restore_status() {
   fm_write_secondmate_meta "$home/state/domain.meta" "$subhome"
   fm_write_secondmate_meta "$subhome/state/nested.meta" "$childhome"
   fm_write_secondmate_meta "$childhome/state/leaf.meta" "$grandchildhome"
+  for _meta in "$home/state/domain.meta" "$subhome/state/nested.meta" "$childhome/state/leaf.meta"; do
+    sed -i.bak 's/^window=.*/window=default:fm-domain/' "$_meta"
+    rm -f "$_meta.bak"
+    printf '%s\n' \
+      'backend=herdr' \
+      'herdr_session=default' \
+      'herdr_workspace_id=w1' \
+      'herdr_tab_id=w1:t1' \
+      'herdr_pane_id=fm-domain' >> "$_meta"
+  done
   cat > "$home/data/secondmates.md" <<EOF
 - domain - design domain (home: $subhome; scope: design domain; projects: alpha; added 2026-06-22)
 - nested - nested domain (home: $childhome; scope: nested domain; projects: beta; added 2026-06-22)
@@ -1807,7 +1859,13 @@ test_secondmate_teardown_refuses_failed_leased_home_return() {
   : > "$rearm_log"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1863,7 +1921,13 @@ test_secondmate_teardown_removes_plain_clone_home_without_treehouse_return() {
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   subhome_abs=$(cd "$subhome" && pwd -P)
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1898,7 +1962,13 @@ test_secondmate_force_teardown_discards_child_work() {
   fm_git_worktree "$childproj" "$childwt" force-child
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1910,7 +1980,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -1920,19 +1996,22 @@ yolo=off
 EOF
   fakebin=$(make_fake_tmux "$TMP_ROOT/force-teardown-fake")
   log="$TMP_ROOT/force-teardown-fake/tmux.log"
+  calllog="$TMP_ROOT/force-teardown-fake/herdr-calls.log"
+  : > "$calllog"
   if PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
     "$ROOT/bin/fm-teardown.sh" domain >/dev/null 2>&1; then
     fail "teardown allowed a secondmate with in-flight child work"
   fi
   PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/force-teardown-fake/pane.txt" \
+    FM_FAKE_HERDR_CALL_LOG="$calllog" \
     "$ROOT/bin/fm-teardown.sh" domain --force >/dev/null 2>/dev/null \
     || fail "force teardown failed to discard child work"
   [ ! -d "$subhome" ] || fail "force teardown did not remove the retired secondmate home"
   [ ! -d "$childwt" ] || fail "force teardown did not remove child worktree"
   [ ! -e "$home/state/domain.meta" ] || fail "teardown did not clear parent meta"
   grep -F -- '- domain ' "$home/data/secondmates.md" >/dev/null && fail "force teardown did not remove secondmate registry route"
-  grep -F 'kill-window -t =firstmate:=fm-child' "$log" >/dev/null || fail "force teardown did not kill child window"
-  grep -F 'kill-window -t =firstmate:=fm-domain' "$log" >/dev/null || fail "force teardown did not kill parent window"
+  grep -F 'pane close fm-child' "$calllog" >/dev/null || fail "force teardown did not kill child window"
+  grep -F 'pane close fm-domain' "$calllog" >/dev/null || fail "force teardown did not kill parent window"
   pass "secondmate force teardown discards child work"
 }
 
@@ -1949,7 +2028,13 @@ test_secondmate_force_teardown_refuses_duplicated_child_slot() {
     > "$TMP_ROOT/force-duplicate-slot-pool/treehouse-state.json"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -1962,7 +2047,12 @@ EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   for child in stale-child live-child; do
     cat > "$subhome/state/$child.meta" <<EOF
-window=firstmate:fm-$child
+window=default:fm-$child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-$child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2003,7 +2093,13 @@ test_secondmate_force_teardown_preserves_child_on_unproven_lock() {
     > "$TMP_ROOT/force-lock-child-pool/treehouse-state.json"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2015,7 +2111,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2088,8 +2190,9 @@ test_secondmate_force_teardown_allows_non_state_operational_dir_symlinks_inside_
     mkdir -p "$home/state" "$home/data" "$subhome" "$target"
     printf 'domain\n' > "$subhome/.fm-secondmate-home"
     ln -s "$target" "$subhome/$opdir"
-    cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+  cat > "$home/state/domain.meta" <<EOF
+window=default:fm-domain
+endpoint_task_id=domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2098,16 +2201,24 @@ mode=secondmate
 yolo=off
 home=$subhome
 projects=alpha
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 EOF
     printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
     fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-inside-teardown-fake-$opdir")
     log="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/tmux.log"
+    calllog="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/herdr-calls.log"
+    : > "$calllog"
     PATH="$fakebin:$PATH" FM_HOME="$home" FM_FAKE_TMUX_LOG="$log" FM_FAKE_TMUX_CAPTURE="$TMP_ROOT/symlink-inside-teardown-fake-$opdir/pane.txt" \
+      FM_FAKE_HERDR_CALL_LOG="$calllog" \
       "$ROOT/bin/fm-teardown.sh" domain --force >/dev/null 2>"$err" \
       || fail "force teardown refused $opdir symlinked inside the secondmate home"
     [ ! -e "$subhome" ] || fail "force teardown did not remove subhome with inside $opdir symlink"
     [ ! -e "$home/state/domain.meta" ] || fail "force teardown did not clear parent meta for inside $opdir symlink"
-    grep -F 'kill-window -t =firstmate:=fm-domain' "$log" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
+    grep -F 'pane close fm-domain' "$calllog" >/dev/null || fail "force teardown did not kill parent window for inside $opdir symlink"
   done
   pass "force teardown allows non-state operational directory symlinks inside the subhome"
 }
@@ -2122,7 +2233,8 @@ test_secondmate_force_teardown_refuses_operational_dir_symlink_outside_home() {
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   ln -s "$external_state" "$subhome/state"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2131,6 +2243,11 @@ mode=secondmate
 yolo=off
 home=$subhome
 projects=alpha
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   fakebin=$(make_fake_tmux "$TMP_ROOT/symlink-state-teardown-fake")
@@ -2187,6 +2304,14 @@ SH
         ;;
     esac
     fm_write_secondmate_meta "$home/state/$tid.meta" "$subhome"
+    sed -i.bak "s/^window=.*/window=default:fm-$tid/" "$home/state/$tid.meta"
+    rm -f "$home/state/$tid.meta.bak"
+    printf '%s\n' \
+      'backend=herdr' \
+      'herdr_session=default' \
+      'herdr_workspace_id=w1' \
+      'herdr_tab_id=w1:t1' \
+      "herdr_pane_id=fm-$tid" >> "$home/state/$tid.meta"
     printf -- '- %s - design domain (home: %s; scope: design domain; projects: alpha; added 2026-06-22)\n' \
       "$tid" "$subhome" > "$home/data/secondmates.md"
     fakebin=$(make_fake_tmux "$base/fake")
@@ -2221,7 +2346,13 @@ test_secondmate_teardown_refuses_registered_nested_home() {
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   printf 'nested\n' > "$nested/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2232,7 +2363,13 @@ home=$subhome
 projects=alpha
 EOF
   cat > "$home/state/nested.meta" <<EOF
-window=firstmate:fm-nested
+window=default:fm-nested
+endpoint_task_id=nested
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-nested
 worktree=$nested
 project=$nested
 harness=echo
@@ -2271,7 +2408,13 @@ test_secondmate_teardown_refuses_child_registry_nested_home() {
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   printf 'nested\n' > "$nested/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2306,7 +2449,13 @@ test_secondmate_force_teardown_prevalidates_before_child_cleanup() {
   err="$TMP_ROOT/prevalidate-teardown.err"
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj" "$childwt"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2318,7 +2467,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2361,7 +2516,13 @@ seed_task_set_lock_home() {  # <tag> -> echoes "<home>|<subhome>"
   fm_git_worktree "$childproj" "$childwt" "child-$tag"
   printf '%s\n' domain > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2373,7 +2534,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2428,7 +2595,13 @@ seed_empty_task_set_home() {  # <tag> -> echoes "<home>|<subhome>"
   mkdir -p "$home/state" "$home/data" "$subhome/data"
   printf '%s\n' domain > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2647,7 +2820,13 @@ test_secondmate_force_teardown_refuses_child_active_home_descendant() {
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2659,7 +2838,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2698,7 +2883,13 @@ SH
   chmod +x "$fakeroot/bin/fm-guard.sh"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2710,7 +2901,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2743,7 +2940,13 @@ test_secondmate_force_teardown_refuses_unregistered_child_worktree() {
   mkdir -p "$home/state" "$home/data" "$subhome/state" "$childproj" "$childwt"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
   cat > "$home/state/domain.meta" <<EOF
-window=firstmate:fm-domain
+window=default:fm-domain
+endpoint_task_id=domain
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-domain
 worktree=$subhome
 project=$subhome
 harness=echo
@@ -2755,7 +2958,13 @@ projects=alpha
 EOF
   printf '%s\n' '- domain - design domain (home: '"$subhome"'; scope: design domain; projects: alpha; added 2026-06-22)' > "$home/data/secondmates.md"
   cat > "$subhome/state/child.meta" <<EOF
-window=firstmate:fm-child
+window=default:fm-child
+endpoint_task_id=child
+backend=herdr
+herdr_session=default
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=fm-child
 worktree=$childwt
 project=$childproj
 harness=echo
@@ -2785,6 +2994,7 @@ test_secondmate_idle_pane_is_not_stale() {
   window="firstmate:fm-domain"
   cat > "$home/state/domain.meta" <<EOF
 window=$window
+endpoint_task_id=domain
 worktree=$TMP_ROOT/watch-subhome
 project=$TMP_ROOT/watch-subhome
 harness=echo

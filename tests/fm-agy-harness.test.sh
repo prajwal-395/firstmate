@@ -208,17 +208,16 @@ esc to cancel                                                           Gemini 3
   pass "fm-busy-lib: agy classifies busy on its marker and unknown without it"
 }
 
-test_agy_tmux_names_the_native_binary_an_agent() {
+test_agy_process_names_the_native_binary_an_agent() {
   local got
   # shellcheck source=/dev/null
-  . "$ROOT/bin/fm-backend.sh"
-  fm_backend_source tmux || fail "fm_backend_source tmux failed"
+  . "$ROOT/bin/fm-agent-process-lib.sh"
   got=$(fm_agent_process_classify_name agy)
-  [ "$got" = agent ] || fail "tmux liveness must read the agy binary as an agent, got '$got'"
+  [ "$got" = agent ] || fail "process liveness must read the agy binary as an agent, got '$got'"
   got=$(fm_agent_process_classify_name magyk)
-  [ "$got" = other ] || fail "tmux liveness must not read magyk as an agent, got '$got'"
+  [ "$got" = other ] || fail "process liveness must not read magyk as an agent, got '$got'"
   got=$(fm_agent_process_classify_name bash)
-  [ "$got" = shell ] || fail "tmux liveness must still read bash as a shell, got '$got'"
+  [ "$got" = shell ] || fail "process liveness must still read bash as a shell, got '$got'"
   pass "bin/fm-agent-process-lib.sh: agy is an agent, fragments are not"
 }
 
@@ -227,9 +226,9 @@ test_agy_tmux_names_the_native_binary_an_agent() {
 # trusting it (bin/backends/herdr.sh fm_backend_herdr_pane_process_state), so
 # every registered-status fixture pairs its `agent get` body with a process
 # view. The agy-shaped body names the foreground process exactly `agy`, which
-# is the same identity surface the tmux liveness probe and the ancestry
-# detector use - no real agy process is needed because the foreground branch
-# answers before the descendant walk touches the process table.
+# is the same identity surface the process classifier (bin/fm-agent-process-lib.sh)
+# and the ancestry detector use - no real agy process is needed because the
+# foreground branch answers before the descendant walk touches the process table.
 agy_herdr_process_info_body() {  # <shell-pid> <foreground-name> -> JSON
   printf '%s\n' "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w9:p1\",\"shell_pid\":$1,\"foreground_processes\":[{\"pid\":$(( $1 + 1 )),\"name\":\"$2\",\"argv\":[\"$2\",\"--prompt-interactive\"],\"argv0\":\"$2\",\"cmdline\":\"$2 --prompt-interactive\"}]}}}"
 }
@@ -904,7 +903,7 @@ test_agy_control_mechanics_are_the_verified_ones
 test_agy_busy_tail_needs_the_pinned_status_row
 test_agy_busy_signatures_are_harness_scoped
 test_agy_classify_reports_unknown_when_the_marker_scrolls_out
-test_agy_tmux_names_the_native_binary_an_agent
+test_agy_process_names_the_native_binary_an_agent
 test_herdr_done_with_live_registry_stays_live
 test_herdr_registered_status_over_a_shell_only_pane_is_stale_not_live
 test_herdr_shell_first_with_live_registry_stays_live

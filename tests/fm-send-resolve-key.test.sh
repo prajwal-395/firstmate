@@ -34,6 +34,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-marker-lib.sh"
 
@@ -42,13 +44,15 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-send-resolve-key)
 
-# Stub tmux: logs literal typed text to FM_SEND_LOG and lets the submit path
-# reach a clean "empty" verdict (numeric cursor_y, empty bordered composer).
-# FM_FAKE_TMUX_SEND_FAIL=1 makes send-keys fail so the delivery-failure leg can
-# assert that a failed send closes nothing.
+# Stub backend: the shared send-world herdr rig logs each send-text argv line
+# to FM_SEND_LOG and lets the submit path reach a clean verdict (empty
+# bordered composer). FM_FAKE_HERDR_SEND_FAIL=1 makes send-text fail so the
+# delivery-failure leg can assert that a failed send closes nothing. The tmux
+# stub below is vestigial.
 make_stubs() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
+  fm_test_fake_herdr_send "$fb"
   cat > "$fb/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -321,7 +325,7 @@ test_failed_ring_still_closes_at_enqueue() {
   printf 'blocked [key=creds]: need the deploy token\n' > "$home/state/t5.status"
 
   : > "$log"
-  env PATH="$fb:$PATH" FM_FAKE_TMUX_SEND_FAIL=1 \
+  env PATH="$fb:$PATH" FM_FAKE_HERDR_SEND_FAIL=1 \
     FM_ROOT_OVERRIDE="$home" FM_HOME="$home" FM_SEND_LOG="$log" FM_SEND_SETTLE=0 \
     "$SEND" t5 --resolve-key creds "token is in the vault now" >/dev/null 2>&1; rc=$?
   expect_code 0 "$rc" "a failed doorbell must not fail the durably enqueued answer"

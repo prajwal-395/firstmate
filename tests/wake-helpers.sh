@@ -6,6 +6,8 @@
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 # fm-wake-drain.sh now calls fm-guard.sh to assert watcher liveness on every
 # drain. fm-guard.sh's first check warns when the firstmate PRIMARY checkout
@@ -160,6 +162,10 @@ make_supercase() {
   dir="$TMP_ROOT/$name"
   fakebin="$dir/fakebin"
   mkdir -p "$dir/state" "$fakebin"
+  # The herdr rig serves pane reads (honoring FM_FAKE_TMUX_CAPTURE files via
+  # the shared compat) so backend captures resolve on the herdr-only fleet;
+  # the tmux stub below is vestigial.
+  fm_test_fake_herdr_spawn "$fakebin"
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -293,6 +299,65 @@ esac
 exit 1
 SH
   chmod +x "$fakebin/tmux"
+  # Herdr twin of the tmux stub above for the same composer-file contract:
+  # send-text logs the digest and reflects it into the composer file,
+  # send-keys Enter logs [ENTER] and clears the composer (unless swallowed),
+  # reads serve the composer file. No agent verb: the native baseline stays
+  # unreadable so confirmation is decided by composer content exactly like
+  # the tmux submit core did. FM_FAKE_SEND_FAIL fails send-text.
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+COMPOSER="${FM_FAKE_COMPOSER:?FM_FAKE_COMPOSER unset}"
+write_composer() {
+  text=$1
+  width=$((${#text} + 4))
+  border=
+  i=0
+  while [ "$i" -lt "$width" ]; do
+    border="${border}─"
+    i=$((i + 1))
+  done
+  printf '╭%s╮\n│ > %s │\n╰%s╯\n' "$border" "$text" "$border" > "$COMPOSER"
+}
+case "$*" in
+  *'status --json'*)
+    printf '{"client":{"version":"0.8.2","protocol":20},"server":{"running":true,"protocol":20,"version":"0.8.2"}}\n'
+    exit 0 ;;
+esac
+case "${1:-}" in
+  session)
+    printf '{"sessions":[{"name":"default","running":true,"socket_path":"/tmp/fm-fixture-fake-herdr.sock"}]}\n'
+    exit 0 ;;
+  server) exit 0 ;;
+  pane)
+    case "${2:-}" in
+      send-text)
+        [ "${FM_FAKE_SEND_FAIL:-0}" = 1 ] && exit 1
+        [ -n "${FM_FAKE_SENT:-}" ] && printf '%s\n' "$4" >> "$FM_FAKE_SENT"
+        write_composer "$4"
+        exit 0 ;;
+      send-keys)
+        case " $* " in
+          *' enter '*|*' Enter '*)
+            if [ -n "${FM_FAKE_SWALLOW:-}" ] && [ -f "$FM_FAKE_SWALLOW" ]; then
+              [ "${FM_FAKE_PERSIST_SWALLOW:-0}" = 1 ] || rm -f "$FM_FAKE_SWALLOW"
+            else
+              [ -n "${FM_FAKE_SENT:-}" ] && printf '[ENTER]\n' >> "$FM_FAKE_SENT"
+              write_composer ""
+            fi
+            ;;
+        esac
+        exit 0 ;;
+      read) cat "$COMPOSER" 2>/dev/null; exit 0 ;;
+      get) printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "$3"; exit 0 ;;
+      close|run) exit 0 ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/herdr"
   printf '%s\n' "$dir"
 }
 

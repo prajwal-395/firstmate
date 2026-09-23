@@ -9,15 +9,23 @@
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 # A fake tmux (window ops are logged to FM_FAKE_TMUX_LOG, list-windows returns
 # FM_FAKE_TMUX_WINDOW, capture-pane echoes FM_FAKE_TMUX_CAPTURE) plus a fake
 # treehouse (durable lease of FM_FAKE_TREEHOUSE_HOME, recording the lease holder
 # to FM_FAKE_TREEHOUSE_LEASE_FILE; `return` removes the target and lease unless
 # FM_FAKE_TREEHOUSE_RETURN_FAIL is set). Echoes the fakebin dir.
+#
+# The tmux stub is vestigial on the herdr-only fleet (nothing calls it); the
+# shared spawn-world herdr rig installed alongside is what spawns actually
+# run on. Pane reads fall back to FM_FAKE_TMUX_CAPTURE so suites keep
+# describing screen fixtures the old way.
 make_fake_tmux() {
   local dir=$1 fakebin capture
   fakebin=$(fm_fakebin "$dir")
+  fm_test_fake_herdr_spawn "$fakebin"
   capture="$dir/pane.txt"
   # A real, positively identified empty agent composer. A blank capture is
   # deliberately unknown under the fleet-wide strict blank-row posture.

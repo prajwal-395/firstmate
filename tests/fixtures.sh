@@ -95,8 +95,11 @@ fm_test_fake_gh_axi() {
 # Spawn-world herdr: container ensure mints workspace w1 with seeded tab, task
 # create mints t1/p1, pane path reads FM_FAKE_PANE_PATH as the foreground cwd,
 # sends succeed. When FM_FAKE_LAUNCH_LOG is set, each `pane send-text`
-# payload is appended one per line. Captures read empty; agent state reads
-# working.
+# payload is appended one per line; when FM_SEND_LOG is set, each send-text
+# argv line is appended there (send-path observability). Captures read
+# FM_FAKE_HERDR_READ_TEXT, else the FM_FAKE_TMUX_CAPTURE file when set, else
+# empty; agent state reads working (FM_FAKE_HERDR_AGENT_STATUS overrides,
+# FM_FAKE_HERDR_SEND_FAIL=1 fails send-text).
 #
 # The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Launch
 # logging is env-gated, so suites that do not set FM_FAKE_LAUNCH_LOG keep a
@@ -106,6 +109,7 @@ fm_test_fake_herdr_spawn() {
   cat > "$fakebin/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
+[ -n "${FM_FAKE_HERDR_CALL_LOG:-}" ] && printf '%s\n' "$*" >> "$FM_FAKE_HERDR_CALL_LOG"
 # Per-case backend state lives beside the fakebin so sequential spawns mint
 # fresh ids and closes are observable as structured absence.
 STATEDIR="${FM_FAKE_HERDR_STATE_DIR:-$(dirname "$0")/../herdr-state}"
@@ -161,19 +165,29 @@ case "${1:-}" in
         exit 0 ;;
       run) exit 0 ;;
       send-text)
+        [ "${FM_FAKE_HERDR_SEND_FAIL:-0}" = 1 ] && exit 1
+        [ -n "${FM_SEND_LOG:-}" ] && printf '%s\n' "$*" >> "$FM_SEND_LOG"
         if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
           printf '%s\n' "$4" >> "$FM_FAKE_LAUNCH_LOG"
         fi
         exit 0 ;;
       send-keys) exit 0 ;;
-      read) exit 0 ;;
+      read)
+        if [ -n "${FM_FAKE_HERDR_READ_TEXT:-}" ]; then
+          printf '%b' "$FM_FAKE_HERDR_READ_TEXT"
+        elif [ -n "${FM_FAKE_TMUX_CAPTURE:-}" ] && [ -f "$FM_FAKE_TMUX_CAPTURE" ]; then
+          # Compat: suites that still describe screen fixtures as a capture
+          # file keep working; READ_TEXT wins when both are set.
+          cat "$FM_FAKE_TMUX_CAPTURE"
+        fi
+        exit 0 ;;
     esac
     exit 0 ;;
   agent)
     if is_closed "$3"; then
       printf '{"error":{"code":"agent_not_found"}}\n'
     else
-      printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+      printf '{"result":{"agent":{"agent":"fake","agent_status":"%s"}}}\n' "${FM_FAKE_HERDR_AGENT_STATUS:-working}"
     fi
     exit 0 ;;
   terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
@@ -184,10 +198,14 @@ SH
 }
 
 # fm_test_fake_herdr_send <fakebin>
-# Send-world herdr: logs `pane send-text` payloads to FM_SEND_LOG and renders
-# an empty bordered composer so the submit path reads empty. Env knobs:
+# Send-world herdr: logs each `pane send-text` argv line to FM_SEND_LOG and
+# renders an empty bordered composer so the submit path reads empty. Env knobs:
 #   FM_FAKE_HERDR_SEND_FAIL=1  send-text exits 1
 #   FM_FAKE_HERDR_COMPOSER=pending  pane read shows leftover composer text
+#   FM_FAKE_HERDR_AGENT_STATUS=idle  `agent get` reports idle instead of working
+#   FM_FAKE_HERDR_MISSING=1  `pane get` reports pane_not_found (missing endpoint)
+#   FM_FAKE_HERDR_PROCESS=shell  `pane process-info` reports a bare zsh
+#     (stale-agent: dead bare shell) instead of an unavailable process view
 fm_test_fake_herdr_send() {
   local fakebin=$1
   cat > "$fakebin/herdr" <<'SH'
@@ -207,7 +225,10 @@ case "${1:-}" in
     case "${2:-}" in
       send-text)
         [ "${FM_FAKE_HERDR_SEND_FAIL:-0}" = 1 ] && exit 1
-        printf '%s' "$4" >> "${FM_SEND_LOG:-/dev/null}"
+        printf '%s\n' "$*" >> "${FM_SEND_LOG:-/dev/null}"
+        if [ -n "${FM_ACK_RECORD:-}" ] && [ -f "$FM_ACK_RECORD" ]; then
+          mv "$FM_ACK_RECORD" "${FM_ACK_RECORD%/*}/handled/"
+        fi
         exit 0 ;;
       send-keys) exit 0 ;;
       read)
@@ -217,13 +238,28 @@ case "${1:-}" in
           printf '╭────╮\n│    │\n╰────╯\n'
         fi
         exit 0 ;;
-      get) printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}" ;;
-      process-info) printf '{"error":{"code":"pane_not_found"}}\n' ;;
+      get)
+        if [ "${FM_FAKE_HERDR_MISSING:-0}" = 1 ]; then
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        else
+          printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "$3" "${FM_FAKE_PANE_PATH:-}"
+        fi ;;
+      process-info)
+        if [ "${FM_FAKE_HERDR_PROCESS:-}" = shell ]; then
+          # shell_pid defaults to the test script itself (a real, long-lived
+          # process): the adapter verifies it in the live process table, so a
+          # transient subshell pid would already be reaped. Same contract as
+          # the crew-state suite's FM_FAKE_HERDR_SHELL_PID.
+          pane=""; args=("$@"); for ((i=0; i<${#args[@]}; i++)); do [ "${args[$i]}" = --pane ] && pane=${args[$((i+1))]:-}; done
+          printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"]}]}}}\n' "$pane" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}" "${FM_FAKE_HERDR_SHELL_PID:-$PPID}"
+        else
+          printf '{"error":{"code":"pane_not_found"}}\n'
+        fi ;;
       close|run) exit 0 ;;
     esac
     exit 0 ;;
   agent)
-    printf '{"result":{"agent":{"agent":"fake","agent_status":"working"}}}\n'
+    printf '{"result":{"agent":{"agent":"fake","agent_status":"%s"}}}\n' "${FM_FAKE_HERDR_AGENT_STATUS:-working}"
     exit 0 ;;
   terminal) printf '{"result":{"reason":"no_foreground_client"}}\n'; exit 0 ;;
 esac

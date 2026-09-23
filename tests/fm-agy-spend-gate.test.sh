@@ -30,6 +30,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export FM_AGY_LADDER_CONFIG=/dev/null/fm-agy-spend-gate-no-config
 # shellcheck source=tests/lib.sh
 . "$ROOT/tests/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$ROOT/tests/fixtures.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$ROOT/bin/fm-wake-lib.sh"
 # shellcheck source=bin/fm-backend.sh
@@ -244,6 +246,11 @@ pass "the entry script always answers exactly one verdict line with exit 0"
 agy_spawn_fakebin() {  # <dir>: fake agy answering only the catalogue.
   local fakebin
   fakebin=$(fm_fakebin "$1")
+  # The spawn under test runs on herdr: container, task, send-text, and pane
+  # reads come from the shared spawn-world rig. The readiness gate needs a
+  # busy screen, so pane reads render the same busy row the old tmux
+  # capture-pane stub served.
+  fm_test_fake_herdr_spawn "$fakebin"
   cat > "$fakebin/agy" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = models ]; then
@@ -314,7 +321,8 @@ EOF
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_AGY_CONFIG_HOME="$dir/agy-config" FM_AGY_SETTINGS="$dir/agy-settings.json" \
-      FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
+      FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" \
+      FM_FAKE_HERDR_READ_TEXT='esc to cancel                                Gemini 3.1 Pro (High)\n' \
       "$ROOT/bin/fm-spawn.sh" "$id" "$proj" \
       --harness agy --model "$RUNG1" --mode no-mistakes --yolo off >/dev/null 2>&1
   else
@@ -322,7 +330,8 @@ EOF
       FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
       FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
       FM_AGY_CONFIG_HOME="$dir/agy-config" FM_AGY_SETTINGS="$dir/agy-settings.json" \
-      FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
+      FM_AGY_QUOTA_POLL=off FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" \
+      FM_FAKE_HERDR_READ_TEXT='esc to cancel                                Gemini 3.1 Pro (High)\n' \
       "$ROOT/bin/fm-spawn.sh" "$id" "$proj" \
       --harness agy --model "$RUNG1" --mode no-mistakes --yolo off >/dev/null 2>&1
   fi

@@ -38,18 +38,17 @@
 #      says the evidence was unbound.
 #  11. The gate sits on the ordinary dispatch path: a real bin/fm-spawn.sh
 #      launch with a proven free cap carries the Go model id, and a real
-#      launch with no model at all carries the free id - pinned through a
-#      fake tmux pane, so no real harness ever starts.
+#      launch with no model at all carries the free id - pinned through the
+#      fake herdr backend, so no real harness ever starts.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 # shellcheck source=bin/fm-opencode-ladder-lib.sh
 . "$ROOT/bin/fm-opencode-ladder-lib.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-opencode-ladder)
 HELPER="$ROOT/bin/fm-opencode-retry.sh"
-SPAWN="$ROOT/bin/fm-spawn.sh"
 
 FREE='opencode/muse-spark-1.3-contributor-free'
 GO='opencode-go/muse-spark-1.3-contributor'
@@ -256,61 +255,16 @@ test_unbound_cap_falls_through() {
 
 # --- 11. the dispatch path ------------------------------------------------------
 #
-# A real bin/fm-spawn.sh launch with a fake tmux pane, so the assertions pin
-# the command firstmate would run without starting any real harness.
+# A real bin/fm-spawn.sh launch against the fake herdr backend, so the
+# assertions pin the command firstmate would run without starting any real
+# harness. herdr is the only spawn-capable backend in this fork; the fake
+# herdr stub captures each `pane send-text` payload into FM_FAKE_LAUNCH_LOG.
+# fm_test_run_spawn drops the ambient HERDR_* launcher binding so the spawn
+# resolves the per-home fake container instead of a live parent workspace.
 
-spawn_fakebin() {  # <dir> -> fakebin with tmux/treehouse/timeout stubs
+spawn_fakebin() {  # <dir> -> fakebin with the spawn-world herdr stub
   local fakebin
-  fakebin=$(fm_fakebin "$1")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
-  send-keys)
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      prev=
-      for a in "$@"; do
-        if [ "$prev" = "-l" ]; then
-          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
-        fi
-        prev=$a
-      done
-    fi
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  # Test-local pool-CLI stub, carried from the fork's tests/lib.sh with the
-  # real-spawn case: this base's shared lib has no treehouse stub, and the
-  # spawn here only needs `get` to print a leased path (upstream's spawn never
-  # calls it; exit 0 suffices).
-  fm_fake_treehouse() {
-    local _treehouse_fakebin=$1
-    cat > "$_treehouse_fakebin/treehouse" <<'SH'
-#!/usr/bin/env bash
-set -u
-if [ "${1:-}" = get ]; then
-  printf '%s\n' "${FM_FAKE_LEASE_PATH:-${FM_FAKE_PANE_PATH:-}}"
-fi
-exit 0
-SH
-    chmod +x "$_treehouse_fakebin/treehouse"
-  }
-  fm_fake_treehouse "$fakebin"
-  cat > "$fakebin/timeout" <<'SH'
-#!/usr/bin/env bash
-shift
-exec "$@"
-SH
-  chmod +x "$fakebin/timeout"
+  fakebin=$(fm_test_make_spawn_fakebin "$1")
   printf '%s\n' "$fakebin"
 }
 
@@ -330,19 +284,14 @@ spawn_opencode() {  # <dir> <id> [model]
   # shape, where the fork's looser scaffold accepted one line.
   printf '# Task\n\n## Captain'"'"'s intent\n\nroute this test lane\n\n## Firstmate spec\n\nopencode ladder dispatch\n' > "$home/data/$id/brief.md"
   touch "$home/state/.last-watcher-beat"
+  : > "$dir/launch.log"
   if [ -n "$model" ]; then
-    env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-      FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-      FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-      FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
-      "$SPAWN" "$id" "$proj" \
+    FM_FAKE_LAUNCH_LOG="$dir/launch.log" \
+      fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" \
       --harness opencode --model "$model" --mode no-mistakes --yolo off >/dev/null 2>&1
   else
-    env PATH="$fakebin:$PATH" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-      FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-      FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-      FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" FM_FAKE_LAUNCH_LOG="$dir/launch.log" TMUX="fake,1,0" \
-      "$SPAWN" "$id" "$proj" \
+    FM_FAKE_LAUNCH_LOG="$dir/launch.log" \
+      fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" \
       --harness opencode --mode no-mistakes --yolo off >/dev/null 2>&1
   fi
   printf '%s %s\n' "$dir/launch.log" "$home"

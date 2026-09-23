@@ -1,0 +1,707 @@
+{
+  "schema": "fm-fleet-snapshot.v1",
+  "generated": "2026-09-21T20:39:32Z",
+  "fm_home": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture",
+  "roots": {
+    "fm_root": "/Users/prajwal/.treehouse/firstmate-8bf1b0/5/firstmate",
+    "state": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state",
+    "data": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data",
+    "config": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/config",
+    "projects": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/projects"
+  },
+  "backlog": {
+    "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/backlog.md",
+    "present": true,
+    "records": [
+      {
+        "order": 1,
+        "state": "in_flight",
+        "structured": true,
+        "id": "scout-task",
+        "checked": false,
+        "title": "Scout Task",
+        "repo": "alpha",
+        "kind": "scout",
+        "priority": null,
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "hold_set": null,
+        "blocked_by": null,
+        "blocked_by_ids": [],
+        "blocked_reason": null,
+        "since": "2026-07-07",
+        "merged": null,
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": null,
+          "date": null
+        },
+        "links": [],
+        "pr_url": null,
+        "report_path": "data/scout-task/report.md",
+        "local_note": null,
+        "raw": "- [ ] scout-task - Scout Task data/scout-task/report.md (repo: alpha) (kind: scout) (since 2026-07-07)",
+        "body_lines": [],
+        "body_excerpt": null,
+        "unresolved_blocker_ids": [],
+        "current_role": "worker",
+        "requires_child_metadata": true,
+        "hold_age_days": 76,
+        "hold_bucket": null,
+        "captain_actionable": false
+      },
+      {
+        "order": 2,
+        "state": "in_flight",
+        "structured": true,
+        "id": "ship-task",
+        "checked": false,
+        "title": "Ship Task",
+        "repo": "alpha",
+        "kind": "ship",
+        "priority": "2",
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "hold_set": null,
+        "blocked_by": null,
+        "blocked_by_ids": [],
+        "blocked_reason": null,
+        "since": "2026-07-07",
+        "merged": null,
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": null,
+          "date": null
+        },
+        "links": [
+          "https://github.com/kunchenguid/firstmate/pull/9"
+        ],
+        "pr_url": "https://github.com/kunchenguid/firstmate/pull/9",
+        "report_path": null,
+        "local_note": null,
+        "raw": "- [ ] ship-task - Ship Task https://github.com/kunchenguid/firstmate/pull/9 (repo: alpha) (kind: ship) (priority: 2) (since 2026-07-07)",
+        "body_lines": [
+          "Preserve this detail for bearings."
+        ],
+        "body_excerpt": "Preserve this detail for bearings.",
+        "unresolved_blocker_ids": [],
+        "current_role": "worker",
+        "requires_child_metadata": true,
+        "hold_age_days": 76,
+        "hold_bucket": null,
+        "captain_actionable": false
+      },
+      {
+        "order": 3,
+        "state": "queued",
+        "structured": true,
+        "id": "queued-task",
+        "checked": false,
+        "title": "Queued Task",
+        "repo": "alpha",
+        "kind": "ship",
+        "priority": null,
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "hold_set": null,
+        "blocked_by": "ship-task",
+        "blocked_by_ids": [
+          "ship-task"
+        ],
+        "blocked_reason": null,
+        "since": "2026-07-08",
+        "merged": null,
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": null,
+          "date": null
+        },
+        "links": [],
+        "pr_url": null,
+        "report_path": null,
+        "local_note": null,
+        "raw": "- [ ] queued-task - Queued Task blocked-by: ship-task (repo: alpha) (kind: ship) (since 2026-07-08)",
+        "body_lines": [],
+        "body_excerpt": null,
+        "unresolved_blocker_ids": [
+          "ship-task"
+        ],
+        "current_role": "queued",
+        "requires_child_metadata": false,
+        "hold_age_days": 75,
+        "hold_bucket": null,
+        "captain_actionable": false
+      },
+      {
+        "order": 4,
+        "state": "queued",
+        "structured": false,
+        "id": null,
+        "raw": "handoff note without canonical syntax",
+        "body_lines": [],
+        "body_excerpt": null
+      },
+      {
+        "order": 5,
+        "state": "done",
+        "structured": true,
+        "id": "done-task",
+        "checked": true,
+        "title": "Done Task",
+        "repo": "alpha",
+        "kind": "ship",
+        "priority": null,
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "hold_set": null,
+        "blocked_by": null,
+        "blocked_by_ids": [],
+        "blocked_reason": null,
+        "since": null,
+        "merged": "2026-07-06",
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": "merged",
+          "date": "2026-07-06"
+        },
+        "links": [
+          "https://github.com/kunchenguid/firstmate/pull/7"
+        ],
+        "pr_url": "https://github.com/kunchenguid/firstmate/pull/7",
+        "report_path": null,
+        "local_note": null,
+        "raw": "- [x] done-task - Done Task https://github.com/kunchenguid/firstmate/pull/7 (repo: alpha) (kind: ship) (merged 2026-07-06)",
+        "body_lines": [],
+        "body_excerpt": null,
+        "unresolved_blocker_ids": [],
+        "current_role": "done",
+        "requires_child_metadata": false,
+        "hold_age_days": null,
+        "hold_bucket": null,
+        "captain_actionable": false
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "cmux-task",
+      "kind": "ship",
+      "harness": "codex",
+      "mode": "ship",
+      "yolo": "",
+      "project": "alpha",
+      "spawn_gen": null,
+      "backend": "cmux",
+      "remote": null,
+      "paths": {
+        "meta": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/cmux-task.meta",
+          "present": true
+        },
+        "status_log": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/cmux-task.status",
+          "present": false,
+          "kind": "event_history",
+          "last_event": {
+            "state": "",
+            "note": "",
+            "raw": ""
+          }
+        },
+        "worktree": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/projects/missing-cmux",
+          "present": false
+        },
+        "home": {
+          "path": null,
+          "present": false
+        },
+        "report": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/cmux-task/report.md",
+          "present": false
+        }
+      },
+      "secondmate_projects": [],
+      "current_state": {
+        "state": "unknown",
+        "source": "none",
+        "detail": "worktree gone (torn down?)",
+        "raw": "state: unknown · source: none · worktree gone (torn down?)",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "endpoint": {
+        "target": "workspace:surface",
+        "exists": false,
+        "agent_alive": "not_checked",
+        "status": "absent",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "pr": {
+        "url": null,
+        "source": "absent"
+      },
+      "hints": {
+        "pending_decision": false,
+        "blocked_event": false,
+        "open_decisions": [],
+        "scout_report_present": false,
+        "last_event_text": ""
+      },
+      "actions": {
+        "watch": "bin/fm-peek.sh fm-cmux-task",
+        "steer": "bin/fm-send.sh fm-cmux-task '<instruction>'",
+        "return_channel_note": null
+      },
+      "backlog": null
+    },
+    {
+      "id": "scout-task",
+      "kind": "scout",
+      "harness": "codex",
+      "mode": "scout",
+      "yolo": "off",
+      "project": "alpha",
+      "spawn_gen": null,
+      "backend": "herdr",
+      "remote": null,
+      "paths": {
+        "meta": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/scout-task.meta",
+          "present": true
+        },
+        "status_log": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/scout-task.status",
+          "present": true,
+          "kind": "event_history",
+          "last_event": {
+            "state": "done",
+            "note": "report ready",
+            "raw": "done: report ready"
+          }
+        },
+        "worktree": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/projects/scout-worktree",
+          "present": true
+        },
+        "home": {
+          "path": null,
+          "present": false
+        },
+        "report": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/scout-task/report.md",
+          "present": true
+        }
+      },
+      "secondmate_projects": [],
+      "current_state": {
+        "state": "unknown",
+        "source": "none",
+        "detail": "backend unreachable (herdr endpoint state: unreadable)",
+        "raw": "state: unknown · source: none · backend unreachable (herdr endpoint state: unreadable)",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "endpoint": {
+        "target": "firstmate:fm-scout-task",
+        "exists": false,
+        "agent_alive": "not_checked",
+        "status": "absent",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "pr": {
+        "url": null,
+        "source": "absent"
+      },
+      "hints": {
+        "pending_decision": false,
+        "blocked_event": false,
+        "open_decisions": [],
+        "scout_report_present": true,
+        "last_event_text": "done: report ready"
+      },
+      "actions": {
+        "watch": "bin/fm-peek.sh fm-scout-task",
+        "steer": "bin/fm-send.sh fm-scout-task '<instruction>'",
+        "return_channel_note": null
+      },
+      "backlog": {
+        "order": 1,
+        "state": "in_flight",
+        "structured": true,
+        "id": "scout-task",
+        "checked": false,
+        "title": "Scout Task",
+        "repo": "alpha",
+        "kind": "scout",
+        "priority": null,
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "hold_set": null,
+        "blocked_by": null,
+        "blocked_by_ids": [],
+        "blocked_reason": null,
+        "since": "2026-07-07",
+        "merged": null,
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": null,
+          "date": null
+        },
+        "links": [],
+        "pr_url": null,
+        "report_path": "data/scout-task/report.md",
+        "local_note": null,
+        "raw": "- [ ] scout-task - Scout Task data/scout-task/report.md (repo: alpha) (kind: scout) (since 2026-07-07)",
+        "body_lines": [],
+        "body_excerpt": null,
+        "unresolved_blocker_ids": [],
+        "current_role": "worker",
+        "requires_child_metadata": true,
+        "hold_age_days": 76,
+        "hold_bucket": null,
+        "captain_actionable": false
+      }
+    },
+    {
+      "id": "secondmate-task",
+      "kind": "secondmate",
+      "harness": "codex",
+      "mode": "secondmate",
+      "yolo": "",
+      "project": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/secondmate-home",
+      "spawn_gen": null,
+      "backend": "herdr",
+      "remote": null,
+      "paths": {
+        "meta": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/secondmate-task.meta",
+          "present": true
+        },
+        "status_log": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/secondmate-task.status",
+          "present": true,
+          "kind": "event_history",
+          "last_event": {
+            "state": "working",
+            "note": "watching delegated scope",
+            "raw": "working: watching delegated scope"
+          }
+        },
+        "worktree": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/secondmate-home",
+          "present": true
+        },
+        "home": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/secondmate-home",
+          "present": true
+        },
+        "report": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/secondmate-task/report.md",
+          "present": false
+        }
+      },
+      "secondmate_projects": [
+        "alpha",
+        "beta",
+        "gamma"
+      ],
+      "current_state": {
+        "state": "unknown",
+        "source": "none",
+        "detail": "backend unreachable (herdr endpoint state: unreadable)",
+        "raw": "state: unknown · source: none · backend unreachable (herdr endpoint state: unreadable)",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "endpoint": {
+        "target": "firstmate:fm-secondmate-task",
+        "exists": false,
+        "agent_alive": "unknown",
+        "status": "absent",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "pr": {
+        "url": null,
+        "source": "absent"
+      },
+      "hints": {
+        "pending_decision": false,
+        "blocked_event": false,
+        "open_decisions": [],
+        "scout_report_present": false,
+        "last_event_text": "working: watching delegated scope"
+      },
+      "actions": {
+        "send": "bin/fm-send.sh fm-secondmate-task '<request>'",
+        "watch": "read status/doc return channel; do not routinely fm-peek a secondmate for answers",
+        "return_channel_note": "Secondmate answers come back through status/doc paths after a marked fm-send request."
+      },
+      "backlog": null
+    },
+    {
+      "id": "ship-task",
+      "kind": "ship",
+      "harness": "claude",
+      "mode": "ship",
+      "yolo": "off",
+      "project": "alpha",
+      "spawn_gen": null,
+      "backend": "herdr",
+      "remote": null,
+      "paths": {
+        "meta": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/ship-task.meta",
+          "present": true
+        },
+        "status_log": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/state/ship-task.status",
+          "present": true,
+          "kind": "event_history",
+          "last_event": {
+            "state": "needs-decision",
+            "note": "choose an API shape",
+            "raw": "needs-decision: choose an API shape"
+          }
+        },
+        "worktree": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/projects/alpha-worktree",
+          "present": true
+        },
+        "home": {
+          "path": null,
+          "present": false
+        },
+        "report": {
+          "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/ship-task/report.md",
+          "present": false
+        }
+      },
+      "secondmate_projects": [],
+      "current_state": {
+        "state": "unknown",
+        "source": "none",
+        "detail": "backend unreachable (herdr endpoint state: unreadable)",
+        "raw": "state: unknown · source: none · backend unreachable (herdr endpoint state: unreadable)",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "endpoint": {
+        "target": "firstmate:fm-ship-task",
+        "exists": false,
+        "agent_alive": "not_checked",
+        "status": "absent",
+        "observed_at": "2026-09-21T20:39:32Z",
+        "freshness": "fresh"
+      },
+      "pr": {
+        "url": "https://github.com/kunchenguid/firstmate/pull/9",
+        "source": "meta"
+      },
+      "hints": {
+        "pending_decision": true,
+        "blocked_event": false,
+        "open_decisions": [
+          {
+            "key": "default",
+            "verb": "needs-decision",
+            "summary": "choose an API shape"
+          }
+        ],
+        "scout_report_present": false,
+        "last_event_text": "needs-decision: choose an API shape"
+      },
+      "actions": {
+        "watch": "bin/fm-peek.sh fm-ship-task",
+        "steer": "bin/fm-send.sh fm-ship-task '<instruction>'",
+        "return_channel_note": null
+      },
+      "backlog": {
+        "order": 2,
+        "state": "in_flight",
+        "structured": true,
+        "id": "ship-task",
+        "checked": false,
+        "title": "Ship Task",
+        "repo": "alpha",
+        "kind": "ship",
+        "priority": "2",
+        "hold_reason": null,
+        "hold_kind": null,
+        "hold_until": null,
+        "hold_set": null,
+        "blocked_by": null,
+        "blocked_by_ids": [],
+        "blocked_reason": null,
+        "since": "2026-07-07",
+        "merged": null,
+        "reported": null,
+        "done": null,
+        "completion": {
+          "verb": null,
+          "date": null
+        },
+        "links": [
+          "https://github.com/kunchenguid/firstmate/pull/9"
+        ],
+        "pr_url": "https://github.com/kunchenguid/firstmate/pull/9",
+        "report_path": null,
+        "local_note": null,
+        "raw": "- [ ] ship-task - Ship Task https://github.com/kunchenguid/firstmate/pull/9 (repo: alpha) (kind: ship) (priority: 2) (since 2026-07-07)",
+        "body_lines": [
+          "Preserve this detail for bearings."
+        ],
+        "body_excerpt": "Preserve this detail for bearings.",
+        "unresolved_blocker_ids": [],
+        "current_role": "worker",
+        "requires_child_metadata": true,
+        "hold_age_days": 76,
+        "hold_bucket": null,
+        "captain_actionable": false
+      }
+    }
+  ],
+  "main_inventory": {
+    "valid": false,
+    "reason": "unstructured current backlog row",
+    "orphan_in_flight": [],
+    "unstructured_current_count": 1
+  },
+  "scout_reports": [
+    {
+      "id": "scout-task",
+      "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/scout-task/report.md",
+      "kind": "scout"
+    }
+  ],
+  "secondmate_current": {
+    "registry": {
+      "present": false,
+      "available": true,
+      "complete": true,
+      "reason": null,
+      "provenance": "registered-table",
+      "path": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/data/secondmates.md",
+      "freshness": {
+        "status": "fresh",
+        "observed_at": "2026-09-21T20:39:32Z"
+      },
+      "records": [],
+      "input_truncated": false,
+      "records_truncated": false,
+      "reasons": [],
+      "lines_in_window": 0,
+      "records_in_window": 0
+    },
+    "records": [
+      {
+        "id": "secondmate-task",
+        "home": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/secondmate-home",
+        "host": null,
+        "remote": false,
+        "registered": false,
+        "spawn_gen": null,
+        "current": {
+          "state": "unknown",
+          "reason": "secondmate metadata is not registered"
+        },
+        "invalidity": null,
+        "reconcile_inventory": null,
+        "provenance": {
+          "selected": "parent-event-fallback",
+          "structured_home": "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/secondmate-home",
+          "parent_event_role": "fallback-only-not-current"
+        },
+        "freshness": {
+          "status": "historical-event",
+          "observed_at": "2026-09-21T20:39:32Z",
+          "age_seconds": 0
+        },
+        "active_children": [],
+        "decisions_open": [],
+        "holds": [],
+        "queued": [],
+        "landed": [],
+        "endpoints": [],
+        "counts": {
+          "active_children": 0,
+          "decisions_open": 0,
+          "holds": 0,
+          "queued": 0,
+          "landed": 0,
+          "endpoints": 0
+        },
+        "omitted": [],
+        "parent_event": {
+          "raw": "working: watching delegated scope",
+          "note": "watching delegated scope",
+          "age_seconds": 0,
+          "open_activities": [
+            {
+              "key": "default",
+              "verb": "working",
+              "summary": "watching delegated scope"
+            }
+          ],
+          "open_decisions": [],
+          "activity_scan": {
+            "records": [
+              {
+                "key": "default",
+                "verb": "working",
+                "summary": "watching delegated scope"
+              }
+            ],
+            "available": true,
+            "input_truncated": false,
+            "retained_truncated": false,
+            "reasons": [],
+            "lines_in_window": 1,
+            "records_in_window": 1
+          }
+        },
+        "terminal_evidence": {
+          "provenance": "parent-direct-report-terminal",
+          "trust": "untrusted-supplement",
+          "captured": false,
+          "observed_at": "2026-09-21T20:39:32Z",
+          "freshness": "unknown",
+          "reason": "terminal capture unavailable",
+          "lines": 0,
+          "bytes": 0,
+          "event_note_seen": false,
+          "contradiction": false
+        },
+        "contradiction": false
+      }
+    ],
+    "total_registered": 0,
+    "total": 1,
+    "shown": 1,
+    "truncated": 0
+  },
+  "secondmate_landed": {
+    "records": [],
+    "truncated": [],
+    "unreadable": [
+      "/private/var/folders/k6/k07x_c1s4315ksh0n2gwhfkw0000gn/T/fm-fleet-snapshot.iPXT6Y/fixture/secondmate-home"
+    ],
+    "partial": []
+  },
+  "secondmate_guidance": {
+    "note": "For kind=secondmate, bearings selects validated structured state from that registered home; parent events and bounded terminal evidence are fallback-only supplements and never current-state authority."
+  }
+}
