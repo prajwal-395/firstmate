@@ -865,6 +865,7 @@ $ASK_USER_BLOCK
    going. A drive-call error, timeout, slow read, or generic unreachability is NOT a daemon error:
    the daemon accepts \`respond\` immediately and runs the round in the background, so a killed or
    timed-out call was only waiting for a read while the run kept working.
+8. Before you report done, leave the worktree holding nothing but committed work: keep scratch outside the worktree, or remove it, because cleanup cannot distinguish debris from unlanded work and refuses rather than guess.
 
 $INBOX_SECTION
 
