@@ -123,6 +123,11 @@
 #       Preserve a proven rung cap past the discovering task's own cleanup.
 #       Validates and atomically stores the vendor's scheduled-retry
 #       timestamp as state/.opencode-cap-<rung> (`v1 next=<ms> ts=<s>`).
+#       <rung> must be one of the ladder's own rung keys
+#       (FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG in
+#       bin/fm-opencode-ladder-lib.sh, read from that file - never retyped
+#       here): anything else is refused (exit 1) with the accepted names
+#       listed, so an unreadable record can never be written silently.
 #       Newer evidence wins (see above); a non-numeric next, or a rung
 #       outside the token charset, is refused (exit 1). Always exits 0 once
 #       the record is stored or a newer-or-equal incumbent already holds it.
@@ -130,6 +135,8 @@
 #   check-cap <state-dir> <rung>
 #       Classify the preserved rung cap. Prints one line:
 #         status=<blocked|waiting> horizon_s=<s>
+#       <rung> must be a ladder rung key (see record-cap): anything else is
+#       refused (exit 1) with the accepted names listed.
 #       Exit 0 when the record is present, well-formed, and unexpired;
 #       exit 1 when it is absent, malformed, or expired. `blocked` iff
 #       horizon_s exceeds FM_OPENCODE_RETRY_BLOCK_SECS, exactly as check.
@@ -140,7 +147,10 @@
 #   verdict-cap <state-dir> <rung>
 #       The honest three-state answer for the preserved rung cap, mirroring
 #       verdict's split between routing (check-cap) and showing. Always
-#       prints one line and exits 0:
+#       prints one line and exits 0 - except an unaccepted <rung>, which is
+#       refused (exit 1) with the accepted names listed, exactly as
+#       record-cap and check-cap, so no name can be written by one command
+#       and read by another:
 #         verdict=capped evidence=rung-record status=blocked horizon_s=<s>
 #         verdict=waiting evidence=rung-record horizon_s=<s>
 #         verdict=unknown reason=<slug>
@@ -278,6 +288,29 @@ if [ "$CMD" = record-cap ] || [ "$CMD" = check-cap ] || [ "$CMD" = verdict-cap ]
   CAP_STATE=${1:-}
   CAP_RUNG=${2:-}
   [ -n "$CAP_STATE" ] && [ -n "$CAP_RUNG" ] || usage
+  # The accepted rung names live in exactly ONE place:
+  # FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG in
+  # bin/fm-opencode-ladder-lib.sh. They are read from that file's assignment
+  # lines only - the whole library is never sourced here, because sourcing it
+  # would pull bin/fm-backend.sh (1211 lines) into this dependency-free
+  # detector that the spawn-installed plugin calls on every retry event, and
+  # the ladder library execs (never sources) this helper, so there is no
+  # source cycle - only a load-order weight problem this static read avoids.
+  # A rung nobody queries must fail here rather than write an unreadable
+  # record the gate never consults (2026-09-22: `.opencode-cap-opencode`).
+  _CAP_SELF=${BASH_SOURCE[0]:-$0}
+  _CAP_LIB_DIR=$(cd "$(dirname "$_CAP_SELF")" && pwd 2>/dev/null || printf '.')
+  _CAP_LADDER_LIB="$_CAP_LIB_DIR/fm-opencode-ladder-lib.sh"
+  _CAP_FREE_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_FREE_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
+  _CAP_GO_RUNG=$(sed -n 's/^FM_OPENCODE_LADDER_GO_RUNG=//p' "$_CAP_LADDER_LIB" 2>/dev/null | head -n 1 | tr -d "'\"")
+  if [ -z "${_CAP_FREE_RUNG:-}" ] || [ -z "${_CAP_GO_RUNG:-}" ]; then
+    echo "error: rung catalogue unreadable: FM_OPENCODE_LADDER_FREE_RUNG / FM_OPENCODE_LADDER_GO_RUNG missing from fm-opencode-ladder-lib.sh" >&2
+    exit 1
+  fi
+  if [ "$CAP_RUNG" != "$_CAP_FREE_RUNG" ] && [ "$CAP_RUNG" != "$_CAP_GO_RUNG" ]; then
+    echo "error: invalid rung '$CAP_RUNG': accepted rungs are: $_CAP_FREE_RUNG, $_CAP_GO_RUNG" >&2
+    exit 1
+  fi
   case "$CAP_RUNG" in
     *[!A-Za-z0-9._-]*) echo "error: invalid rung key" >&2; exit 1 ;;
   esac

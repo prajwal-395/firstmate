@@ -79,6 +79,20 @@
 FM_OPENCODE_LADDER_FREE='opencode/muse-spark-1.3-contributor-free'
 FM_OPENCODE_LADDER_GO='opencode-go/muse-spark-1.3-contributor'
 
+# The rung keys. `free` and `go` are the short names the gate queries and the
+# rung-scoped record files are keyed on (state/.opencode-cap-<rung>).
+# This is the SINGLE place the rung names live: bin/fm-opencode-retry.sh
+# validates record-cap/check-cap/verdict-cap against these two values by
+# reading them from this file (never by retyping them), and the gate below
+# queries through them, so a rename here cannot leave an unreadable record
+# behind the way `.opencode-cap-opencode` was left on 2026-09-22.
+FM_OPENCODE_LADDER_FREE_RUNG='free'
+# shellcheck disable=SC2034 # GO_RUNG is not expanded below: the gate only ever
+# queries the free rung, but `go` stays an accepted record key so a proven Go
+# cap can be preserved and shown. bin/fm-opencode-retry.sh reads this line as
+# part of the accepted set - that static read is the use.
+FM_OPENCODE_LADDER_GO_RUNG='go'
+
 # Resolve this library's own directory so it can name the retry-evidence
 # helper whether it was sourced by a bin/ script or directly by a test.
 _FM_OPENCODE_LADDER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd 2>/dev/null)" || _FM_OPENCODE_LADDER_LIB_DIR="."
@@ -221,7 +235,7 @@ fm_opencode_ladder_free_capped() {  # <state-dir>
   # Consulted after the per-task sidecars and before the pane-text scan - a
   # live sidecar speaks for itself, while text capture costs a backend read.
   if [ -z "$free_horizon" ]; then
-    if cap_out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" free 2>/dev/null); then
+    if cap_out=$("$_FM_OPENCODE_LADDER_RETRY" check-cap "$state_dir" "$FM_OPENCODE_LADDER_FREE_RUNG" 2>/dev/null); then
       cap_status=''; cap_horizon=''
       for word in $cap_out; do
         case "$word" in
