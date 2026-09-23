@@ -129,8 +129,63 @@ def test_an_empty_slug_is_visibly_untitled_not_blank():
 
 # ── A proposal must be real ──────────────────────────────────────────
 
-def test_a_valid_proposal_passes():
-    validate_proposal([_moment()], _transcript(), 2656.6)
+@pytest.mark.parametrize("case", [
+    "valid_proposal",
+    "no_maximum_length",
+    "boundary_on_whole_segments",
+    "snapping_makes_a_refused_moment_pass",
+    "overlapping_moments_are_surfaced",
+    "moment_with_no_cta",
+    "nothing_scores_or_ranks_a_cta",
+])
+def test_valid_proposal_shapes_pass(case):
+    """B1 collapse: the seven valid-input passes in one parametrized
+    test - no-raise is the only signal in each, so one test with seven
+    cases keeps every shape covered."""
+    if case == "valid_proposal":
+        validate_proposal([_moment()], _transcript(), 2656.6)
+    elif case == "no_maximum_length":
+        # How long a reel should be is the captain's call, not a floor here.
+        validate_proposal([_moment(timeline_start=10.0, timeline_end=2000.0)],
+                          _transcript(), 2656.6)
+    elif case == "boundary_on_whole_segments":
+        tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+                 _bound(timeline_start=18.5, timeline_end=26.0,
+                        resolve_item_id="uid-2"))
+        validate_proposal([_moment(timeline_start=10.0, timeline_end=26.0)],
+                          tx, 2656.6)
+    elif case == "snapping_makes_a_refused_moment_pass":
+        tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
+                 _bound(timeline_start=18.5, timeline_end=26.0,
+                        resolve_item_id="uid-2"))
+        start, end = snap_to_speech(14.0, 20.0, tx)
+        validate_proposal([_moment(timeline_start=start, timeline_end=end)],
+                          tx, 2656.6)
+    elif case == "overlapping_moments_are_surfaced":
+        # Overlap is REPORTED, not a rejection: two moments drawing on
+        # one stretch is an editorial question for the captain.
+        tx = _transcript()
+        tx["segments"].append({
+            "speaker": "Akshita", "text": "Yes exactly.",
+            "timeline_start": 409.5, "timeline_end": 420.0,
+            "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-4",
+            "source_start": 210.0, "source_end": 220.5
+        })
+        m1 = _moment(number=1, slug="first",
+                    timeline_start=10.0, timeline_end=26.0)
+        m2 = _moment(number=2, slug="second",
+                    timeline_start=18.5, timeline_end=420.0)
+        validate_proposal([m1, m2], tx, 500.0)   # does not raise
+    elif case == "moment_with_no_cta":
+        # The field is additive - a reel with no declared closer ends
+        # where its body ends, exactly as every reel did before.
+        validate_proposal([_with_cta(cta=None)], _cta_transcript(), 1200.0)
+    else:
+        # Whether a closer is a good one is taste (AGENTS.md 10.5) and
+        # this module has no opinion: no keyword list, no pitch floor.
+        validate_proposal([_with_cta(start=468.06, end=476.5,
+                                     cta=(600.0, 612.0))],
+                          _cta_transcript(), 1200.0)
 
 
 def test_a_moment_outside_the_timeline_is_refused():
@@ -166,12 +221,6 @@ def test_a_span_under_the_measurement_floor_is_refused():
                      timeline_end=10.0 + MIN_REEL_SECONDS - 0.1)],
             _transcript(), 2656.6)
     assert "floor" in str(excinfo.value)
-
-
-def test_there_is_no_maximum_length():
-    """How long a reel should be is the captain's call, not a floor here."""
-    validate_proposal([_moment(timeline_start=10.0, timeline_end=2000.0)],
-                      _transcript(), 2656.6)
 
 
 def test_a_repeated_reel_number_is_refused():
@@ -280,13 +329,6 @@ def test_a_boundary_that_cuts_a_segment_is_refused():
     assert "mid-sentence" in str(excinfo.value)
 
 
-def test_a_boundary_on_whole_segments_passes():
-    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
-             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
-    validate_proposal([_moment(timeline_start=10.0, timeline_end=26.0)],
-                      tx, 2656.6)
-
-
 def test_snap_moves_boundaries_outward_not_inward():
     """Trimming inward silently drops words the proposer meant to keep."""
     tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
@@ -320,14 +362,6 @@ def test_snap_still_widens_a_boundary_cutting_speech():
              _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
     assert snap_to_speech(10.0, 20.0, tx) == (10.0, 26.0)
     assert snap_to_speech(14.0, 26.0, tx) == (10.0, 26.0)
-
-
-def test_snapping_makes_a_refused_moment_pass():
-    tx = _tx(_bound(timeline_start=10.0, timeline_end=18.0),
-             _bound(timeline_start=18.5, timeline_end=26.0, resolve_item_id="uid-2"))
-    start, end = snap_to_speech(14.0, 20.0, tx)
-    validate_proposal([_moment(timeline_start=start, timeline_end=end)],
-                      tx, 2656.6)
 
 
 def test_a_straddling_segment_is_never_a_boundary_anchor():
@@ -719,31 +753,6 @@ def test_post_bridge_drops_a_moment_over_a_hole():
     assert "play black" in hole_drops[0]["reason"]
 
 
-def test_overlapping_moments_are_surfaced_rather_than_refused():
-    """Overlap is REPORTED, not a rejection.
-
-    Two moments drawing on one stretch is an editorial question - the
-    same exchange can be worth two shorts - so 6f3ee03 stopped dropping
-    the shorter one and started writing the overlap into both reasons
-    where the captain can see it and decide.  These two tests still
-    asserted the old refusal and had failed ever since; they now pin the
-    behaviour the code actually has.
-    """
-    from library.tools.reel_proposal import validate_proposal
-    tx = _transcript()
-    # Add a fourth segment so both ranges are two-speaker and match whole segments
-    tx["segments"].append({
-        "speaker": "Akshita", "text": "Yes exactly.",
-        "timeline_start": 409.5, "timeline_end": 420.0,
-        "source_file": "/m/LC4930.MXF", "resolve_item_id": "uid-4",
-        "source_start": 210.0, "source_end": 220.5
-    })
-    # m1: 10.0-26.0, m2: 18.5-420.0 -> overlap by 7.5s (18.5 to 26.0)
-    m1 = _moment(number=1, slug="first", timeline_start=10.0, timeline_end=26.0)
-    m2 = _moment(number=2, slug="second", timeline_start=18.5, timeline_end=420.0)
-    validate_proposal([m1, m2], tx, 500.0)   # does not raise
-
-
 def test_post_bridge_keeps_both_overlapping_moments_and_says_so():
     from library.steps.step_3_04_select_reels.post_bridge import resolve
     tx = _transcript()
@@ -820,12 +829,6 @@ def test_a_moment_carries_a_cta_from_anywhere_in_the_episode():
     assert moment.call_to_action.timeline_start < moment.timeline_start
 
 
-def test_a_moment_with_no_cta_is_still_valid():
-    """The field is additive - a reel with no declared closer ends where
-    its body ends, exactly as every reel did before."""
-    validate_proposal([_with_cta(cta=None)], _cta_transcript(), 1200.0)
-
-
 def test_two_reels_may_close_on_the_same_cta():
     """Six spoken CTAs closing sixteen reels is the point of the
     mechanism. Two reels may not share a BODY; they may share a CLOSER."""
@@ -868,15 +871,6 @@ def test_a_cta_that_opens_mid_sentence_is_refused():
     with pytest.raises(ProposalError, match="close\\s+mid-sentence"):
         validate_proposal([_with_cta(cta=(470.0, 476.5))],
                           _cta_transcript(), 1200.0)
-
-
-def test_nothing_scores_or_ranks_a_cta():
-    """A passage that says nothing CTA-like passes, because whether a
-    closer is a good one is taste (AGENTS.md 10.5) and this module has
-    no opinion. There is no keyword list, no pitch floor, no cutoff."""
-    validate_proposal([_with_cta(start=468.06, end=476.5,
-                                 cta=(600.0, 612.0))],
-                      _cta_transcript(), 1200.0)
 
 
 def test_a_cta_reads_its_words_back_off_the_transcript():

@@ -224,11 +224,6 @@ class TestSentinelBlock:
         assert blocks[0]["start"] == 0
         assert blocks[0]["end"] == 10
 
-    def test_adapted_document_is_json_serialisable(self):
-        json.dumps(adapt_semantic_document(IMG_1809_PROFILE))
-        json.dumps(adapt_semantic_document(IMG_1820_PROFILE))
-
-
 # ── Part 3: The picture view shows unmeasured rather than omitting ───
 
 

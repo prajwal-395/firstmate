@@ -65,32 +65,29 @@ def _no_frame_default(fn, *names):
             f"{params[name].default!r}; the caller must state the frame")
 
 
-@pytest.mark.parametrize("fn", [
-    generate_subtitle_props_per_block,
-    generate_motion_props,
-    render_timed_text_segments,
-    generate_timed_text_overlay_props,
-    plan_timed_text_segments,
-    render_bookend,
-    render_declared_bookends,
-    ffe.plan_reel_cards,
-    si.plan_for_reel,
-    reel_build.plan_cards,
+@pytest.mark.parametrize("fn,names", [
+    (generate_subtitle_props_per_block, ("width", "height")),
+    (generate_motion_props, ("width", "height")),
+    (render_timed_text_segments, ("width", "height")),
+    (generate_timed_text_overlay_props, ("width", "height")),
+    (plan_timed_text_segments, ("width", "height")),
+    (render_bookend, ("width", "height")),
+    (render_declared_bookends, ("width", "height")),
+    (ffe.plan_reel_cards, ("width", "height")),
+    (si.plan_for_reel, ("width", "height")),
+    (reel_build.plan_cards, ("width", "height")),
+    (overlay_verify.verify_values, ("full_wh",)),
+    (overlay_verify.verify_pixels, ("full_wh",)),
 ])
-def test_an_overlay_renderer_defaults_no_frame(fn):
-    """Breaks on: restoring ``width=1080, height=1920`` (or any default)
-    on the renderer - the exact shape that drew project 001 vertical."""
-    _no_frame_default(fn, "width", "height")
+def test_an_overlay_renderer_defaults_no_frame(fn, names):
+    """B1 collapse of the renderer and verifier variants - the same
+    property twice.
 
-
-@pytest.mark.parametrize("fn", [
-    overlay_verify.verify_values,
-    overlay_verify.verify_pixels,
-])
-def test_the_verifier_defaults_no_frame(fn):
-    """Breaks on: restoring ``full_wh=(1080, 1920)`` on the verifier -
-    judging a landscape timeline against a vertical frame."""
-    _no_frame_default(fn, "full_wh")
+    Breaks on: restoring ``width=1080, height=1920`` (or any default)
+    on a renderer - the exact shape that drew project 001 vertical -
+    or restoring ``full_wh=(1080, 1920)`` on the verifier, judging a
+    landscape timeline against a vertical frame."""
+    _no_frame_default(fn, *names)
 
 
 def test_the_4_06_bridge_states_no_frame_on_its_own():

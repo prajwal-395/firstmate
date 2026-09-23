@@ -182,15 +182,18 @@ class TestRefusesToInvent:
 # The time domain the grid depends on
 # ─────────────────────────────────────────────────────────
 
-def test_music_at_zero_passes():
+def test_legitimate_music_placements_pass():
+    """B1 collapse: the three no-raise offset validators share one
+    assert helper, so one test keeps all three shapes covered."""
     assert_music_offset_is_the_chosen_section(
         {"tracks": {"A2": {"clips": [{"source_in": 0.0, "timeline_in": 0.0}]}}},
         NO_SECTION)
-
-
-def test_no_music_passes():
     assert_music_offset_is_the_chosen_section({"tracks": {}}, NO_SECTION)
     assert_music_offset_is_the_chosen_section({}, NO_SECTION)
+    assert_music_offset_is_the_chosen_section(
+        {"tracks": {"A2": {"clips": [
+            {"source_in": 4.5, "timeline_in": 0.0}]}}},
+        {"section": {"source_in": 4.5}})
 
 
 def test_music_placed_somewhere_other_than_the_chosen_section_raises():
@@ -201,13 +204,6 @@ def test_music_placed_somewhere_other_than_the_chosen_section_raises():
             {"tracks": {"A2": {"clips": [
                 {"source_in": 4.5, "timeline_in": 0.0}]}}},
             None)
-
-
-def test_music_placed_at_the_chosen_section_passes():
-    assert_music_offset_is_the_chosen_section(
-        {"tracks": {"A2": {"clips": [
-            {"source_in": 4.5, "timeline_in": 0.0}]}}},
-        {"section": {"source_in": 4.5}})
 
 
 def test_compile_manifest_asserts_the_domain():

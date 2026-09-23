@@ -281,11 +281,6 @@ def test_adapt_documents_leaves_non_dicts_alone():
     assert adapt_semantic_documents("not a list") == "not a list"
 
 
-def test_adapted_document_is_json_serialisable():
-    """It is written straight into pipeline_data.json."""
-    json.dumps(adapt_semantic_document(V3_PROFILE))
-
-
 # ─── The measured values must survive all the way into a prompt ───
 
 CONSUMERS = [

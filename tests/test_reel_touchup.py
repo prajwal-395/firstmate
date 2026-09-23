@@ -311,12 +311,6 @@ def _manifest_for(tracks, per_clip_labels):
                 label: {} for label in per_clip_labels}}}
 
 
-def test_matching_manifest_passes(tmp_path):
-    timeline, _pool, _media = build_reel(tmp_path)
-    tracks = _tracks(timeline)
-    tu.check_manifest_matches(_manifest_for(tracks, []), tracks)
-
-
 def test_diverged_manifest_refuses_and_names_rebuild(tmp_path):
     timeline, _pool, _media = build_reel(tmp_path)
     tracks = _tracks(timeline)

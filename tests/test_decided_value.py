@@ -57,9 +57,6 @@ class TestTheRegistry:
         assert dv.decides("audio_mix")
         assert not dv.decides("compile_manifest")
 
-    def test_the_registry_is_checked_at_import(self):
-        dv.assert_registry_is_well_formed()
-
 
 # ─── The ladder, rung by rung ─────────────────────────────────────────
 

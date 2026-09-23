@@ -382,11 +382,10 @@ def _valid_card_block():
     return block
 
 
-def test_the_contract_accepts_a_complete_card_block():
-    validate_spine_blocks([_valid_card_block()])
-
-
 def test_the_contract_rejects_a_card_that_names_no_file():
+    # Baseline folded in (B1): the unmutated complete card block passes,
+    # so the rejections below pin the refusal and not a blanket reject.
+    validate_spine_blocks([_valid_card_block()])
     block = _valid_card_block()
     block["content"]["bookend"]["asset_path"] = ""
     with pytest.raises(SpineContractError) as exc:
@@ -664,14 +663,13 @@ def test_the_spine_block_is_deterministic():
 # The synthetic templates
 # ─────────────────────────────────────────────────────────
 
-def test_every_synthetic_template_declares_a_parseable_bookend_set():
-    from tests.brand_fixtures import ALL_SYNTHETIC
-    for name, template in sorted(ALL_SYNTHETIC.items()):
-        declared_bookends(template.get("content") or {})
-
-
 def test_only_the_client_template_declares_a_card():
-    """Q7: a general mechanism, nothing by default."""
+    """Q7: a general mechanism, nothing by default.
+
+    B1 note: the deleted `test_every_synthetic_template_declares_a_
+    parseable_bookend_set` is subsumed here - this loop calls
+    `declared_bookends` on every synthetic template, so an unparseable
+    set fails here too."""
     from tests.brand_fixtures import ALL_SYNTHETIC
     declaring = set()
     for name, template in sorted(ALL_SYNTHETIC.items()):

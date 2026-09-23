@@ -342,8 +342,10 @@ class TestVfxLabelAtBoundary:
 class TestVfxCollisionAssertion:
     """The preservation assertion catches VFX collisions."""
 
-    def test_collision_raises(self):
-        """Two VFX on the same clip must fail the assertion."""
+    def test_collision_raises_and_absence_passes(self):
+        """Two VFX on the same clip must fail the assertion; no
+        collisions must not raise (B1 fold of `test_no_collision_passes`
+        into its neighbouring collision test)."""
         import library.steps.step_5_04_compile_manifest.step as cm
 
         manifest = {
@@ -361,18 +363,7 @@ class TestVfxCollisionAssertion:
                 vfx_collisions=["vfx_002@8.38s collided on speech_2_seg0"],
             )
 
-    def test_no_collision_passes(self):
-        """No collisions should not raise."""
-        import library.steps.step_5_04_compile_manifest.step as cm
-
-        manifest = {
-            "tracks": {
-                "V2": {"clips": []},
-                "A3": {"clips": []},
-            },
-            "fusion_effects": {"per_clip": {"clip_a": {}, "clip_b": {}}},
-        }
-        # Should not raise
+        manifest["fusion_effects"] = {"per_clip": {"clip_a": {}, "clip_b": {}}}
         cm._assert_planner_output_preserved(
             manifest,
             broll_planned=0, sfx_planned=0, vfx_planned=2,

@@ -245,13 +245,12 @@ class TestAudioMixTranslatesTheWord:
 
 class TestTheSpineGate:
 
-    def test_a_planned_silence_passes_the_spine_contract(self):
+    def test_valid_and_undeclared_behaviours_pass_the_spine_contract(self):
+        """B1 collapse: the two no-raise spine-gate validators in one test."""
         validate_spine_blocks([_block("transition_slot",
                                       music_behavior="silent")])
-
-    def test_a_block_that_plans_no_behaviour_still_passes(self):
-        """A bookend card carries none - see library/tools/bookends.py -
-        and neither does a pacing beat that simply did not say."""
+        # A bookend card carries none - see library/tools/bookends.py -
+        # and neither does a pacing beat that simply did not say.
         validate_spine_blocks([_block("intro")])
 
     def test_a_word_outside_the_vocabulary_is_rejected_at_the_spine(self):

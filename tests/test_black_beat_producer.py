@@ -86,12 +86,39 @@ def _manifest_with_spine(v1, spine_blocks, duration=10.0, fps=30.0, v2=()):
 class TestSpineContractBlackBeatValidation:
     """The spine contract gate catches malformed declarations at emit time."""
 
-    def test_valid_declaration_passes(self):
-        blocks = [_make_spine_block(
-            1, "transition_slot", 4.0, 5.0,
-            intentional_black_beat=True,
-            black_beat_reason="hold on black before the tonal shift",
-        )]
+    @pytest.mark.parametrize("case", [
+        "valid_declaration",
+        "block_without_declaration",
+        "false_flag_is_not_a_declaration",
+        "captured_spine",
+        "captured_block_with_declaration",
+    ])
+    def test_valid_black_beat_shapes_pass(self, case, captured_run):
+        """B1 collapse: the five no-raise validators in one parametrized
+        test - no-raise is the only signal in each, so one test with five
+        cases keeps every shape covered."""
+        if case == "valid_declaration":
+            blocks = [_make_spine_block(
+                1, "transition_slot", 4.0, 5.0,
+                intentional_black_beat=True,
+                black_beat_reason="hold on black before the tonal shift",
+            )]
+        elif case == "block_without_declaration":
+            blocks = [_make_spine_block(1, "transition_slot", 4.0, 5.0)]
+        elif case == "false_flag_is_not_a_declaration":
+            blocks = [_make_spine_block(
+                1, "transition_slot", 4.0, 5.0,
+                intentional_black_beat=False,
+            )]
+        elif case == "captured_spine":
+            blocks = captured_run["timed_spine_structure"]
+        else:
+            blocks = copy.deepcopy(captured_run["timed_spine_structure"])
+            slot = next(
+                b for b in blocks if b["block_type"] == "transition_slot"
+            )
+            slot["intentional_black_beat"] = True
+            slot["black_beat_reason"] = "silence before the next section"
         # Should not raise
         validate_spine_blocks(blocks)
 
@@ -143,21 +170,6 @@ class TestSpineContractBlackBeatValidation:
         with pytest.raises(SpineContractError,
                            match="black_beat_reason is missing or empty"):
             validate_spine_blocks(blocks)
-
-    def test_block_without_declaration_passes(self):
-        """Normal blocks with no black beat keys still pass."""
-        blocks = [_make_spine_block(1, "transition_slot", 4.0, 5.0)]
-        validate_spine_blocks(blocks)
-
-    def test_false_flag_is_not_treated_as_declaration(self):
-        """intentional_black_beat=False is not a declaration."""
-        blocks = [_make_spine_block(
-            1, "transition_slot", 4.0, 5.0,
-            intentional_black_beat=False,
-        )]
-        # False is falsy so the validation gate skips it
-        validate_spine_blocks(blocks)
-
 
 # ─── Post-bridge passthrough ──────────────────────────────────────────
 
@@ -457,20 +469,6 @@ class TestCapturedRunBlackBeat:
                 f"block {block.get('position')} has an unexpected "
                 f"intentional_black_beat declaration"
             )
-
-    def test_captured_spine_satisfies_the_contract(self, captured_run):
-        validate_spine_blocks(captured_run["timed_spine_structure"])
-
-    def test_adding_declaration_to_captured_block_passes_spine_contract(
-        self, captured_run
-    ):
-        structure = copy.deepcopy(captured_run["timed_spine_structure"])
-        slot = next(
-            b for b in structure if b["block_type"] == "transition_slot"
-        )
-        slot["intentional_black_beat"] = True
-        slot["black_beat_reason"] = "silence before the next section"
-        validate_spine_blocks(structure)
 
     def test_adding_declaration_to_speech_block_fails_spine_contract(
         self, captured_run

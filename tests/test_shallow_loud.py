@@ -111,21 +111,25 @@ def test_row_wording_flags_with_both_values_and_deep_path(tmp_path,
          "FLAGGED (coherence names found+should-be with the deep path)")
 
 
-def test_row_clip_timing_flags_on_manifest_hand_edit(tmp_path, capsys):
+@pytest.mark.parametrize("edit_class,relpath", [
+    ("clip_timing", os.path.join("pipeline_output", "steps",
+                                 "5_04_compile_manifest",
+                                 "assembly_manifest.json")),
+    ("overlay_position", os.path.join("pipeline_output", "steps",
+                                      "4_05_render_subtitles", "box.json")),
+    ("structure", os.path.join("pipeline_output", "review",
+                               "reel_proposals_v2.json")),
+    ("audio_levels", os.path.join("pipeline_output", "steps", "6_01_render",
+                                  "otio", "reel.otio")),
+])
+def test_row_hand_edit_flags_with_both_values_and_deep_path(
+        tmp_path, capsys, edit_class, relpath):
+    """B1 collapse: the four row-flag tests share one helper and one
+    property, so one parametrized test. Each case still calls `_row`,
+    which is what `test_matrix_covers_every_edit_class` counts."""
     root = str(tmp_path)
-    relpath = os.path.join("pipeline_output", "steps",
-                           "5_04_compile_manifest", "assembly_manifest.json")
-    _drift_flagged(root, relpath, "clip_timing", capsys)
-    _row("clip_timing",
-         "FLAGGED (drift names old+new hash with the deep path)")
-
-
-def test_row_overlay_position_flags_on_props_hand_edit(tmp_path, capsys):
-    root = str(tmp_path)
-    relpath = os.path.join("pipeline_output", "steps",
-                           "4_05_render_subtitles", "box.json")
-    _drift_flagged(root, relpath, "overlay_position", capsys)
-    _row("overlay_position",
+    _drift_flagged(root, relpath, edit_class, capsys)
+    _row(edit_class,
          "FLAGGED (drift names old+new hash with the deep path)")
 
 
@@ -153,15 +157,6 @@ def test_row_look_grade_refuses_and_flags_comp(tmp_path, capsys):
          "REFUSED (consultation) + FLAGGED on .comp files")
 
 
-def test_row_structure_flags_on_proposal_hand_edit(tmp_path, capsys):
-    root = str(tmp_path)
-    relpath = os.path.join("pipeline_output", "review",
-                           "reel_proposals_v2.json")
-    _drift_flagged(root, relpath, "structure", capsys)
-    _row("structure",
-         "FLAGGED (drift names old+new hash with the deep path)")
-
-
 def test_row_assets_flags_and_missing_media_is_named(tmp_path, capsys):
     root = str(tmp_path)
     relpath = os.path.join("pipeline_output", "steps",
@@ -176,15 +171,6 @@ def test_row_assets_flags_and_missing_media_is_named(tmp_path, capsys):
                for row in report["assets"])
     _row("assets",
          "FLAGGED (drift + coherence missing-media row with deep path)")
-
-
-def test_row_audio_levels_flags_on_otio_hand_edit(tmp_path, capsys):
-    root = str(tmp_path)
-    relpath = os.path.join("pipeline_output", "steps", "6_01_render",
-                           "otio", "reel.otio")
-    _drift_flagged(root, relpath, "audio_levels", capsys)
-    _row("audio_levels",
-         "FLAGGED (drift names old+new hash with the deep path)")
 
 
 def test_row_mg_content_flags_quote_and_payload(tmp_path, capsys):

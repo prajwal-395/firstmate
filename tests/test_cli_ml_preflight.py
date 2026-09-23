@@ -99,11 +99,20 @@ def test_all_commands_matches_the_parser():
         assert command in proc.stdout, f"{command} is not in --help"
 
 
-@pytest.mark.parametrize(
-    "command", [c for c in cli.ALL_COMMANDS if c not in cli.ML_DEPENDENT_COMMANDS])
-def test_non_ml_commands_are_not_checked(command, ml_stack_absent):
-    """preflight_check returns rather than exiting, for every other command."""
-    cli.preflight_check(command)
+def test_preflight_passes_legitimate_commands_without_refusing(
+        ml_stack_absent, monkeypatch):
+    """B1 collapse: the thin preflight wrappers in one test - every
+    non-ML command passes unchecked, and a compliant environment passes
+    `run` too."""
+    for command in [c for c in cli.ALL_COMMANDS
+                    if c not in cli.ML_DEPENDENT_COMMANDS]:
+        cli.preflight_check(command)
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "_missing_ml_packages", lambda: [])
+    monkeypatch.setattr(
+        "importlib.metadata.version",
+        lambda dist: "3.8.6" if dist == "whisperx" else "1.0.0")
+    cli.preflight_check("run")  # must not raise
 
 
 def test_run_still_refuses_when_the_stack_is_absent(ml_stack_absent, capsys):
@@ -465,15 +474,6 @@ def test_run_refuses_a_wrong_version_and_says_both_numbers(monkeypatch, capsys):
     # It explains the consequence, because "wrong version" reads as
     # cosmetic and this one deletes the entire edit.
     assert "reports success" in out
-
-
-def test_a_compliant_environment_is_not_refused(monkeypatch):
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
-    monkeypatch.setattr(cli, "_missing_ml_packages", lambda: [])
-    monkeypatch.setattr(
-        "importlib.metadata.version",
-        lambda dist: "3.8.6" if dist == "whisperx" else "1.0.0")
-    cli.preflight_check("run")  # must not raise
 
 
 def test_advice_does_not_send_anyone_to_a_forbidden_interpreter(tmp_path):

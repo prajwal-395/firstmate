@@ -199,17 +199,3 @@ def test_the_renderer_puts_the_overlapping_pieces_on_separate_lanes(manifest):
         fps=30.0)
     assert all(t > max(lanes) for _, t in sfx), (
         "SFX start above whatever the bed used")
-
-
-def test_the_manifest_is_printed_for_the_record(manifest, capsys):
-    built, _, _ = manifest
-    with capsys.disabled():
-        print("\n── assembly_manifest.tracks.A2 (the bed) ──")
-        print(json.dumps(built["tracks"]["A2"], indent=2))
-        print("── assembly_manifest.tracks.A3 (the sound effect) ──")
-        print(json.dumps(built["tracks"]["A3"], indent=2))
-        print("── the volume curve each bed piece is delivered with ──")
-        for target in mix_targets(built, fps=30.0):
-            print(json.dumps({k: target[k] for k in
-                              ("role", "label", "start_frame", "level_db",
-                               "keyframes")}, indent=2))

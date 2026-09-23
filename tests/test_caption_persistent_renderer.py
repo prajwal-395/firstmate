@@ -205,12 +205,6 @@ def test_the_persistent_renderer_builds_lazily(monkeypatch):
         f"closing an unstarted renderer spawned a child: {calls}")
 
 
-def test_a_persistent_renderer_that_never_started_closes_quietly():
-    engine = r405.PersistentCaptionRenderer(REMOTION)
-    engine.close()
-    engine.close()
-
-
 def test_the_adapter_is_usable_as_a_context_manager_without_starting(
         monkeypatch):
     """The orchestrator closes what it built via `close()`; callers

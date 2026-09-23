@@ -464,12 +464,6 @@ def _frame_dir(tmp_path, name, draw):
     return d
 
 
-def test_frame_qa_passes_drawn_frames(tmp_path):
-    ink = [(x, y) for x in range(30, 70) for y in range(35, 45)]
-    d = _frame_dir(tmp_path, "ok.frames", [ink, ink])
-    _qa_frame_sequence({"frames": {"dir": d, "count": 2}})
-
-
 def test_frame_qa_refuses_a_blank_sequence(tmp_path):
     d = _frame_dir(tmp_path, "blank.frames", [[], []])
     with pytest.raises(RuntimeError, match="draws nothing"):

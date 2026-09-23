@@ -95,31 +95,34 @@ def test_rejected_label_raises(tmp_path):
             "Reel 22 - a-score-is-not-a-fix (rebuild staging)", project)
 
 
-def test_approved_and_proposed_labels_proceed(tmp_path):
-    project = _project_with_proposals(tmp_path, [
-        _moment(9, "approved"),
-        _moment(2, "proposed"),
-    ])
-    refuse_rejected_reel_timeline("Reel 09 - whatever", project)
-    refuse_rejected_reel_timeline("Reel 02 - whatever", project)
-
-
-def test_master_and_unnamed_labels_proceed_without_reading(tmp_path):
-    project = _project_with_proposals(tmp_path, [_moment(9, "approved")])
-    refuse_rejected_reel_timeline("GEO Podcast - Synced", project)
-    refuse_rejected_reel_timeline("", project)
-    refuse_rejected_reel_timeline(None, project)
-
-
-def test_missing_proposals_file_proceeds(tmp_path):
-    project = str(tmp_path / "proj")
-    os.makedirs(project, exist_ok=True)
-    refuse_rejected_reel_timeline("Reel 22 - whatever", project)
-
-
-def test_reel_number_not_proposed_proceeds(tmp_path):
-    project = _project_with_proposals(tmp_path, [_moment(9, "approved")])
-    refuse_rejected_reel_timeline("Reel 40 - never-proposed", project)
+@pytest.mark.parametrize("case", [
+    "approved_and_proposed_labels",
+    "master_and_unnamed_labels",
+    "missing_proposals_file",
+    "reel_number_not_proposed",
+])
+def test_non_rejected_labels_proceed_without_reading(tmp_path, case):
+    """B1 collapse: the four proceed-without-reading passes pin one
+    property, so one parametrized test."""
+    if case == "approved_and_proposed_labels":
+        project = _project_with_proposals(tmp_path, [
+            _moment(9, "approved"),
+            _moment(2, "proposed"),
+        ])
+        refuse_rejected_reel_timeline("Reel 09 - whatever", project)
+        refuse_rejected_reel_timeline("Reel 02 - whatever", project)
+    elif case == "master_and_unnamed_labels":
+        project = _project_with_proposals(tmp_path, [_moment(9, "approved")])
+        refuse_rejected_reel_timeline("GEO Podcast - Synced", project)
+        refuse_rejected_reel_timeline("", project)
+        refuse_rejected_reel_timeline(None, project)
+    elif case == "missing_proposals_file":
+        project = str(tmp_path / "proj")
+        os.makedirs(project, exist_ok=True)
+        refuse_rejected_reel_timeline("Reel 22 - whatever", project)
+    else:
+        project = _project_with_proposals(tmp_path, [_moment(9, "approved")])
+        refuse_rejected_reel_timeline("Reel 40 - never-proposed", project)
 
 
 def test_verdict_is_read_live_not_cached(tmp_path):
