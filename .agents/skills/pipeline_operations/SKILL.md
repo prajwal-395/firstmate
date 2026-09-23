@@ -54,6 +54,8 @@ run at a declared scope. It owns no logic of its own.
 | `motion_graphics.render` | `render_motion_graphics` | project | Render the planned motion graphics, bookends and timed text |
 | `motion_graphics.render_segment` | `render_motion_graphics` | project, region | Render ONE motion-graphics overlay segment |
 | `color_grade.resolve` | `color_grade` | project | Join the colourist's answer to the measured clips as one CDL each |
+| `audio_mix.resolve` | `audio_mix` | project | Join the mix answer to the bed and speech measurements as per-window clip gain |
+| `render.build` | `render` | project | Build the final timeline in DaVinci Resolve and export the finished video |
 | `validation.resolve` | `validate` | project | Combine the deterministic checks and the model's reading into one verdict |
 
 ## Calling one

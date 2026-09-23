@@ -1404,6 +1404,35 @@ _REGISTRY: tuple[Operation, ...] = (
         attr="resolve_color_grade",
     ),
     Operation(
+        name="audio_mix.resolve",
+        summary="Join the mix answer to the bed and speech measurements as per-window clip gain",
+        owning_node="audio_mix",
+        owning_dir="step_5_02_audio_mix", body="post_bridge.py",
+        attr="resolve_audio_mix",
+        # The stdin-driven entry point, so `data` binds the whole
+        # gathered dict under the known spelling - the
+        # motion_graphics.render shape, not the speech.enrich
+        # inner-unit one. The manifest declares `llm_outputs: []`,
+        # so `missing_model_answer` never refuses: the decided-value
+        # ladder records an undecided run as fallback or undetermined
+        # rather than raising. Bridge outputs are not gathered, so an
+        # operation run resolves over the step inputs alone.
+    ),
+    # compile_manifest belongs here in pipeline order and is NOT
+    # registered: step_5_04_compile_manifest/step.py takes `out_dir`,
+    # a path main() derives from project_folder - neither a
+    # merged-dict spelling nor a declared input. See the PR.
+    Operation(
+        name="render.build",
+        summary="Build the final timeline in DaVinci Resolve and export the finished video",
+        owning_node="render",
+        owning_dir="step_6_01_render", body="step.py",
+        attr="run",
+        # The plain step.py case: `run(inputs)` takes the whole
+        # gathered dict under the known `inputs` spelling, the
+        # footage.scan shape. Needs Resolve at call time.
+    ),
+    Operation(
         name="validation.resolve",
         summary="Combine the deterministic checks and the model's reading into one verdict",
         owning_node="validate",
