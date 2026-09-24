@@ -1,3 +1,13 @@
+---
+name: verify_render
+description: >
+  The deterministic gate over a rendered file: loudness without clipping,
+  undeclared black, freeze frames, picture over digital silence,
+  resolution, frame rate, duration and an audio stream. Use before
+  approving, revising or building on any render. Free (ffmpeg only), and a
+  failing check is a failed render.
+---
+
 # verify_render
 
 The deterministic gate over a rendered file. Run it before you sign off

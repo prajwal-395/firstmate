@@ -86,8 +86,9 @@ def test_building_a_reel_is_addressable_and_not_only_a_subcommand():
     reaching past the registry into `reel_build` is that gap however thin.
 
     Now both halves are named, owned by nodes of `library/processes/reels`,
-    and `manage_project.cmd_build_reels` runs that process rather than
-    holding a second copy of the path.
+    and `build-reels` runs that process through its own runner
+    (`library/processes/reels/run_reels.py`) rather than holding a second
+    copy of the path.
     """
     build = operations.get("reel.build")
     verify = operations.get("reel.verify")
@@ -105,33 +106,47 @@ def test_building_a_reel_is_addressable_and_not_only_a_subcommand():
 def test_the_build_command_holds_no_second_copy_of_the_build_path():
     """`build-reels` is a CALLER of the process, not a second route.
 
-    Read off the source rather than described: the subcommand must not
-    reach into `reel_build` directly any more, because two entry points
-    into one build is exactly the shape Ruling 1 forbids.
+    Read off the source rather than described: neither the subcommand
+    nor the process's runner may reach into `reel_build` directly,
+    because two entry points into one build is exactly the shape Ruling
+    1 forbids.
     """
     import ast
 
-    tree = ast.parse((REPO / "manage_project.py").read_text(encoding="utf-8"))
-    body = next(n for n in ast.walk(tree)
-                if isinstance(n, ast.FunctionDef)
-                and n.name == "cmd_build_reels")
-    # The AST, not the text: the docstring NAMES the old route in order
-    # to say it is gone, and a substring check would read that as the
-    # route still being there.
-    names = {ast.unparse(n) for n in ast.walk(body)
-             if isinstance(n, (ast.Call, ast.Attribute, ast.Name))}
-    imported = {alias.name for n in ast.walk(body)
-                if isinstance(n, ast.ImportFrom) for alias in n.names}
-    assert "rebuild_reels_in_project" not in (names | imported), (
-        "manage_project.cmd_build_reels calls reel_build directly again, "
-        "so there are two routes into the build and only one of them "
-        "checks a requirement")
-    assert any("execution_order" in n for n in names), (
-        "cmd_build_reels no longer takes its node order off the reel "
+    def _body(path, name):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        return next(n for n in ast.walk(tree)
+                    if isinstance(n, ast.FunctionDef) and n.name == name)
+
+    def _names(body):
+        # The AST, not the text: the docstring NAMES the old route in
+        # order to say it is gone, and a substring check would read
+        # that as the route still being there.
+        called = {ast.unparse(n) for n in ast.walk(body)
+                  if isinstance(n, (ast.Call, ast.Attribute, ast.Name))}
+        imported = {alias.name for n in ast.walk(body)
+                    if isinstance(n, ast.ImportFrom) for alias in n.names}
+        return called | imported
+
+    command = _names(_body(REPO / "manage_project.py", "cmd_build_reels"))
+    runner = _names(_body(REPO / "library" / "processes" / "reels"
+                          / "run_reels.py", "run"))
+    for where, names in (("manage_project.cmd_build_reels", command),
+                         ("run_reels.run", runner)):
+        assert "rebuild_reels_in_project" not in names, (
+            f"{where} calls reel_build directly again, so there are two "
+            f"routes into the build and only one of them checks a "
+            f"requirement")
+    assert any("run_reels.run" in n for n in command), (
+        "cmd_build_reels no longer runs the reels process through its "
+        "own runner")
+    assert any("execution_order" in n for n in runner), (
+        "the reels runner no longer takes its node order off the reel "
         "process's own graph")
-    assert any("op.execute" in n for n in names), (
-        "cmd_build_reels no longer runs the reel process's nodes through "
-        "the operation registry, so nothing checks their requirements")
+    assert any("op.execute" in n for n in runner), (
+        "the reels runner no longer runs the reel process's nodes "
+        "through the operation registry, so nothing checks their "
+        "requirements")
 
 
 

@@ -1,3 +1,13 @@
+---
+name: verify_timeline
+description: >
+  The deterministic gate over a built Resolve timeline, read back against
+  the timeline SOP: no empty or default-named rows, one role per row,
+  a-roll linked to its speech, captions inside the speech they belong to.
+  Use right after building or placing a timeline and before approving or
+  building on one. Needs Resolve open on the exact project.
+---
+
 # verify_timeline
 
 The deterministic gate over a built timeline. Run it before you sign

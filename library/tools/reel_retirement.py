@@ -70,7 +70,7 @@ Two exceptions, both deliberate:
   is allowed to touch is computed from the archive naming, so a wrong
   list refuses rather than widening.
 
-And the record outlives the timeline. `round_version` stores each
+And the record outlives the timeline. `versions.rounds` stores each
 round's ROWS on disk, so "what did round 3 look like" is answerable
 after round 3's timeline is deleted. Deleting a timeline loses the
 ability to re-open it in Resolve; it never loses the ability to say

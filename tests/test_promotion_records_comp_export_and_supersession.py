@@ -8,7 +8,7 @@ existed when the other landed and nobody has exercised the pairing, so
 this drives one promotion through both and asserts each half's record -
 plus that neither half's failure skips the other.
 
-``library/tools/build_version_control.py``.
+``library/tools/versions/store.py``.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import sys
 
-from library.tools import build_version_control as bvc
+from library.tools.versions import store as bvc
 from library.tools.plan_provenance import (
     built_from_snapshot,
     is_snapshot_superseded,

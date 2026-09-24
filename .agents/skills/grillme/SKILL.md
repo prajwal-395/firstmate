@@ -21,10 +21,10 @@ grillme conducts now.
 
 ## Placement
 
-This skill lives in `.agents/skills/` beside the other assistant-facing
-skills because it is interactive (you plus the captain), not
-pipeline-runtime. It stays out of `library/skills/` - another lane owns
-the pipeline-runtime skill catalogue. What it produces goes into the
+This skill lives in `.agents/skills/`, the one skill source, and has no
+entry point under `library/skills/` and no row in the pipeline-runtime
+catalogue (`library/tools/pipeline_skills.py`): it is interactive (you
+plus the captain), not pipeline-runtime. What it produces goes into the
 captain's own area (`context/`), because their answers are their input:
 you write there as their scribe, the way they would drop a file in by
 hand. The pipeline never writes there (`project_layout.Kind.INPUT`).

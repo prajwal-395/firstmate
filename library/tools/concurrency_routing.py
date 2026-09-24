@@ -205,7 +205,7 @@ OPERATIONS: Tuple[Operation, ...] = (
             "recording different edits lose one of them without a key."),
     Operation(
         name="record a variant build",
-        entry_point="library.tools.variant_choice.record_build",
+        entry_point="library.tools.versions.variants.record_build",
         exclusion=DECLARATION,
         declaration="reel_variant_builds",
         why="Read-modify-write keyed by reel."),

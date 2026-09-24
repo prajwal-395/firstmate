@@ -1,6 +1,6 @@
 """Has anything moved a built timeline's transforms SINCE the build?
 
-The build already writes what it placed: `build_version_control` puts a
+The build already writes what it placed: `versions.store` puts a
 `timeline_serializer` snapshot of every promoted reel under
 `pipeline_output/review/<timeline>.timeline.json` seconds after the
 build, carrying each clip's `transform`. Nothing ever read one back
@@ -83,7 +83,7 @@ def built_transforms(document: Mapping[str, Any]) -> dict:
     """`{(track_index, record_in): {"Pan":…, "Tilt":…, "name":…}}`.
 
     Reads a `timeline_serializer` document - the shape
-    `build_version_control` writes under `pipeline_output/review/`.
+    `versions.store` writes under `pipeline_output/review/`.
     A clip carrying no `transform` is not a placement this can judge
     and is left out; a document with no `tracks` at all RAISES, because
     an empty reading of an unreadable file is the silent pass.

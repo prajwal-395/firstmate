@@ -21,7 +21,7 @@ import json
 import subprocess
 
 from library.tools import brief_snapshot
-from library.tools import build_version_control as bvc
+from library.tools.versions import store as bvc
 
 BRIEF_TEXT = """# Channel brief
 

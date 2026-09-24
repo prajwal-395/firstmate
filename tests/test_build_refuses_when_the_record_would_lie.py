@@ -261,7 +261,7 @@ def test_an_unstamped_round_refuses_the_promotion(project_dir):
     resolve = FakeProject([FakeTimeline(MASTER), retired, staging])
     _seed_provenance(project_dir)
 
-    with patch("library.tools.round_version.stamp_promotion",
+    with patch("library.tools.versions.rounds.stamp_promotion",
                side_effect=OSError("disk full")), \
             pytest.raises(ReelBuildError, match="not stamped"):
         _promote(project_dir, resolve)

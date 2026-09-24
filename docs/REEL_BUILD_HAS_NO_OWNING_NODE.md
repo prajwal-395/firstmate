@@ -98,7 +98,8 @@ not to a registration that has to typecheck today.
 
 ~~Until that exists, the build stays where it is: `manage_project.py build-reels`
 -> `reel_build.rebuild_reels_in_project`.~~ **SUPERSEDED.** It exists.
-`manage_project.cmd_build_reels` takes its node order off
+The reels process's own runner (`library/processes/reels/run_reels.py`, which
+`build-reels` calls) takes its node order off
 `library/processes/reels/dag.json` and runs each node through the operation
 registry, so the requirements below are checked BEFORE anything connects to
 Resolve. `reel_build` is still the only implementation of the build - the

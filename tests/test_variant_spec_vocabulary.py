@@ -1,6 +1,6 @@
 """The variant spec widened past the seam - and the boundary holds.
 
-Seam-only was the limit that made `timeline_variants` never serve a real
+Seam-only was the limit that made `versions.variants` never serve a real
 question: `SPEC_KEYS = ("suffix", "j_cut", "cutaway", "cover", "watch")`
 has no way to say "the same reel with the other ending", which is what a
 creative A/B actually is.
@@ -24,7 +24,7 @@ Each test fails if its mechanism is removed.
 import pytest
 
 from library.tools import external_inputs
-from library.tools import timeline_variants as variants
+from library.tools.versions import variants
 
 # ── What it CAN express, and where that list comes from ──────────
 

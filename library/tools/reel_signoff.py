@@ -36,9 +36,9 @@ What it records
 The reel's BASE name (`feedback_ledger.base_reel_name`, so a sign-off
 survives the reel being staged, backed up and promoted - those are three
 names for one reel), the ROUND it was signed off in
-(`round_version` - the version object a sign-off attaches to), a digest
+(`versions.rounds` - the version object a sign-off attaches to), a digest
 of the rows that were on the timeline at the time
-(`round_version.digest_rows`), when, and the captain's own words.
+(`versions.rounds.digest_rows`), when, and the captain's own words.
 
 The digest is what lets `describe` answer a question a bare flag cannot:
 whether the timeline in front of you is still the one that was approved,
@@ -169,7 +169,7 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
 
     `rows` is the reel's `reel_read.rows_of` snapshot when it is known -
     from the round record, or read live. It is digested, never stored
-    whole: `round_version` already holds the rows for the round, and two
+    whole: `versions.rounds` already holds the rows for the round, and two
     copies of one measurement is the disagreement this codebase keeps
     catching (AGENTS.md 10.1).
 
@@ -185,7 +185,7 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     releases it. Reels that never dropped a note sign off exactly as
     before.
     """
-    from library.tools import round_version
+    from library.tools.versions import rounds
     from library.tools import uncarried_notes as _owed
 
     _owed.assert_none_open(project_folder, timeline)
@@ -194,7 +194,7 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
     reel = base_name(timeline)
     if round_number is None:
         try:
-            round_number = round_version.open_round(project_folder)["round"]
+            round_number = rounds.open_round(project_folder)["round"]
         except Exception:                                   # noqa: BLE001
             round_number = None
     entry = {
@@ -203,7 +203,7 @@ def sign_off(project_folder, timeline: str, *, note: str = "",
         "by": str(by or "captain"),
         "note": str(note or ""),
         "round": round_number,
-        "rows_digest": (round_version.digest_rows(rows)
+        "rows_digest": (rounds.digest_rows(rows)
                         if rows is not None else ""),
         "timeline": str(timeline or ""),
     }
@@ -356,7 +356,7 @@ def describe(project_folder, timeline: str,
     picture that was signed off - the question a bare "approved" flag
     cannot answer once a rebuild has taken the name.
     """
-    from library.tools import round_version
+    from library.tools.versions import rounds
 
     entry = signoff_for(project_folder, timeline)
     if entry is None:
@@ -366,7 +366,7 @@ def describe(project_folder, timeline: str,
             f"on {when}"
             + (f", round {entry['round']}" if entry.get("round") else ""))
     if rows is not None and entry.get("rows_digest"):
-        same = round_version.digest_rows(rows) == entry["rows_digest"]
+        same = rounds.digest_rows(rows) == entry["rows_digest"]
         line += (" - the timeline still carries the rows that were "
                  "approved." if same else
                  " - WARNING: the timeline's rows differ from what was "

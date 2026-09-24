@@ -72,7 +72,7 @@ def test_build_and_run_paths_cannot_reach_the_render():
     """`build-reels` and `run` never import the deliver path.
 
     THE INPUT THAT BREAKS THIS TEST is any reference from these bodies
-    (or the edit_video runner they drive) to `reel_deliver`,
+    (or the process runners they drive) to `reel_deliver`,
     `deliver_reel` or `render_timeline`: that reference IS an implicit
     trigger, however it is reached. Read off the source, not the docs.
     """
@@ -84,10 +84,13 @@ def test_build_and_run_paths_cannot_reach_the_render():
         assert "reel_deliver" not in source, func.__name__
         assert "render_timeline" not in source, func.__name__
 
-    runner_source = (REPO_ROOT / "library" / "processes" / "edit_video"
-                     / "run_pipeline.py").read_text(encoding="utf-8")
-    assert "reel_deliver" not in runner_source
-    assert "deliver_reel" not in runner_source
+    for runner in (REPO_ROOT / "library" / "processes" / "edit_video"
+                   / "run_pipeline.py",
+                   REPO_ROOT / "library" / "processes" / "reels"
+                   / "run_reels.py"):
+        runner_source = runner.read_text(encoding="utf-8")
+        assert "reel_deliver" not in runner_source, runner.name
+        assert "deliver_reel" not in runner_source, runner.name
 
 
 # ── The verb refuses rather than guesses ──────────────────────────

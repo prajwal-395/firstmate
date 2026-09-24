@@ -1,3 +1,13 @@
+---
+name: hear_the_reel
+description: >
+  Hear a rendered reel against its plan: transcribe the render's audio and
+  diff it against the plan's own words for script divergence, timing
+  drift, caption coverage, caption pairing and transcript rows with no
+  word timing. Use when a reel has been delivered and you need to know
+  what it actually SAYS. Reports, never gates.
+---
+
 # hear_the_reel
 
 What a rendered reel actually SAYS, against what the plan says it says.

@@ -203,7 +203,7 @@ class FakeProject:
 def _drive(project, project_folder, promoted, monkeypatch,
            recorded):
     monkeypatch.setattr(comp, "_plan_finals", lambda _folder: PLAN)
-    monkeypatch.setattr("library.tools.round_version.discover",
+    monkeypatch.setattr("library.tools.versions.rounds.discover",
                         lambda _folder, *extra: recorded)
     return comp.collect_for_bases(project, project.pool,
                                   project_folder, promoted, MASTER)
@@ -410,7 +410,7 @@ def test_promotion_retires_the_comparison_it_supersedes(project_dir,
         encoding="utf-8")
     monkeypatch.setattr(comp, "_plan_finals", lambda _folder: PLAN)
     monkeypatch.setattr(
-        "library.tools.round_version.discover",
+        "library.tools.versions.rounds.discover",
         lambda _folder, *extra: rounds((1, (BASELINE,
                                            OTHER_BASELINE)),))
 

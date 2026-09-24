@@ -1,3 +1,14 @@
+---
+name: ask_the_footage
+description: >
+  Eyes on the picture, on request: capture stills from a clip and look at
+  them yourself, or put a question about them to the local Gemma 4 12B
+  vision model. Use when judging a visual decision the prose does not
+  carry (is the caption readable, did the transition land, is anything
+  cropped), or to learn whether a failed deterministic check is real. Not
+  on every build or clip.
+---
+
 # ask_the_footage
 
 Eyes on the picture, on request. Ask this when you need to SEE the

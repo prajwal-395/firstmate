@@ -1,6 +1,6 @@
 """Two versions of a reel alive at once, without breaking anything else.
 
-`build_reel_variants` and `timeline_variants` were written, tested and
+`build_reel_variants` and `versions.variants` were written, tested and
 demonstrated once - and nothing routine used them. Making them routine
 is not only a command: the round diff, the sign-off, the archive and the
 conformance verifier all now key on REEL IDENTITY, and a second timeline
@@ -23,7 +23,7 @@ import pathlib
 
 import pytest
 
-from library.tools import timeline_variants as variants
+from library.tools.versions import variants
 from library.tools.reel_conformance_verifier import grades_as_a_reel
 
 REEL = "Reel 09 - your-website-is-only-20-percent (final)"

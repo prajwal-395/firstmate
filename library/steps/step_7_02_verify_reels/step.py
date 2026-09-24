@@ -359,8 +359,8 @@ def verify_reels(data: dict) -> dict:
         # and commit. Never fails the gate.
         import sys as _sys_vc
         try:
-            from library.tools import build_version_control as _bvc
-            _vc = _bvc.record_reel_promotion(
+            from library.tools.versions import store as _store
+            _vc = _store.record_reel_promotion(
                 project_folder, resolve_project_name,
                 list(promoted["promoted"]))
             if _vc.get("committed"):

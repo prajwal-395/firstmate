@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from library.tools import build_version_control as bvc
+from library.tools.versions import store as bvc
 
 
 def _git(project, *args):

@@ -276,7 +276,7 @@ REPORTED_NOT_CONSUMED = {
 # Two left it on 2026-09-07: `validate.final_qa_decision` was declared
 # and never produced, and the declaration and the dead echo are both
 # deleted; `verify_reels.reel_verification` now has a reader in
-# `manage_project._report_reel_verification`, which names the plan and
+# `run_reels.report_reel_verification`, which names the plan and
 # the timelines a build graded instead of printing only that nothing
 # raised.
 

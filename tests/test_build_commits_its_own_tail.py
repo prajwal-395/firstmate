@@ -7,7 +7,7 @@ reel_verification.organised`, the bin organisation.
 
 The cause is an ORDER, not a missing call.  The per-build commit fires
 inside the promoting node (`reel_build`, `step_7_02_verify_reels`), and
-`manage_project.cmd_build_reels` writes that node's own output to
+the reels runner (`library/processes/reels/run_reels.py`) writes that node's own output to
 `pipeline_data.json` AFTER the node returns.  So the last node's record
 could never be inside the commit it belongs to, and every build ended
 dirty.
@@ -25,13 +25,14 @@ import ast
 import subprocess
 from pathlib import Path
 
-from library.tools import build_version_control as bvc
+from library.tools.versions import store as bvc
 
 REPO = Path(__file__).resolve().parents[1]
 
 
 def _function(name):
-    tree = ast.parse((REPO / "manage_project.py").read_text(encoding="utf-8"))
+    tree = ast.parse((REPO / "library" / "processes" / "reels"
+                      / "run_reels.py").read_text(encoding="utf-8"))
     return next(n for n in ast.walk(tree)
                 if isinstance(n, ast.FunctionDef) and n.name == name)
 
@@ -42,19 +43,19 @@ def test_the_build_command_closes_its_own_record():
     Inside the loop it would commit before the next node's state write
     and reproduce the defect one node later.
     """
-    body = _function("cmd_build_reels")
+    body = _function("run")
     calls = [n for n in ast.walk(body)
              if isinstance(n, ast.Call)
-             and ast.unparse(n).startswith("_commit_run_tail")]
+             and ast.unparse(n).startswith("commit_run_tail")]
     assert calls, (
-        "cmd_build_reels no longer closes its own version-control "
+        "the reels runner no longer closes its own version-control "
         "record, so every reel build ends with the state write it just "
         "made uncommitted")
     # The loop over nodes must not contain it.
     loops = [n for n in ast.walk(body) if isinstance(n, ast.For)]
     for loop in loops:
         assert not any(
-            ast.unparse(n).startswith("_commit_run_tail")
+            ast.unparse(n).startswith("commit_run_tail")
             for n in ast.walk(loop) if isinstance(n, ast.Call)), (
             "the closing commit moved inside the node loop, where it "
             "runs before the next node's state write - which is the "
@@ -73,10 +74,10 @@ def test_the_tail_commit_lands_what_the_final_state_write_left(tmp_path):
     """The defect, reproduced and closed, on a real repository.
 
     The node's own commit runs first and is clean-ended; then the
-    runner writes the last node's output, exactly as `cmd_build_reels`
+    runner writes the last node's output, exactly as `run_reels.run`
     does - and the tail commit is what stops the store ending dirty.
     """
-    import manage_project
+    from library.processes.reels import run_reels
 
     bvc.init_project_repo(str(tmp_path))
     (tmp_path / "pipeline_data.json").write_text(
@@ -91,7 +92,7 @@ def test_the_tail_commit_lands_what_the_final_state_write_left(tmp_path):
         encoding="utf-8")
     assert _porcelain(tmp_path), "the state write left nothing to commit"
 
-    manage_project._commit_run_tail(str(tmp_path))
+    run_reels.commit_run_tail(str(tmp_path))
 
     assert _porcelain(tmp_path) == "", (
         "the reel build ended with an uncommitted project store, which "
@@ -105,12 +106,12 @@ def test_the_tail_commit_lands_what_the_final_state_write_left(tmp_path):
 def test_a_build_that_changed_nothing_makes_no_commit(tmp_path):
     """A no-op build produces no spurious commit - `commit_build`'s own
     rule, which the closing call must not talk it out of."""
-    import manage_project
+    from library.processes.reels import run_reels
 
     bvc.init_project_repo(str(tmp_path))
     bvc.commit_build(str(tmp_path), "reels build: Reel 13")
     before = _head(tmp_path)
-    manage_project._commit_run_tail(str(tmp_path))
+    run_reels.commit_run_tail(str(tmp_path))
     assert _head(tmp_path) == before
 
 

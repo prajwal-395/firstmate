@@ -18,8 +18,7 @@ Each test fails if its mechanism is removed:
 """
 import pytest
 
-from library.tools import round_diff
-from library.tools import round_version as rv
+from library.tools.versions import rounds
 
 
 def _row(name, items):
@@ -37,8 +36,8 @@ def _item(name, start, duration):
 def _rounds(tmp_path, earlier_reels, later_reels):
     project = tmp_path / "project"
     (project / "pipeline_output" / "review").mkdir(parents=True)
-    rv.write_rounds(str(project), {
-        "format": rv.ROUNDS_FORMAT,
+    rounds.write_rounds(str(project), {
+        "format": rounds.ROUNDS_FORMAT,
         "rounds": [
             {"round": 2, "opened_at": "2026-09-11T03:08Z",
              "opened_by": ["a"], "reels_asked": ["Reel 01"],
@@ -54,7 +53,7 @@ def _rounds(tmp_path, earlier_reels, later_reels):
 
 def _reel(rows, when="2026-09-12T01:28Z"):
     return {"promoted_at": when, "built_at": when, "built_with": "abc",
-            "rows": rows, "source": rv.SOURCE_STAMPED}
+            "rows": rows, "source": rounds.SOURCE_STAMPED}
 
 
 def test_a_card_added_to_a_row_is_named_with_its_span(tmp_path):
@@ -67,8 +66,8 @@ def test_a_card_added_to_a_row_is_named_with_its_span(tmp_path):
                     _item("logo_reveal.mov", 1274, 71)])})}
     project = _rounds(tmp_path, earlier, later)
 
-    diff = round_diff.diff_rounds(str(project), 2, 3)
-    rendered = round_diff.render(diff)
+    diff = rounds.diff_rounds(str(project), 2, 3)
+    rendered = rounds.render_diff(diff)
     assert "logo_reveal.mov" in rendered
     assert "3 -> 4 item(s)" not in rendered      # 1 -> 2 here
     assert "1 -> 2 item(s)" in rendered
@@ -91,12 +90,12 @@ def test_overlays_re_rendered_at_identical_spans_are_not_a_change(
                       for n in range(15)])})}
     project = _rounds(tmp_path, earlier, later)
 
-    diff = round_diff.diff_rounds(str(project), 2, 3)
+    diff = rounds.diff_rounds(str(project), 2, 3)
     entry = diff["reels"]["Reel 01"]
     assert entry["changed"] == []
     assert [row["key"] for row in entry["rerendered"]] == [
         "video:Subtitles"]
-    rendered = round_diff.render(diff)
+    rendered = rounds.render_diff(diff)
     assert "rebuilt, and nothing moved" in rendered
     assert "re-rendered at identical spans" in rendered
     # And it is a MEASUREMENT of the spans, not a reading of the
@@ -113,7 +112,7 @@ def test_a_row_that_really_moved_is_not_read_as_a_re_render(tmp_path):
         "Subtitles", [_item("a.mov", 0, 50), _item("b.mov", 60, 50)])})}
     project = _rounds(tmp_path, earlier, later)
 
-    entry = round_diff.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
+    entry = rounds.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
     assert [row["key"] for row in entry["changed"]] == ["video:Subtitles"]
     assert entry["rerendered"] == []
 
@@ -124,9 +123,9 @@ def test_a_reel_not_rebuilt_in_the_round_says_so(tmp_path):
     earlier = {"Reel 13": _reel({"video:Akshita": _row(
         "Akshita", [_item("a.mov", 0, 10)])})}
     project = _rounds(tmp_path, earlier, {})
-    diff = round_diff.diff_rounds(str(project), 2, 3)
+    diff = rounds.diff_rounds(str(project), 2, 3)
     assert diff["reels"]["Reel 13"]["state"] == "not rebuilt in this round"
-    assert "not rebuilt in round 3" in round_diff.render(diff)
+    assert "not rebuilt in round 3" in rounds.render_diff(diff)
 
 
 
@@ -139,10 +138,10 @@ def test_a_whole_row_gone_is_named_as_gone(tmp_path):
         "video:Semantic": _row("Semantic", [_item("s.mov", 0, 40)])})}
     later = {"Reel 01": _reel({})}
     project = _rounds(tmp_path, earlier, later)
-    entry = round_diff.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
-    assert entry["changed"][0]["state"] == round_diff.LOST_ROW
-    assert "the row is gone" in round_diff.render(
-        round_diff.diff_rounds(str(project), 2, 3))
+    entry = rounds.diff_rounds(str(project), 2, 3)["reels"]["Reel 01"]
+    assert entry["changed"][0]["state"] == rounds.LOST_ROW
+    assert "the row is gone" in rounds.render_diff(
+        rounds.diff_rounds(str(project), 2, 3))
 
 
 
@@ -153,7 +152,7 @@ def test_a_missing_round_raises_rather_than_diffing_against_nothing(
     everything."""
     project = _rounds(tmp_path, {}, {})
     with pytest.raises(ValueError) as refused:
-        round_diff.diff_rounds(str(project), 2, 9)
+        rounds.diff_rounds(str(project), 2, 9)
     assert "not recorded" in str(refused.value)
 
 

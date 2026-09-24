@@ -4,7 +4,7 @@ At the end of a reel build, each promoted reel timeline's Fusion comps
 are exported with `TimelineItem.ExportFusionComp` into
 `pipeline_output/steps/7_01_build_reels/fusion_comps/` - one plain-text
 `.comp` file per comp per reel, committed by the per-project git repo
-(`library/tools/build_version_control.py`) in the same commit as the
+(`library/tools/versions/store.py`) in the same commit as the
 timeline snapshot.
 
 Why this exists: the timeline record reduces 76 Fusion tools to a comp
@@ -46,7 +46,7 @@ def fusion_comps_dir(project_folder: str) -> Path:
 
 def safe_stem(name: str) -> str:
     """A filename stem for a reel name. Same spelling as the timeline
-    snapshot beside it (`build_version_control.record_reel_promotion`),
+    snapshot beside it (`versions.store.record_reel_promotion`),
     so the two records for one reel sort together."""
     return "".join(
         c if c.isalnum() or c in "-_." else "_"

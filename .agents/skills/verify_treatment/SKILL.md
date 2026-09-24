@@ -1,3 +1,13 @@
+---
+name: verify_treatment
+description: >
+  See what a visual treatment really draws before the captain has to:
+  build the clip's comp with and without it, and report which rendered
+  frames changed and whether each sits inside the animation's declared
+  window. Use when planning or approving a per-clip comp treatment (drift,
+  switch animation, crop).
+---
+
 # verify_treatment
 
 Look at what your visual treatment drew - before the captain has to.

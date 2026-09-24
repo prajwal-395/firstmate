@@ -33,7 +33,7 @@ it", named by absolute path because a reference is a path plus a map
 series' file shared across projects; a copy per project store is a
 copy that diverges, with nothing saying which is the master. And the
 project store is a TEXT-ONLY allow-list by design
-(`library/tools/build_version_control.py`): binaries are ignored by
+(`library/tools/versions/store.py`): binaries are ignored by
 default, deliberately. Filing ProRes masters there fights that ruling.
 
 **In the engine repo - REJECTED.** A Lucie logo fails the substitution

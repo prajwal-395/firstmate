@@ -6278,7 +6278,7 @@ def grades_as_a_reel(name: str, only_reels=None,
     designed difference as a defect - a gate that fails correct output,
     which is no more coverage than one that cannot fail (AGENTS.md
     10.4). `variant_names` is the reel's DECLARED variant timeline names
-    (`timeline_variants.declared_variant_names`), never a name guess: no
+    (`versions.variants.declared_variant_names`), never a name guess: no
     syntactic rule tells `(final)` - a reel's own name - from
     `(reaction-cutaway)`, and excluding by parse would silently drop a
     deliverable out of the sweep.
@@ -6304,14 +6304,14 @@ def declared_variants(project_folder) -> set:
     """Every variant timeline name this project has declared.
 
     Asked of the spec record through its owner
-    (`timeline_variants.declared_variant_timelines`), which resolves
+    (`versions.variants.declared_variant_timelines`), which resolves
     each suffix against the PLAN's own reel name and answers EMPTY when
     there is no record - so a project that has never declared a variant
     behaves exactly as it did before this existed.
     """
     if not project_folder:
         return set()
-    from library.tools.timeline_variants import declared_variant_timelines
+    from library.tools.versions.variants import declared_variant_timelines
 
     return declared_variant_timelines(str(project_folder))
 

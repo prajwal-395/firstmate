@@ -69,7 +69,8 @@ from library.tools import footage_identity, code_identity, step_ledger
 from library.tools import stable_json
 from library.tools.project_layout import Area, ProjectLayout
 from library.tools import provenance
-from library.tools import external_inputs, run_scope, run_archive
+from library.tools import external_inputs, run_scope
+from library.tools.versions import runs
 from library.tools import requirements
 from library.tools import breakpoints as run_breakpoints
 from library.tools import run_profile
@@ -693,7 +694,7 @@ def save_pipeline_state(project_dir: str, state: dict):
         # state is the same bytes, so a build that changes nothing
         # leaves a clean tree and a variant merge never conflicts on
         # key order alone. Content churn (last_updated, ledgers) still
-        # makes this file rebuild-not-merge - see timeline_variants.
+        # makes this file rebuild-not-merge - see versions.variants.
         stable_json.dump_stable(state, f)
 
 
@@ -3170,7 +3171,7 @@ def run_pipeline(
     # Archive last-write-wins directories (reasoning traces,
     # llm_requests, llm_responses) from any previous run before this
     # run's steps overwrite them.
-    archived = run_archive.archive_previous_run(project_dir, _run_id)
+    archived = runs.archive_previous_run(project_dir, _run_id)
     if archived:
         print(f"  Archived previous run traces to {archived}", file=sys.stderr)
 

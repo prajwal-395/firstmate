@@ -2223,7 +2223,7 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # archive bin, bounded by reels rather than rounds - the same
     # rule promotion follows.
     from library.tools import reel_retirement as _retire
-    from library.tools import round_version as _rounds
+    from library.tools.versions import rounds as _rounds
     recorded = _rounds.discover(project_folder)
     current_round = recorded[-1]["round"] if recorded else 1
     backup_objects = {t.GetName(): t for t in timelines_to_replace(

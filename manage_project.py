@@ -474,14 +474,14 @@ def cmd_notes(args):
 def cmd_round_diff(args):
     """What changed between two rounds of the captain's feedback.
 
-    A ROUND is the version object (library/tools/round_version.py): one
+    A ROUND is the version object (library/tools/versions/rounds.py): one
     version per batch of the captain's feedback, across every reel that
     batch touched. The diff is `reel_read.rows_of` through
     `reel_replace_guard.diff_rows` over two stored snapshots - off
     disk, in milliseconds, with Resolve closed. See
-    library/tools/round_diff.py.
+    library/tools/versions/rounds.py.
     """
-    from library.tools import round_diff
+    from library.tools.versions import rounds
 
     try:
         config = get_project(args.slug)
@@ -498,7 +498,7 @@ def cmd_round_diff(args):
         argv += ["--from", str(args.earlier)]
     if args.later is not None:
         argv += ["--to", str(args.later)]
-    sys.exit(round_diff.main(argv))
+    sys.exit(rounds.main(argv))
 
 
 def cmd_sign_off(args):
@@ -618,7 +618,7 @@ def cmd_variant(args):
     so that is a normal thing to do rather than a scripted one-off.
 
     A variant is ONE object with two projections. Its DECLARATIONS live
-    on a git branch (`library/tools/timeline_variants.py`) and its
+    on a git branch (`library/tools/versions/variants.py`) and its
     PICTURE lives on a Resolve timeline; the two names derive from each
     other, both ways. Git holds one branch at a time and Resolve holds
     every timeline at once, which is why the declarations are merged
@@ -631,14 +631,12 @@ def cmd_variant(args):
         choose   make one of them the reel; the other goes to the archive
         merge    merge a variant branch's declarations back
 
-    See library/tools/timeline_variants.py (the spec and the branch),
-    library/tools/variant_choice.py (what is alive, the comparison and
-    the choice) and AGENTS.md 10.4.
+    See library/tools/versions/variants.py (the spec, the branch, what is
+    alive, the comparison and the choice) and AGENTS.md 10.4.
     """
     import json as _json
 
-    from library.tools import timeline_variants as variants
-    from library.tools import variant_choice as choice
+    from library.tools.versions import variants
 
     project_folder = _reel_project_folder(args.project)
 
@@ -687,7 +685,7 @@ def cmd_variant(args):
     if args.variant_command == "list":
         record = variants.read_variant_specs(project_folder)
         declared = record.get("variants") or {}
-        alive = choice.read_builds(project_folder).get("builds") or {}
+        alive = variants.read_builds(project_folder).get("builds") or {}
         if not declared and not alive:
             print("No variant is declared in this project.")
             print("  Declare one with: manage_project.py variant new "
@@ -748,12 +746,12 @@ def cmd_variant(args):
 
     if args.variant_command == "diff":
         try:
-            diff = choice.compare(project_folder, args.reel,
+            diff = variants.compare(project_folder, args.reel,
                                   args.earlier, args.later)
-        except choice.ChoiceRefused as refused:
+        except variants.ChoiceRefused as refused:
             print(f"REFUSED: {refused}", file=sys.stderr)
             sys.exit(1)
-        print(choice.render_comparison(diff))
+        print(variants.render_comparison(diff))
         return
 
     if args.variant_command == "merge":
@@ -777,7 +775,7 @@ def cmd_variant(args):
             "project_name", os.path.basename(project_folder))
     project = _connect_resolve_project(resolve_name)
     try:
-        report = choice.choose(
+        report = variants.choose(
             project, project.GetMediaPool(), project_folder, args.reel,
             base, args.suffix, args.why,
             variant_names=variants.declared_variant_timelines(
@@ -786,7 +784,7 @@ def cmd_variant(args):
     except Exception as refused:                            # noqa: BLE001
         print(f"REFUSED: {refused}", file=sys.stderr)
         sys.exit(1)
-    print(choice.render(report))
+    print(variants.render_choice(report))
 
 
 def cmd_organize(args):
@@ -1493,106 +1491,19 @@ def cmd_propose_reels(args):
 
 
 def cmd_build_reels(args):
-    """Run the `reels` PROCESS, node by node, in its own DAG's order.
+    """Run the `reels` PROCESS through its own runner.
 
-    This used to call `reel_build.rebuild_reels_in_project` directly, and
-    that was the only way reels could be made: you had to know which
-    subcommand to run, and nothing checked a single prerequisite before
-    connecting to Resolve and deleting the existing reel timelines.  The
-    captain's stop condition was that reels be created *"using the
-    pipeline and not any standalone scripts"*, and a command that reaches
-    past the pipeline into a tool is that gap however thin it is.
-
-    So it is now a caller of `library/processes/reels`: the node ORDER
-    comes off that process's own dag.json rather than being spelled here,
-    and each node runs through the operation registry, which checks the
-    node's DERIVED requirements first and REFUSES naming what is missing.
-    No build path lives here - the operation resolves to the step's own
-    body, and the step's body calls `reel_build`. One implementation.
+    The node order, the requirement checks, the node records and the
+    closing commit are the runner's (`library/processes/reels/
+    run_reels.py`); this subcommand resolves the project and calls it,
+    exactly as `run` calls the edit_video runner. No build path lives
+    here.
     """
-    import json as _json
+    from library.processes.reels import run_reels
 
-    from library.tools import operations, processes
-    from library.tools.project_layout import ProjectLayout
-
-    project_folder = _reel_project_folder(args.project)
-
-    for node_id in processes.execution_order(processes.REELS):
-        for op in operations.by_node(node_id):
-            if op.caller_supplied:
-                # Caller-supplied operations take arguments only a
-                # caller supplies - the touchup's change spec, the
-                # stills grab's reel label and frames - handed in by
-                # the fix or gate that computed them. This loop is not
-                # such a caller, so it does not drive them: as coded
-                # it walked every owned op, and on a ready project
-                # `reel.build` completed and the loop then REFUSED at
-                # `reel.touchup` (`spec` unbound) before `reel.ask`
-                # ever ran. Skipped, never executed, and nothing is
-                # recorded for one. (The dry run's old-path walk in
-                # `library/tools/ren_dry_run.py` reads the same flag.)
-                print(f"{op.name}: skipped (caller-supplied)",
-                      file=sys.stderr)
-                continue
-            result = op.execute(
-                project_folder,
-                skip_captions=args.skip_captions,
-                only_reels=args.only_reel or None,
-                timeline_name_suffix=args.name_suffix,
-                allow_drops=args.allow_drop or None,
-                supersede=args.supersede or None,
-                retain=args.retain or None,
-                rebuild_all=bool(getattr(args, "rebuild_all", False)))
-            if result.refused:
-                print(f"REFUSED: {op.name}", file=sys.stderr)
-                print(result.error, file=sys.stderr)
-                sys.exit(1)
-
-            # RECORD the node's output the way a run records one, so the
-            # edge to the next node can carry it and so the build is
-            # readable afterwards by everything that reads
-            # `step_outputs` - the traceback, the dashboard, `status`.
-            # `save_pipeline_state` is the runner's own writer, called
-            # rather than copied, because it owns the backup rule
-            # (AGENTS.md 8).
-            path = ProjectLayout(project_folder).pipeline_data_path
-            state = (_json.loads(Path(path).read_text(encoding="utf-8"))
-                     if Path(path).is_file() else {})
-            state["project_folder"] = project_folder
-            # MERGE the op's output into the node's slot, never overwrite
-            # it: one node may own several ops (`build_reels` owns both
-            # `reel.build` and `reel.ask`), and a wholesale write lets
-            # the later op destroy the earlier's output. Measured
-            # 2026-09-19 on Reel 04: `reel.ask` overwrote
-            # `step_outputs.build_reels` with its ask-only payload, the
-            # `reel_build` record the build had just placed was lost, and
-            # `reel.verify` refused - a staged reel with no path to
-            # promotion. A node's record is the union of its ops.
-            slot = state.setdefault("step_outputs", {})
-            _record_node_output(slot, node_id, result.payload)
-            _edit_video_runner().save_pipeline_state(project_folder, state)
-            print(f"{op.name}: {result.status}", file=sys.stderr)
-            _report_rebuild_need(result.payload)
-            _report_reel_verification(result.payload)
-
-    # ══════════════════════════════════════════════════════════════
-    # THE CLOSING COMMIT (library/tools/build_version_control.py)
-    # ══════════════════════════════════════════════════════════════
-    # The per-build commit fires INSIDE the promoting node, and this
-    # loop writes that node's own output to pipeline_data.json AFTER
-    # the node returns - so the last node's record could never be in
-    # the commit it belongs to. Measured 2026-09-11 on the captain's
-    # project: HEAD was "reels build: Reel 13" and the working tree
-    # was dirty with exactly `step_outputs.verify_reels.
-    # reel_verification.organised`, the bin organisation the commit
-    # ran too early to see. A store that is dirty after every build
-    # teaches a reader to ignore its dirtiness, which is how a hand
-    # edit goes missing.
-    #
-    # So the run closes its own record, here, where the state write
-    # it completes lives. `clean` is the ordinary answer once the
-    # node's commit already covered everything.
-    _commit_run_tail(project_folder)
+    code = run_reels.run(_reel_project_folder(args.project), args)
+    if code:
+        sys.exit(code)
 
 
 def cmd_drift(args):
@@ -1973,97 +1884,6 @@ def cmd_ren_dry_run(args):
     sys.exit(_ren.main(argv))
 
 
-def _commit_run_tail(project_folder: str) -> None:
-    """Commit whatever the run's final state write left uncommitted.
-
-    Never raises and never fails the build: a record that breaks a
-    build is worse than no record, the rule the per-build hook already
-    follows.
-    """
-    try:
-        from library.tools import build_version_control as bvc
-        record = bvc.commit_build(
-            project_folder,
-            "reels build: closing record\n\n"
-            "The per-build commit runs inside the promoting node, "
-            "before the runner writes that node's own output to "
-            "pipeline_data.json. This is the run closing its own "
-            "record so the store is clean when it ends.")
-        if record.get("committed"):
-            print(f"── Version control: closing commit {record['commit']} "
-                  f"({len(record.get('files', []))} file(s)) ──",
-                  file=sys.stderr)
-        elif record.get("reason") not in ("clean", "no-repo"):
-            print(f"  closing version-control commit not made: "
-                  f"{record.get('reason', 'unknown')}", file=sys.stderr)
-    except Exception as exc:  # noqa: BLE001
-        print(f"  closing version-control commit failed: {exc!r} - the "
-              f"reels are built and unaffected", file=sys.stderr)
-
-
-def _report_rebuild_need(payload) -> None:
-    """Say which reels needed a Resolve pass, and WHY - both answers.
-
-    The build's own `rebuild_need` record
-    (`library/tools/reel_rebuild_need.py`) is printed here, not only in
-    the build's stdout, because the decision not to place a reel is the
-    one a reader is most likely to want back afterwards: "why is Reel 23
-    not in this round" has to be answerable from the run's own output.
-    A record that only ever said what was placed would leave the answer
-    to inference.
-    """
-    if not isinstance(payload, dict):
-        return
-    build = payload.get("reel_build")
-    if not isinstance(build, dict):
-        return
-    decisions = build.get("rebuild_need")
-    if not isinstance(decisions, list) or not decisions:
-        return
-    left = [d for d in decisions
-            if isinstance(d, dict) and d.get("action") == "leave_alone"]
-    print(f"  rebuild need: {len(decisions) - len(left)} reel(s) placed, "
-          f"{len(left)} left alone", file=sys.stderr)
-    for entry in decisions:
-        if not isinstance(entry, dict):
-            continue
-        mark = ("left alone" if entry.get("action") == "leave_alone"
-                else "placed")
-        print(f"    - {entry.get('reel')}: {mark} - "
-              f"{entry.get('reason')}", file=sys.stderr)
-
-
-def _report_reel_verification(payload) -> None:
-    """Say WHICH plan and WHICH timelines the verify node graded.
-
-    `verify_reels` returns a terminal record - `reel_verification` - and
-    for a while nothing read it: the loop above printed the operation's
-    status, so a build reported "nothing raised" and never said what had
-    been looked at.  A gate whose account of itself is unread reads as
-    coverage (AGENTS.md 10.4), and the record exists precisely so a run
-    can name the plan it graded against.
-
-    The RAISE inside `reel_build.verify_built_reels` is still the gate.
-    This does not re-judge it; it reports what passed.
-    """
-    if not isinstance(payload, dict):
-        return
-    record = payload.get("reel_verification")
-    if not isinstance(record, dict):
-        return
-    timelines = list(record.get("timelines_verified") or ())
-    print(
-        f"  verified {len(timelines)} reel timeline(s) in Resolve project "
-        f"{record.get('resolve_project_name') or '?'!r} against "
-        f"{record.get('plan_path') or '(no plan named)'}",
-        file=sys.stderr)
-    for name in timelines:
-        print(f"    - {name}", file=sys.stderr)
-    if not timelines:
-        print("    (the record names no timeline - the plan graded none)",
-              file=sys.stderr)
-
-
 def _reel_project_folder(project: str) -> str:
     """A slug or a path, resolved to the project's own directory.
 
@@ -2079,42 +1899,6 @@ def _reel_project_folder(project: str) -> str:
     except FileNotFoundError as unknown:
         print(f"Error: {unknown}", file=sys.stderr)
         sys.exit(1)
-
-
-def _record_node_output(slot: dict, node_id: str, payload) -> None:
-    """Merge one op's payload into its node's recorded output.
-
-    One node may own several ops (`build_reels` owns both `reel.build`
-    and `reel.ask`), and a wholesale write lets the later op destroy
-    the earlier's output. Measured 2026-09-19 on Reel 04: `reel.ask`
-    overwrote `step_outputs.build_reels` with its ask-only payload, the
-    `reel_build` record the build had just placed was lost, and
-    `reel.verify` refused - a staged reel with no path to promotion. A
-    node's record is the union of its ops; non-dict payloads keep the
-    old overwrite behaviour.
-    """
-    prior = slot.get(node_id)
-    if isinstance(prior, dict) and isinstance(payload, dict):
-        prior.update(payload)
-        slot[node_id] = prior
-    else:
-        slot[node_id] = payload
-
-
-def _edit_video_runner():
-    """The runner module, imported the way `operations.Operation` does.
-
-    There is no runner for the `reels` process and there must not be a
-    second one: what `cmd_build_reels` borrows from this module is state
-    persistence, which is not process-specific.
-    """
-    process_dir = PILOT_ROOT / "library" / "processes" / "edit_video"
-    for entry in (str(PILOT_ROOT), str(PILOT_ROOT / "library"),
-                  str(process_dir)):
-        if entry not in sys.path:
-            sys.path.insert(0, entry)
-    import run_pipeline
-    return run_pipeline
 
 
 def main():
@@ -2161,57 +1945,8 @@ def main():
 
     build_reels_parser = sub.add_parser(
         "build-reels", help="Rebuild approved reels in Resolve")
-    build_reels_parser.add_argument(
-        "project", help="The project to rebuild reels for")
-    build_reels_parser.add_argument(
-        "--skip-captions", action="store_true", help="Skip rendering subtitles (saves CPU)")
-    build_reels_parser.add_argument(
-        "--only-reel", type=int, action="append", default=[], metavar="N",
-        help="Build only this reel number; repeatable. Default: every "
-             "approved moment. The build deletes only the timelines it is "
-             "about to place, so this touches one timeline.")
-    build_reels_parser.add_argument(
-        "--name-suffix", default="", metavar="TEXT",
-        help="Append this to the Resolve timeline name each reel is built "
-             "into, and to its caption filenames. Default: the plan's own "
-             "name, which REPLACES the timeline already called that.")
-    build_reels_parser.add_argument(
-        "--allow-drop", dest="allow_drop", action="append", default=[],
-        metavar="SPEC",
-        help="A row the replace guard may let shrink, by ROW never by "
-             "blanket (issue #925): `ROW` (e.g. `video:Semantic`) for "
-             "every reel this run promotes, or `FINAL::ROW` for one reel "
-             "only. Repeatable. Absent means any row that loses items, "
-             "or vanishes, refuses the promotion.")
-    build_reels_parser.add_argument(
-        "--supersede", dest="supersede", action="append", default=[],
-        metavar="REEL",
-        help="A reel whose durable captain SIGN-OFF this build may "
-             "replace (library/tools/reel_signoff.py). Repeatable. "
-             "Absent means a promotion over a signed-off reel refuses "
-             "by name and prints this flag. The sign-off is recorded "
-             "as superseded, never deleted, and the timeline it "
-             "covered is retired to the archive bin.")
-    build_reels_parser.add_argument(
-        "--retain", dest="retain", action="append", default=[],
-        metavar="REEL",
-        help="A reel whose superseded generation the promotion may "
-             "RETIRE into the archive rather than delete "
-             "(library/tools/reel_retirement.py). Repeatable. Absent - "
-             "the default - means one timeline per reel and an empty "
-             "archive; a reel carrying a sign-off retires whatever "
-             "this says.")
-    build_reels_parser.add_argument(
-        "--rebuild-all", dest="rebuild_all", action="store_true",
-        help="Place every reel this run names, whatever the state "
-             "says. By default a reel nothing changed about is LEFT "
-             "ALONE (library/tools/reel_rebuild_need.py): a reel's "
-             "Resolve pass is 19.4-67.1s of which the Fusion comp "
-             "pass is fixed overhead, so placing an unchanged reel "
-             "again costs that and produces the same frames. The "
-             "decision is printed per reel with its reason either "
-             "way. Use this to re-place onto drift-free state, or to "
-             "measure what the pass costs.")
+    from library.processes.reels import run_reels
+    run_reels.add_arguments(build_reels_parser)
     build_reels_parser.set_defaults(func=cmd_build_reels)
 
     drift_parser = sub.add_parser(

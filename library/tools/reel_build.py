@@ -8421,7 +8421,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
        carrying a durable sign-off always retires: the captain approved
        that cut, and deleting its only copy is what "unless i
        explicitly ask for otherwise" does not cover;
-    5. the round is stamped (`library/tools/round_version.py`): the
+    5. the round is stamped (`library/tools/versions/rounds.py`): the
        rows the guard read in phase 0 are stored against the round
        this batch of the captain's feedback opened, which is what
        makes `round-diff` answer off disk afterwards.
@@ -8934,7 +8934,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
     # unfiled timeline is safe and the organiser re-files it on the
     # next build, so `unfiled` is carried on the record, not refused.
     from library.tools import reel_retirement as _retire
-    from library.tools import round_version as _rounds
+    from library.tools.versions import rounds as _rounds
     retirement = {"archived": {}, "unfiled": [], "collected": [],
                   "kept": [], "deleted": []}
     rounds_by_final: dict = {}
@@ -9111,7 +9111,7 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
               f"unaffected.", file=_sys_unheld.stderr)
 
     # ── STAMP THE ROUND ──────────────────────────────────────────
-    # The version object (`library/tools/round_version.py`). The rows
+    # The version object (`library/tools/versions/rounds.py`). The rows
     # stored here are the ones the replace guard already read off the
     # incoming timeline in phase 0, so this costs no Resolve call - and
     # storing them is what lets `round-diff` answer long after the
@@ -11809,8 +11809,8 @@ def rebuild_reels_in_project(project_slug: str, skip_captions: bool = False,
         # and commit, on both promotion paths. Never fails the build.
         _vc = None
         try:
-            from library.tools import build_version_control as _bvc
-            _vc = _bvc.record_reel_promotion(
+            from library.tools.versions import store as _store
+            _vc = _store.record_reel_promotion(
                 project_folder, resolve_name, list(final_names))
             if _vc.get("committed"):
                 print(f"── Version control: committed {_vc['commit']} "
@@ -12711,11 +12711,11 @@ def build_reel_variants(project_slug: str, reel_number: int,
 
     # A variant that DECLARES is built from its own branch, because a
     # declaration lives in `external/<store>.json` and nowhere else
-    # (`timeline_variants.branch_requirement`). Asked before anything
+    # (`versions.variants.branch_requirement`). Asked before anything
     # is placed: built from the wrong branch it would carry the other
     # version's declaration and differ nowhere, reported as a
     # comparison.
-    from library.tools import timeline_variants as _variants
+    from library.tools.versions import variants as _variants
     for spec in variants:
         blocked = _variants.branch_requirement(
             project_folder, int(reel_number), spec)
@@ -12819,7 +12819,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
     # no pinned overlay positions and no caption-timing pins - three
     # differences from the approved reel on top of the one it was
     # built to show. They are also the stores a variant may now DIFFER
-    # in (`timeline_variants.declarable`): the declaration lives in
+    # in (`versions.variants.declarable`): the declaration lives in
     # `external/<store>.json` on the variant's own branch, so reading
     # it here IS how a declaring variant differs, with no second
     # builder anywhere.
@@ -13135,7 +13135,7 @@ def build_reel_variants(project_slug: str, reel_number: int,
             except Exception:
                 pass
             # The ROWS of what was just placed, stored off Resolve.
-            # `round_diff.diff_reel` over two of these is what turns
+            # `versions.rounds.diff_reel` over two of these is what turns
             # "watch both and decide" into a readable list of what
             # actually differs - the same measurement the promotion's
             # replace guard already reads, so the comparison and the
@@ -13148,8 +13148,8 @@ def build_reel_variants(project_slug: str, reel_number: int,
                             "suffix": str(spec.get("suffix", "")),
                             "rows": rows,
                             "watch": spec.get("watch", "")}
-            from library.tools import variant_choice as _choice
-            _choice.record_build(
+            from library.tools.versions import variants as _variants
+            _variants.record_build(
                 project_folder, int(reel_number), moment.timeline_name,
                 str(spec.get("suffix", "")), rows,
                 watch=str(spec.get("watch", "")),

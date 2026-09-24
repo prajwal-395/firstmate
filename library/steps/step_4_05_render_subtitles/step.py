@@ -1864,7 +1864,7 @@ def _resolve_live_project(project_folder: str):
     when nothing is open, or when what is open is another project -
     swapping one project's captions onto another's timelines is the
     failure this refusal exists to stop. Mirrors the
-    connect-and-check in `library/tools/build_version_control.py`.
+    connect-and-check in `library/tools/versions/store.py`.
     """
     try:
         import DaVinciResolveScript as dvr

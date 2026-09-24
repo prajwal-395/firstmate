@@ -50,7 +50,7 @@ yesterday's brief beside a build that never read it claims an input it
 did not have.  Git keeps the history; the removal is what says "this
 build read no brief".
 
-Like `build_version_control.record_finished_timeline`, this never
+Like `versions.store.record_finished_timeline`, this never
 raises: a record that breaks the build is worse than no record.  Every
 failure is returned as `{"snapshotted": False, "reason": ...}` for the
 caller to print.

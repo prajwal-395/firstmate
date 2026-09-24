@@ -24,6 +24,7 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
 - Brand templates live with the project as `brand.json` (§10.1).
 - `library/profiles/`: declared run configurations - which steps a run fires and where it stops (§3).
+- `.agents/skills/`: the ONE skill source - Codex and opencode read it, `.claude/skills` links to it; a pipeline skill's entry point is `library/skills/<name>/`.
 - `library/presets/`: Fusion macros and DaVinci's own built-in effect settings. Whatever reaches a timeline is found by direct path; there is no preset index.
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
@@ -528,9 +529,9 @@ Detail: `tests/test_assessment_reports_no_default_as_measured.py`. [why](docs/RU
 
 **A replace is a diff: promotion refuses an undeclared row loss.** `library/tools/reel_replace_guard.py`. [why](docs/RULE_EVIDENCE.md#the-promote-that-never-looked-back)
 
-**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion DELETES unless retained, and `round-diff` compares two rounds.** `library/tools/round_version.py`, `reel_signoff.py`, `reel_retirement.py`.
+**A version is a ROUND; a BUILT reel carries a durable sign-off; promotion DELETES unless retained, and `round-diff` compares two rounds.** One version model, `library/tools/versions/`; `reel_signoff.py`, `reel_retirement.py`.
 
-**TWO versions of a reel may be alive at once, and CHOOSING one is an ACT: `manage_project.py variant new|build|list|diff|choose|merge`.** A variant differs in a SEAM or a per-project DECLARATION and in nothing else; the archive holds ONE unchosen variant per REEL. `library/tools/timeline_variants.py`, `variant_choice.py`.
+**TWO versions of a reel may be alive at once, and CHOOSING one is an ACT: `manage_project.py variant new|build|list|diff|choose|merge`.** A variant differs in a SEAM or a per-project DECLARATION and in nothing else; the archive holds ONE unchosen variant per REEL. `library/tools/versions/variants.py`.
 
 **Passage engagement is a JUDGEMENT the model writes, it is an ORDERING, and there is NO SCORE.** `library/tools/passage_engagement.py`, `tests/test_passage_engagement.py`. [why](docs/RULE_EVIDENCE.md#every-line-scored-the-same)
 

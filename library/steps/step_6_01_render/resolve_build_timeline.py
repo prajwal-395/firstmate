@@ -3001,8 +3001,8 @@ def build_timeline(
     # together with the .comp files.  Never fails the build.
     if project_folder:
         try:
-            from library.tools import build_version_control as _bvc
-            _vc = _bvc.record_finished_timeline(
+            from library.tools.versions import store as _store
+            _vc = _store.record_finished_timeline(
                 resolve, timeline, project_folder, timeline_name)
             results["build_record"] = {
                 k: v for k, v in _vc.items() if k != "files"}

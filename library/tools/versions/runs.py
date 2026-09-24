@@ -1,4 +1,7 @@
-"""Archive last-write-wins directories at the start of each run.
+"""RUNS: archive last-write-wins directories at the start of each run.
+
+Part of the version model (`library/tools/versions/__init__.py`): a run
+is the version of what a pipeline invocation was told and answered.
 
 Three directories under ``pipeline_output/`` are last-write-wins per step
 with nothing marking a run boundary:

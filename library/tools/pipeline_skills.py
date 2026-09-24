@@ -16,7 +16,9 @@ This module is the single owner of what skills exist and how they are
 rendered into a prompt - the same shape as `craft_role`: one function
 returning a block, empty for a step that declares none, so a step that
 gains a skill needs no change in the runner. Adding a skill costs one
-`SKILLS` row plus its directory under `library/skills/`; the runner,
+`SKILLS` row, its entry point under `library/skills/<name>/` and its
+text at `.agents/skills/<name>/SKILL.md` - the one skill source every
+agent harness reads (`SKILL_TEXT_ROOT`); the runner,
 the prompt site, the receipt paths and the gating check all read the
 registry, so none of them changes. `tests/test_pipeline_skills.py`
 pins that by registering a synthetic further skill against the
@@ -110,6 +112,18 @@ RECEIPTS_RELDIR = os.path.join("pipeline_output", "skill_runs")
 
 GATE = "gate"
 REPORT = "report"
+
+#: The one source of skill TEXT, relative to the repository root. Codex
+#: and opencode read `.agents/skills/` natively; `.claude/skills` is a
+#: link to it for Claude Code. A skill's entry point stays a Python
+#: package under `library/skills/`; its SKILL.md lives here, so every
+#: harness - and a pipeline model told to read it - reads one text.
+SKILL_TEXT_ROOT = os.path.join(".agents", "skills")
+
+
+def skill_text(name: str) -> str:
+    """Where a skill's SKILL.md lives, repository-relative."""
+    return f"`{os.path.join(SKILL_TEXT_ROOT, name, 'SKILL.md')}`"
 
 
 @dataclass(frozen=True)
@@ -410,21 +424,23 @@ def _invocation_lines(skill: Skill, full_auto: Optional[str]) -> str:
     if full_auto is None:
         return (
             f"- You are answering by hand: run it yourself with "
-            f"`python3 -m {module_cli} ...` (each skill's SKILL.md "
-            f"carries its exact flags) before you answer.")
+            f"`python3 -m {module_cli} ...` "
+            f"({skill_text(skill.name)} carries its exact flags) before "
+            f"you answer.")
     invokes = harness_invokes_skills(full_auto)
     if invokes and full_auto != "mock":
         if skill.kind == GATE:
             return (
                 f"- You have a shell: invoke it yourself with "
-                f"`python3 -m {module_cli} ...` (exact flags in its "
-                f"SKILL.md) BEFORE you answer. The run writes a receipt "
+                f"`python3 -m {module_cli} ...` (exact flags in "
+                f"{skill_text(skill.name)}) BEFORE you answer. The run "
+                f"writes a receipt "
                 f"the pipeline reads back - asserting you checked "
                 f"without invoking fails the step.")
         return (
             f"- You have a shell: invoke it yourself with "
-            f"`python3 -m {module_cli} ...` (exact flags in its "
-            f"SKILL.md) whenever the WHEN below holds.")
+            f"`python3 -m {module_cli} ...` (exact flags in "
+            f"{skill_text(skill.name)}) whenever the WHEN below holds.")
     if full_auto == "mock":
         return ("- This run replays a recorded answer: no invocation is "
                 "expected from you.")

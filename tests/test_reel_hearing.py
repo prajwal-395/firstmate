@@ -170,7 +170,7 @@ def test_no_gate_reads_the_hearing_record():
     # is a READER, and a reader is one step from a gate.
     PRODUCERS = {"library/tools/reel_hearing.py",
                  "library/skills/hear_the_reel/skill.py",
-                 "library/skills/hear_the_reel/SKILL.md",
+                 ".agents/skills/hear_the_reel/SKILL.md",
                  "manage_project.py"}
     readers = []
     for path in sorted(root.rglob("*.py")):

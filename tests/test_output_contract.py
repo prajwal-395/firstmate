@@ -277,13 +277,8 @@ def test_a_name_that_is_not_a_read_is_not_credited(tmp_path, source, what):
 
 
 def _build_reels_module():
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "manage_project_under_test", REPO / "manage_project.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from library.processes.reels import run_reels
+    return run_reels
 
 
 
@@ -294,7 +289,7 @@ def _build_reels_module():
 def test_the_reader_says_nothing_about_a_payload_that_is_not_a_verdict(
         capsys, payload):
     """It reads one key. The build node's own payload is not that key."""
-    _build_reels_module()._report_reel_verification(payload)
+    _build_reels_module().report_reel_verification(payload)
     assert capsys.readouterr().err == ""
 
 

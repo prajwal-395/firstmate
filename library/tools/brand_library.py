@@ -25,7 +25,7 @@ Three places it could live, and the evidence for each:
    series' file shared across projects; a copy per project store is a
    copy that diverges, with nothing saying which is the master.  And
    the project store is a TEXT-ONLY allow-list by design
-   (``build_version_control.py``): binaries are ignored by default,
+   (``versions/store.py``): binaries are ignored by default,
    deliberately, which is what keeps renders and caches out.  Filing
    25 MB ProRes masters there fights that ruling.
 3. **In the engine repo - REJECTED.**  A Lucie logo fails the

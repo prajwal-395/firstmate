@@ -337,7 +337,6 @@ def test_the_runner_accepts_an_operation_breakpoint(project, runner):
     assert summary["status"] != "REFUSED", summary.get("reason", "")
 
     # The run's own account of itself carries where it meant to stop.
-    from library.tools import run_control
     record = run_control.read_run_status(str(project))["breakpoints"]
     assert f"{one}@45.0-72.0" in record["steps"]
     # It names no step this run reaches, so it is REPORTED unreachable

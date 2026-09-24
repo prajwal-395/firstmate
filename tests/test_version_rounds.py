@@ -11,7 +11,7 @@ Each test here fails if its mechanism is removed:
 - the boundary rule itself - remove it (one round for everything, or a
   round per ask) and the batching assertions fail;
 - replies of ours never opening a round;
-- the stamp carrying the rows, which is what makes `round_diff` free;
+- the stamp carrying the rows, which is what makes `versions.rounds` free;
 - backfill marking every entry RECONSTRUCTED and carrying no
   `built_with` - a stamp invented after the fact is not a measurement;
 - a stamped entry outranking a reconstructed one.
@@ -21,7 +21,7 @@ import subprocess
 
 import pytest
 
-from library.tools import round_version as rv
+from library.tools.versions import rounds as rv
 
 
 def _ask(identity, reel, when):
@@ -102,7 +102,7 @@ def _rows(count, frames):
 
 def test_a_promotion_stamps_the_round_with_the_rows_it_promoted(tmp_path):
     """The rows are the payload that makes a round diff free: stored
-    here, `round_diff` answers off disk with no Resolve and long after
+    here, `versions.rounds` answers off disk with no Resolve and long after
     the timeline itself has been retired and collected."""
     project = tmp_path / "project"
     (project / "pipeline_output" / "review").mkdir(parents=True)
@@ -158,7 +158,7 @@ def _snapshot(count):
 @pytest.fixture
 def repo_project(tmp_path):
     """A project with two committed timeline snapshots - the shape
-    `build_version_control.record_reel_promotion` writes on every
+    `versions.store.record_reel_promotion` writes on every
     promotion."""
     project = tmp_path / "project"
     review = project / "pipeline_output" / "review"

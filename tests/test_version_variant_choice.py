@@ -28,7 +28,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from library.tools import reel_retirement as retire
-from library.tools import variant_choice as choice
+from library.tools.versions import variants as choice
 
 REEL = "Reel 09 - your-website-is-only-20-percent (final)"
 JCUT = f"{REEL} (j-cut)"
@@ -295,7 +295,7 @@ def test_the_collected_names_are_read_before_the_delete(project_folder):
                            variant_names={JCUT, CUTAWAY, tight, loose})
     # The first comparison's runner-up goes; this one's is kept.
     assert report["collected"] == [older]
-    assert older in choice.render(report)
+    assert older in choice.render_choice(report)
     assert None not in report["collected"]
 
 
@@ -359,8 +359,8 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
     assert report["archived"][JCUT] in names
     assert project.deleted == []
     # And the round says which won and why.
-    from library.tools import round_version
-    recorded = round_version.read_rounds(project_folder)
+    from library.tools.versions import rounds
+    recorded = rounds.read_rounds(project_folder)
     entry = recorded["rounds"][-1]["reels"][REEL]
     assert entry["choice"]["chosen"] == " (reaction-cutaway)"
     assert entry["choice"]["over"] == [JCUT]
@@ -368,7 +368,7 @@ def test_choosing_renames_retires_archives_and_records(project_folder):
     # The round carries the CHOSEN cut's rows, so the next round can be
     # diffed against it with Resolve closed.
     assert entry["rows"]["video:V1"]["count"] == 4
-    assert "lands the joke" in choice.render(report)
+    assert "lands the joke" in choice.render_choice(report)
 
 
 def test_a_choice_with_no_reason_is_refused(project_folder):

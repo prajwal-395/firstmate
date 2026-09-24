@@ -48,14 +48,14 @@ compares.
 
 Why one, not two: `manage_project.py round-diff` is the consumer the
 retention number was checked against, and it reads stored rows, never
-live timelines - `round_diff.diff_rounds` runs over the
-`round_version` rounds document off disk, with no Resolve, and every
+live timelines - `versions.rounds.diff_rounds` runs over the
+`versions.rounds` rounds document off disk, with no Resolve, and every
 promotion (suffixed or not) stamps the rows the replace guard already
 read. Zero live copies are needed for a comparison; the one retained
 copy exists so the latest comparison stays openable in Resolve. That
 is measured behaviour, not preference, and it is why the record
 outliving the timeline is what makes a lifecycle that ends acceptable
-at all - the same asymmetry `reel_retirement` and `variant_choice`
+at all - the same asymmetry `reel_retirement` and `versions.variants`
 state for their own generations.
 
 What moves, and what never does
@@ -71,7 +71,7 @@ What moves, and what never does
 - A generation carrying a captain SIGN-OFF is never collected - and,
   further, a signed-off LIVE comparison is never retired either. The
   sign-off is read through `reel_signoff.signoff_for` on the
-  comparison's own identity, the same way `variant_choice` treats a
+  comparison's own identity, the same way `versions.variants` treats a
   signed-off loser. A sign-off on the BASE reel does not protect its
   comparisons: the approved cut lives on the base timeline itself,
   which this rule never names, and the rows live in the round record.
@@ -99,7 +99,7 @@ What this deliberately does NOT own
 - Declared VARIANTS (`Reel 09 - ... (reaction-cutaway)`) are excluded
   by exact name through the spec record. A variant is work the
   captain deliberately asked to keep alive until CHOSEN, and
-  `variant_choice` already bounds it (`RETAINED_UNCHOSEN = 1` per
+  `versions.variants` already bounds it (`RETAINED_UNCHOSEN = 1` per
   reel on every choice, with the rows stored so the comparison
   survives collection). Two bounds for one family would be two
   chances to disagree about whose the timeline is.
@@ -136,7 +136,7 @@ the reel name they parse back to, and every new suffix is a new
 identity, so a per-identity bound would keep one archived timeline
 per suffix the project ever tried and grow with the number of
 comparisons. Grouping a reel's comparisons together is what makes the
-bound a bound on the reel (`variant_choice` takes the same reading
+bound a bound on the reel (`versions.variants` takes the same reading
 for its own runner-ups, for the same reason).
 """
 
@@ -224,7 +224,7 @@ def comparison_identity(name):
 def landed_rounds(rounds, names):
     """`{name: highest recorded round}` for names the record names.
 
-    Read off `round_version.discover` - the same reader `round-diff`
+    Read off `versions.rounds.discover` - the same reader `round-diff`
     answers from, so "newest" here and "later" there cannot disagree.
     A name the record never names is absent, never zero-filled: zero
     would read as "landed before everything", which is exactly the
@@ -442,9 +442,9 @@ def collect_for_bases(project, pool, project_folder, promoted_finals,
     skips a round loudly.
     """
     from library.tools import reel_signoff as _signoff
-    from library.tools import round_version as _rounds
+    from library.tools.versions import rounds as _rounds
     from library.tools import staging_holds as _holds
-    from library.tools.timeline_variants import declared_variant_timelines
+    from library.tools.versions.variants import declared_variant_timelines
 
     report: dict = {"bases": [], "retired": {}, "unfiled": [],
                     "collect": [], "collected": [], "kept": [],

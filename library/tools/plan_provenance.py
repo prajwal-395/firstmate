@@ -599,7 +599,7 @@ def record_snapshot_supersession(
 
     `snapshots_by_timeline` is `{live timeline name: path of the
     snapshot file just written for it}` - what
-    `build_version_control.record_reel_promotion` passes straight
+    `versions.store.record_reel_promotion` passes straight
     after serializing each promoted timeline.  Promotion is the only
     moment both halves are known: what the live timeline now holds
     (the bytes just written) and which older files name that same

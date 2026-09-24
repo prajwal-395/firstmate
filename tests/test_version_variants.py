@@ -1,6 +1,6 @@
 """Variations as branches, merging declarations, rebuilding the final.
 
-Covers library/tools/timeline_variants.py and the canonical JSON
+Covers library/tools/versions/variants.py and the canonical JSON
 spelling in library/tools/stable_json.py:
 
 - branch <-> timeline names derive from each other, both ways, on the
@@ -24,8 +24,9 @@ import subprocess
 
 import pytest
 
-from library.tools import build_version_control as bvc
-from library.tools import stable_json, timeline_variants as tv
+from library.tools.versions import store as bvc
+from library.tools import stable_json
+from library.tools.versions import variants as tv
 
 BASE_TIMELINE = "Reel 09 - your-website-is-only-20-percent (final)"
 CUTAWAY_SUFFIX = " (reaction-cutaway)"

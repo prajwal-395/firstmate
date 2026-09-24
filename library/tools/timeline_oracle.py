@@ -15,7 +15,7 @@ What this builds on, and what it deliberately does not
   (`reel_replace_guard.snapshot_timeline`). No new reader is written;
   a second reader for the same question is how two records disagree.
 * The COMPARISON is `reel_replace_guard.diff_rows` (via
-  `round_diff.diff_reel`, which adds the later-only rows back and the
+  `versions.rounds.diff_reel`, which adds the later-only rows back and the
   re-render classification). That diff is proven in production use.
 * The comparison NEVER joins on `unique_id`. The scout measured 0 of 26
   identities surviving a rebuild, so a `unique_id` join reports every
@@ -380,7 +380,7 @@ def _evaluate_declared_precondition(
 
 # ── The hand edit as intent ───────────────────────────────────────
 #
-# `round_diff.diff_reel` IS `reel_replace_guard.diff_rows` with the
+# `versions.rounds.diff_reel` IS `reel_replace_guard.diff_rows` with the
 # later-only rows put back and the re-render classification applied -
 # the guard's own diff pointed at stored snapshots instead of two live
 # timelines. Pointing it at expected-versus-live gives the captain's
@@ -397,9 +397,9 @@ def describe_hand_edits(expected_rows: Mapping, live_rows: Mapping) -> dict:
     says so; a re-render at identical spans (same pictures, same places,
     different files) is not reported as a change at all.
     """
-    from library.tools import round_diff
+    from library.tools.versions import rounds
 
-    reel_diff = round_diff.diff_reel(
+    reel_diff = rounds.diff_reel(
         dict(expected_rows or {}), dict(live_rows or {})
     )
     intents: list = []
@@ -591,7 +591,7 @@ def load_rows(path: str | Path) -> dict:
 
     Accepts what the pipeline actually writes so the expected side needs
     no new artifact: `reel_read.rows_of` output, a full `read_reel`
-    result (which carries `tracks`), or a `round_version` reel entry
+    result (which carries `tracks`), or a `versions.rounds` reel entry
     (which carries `rows`). Anything else raises rather than reading as
     empty - an empty side reads exactly like a side that removed
     everything.

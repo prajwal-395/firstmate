@@ -23,7 +23,7 @@ What this does NOT do: make generated run state mergeable. Sorting
 keys cannot help `pipeline_data.json` (`last_updated` churns on every
 save, ledgers grow on both sides) or step outputs whose content an
 LLM re-authors every run. Those files are rebuild-not-merge, and
-`library/tools/timeline_variants.py` auto-resolves them at merge time
+`library/tools/versions/variants.py` auto-resolves them at merge time
 instead of asking a human to hand-merge them.
 """
 
