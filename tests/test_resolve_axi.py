@@ -28,11 +28,15 @@ from library.tools.resolve_axi import (
     cmd_api_stubs,
     cmd_api_whats_new,
     cmd_audio,
+    cmd_audio_isolate,
     cmd_captions,
+    cmd_color_group,
+    cmd_color_lut,
     cmd_cursor,
     cmd_edit_delete,
     cmd_edit_move,
     cmd_edit_place,
+    cmd_edit_speed,
     cmd_edit_title,
     cmd_edit_transition,
     cmd_edit_trim,
@@ -50,6 +54,8 @@ from library.tools.resolve_axi import (
     cmd_markers_reply,
     cmd_markers_restore,
     cmd_markers_snapshot,
+    cmd_multicam_build,
+    cmd_multicam_sync,
     cmd_pool,
     cmd_project,
     cmd_project_set,
@@ -164,6 +170,68 @@ class _MediaPool:
         self.appended = getattr(self, "appended", []) + list(payloads)
         return [] if self._append_empty else made
 
+    def CreateMulticamClip(self, clips, options):
+        """Mirror the 21.1 contract: the new pool items, or []."""
+        self._multicam_seen = (list(clips), dict(options or {}))
+        if getattr(self, "_multicam_none", False):
+            return []
+        name = (options or {}).get("name", "multicam")
+        made = _PoolClip(name, {"Type": "Multicam"})
+        self._root._clips.append(made)
+        return [made]
+
+
+class _Transition:
+    """What a successful AddTransition answers: an item whose span
+    reads (the read-back `edit transition --apply` is judged by)."""
+
+    def __init__(self, options):
+        self._options = dict(options)
+
+    def GetName(self):
+        return self._options.get("type", "transition")
+
+    def GetStart(self):
+        return 50
+
+    def GetEnd(self):
+        return 62
+
+    def GetDuration(self):
+        return 13
+
+
+class _Graph:
+    """A clip node graph: LUTs per node, re-readable."""
+
+    def __init__(self):
+        self._luts: dict = {}
+        self._nodes = 3
+        self._set_refuse = False
+        self._lut_echo = None
+
+    def GetNumNodes(self):
+        return self._nodes
+
+    def SetLUT(self, node, path):
+        if self._set_refuse:
+            return False
+        self._luts[node] = path
+        return True
+
+    def GetLUT(self, node):
+        if self._lut_echo is not None:
+            return self._lut_echo
+        return self._luts.get(node, "")
+
+
+class _ColorGroup:
+    def __init__(self, name):
+        self._name = name
+
+    def GetName(self):
+        return self._name
+
 
 class _Item:
     def __init__(self, name, start, end, pool=None, markers=None,
@@ -180,6 +248,11 @@ class _Item:
         self._properties = dict(properties or {})
         self._uid = uid or f"uid-{self._name}"
         self._stubborn = stubborn
+        # 21.1 native-op state: each defaults to the success shape;
+        # defect tests flip one flag to the disagreement shape.
+        self._speed_set = None
+        self._graph = None
+        self._group = None
 
     def GetName(self):
         return self._name
@@ -231,9 +304,6 @@ class _Item:
     def GetCDL(self):
         return {}
 
-    def GetColorGroup(self):
-        return ""
-
     def GetFusionCompCount(self):
         return 0
 
@@ -255,6 +325,45 @@ class _Item:
         self._properties[key] = value
         return True
 
+    def SetSpeed(self, options):
+        self._speed_set = dict(options)
+        return not getattr(self, "_speed_refuse", False)
+
+    def GetSpeed(self):
+        echo = getattr(self, "_speed_echo", None)
+        if echo is not None:
+            return dict(echo)
+        if self._speed_set is not None:
+            return dict(self._speed_set)
+        return {"Percentage": 100.0}
+
+    def AddTransition(self, options):
+        self._transition_options = dict(options)
+        if getattr(self, "_transition_broken", False):
+            return object()
+        if getattr(self, "_transition_none", False):
+            return None
+        return _Transition(dict(options))
+
+    def GetNodeGraph(self):
+        if getattr(self, "_no_graph", False):
+            return None
+        if self._graph is None:
+            self._graph = _Graph()
+        return self._graph
+
+    def AssignToColorGroup(self, group):
+        if getattr(self, "_assign_refuse", False):
+            return False
+        self._group = group
+        return True
+
+    def GetColorGroup(self):
+        echo = getattr(self, "_group_echo", "echo-unset")
+        if echo != "echo-unset":
+            return echo
+        return self._group
+
 
 class _Timeline:
     def __init__(self, name, markers=None, tracks=None, start=0,
@@ -270,6 +379,9 @@ class _Timeline:
         self._delete_fail_once = False
         self._delete_fail_always = False
         self._project_timelines = []
+        self._voice: dict = {}
+        self._voice_refuse = False
+        self._voice_echo = None
 
     def GetName(self):
         return self._name
@@ -340,6 +452,18 @@ class _Timeline:
         self._project_timelines.append(twin)
         return twin
 
+    def SetVoiceIsolationState(self, index, state):
+        if self._voice_refuse:
+            return False
+        self._voice[index] = dict(state)
+        return True
+
+    def GetVoiceIsolationState(self, index):
+        if self._voice_echo is not None:
+            return dict(self._voice_echo)
+        return dict(self._voice.get(index, {"isEnabled": False,
+                                            "amount": 0}))
+
 
 class _Project:
     """A project whose cursor cannot be moved: any attempt raises."""
@@ -359,6 +483,7 @@ class _Project:
             "timelineFrameRate": "23.976",
             "timelineResolutionWidth": "3840",
             "timelineResolutionHeight": "2160"})
+        self._groups: list = []
         self._presets = list(presets or [])
         self._render_presets = list(render_presets or [])
         if current is not None:
@@ -409,6 +534,14 @@ class _Project:
         self._settings.update(dict(settings))
         return True
 
+    def AddColorGroup(self, name):
+        group = _ColorGroup(name)
+        self._groups.append(group)
+        return group
+
+    def GetColorGroupsList(self):
+        return list(self._groups)
+
     def SetSetting(self, key, value):
         self._settings[key] = value
         return True
@@ -449,6 +582,17 @@ class _Manager:
 class _Resolve:
     def __init__(self, project):
         self._manager = _Manager(project)
+        # The resolve.* enum constants the multicam/sync verbs read
+        # off the live object (values are opaque here).
+        for const in ("MULTICAM_ANGLE_SYNC_AUDIO",
+                      "MULTICAM_ANGLE_SYNC_TIMECODE",
+                      "MULTICAM_ANGLE_SYNC_IN",
+                      "MULTICAM_ANGLE_SYNC_OUT",
+                      "MULTICAM_ANGLE_SYNC_MARKER",
+                      "MULTICAM_AUDIO_SOURCE",
+                      "AUDIO_SYNC_WAVEFORM",
+                      "AUDIO_SYNC_TIMECODE"):
+            setattr(self, const, const)
 
     def GetProjectManager(self):
         return self._manager
@@ -547,7 +691,10 @@ def test_source_carries_no_cursor_moving_call_outside_writes():
                 "SetProperty", "SetSettings", "SetSetting",
                 "ImportMedia", "AddRenderJob", "StartRendering",
                 "StopRendering", "LoadRenderPreset",
-                "DuplicateTimeline"}
+                "DuplicateTimeline", "SetSpeed", "AddTransition",
+                "CreateMulticamClip", "AutoSyncAudio", "SetLUT",
+                "AddColorGroup", "AssignToColorGroup",
+                "SetVoiceIsolationState"}
     undeclared = []
     for node in ast.walk(tree):
         if (isinstance(node, ast.Attribute)
@@ -1572,19 +1719,73 @@ def test_title_refuses_when_no_key_takes(edit_patched, capsys):
 
 def test_transition_lists_carriers(edit_patched, capsys):
     assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=False)) == 0
+        project="", timeline="Reel 29 - salvage", apply=False,
+        index=None, type="Cross Dissolve", category="simple",
+        position="start", alignment="center", duration=None)) == 0
     out = capsys.readouterr().out
     assert "cuts: 1" in out
     assert "LC0001.MXF" in out
     assert "LC0002.MXF" in out
 
 
-def test_transition_apply_refuses_to_the_build(edit_patched, capsys):
+def test_transition_plan_names_the_payload(edit_patched, capsys):
     assert cmd_edit_transition(_ns(
-        project="", timeline="Reel 29 - salvage", apply=True)) == 1
+        project="", timeline="Reel 29 - salvage", apply=False,
+        index=1, type="Cross Dissolve", category="simple",
+        position="start", alignment="center", duration=12)) == 0
     out = capsys.readouterr().out
-    assert "compile_manifest" in out
-    assert "apply_fusion_comps" in out
+    assert "transition_plan" in out
+    assert "Cross Dissolve" in out
+    assert "dry run" in out
+
+
+def test_transition_apply_places_the_proven_pair(edit_patched,
+                                                 capsys):
+    assert cmd_edit_transition(_ns(
+        project="", timeline="Reel 29 - salvage", apply=True,
+        index=1, type="Cross Dissolve", category="simple",
+        position="start", alignment="center", duration=12)) == 0
+    out = capsys.readouterr().out
+    assert "verified" in out
+    assert "Cross Dissolve" in out
+
+
+def test_transition_apply_needs_an_explicit_cut(edit_patched,
+                                                capsys):
+    assert cmd_edit_transition(_ns(
+        project="", timeline="Reel 29 - salvage", apply=True,
+        index=None, type="Cross Dissolve", category="simple",
+        position="start", alignment="center", duration=None)) == 1
+    assert "--index" in capsys.readouterr().out
+
+
+def test_transition_apply_refuses_an_empty_answer(edit_patched,
+                                                  capsys):
+    """The defect this verb exists for: AddTransition answers None
+    for an unknown type/category, and the write must refuse naming
+    both rather than claim a dissolve."""
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][1]._transition_none = True
+    assert cmd_edit_transition(_ns(
+        project="", timeline="Reel 29 - salvage", apply=True,
+        index=1, type="Nope Wipe", category="fusion",
+        position="start", alignment="center",
+        duration=None)) == 1
+    out = capsys.readouterr().out
+    assert "Nope Wipe" in out
+    assert "fusion" in out
+
+
+def test_transition_apply_refuses_an_unreadable_span(edit_patched,
+                                                     capsys):
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][1]._transition_broken = True
+    assert cmd_edit_transition(_ns(
+        project="", timeline="Reel 29 - salvage", apply=True,
+        index=1, type="Cross Dissolve", category="simple",
+        position="start", alignment="center",
+        duration=None)) == 1
+    assert "would not read its span" in capsys.readouterr().out
 
 
 def test_writes_keep_explicit_flags():
@@ -1723,4 +1924,304 @@ def test_duplicate_apply_versions_listed(edit_patched, capsys):
     out = capsys.readouterr().out
     assert "listed on re-read" in out
     assert "Reel 29 - v2" in [
-        t.GetName() for t in edit_patched["project"]._timelines]
+        edit_patched["project"].GetTimelineByIndex(i + 1).GetName()
+        for i in range(
+            edit_patched["project"].GetTimelineCount())]
+
+
+# ── edit speed: constant speed plus freeze ───────────────────────
+
+
+def _speed_ns(**over):
+    base = {"project": "", "timeline": "Reel 29 - salvage",
+            "track": "video1", "index": 0, "percent": 40.0,
+            "freeze": False, "ripple": False, "apply": False}
+    base.update(over)
+    return _ns(**base)
+
+
+def test_speed_dry_run_plans_without_writing(edit_patched, capsys):
+    assert cmd_edit_speed(_speed_ns()) == 0
+    out = capsys.readouterr().out
+    assert "speed_plan" in out
+    assert "40.0" in out
+    assert "dry run" in out
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    assert items[0]._speed_set is None
+
+
+def test_speed_apply_verifies_by_readback(edit_patched, capsys):
+    assert cmd_edit_speed(_speed_ns(apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "read back" in out or "re-reads equal" in out
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    assert items[0]._speed_set == {"Percentage": 40.0,
+                                   "RippleTimeline": False}
+
+
+def test_speed_freeze_spells_zero(edit_patched, capsys):
+    assert cmd_edit_speed(_speed_ns(percent=None, freeze=True,
+                                    apply=True)) == 0
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    assert items[0]._speed_set == {"Percentage": 0.0,
+                                   "RippleTimeline": False}
+    assert "0.0" in capsys.readouterr().out
+
+
+def test_speed_refuses_percent_zero_without_freeze(edit_patched,
+                                                   capsys):
+    assert cmd_edit_speed(_speed_ns(percent=0.0, apply=True)) == 1
+    assert "--freeze" in capsys.readouterr().out
+
+
+def test_speed_refuses_a_false_answer(edit_patched, capsys):
+    """SetSpeed answers False while writing nothing: the verb must
+    refuse rather than claim the speed."""
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][0]._speed_refuse = True
+    assert cmd_edit_speed(_speed_ns(apply=True)) == 1
+    assert "answered False" in capsys.readouterr().out
+
+
+def test_speed_refuses_a_disagreeing_reread(edit_patched, capsys):
+    """The read-back decides: True with a different Percentage is a
+    refusal naming both numbers."""
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][0]._speed_echo = {"Percentage": 100.0}
+    assert cmd_edit_speed(_speed_ns(apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "re-reads 100.0 for 40.0" in out
+    assert "refusing to claim it" in out
+
+
+# ── multicam: build writes, sync plans ───────────────────────────
+
+
+def _multicam_project():
+    cam_a = _PoolClip("camA.mp4", {"Type": "Video",
+                                   "File Path": "/footage/camA.mp4"})
+    cam_b = _PoolClip("camB.mp4", {"Type": "Video",
+                                   "File Path": "/footage/camB.mp4"})
+    root = _Folder("root", clips=[cam_a, cam_b])
+    project = _Project("Podcast (field test)", [], None,
+                       pool=_MediaPool(root))
+    return project
+
+
+@pytest.fixture()
+def multicam_patched(monkeypatch):
+    project = _multicam_project()
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    return project
+
+
+def test_multicam_build_dry_run_plans(multicam_patched, capsys):
+    assert cmd_multicam_build(_ns(
+        project="", clip=["camA.mp4", "camB.mp4"], bin="",
+        name="probe-mc", sync="audio", apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "multicam_plan" in out
+    assert "probe-mc" in out
+    assert "dry run" in out
+
+
+def test_multicam_build_apply_verifies_the_listing(multicam_patched,
+                                                   capsys):
+    assert cmd_multicam_build(_ns(
+        project="", clip=["camA.mp4", "camB.mp4"], bin="",
+        name="probe-mc", sync="audio", apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "listed on re-read" in out
+    assert "probe-mc" in out
+
+
+def test_multicam_build_refuses_when_nothing_lists(multicam_patched,
+                                                   capsys):
+    """CreateMulticamClip answers [] while listing nothing: the
+    verb refuses rather than claim a multicam clip."""
+    multicam_patched._pool._multicam_none = True
+    assert cmd_multicam_build(_ns(
+        project="", clip=["camA.mp4", "camB.mp4"], bin="",
+        name="probe-mc", sync="audio", apply=True)) == 1
+    assert "not in the pool on re-read" in capsys.readouterr().out
+
+
+def test_multicam_build_refuses_a_missing_sync_enum(
+        multicam_patched, monkeypatch, capsys):
+    """A guessed sync mode is worse than a refused one: without the
+    live constant the verb names it and stops."""
+    import library.tools.marker_feedback as feedback  # noqa: F401
+    resolve = resolve_axi._connect()
+    del resolve.MULTICAM_ANGLE_SYNC_AUDIO
+    monkeypatch.setattr(resolve_axi, "_connect", lambda: resolve)
+    assert cmd_multicam_build(_ns(
+        project="", clip=["camA.mp4", "camB.mp4"], bin="",
+        name="probe-mc", sync="audio", apply=True)) == 1
+    assert "MULTICAM_ANGLE_SYNC_AUDIO" in capsys.readouterr().out
+
+
+def test_multicam_sync_apply_refuses_without_a_readback(
+        multicam_patched, capsys):
+    """AutoSyncAudio returns a bare bool with no measured property
+    to re-read: --apply refuses naming that, the dry run plans."""
+    assert cmd_multicam_sync(_ns(
+        project="", clip=["camA.mp4", "camB.mp4"], bin="",
+        mode="waveform", apply=False)) == 0
+    assert "sync_plan" in capsys.readouterr().out
+    assert cmd_multicam_sync(_ns(
+        project="", clip=["camA.mp4", "camB.mp4"], bin="",
+        mode="waveform", apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "no measured property to re-read" in out
+    assert "hands probe" in out
+
+
+# ── color: node LUTs and group assignment ────────────────────────
+
+
+def test_color_lut_dry_run_plans(edit_patched, capsys):
+    assert cmd_color_lut(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, lut="Film Looks/Rec709 Kodak 2383 D65.cube", node=1,
+        apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "lut_plan" in out
+    assert "Rec709" in out
+
+
+def test_color_lut_apply_verifies_by_reread(edit_patched, capsys):
+    assert cmd_color_lut(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, lut="Film Looks/Rec709 Kodak 2383 D65.cube", node=1,
+        apply=True)) == 0
+    assert "re-reads the LUT" in capsys.readouterr().out
+
+
+def test_color_lut_refuses_a_silent_set(edit_patched, capsys):
+    """SetLUT answers False while setting nothing: the verb refuses
+    naming the node and path."""
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][0].GetNodeGraph()._set_refuse = True
+    assert cmd_color_lut(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, lut="Film Looks/x.cube", node=1,
+        apply=True)) == 1
+    assert "answered False" in capsys.readouterr().out
+
+
+def test_color_lut_refuses_a_disagreeing_reread(edit_patched,
+                                                capsys):
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][0].GetNodeGraph()._lut_echo = "other.cube"
+    assert cmd_color_lut(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, lut="Film Looks/x.cube", node=1,
+        apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "refusing to claim it" in out
+    assert "other.cube" in out
+
+
+def test_color_lut_refuses_without_a_graph(edit_patched, capsys):
+    edit_patched["timeline"]._tracks[("video", 1)][
+        "items"][0]._no_graph = True
+    assert cmd_color_lut(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, lut="Film Looks/x.cube", node=1,
+        apply=True)) == 1
+    assert "no node graph" in capsys.readouterr().out
+
+
+def test_color_group_create_assigns_verified(edit_patched, capsys):
+    assert cmd_color_group(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, group="probe-A", create=True, apply=True)) == 0
+    assert "re-reads the name" in capsys.readouterr().out
+
+
+def test_color_group_refuses_an_unknown_group(edit_patched, capsys):
+    assert cmd_color_group(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, group="nope", create=False, apply=True)) == 1
+    assert "--create" in capsys.readouterr().out
+
+
+def test_color_group_refuses_a_silent_assign(edit_patched, capsys):
+    """AssignToColorGroup answers True while grouping nothing: the
+    re-read disagrees and the verb refuses naming both."""
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    items[0]._group_echo = None
+    assert cmd_color_group(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, group="probe-A", create=True, apply=True)) == 1
+    assert "refusing to claim it" in capsys.readouterr().out
+
+
+# ── audio isolate: per-track voice isolation ─────────────────────
+
+
+def test_isolate_dry_run_plans(edit_patched, capsys):
+    assert cmd_audio_isolate(_ns(
+        project="", timeline="Reel 29 - salvage", track=1,
+        amount=60, disable=False, apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "isolate_plan" in out
+    assert "audio1" in out
+
+
+def test_isolate_apply_verifies_by_reread(edit_patched, capsys):
+    assert cmd_audio_isolate(_ns(
+        project="", timeline="Reel 29 - salvage", track=1,
+        amount=60, disable=False, apply=True)) == 0
+    assert "re-reads equal" in capsys.readouterr().out
+
+
+def test_isolate_refuses_a_false_answer(edit_patched, capsys):
+    edit_patched["timeline"]._voice_refuse = True
+    assert cmd_audio_isolate(_ns(
+        project="", timeline="Reel 29 - salvage", track=1,
+        amount=60, disable=False, apply=True)) == 1
+    assert "answered False" in capsys.readouterr().out
+
+
+def test_isolate_refuses_a_disagreeing_reread(edit_patched, capsys):
+    """True with isolation still off on re-read is a refusal naming
+    both states."""
+    edit_patched["timeline"]._voice_echo = {"isEnabled": False,
+                                            "amount": 0}
+    assert cmd_audio_isolate(_ns(
+        project="", timeline="Reel 29 - salvage", track=1,
+        amount=60, disable=False, apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "refusing to claim it" in out
+
+
+def test_isolate_refuses_a_missing_track(edit_patched, capsys):
+    assert cmd_audio_isolate(_ns(
+        project="", timeline="Reel 29 - salvage", track=9,
+        amount=60, disable=False, apply=True)) == 1
+    assert "names nothing" in capsys.readouterr().out
+
+
+# ── run: the 21.1 mutators refuse by default ─────────────────────
+
+
+def test_run_refuses_21_1_mutators_by_default(patched, capsys):
+    """Perform/Transcribe/Auto/Assign/Smart/Detect/Generate calls
+    are writes: `run` refuses them without --unsafe like every
+    other mutator."""
+    assert cmd_run(_run_ns(
+        script="x = item.PerformMulticamSmartSwitch\n"
+               "result = {'switched': True}")) == 1
+    assert "PerformMulticamSmartSwitch" in capsys.readouterr().out
+    assert cmd_run(_run_ns(
+        script="x = pool.AutoSyncAudio\n"
+               "result = {'synced': True}")) == 1
+    assert "AutoSyncAudio" in capsys.readouterr().out
+    assert cmd_run(_run_ns(
+        script="x = item.AssignToColorGroup\n"
+               "result = {'grouped': True}")) == 1
+    assert "AssignToColorGroup" in capsys.readouterr().out

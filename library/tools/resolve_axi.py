@@ -23,15 +23,24 @@ project), `project` (identity plus the delivery-relevant settings),
 `audio` (audio tracks with enable state and clip counts), `run`
 (the cheap escape hatch: a caller script with ready Resolve names
 in scope, its `result` rendered as TOON rows), and the write verbs:
-`edit place|trim|move|delete|title` (reel items, cursor-asserted),
-`edit transition` (carriers reported; the write refused to the
-build), `ingest` (pool imports), `render queue|start|stop`,
+`edit place|trim|move|delete|title|speed` (reel items,
+cursor-asserted), `edit transition` (carriers reported; native
+`AddTransition` writes behind `--apply`, verified by the returned
+transition item), `multicam build|sync` (pool multicam clips from
+source clips; build verified by the pool listing, sync planned with
+`--apply` refused until a read-back is measured), `color lut|group`
+(node LUTs and color-group assignment, both verified by re-read),
+`audio isolate` (per-track voice isolation, verified by re-read),
+`ingest` (pool imports), `render queue|start|stop`,
 `project set` (one setting), `timeline duplicate` (versioning).
 
 Safety shape, stated once:
 
-- Every command here is READ-ONLY except `markers restore --apply`,
-  `markers reply --apply`, and `run --unsafe`.
+- Every command here is READ-ONLY except the write verbs behind
+  `--apply` (`markers restore`, `markers reply`, `edit *`,
+  `multicam build`, `color lut|group`, `audio isolate`, `ingest`,
+  `render queue|start|stop`, `project set`, `timeline duplicate`)
+  and `run --unsafe`.
 - Nothing here opens or creates a project or timeline, and nothing
   moves the current-timeline cursor: listing and reading go through
   `GetTimelineByIndex`, never `SetCurrentTimeline`. Opening something
@@ -99,7 +108,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
 
@@ -2119,12 +2128,18 @@ def _readable(item) -> bool:
 #: Reads in this API are `Get*`; every mutator starts with one of
 #: these prefixes, so the rule is a prefix match rather than an
 #: enumeration of an open-ended API: owning the serialization cost
-#: does not require listing what the scripting API can do.
+#: does not require listing what the scripting API can do. The
+#: second row covers the 21.1 mutators outside Set/Add/Create:
+#: PerformMulticamSmartSwitch, FlattenMulticam, TranscribeAudio,
+#: AssignToColorGroup, AutoSyncAudio, SmartReframe, DetectSceneCuts
+#: and GenerateSpeech would otherwise read as plain calls.
 _RUN_WRITE_PREFIXES = ("Set", "Add", "Create", "Delete", "Import",
                        "Move", "Update", "Apply", "Replace", "Remove",
                        "Clear", "Load", "Close", "Open", "Duplicate",
                        "Start", "Stop", "Copy", "Paste", "Undo", "Save",
-                       "Export", "Render", "Grab")
+                       "Export", "Render", "Grab", "Perform", "Flatten",
+                       "Transcribe", "Assign", "Auto", "Smart",
+                       "Detect", "Generate")
 
 #: What a `run` script may assume in scope. This list is exact: the
 #: script is `exec`d with exactly these names (plus what Python puts
@@ -3146,21 +3161,162 @@ def cmd_edit_title(args) -> int:
             f"{TOOL} items --timeline \"{timeline.GetName()}\"")
 
 
-def cmd_edit_transition(args) -> int:
-    """Where a drawn transition can sit - and the write it refuses.
+def cmd_edit_speed(args) -> int:
+    """Set one item's constant playback speed, verified by re-read.
 
-    A drawn transition is a tail on the outgoing V1 clip and a head
-    on the next one, drawn by the pipeline build per clip. This verb
-    reports every cut that can carry one. `--apply` is refused on
-    purpose: placing the Fusion comp live needs the isolated import
-    process plus a live-verified comp, neither of which a blind write
-    may assume - transitions reach timelines through the build.
+    `SetSpeed` takes a constant percentage only (0.0 = freeze frame):
+    the 21.1 stub carries no speed-curve API, so a ramp request is
+    refused rather than rounded to a constant. `--freeze` spells the
+    0.0 case out loud; `--percent 0` is refused so a freeze is never
+    a typo. The read-back is `GetSpeed`'s Percentage, compared with
+    a 1e-6 tolerance - a disagreeing re-read fails, and a build
+    without `GetSpeed` fails naming it rather than claiming the
+    write off the True alone. Measured 2026-09-24: 40% re-reads
+    40.0 with the timeline rippled, and 0.0 re-reads 0.0 on a fresh
+    item; 0.0 after a rippled speed change re-reads 100.0 (the
+    pixels still freeze), and that case refuses here.
     """
     try:
         resolve = _connect()
     except AxiError as exc:
         return fail(str(exc), exc.fix)
-    with _lease(exclusive=False):
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        percent = getattr(args, "percent", None)
+        freeze = bool(getattr(args, "freeze", False))
+        if freeze and percent is not None:
+            return fail("pass --freeze or --percent, not both.",
+                        f"{TOOL} edit speed --help")
+        if freeze:
+            percent = 0.0
+        if percent is None:
+            return fail("speed needs --percent <pct> or --freeze.",
+                        f"{TOOL} edit speed --help")
+        try:
+            percent = float(percent)
+        except (TypeError, ValueError):
+            return fail(f"bad --percent {percent!r}: a number.",
+                        f"{TOOL} edit speed --help")
+        if percent <= 0.0 and not freeze:
+            return fail(f"--percent {percent} would freeze: pass "
+                        f"--freeze to say so out loud.",
+                        f"{TOOL} edit speed --help")
+        ripple = bool(getattr(args, "ripple", False))
+        try:
+            current_opts = item.GetSpeed()
+            current = (current_opts or {}).get("Percentage", "")
+        except AttributeError:
+            current = "(GetSpeed absent on this build)"
+        except Exception:
+            current = ""
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("speed_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "name": span["name"],
+                      "current_percent": current,
+                      "percent": percent,
+                      "ripple": "yes" if ripple else "no",
+                      "note": ("constant speed only - the 21.1 stub "
+                               "carries no speed-curve API"),
+                  }),
+                  note,
+                  f"dry run - pass --apply to write under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} edit speed --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--percent {percent} --apply"])])
+            return 0
+        try:
+            wrote = bool(item.SetSpeed({"Percentage": percent,
+                                        "RippleTimeline": ripple}))
+        except Exception as exc:
+            return fail(f"SetSpeed raised ({exc}) - verify by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not wrote:
+            return fail(
+                f"SetSpeed({percent}%) answered False on "
+                f"{span['name']!r} - nothing was claimed.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        try:
+            back_opts = item.GetSpeed()
+        except AttributeError:
+            return fail(
+                f"SetSpeed answered True but this build has no "
+                f"GetSpeed to re-read - refusing to claim it.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        except Exception as exc:
+            return fail(f"the speed re-read raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            back = float((back_opts or {}).get("Percentage"))
+        except (TypeError, ValueError):
+            return fail(
+                f"SetSpeed answered True but GetSpeed re-reads "
+                f"{back_opts!r} - refusing to claim it.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if abs(back - percent) > 1e-6:
+            return fail(
+                f"SetSpeed reports True and re-reads {back} for "
+                f"{percent} - refusing to claim it.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        emit([kv_block("speed", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "percent": percent,
+                  "ripple": "yes" if ripple else "no",
+                  "verified": "yes (GetSpeed re-reads equal)",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def cmd_edit_transition(args) -> int:
+    """Native transitions at a V1 cut, verified by the returned item.
+
+    Without `--apply` this reports every cut that can carry one,
+    and with `--index` it plans the exact `AddTransition` payload.
+    With `--apply` it places Resolve's OWN transition (simple,
+    fusion, ofx or audio - measured 2026-09-24: Cross Dissolve in
+    simple and fusion, Slide and Smooth Cut in simple, Spin in
+    fusion, and Cross Fade +3 dB in audio read back; Dip to Color
+    Dissolve, Push, Whip Pan, Blur Dissolve and Cross Fade -3 dB
+    answered empty) at the indexed clip's edge and judges the write
+    by what comes back: `AddTransition` returns the transition item
+    or None, so an empty answer refuses naming the type and category
+    tried, and a returned item whose span will not read refuses
+    naming that. The drawn Fusion-comp transitions (fade_to_black
+    and friends) still reach timelines through the pipeline build
+    (compile_manifest + apply_fusion_comps), never through here.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=bool(getattr(args, "apply", False))):
         project = _project(resolve, args.project)
         try:
             timeline, is_current, note = _target_timeline(
@@ -3183,25 +3339,147 @@ def cmd_edit_transition(args) -> int:
                 continue
             rows.append({"cut": cut, "outgoing": outgoing,
                          "incoming": incoming})
-    if args.apply:
-        return fail(
-            f"{len(rows)} carrier cut(s) found, none written: live "
-            f"Fusion-comp placement needs the isolated import "
-            f"process and a live-verified comp - transitions reach "
-            f"timelines through the pipeline build "
-            f"(compile_manifest + apply_fusion_comps).",
-            f"{TOOL} edit transition --timeline "
-            f"\"{timeline.GetName()}\"")
-    emit([kv_block("carriers", {
-              "timeline": timeline.GetName() +
-              (" (current)" if is_current else ""),
-              "cuts": len(rows),
-          }),
-          note,
-          table("cuts", rows, ["cut", "outgoing", "incoming"]),
-          help_block([f"{TOOL} items --timeline "
-                      f"\"{timeline.GetName()}\""])])
-    return 0
+        index = getattr(args, "index", None)
+        want_type = getattr(args, "type", None) or "Cross Dissolve"
+        category = getattr(args, "category", None) or "simple"
+        position = getattr(args, "position", None) or "start"
+        alignment = getattr(args, "alignment", None) or "center"
+        duration = getattr(args, "duration", None)
+        apply = bool(getattr(args, "apply", False))
+        if category not in ("simple", "fusion", "ofx", "audio"):
+            return fail(
+                f"bad category {category!r}: simple|fusion|ofx|audio.",
+                f"{TOOL} edit transition --help")
+        if position not in ("start", "end"):
+            return fail(f"bad position {position!r}: start|end.",
+                        f"{TOOL} edit transition --help")
+        if alignment not in ("left", "center", "right"):
+            return fail(f"bad alignment {alignment!r}: "
+                        f"left|center|right.",
+                        f"{TOOL} edit transition --help")
+        if duration is not None and duration < 1:
+            return fail(f"bad duration {duration!r}: frames, >= 1.",
+                        f"{TOOL} edit transition --help")
+        if index is None and not apply:
+            emit([kv_block("carriers", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "cuts": len(rows),
+                  }),
+                  note,
+                  table("cuts", rows, ["cut", "outgoing", "incoming"]),
+                  help_block([f"{TOOL} items --timeline "
+                              f"\"{timeline.GetName()}\""])])
+            return 0
+        if index is None:
+            return fail(
+                f"{len(rows)} carrier cut(s) found - name the incoming "
+                f"V1 clip with --index (0-based) so the write cannot "
+                f"land on the wrong cut.",
+                f"{TOOL} edit transition --timeline "
+                f"\"{timeline.GetName()}\"")
+        if index < 0 or index >= len(clips):
+            return fail(
+                f"V1 holds {len(clips)} item(s) - index {index} names "
+                f"nothing.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if position == "start" and index < 1:
+            return fail(
+                f"a transition at the START of V1 item 0 joins "
+                f"nothing - index 1 or later carries the cut.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        if position == "end" and index > len(clips) - 2:
+            return fail(
+                f"a transition at the END of the last V1 item trails "
+                f"onto nothing.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        try:
+            item = clips[index]
+            item_name = item.GetName()
+            neighbour = (clips[index - 1].GetName()
+                         if position == "start"
+                         else clips[index + 1].GetName())
+            cut = (clips[index - 1].GetEnd()
+                   if position == "start" else item.GetEnd())
+        except Exception as exc:
+            return fail(f"the cut would not read ({exc}) - nothing "
+                        f"was written.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        payload = {"type": want_type, "category": category,
+                   "position": position, "alignment": alignment}
+        if duration is not None:
+            payload["duration"] = duration
+        if not apply:
+            emit([kv_block("transition_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "cut": cut,
+                      "outgoing": (neighbour if position == "start"
+                                   else item_name),
+                      "incoming": (item_name if position == "start"
+                                   else neighbour),
+                      "type": want_type,
+                      "category": category,
+                      "position": position,
+                      "alignment": alignment,
+                      "duration": (duration if duration is not None
+                                   else "(Resolve default)"),
+                  }),
+                  note,
+                  f"dry run - pass --apply to place under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} edit transition --timeline "
+                      f"\"{timeline.GetName()}\" --index {index} "
+                      f"--type \"{want_type}\" --category {category} "
+                      f"--apply"])])
+            return 0
+        try:
+            _assert_cursor_on(resolve, timeline.GetName())
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            placed = item.AddTransition(dict(payload))
+        except Exception as exc:
+            return fail(f"AddTransition raised ({exc}) - verify by "
+                        f"hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if placed is None or placed is False:
+            return fail(
+                f"AddTransition({want_type!r}, {category!r}) answered "
+                f"empty on {item_name!r} - the type or category took "
+                f"nothing on this build (Cross Dissolve in simple and "
+                f"fusion is the proven pair; a clip starting at "
+                f"source 0 has no head handles for a centered "
+                f"transition).",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        try:
+            tr_span = {"name": placed.GetName(),
+                       "record_in": placed.GetStart(),
+                       "record_out": placed.GetEnd(),
+                       "duration": placed.GetDuration()}
+        except Exception as exc:
+            return fail(
+                f"AddTransition answered, but the transition item "
+                f"would not read its span ({exc}) - refusing to "
+                f"claim it.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        emit([kv_block("transition", {
+                  "timeline": timeline.GetName(),
+                  "cut": cut,
+                  "type": want_type,
+                  "category": category,
+                  "transition": tr_span["name"],
+                  "duration": tr_span["duration"],
+                  "verified": "yes (returned a transition item "
+                  "whose span reads)",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
 
 
 def _current_folder_name(pool) -> str:
@@ -3679,6 +3957,620 @@ def cmd_timeline_duplicate(args) -> int:
         return 0
 
 
+# ── native Resolve 21.1 verbs: multicam, color, voice isolation ──
+#
+# Each op the fidelity probe ranked as reading back is a verb here
+# in the same discipline as the edit writes: dry-run default,
+# `--apply` writes, timeline-scoped writes assert the cursor and
+# hold the lease exclusive, and the read-back decides. An op with
+# no measured read-back (`multicam sync`) plans but refuses
+# `--apply`, naming the missing measurement instead of claiming a
+# write off the return value alone.
+
+
+#: `--sync` names onto the resolve.* angle-sync constants. The enum
+#: lives on the live Resolve object, so a build without it refuses
+#: naming the constant rather than sending a guessed value.
+_MULTICAM_SYNCS = {
+    "audio": "MULTICAM_ANGLE_SYNC_AUDIO",
+    "timecode": "MULTICAM_ANGLE_SYNC_TIMECODE",
+    "in": "MULTICAM_ANGLE_SYNC_IN",
+    "out": "MULTICAM_ANGLE_SYNC_OUT",
+    "marker": "MULTICAM_ANGLE_SYNC_MARKER",
+}
+
+#: `--mode` names onto the resolve.* audio-sync constants, same
+#: shape as the multicam sync modes above.
+_AUDIO_SYNC_MODES = {
+    "waveform": "AUDIO_SYNC_WAVEFORM",
+    "timecode": "AUDIO_SYNC_TIMECODE",
+}
+
+
+def _pool_names(pool) -> list:
+    """Every clip name in the pool, bins walked. Best effort per
+    folder: a folder that will not read is skipped, never fatal."""
+    names: list = []
+
+    def visit(folder) -> None:
+        try:
+            clips = folder.GetClipList() or []
+        except Exception:
+            clips = []
+        for clip in clips:
+            try:
+                names.append(clip.GetName())
+            except Exception:
+                continue
+        try:
+            subs = folder.GetSubFolderList() or []
+        except Exception:
+            subs = []
+        for sub in subs:
+            visit(sub)
+
+    try:
+        visit(pool.GetRootFolder())
+    except Exception:
+        pass
+    return names
+
+
+def cmd_multicam_build(args) -> int:
+    """Build a multicam clip from pool clips, verified by listing.
+
+    `CreateMulticamClip` answers the new pool items; the write is
+    claimed only when the named clip lists on re-read. The sync
+    mode is an explicit `--sync` (audio sync is the probe's ground
+    truth); the enum is read off live Resolve, and a build without
+    it refuses naming the constant. This is project-scoped, so the
+    cursor is reported before and after rather than asserted.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        wanted = [c for c in (args.clip or []) if c]
+        if len(wanted) < 2:
+            return fail("multicam build needs at least two --clip "
+                        "names (repeatable).",
+                        f"{TOOL} multicam build --help")
+        if not args.name:
+            return fail("multicam build needs --name (the read-back "
+                        "is the name listing on re-read).",
+                        f"{TOOL} multicam build --help")
+        sync = args.sync or "timecode"
+        if sync not in _MULTICAM_SYNCS:
+            return fail(
+                f"bad --sync {sync!r}: "
+                f"{'|'.join(sorted(_MULTICAM_SYNCS))}.",
+                f"{TOOL} multicam build --help")
+        try:
+            pool = project.GetMediaPool()
+        except Exception as exc:
+            return fail(f"project {project.GetName()!r} would not open "
+                        f"its media pool ({exc}).",
+                        f"{TOOL} cursor")
+        items = []
+        for name in wanted:
+            try:
+                clip, _row = _pool_find_clip(project, name,
+                                             args.bin or "")
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+            items.append(clip)
+        const_name = _MULTICAM_SYNCS[sync]
+        try:
+            sync_const = getattr(resolve, const_name)
+        except AttributeError:
+            return fail(
+                f"this Resolve build has no {const_name} - refusing "
+                f"to send a guessed sync mode.",
+                f"{TOOL} multicam build --help")
+        options = {"name": args.name, "angleSyncMode": sync_const}
+        before = _cursor_name(resolve)
+        if not args.apply:
+            emit([kv_block("multicam_plan", {
+                      "project": project.GetName(),
+                      "name": args.name,
+                      "sync": sync,
+                      "clips": len(items),
+                      "cursor": before,
+                  }),
+                  table("sources", [{"clip": n} for n in wanted],
+                        ["clip"]),
+                  f"dry run - pass --apply to build under the "
+                  f"Resolve lease",
+                  help_block([
+                      f"{TOOL} multicam build "
+                      f"{' '.join('--clip ' + n for n in wanted)} "
+                      f"--name \"{args.name}\" --sync {sync} "
+                      f"--apply"])])
+            return 0
+        try:
+            created = pool.CreateMulticamClip(items, options) or []
+        except Exception as exc:
+            return fail(f"CreateMulticamClip raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} pool")
+        made = []
+        for entry in created:
+            try:
+                made.append(entry.GetName())
+            except Exception:
+                continue
+        listed = _pool_names(pool)
+        after = _cursor_name(resolve)
+        if args.name not in listed:
+            return fail(
+                f"CreateMulticamClip returned {len(made)} item(s) "
+                f"({made}) but {args.name!r} is not in the pool on "
+                f"re-read - verify by hand.",
+                f"{TOOL} pool")
+        emit([kv_block("multicam", {
+                  "project": project.GetName(),
+                  "name": args.name,
+                  "sync": sync,
+                  "cursor_before": before,
+                  "cursor_after": after,
+                  "verified": "yes (named clip listed on re-read; "
+                  "sync quality is judged on pixels, not here)",
+              }),
+              table("created", [{"clip": n} for n in made], ["clip"]),
+              help_block([f"{TOOL} pool"])])
+        return 0
+
+
+def cmd_multicam_sync(args) -> int:
+    """Plan an audio-sync pass; `--apply` is refused on purpose.
+
+    `AutoSyncAudio` returns a bare bool with no property the lane
+    has measured to re-read, so claiming a sync off True would be
+    the True-that-did-nothing shape this tool refuses everywhere
+    else. The dry run plans the exact call (clips plus mode); the
+    write waits on the hands probe ranking a read-back for it.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        wanted = [c for c in (args.clip or []) if c]
+        if len(wanted) < 2:
+            return fail("multicam sync needs at least two --clip "
+                        "names (repeatable: video plus audio).",
+                        f"{TOOL} multicam sync --help")
+        mode = args.mode or "waveform"
+        if mode not in _AUDIO_SYNC_MODES:
+            return fail(f"bad --mode {mode!r}: waveform|timecode.",
+                        f"{TOOL} multicam sync --help")
+        try:
+            pool = project.GetMediaPool()
+        except Exception as exc:
+            return fail(f"project {project.GetName()!r} would not open "
+                        f"its media pool ({exc}).",
+                        f"{TOOL} cursor")
+        items = []
+        for name in wanted:
+            try:
+                clip, _row = _pool_find_clip(project, name,
+                                             args.bin or "")
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+            items.append(clip)
+        const_name = _AUDIO_SYNC_MODES[mode]
+        try:
+            getattr(resolve, const_name)
+        except AttributeError:
+            return fail(
+                f"this Resolve build has no {const_name} - refusing "
+                f"to plan against a guessed sync mode.",
+                f"{TOOL} multicam sync --help")
+    if args.apply:
+        return fail(
+            f"{len(items)} clip(s) planned for AutoSyncAudio "
+            f"({mode}), none synced: the call returns a bare bool "
+            f"with no measured property to re-read, so --apply "
+            f"waits on the hands probe ranking a read-back.",
+            f"{TOOL} pool")
+    emit([kv_block("sync_plan", {
+              "project": project.GetName(),
+              "mode": mode,
+              "clips": len(items),
+          }),
+          table("sources", [{"clip": n} for n in wanted], ["clip"]),
+          "dry run - --apply is refused until the hands probe "
+          "measures a read-back for AutoSyncAudio",
+          help_block([f"{TOOL} pool"])])
+    return 0
+
+
+def cmd_color_lut(args) -> int:
+    """Set a node LUT on one item, verified by re-read.
+
+    The LUT path is Resolve's own shelf path (e.g. "Film Looks/..."),
+    passed verbatim - this verb never guesses a local file onto it.
+    `SetLUT` is judged by `GetLUT` on the same node: the getter
+    answers the RELATIVE path, so equality or a trailing match
+    verifies, and anything else fails naming both strings. A
+    missing node graph, an out-of-range node, or a False answer
+    each refuse naming what failed.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        if not args.lut:
+            return fail("color lut needs --lut <Resolve LUT path>.",
+                        f"{TOOL} color lut --help")
+        node = args.node if args.node is not None else 1
+        try:
+            graph = item.GetNodeGraph()
+        except AttributeError:
+            return fail(
+                f"{span['name']!r} exposes no node graph on this "
+                f"build - nothing was written.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        except Exception as exc:
+            return fail(f"the node graph would not open ({exc}) - "
+                        f"nothing was written.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if graph is None:
+            return fail(f"{span['name']!r} has no node graph - "
+                        f"nothing was written.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            count = graph.GetNumNodes()
+        except Exception as exc:
+            return fail(f"the node graph would not count its nodes "
+                        f"({exc}) - nothing was written.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if node < 1 or (isinstance(count, int) and node > count):
+            return fail(f"node {node} is outside 1..{count} on "
+                        f"{span['name']!r} - nothing was written.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            current = graph.GetLUT(node)
+        except Exception:
+            current = ""
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("lut_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "name": span["name"],
+                      "node": node,
+                      "current": current or "(none)",
+                      "lut": args.lut,
+                  }),
+                  note,
+                  f"dry run - pass --apply to write under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} color lut --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--lut \"{args.lut}\" --apply"])])
+            return 0
+        try:
+            wrote = bool(graph.SetLUT(node, args.lut))
+        except Exception as exc:
+            return fail(f"SetLUT raised ({exc}) - verify by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not wrote:
+            return fail(f"SetLUT(node {node}, {args.lut!r}) answered "
+                        f"False on {span['name']!r} - nothing was "
+                        f"claimed.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            back = graph.GetLUT(node)
+        except Exception as exc:
+            return fail(f"the LUT re-read raised ({exc}) - verify by "
+                        f"hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not back or (back != args.lut
+                        and not args.lut.endswith("/" + str(back))):
+            return fail(
+                f"SetLUT reports True and re-reads {back!r} for "
+                f"{args.lut!r} - refusing to claim it.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        emit([kv_block("lut", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "node": node,
+                  "lut": args.lut,
+                  "verified": "yes (GetLUT re-reads the LUT)",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def cmd_color_group(args) -> int:
+    """Assign one item to a color group, verified by re-read.
+
+    Without `--create` the group must already exist (listed by
+    `GetColorGroupsList` and matched by exact name); with it the
+    verb creates the group first. Either way the write is claimed
+    only when the item's `GetColorGroup` re-reads the same name -
+    a True that grouped nothing fails naming both.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        if not args.group:
+            return fail("color group needs --group <name>.",
+                        f"{TOOL} color group --help")
+        try:
+            current_group = item.GetColorGroup()
+            current = (current_group.GetName()
+                       if current_group is not None else "(none)")
+        except Exception:
+            current = ""
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("group_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "name": span["name"],
+                      "current": current or "(none)",
+                      "group": args.group,
+                      "create": ("yes" if args.create else "no"),
+                  }),
+                  note,
+                  f"dry run - pass --apply to write under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} color group --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--group \"{args.group}\""
+                      f"{' --create' if args.create else ''} "
+                      f"--apply"])])
+            return 0
+        group = None
+        if args.create:
+            try:
+                group = project.AddColorGroup(args.group)
+            except Exception as exc:
+                return fail(f"AddColorGroup raised ({exc}) - nothing "
+                            f"was written.",
+                            f"{TOOL} cursor")
+            if group is None or group is False:
+                return fail(
+                    f"AddColorGroup({args.group!r}) answered empty - "
+                    f"nothing was written.",
+                    f"{TOOL} cursor")
+        else:
+            try:
+                groups = project.GetColorGroupsList() or []
+            except AttributeError:
+                return fail(
+                    "this build lists no color groups - pass "
+                    "--create to make one.",
+                    f"{TOOL} color group --help")
+            except Exception as exc:
+                return fail(f"the group list would not read ({exc}) "
+                            f"- nothing was written.",
+                            f"{TOOL} cursor")
+            for candidate in groups:
+                try:
+                    if candidate.GetName() == args.group:
+                        group = candidate
+                        break
+                except Exception:
+                    continue
+            if group is None:
+                return fail(
+                    f"no color group {args.group!r} - pass --create "
+                    f"to make it rather than grouping nowhere.",
+                    f"{TOOL} color group --help")
+        try:
+            wrote = bool(item.AssignToColorGroup(group))
+        except Exception as exc:
+            return fail(f"AssignToColorGroup raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if not wrote:
+            return fail(
+                f"AssignToColorGroup({args.group!r}) answered False "
+                f"on {span['name']!r} - nothing was claimed.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        try:
+            back_group = item.GetColorGroup()
+            back = (back_group.GetName()
+                    if back_group is not None else None)
+        except Exception as exc:
+            return fail(f"the group re-read raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if back != args.group:
+            return fail(
+                f"AssignToColorGroup reports True and re-reads "
+                f"{back!r} for {args.group!r} - refusing to claim it.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        emit([kv_block("grouped", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "group": args.group,
+                  "verified": "yes (GetColorGroup re-reads the name)",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def cmd_audio_isolate(args) -> int:
+    """Set one audio track's voice isolation, verified by re-read.
+
+    The state is `{isEnabled, amount}` with amount in 0..100;
+    `--disable` writes isEnabled False. The write is claimed only
+    when `GetVoiceIsolationState` re-reads the same enabled flag
+    (and the same amount when enabled) - a True that isolated
+    nothing fails naming both. The per-clip variant
+    (`TimelineItem.SetVoiceIsolationState`) stays out: the probe
+    ranks the track call first.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        track = args.track
+        if track is None or track < 1:
+            return fail("isolate needs --track <audio track number, "
+                        "from 1>.",
+                        f"{TOOL} audio --timeline "
+                        f"\"{timeline.GetName()}\" --full")
+        try:
+            count = timeline.GetTrackCount("audio") or 0
+        except Exception as exc:
+            return fail(f"timeline {timeline.GetName()!r} would not "
+                        f"report its audio tracks ({exc}).",
+                        f"{TOOL} timeline list")
+        if track > count:
+            return fail(f"timeline {timeline.GetName()!r} holds "
+                        f"{count} audio track(s) - track {track} "
+                        f"names nothing.",
+                        f"{TOOL} audio --timeline "
+                        f"\"{timeline.GetName()}\" --full")
+        amount = args.amount if args.amount is not None else 60
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return fail(f"bad --amount {args.amount!r}: 0..100.",
+                        f"{TOOL} audio isolate --help")
+        if amount < 0 or amount > 100:
+            return fail(f"bad --amount {amount}: 0..100.",
+                        f"{TOOL} audio isolate --help")
+        if args.disable:
+            state = {"isEnabled": False}
+        else:
+            state = {"isEnabled": True, "amount": amount}
+        try:
+            current = timeline.GetVoiceIsolationState(track)
+        except Exception:
+            current = None
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("isolate_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "track": f"audio{track}",
+                      "current": _voice_state(current),
+                      "state": ("off" if args.disable
+                                else f"on {amount}"),
+                  }),
+                  note,
+                  f"dry run - pass --apply to write under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} audio isolate --timeline "
+                      f"\"{timeline.GetName()}\" --track {track} "
+                      f"--amount {amount} --apply"])])
+            return 0
+        try:
+            wrote = bool(timeline.SetVoiceIsolationState(track,
+                                                         dict(state)))
+        except Exception as exc:
+            return fail(f"SetVoiceIsolationState raised ({exc}) - "
+                        f"verify by hand.",
+                        f"{TOOL} audio --timeline "
+                        f"\"{timeline.GetName()}\" --full")
+        if not wrote:
+            return fail(
+                f"SetVoiceIsolationState(audio{track}) answered "
+                f"False - nothing was claimed.",
+                f"{TOOL} audio --timeline "
+                f"\"{timeline.GetName()}\" --full")
+        try:
+            back = timeline.GetVoiceIsolationState(track) or {}
+        except Exception as exc:
+            return fail(f"the isolation re-read raised ({exc}) - "
+                        f"verify by hand.",
+                        f"{TOOL} audio --timeline "
+                        f"\"{timeline.GetName()}\" --full")
+        want_enabled = bool(state.get("isEnabled"))
+        if (bool(back.get("isEnabled")) != want_enabled
+                or (want_enabled
+                    and back.get("amount") != state["amount"])):
+            return fail(
+                f"SetVoiceIsolationState reports True and re-reads "
+                f"{back!r} for {state!r} - refusing to claim it.",
+                f"{TOOL} audio --timeline "
+                f"\"{timeline.GetName()}\" --full")
+        emit([kv_block("isolated", {
+                  "timeline": timeline.GetName(),
+                  "track": f"audio{track}",
+                  "state": ("off" if args.disable
+                            else f"on {state['amount']}"),
+                  "verified": "yes (re-reads equal)",
+              }),
+              note,
+              help_block([f"{TOOL} audio --timeline "
+                          f"\"{timeline.GetName()}\" --full"])])
+        return 0
+
+
 # ── setup / update ───────────────────────────────────────────────────
 
 
@@ -3773,6 +4665,11 @@ def build_parser() -> Parser:
   {TOOL} project
   {TOOL} audio --timeline "Reel 29"
   {TOOL} edit delete --timeline "Reel 29" --track video1 --index 0
+  {TOOL} edit speed --timeline "Reel 29" --track video1 --index 0 --percent 40
+  {TOOL} edit transition --timeline "Reel 29" --index 1 --type "Cross Dissolve"
+  {TOOL} multicam build --clip a.mov --clip b.mov --name "mc" --sync audio
+  {TOOL} color lut --timeline "Reel 29" --track video1 --index 0 --lut "Film Looks/x.cube"
+  {TOOL} audio isolate --timeline "Reel 29" --track 1 --amount 60
   {TOOL} ingest /footage/a.mov
   {TOOL} render queue --timeline "Reel 29" --preset "H.265 Master"
   {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
@@ -3879,15 +4776,41 @@ def build_parser() -> Parser:
                    help="the new title text (required)")
     q.set_defaults(func=cmd_edit_title)
 
-    q = esubs.add_parser("transition", help="cuts that can carry a "
-                                             "drawn transition (--apply "
-                                             "is refused: transitions "
-                                             "reach timelines through "
-                                             "the build)")
+    q = esubs.add_parser("transition", help="native transitions at "
+                                             "a V1 cut: carriers listed, "
+                                             "--apply places AddTransition")
     _add_scope(q, "transition")
+    q.add_argument("--index", default=None, type=int,
+                   help="incoming V1 clip, 0-based (the cut joins it to "
+                        "its neighbour; required for --apply)")
+    q.add_argument("--type", default="Cross Dissolve",
+                   help="transition type name (default Cross Dissolve)")
+    q.add_argument("--category", default="simple",
+                   help="simple|fusion|ofx|audio (default simple)")
+    q.add_argument("--position", default="start",
+                   help="start|end: the edge of the indexed clip "
+                        "(default start)")
+    q.add_argument("--alignment", default="center",
+                   help="left|center|right (default center)")
+    q.add_argument("--duration", default=None, type=int,
+                   help="duration in frames (else Resolve's default)")
     q.add_argument("--apply", action="store_true",
-                   help="refused with the build path")
+                   help="place under the Resolve lease with the cursor "
+                        "asserted (default lists carriers)")
     q.set_defaults(func=cmd_edit_transition)
+
+    q = esubs.add_parser("speed", help="constant clip speed (0.0 "
+                                      "freezes); --apply writes")
+    _edit_scope(q, "speed")
+    q.add_argument("--percent", default=None, type=float,
+                   help="speed in percent, e.g. 40.0 (--freeze for "
+                        "0.0, never 0 here)")
+    q.add_argument("--freeze", action="store_true",
+                   help="freeze frame (SetSpeed 0.0, said out loud)")
+    q.add_argument("--ripple", action="store_true",
+                   help="ripple the timeline (never defaulted - "
+                        "moves every later cut)")
+    q.set_defaults(func=cmd_edit_speed)
 
     p = subs.add_parser("ingest", help="import files into the pool's "
                                        "current folder; --apply writes")
@@ -4147,11 +5070,105 @@ def build_parser() -> Parser:
     q.set_defaults(func=cmd_project_set)
 
     p = subs.add_parser("audio", help="audio tracks: enable state and "
-                                      "clip counts (read-only)")
+                                      "clip counts (read-only); isolate "
+                                      "writes voice isolation")
     _add_scope(p, "audio")
     p.add_argument("--full", action="store_true",
                    help="add sub-type, lock and voice-isolation columns")
     p.set_defaults(func=cmd_audio)
+    asubs = p.add_subparsers(dest="audio_command")
+    q = asubs.add_parser("isolate", help="set a track's voice "
+                                        "isolation, verified by "
+                                        "re-read; --apply writes")
+    _add_scope(q, "isolate")
+    q.add_argument("--track", default=None, type=int,
+                   help="audio track number from 1 (required)")
+    q.add_argument("--amount", default=60, type=int,
+                   help="isolation amount 0..100 (default 60)")
+    q.add_argument("--disable", action="store_true",
+                   help="turn isolation off instead")
+    q.add_argument("--apply", action="store_true",
+                   help="write under the Resolve lease with the "
+                        "cursor asserted (default is a dry-run plan)")
+    q.set_defaults(func=cmd_audio_isolate)
+
+    p = subs.add_parser("multicam", help="multicam clips from pool "
+                                       "clips; build --apply writes, "
+                                       "sync plans only")
+    msubs = p.add_subparsers(dest="multicam_command", required=True)
+    q = msubs.add_parser("build", help="build a multicam clip, "
+                                      "verified by the pool listing; "
+                                      "--apply writes")
+    q.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    q.add_argument("--clip", default=[], action="append",
+                   help="source clip name, exact (repeatable, "
+                        "at least two)")
+    q.add_argument("--bin", default="",
+                   help="scope the clip search to bin path A/B/C")
+    q.add_argument("--name", default="",
+                   help="the multicam clip's name (required: the "
+                        "read-back is this name listing)")
+    q.add_argument("--sync", default="timecode",
+                   help="audio|timecode|in|out|marker (default "
+                        "timecode)")
+    q.add_argument("--apply", action="store_true",
+                   help="build under the Resolve lease (default is a "
+                        "dry-run plan)")
+    q.set_defaults(func=cmd_multicam_build)
+    q = msubs.add_parser("sync", help="plan an AutoSyncAudio pass "
+                                    "(--apply refused: no measured "
+                                    "read-back yet)")
+    q.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    q.add_argument("--clip", default=[], action="append",
+                   help="clip name, exact (repeatable: video plus "
+                        "audio, at least two)")
+    q.add_argument("--bin", default="",
+                   help="scope the clip search to bin path A/B/C")
+    q.add_argument("--mode", default="waveform",
+                   help="waveform|timecode (default waveform)")
+    q.add_argument("--apply", action="store_true",
+                   help="refused with the missing read-back named")
+    q.set_defaults(func=cmd_multicam_sync)
+
+    p = subs.add_parser("color", help="node LUTs and color groups, "
+                                     "verified by re-read; --apply "
+                                     "writes")
+    csubs = p.add_subparsers(dest="color_command", required=True)
+    q = csubs.add_parser("lut", help="set a node LUT on one item, "
+                                    "verified by re-read; --apply "
+                                    "writes")
+    _add_scope(q, "lut")
+    q.add_argument("--track", required=True,
+                   help="video1, audio2, ...")
+    q.add_argument("--index", required=True, type=int,
+                   help="position on the track, 0-based")
+    q.add_argument("--lut", default="",
+                   help="Resolve LUT path, e.g. \"Film Looks/...\" "
+                        "(required)")
+    q.add_argument("--node", default=1, type=int,
+                   help="node index from 1 (default 1)")
+    q.add_argument("--apply", action="store_true",
+                   help="write under the Resolve lease with the "
+                        "cursor asserted (default is a dry-run plan)")
+    q.set_defaults(func=cmd_color_lut)
+    q = csubs.add_parser("group", help="assign one item to a color "
+                                      "group, verified by re-read; "
+                                      "--apply writes")
+    _add_scope(q, "group")
+    q.add_argument("--track", required=True,
+                   help="video1, audio2, ...")
+    q.add_argument("--index", required=True, type=int,
+                   help="position on the track, 0-based")
+    q.add_argument("--group", default="",
+                   help="group name, exact (required)")
+    q.add_argument("--create", action="store_true",
+                   help="create the group first (else it must exist)")
+    q.add_argument("--apply", action="store_true",
+                   help="write under the Resolve lease with the "
+                        "cursor asserted (default is a dry-run plan)")
+    q.set_defaults(func=cmd_color_group)
 
     p = subs.add_parser("pool", help="every clip in the media pool, "
                                     "with the bin it sits in")
