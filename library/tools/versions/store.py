@@ -37,6 +37,20 @@ you check out the data and rebuild):
    ledgers in `pipeline_data.json`, the run id from provenance -
    and invents no new metadata.  A line is omitted when its source
    is absent rather than filled in.
+4. `stage_for_commit` stages TEXT ONLY.  The allow-list decides
+   which PATHS are versioned; `TEXT_SUFFIXES` plus a content sniff
+   decide which of those paths are committable text.  A versioned
+   binary (Resolve still PNGs and their unasked `.drx` sidecars
+   under `marker_feedback/stills/`, evidence stills under
+   `timeline_captures/`, anything binary a future step drops on a
+   versioned path) is never staged: it is recorded instead by
+   path, size and sha256 in `BINARY_MANIFEST_REL`, a text file
+   that IS committed, so a regenerated binary can be checked
+   against its hash with `verify_binary_manifest`.  A binary
+   tracked before this rule existed is `rm --cached` (the working
+   tree is untouched, history is untouched) and joins the
+   manifest.  D7 (2026-09-23): text only; binaries recorded by
+   hash and regenerated.
 
 Machine-local absolute paths are COMMITTED VERBATIM, deliberately:
 the repo is checkout-and-rebuild, so rewriting paths at commit time
@@ -60,6 +74,7 @@ stays an explicit act.
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import subprocess
@@ -170,6 +185,218 @@ BLIND_SPOT_TEXT = (
 def gitignore_body() -> str:
     """Render the allow-list .gitignore."""
     return GITIGNORE_HEADER + "*\n" + "".join(f"!{p}\n" for p in ALLOW_LIST)
+
+
+# ── Text-only staging (D7) ────────────────────────────────────────
+# The allow-list above decides which PATHS are versioned.  This
+# decides which of those paths are committable TEXT: the suffix
+# must be a known text type (or absent, as in `.gitignore`), AND
+# the content must sniff as text.  Anything else on a versioned
+# path is a binary and goes to the manifest, never the repo.
+TEXT_SUFFIXES = frozenset({
+    ".json", ".md", ".yaml", ".yml", ".otio", ".comp", ".txt",
+})
+
+# Committed, on the allow-list via /pipeline_output/provenance/**.
+BINARY_MANIFEST_REL = "pipeline_output/provenance/binary_manifest.json"
+
+_SNIFF_BYTES = 8192
+
+
+def _sniffs_as_text(path: Path) -> bool:
+    """True when the file's leading bytes read as text.
+
+    NUL or undecodable UTF-8 means binary - the same shape as git's
+    own binary heuristic, deliberately strict: a corrupt `.json`
+    carrying NULs is a binary and joins the manifest rather than
+    landing as a blob.
+    """
+    try:
+        with open(path, "rb") as fh:
+            chunk = fh.read(_SNIFF_BYTES)
+    except OSError:
+        return False
+    if not chunk:
+        return True
+    if b"\x00" in chunk:
+        return False
+    try:
+        chunk.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def is_committable_text(path: Path) -> bool:
+    """Whether this versioned path may enter the repo as a blob."""
+    suffix = path.suffix.lower()
+    if suffix and suffix not in TEXT_SUFFIXES:
+        return False
+    return _sniffs_as_text(path)
+
+
+def _versioned_files(root: Path) -> list[Path]:
+    """Every file the allow-list versions, as absolute paths.
+
+    Enumerated from ALLOW_LIST itself (so the set cannot drift from
+    the ignore file `init_project_repo` writes), then filtered
+    through `git check-ignore` so git-ignored files - crash
+    leftovers, the quarantine media beside its records - never
+    qualify.  Sorted for deterministic manifests.
+    """
+    candidates: set[Path] = set()
+    for pattern in ALLOW_LIST:
+        for match in root.glob(pattern.lstrip("/")):
+            if match.is_dir():
+                candidates.update(
+                    p for p in match.rglob("*") if p.is_file())
+            elif match.is_file():
+                candidates.add(match)
+    candidates = {p for p in candidates
+                  if ".git" not in p.relative_to(root).parts}
+    if not candidates:
+        return []
+    proc = git(str(root), "check-ignore", "--stdin", "--",
+               *[str(p.relative_to(root)) for p in sorted(candidates)])
+    ignored = set(proc.stdout.splitlines()) if proc.stdout else set()
+    return sorted(
+        p for p in candidates
+        if str(p.relative_to(root)) not in ignored)
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def binary_manifest_entries(project_folder: str) -> list[dict]:
+    """Path/size/sha256 for every versioned binary on disk.
+
+    Sorted by path.  Only binaries under VERSIONED paths qualify -
+    renders, scratch and quarantine media are ignored files, not
+    versioned binaries, so hashing them (gigabytes per build) is
+    never attempted.
+    """
+    root = Path(project_folder)
+    entries = []
+    for path in _versioned_files(root):
+        if is_committable_text(path):
+            continue
+        rel = str(path.relative_to(root))
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        entries.append({"path": rel, "size": size,
+                        "sha256": _sha256(path)})
+    return entries
+
+
+def write_binary_manifest(project_folder: str,
+                          entries: list[dict] | None = None) -> Path:
+    """Write the manifest atomically.  Always written, even when empty:
+    an empty manifest is the record that the build carried no binary."""
+    root = Path(project_folder)
+    if entries is None:
+        entries = binary_manifest_entries(project_folder)
+    document = {"generated_by": "library/tools/versions/store.py",
+                "files": entries}
+    path = root / BINARY_MANIFEST_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_suffix(".json.staged")
+    try:
+        staged.write_text(json.dumps(document, indent=2, sort_keys=True,
+                                     ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+        os.replace(staged, path)
+    except BaseException:
+        try:
+            os.unlink(staged)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def verify_binary_manifest(project_folder: str) -> dict:
+    """Check the binaries on disk against the committed manifest.
+
+    The D7 loop closed: record at commit time, regenerate any time,
+    check here.  `mismatched` means the bytes changed without a
+    commit recording them; `missing` means the binary is gone and
+    must be regenerated before its hash can be checked.
+    """
+    root = Path(project_folder)
+    manifest = root / BINARY_MANIFEST_REL
+    try:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"checked": 0, "ok": [], "mismatched": [], "missing": [],
+                "reason": "no-manifest"}
+    report: dict = {"checked": 0, "ok": [], "mismatched": [],
+                    "missing": []}
+    for entry in document.get("files") or []:
+        rel = entry.get("path", "")
+        candidate = root / rel
+        report["checked"] += 1
+        if not candidate.is_file():
+            report["missing"].append(rel)
+        elif (_sha256(candidate) == entry.get("sha256")
+              and candidate.stat().st_size == entry.get("size")):
+            report["ok"].append(rel)
+        else:
+            report["mismatched"].append(rel)
+    return report
+
+
+def stage_for_commit(project_folder: str) -> dict:
+    """The store's own staging: the ONLY staging the version model uses.
+
+    Replaces every raw `git add -A` site (the audit named four on an
+    earlier base; P2 routed three through `commit_build` and dropped
+    the fourth, leaving the one inside `commit_build` - this
+    function).  Fail-closed: an untracked binary stays unstaged via
+    the allow-list ignore, a staged binary (tracked before this
+    rule, or force-added) is `rm --cached` - the working tree is
+    never touched - and every versioned binary lands in the
+    manifest, which is itself staged.
+    """
+    root = Path(project_folder)
+    report: dict = {"staged": True, "binaries_recorded": [],
+                    "untracked": []}
+    entries = binary_manifest_entries(project_folder)
+    write_binary_manifest(project_folder, entries)
+    report["binaries_recorded"] = entries
+    add = git(project_folder, "add", "-A")
+    if add.returncode != 0:
+        report["staged"] = False
+        report["reason"] = f"git add failed: {add.stderr.strip()[-400:]}"
+        return report
+    staged = git(project_folder, "diff", "--cached", "--name-only",
+                 "-z", "--diff-filter=AM")
+    staged_paths = [p for p in staged.stdout.split("\x00") if p.strip()]
+    binaries = [p for p in staged_paths
+                if not is_committable_text(root / p)]
+    if binaries:
+        untrack = git(project_folder, "rm", "--cached", "-q", "--",
+                      *binaries)
+        if untrack.returncode != 0:
+            report["staged"] = False
+            report["reason"] = (
+                f"git rm --cached failed: "
+                f"{untrack.stderr.strip()[-400:]}")
+            return report
+        report["untracked"] = sorted(binaries)
+    manifest_add = git(project_folder, "add", "--", BINARY_MANIFEST_REL)
+    if manifest_add.returncode != 0:
+        report["staged"] = False
+        report["reason"] = (
+            f"git add manifest failed: "
+            f"{manifest_add.stderr.strip()[-400:]}")
+    return report
 
 
 def git(project_folder, *args: str) -> subprocess.CompletedProcess:
@@ -329,34 +556,41 @@ def render_commit_message(project_folder: str) -> str:
 
 
 def commit_build(project_folder: str, message: str | None = None) -> dict:
-    """Stage the allow-list and commit when the build changed anything.
+    """Stage the allow-list (text only) and commit when anything changed.
 
-    `git add -A` stages deletions too; the .gitignore allow-list
-    decides what is stageable.  A clean tree commits nothing and
-    reports reason `clean`, so a no-op build produces no spurious
-    commit.  Files are committed verbatim - see the module docstring
-    on machine-local absolute paths.
+    Staging is `stage_for_commit` - never a raw `git add -A`: the
+    .gitignore allow-list keeps untracked binaries out, and anything
+    binary that still reaches the index is uncached into the binary
+    manifest instead.  A clean tree commits nothing and reports
+    reason `clean`, so a no-op build produces no spurious commit.
+    Files are committed verbatim - see the module docstring on
+    machine-local absolute paths.
     """
     root = Path(project_folder)
     if not (root / ".git").exists():
-        return {"committed": False, "reason": "no-repo"}
-    add = git(project_folder, "add", "-A")
-    if add.returncode != 0:
+        return {"committed": False, "reason": "no-repo",
+                "binaries_recorded": []}
+    staged = stage_for_commit(project_folder)
+    if not staged.get("staged"):
         return {"committed": False,
-                "reason": f"git add failed: {add.stderr.strip()[-400:]}"}
+                "reason": staged.get("reason", "staging failed"),
+                "binaries_recorded": staged.get("binaries_recorded", [])}
     status = git(project_folder, "status", "--porcelain")
     if not status.stdout.strip():
-        return {"committed": False, "reason": "clean"}
+        return {"committed": False, "reason": "clean",
+                "binaries_recorded": staged.get("binaries_recorded", [])}
     msg = message if message is not None else render_commit_message(project_folder)
     commit = git(project_folder, "commit", "-m", msg)
     if commit.returncode != 0:
         return {"committed": False,
-                "reason": f"git commit failed: {commit.stderr.strip()[-400:]}"}
+                "reason": f"git commit failed: {commit.stderr.strip()[-400:]}",
+                "binaries_recorded": staged.get("binaries_recorded", [])}
     rev = git(project_folder, "rev-parse", "--short", "HEAD")
     files = git(project_folder, "show", "--pretty=format:", "--name-only", "HEAD")
     return {"committed": True,
             "commit": rev.stdout.strip(),
-            "files": sorted(f for f in files.stdout.splitlines() if f.strip())}
+            "files": sorted(f for f in files.stdout.splitlines() if f.strip()),
+            "binaries_recorded": staged.get("binaries_recorded", [])}
 
 
 def write_build_record(project_folder: str, timeline_name: str,

@@ -201,6 +201,115 @@ def test_learned_context_crash_tmp_stays_out(tmp_path):
 
 
 
+# ── Text-only store (D7) ─────────────────────────────────────────
+#
+# The per-project store auto-committed with `git add -A` and tracked
+# 716 MB on geo-podcast, including PNGs, a .drp, .drt and .wav
+# files.  D7 (2026-09-23): text only; binaries recorded by hash and
+# regenerated.  These pin the three halves: a versioned binary is
+# never committed, a binary tracked before the rule leaves the repo
+# with the working tree untouched, and the manifest can be checked.
+
+
+def test_store_never_commits_a_binary(tmp_path):
+    """A binary on a versioned path joins the manifest, not the repo.
+
+    `marker_feedback/stills/` (Resolve still PNGs plus the `.drx`
+    sidecar `ExportStills` writes unasked) and `timeline_captures/`
+    are allow-listed wholesale, so the path allow-list alone cannot
+    keep them out - this is the defect the text-type gate closes.
+    """
+    import hashlib
+
+    _write(tmp_path, "pipeline_data.json", '{"a": 1}\n')
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    drx = b"\x00\x01binarygrade" + b"\x00" * 50
+    _write(tmp_path, "marker_feedback/stills/cap1.png", png)
+    _write(tmp_path, "marker_feedback/stills/cap1_1.1.1.drx", drx)
+    mov = b"\x00\x00\x00\x18ftypqt  " + b"\x00" * 100
+    _write(tmp_path, "pipeline_output/review/clip.mov", mov)
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+
+    result = bvc.commit_build(str(tmp_path), message="first\n")
+
+    assert result["committed"] is True
+    tracked = set(_git(tmp_path, "ls-files").splitlines())
+    assert "pipeline_data.json" in tracked
+    assert "marker_feedback/stills/cap1.png" not in tracked
+    assert "marker_feedback/stills/cap1_1.1.1.drx" not in tracked
+    assert "pipeline_output/review/clip.mov" not in tracked
+    manifest_path = (tmp_path / "pipeline_output" / "provenance"
+                     / "binary_manifest.json")
+    assert "pipeline_output/provenance/binary_manifest.json" in tracked
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    by_path = {f["path"]: f for f in manifest["files"]}
+    assert by_path["marker_feedback/stills/cap1.png"]["sha256"] == \
+        hashlib.sha256(png).hexdigest()
+    assert by_path["marker_feedback/stills/cap1.png"]["size"] == len(png)
+    assert by_path["marker_feedback/stills/cap1_1.1.1.drx"]["sha256"] == \
+        hashlib.sha256(drx).hexdigest()
+    assert by_path["pipeline_output/review/clip.mov"]["sha256"] == \
+        hashlib.sha256(mov).hexdigest()
+
+
+def test_legacy_tracked_binary_leaves_the_repo_but_stays_on_disk(tmp_path):
+    """A binary tracked before the text-only rule is untracked, not kept.
+
+    `git add -A` stages modifications to already-tracked files even
+    when the ignore would refuse them untracked, so without the
+    `rm --cached` half the 60 geo-podcast PNGs would keep
+    recommitting their bytes on every build.  The working tree and
+    the history are untouched - only the tracking ends.
+    """
+    import hashlib
+
+    _write(tmp_path, "pipeline_data.json", '{"a": 1}\n')
+    old = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+    _write(tmp_path, "marker_feedback/stills/cap1.png", old)
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    # Simulate the pre-rule history: the binary got in before the
+    # allow-list existed.
+    _git(tmp_path, "add", "-f", "marker_feedback/stills/cap1.png")
+    _git(tmp_path, "commit", "-m", "legacy binary")
+    new = b"\x89PNG\r\n\x1a\n" + b"\x01" * 100
+    _write(tmp_path, "marker_feedback/stills/cap1.png", new)
+
+    result = bvc.commit_build(str(tmp_path), message="second\n")
+
+    assert result["committed"] is True
+    assert "marker_feedback/stills/cap1.png" not in \
+        set(_git(tmp_path, "ls-files").splitlines())
+    # The bytes on disk are the new ones - the store never rewrites
+    # the working tree.
+    assert (tmp_path / "marker_feedback" / "stills" / "cap1.png"
+            ).read_bytes() == new
+    manifest = json.loads(
+        (tmp_path / "pipeline_output" / "provenance"
+         / "binary_manifest.json").read_text(encoding="utf-8"))
+    assert manifest["files"][0]["sha256"] == hashlib.sha256(new).hexdigest()
+
+
+def test_verify_binary_manifest_checks_hashes(tmp_path):
+    """The manifest closes the D7 loop: regenerate, then check."""
+    _write(tmp_path, "pipeline_data.json", '{"a": 1}\n')
+    _write(tmp_path, "marker_feedback/stills/cap1.png",
+           b"\x89PNG\r\n\x1a\n" + b"\x00" * 10)
+    _write(tmp_path, "marker_feedback/stills/cap2.png",
+           b"\x89PNG\r\n\x1a\n" + b"\x01" * 10)
+    assert bvc.init_project_repo(str(tmp_path))["initialised"] is True
+    assert bvc.commit_build(str(tmp_path), message="first\n")["committed"]
+
+    fresh = bvc.verify_binary_manifest(str(tmp_path))
+    assert fresh["checked"] == 2
+    assert fresh["mismatched"] == [] and fresh["missing"] == []
+
+    _write(tmp_path, "marker_feedback/stills/cap1.png", b"changed")
+    (tmp_path / "marker_feedback" / "stills" / "cap2.png").unlink()
+    stale = bvc.verify_binary_manifest(str(tmp_path))
+    assert stale["mismatched"] == ["marker_feedback/stills/cap1.png"]
+    assert stale["missing"] == ["marker_feedback/stills/cap2.png"]
+
+
 def test_build_record_names_the_blind_spot(tmp_path):
     written = bvc.write_build_record(
         str(tmp_path), "cut_01", "OTIO-body", {"schema_version": "1.0"})
