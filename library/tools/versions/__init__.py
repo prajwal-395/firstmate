@@ -41,15 +41,19 @@ THREE GROUPINGS of that unit, each answering one question:
   run overwrites them. `pipeline_output/run_archives/<run_id>/`, off
   the allow-list - traces are evidence, not declarations.
 
+UNDO reads a fourth record, the REEL VERSION LEDGER (`reel_versions`):
+every state a reel's timeline has held, appended and never overwritten
+- a round keeps one entry per reel, so a second rebuild in one round
+used to replace the first. A `touch` version names the undo journal
+that reverses it IN PLACE (`library/tools/undo_journal.py`); a `build`
+version carries the plan moment it was built from, so a rebuild rolls
+back by restoring that moment and rebuilding - the one restore route
+the ruling allows. `pipeline_output/review/reel_versions.json`.
+
 What the model leaves room for
 ------------------------------
-UNDO and RETENTION are the next phase's, and are not built here. The
-model carries both: a promoted reel version names the round, the
-moment and (when reconstructed) the store commit it came from, so
-"go back to round N" is a checkout of that commit's declarations plus
-a rebuild - the one restore route the ruling allows. Retention is
-already stated per grouping (`variants.RETAINED_UNCHOSEN`, the
-archive bound in `reel_retirement`, run archives unbounded) and is
+RETENTION is already stated per grouping (`variants.RETAINED_UNCHOSEN`,
+the archive bound in `reel_retirement`, run archives unbounded) and is
 the place a policy attaches.
 
 Modules
@@ -60,4 +64,6 @@ Modules
 - `rounds`   rounds: discover, stamp, backfill, read; and the one diff.
 - `variants` variants: spec, branch, merge; built record, compare, choose.
 - `runs`     the per-run trace archive.
+- `reel_versions` every state of each reel, in order: what `ren undo`
+             reverses.
 """

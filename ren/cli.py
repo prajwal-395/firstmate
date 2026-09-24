@@ -69,6 +69,7 @@ VERBS = (
     Verb("propose", "Reels", "Publish the chosen moments as the reel review file", subcommand="propose-reels"),
     Verb("build", "Reels", "Build approved reels in Resolve", subcommand="build-reels"),
     Verb("touch", "Reels", "Apply a small change to a built reel (a touch-up, not a rebuild)", subcommand="touch-reel"),
+    Verb("undo", "Reels", "Undo the newest touch-up (in place) or rebuild (by version)", subcommand="undo"),
     Verb("dry-run", "Reels", "Plan a touch-up against the live timeline and stop", subcommand="ren-dry-run"),
     Verb("deliver", "Reels", "Render one approved reel to a file", subcommand="deliver-reel"),
     Verb("watch", "Reels", "Have a model watch a delivered reel", subcommand="watch-reel"),

@@ -126,8 +126,17 @@ rebuild", NOT onto whatever the captain is reviewing without a copy.
 bin layout and the stale-debris refusal both recognise it), conforms
 it against the source, edits the copy, verifies by re-reading the
 track, and only then swaps the names - with the replace guard, the
-sign-off check, marker carry, archive retirement and the carried
+sign-off check, marker carry, the undo journal and the carried
 signature close, mirroring `promote_staged_reels` phases 0-2.
+
+The way back is the JOURNAL, not a copy (captain, D5, 2026-09-23:
+"in-place for touches"). `undo_journal.open_entry` reads the approved
+timeline before anything is staged; `close_entry` reads the promoted
+one before the replaced generation is deleted; `ren undo` reverses the
+touch in place from the two. A removal of a GRADED item refuses here,
+like a graded swap: no script can record a grade, so the journal could
+not put it back.
+
 Grades ride from the APPROVED timeline: a re-placed item comes back
 with one colour node where it had eight, so every re-placed change
 carries its grade from the live item on the untouched reel
@@ -427,6 +436,10 @@ def touchup_all_reels(project_folder: str, *, old_clip: str,
     if applier is None:
         def applier(folder, spec, _real=apply_touchup):
             return _real(folder, spec)
+    # One act across reels: every entry this call journals shares the
+    # batch, and `ren undo` reverses them together.
+    from library.tools.undo_journal import new_batch_id
+    batch = new_batch_id()
     per_reel = []
     for number in numbers:
         try:
@@ -455,6 +468,7 @@ def touchup_all_reels(project_folder: str, *, old_clip: str,
                              "ok": False, "refused": str(refused)})
             continue
         spec = dict(spec)
+        spec["batch"] = batch
         if allow_drops is not None:
             spec["allow_drops"] = list(allow_drops)
         if supersede is not None:
@@ -1665,8 +1679,10 @@ def apply_touchup(project_folder: str, spec: Mapping,
     Stages a DUPLICATE beside the approved reel, conforms it, routes
     the qualified plan through `composed_edit.apply_composed_edit`,
     verifies by re-reading the track, guards the replacement and
-    promotes by rename - retiring the replaced generation to the
-    archive.  The approved timeline is never edited directly.
+    promotes by rename.  The replaced generation is deleted once the
+    undo journal holds both sides (`undo_journal`), or retired to the
+    archive when the reel carries a sign-off.  The approved timeline is
+    never edited directly.
 
     `connect` is a seam for tests: `connect(resolve_name) ->
     project`.  `rederiver_override` is the same for the comp pass.
@@ -1780,6 +1796,7 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         print(f"  - {note}", flush=True)
 
     # The rederiver, chosen by the gate class - never by a flag.
+    manifest = None
     if rederiver_override is not None:
         rederiver = rederiver_override
         receipt["rederiver"] = "override (tests only)"
@@ -1808,9 +1825,33 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
         receipt["rederiver"] = "reel_look.apply_comps over the " \
             "recorded fusion manifest"
 
+    # THE UNDO JOURNAL, before anything changes (`undo_journal`): the
+    # approved timeline read whole, with it CURRENT so no transform
+    # reads cursor-scaled, and every item the plan deletes outright
+    # captured. It is what lets the replaced generation be deleted
+    # below instead of left in the project as an archived copy.
+    from library.tools import undo_journal as _journal
+    from library.tools.resolve_lock import cursor_fence
+    try:
+        with cursor_fence(project, source, f"journal {final}"):
+            journal = _journal.open_entry(
+                project_folder, final=final, reel=int(spec.get("reel")),
+                resolve_project=resolve_name, spec=spec,
+                gate_class=qualification.gate_class,
+                source_timeline=source,
+                removals=qualification.removals,
+                fusion_manifest=(manifest if qualification.gate_class
+                                 == COMPOSED_WITH_REDERIVATION else None),
+                batch=str(spec.get("batch") or ""))
+    except _journal.UndoRefused as unrecordable:
+        raise TouchupRefused(str(unrecordable)) from unrecordable
+    receipt["journal"] = journal["id"]
+
     stage_started = time.time()
     staged = source.DuplicateTimeline(staging)
     if staged is None or staged.GetName() != staging:
+        _journal.fail_entry(project_folder, journal,
+                            "the staging copy did not land")
         raise TouchupError(
             f"the staging copy did not land as {staging!r} - "
             f"nothing was edited and the approved timeline stands.")
@@ -1820,18 +1861,19 @@ def _apply_connected(project_folder: str, spec: Mapping, final: str,
     # write onto the wrong timeline.  `cursor_fence` establishes the
     # cursor, re-reads it on exit, and raises on drift; the lease it
     # takes nests inside the outer one.
-    from library.tools.resolve_lock import cursor_fence
     try:
         with cursor_fence(project, staged, f"touch up {final}"):
             _edit_staged(project_folder, project, pool, source,
                          staged, staging, qualification, rederiver,
                          receipt, declared_drops, declared_supersede,
-                         final, stage_started)
-    except Exception:
+                         final, stage_started, journal)
+    except Exception as failed:
         # The approved timeline still stands under its own name; the
         # staging holds the half-done edit for diagnosis.  Delete
         # nothing: a failed touchup must never widen into a loss.
         receipt["staging_left_standing"] = staging
+        if journal.get("status") == _journal.STATUS_OPEN:
+            _journal.fail_entry(project_folder, journal, repr(failed))
         raise
     receipt["seconds"] = round(time.time() - started, 3)
     _write_receipt(project_folder, final, receipt)
@@ -1982,7 +2024,8 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
                  source: Any, staged: Any, staging: str,
                  qualification: Qualification, rederiver: Any,
                  receipt: dict, declared_drops, declared_supersede,
-                 final: str, stage_started: float) -> None:
+                 final: str, stage_started: float,
+                 journal: dict) -> None:
     """Conform, compose, verify and promote the staging copy.
 
     Runs inside the cursor fence: the staging is the cursor for the
@@ -2080,7 +2123,7 @@ def _edit_staged(project_folder: str, project: Any, pool: Any,
         time.time() - verify_started, 3)
 
     _promote(project_folder, project, pool, final, staging,
-             declared_drops, declared_supersede, receipt)
+             declared_drops, declared_supersede, receipt, journal)
 
 
 def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
@@ -2096,8 +2139,9 @@ def _summarise_rows(tracks: Sequence[Mapping]) -> dict:
 
 def _promote(project_folder: str, project: Any, pool: Any,
              final: str, staging: str, declared_drops,
-             declared_supersede, receipt: dict) -> None:
-    """Guard, swap names, carry markers, retire, close the signature."""
+             declared_supersede, receipt: dict, journal: dict) -> None:
+    """Guard, swap names, carry markers, close the journal, delete the
+    replaced generation, close the signature."""
     from library.tools import reel_replace_guard as _guard
     from library.tools import reel_signoff as _signoff
     from library.tools.reel_build import (
@@ -2219,22 +2263,39 @@ def _promote(project_folder: str, project: Any, pool: Any,
             f"{final!r} is promoted, but {shrunk} - marker count(s) "
             f"SHRANK on reel(s) this touch-up did not touch.")
 
-    # Retire, never delete: the replaced generation goes to the
-    # archive bin, bounded by reels rather than rounds - the same
-    # rule promotion follows.
+    # THE JOURNAL CLOSES before the replaced generation goes: until
+    # `after` is on disk, the backup is the only way back.
+    from library.tools import undo_journal as _journal
+    _journal.close_entry(project_folder, journal,
+                         after_timeline=staged_found[staging],
+                         rows=incoming_rows)
+    receipt["version"] = journal["version"]
+
+    # The replaced generation is DELETED: the journal restores the
+    # pre-touch state in place (`ren undo`), so a live `(archived
+    # round NNN)` copy is clutter, not safety (captain, D5,
+    # 2026-09-23). A reel carrying a sign-off still RETIRES, exactly
+    # as promotion does - the cut the captain approved is kept.
     from library.tools import reel_retirement as _retire
     from library.tools.versions import rounds as _rounds
-    recorded = _rounds.discover(project_folder)
-    current_round = recorded[-1]["round"] if recorded else 1
     backup_objects = {t.GetName(): t for t in timelines_to_replace(
         project, {backup})}
+    recorded = _rounds.discover(project_folder)
+    current_round = recorded[-1]["round"] if recorded else 1
     by_final = {final: _retire.retiring_round(recorded, final,
                                               current_round)}
-    retirement = _retire.retire_timelines(project, pool,
-                                          {final: backup_objects[backup]}
-                                          if backup in backup_objects
-                                          else {},
-                                          by_final)
+    if _signoff.base_name(final) in _signoff.signed_off(project_folder):
+        retirement = _retire.retire_timelines(
+            project, pool,
+            {final: backup_objects[backup]}
+            if backup in backup_objects else {},
+            by_final)
+    else:
+        retirement = {"archived": {}, "unfiled": [], "collected": [],
+                      "kept": [], **_retire.delete_backups(
+                          project, pool,
+                          {backup: backup_objects[backup]}
+                          if backup in backup_objects else {})}
     receipt["retirement"] = _retire.render(retirement)
 
     for entry in (_signoff.base_name(final),):
@@ -2248,6 +2309,17 @@ def _promote(project_folder: str, project: Any, pool: Any,
     # Close the carried signature: the approved timeline under its
     # final name is new content, so the next build must read it back
     # NOW rather than compare against the replaced generation.
+    receipt["signature_closed"] = close_signature(project_folder,
+                                                  project, final)
+
+
+def close_signature(project_folder: str, project: Any, final: str):
+    """Record what `final` now carries, so the next build reads it back.
+
+    True when closed; otherwise the reason, which is never fatal: an
+    unclosed signature only means the next build places the reel again
+    rather than assume.
+    """
     try:
         from library.tools import reel_rebuild_need as _need_record
         from library.tools.plan_provenance import (
@@ -2257,18 +2329,18 @@ def _promote(project_folder: str, project: Any, pool: Any,
             timeline = project.GetTimelineByIndex(index)
             if timeline is not None and timeline.GetName() == final:
                 live = timeline
-        if live is not None:
-            digest = _need_record.carried_digest_live(project, live)
-            if digest:
-                import os as _os
-                review_dir = _os.path.join(project_folder,
-                                           "pipeline_output", "review")
-                _record_carried(review_dir, {final: digest})
-                receipt["signature_closed"] = True
+        if live is None:
+            return f"not closed (no timeline called {final!r})"
+        digest = _need_record.carried_digest_live(project, live)
+        if not digest:
+            return "not closed (no digest could be read)"
+        review_dir = os.path.join(project_folder, "pipeline_output",
+                                  "review")
+        _record_carried(review_dir, {final: digest})
+        return True
     except Exception as signature_failed:  # noqa: BLE001 - never fatal
-        receipt["signature_closed"] = (
-            f"not closed ({signature_failed}) - the next build will "
-            f"place this reel again rather than assume")
+        return (f"not closed ({signature_failed}) - the next build will "
+                f"place this reel again rather than assume")
 
 
 def _safe_slug(text: str) -> str:

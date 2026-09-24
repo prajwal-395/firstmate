@@ -8372,6 +8372,39 @@ def _connect_resolve_project(resolve_project_name: str):
         resolve.GetProjectManager(), resolve_project_name)
 
 
+def _record_reel_versions(project_folder: str, rows_by_final: dict,
+                          round_number=None) -> list:
+    """One `build` (or `rollback`) version per promoted reel, with its plan."""
+    from library.tools.plan_provenance import read_provenance
+    from library.tools.reel_proposal import proposal_path, read_proposal
+    from library.tools.versions import reel_versions as _versions
+
+    # No plan on disk (a promotion driven by hand) records the version
+    # with no `plan_moment`: absent, not invented, and a rollback to it
+    # refuses by name. A plan that is there and will not read raises.
+    plan = proposal_path(project_folder)
+    moments = ({moment.timeline_name: moment.as_dict() for moment in
+                read_proposal(str(plan))} if plan.exists() else {})
+    built_with = dict((read_provenance(os.path.join(
+        project_folder, "pipeline_output", "review")) or {}).get(
+            "built_with") or {})
+    written = []
+    for final, rows in sorted(rows_by_final.items()):
+        undoes = _versions.take_pending_rollback(project_folder, final)
+        entry = _versions.record(
+            project_folder, final,
+            kind=(_versions.KIND_ROLLBACK if undoes is not None
+                  else _versions.KIND_BUILD),
+            rows=rows, round=round_number,
+            plan_moment=moments.get(final),
+            built_with=built_with.get(final) or None, undoes=undoes)
+        if undoes is not None:
+            _versions.mark_undone(project_folder, final, undoes,
+                                  entry["version"])
+        written.append(entry)
+    return written
+
+
 @under_lease("promote staged reels")
 def promote_staged_reels(project_folder: str, resolve_project_name: str,
                          master_timeline_name: str,
@@ -9140,6 +9173,27 @@ def promote_staged_reels(project_folder: str, resolve_project_name: str,
             f"({stamp_failed}). This promotion is missing from the "
             f"version record - re-run once it is writable.") \
             from stamp_failed
+
+    # ── APPEND EACH PROMOTED REEL'S VERSION ─────────────────────
+    # The round above keeps one entry per reel, so a second rebuild in
+    # one round overwrote the first; the reel version ledger appends
+    # (`library/tools/versions/reel_versions.py`), carrying the plan
+    # moment a rollback restores (`undo_journal.rollback_rebuild`).
+    # Refused like the stamp, for the same reason: a hole here is an
+    # undo that reverses the wrong thing.
+    try:
+        _record_reel_versions(
+            project_folder,
+            {final: incoming_by_final[final] for final in ok_finals
+             if incoming_by_final.get(final)},
+            round_number=(stamped_round or {}).get("round"))
+    except Exception as record_failed:  # noqa: BLE001
+        raise ReelBuildError(
+            f"REFUSING to report this promotion: the reels above are "
+            f"promoted, but their versions were not recorded "
+            f"({record_failed}), so `ren undo` could not roll this "
+            f"rebuild back - re-run once it is writable.") \
+            from record_failed
 
     # ── CLOSE EACH PROMOTED REEL'S BUILD SIGNATURE ──────────────
     # The carried half (`library/tools/reel_rebuild_need.py`): what

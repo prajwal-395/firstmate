@@ -112,7 +112,12 @@ drift-free state - it re-pays the Resolve pass for identical frames.
 - `deliver-reel` owns the rendered file: ONE reel, explicitly named.
   Rendering without naming one is refused.
 - `touch-reel` owns post-build edits: a structured change through
-  `composed_edit`, staged and verified - not a rebuild.
+  `composed_edit`, staged and verified - not a rebuild. It journals
+  the reel first and leaves no archived copy behind.
+- `undo` owns the way back: the newest touch is reversed IN PLACE from
+  its journal, the newest rebuild is rolled back to the version before
+  it (`library/tools/undo_journal.py`). A timeline changed since is
+  refused by name.
 - `watch-reel` / `hear-reel` own REPORTS on a delivered file. They
   render nothing and gate nothing; they refuse without a delivered
   file rather than starting a render.
@@ -130,6 +135,7 @@ path:
 | `deliver-reel <project> <N>` | render reel N to a file |
 | `watch-reel` / `hear-reel` | show/hear a DELIVERED reel against its plan; report-only |
 | `touch-reel <project> <N> --edits ...` | structured edit to a built reel |
+| `undo <project> [N]` (`--list`, `--entry ID`) | reverse the newest touch (in place) or rebuild (by version) |
 | `variant new\|build\|list\|diff\|choose\|merge` | two live versions of one reel; choosing is an act (AGENTS.md 10.4) |
 | `signoff` / `round-diff` | durable captain approval per round; promotion deletes unless retained |
 
