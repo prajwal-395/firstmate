@@ -148,7 +148,7 @@ def test_ask_the_footage_reports_on_good_footage(tmp_path, good_video,
     from library.skills.ask_the_footage import skill as ask
     monkeypatch.setattr(
         ask, "ask_vision",
-        lambda stills, question, check_type: {
+        lambda stills, question, check_type, **k: {
             "available": True, "opinion_passed": True,
             "confidence": 0.9, "detail": "caption readable",
             "issues": [], "elapsed_seconds": 0.1})
@@ -166,7 +166,7 @@ def test_ask_the_footage_deterministic_half_fails_bad_footage(
     from library.skills.ask_the_footage import skill as ask
     monkeypatch.setattr(
         ask, "ask_vision",
-        lambda stills, question, check_type: {
+        lambda stills, question, check_type, **k: {
             "available": True, "opinion_passed": True,
             "confidence": 0.9, "detail": "looks fine to me",
             "issues": [], "elapsed_seconds": 0.1})

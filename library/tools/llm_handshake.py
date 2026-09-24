@@ -33,6 +33,16 @@ A request file carries:
 * `kind` (optional): `llm_step` (default) or `briefing_interview` -
   the chat interview the host conducts with the user
   (`library/tools/briefing_chat.py`).
+* `images` (optional): absolute paths of still images the host must
+  look at with its own vision before answering. Present ONLY on
+  still-vision requests filed by `library/tools/still_vision.py` -
+  still-frame inspection the driving host answers first (the
+  captain's 2026-09-24 ruling: the driving LLM's own vision first,
+  gemma4 only when the host cannot see images). LLM-step requests
+  carry no `images` key: their pictures travel as frame strips
+  referenced inside `context`, which the host opens with its own
+  file tools per the `ren-co-editor` skill. Whole-video passes
+  never carry it either: they stay on gemma.
 
 A valid response file is a UTF-8 JSON object (`{...}`) written at the
 response path above, satisfying the request's `expected_schema`. Arrays,
@@ -124,13 +134,23 @@ def resume_command(project_folder: str) -> str:
 
 
 def build_request(step_id: str, prompt: str, constraints: str,
-                  context: str, expected_schema: str,
-                  project_folder: str, timestamp: str,
-                  kind: str = "llm_step") -> dict:
-    """Build the request payload the runner writes to disk."""
+                   context: str, expected_schema: str,
+                   project_folder: str, timestamp: str,
+                   kind: str = "llm_step",
+                   images: list | None = None) -> dict:
+    """Build the request payload the runner writes to disk.
+
+    `images` is the still-vision contract: absolute paths of stills
+    the host must look at with its own vision (`still_vision.py`).
+    Omitted entirely when None, so every existing request is
+    byte-identical. When given, each entry must be an absolute path
+    to a file on disk - a relative path or a missing file refuses
+    here, at build time, rather than stranding a host with a
+    picture it cannot open.
+    """
     if kind not in KINDS:
         raise ValueError(f"unknown handshake kind {kind!r}; want one of {KINDS}")
-    return {
+    request = {
         "step_id": step_id,
         "prompt": prompt + constraints,
         "constraints": constraints,
@@ -140,6 +160,63 @@ def build_request(step_id: str, prompt: str, constraints: str,
         "timestamp": timestamp,
         "kind": kind,
     }
+    if images is not None:
+        request["images"] = _checked_images(images, step_id)
+    return request
+
+
+def _checked_images(images: list, step_id: str) -> list:
+    """Validate a still-vision `images` list, or refuse with the fix."""
+    if not isinstance(images, list) or not images:
+        raise ValueError(
+            f"still-vision request for step {step_id}: `images` must be "
+            f"a non-empty list of absolute still paths, got {images!r}")
+    checked = []
+    for entry in images:
+        if not isinstance(entry, str) or not os.path.isabs(entry):
+            raise ValueError(
+                f"still-vision request for step {step_id}: image "
+                f"{entry!r} is not an absolute path - the host opens "
+                f"these with its own file tools, so a relative path "
+                f"resolves nowhere")
+        if not os.path.isfile(entry):
+            raise ValueError(
+                f"still-vision request for step {step_id}: image "
+                f"{entry!r} is not a file on disk - extract the still "
+                f"first, then file the request")
+        checked.append(entry)
+    return checked
+
+
+#: The key a still-vision response carries the model's answer under.
+#: The handshake still validates exactly as today (a JSON object, or
+#: a refusal with the fix); the site's own parser then reads this
+#: text, byte-for-byte what the gemma path would have returned.
+STILL_VISION_TEXT_KEY = "text"
+
+
+def require_text_answer(parsed: dict, step_id: str,
+                        project_folder: str) -> str:
+    """Split the model's answer text out of a still-vision response.
+
+    Returns the `text` string. Anything else refuses in the
+    handshake's own shape (step, reason, path, resume) - a host that
+    answers without looking, or in the wrong shape, is a malformed
+    response like any other, never a quiet fallback.
+    """
+    res = response_path(project_folder, step_id)
+    resume = resume_command(project_folder)
+    text = parsed.get(STILL_VISION_TEXT_KEY, None) if isinstance(
+        parsed, dict) else None
+    if not isinstance(text, str) or not text.strip():
+        raise HandshakeRefusal(
+            step_id,
+            f"the still-vision response has no usable "
+            f"`{STILL_VISION_TEXT_KEY}` string - look at the request's "
+            f"`images` with your own vision and write your answer as "
+            f"plain text under `{STILL_VISION_TEXT_KEY}`.",
+            res, resume)
+    return text
 
 
 def validate_response(step_id: str, raw_text: str, project_folder: str):

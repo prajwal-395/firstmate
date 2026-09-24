@@ -355,17 +355,28 @@ def execute_frame_grab(resolve, project, timeline,
 
 
 def analyze_frame_locally(image_path: str, check_type: str,
-                          context: dict) -> VisualQACheck:
-    """Analyze a frame using the local Gemma 4 12B model.
+                           context: dict,
+                           harness: Optional[str] = None,
+                           project_folder: Optional[str] = None,
+                           step_id: Optional[str] = None) -> VisualQACheck:
+    """Analyze a frame: the driver first, gemma fallback.
+
+    Routes through `library/tools/still_vision.py` (the captain's
+    2026-09-24 ruling): a driving host with vision answers from its
+    own eyes via the file handshake; with no host - or a blind one -
+    the local Gemma 4 12B model answers, exactly as before.
 
     Use this when the orchestrating LLM isn't available for inline vision
     or when running in a pipeline step without an LLM in the loop.
     """
-    from library.tools.vision_model import VisionModel
+    from library.tools.still_vision import inspect_stills
 
     prompt = frame_grab_inline_prompt(check_type, context)
-    model = VisionModel()
-    raw_output = model.analyze_image(image_path, prompt, max_tokens=512)
+    raw_output = inspect_stills(
+        prompt, [image_path], harness=harness,
+        project_folder=project_folder,
+        step_id=step_id or "frame_qa",
+        label=f"frame_qa:{check_type}", max_tokens=512)
 
     verdict = parse_qa_response(raw_output)
 
@@ -646,9 +657,11 @@ def perceptual_qa_enabled() -> bool:
 
 
 def run_perceptual_observation(resolve, project, timeline, manifest: dict,
-                               fps: float = 30.0,
-                               max_frames: int = 6,
-                               force: bool = False) -> Optional[dict]:
+                                fps: float = 30.0,
+                                max_frames: int = 6,
+                                force: bool = False,
+                                harness: Optional[str] = None,
+                                project_folder: Optional[str] = None) -> Optional[dict]:
     """Watch the render and report what looks wrong. OBSERVATION ONLY.
 
     Returns None unless `PIPELINE_PERCEPTUAL_QA` is set or `force=True`;
@@ -681,9 +694,10 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
         return None
 
     # Imported here, not at module scope: importing this router must stay
-    # free. mlx_vlm pulls in a large stack, and a reader that only wants
-    # `plan_qa_checks` should not pay for it.
-    from library.tools.vision_model import VisionModel
+    # free. mlx_vlm pulls in a large stack (via still_vision's gemma
+    # fallback), and a reader that only wants `plan_qa_checks` should
+    # not pay for it.
+    from library.tools.still_vision import inspect_stills
 
     dropped = 0
     if len(grabs) > max_frames:
@@ -692,14 +706,17 @@ def run_perceptual_observation(resolve, project, timeline, manifest: dict,
         dropped = len(grabs) - len(sampled)
         grabs = sampled
 
-    model = VisionModel()
     prompt = perceptual_prompt()
     verdicts = []
     for req in grabs:
         result = execute_frame_grab(resolve, project, timeline, req)
         if not result.image_path:
             continue
-        raw = model.analyze_image(result.image_path, prompt, max_tokens=240)
+        raw = inspect_stills(
+            prompt, [result.image_path], harness=harness,
+            project_folder=project_folder,
+            step_id="perceptual_qa", label="perceptual_qa",
+            max_tokens=240)
         verdicts.append(parse_perceptual_verdict(raw, frame=req.frame_number))
 
     if not verdicts:

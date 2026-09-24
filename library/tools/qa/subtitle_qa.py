@@ -162,8 +162,16 @@ def check_caption_geometry(frame_path: str) -> list:
     return problems
 
 
-def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
-    """Check a rendered subtitle segment. Raises on a mechanical failure."""
+def run_subtitle_qa(mov_path: str, project_folder: str = None,
+                      harness: str = None) -> dict:
+    """Check a rendered subtitle segment. Raises on a mechanical failure.
+
+    `harness` selects who looks at the sampled frames for the
+    advisory typography observation: a driving host with vision
+    answers first, else gemma (`library/tools/still_vision.py`).
+    Unset reads `PIPELINE_HOST_HARNESS`, so a bare run keeps the
+    gemma behaviour exactly.
+    """
     if os.environ.get("SKIP_QA_CHECKS") == "1":
         print("Skipping subtitle QA check (SKIP_QA_CHECKS=1)", file=sys.stderr)
         return {"passed": True, "reason": "skipped"}
@@ -240,7 +248,8 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
 
     # ── The half that is recorded, not enforced ────────────────────────
     # See this module's docstring for the measurement that demoted it.
-    observation = _vision_observation(frame_paths)
+    observation = _vision_observation(
+        frame_paths, harness=harness, project_folder=project_folder)
 
     for frame_path in frame_paths:
         try:
@@ -257,11 +266,16 @@ def run_subtitle_qa(mov_path: str, project_folder: str = None) -> dict:
     }
 
 
-def _vision_observation(frame_paths: list) -> str:
+def _vision_observation(frame_paths: list, harness: str = None,
+                          project_folder: str = None) -> str:
     """The model's opinion on typography, for a human to read.
 
     Never raises and never blocks: its verdict has been measured against
     known-good and known-blank frames and does not track either.
+    Who looks is the still-vision route (`library/tools/still_vision.py`):
+    the driving host first, gemma fallback. (This also retires the old
+    `from tools.vision_model import get_model`, which only resolved when
+    the caller's sys.path happened to cooperate.)
     """
     prompt_text = """This is a rendered subtitle overlay for vertical shortform video (1080x1920). Check:
 (1) Are words properly spaced and readable?
@@ -272,10 +286,12 @@ Report pass/fail with specific issues.
 Format your response starting with exactly "PASS" or "FAIL", followed by a newline and your explanation."""
 
     try:
-        from tools.vision_model import get_model
-        model = get_model()
-        print("Calling local Vision Model (advisory)...", file=sys.stderr)
-        response = model.analyze_images(frame_paths, prompt_text)
+        from library.tools.still_vision import inspect_stills
+        print("Calling still-vision route (advisory)...", file=sys.stderr)
+        response = inspect_stills(
+            prompt_text, list(frame_paths), harness=harness,
+            project_folder=project_folder, step_id="subtitle_qa",
+            label="subtitle_qa")
     except Exception as e:
         return f"vision observation unavailable: {e}"
 

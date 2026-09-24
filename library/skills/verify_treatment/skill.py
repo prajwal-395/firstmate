@@ -23,11 +23,12 @@ Stills are captured from the source file with ffmpeg (cheap seeks, no
 Resolve) at the treatment window's timecodes and handed to the model
 where its harness shows pictures (`window_frames.harness_shows_frames`);
 where it cannot, a withholding notice stands in their place - a picture
-has no smaller textual form. The Gemma pass runs only with
+has no smaller textual form. The vision pass runs only with
 `--ask-vision` (the captain's cost ruling: deterministic checks run on
 every build, the vision pass on request), reusing
-`ask_the_footage.ask_vision`, and its answer is recorded as an opinion,
-never enforced (AGENTS.md 10.4).
+`ask_the_footage.ask_vision` - which asks the driving host first and
+falls back to gemma (`library/tools/still_vision.py`) - and its answer
+is recorded as an opinion, never enforced (AGENTS.md 10.4).
 """
 
 from __future__ import annotations
@@ -139,7 +140,8 @@ def run(effects: Dict[str, Any], treatment_key: str, clip_dur: int,
             [s["path"] for s in stills],
             question or (f"Does this treatment ({treatment_key}) leave "
                          f"the subject visible where it claims to?"),
-            "vfx")
+            "vfx", harness=harness, project_folder=project_folder,
+            step_id=step_id)
     elif ask_vision:
         vision = {"available": False,
                   "reason": ("no still captured" if shows

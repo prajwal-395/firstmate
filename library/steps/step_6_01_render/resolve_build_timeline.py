@@ -3121,7 +3121,10 @@ def build_timeline(
             for fg_req in qa_plan.frame_grabs:
                 res = execute_frame_grab(resolve, project, timeline, fg_req)
                 if res.image_path:
-                    res.check = analyze_frame_locally(res.image_path, fg_req.check_type, fg_req.context)
+                    res.check = analyze_frame_locally(
+                        res.image_path, fg_req.check_type, fg_req.context,
+                        project_folder=project_folder or None,
+                        step_id="render")
                 visual_qa_results.append(format_frame_grab_for_llm(res))
                 
             for seg_req in qa_plan.segment_checks:
@@ -3143,7 +3146,8 @@ def build_timeline(
             if run_perceptual_observation:
                 try:
                     observation = run_perceptual_observation(
-                        resolve, project, timeline, manifest, fps=fps)
+                        resolve, project, timeline, manifest, fps=fps,
+                        project_folder=project_folder or None)
                     if observation:
                         results["perceptual_observation"] = observation
                         n = len(observation.get("findings", []))

@@ -167,8 +167,19 @@ def analyse_semantics(raw_footage_files: list, project_folder: str = "") -> dict
             print(f"  [{n}/{len(missing_clips)}] Analyzing: "
                   f"{os.path.basename(clip_path)}", file=sys.stderr)
             try:
+                # --project-folder gives the still-vision handshake a
+                # project to file under when a host drives (the
+                # captain's 2026-09-24 ruling: stills to the driver
+                # first, gemma fallback). The harness itself travels
+                # via PIPELINE_HOST_HARNESS, set by the runner from
+                # --full-auto - this step never guesses it, and with
+                # no host the still passes stay on gemma.
+                cmd = [sys.executable, VISION_PIPELINE, '--clip', clip_path,
+                       '--output-dir', analysis_dir]
+                if project_folder:
+                    cmd += ['--project-folder', project_folder]
                 subprocess.run(
-                    [sys.executable, VISION_PIPELINE, '--clip', clip_path, '--output-dir', analysis_dir],
+                    cmd,
                     check=True,
                     timeout=CLIP_ANALYSIS_TIMEOUT_S,
                 )

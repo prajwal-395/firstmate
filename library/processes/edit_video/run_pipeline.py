@@ -4072,7 +4072,15 @@ def main():
     parser = build_parser()
     args = parser.parse_args()
     args.full_auto = normalize_full_auto(args.full_auto)
-    
+
+    # Carry the driving harness into code that never sees argv: the
+    # still-vision route (`library/tools/still_vision.py`) reads
+    # PIPELINE_HOST_HARNESS to decide whether a host with vision
+    # answers still-frame inspection or gemma does. Empty means no
+    # host drives (manual runs, non-agent full-auto) - stills stay
+    # on gemma, exactly as before.
+    os.environ["PIPELINE_HOST_HARNESS"] = args.full_auto or ""
+
     # Resolve project directory from slug if provided
     project_dir = args.project
     if args.slug:

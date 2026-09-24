@@ -135,11 +135,20 @@ class QAFeedbackLoop:
     """
 
     def __init__(self, resolve, project, timeline,
-                 config: QAFeedbackConfig = None):
+                 config: QAFeedbackConfig = None,
+                 harness: str = None,
+                 project_folder: str = None,
+                 step_id: str = None):
         self.resolve = resolve
         self.project = project
         self.timeline = timeline
         self.config = config or QAFeedbackConfig()
+        # Who looks at frame grabs: the still-vision route
+        # (`library/tools/still_vision.py`) - the driver first, gemma
+        # fallback. Unset harness reads PIPELINE_HOST_HARNESS.
+        self.harness = harness
+        self.project_folder = project_folder
+        self.step_id = step_id or "visual_qa"
         self._iterations: List[FeedbackIteration] = []
 
     def run(self, plan: QAPassPlan,
@@ -241,6 +250,9 @@ class QAFeedbackLoop:
             if self.config.local_frame_analysis and grab_result.image_path:
                 check = analyze_frame_locally(
                     grab_result.image_path, request.check_type, request.context,
+                    harness=self.harness,
+                    project_folder=self.project_folder,
+                    step_id=self.step_id,
                 )
             else:
                 # When local analysis is off, the check stub from execute_frame_grab

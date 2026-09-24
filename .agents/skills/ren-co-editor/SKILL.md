@@ -77,6 +77,25 @@ each request, in order:
    deletes stale responses when it writes the request, so a stale
    answer is never mistaken for a fresh one.
 
+## 2b. Still-vision requests: open the pictures, then answer
+
+Some requests carry an `images` list: absolute paths of still frames
+you MUST look at with your own vision before answering (step ids end
+in `__stills`). This is still-frame inspection routed to you first -
+you can see images directly, so you answer from your own eyes and
+gemma is only the fallback when you cannot:
+
+1. **Open every path in `images` and LOOK at each one.** Never answer
+   from filenames, timestamps, or prose; never skip one.
+2. **Answer the `prompt` from what you saw**, as plain text.
+3. **Write `{"text": "<your answer>"}`** - the request's
+   `expected_schema` asks for exactly this shape. A response without
+   a usable `text` string refuses like any malformed response
+   (`llm_handshake.require_text_answer`).
+4. Whole-video questions never arrive this way: most LLMs do not
+   process video natively, so video understanding stays on gemma and
+   only stills come to you.
+
 Answer EVERY request, including review gates (`ren edit --review`
 pauses for a human answer via `python3 -m
 library.tools.review_gate answer` - same files, same shape) and the

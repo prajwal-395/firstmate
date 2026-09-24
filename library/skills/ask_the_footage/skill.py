@@ -60,32 +60,44 @@ def capture_still(video_path: str, timestamp: float,
 
 
 def ask_vision(still_paths: List[str], question: str,
-               check_type: str) -> Dict[str, Any]:
-    """Ask the local Gemma 4 12B model. Reports availability honestly.
+               check_type: str,
+               harness: Optional[str] = None,
+               project_folder: Optional[str] = None,
+               step_id: Optional[str] = None) -> Dict[str, Any]:
+    """Ask whoever looks at stills: the driver first, gemma fallback.
 
-    Never raises for a missing model: an unavailable model is
-    `available: False` with the reason, and the deterministic half
-    still answers. A skill that refused without the model would be a
-    gate that fails correct output whenever the model is unloaded.
+    Routes through `library/tools/still_vision.py` (the captain's
+    2026-09-24 ruling): a driving host with vision answers from its
+    own eyes via the file handshake; with no host - or a blind one -
+    the local Gemma 4 12B model answers, exactly as before.
+
+    Reports model availability honestly, never raises for a missing
+    model: an unavailable model is `available: False` with the
+    reason, and the deterministic half still answers. A skill that
+    refused without the model would be a gate that fails correct
+    output whenever the model is unloaded. Host-handshake failures
+    (refusals, timeouts) DO propagate: a host that mis-answers is a
+    wiring problem, not an unavailable model, and failing loudly is
+    what keeps the fallback honest.
     """
     from library.tools.visual_qa_prompts import frame_grab_inline_prompt
     from library.tools.visual_qa_router import parse_qa_response
+    from library.tools.still_vision import inspect_stills
 
     prompt = frame_grab_inline_prompt(
         check_type, {"question": question})
     t0 = time.time()
     try:
-        from library.tools.vision_model import VisionModel
-        model = VisionModel()
-        if len(still_paths) == 1:
-            raw = model.analyze_image(
-                still_paths[0], f"{prompt}\nQuestion: {question}",
-                max_tokens=512)
-        else:
-            raw = model.analyze_images(
-                still_paths, f"{prompt}\nQuestion: {question}",
-                max_tokens=512)
+        raw = inspect_stills(
+            f"{prompt}\nQuestion: {question}", list(still_paths),
+            harness=harness, project_folder=project_folder,
+            step_id=step_id or "ask_the_footage",
+            label=f"ask_the_footage:{check_type}", max_tokens=512)
     except Exception as e:  # noqa: BLE001 - availability, not a failure
+        from library.tools.still_vision import StillVisionTimeout
+        from library.tools.llm_handshake import HandshakeRefusal
+        if isinstance(e, (StillVisionTimeout, HandshakeRefusal)):
+            raise
         return {"available": False,
                 "reason": f"{type(e).__name__}: {e}",
                 "elapsed_seconds": round(time.time() - t0, 2)}
@@ -102,7 +114,8 @@ def run(video_path: str, question: str,
         project_folder: str, step_id: str,
         timestamp: Optional[float] = None,
         check_type: str = "general",
-        sample_count: int = 3) -> Dict[str, Any]:
+        sample_count: int = 3,
+        harness: Optional[str] = None) -> Dict[str, Any]:
     """Capture stills, run deterministic checks, ask Gemma, record all of it.
 
     Returns an OBSERVATION, not a verdict: `deterministic_passed` is the
@@ -156,7 +169,10 @@ def run(video_path: str, question: str,
     vision: Dict[str, Any] = {"available": False,
                               "reason": "no still captured"}
     if stills:
-        vision = ask_vision(stills, question, check_type)
+        vision = ask_vision(stills, question, check_type,
+                            harness=harness,
+                            project_folder=project_folder,
+                            step_id=step_id)
 
     observation = {
         "skill": SKILL_NAME,
@@ -212,11 +228,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--step-id", required=True)
     parser.add_argument("--timestamp", type=float, default=None)
     parser.add_argument("--check-type", default="general")
+    parser.add_argument("--harness", default=None,
+                        help="Driving harness for the still-vision route "
+                             "(agent, mock); unset means no host drives, "
+                             "so gemma answers. Also read from "
+                             "PIPELINE_HOST_HARNESS when unset here.")
     args = parser.parse_args(argv)
 
     observation = run(args.video, args.question, args.project_folder,
                       args.step_id, timestamp=args.timestamp,
-                      check_type=args.check_type)
+                      check_type=args.check_type, harness=args.harness)
     print(json.dumps(observation, indent=2))
     # Exit zero: a reported opinion is not a failure, even when the
     # deterministic half found something. The caller reads the dict.

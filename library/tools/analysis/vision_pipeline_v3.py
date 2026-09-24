@@ -357,11 +357,21 @@ def parse_json_object(text):
 class VisionAnalyzer:
     """Wraps Gemma4 12B (MLX) for multi-pass video analysis."""
 
-    def __init__(self, model, proc):
+    def __init__(self, model, proc, harness=None, project_folder=None,
+                 step_id="semantic_analysis"):
         t0 = time.time()
         self.model = model
         self.proc = proc
         self.load_time = time.time() - t0
+        # Who looks at STILLS (the object passes below): a driving
+        # host with vision answers first via the file handshake, else
+        # gemma (`library/tools/still_vision.py` - the captain's
+        # 2026-09-24 ruling). VIDEO passes (scene, camera, action
+        # windows, assessment) never consult this: they stay on gemma,
+        # because most LLMs don't process video natively.
+        self.harness = harness
+        self.project_folder = project_folder
+        self.step_id = step_id
         print(f"  Model loaded/bound in {self.load_time:.1f}s")
 
     def analyze(self, prompt, images=None, video=None, max_tokens=512):
@@ -374,11 +384,8 @@ class VisionAnalyzer:
             max_tokens: Maximum tokens to generate.
         """
         if images:
-            formatted = apply_chat_template(
-                self.proc, self.model.config, prompt,
-                num_images=len(images)
-            )
-        elif video:
+            return self._analyze_stills(prompt, images, max_tokens)
+        if video:
             prompt = f"<|video|>{prompt}"
             formatted = apply_chat_template(
                 self.proc, self.model.config, prompt, num_images=0
@@ -401,6 +408,24 @@ class VisionAnalyzer:
         elapsed = time.time() - t0
         text = r.text if hasattr(r, "text") else str(r)
         return text, elapsed
+
+    def _analyze_stills(self, prompt, images, max_tokens):
+        """One still-frame pass: the driver first, gemma fallback.
+
+        Routes through `library/tools/still_vision.py` and returns
+        (text, elapsed) in exactly the gemma shape, so
+        `analyze_with_retry`'s parse-and-retry reads a host answer
+        byte-for-byte the way it read gemma's. Which stills are
+        extracted, and how, is untouched - only who looks at them.
+        """
+        from library.tools.still_vision import inspect_stills
+
+        t0 = time.time()
+        text = inspect_stills(
+            prompt, list(images), harness=self.harness,
+            project_folder=self.project_folder, step_id=self.step_id,
+            label="objects", max_tokens=max_tokens)
+        return text, time.time() - t0
 
     def analyze_with_retry(self, prompt, parse_fn, images=None, video=None,
                            max_tokens=512, label="pass"):
@@ -1834,7 +1859,8 @@ def analyze_clip(analyzer, clip_meta, frames, video_clips, transcript,
 #  Pipeline Runner
 # ═══════════════════════════════════════════════════════════════════════
 
-def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False):
+def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
+                 harness=None, project_folder=None):
     """Run the v3 vision pipeline on a list of clip paths.
 
     Args:
@@ -1842,6 +1868,14 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False)
         cache_dir: Directory for frame/clip cache.
         output_dir: Directory for output profiles.
         force: If True, re-analyze clips even if profile exists.
+        harness: Driving harness for the STILL passes (object
+            coarse/detail) - a host with vision answers first, else
+            gemma. None reads `PIPELINE_HOST_HARNESS`, so standalone
+            runs keep the gemma behaviour. VIDEO passes never read
+            this; they stay on gemma.
+        project_folder: Project the still-vision handshake files under
+            when a host answers. Required when `harness` declares
+            vision; unused otherwise.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -1852,7 +1886,8 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False)
 
     with managed_model("gemma-4", lambda: load(MODEL_ID)) as (model, proc):
         # Load model once
-        analyzer = VisionAnalyzer(model, proc)
+        analyzer = VisionAnalyzer(model, proc, harness=harness,
+                                  project_folder=project_folder)
 
         for i, clip_path in enumerate(clips, 1):
             clip_path = Path(clip_path)
@@ -1979,6 +2014,14 @@ def main():
                         help="Re-analyze clips even if profile exists")
     parser.add_argument("--extensions", type=str, default="MOV,mov,mp4,MP4",
                         help="Comma-separated video extensions")
+    parser.add_argument("--harness", type=str, default=None,
+                        help="Driving harness for the STILL passes "
+                             "(agent, mock); unset reads "
+                             "PIPELINE_HOST_HARNESS, and with no host "
+                             "the still passes stay on gemma")
+    parser.add_argument("--project-folder", type=str, default=None,
+                        help="Project the still-vision handshake files "
+                             "under when a host answers")
     args = parser.parse_args()
 
     if args.clip:
@@ -1999,6 +2042,8 @@ def main():
         cache_dir=Path(args.cache_dir),
         output_dir=Path(args.output_dir),
         force=args.force,
+        harness=args.harness,
+        project_folder=args.project_folder,
     )
 
 

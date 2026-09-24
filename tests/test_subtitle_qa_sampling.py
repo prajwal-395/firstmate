@@ -158,7 +158,7 @@ def test_the_vision_verdict_does_not_block(tmp_path, monkeypatch):
         qa, "check_caption_geometry", lambda _path: [])
     monkeypatch.setattr(
         qa, "_vision_observation",
-        lambda _paths: "FAIL\nthe letters are overlapping and distorted")
+        lambda _paths, **k: "FAIL\nthe letters are overlapping and distorted")
 
     result = qa.run_subtitle_qa(str(mov), str(tmp_path))
     assert result["passed"] is True
