@@ -194,6 +194,7 @@ def test_batch_dry_run_reports_each_reel_and_never_stops(tmp_path):
     summary = D.dry_run_all_reels(
         project_folder=project,
         project_label="demo",
+        old_clip="logo_bulb_23976.mov",
         new_media=_media(tmp_path),
         tracks_by_reel=tracks_by_reel,
         offline=True,
@@ -216,6 +217,7 @@ def test_batch_dry_run_marks_a_reel_with_no_offline_tracks(tmp_path):
     summary = D.dry_run_all_reels(
         project_folder=project,
         project_label="demo",
+        old_clip="logo_bulb_23976.mov",
         new_media=_media(tmp_path),
         tracks_by_reel={
             26: _tracks(
@@ -252,6 +254,8 @@ def test_batch_dry_run_report_says_nothing_executed(tmp_path, capsys):
         [
             project,
             "--all-reels",
+            "--old-clip",
+            "logo_bulb_23976.mov",
             "--new-media",
             _media(tmp_path),
             "--tracks-dir",

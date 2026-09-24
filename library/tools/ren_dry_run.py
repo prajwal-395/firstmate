@@ -66,12 +66,14 @@ REEL_GOAL = "state.verify_reels.reel_build"
 """The plan-declared name this dry run composes: the reel goal."""
 
 DEFAULT_REEL = 26
-DEFAULT_ROW = "V7"
-DEFAULT_OLD_CLIP = "logo_bulb_23976.mov"
-DEFAULT_NEW_CLIP = "logo_bulb_lines_23976.mov"
-"""The Reel 26 ending swap: this file for that file on V7, same span,
-no played-length change. Overridable by flag; the documented case is
-the default, not a special case."""
+"""The built reel number the dry run addresses when the caller states none.
+
+A bare number names no client, speaker, colour or brand - but the CLIP the
+swap locates always comes from the caller: --old-clip is required (like
+--new-media already is) because a baked-in clip filename would be one
+project's asset shipping as every project's default (AGENTS.md 14). The
+documented Reel 26 ending swap is an example invocation, not a default.
+"""
 
 
 class DryRunRefused(RuntimeError):
@@ -471,7 +473,7 @@ def dry_run(
     project_label: str,
     reel: int = 26,
     row: str = "",
-    old_clip: str = DEFAULT_OLD_CLIP,
+    old_clip: str = "",
     new_media: str = "",
     timeline_name: str = "",
     tracks=None,
@@ -492,12 +494,17 @@ def dry_run(
 
     if not project_folder or not os.path.isdir(project_folder):
         raise DryRunRefused(f"no pipeline project at {project_folder!r}.")
+    if not (old_clip or "").strip():
+        raise DryRunRefused(
+            "the clip to swap out is not stated: pass --old-clip NAME. "
+            "The engine states no clip of its own - the reference comes "
+            "from the caller, never from a baked-in default."
+        )
     if not new_media:
         raise DryRunRefused(
-            "the replacement file is not stated: pass --new-media PATH "
-            f"(the Reel {int(reel)} ending swap means "
-            f"{DEFAULT_NEW_CLIP}). A touchup never renders media - "
-            f"render it first, then state its path."
+            "the replacement file is not stated: pass --new-media PATH. "
+            "A touchup never renders media - render it first, then state "
+            "its path."
         )
     wanted_media = os.path.abspath(os.path.expanduser(new_media))
     if not os.path.isfile(wanted_media):
@@ -639,7 +646,7 @@ def dry_run_all_reels(
     *,
     project_folder: str,
     project_label: str,
-    old_clip: str = DEFAULT_OLD_CLIP,
+    old_clip: str = "",
     new_media: str = "",
     row: str = "",
     reels=None,
@@ -963,13 +970,9 @@ def main(argv=None) -> int:
     )
     parser.add_argument(
         "--old-clip",
-        default=DEFAULT_OLD_CLIP,
-        help="The clip name on the live timeline to swap out",
-    )
-    parser.add_argument(
-        "--new-clip",
-        default=DEFAULT_NEW_CLIP,
-        help="The replacement clip name (reported; the path comes from --new-media)",
+        default="",
+        help="The clip name on the live timeline to swap out. "
+        "Required: the engine states no clip of its own.",
     )
     parser.add_argument(
         "--new-media",

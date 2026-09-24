@@ -1961,7 +1961,6 @@ def cmd_ren_dry_run(args):
             "--reel", str(args.reel),
             "--row", args.row,
             "--old-clip", args.old_clip,
-            "--new-clip", args.new_clip,
             "--new-media", args.new_media,
             "--timeline", args.timeline,
             "--tracks-file", args.tracks_file,
@@ -2344,10 +2343,10 @@ def main():
              "narrowing) instead of applying --edits to one reel. "
              "One reel's refusal never stops the rest.")
     touch_reel_parser.add_argument(
-        "--old-clip", default="logo_bulb_23976.mov",
+        "--old-clip", default="",
         help="With --all-reels: the clip name to swap out on each "
-             "reel (located across the video rows, not stated by "
-             "position)")
+        "reel (located across the video rows, not stated by "
+        "position)")
     touch_reel_parser.add_argument(
         "--new-media", default="",
         help="With --all-reels: the replacement file's path on disk. "
@@ -2373,12 +2372,9 @@ def main():
         help="Narrow the clip search to this overlay row "
              "(default: search every video row)")
     ren_dry_run_parser.add_argument(
-        "--old-clip", default="logo_bulb_23976.mov",
-        help="The clip name on the live timeline to swap out")
-    ren_dry_run_parser.add_argument(
-        "--new-clip", default="logo_bulb_lines_23976.mov",
-        help="The replacement clip name (reported; the path comes "
-             "from --new-media)")
+        "--old-clip", default="",
+        help="The clip name on the live timeline to swap out. "
+        "Required: the engine states no clip of its own.")
     ren_dry_run_parser.add_argument(
         "--new-media", default="",
         help="The replacement file's path on disk. Required: a touchup "

@@ -156,6 +156,21 @@ def test_no_execute_write_or_lease_lives_in_this_module():
 # ── The change, stated structurally ────────────────────────────────
 
 
+def test_dry_run_without_a_stated_clip_refuses_rather_than_defaulting(
+    tmp_path,
+):
+    """The defect: an unstated --old-clip falling back to a baked-in clip
+    filename, so one project's asset ships as every project's default."""
+    with pytest.raises(D.DryRunRefused, match="--old-clip"):
+        D.dry_run(
+            project_folder=_project_with_reel_26(tmp_path),
+            project_label="demo",
+            reel=26,
+            new_media="/lab/new.mov",
+            tracks=_reel_26_tracks(),
+        )
+
+
 def test_build_change_spec_refuses_an_absent_clip_by_name():
     """The defect: a swap spec for an item the timeline does not have,
     sailing through to a delete addressed by blind position."""
@@ -348,6 +363,8 @@ def test_cli_off_disk_prints_the_report_and_exits_no_go(tmp_path, capsys):
             project,
             "--reel",
             "26",
+            "--old-clip",
+            "logo_bulb_23976.mov",
             "--new-media",
             _media(tmp_path),
             "--tracks-file",

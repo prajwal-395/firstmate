@@ -354,6 +354,13 @@ def _preflight_check(manifest):
     if not project:
         errors.append("Missing 'project' settings")
 
+    if isinstance(project, dict) and not (project.get('name') or '').strip():
+        errors.append(
+            "manifest['project'] declares no 'name' - the timeline name "
+            "compile_manifest writes there; a manifest without one cannot "
+            "be built."
+        )
+
     # The frame the timeline is built at is DECLARED by the manifest
     # (`compile_manifest` writes `resolve_delivery_format` there), never
     # defaulted here. A `.get('resolution', [1080, 1920])` would read a
@@ -698,9 +705,9 @@ def build_timeline(
         return {"success": False, "errors": errors}
 
     project_settings = manifest['project']
-    timeline_name = project_settings.get('name', '4thWall_v3')
     # Declared by the manifest, checked by _preflight_check above: no
     # shape fallback survives here.
+    timeline_name = project_settings['name']
     width, height = project_settings['resolution'][0], project_settings['resolution'][1]
     fps = project_settings.get('frame_rate', 30)
     total_duration = project_settings.get('duration_seconds', 46.0)
