@@ -10,8 +10,10 @@ paths from step 1.01.
 Produces a per-clip JSON index containing:
   - scene_boundaries: visual cut/change points (ffmpeg scene detection)
   - speech_regions: start/end of speech with ASR transcript + word-level
-    timestamps (WhisperX: faster-whisper transcription + wav2vec2
-    forced alignment for ±15ms word boundaries)
+    timestamps (the reel path's own transcription seam: the on-device
+    transcriber's words through MFA forced alignment where its
+    environment is present, wav2vec2 where MFA declines, full
+    WhisperX where the hybrid cannot answer at all)
   - energy_curve: per-second RMS audio energy (librosa, 30Hz frame-aligned)
   - audio_events: classified audio events — silence, ambient noise, etc.
   - motion_energy: per-second visual motion magnitude (frame differencing,
@@ -20,11 +22,14 @@ Produces a per-clip JSON index containing:
 The index bridges the gap between semantic analysis (knows WHAT happens)
 and timeline assembly (needs WHEN things happen).
 
-Speech detection uses WhisperX, which combines:
-  1. faster-whisper (large-v3) for fast, accurate transcription
-  2. wav2vec2 forced alignment for phoneme-level word timestamps
-This two-pass approach produces word boundaries with ±5-15ms accuracy,
-compared to ±30-150ms from Whisper's attention-based timestamps alone.
+Speech detection calls the SAME seam the reel builds transcribe through
+(`library/tools/timeline_transcript.transcribe_audio`, adopted there in
+PR 1180), rather than a copy of it - so the edit pipeline's words and
+the reels' words are timed by the same instruments, and every index
+says which one answered (`transcription_arm` / `transcription_aligner`
+on the document, `method` on each region). A cached index that predates
+the stamp is stamped as legacy WhisperX on read and served - only an
+explicit `ren reindex` moves a project onto Voz.
 Word start times are additionally snapped to the nearest audio onset
 (±23ms spectral transient) when within 30ms, giving consonant attacks
 sub-frame precision.
@@ -40,7 +45,9 @@ Output: Per-clip JSON files in <project>/pipeline_output/temporal_index/<clip_id
 Requires:
     - ffmpeg on PATH
     - librosa + soundfile
-    - whisperx (pip install whisperx)
+    - the on-device transcriber (`da`) for the primary arm, MFA for
+      the preferred aligner; faster-whisper + whisperx stay as the
+      measured fallback behind both
 
 
 Rules relocated from AGENTS.md 10.3
@@ -66,7 +73,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "tools"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
-from model_lifecycle import load_model, unload_model
 
 
 # This step's stdout is its JSON result, so nothing else may write to
@@ -178,61 +184,46 @@ def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
     return deduped
 
 
-# ── 2. Speech region detection (WhisperX: faster-whisper + wav2vec2) ──
+# ── 2. Speech region detection (Voz + MFA, WhisperX fallback) ──
+#
+# The transcription itself lives in
+# `library/tools/timeline_transcript.transcribe_audio` - the seam the
+# reel builds transcribe through, adopted there in PR 1180: the
+# on-device transcriber's words (`da`) through MFA where its
+# environment is present, wav2vec2 where MFA declines, full WhisperX
+# where the hybrid cannot answer at all. This step calls that seam
+# rather than keeping its own transcriber (the old faster-whisper +
+# wav2vec2 direct call is gone with `_get_whisperx_models`), so the
+# edit pipeline's words and the reels' words are timed by the same
+# instruments. What this step still owns is everything AFTER the
+# words: onset snapping, the shared boundary hygiene, and the region
+# shape downstream reads.
+#
+# `TRANSCRIBED_ALIGNERS` is the cache contract beside the language
+# check in `_load_cached_index`: an index is only reused when a real
+# instrument timed it. An index that predates the stamp was timed by
+# the old WhisperX path - an instrument, not nothing - so it is
+# STAMPED as legacy on read and served, never silently re-transcribed
+# behind the project's back; `ren reindex` moves a project onto Voz
+# when asked. An index written when nothing could transcribe
+# (`"none"`) is re-indexed - words timed by nothing are not words.
 
-def _get_whisperx_models(model_size: str = "large-v3",
-                         language: str = "en"):
-    """Load WhisperX transcription + alignment models using model_lifecycle.
+#: Aligners whose stamp means an index was really timed. The legacy
+#: WhisperX path stamped nothing, so a missing stamp reads as this
+#: arm's wav2vec2 - the instrument that ran, written down at last.
+TRANSCRIBED_ALIGNERS = ("mfa", "wav2vec2")
 
-    Transcription uses CTranslate2 (CPU-only on macOS).
-    Alignment uses wav2vec2 via PyTorch — uses MPS on Apple Silicon
-    for GPU acceleration, falls back to CPU.
+#: The stamp a pre-stamp index is given on read: the old path forced
+#: every clip through faster-whisper plus wav2vec2, so this is what
+#: timed it, and the detected language is what it was forced to.
+LEGACY_ARM = "whisperx"
+LEGACY_ALIGNER = "wav2vec2"
 
-    `language` is the project's `source.language`, NOT a constant:
-    the alignment model is per-language and transcription is forced
-    to it. An undeclared language reads as English, which is what
-    every project transcribed before the setting existed.
-    """
-    try:
-        import torchaudio
-        if not hasattr(torchaudio, 'set_audio_backend'):
-            torchaudio.set_audio_backend = lambda x: None
-        if not hasattr(torchaudio, 'get_audio_backend'):
-            torchaudio.get_audio_backend = lambda: "soundfile"
-    except ImportError:
-        pass
-    import whisperx
-
-    def _load_transcribe():
-        print(f"  Loading WhisperX transcription model ({model_size}, int8, cpu)...", file=sys.stderr)
-        return whisperx.load_model(model_size, device="cpu", compute_type="int8")
-
-    def _load_align():
-        import torch
-        if torch.backends.mps.is_available():
-            device = "mps"
-            print("  Loading wav2vec2 alignment model (mps — GPU)...", file=sys.stderr)
-        else:
-            device = "cpu"
-            print("  Loading wav2vec2 alignment model (cpu)...", file=sys.stderr)
-            
-        model, metadata = whisperx.load_align_model(language_code=language, device=device)
-        return (model, metadata, device)
-
-    transcribe_model = load_model("whisperx_transcribe", _load_transcribe)
-    align_model, align_metadata, align_device = load_model("whisperx_align", _load_align)
-
-    return (
-        transcribe_model,
-        align_model,
-        align_metadata,
-        align_device,
-    )
-
-def _unload_whisperx_models():
-    """Unload WhisperX models when done with speech detection."""
-    unload_model("whisperx_transcribe")
-    unload_model("whisperx_align")
+#: What an untranscribed clip records where the instrument would be.
+#: Not an aligner name, and that is the whole point: a null there
+#: would read as "timed by the default", which is how a machine that
+#: could not transcribe would pin every later run to empty words.
+UNTRANSCRIBED = "none"
 
 
 def snap_word_boundaries_to_onsets(
@@ -291,120 +282,164 @@ def snap_word_boundaries_to_onsets(
 # keep reading.
 
 
+def _method_name(arm: str, aligner: str, whisper_model_size: str) -> str:
+    """The region `method` for the instrument that answered.
+
+    The hybrid arm names its aligner (`hybrid-mfa`,
+    `hybrid-wav2vec2`); the full-WhisperX fallback keeps the string
+    every index before this change carried, so a reader can tell
+    which past a region comes from.
+    """
+    from library.tools import hybrid_transcription
+
+    if arm == hybrid_transcription.ARM_HYBRID:
+        return f"hybrid-{aligner}"
+    return f"whisperx-wav2vec2-{whisper_model_size}"
+
+
+def _untranscribed(whisper_model_size: str, language: str) -> dict:
+    """The account a clip nothing could transcribe carries."""
+    return {
+        "arm": UNTRANSCRIBED,
+        "aligner": UNTRANSCRIBED,
+        "detected_language": language,
+        "method": f"untranscribed-{whisper_model_size}",
+    }
+
+
+def _transcription_from_record(record: dict, whisper_model_size: str,
+                               language: str) -> dict:
+    """Which instrument answered, in the shape the index stores."""
+    from library.tools import hybrid_transcription
+
+    arm = (record or {}).get("arm") or hybrid_transcription.ARM_WHISPERX
+    aligner = ((record or {}).get("aligner")
+               or hybrid_transcription.ALIGNER_WAV2VEC2)
+    detected = (record or {}).get("language") or {}
+    detected_language = (detected.get("language") if isinstance(
+        detected, dict) else None) or language
+    return {
+        "arm": arm,
+        "aligner": aligner,
+        "detected_language": detected_language,
+        "method": _method_name(arm, aligner, whisper_model_size),
+    }
+
+
+def _regions_from_segments(segments: list, onsets: list,
+                           method: str) -> list:
+    """Aligned segments into the region shape downstream reads.
+
+    One place, both transcription paths (the single-clip seam and the
+    batched run below): onset snapping, the shared boundary hygiene,
+    and the region keys. `confidence` is the transcriber's own
+    segment confidence where the arm publishes one and 0.0 where it
+    publishes none - the same default an absent key always carried,
+    never a measurement.
+    """
+    regions: list = []
+    for segment in segments or []:
+        text = segment.get("text", "").strip()
+        if not text:
+            continue
+
+        words = []
+        for w in segment.get("words", []):
+            # An aligner may fail for some words (numbers,
+            # symbols) — skip words without timing
+            if "start" not in w or "end" not in w:
+                continue
+            words.append({
+                "word": w["word"].strip().lower(),
+                "start": round(w["start"], 3),
+                "end": round(w["end"], 3),
+            })
+
+        if not words:
+            continue
+
+        # Snap word boundaries to onsets for extra precision
+        if onsets:
+            words = snap_word_boundaries_to_onsets(words, onsets)
+
+        # Sanitize aligner artifacts (overlaps, long words, zero-duration)
+        words = _sanitize_word_boundaries(words)
+
+        regions.append({
+            "start": words[0]["start"],
+            "end": words[-1]["end"],
+            "text": text.lower().strip(),
+            "words": words,
+            "confidence": round(
+                segment.get("avg_logprob", 0.0), 3
+            ) if "avg_logprob" in segment else 0.0,
+            "method": method,
+        })
+    return regions
+
+
 def detect_speech_regions(
     audio_path: str,
     output_dir: str,
     onsets: list = None,
     whisper_model_size: str = "large-v3",
     language: str = "en",
-) -> list:
-    """Detect speech regions using WhisperX with forced alignment.
+) -> tuple:
+    """Detect speech regions through the reel path's transcription seam.
 
-    Two-pass pipeline:
-      1. faster-whisper (large-v3, int8) transcription with VAD
-      2. wav2vec2 forced alignment for phoneme-level word timestamps
-
-    Word start times are additionally snapped to the nearest audio onset
+    The words come from `timeline_transcript.transcribe_audio` - the
+    on-device transcriber through MFA where its environment is
+    present, wav2vec2 where MFA declines, full WhisperX where the
+    hybrid cannot answer. Everything after the words is this step's
+    own: word start times are snapped to the nearest audio onset
     (from librosa onset detection) when within 30ms, giving consonant
-    attacks sub-frame precision.
+    attacks sub-frame precision, and the shared boundary hygiene is
+    applied.
 
-    Returns a list of speech region dicts:
+    Returns `(regions, transcription)`:
+
+      * `regions` - the list of speech region dicts downstream reads:
         [{
             "start": 0.8, "end": 3.14,
             "text": "i can feel the silent judgment",
             "words": [{"word": "i", "start": 0.80, "end": 0.92}, ...],
             "confidence": 0.92,
-            "method": "whisperx-wav2vec2-large-v3"
+            "method": "hybrid-mfa"
         }, ...]
+        `confidence` is the transcriber's own segment confidence where
+        the arm publishes one (the full-WhisperX fallback) and 0.0
+        where the arm publishes none (the hybrid) - the same default
+        an absent key always carried, never a measurement.
+      * `transcription` - which instrument answered:
+        `{"arm", "aligner", "detected_language", "method"}`.
+        A clip nothing could transcribe returns `[]` with the arm and
+        aligner as `"none"` - an empty region list is not a
+        measurement of silence, and the stamp is what keeps the next
+        run from serving it as one.
+
+    `language` is the project's `source.language`, kept as the cache
+    key it always was (`transcription_language` on the index). The
+    language the words were actually heard in is reported back as
+    `detected_language`: the seam identifies per file, the way the
+    reel path does, rather than forcing every clip through the
+    declared one.
     """
-    regions = []
+    from library.tools import timeline_transcript
+
+    regions: list = []
+    transcription = _untranscribed(whisper_model_size, language)
 
     try:
-        try:
-            import torchaudio
-            if not hasattr(torchaudio, 'set_audio_backend'):
-                torchaudio.set_audio_backend = lambda x: None
-            if not hasattr(torchaudio, 'get_audio_backend'):
-                torchaudio.get_audio_backend = lambda: "soundfile"
-        except ImportError:
-            pass
-        import whisperx
-
-        trans_model, align_model, align_metadata, align_device = \
-            _get_whisperx_models(whisper_model_size, language)
-
-        # Pass 1: Transcribe with faster-whisper (batched)
-        audio = whisperx.load_audio(audio_path)
-        result = trans_model.transcribe(
-            audio, batch_size=4, language=language,
-        )
-
-        # Guard: clips with no speech (ambient, B-roll, silence)
-        if not result.get("segments"):
-            print("          (no speech detected)", file=sys.stderr)
-            return regions
-
-        # Pass 2: Forced alignment with wav2vec2
-        aligned = whisperx.align(
-            result["segments"],
-            align_model,
-            align_metadata,
-            audio,
-            align_device,
-            return_char_alignments=False,
-        )
-
-        if not aligned.get("segments"):
-            print("          (alignment produced no segments)",
-                  file=sys.stderr)
-            return regions
-
-        # Process aligned segments into speech regions
-        for segment in aligned["segments"]:
-            text = segment.get("text", "").strip()
-            if not text:
-                continue
-
-            words = []
-            for w in segment.get("words", []):
-                # wav2vec2 alignment may fail for some words (numbers,
-                # symbols) — skip words without timing
-                if "start" not in w or "end" not in w:
-                    continue
-                words.append({
-                    "word": w["word"].strip().lower(),
-                    "start": round(w["start"], 3),
-                    "end": round(w["end"], 3),
-                })
-
-            if not words:
-                continue
-
-            # Snap word boundaries to onsets for extra precision
-            if onsets:
-                words = snap_word_boundaries_to_onsets(words, onsets)
-
-            # Sanitize wav2vec2 artifacts (overlaps, long words, zero-duration)
-            words = _sanitize_word_boundaries(words)
-
-            region = {
-                "start": words[0]["start"],
-                "end": words[-1]["end"],
-                "text": text.lower().strip(),
-                "words": words,
-                "confidence": round(
-                    segment.get("avg_logprob", 0.0), 3
-                ) if "avg_logprob" in segment else 0.0,
-                "method": f"whisperx-wav2vec2-{whisper_model_size}",
-            }
-            regions.append(region)
-
+        aligned, record = timeline_transcript.transcribe_audio(
+            Path(audio_path), model_size=whisper_model_size,
+            label=Path(audio_path).name)
     except ImportError as e:
         print(
-            f"  WARNING: whisperx not available ({e}), "
+            f"  WARNING: transcriber not available ({e}), "
             "skipping speech detection",
             file=sys.stderr,
         )
+        return regions, transcription
     except Exception as e:
         print(
             f"  WARNING: speech detection failed: {e}",
@@ -412,10 +447,268 @@ def detect_speech_regions(
         )
         import traceback
         traceback.print_exc(file=sys.stderr)
-    finally:
-        _unload_whisperx_models()
+        return regions, transcription
 
-    return regions
+    transcription = _transcription_from_record(
+        record, whisper_model_size, language)
+
+    segments = (aligned or {}).get("segments") or []
+    if not segments:
+        print("          (no speech detected)", file=sys.stderr)
+        return regions, transcription
+
+    return (_regions_from_segments(segments, onsets,
+                                   transcription["method"]),
+            transcription)
+
+
+# ── Batched transcription: one MFA run per language per step run ──
+#
+# MFA pays ~35 s fixed per `mfa align` invocation (model load) against
+# ~5 ms per audio-second marginal. Per-clip hybrid calls pay the fixed
+# cost on EVERY clip - almost an hour on a 100-clip project, on the
+# machine that is already the limiter. So the run path below hears
+# each clip once (the transcriber is 275-344x realtime and stays
+# per-clip), concatenates the clip audios, and aligns each language's
+# windows in ONE aligner call. A clip the transcriber cannot hear, a
+# language MFA has no model for, and any batch the aligner declines
+# all take the per-clip seam (`transcribe_audio`) - the same fallback
+# the single path takes, never a degraded batch answer.
+#
+# The split-back is by construction: MFA's merge and whisperx's align
+# both return one segment per input window in input order, so windows
+# [i:j] of the batch are clip windows [i:j] and every time is moved
+# back onto the clip's own clock by the concat offset.
+
+def _concat_wavs(audio_paths: list, scratch_dir: str) -> str:
+    """Many 16 kHz mono wavs as one, with each file's start offset.
+
+    Returns `(concat_path, [(audio_path, offset_seconds)])`. A file
+    whose params differ from the first is refused rather than
+    resampled in silence - resampling inside a measurement is how a
+    second clock gets in.
+    """
+    import wave
+
+    params = None
+    spans = []
+    frames_all = []
+    cursor = 0.0
+    for audio_path in audio_paths:
+        with wave.open(audio_path, "rb") as wav:
+            these = (wav.getnchannels(), wav.getsampwidth(),
+                     wav.getframerate())
+            if params is None:
+                params = these
+                if params != (1, 2, 16000):
+                    raise ValueError(
+                        f"concat refuses {audio_path}: expected 16 kHz "
+                        f"mono s16le, found {these}. The batch aligns "
+                        f"one clock, not three.")
+            elif these != params:
+                raise ValueError(
+                    f"concat refuses {audio_path}: params {these} "
+                    f"against {params}. Batch members that fall out "
+                    f"take the per-clip seam instead.")
+            frames = wav.readframes(wav.getnframes())
+        spans.append((audio_path, round(cursor, 3)))
+        frames_all.append(frames)
+        cursor += len(frames) / (params[0] * params[1] * params[2])
+    out_path = os.path.join(scratch_dir, "ingest_batch.wav")
+    with wave.open(out_path, "wb") as out:
+        out.setnchannels(params[0])
+        out.setsampwidth(params[1])
+        out.setframerate(params[2])
+        for frames in frames_all:
+            out.writeframes(frames)
+    return out_path, spans
+
+
+def transcribe_clips_batched(requests: list,
+                             whisper_model_size: str = "large-v3",
+                             language: str = "en") -> dict:
+    """Hear every clip once, align each language's windows in one run.
+
+    `requests` are `{"key", "audio_path"}` (plus per-request
+    `"onsets"`); returns `{key: (regions, transcription)}` for every
+    key it was given. The single-clip seam stays the fallback for any
+    clip the batch cannot carry, and `detect_speech_regions` stays
+    the single-shot entry - this is the run path's bulk door, not a
+    second transcriber.
+    """
+    from library.tools import heard_speech, hybrid_transcription, mfa_align
+    from library.tools import timeline_transcript
+    from library.tools import shared_environment
+
+    # Phase 1, still per clip: the transcriber hears each file in its
+    # own timebase, and the windows are offset into the concat.
+    heard = []       # (key, audio_path, onsets, detected, windows)
+    fallback_keys = []
+    for request in requests or []:
+        key = request["key"]
+        try:
+            detected = heard_speech.identify_language(
+                request["audio_path"]).language
+            spoken = heard_speech.transcribe(request["audio_path"])
+        except heard_speech.TranscriberUnavailable as unheard:
+            print(f"  {key}: transcriber unavailable ({unheard}); "
+                  f"per-clip fallback", file=sys.stderr)
+            fallback_keys.append(key)
+            continue
+        windows = hybrid_transcription.alignment_windows(spoken)
+        if not windows:
+            # No words: the seam would raise HEARD_NOTHING and take
+            # the full fallback, so the batch sends it there directly.
+            fallback_keys.append(key)
+            continue
+        heard.append((key, request["audio_path"],
+                      request.get("onsets"), detected, windows))
+
+    # Phase 2: one concat, one aligner run per batched language.
+    results: dict = {}
+    if heard:
+        mfa_here, _ = shared_environment.mfa_available()
+        batchable = [row for row in heard
+                     if mfa_here and mfa_align.covers(row[3])]
+        per_clip = [row for row in heard if row not in batchable]
+        for row in per_clip:
+            fallback_keys.append(row[0])
+        if batchable:
+            import tempfile
+            with tempfile.TemporaryDirectory(
+                    prefix="ingest_batch_") as scratch:
+                paths = [row[1] for row in batchable]
+                try:
+                    concat, spans = _concat_wavs(paths, scratch)
+                except ValueError as refused:
+                    print(f"  batch concat refused ({refused}); "
+                          f"per-clip fallback", file=sys.stderr)
+                    fallback_keys.extend(row[0] for row in batchable)
+                    batchable = []
+                if batchable:
+                    offsets = {path: offset for path, offset in spans}
+                    by_language: dict = {}
+                    for key, path, onsets, detected, windows in batchable:
+                        shifted = [dict(w, start=w["start"] + offsets[path],
+                                        end=w["end"] + offsets[path])
+                                   for w in windows]
+                        by_language.setdefault(detected, []).append(
+                            (key, path, onsets, shifted))
+                    # The reel path's own aligner (MFA preferred,
+                    # wav2vec2 behind it) - the batch is timed by the
+                    # same instrument the single path is.
+                    aligner = timeline_transcript._aligner()
+                    for group_language, group in by_language.items():
+                        group_windows = [w for _, _, _, ws in group
+                                         for w in ws]
+                        try:
+                            aligned = aligner.align(
+                                group_windows, group_language, concat)
+                            hybrid_transcription._check_alignment(aligned)
+                        except hybrid_transcription.FallbackRequired as declined:
+                            print(f"  batch aligner declined "
+                                  f"({declined.reason}); per-clip "
+                                  f"fallback", file=sys.stderr)
+                            fallback_keys.extend(
+                                key for key, _, _, _ in group)
+                            continue
+                        segments = aligned.get("segments") or []
+                        cursor = 0
+                        for key, path, onsets, ws in group:
+                            own = segments[cursor:cursor + len(ws)]
+                            cursor += len(ws)
+                            offset = offsets[path]
+                            moved = []
+                            for segment in own:
+                                row = dict(segment)
+                                row["start"] = segment["start"] - offset
+                                row["end"] = segment["end"] - offset
+                                row["words"] = [
+                                    dict(w, start=w["start"] - offset,
+                                         end=w["end"] - offset)
+                                    for w in segment.get("words") or []
+                                    if isinstance(w, dict)
+                                    and "start" in w and "end" in w]
+                                moved.append(row)
+                            transcription = _transcription_from_record(
+                                {"arm": hybrid_transcription.ARM_HYBRID,
+                                 "aligner": aligned.get(
+                                     "aligner",
+                                     hybrid_transcription.ALIGNER_WAV2VEC2),
+                                 "language": {"language": group_language,
+                                              "confidence": None}},
+                                whisper_model_size, language)
+                            results[key] = (
+                                _regions_from_segments(
+                                    moved, onsets,
+                                    transcription["method"]),
+                                transcription)
+
+    # Phase 3: every clip the batch did not carry takes the seam.
+    by_path = {request["key"]: request for request in requests or []}
+    for key in fallback_keys:
+        request = by_path[key]
+        regions, transcription = detect_speech_regions(
+            request["audio_path"],
+            os.path.dirname(request["audio_path"]),
+            onsets=request.get("onsets"),
+            whisper_model_size=whisper_model_size,
+            language=language)
+        results[key] = (regions, transcription)
+    return results
+
+
+# ── Moving a project onto Voz: the explicit reindex ──────────────
+#
+# Pre-stamp indexes are served as legacy, never re-transcribed
+# unasked. When the project is asked - `ren reindex` - the legacy
+# files are invalidated (deleted; they are derived cache, recomputed
+# on the next run) and reported by name, so the move states what it
+# moved. Files already timed by a current instrument are untouched,
+# and files this function does not recognise are left alone.
+
+def invalidate_legacy_indexes(project_folder: str) -> dict:
+    """Delete temporal-index files no current instrument timed.
+
+    Returns `{"invalidated", "current", "unrecognized"}` (basenames).
+    "Invalidated" is legacy (missing stamp, or the old WhisperX arm),
+    untranscribed (`"none"`, retried on the next run) and corrupt
+    (unreadable cache is recomputed, never served). Deleting is the
+    whole move: the next run re-transcribes exactly these clips.
+    """
+    from library.tools.project_layout import Area, ProjectLayout
+
+    report = {"invalidated": [], "current": [], "unrecognized": []}
+    try:
+        layout = ProjectLayout(project_folder)
+        index_dir = str(layout.write_dir(
+            Area.TEMPORAL_INDEX, step="temporal_index"))
+    except (OSError, ValueError):
+        return report
+    if not os.path.isdir(index_dir):
+        return report
+    for name in sorted(os.listdir(index_dir)):
+        if not name.endswith(".json"):
+            continue
+        path = os.path.join(index_dir, name)
+        try:
+            with open(path, encoding="utf-8") as handle:
+                document = json.load(handle)
+        except (OSError, ValueError):
+            os.remove(path)
+            report["invalidated"].append(name)
+            continue
+        if not isinstance(document, dict) or "speech_regions" not in document:
+            report["unrecognized"].append(name)
+            continue
+        aligner = document.get("transcription_aligner")
+        arm = document.get("transcription_arm")
+        if aligner in TRANSCRIBED_ALIGNERS and arm != LEGACY_ARM:
+            report["current"].append(name)
+            continue
+        os.remove(path)
+        report["invalidated"].append(name)
+    return report
 
 
 def _merge_speech_regions(regions: list, max_gap: float = 0.5) -> list:
@@ -1618,7 +1911,7 @@ def derive_speech_activity_curve(
     duration: float,
     sample_rate_hz: int = 30,
 ) -> dict:
-    """Derive a binary speech activity curve from WhisperX word timestamps.
+    """Derive a binary speech activity curve from aligned word timestamps.
 
     No additional audio processing — computed directly from the already-aligned
     word timestamps in speech_regions. Provides a frame-aligned binary signal
@@ -1682,17 +1975,94 @@ def get_duration(video_path: str) -> float:
     return 0.0
 
 
+def _pretranscribe_misses(items: list, layout: ProjectLayout,
+                          whisper_model_size: str,
+                          language: str) -> dict:
+    """Extraction + onsets + ONE batched transcription for cache misses.
+
+    `items` are `(key, source_path, index_path, require_picture)`;
+    returns `{key: (audio_path, onsets, regions, transcription)}` for
+    the misses only. The per-clip indexers take these rows and skip
+    their own extraction, onset and speech passes, so a run pays one
+    MFA invocation per language no matter how many clips miss. The
+    cache is read twice (here to filter, in the loop to serve) -
+    reads are milliseconds, MFA runs are not.
+    """
+    audio_dir = str(layout.write_dir(Area.AUDIO_CACHE,
+                                     step="temporal_index"))
+    needs = []
+    for key, source_path, index_path, require_picture in items:
+        if not source_path or not os.path.isfile(source_path):
+            continue
+        if _load_cached_index(index_path, expected_language=language,
+                              require_picture=require_picture) is not None:
+            continue
+        needs.append((key, source_path))
+    if not needs:
+        return {}
+    prepared = []
+    for key, source_path in needs:
+        try:
+            audio_path = extract_audio_16k(source_path, audio_dir,
+                                           clip_id=key)
+            onsets = detect_onsets(audio_path)
+        except Exception as e:
+            # One clip's extraction or onset pass must not fail the
+            # step: the clip falls out of the batch and takes the
+            # single-shot path in the loop, which reports per-clip.
+            print(f"  WARNING: batch prep failed for {key} ({e}); "
+                  f"single-shot fallback", file=sys.stderr)
+            continue
+        prepared.append({"key": key, "audio_path": audio_path,
+                         "onsets": onsets})
+    if not prepared:
+        return {}
+    print(f"    Transcribing {len(prepared)} clip(s) in one batch...",
+          file=sys.stderr)
+    try:
+        batched = transcribe_clips_batched(
+            prepared, whisper_model_size=whisper_model_size,
+            language=language)
+    except Exception as e:
+        # The batch itself must not fail the step either: every clip
+        # takes the single-shot seam, which is exactly what the step
+        # did before batching existed.
+        print(f"  WARNING: batched transcription failed ({e}); "
+              f"single-shot fallback for {len(prepared)} clip(s)",
+              file=sys.stderr)
+        batched = {}
+    out = {}
+    for row in prepared:
+        if row["key"] not in batched:
+            regions, transcription = detect_speech_regions(
+                row["audio_path"],
+                os.path.dirname(row["audio_path"]),
+                onsets=row["onsets"],
+                whisper_model_size=whisper_model_size,
+                language=language)
+            batched[row["key"]] = (regions, transcription)
+        regions, transcription = batched[row["key"]]
+        out[row["key"]] = (row["audio_path"], row["onsets"],
+                           regions, transcription)
+    return out
+
+
 def index_clip(
     video_path: str,
     clip_id: str,
     layout: ProjectLayout,
     whisper_model_size: str = "large-v3",
     language: str = "en",
+    pretranscribed: dict = None,
 ) -> dict:
     """
     Build temporal event index for a single clip.
 
     Runs all sub-analyzers and produces a complete index document.
+    `pretranscribed` is this clip's `_pretranscribe_misses` row
+    `(audio_path, onsets, regions, transcription)` - the batched run
+    path passes it so the clip skips its own extraction, onset and
+    speech passes; anything else transcribes single-shot.
     """
     print(f"\n  Indexing {clip_id}: {Path(video_path).name}", file=sys.stderr)
     t0 = time.time()
@@ -1702,7 +2072,10 @@ def index_clip(
 
     # Extract audio (shared by speech + energy + audio event analyzers)
     audio_dir = str(layout.write_dir(Area.AUDIO_CACHE, step="temporal_index"))
-    audio_path = extract_audio_16k(video_path, audio_dir, clip_id=clip_id)
+    if pretranscribed is not None:
+        audio_path, onsets, speech, transcription = pretranscribed
+    else:
+        audio_path = extract_audio_16k(video_path, audio_dir, clip_id=clip_id)
 
     # 1. Scene detection
     print("    [1/12] Scene detection...", file=sys.stderr)
@@ -1719,28 +2092,37 @@ def index_clip(
     )
 
     # 3. Onset detection (run BEFORE speech so we can onset-snap words)
-    print("    [3/12] Onset detection...", file=sys.stderr)
-    onsets = detect_onsets(audio_path)
-    print(
-        f"           {len(onsets)} onsets",
-        file=sys.stderr,
-    )
+    if pretranscribed is None:
+        print("    [3/12] Onset detection...", file=sys.stderr)
+        onsets = detect_onsets(audio_path)
+        print(
+            f"           {len(onsets)} onsets",
+            file=sys.stderr,
+        )
+    else:
+        print("    [3/12] Onset detection... (batched, reused)",
+              file=sys.stderr)
 
-    # 4. Speech regions (WhisperX: transcription + wav2vec2 alignment)
+    # 4. Speech regions (the reel path's seam: Voz + MFA, WhisperX fallback)
     # Onsets are passed in for word-boundary snapping
-    print("    [4/12] Speech detection (WhisperX + wav2vec2)...",
-          file=sys.stderr)
-    speech = detect_speech_regions(
-        audio_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
-        onsets=onsets,
-        whisper_model_size=whisper_model_size,
-        language=language,
-    )
+    if pretranscribed is None:
+        print("    [4/12] Speech detection (Voz + MFA, WhisperX fallback)...",
+              file=sys.stderr)
+        speech, transcription = detect_speech_regions(
+            audio_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
+            onsets=onsets,
+            whisper_model_size=whisper_model_size,
+            language=language,
+        )
+    else:
+        print("    [4/12] Speech detection... (batched, reused)",
+              file=sys.stderr)
     speech_dur = sum(r["end"] - r["start"] for r in speech)
     word_count = sum(len(r.get("words", [])) for r in speech)
     print(
         f"           {len(speech)} regions, {speech_dur:.1f}s speech, "
-        f"{word_count} words (wav2vec2 aligned)",
+        f"{word_count} words ({transcription['aligner']} aligned, "
+        f"{transcription['arm']} arm)",
         file=sys.stderr,
     )
 
@@ -1807,7 +2189,7 @@ def index_clip(
         file=sys.stderr,
     )
 
-    # 12. Speech activity curve (derived from WhisperX word timestamps)
+    # 12. Speech activity curve (derived from aligned word timestamps)
     print("    [12/12] Speech activity curve (30Hz)...", file=sys.stderr)
     speech_activity = derive_speech_activity_curve(speech, duration)
     print(
@@ -1827,6 +2209,14 @@ def index_clip(
         # without this the reuse below would serve English words for
         # a project that now declares Spanish.
         "transcription_language": language,
+        # Which instrument timed these words, and which language it
+        # heard. The reel path records the same account on its own
+        # transcripts; a run that cannot tell MFA words from
+        # wav2vec2 words cannot say what moved when the instrument
+        # changes.
+        "transcription_arm": transcription["arm"],
+        "transcription_aligner": transcription["aligner"],
+        "detected_language": transcription["detected_language"],
 
         # ── Original signal outputs ──────────────────────────────────
         "scene_boundaries": scenes,
@@ -1858,7 +2248,7 @@ def index_clip(
         "color_curves": color_curves,
 
         # Binary speech activity at frame rate (30Hz), derived from
-        # WhisperX word timestamps. No additional processing cost.
+        # aligned word timestamps. No additional processing cost.
         # speech_ratio: fraction of clip duration with active speech.
         "speech_activity": speech_activity,
     }
@@ -1877,6 +2267,18 @@ def _load_cached_index(index_path: str, expected_language=None,
     written before `transcription_language` existed read as English,
     which is what every one of them was. Pass None to skip the check
     (callers that do not transcribe).
+
+    An index reads as no cache when no real instrument timed it:
+    `transcription_aligner` must name one of `TRANSCRIBED_ALIGNERS`,
+    and an index written when nothing could transcribe (`"none"`)
+    is re-indexed - words timed by nothing are not words.
+
+    An index that PREDATES the stamp is stamped as legacy on read
+    and served: it was timed by the old faster-whisper plus wav2vec2
+    path, which is an instrument with a known ~40-55 ms late bias,
+    not nothing. Re-transcribing whole projects unasked would move
+    every downstream in-point with no record; `ren reindex` moves a
+    project onto Voz when asked, stating what it invalidated.
     """
     if not os.path.isfile(index_path) or os.path.getsize(index_path) == 0:
         return None
@@ -1899,6 +2301,33 @@ def _load_cached_index(index_path: str, expected_language=None,
         print(f"  WARNING: index {index_path} is missing {missing}; "
               f"re-indexing", file=sys.stderr)
         return None
+    if index.get("transcription_aligner") not in TRANSCRIBED_ALIGNERS:
+        if "transcription_aligner" not in index:
+            # Legacy: timed by the old path before any stamp existed.
+            # Stamped on read and served - the words are wav2vec2's,
+            # with its known late bias, and the stamp says so from
+            # here on. `ren reindex` moves them when asked.
+            index["transcription_arm"] = LEGACY_ARM
+            index["transcription_aligner"] = LEGACY_ALIGNER
+            index["detected_language"] = (
+                index.get("transcription_language") or "en")
+            try:
+                with open(index_path, "w", encoding="utf-8") as f:
+                    json.dump(index, f, indent=2)
+            except OSError as e:
+                print(f"  WARNING: index {index_path} could not be "
+                      f"stamped ({e}); serving unstamped",
+                      file=sys.stderr)
+            print(f"  index {index_path} predates the instrument "
+                  f"stamp; serving as legacy {LEGACY_ARM}-"
+                  f"{LEGACY_ALIGNER} (`ren reindex` moves it)",
+                  file=sys.stderr)
+        else:
+            print(f"  WARNING: index {index_path} was timed by "
+                  f"{index.get('transcription_aligner')!r} - re-indexing, "
+                  f"because only {list(TRANSCRIBED_ALIGNERS)} are served "
+                  f"as current", file=sys.stderr)
+            return None
     if expected_language is not None:
         cached_language = (index.get("transcription_language") or "en")
         if cached_language != expected_language:
@@ -1915,6 +2344,7 @@ def index_audio_clip(
     layout: ProjectLayout,
     whisper_model_size: str = "large-v3",
     language: str = "en",
+    pretranscribed: dict = None,
 ) -> dict:
     """The temporal index of a voiceover take or music bed: SOUND only.
 
@@ -1925,6 +2355,10 @@ def index_audio_clip(
     correct answer), the energy curve, onsets, audio events and the
     derived word timings. The document is cached beside the video
     indices under its own `audio_001` name.
+
+    `pretranscribed` is this file's `_pretranscribe_misses` row -
+    the batched run path passes it so the file skips its own onset
+    and speech passes.
     """
     print(f"\n  Indexing {audio_id}: {Path(audio_path).name}",
           file=sys.stderr)
@@ -1935,27 +2369,37 @@ def index_audio_clip(
 
     cache_dir = str(layout.write_dir(Area.AUDIO_CACHE,
                                      step="temporal_index"))
-    wav_path = extract_audio_16k(audio_path, cache_dir, clip_id=audio_id)
+    if pretranscribed is not None:
+        wav_path, onsets, speech, transcription = pretranscribed
+    else:
+        wav_path = extract_audio_16k(audio_path, cache_dir, clip_id=audio_id)
 
     print("    [1/5] Energy curve (30Hz)...", file=sys.stderr)
     energy = compute_energy_curve(wav_path)
 
-    print("    [2/5] Onset detection...", file=sys.stderr)
-    onsets = detect_onsets(wav_path)
+    if pretranscribed is None:
+        print("    [2/5] Onset detection...", file=sys.stderr)
+        onsets = detect_onsets(wav_path)
 
-    print("    [3/5] Speech detection (WhisperX + wav2vec2)...",
-          file=sys.stderr)
-    speech = detect_speech_regions(
-        wav_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
-        onsets=onsets,
-        whisper_model_size=whisper_model_size,
-        language=language,
-    )
+        print("    [3/5] Speech detection (Voz + MFA, WhisperX fallback)...",
+              file=sys.stderr)
+        speech, transcription = detect_speech_regions(
+            wav_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
+            onsets=onsets,
+            whisper_model_size=whisper_model_size,
+            language=language,
+        )
+    else:
+        print("    [2/5] Onset detection... (batched, reused)",
+              file=sys.stderr)
+        print("    [3/5] Speech detection... (batched, reused)",
+              file=sys.stderr)
     speech_dur = sum(r["end"] - r["start"] for r in speech)
     word_count = sum(len(r.get("words", [])) for r in speech)
     print(
         f"           {len(speech)} regions, {speech_dur:.1f}s speech, "
-        f"{word_count} words (wav2vec2 aligned)",
+        f"{word_count} words ({transcription['aligner']} aligned, "
+        f"{transcription['arm']} arm)",
         file=sys.stderr,
     )
 
@@ -1975,6 +2419,9 @@ def index_audio_clip(
         "source_file": audio_path,
         "duration": round(duration, 3),
         "transcription_language": language,
+        "transcription_arm": transcription["arm"],
+        "transcription_aligner": transcription["aligner"],
+        "detected_language": transcription["detected_language"],
         "speech_regions": speech,
         "energy_curve": energy,
         "audio_events": audio_events,
@@ -2001,6 +2448,18 @@ def _index_audio_files(
                                      step="temporal_index"))
     out = []
     total = len(audio_catalog)
+    items = []
+    for i, entry in enumerate(audio_catalog):
+        if isinstance(entry, dict):
+            filepath = entry.get("path", "")
+            audio_id = entry.get("audio_id") or f"audio_{i + 1:03d}"
+        else:
+            filepath = str(entry)
+            audio_id = f"audio_{i + 1:03d}"
+        items.append((audio_id, filepath,
+                      os.path.join(index_dir, f"{audio_id}.json"), False))
+    pretranscribed = _pretranscribe_misses(
+        items, layout, whisper_model_size, language)
     for i, entry in enumerate(audio_catalog):
         if isinstance(entry, dict):
             filepath = entry.get("path", "")
@@ -2026,7 +2485,8 @@ def _index_audio_files(
             if index is None:
                 index = index_audio_clip(
                     filepath, audio_id, layout, whisper_model_size,
-                    language=language)
+                    language=language,
+                    pretranscribed=pretranscribed.get(audio_id))
                 with open(index_path, "w", encoding="utf-8") as f:
                     json.dump(index, f, indent=2)
             else:
@@ -2088,6 +2548,19 @@ def build_temporal_index(
     reused = 0
     total = len(raw_footage_files)
 
+    items = []
+    for i, file_info in enumerate(raw_footage_files):
+        if isinstance(file_info, dict):
+            filepath = file_info["path"]
+            clip_id = file_info.get("clip_id", f"clip_{i + 1:03d}")
+        else:
+            filepath = file_info
+            clip_id = f"clip_{i + 1:03d}"
+        items.append((clip_id, filepath,
+                      os.path.join(index_dir, f"{clip_id}.json"), True))
+    pretranscribed = _pretranscribe_misses(
+        items, layout, whisper_model_size, language)
+
     for i, file_info in enumerate(raw_footage_files):
         if isinstance(file_info, dict):
             filepath = file_info["path"]
@@ -2119,6 +2592,7 @@ def build_temporal_index(
                 index = index_clip(
                     filepath, clip_id, layout, whisper_model_size,
                     language=language,
+                    pretranscribed=pretranscribed.get(clip_id),
                 )
                 # Write per-clip JSON
                 with open(index_path, "w", encoding="utf-8") as f:
@@ -2395,7 +2869,7 @@ def reindex_region(project_folder: str, clip_id: str, source_file: str,
     every consumer downstream reads clip time.
 
     `pad_seconds` widens the extracted audio on both sides without
-    widening what is returned.  WhisperX aligns against context, and a
+    widening what is returned.  The aligner reads against context, and a
     span cut exactly on a word boundary loses the consonant attack at
     each end; the padding is measured audio, and regions that fall
     entirely into it are dropped rather than reported, so the padding
@@ -2422,7 +2896,10 @@ def reindex_region(project_folder: str, clip_id: str, source_file: str,
     span_wav = extract_span(source_file, padded_start, padded_end, cache_dir)
 
     with tempfile.TemporaryDirectory() as scratch:
-        measured = detect_speech_regions(
+        # The span's own instrument account is not returned: each
+        # region already carries its `method`, and the caller splices
+        # these into a clip-timed document with its own stamp.
+        measured, _ = detect_speech_regions(
             audio_path=str(span_wav), output_dir=scratch, onsets=[],
             whisper_model_size=whisper_model_size, language=language)
 

@@ -2,7 +2,7 @@
   "id": "step_1_04_temporal_index",
   "name": "Temporal Index",
   "version": "1.0.0",
-  "description": "Creates a temporal index of footage using WhisperX and Librosa.",
+  "description": "Creates a temporal index of footage through the reel path's transcription seam (Voz plus MFA, WhisperX fallback) and Librosa.",
   "level": "step",
   "interface": {
     "inputs": [

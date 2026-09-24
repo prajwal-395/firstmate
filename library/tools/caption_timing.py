@@ -95,6 +95,8 @@ import json
 import os
 import sys
 
+from library.tools.ren_refusal import RenRefusal
+
 #: Schema version this reader honours.
 CAPTION_TIMING_VERSION = 1
 
@@ -127,6 +129,16 @@ SHORT_CARD_SECONDS = 0.5
 
 class CaptionTimingError(ValueError):
     """The declared caption timing cannot be honoured as written."""
+
+
+class CaptionRebaseRefused(RenRefusal, CaptionTimingError):
+    """A pin rebase that would address no audio.
+
+    The module's historical base (`CaptionTimingError`) so every
+    existing `except` still catches it, and the one refusal shape
+    (`RenRefusal`: what, why, fix) so the boundary prints it like
+    every other refusal.
+    """
 
 
 # ── Recording: validation ──────────────────────────────────────────
@@ -546,6 +558,77 @@ def retime_entries(entries, spine, pins, fps: float,
         row["timeline_end"] = probe["timeline_end"]
         out.append(row)
     return out, applied, short, stale
+
+
+# ── Migrating: re-basing pins after an ingest retiming ──
+
+#: Scope keys that name a second into the source audio. A pin
+#: addresses cards by the speech they caption, and the speech's
+#: recorded position moves when the instrument timing it changes -
+#: so these are the keys a rebase shifts, and the only ones.
+SOURCE_TIME_SCOPE_KEYS = ("source_start", "source_start_at_or_after",
+                          "source_start_before")
+
+
+def rebase_pins(pins, delta_seconds: float, *, reason: str) -> list:
+    """Shift every source-time scope in `pins` by `delta_seconds`.
+
+    When ingest is retimed - words that sat 40-55 ms late now sitting
+    where the new instrument heard them - a pin scoped to the old
+    positions detaches: it matches a different set of cards, or none,
+    and the no-match case reports STALE for a trim that is still
+    wanted. The fix the MFA adoption's landing condition names is to
+    migrate the pins by the measured per-file delta, never to leave
+    them to report stale.
+
+    `delta_seconds` is NEW minus OLD in source seconds: positive when
+    the new instrument hears later than the old one. Every
+    `SOURCE_TIME_SCOPE_KEYS` entry moves by it, rounded to the
+    millisecond the bindings are written at; frame adjustments
+    (`offset_frames`, `head_frames`, `tail_frames`) are relative
+    moves and travel unchanged. A pin with no source-time scope has
+    nothing positional to shift and is returned as-is. Each moved
+    pin's `reason` gains a bracketed note naming the migration, so
+    the hand edit's own account stays attached to the numbers.
+
+    The output is validated like a fresh declaration: a shift that
+    drives a scope before the source start, or anything else the
+    move breaks, REFUSES rather than writing a pin that addresses
+    nothing.
+    """
+    if not isinstance(reason, str) or not reason.strip():
+        raise CaptionTimingError(
+            "a pin rebase records no reason. A migration nobody can "
+            "attribute is how a hand edit gets lost twice.")
+    if not pins:
+        return []
+    rebased = []
+    for pin in pins or []:
+        scope = dict(pin.get("scope") or {})
+        moves = [key for key in SOURCE_TIME_SCOPE_KEYS if key in scope]
+        if not moves:
+            rebased.append(dict(pin))
+            continue
+        moved = dict(pin)
+        moved_scope = dict(scope)
+        for key in moves:
+            shifted = round(float(scope[key]) + delta_seconds, 3)
+            if shifted < 0:
+                raise CaptionRebaseRefused(
+                    f"refusing to rebase {key} {scope[key]!r} by "
+                    f"{delta_seconds:+.3f}s: it lands before the "
+                    f"source starts",
+                    f"a pin that addresses no audio addresses no card "
+                    f"(original request: {pin.get('reason')})",
+                    "say what the pin should become instead - a scope "
+                    "inside the source, or drop the pin if the words "
+                    "it addressed are gone")
+            moved_scope[key] = shifted
+        moved["scope"] = moved_scope
+        moved["reason"] = (f"{pin.get('reason')} [rebased "
+                           f"{delta_seconds:+.3f}s: {reason}]")
+        rebased.append(moved)
+    return validate_pins(rebased)
 
 
 def report(applied, short, stale) -> None:

@@ -67,6 +67,7 @@ VERBS = (
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
     Verb("organize", "Projects", "Bring a project folder onto the standard layout", subcommand="organize"),
     Verb("archive", "Projects", "Archive a finished project", subcommand="archive"),
+    Verb("reindex", "Projects", "Move a project's words onto Voz plus MFA (re-transcribe legacy indexes)", subcommand="reindex"),
 
     Verb("propose", "Reels", "Publish the chosen moments as the reel review file", subcommand="propose-reels"),
     Verb("build", "Reels", "Build approved reels in Resolve", subcommand="build-reels"),

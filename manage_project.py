@@ -70,7 +70,7 @@ ALL_COMMANDS = (
     "resolve-mark-master",
     "check", "run", "archive", "notes",
     "round-diff", "sign-off", "purge", "discharge-uncarried", "variant",
-    "relink", "setup-hooks",
+    "relink", "reindex", "setup-hooks",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -1606,6 +1606,59 @@ def cmd_run(args):
     sys.exit(result.returncode)
 
 
+def cmd_reindex(args):
+    """Move a project's words onto Voz plus MFA, when asked.
+
+    Legacy temporal-index files (timed by the old WhisperX path, or
+    by nothing) are invalidated so the next transcription makes them
+    with the current seam; files already current are untouched. Then
+    the pipeline's temporal_index step runs, re-transcribing exactly
+    the invalidated clips.
+    """
+    try:
+        config = get_project(args.slug)
+    except FileNotFoundError as e:
+        raise RenRefusal(
+            f"{e}",
+            "no project with this slug is under PIPELINE_PROJECTS_ROOT",
+            f"run `ren new {args.slug}` to create it, `ren projects` "
+            f"to list them, or pass the project's absolute path "
+            f"instead of the slug") from e
+
+    from library.steps.step_1_04_temporal_index.step import (
+        invalidate_legacy_indexes)
+    report = invalidate_legacy_indexes(str(config.project_root))
+    invalidated = report["invalidated"]
+    current = report["current"]
+    unrecognized = report["unrecognized"]
+    print(f"  Temporal index: {len(current)} current, "
+          f"{len(invalidated)} invalidated, "
+          f"{len(unrecognized)} unrecognized (left alone)",
+          file=sys.stderr)
+    for name in invalidated:
+        print(f"    invalidated: {name}", file=sys.stderr)
+    for name in unrecognized:
+        print(f"    unrecognized: {name}", file=sys.stderr)
+    if not invalidated:
+        print("  Nothing to re-transcribe: every index names a "
+              "current instrument.", file=sys.stderr)
+        return
+
+    runner = PILOT_ROOT / "library" / "processes" / "edit_video" / "run_pipeline.py"
+    cmd = [sys.executable, str(runner), "--project",
+           str(config.project_root), "--only", "temporal_index"]
+    print(f"  Running pipeline for: {config.name}")
+    print(f"  Project: {config.project_root}")
+    print(f"  Command: {' '.join(cmd)}")
+    print(f"")
+
+    import subprocess
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(PILOT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
+    result = subprocess.run(cmd, env=env, check=False)
+    sys.exit(result.returncode)
+
+
 def cmd_archive(args):
     """Archive a completed project."""
     try:
@@ -2777,6 +2830,17 @@ def main():
     p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
     p_relink.set_defaults(func=cmd_relink)
+
+    p_reindex = sub.add_parser(
+        "reindex",
+        help="Move a project's words onto Voz plus MFA: invalidate "
+             "legacy temporal indexes, then re-transcribe them")
+    p_reindex.add_argument(
+        "slug", metavar="PROJECT",
+        help="Project slug, or an absolute/relative path to the "
+             "project directory (or its project.yaml) for projects "
+             "that live outside PIPELINE_PROJECTS_ROOT")
+    p_reindex.set_defaults(func=cmd_reindex)
 
     p_setup_hooks = sub.add_parser(
         "setup-hooks",

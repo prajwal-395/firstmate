@@ -245,5 +245,92 @@ def test_an_unreadable_declaration_refuses(tmp_path):
     assert caption_timing.load_pins(str(tmp_path / "other")) == []
 
 
+# ── Rebase: pins follow the words across an ingest retiming ─────────
+#
+# When ingest moves instruments, words sit where the new one heard
+# them and a pin scoped to the old positions detaches - matching a
+# different set of cards, or none, and the no-match case reports
+# STALE for a trim that is still wanted. The migration the MFA
+# adoption's landing condition names is a rebase by the measured
+# per-file delta, never leaving the pins to report stale.
+
+def test_a_rebase_moves_source_scopes_by_the_measured_delta():
+    moved = caption_timing.rebase_pins(
+        _captains_pins(), -0.047,
+        reason="ingest retimed wav2vec2 to MFA")
+    first, last = moved
+    assert first["scope"]["source_start_at_or_after"] == pytest.approx(
+        500.733, abs=1e-9)
+    assert first["scope"]["source_start_before"] == pytest.approx(
+        512.712, abs=1e-9)
+    assert last["scope"]["source_start"] == pytest.approx(
+        512.712, abs=1e-9)
+    # Frame adjustments are relative moves and travel unchanged.
+    assert first["offset_frames"] == 7
+    assert last["head_frames"] == 13
+    # The hand edit's own account stays attached to the numbers.
+    assert "captain 2026-09-11" in last["reason"]
+    assert "rebased -0.047s" in last["reason"]
+
+
+def test_a_rebase_follows_the_words_to_the_same_cards():
+    """The property the migration exists for: pins rebased by the
+    delta match cards shifted by the delta exactly where the
+    unrebased pins matched the unshifted cards."""
+    delta = -0.047
+    pins = _captains_pins()
+    moved, applied, _, stale = caption_timing.apply_pins(
+        _segments(), pins, FPS)
+    assert not stale
+
+    shifted = []
+    for segment in _segments():
+        row = dict(segment)
+        binding = dict(row["binding"])
+        binding["source_start"] = round(
+            binding["source_start"] + delta, 3)
+        binding["source_end"] = round(binding["source_end"] + delta, 3)
+        row["binding"] = binding
+        shifted.append(row)
+    moved_shifted, applied_shifted, _, stale_shifted = (
+        caption_timing.apply_pins(
+            shifted, caption_timing.rebase_pins(
+                pins, delta, reason="ingest retimed wav2vec2 to MFA"),
+            FPS))
+    assert not stale_shifted
+    assert [r["segment_id"] for r in applied_shifted] == [
+        r["segment_id"] for r in applied]
+    assert [s["timeline_start"] for s in moved_shifted] == [
+        s["timeline_start"] for s in moved]
+
+
+def test_a_pin_with_no_source_scope_passes_through_unchanged():
+    pins = [{"scope": {"speaker": "akshita", "timeline": "Reel 13"},
+             "offset_frames": 7,
+             "reason": "a placement pin names no source seconds"}]
+    assert caption_timing.rebase_pins(
+        pins, -0.047, reason="ingest retimed") == pins
+
+
+def test_a_rebase_off_the_head_of_the_source_refuses():
+    pins = [{"scope": {"source_start": 0.010}, "offset_frames": 7,
+             "reason": "a pin on the first word"}]
+    with pytest.raises(caption_timing.CaptionRebaseRefused,
+                       match="before the source starts") as refused:
+        caption_timing.rebase_pins(
+            pins, -0.047, reason="ingest retimed")
+    # The one refusal shape: what, why, fix - and still the
+    # module's own error for every existing catcher.
+    assert refused.value.what and refused.value.why and refused.value.fix
+    assert isinstance(refused.value, caption_timing.CaptionTimingError)
+    assert refused.value.render().startswith("ren: refused - ")
+
+
+def test_a_rebase_without_a_reason_refuses():
+    with pytest.raises(caption_timing.CaptionTimingError,
+                       match="no reason"):
+        caption_timing.rebase_pins(_captains_pins(), -0.047, reason=" ")
+
+
 
 

@@ -27,7 +27,7 @@ and points here.
 
 **No assessment field reports a default as though it were measured. That is the whole rule, and it holds for every field.**
 `compute_deterministic_assessment` is where the deterministic half is decided and `tests/test_assessment_reports_no_default_as_measured.py` is the sweep, kept executable: the assessment is computed with nothing to measure and every field it produces must be an admitted absence. The family was found one field at a time, so assume another exists until the sweep says otherwise. [why - the four found in #301, and what a re-run of 001 would and would not fix](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
-- **An empty `speech_regions` list is not a measurement of silence.** `detect_speech_regions` returns `[]` both when WhisperX ran and heard nothing and when it raised. **`speech_present` is `True` or `None`, never `False`**, and `speech_coverage_method` says `temporal_index` only once a coverage has been computed.
+- **An empty `speech_regions` list is not a measurement of silence.** `detect_speech_regions` returns `([], transcription)` both when the seam ran and heard nothing and when it raised. **`speech_present` is `True` or `None`, never `False`**, and `speech_coverage_method` says `temporal_index` only once a coverage has been computed.
 
 Every field of `compute_deterministic_assessment` with nothing to measure must be an admitted absence. [why](docs/RULE_EVIDENCE.md#no-assessment-field-reports-a-default)
 - **`speech_present` is `True` or `None`, never `False`.**
@@ -72,9 +72,9 @@ ADMITTED_ABSENCES = (None, "unknown", "unmeasured", "", [], {})
 def _index_without_speech(duration=188.578):
     """A temporal index that exists and measured no speech.
 
-    `detect_speech_regions` returns `[]` both when WhisperX ran and heard
-    nothing and when WhisperX raised, so `[]` is not a measurement of
-    silence and nothing here may read it as one.
+    `detect_speech_regions` returns `([], transcription)` both when the
+    seam ran and heard nothing and when it raised, so `[]` is not a
+    measurement of silence and nothing here may read it as one.
     """
     return {"duration_s": duration, "speech_regions": []}
 
