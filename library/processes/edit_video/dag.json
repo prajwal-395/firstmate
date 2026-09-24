@@ -1005,6 +1005,13 @@
       }
     },
     {
+      "from": "temporal_index",
+      "to": "plan_vfx",
+      "data_mapping": {
+        "temporal_event_indices": "temporal_event_indices"
+      }
+    },
+    {
       "from": "select_broll",
       "to": "plan_sfx",
       "data_mapping": {

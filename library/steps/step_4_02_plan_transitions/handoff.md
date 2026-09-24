@@ -129,7 +129,11 @@ block's line (`anchor: {word: "quit", edge: end}` cuts right after
 view in your context, and `grid: detected` demands the tracker-heard
 grid); the section form lands on a musical span's first downbeat
 (`{section: "chorus"}` - labels come from the `sectiongrid` view, with
-`occurrence` for the nth span and `edge: end` for its end); the frame
+`occurrence` for the nth span and `edge: end` for its end); the motion
+forms land on the outgoing block's measured action (`{motion_peak: 1}`
+its first apex, `{action_onset: 1}` its first onset - peaks come from
+the `motion` view in your context, `occurrence` for the nth of that
+kind, never `edge`: a peak is a point); the frame
 form names a timeline frame inside the outgoing
 block. Any form takes `offset_seconds` / `offset_frames`. An anchor
 that names nothing placeable REFUSES the step with the fix, and you
@@ -141,6 +145,22 @@ loudness and duration - with the formula stated there. Cut after the
 word the brief names, or after an emphasized word, through
 `anchor: {word, edge: end}` exactly as above. The score is context,
 not an order - you still decide.
+
+Cut on action: the `motion` view in your context names, per block,
+the measured motion of the picture it plays - the clip's dominant
+direction and kind, and the action onsets and apexes inside the
+block with their timeline seconds - and the `outgoing_motion` /
+`incoming_motion` columns of `cuts_toon` put both sides of every cut
+side by side. Cut ON the action through `anchor: {action_onset: 1}`
+(the outgoing block's first onset) or `{motion_peak: 1}` (its first
+apex): the cut lands exactly where the anchor resolves, winning over
+the word-end and beat-snap. Match direction across the cut where the
+columns agree (a pan right into a pan right reads continuous) or
+contrast them deliberately (motion into stillness is itself a
+gesture) - either way the measurement is context, not an order, and
+you still decide. A motion anchor on a block whose motion is
+unmeasured refuses with the fix, and you re-plan; it never falls
+back to the block boundary.
 
 ### Context data available:
 
@@ -154,8 +174,9 @@ The `cuts_toon` table provides a summarized list of cut points with the followin
 - `outgoing_footage`: The mood and tags of the clip ending at the cut.
 - `incoming_footage`: The mood and tags of the clip starting at the cut.
 
-Four more columns are DERIVED, two from the spine and two from step 3.03's
-review. Each says what it measures; none of them says what to conclude.
+Six more columns are DERIVED, two from the spine, two from step 3.03's
+review, and two from the temporal motion measurement. Each says what
+it measures; none of them says what to conclude.
 
 - `can_carry_drawn_transition`: Whether a DRAWN transition
   (`fade_to_black`, `zoom_blur`, `defocus`, `flash`) can be BUILT at this
@@ -187,6 +208,12 @@ review. Each says what it measures; none of them says what to conclude.
 - `verdict_note`: **The review's own sentence** about this cut, verbatim,
   or empty when it gave none. Whitespace is collapsed so the row survives
   the table; nothing else is rewritten.
+- `outgoing_motion` / `incoming_motion`: **The measured motion** of the
+  picture either side of the cut - each clip's dominant motion kind
+  and direction (`pan_right, right`), with how many action peaks it
+  carries, or `unmeasured` where the clip measured nothing. Read them
+  to cut on action and to match direction across the cut (above);
+  `unmeasured` is the absence of a measurement and NOT stillness.
 
 Use this data to decide which transitions to apply. Prefer placing major creative
 transitions on cuts with a nearby beat. Hard cuts don't need beat alignment.

@@ -57,6 +57,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:alignment` is what step 2.02's `alignment_report` measured about each passage's INSIDES - declared by `review_rough_cut`. It ORDERS and REPORTS; no threshold fires on any of it. The run summary is its second reader (`library/tools/alignment_findings.py`).
 - `view:prosody` is what steps 2.01 and 2.02 read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through (minus the contour and per-word lists, which never reach a prompt); the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
 - `view:emphasis` is what the anchor-consuming planners (4.02, 4.03, 4.04) read instead of the per-word prosody table: three scored words per spine block, joinable by `block_position` and addressable through `anchor: {word}` with `occurrence`. The model still decides; the measurement is context.
+- `view:motion` is what the cut and effect planners (4.02, 4.03) read instead of the per-sample flow series: per block, the clip's dominant direction and motion kind plus the action onsets and apexes inside the block's own range, joinable by `block_position` and addressable through `anchor: {motion_peak}` / `{action_onset}` with `occurrence`. The model still decides; the measurement is context.
 - `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
 - `view:sectiongrid` is what a step reads to address a musical section by LABEL instead of by seconds: one row per measured section (label, span, first-downbeat seconds) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions` and `plan_vfx`; the boundary series stays withheld and the post-bridge resolves every `anchor: {section}` to an exact frame (`library/tools/sub_block_anchor.py`). Labels arrive verbatim from the model - a section it cannot give stays absent, never guessed.
 - **A view is not routing.** The step still has to declare the input the view reads.
@@ -967,6 +968,169 @@ def _emphasis(data: dict) -> dict:
     return {"emphasis": view}
 
 
+MOTION_LEGEND = {
+    "what_this_is": (
+        "Per spine block, the measured motion of the picture it plays: "
+        "the clip's dominant direction and motion kind, and the action "
+        "onsets and apexes inside the block's own source range with "
+        "their timeline seconds."
+    ),
+    "how_measured": (
+        "Dense Farneback optical flow on a 160x90 proxy at 5 Hz "
+        "(block-match fallback per pair where OpenCV could not answer, "
+        "said per clip by motion_method). magnitude is mean field "
+        "displacement in units of 8 proxy-px; direction is the field "
+        "median's eight-way compass, 'static' below the stillness "
+        "floor, 'mixed' where the field moves with no dominant "
+        "translation. Onsets are rising-edge crossings of the recorded "
+        "threshold, apexes scipy local maxima - at least 0.5 s apart."
+    ),
+    "camera_vs_subject": (
+        "A separation HYPOTHESIS, not a tracking: the field median is "
+        "read as the camera (one rigid move), the residual past it as "
+        "subject and shake. A subject filling the frame reads as "
+        "camera; violent motion with blur reads `mixed` with high "
+        "residual, because smeared frames share no structure for a "
+        "median to hold onto - the peak still marks WHEN, even where "
+        "no direction survives. A zoom or dolly reads as expansion "
+        "either way: the field cannot tell them apart, so "
+        "dominant_motion says zoom_in/zoom_out for both."
+    ),
+    "clip_level_direction": (
+        "clip_direction is the WHOLE CLIP's, not the block's range: a "
+        "block inherits its clip's verdict. Two blocks cut from one "
+        "clip share it; a block whose range sits still inside a moving "
+        "clip is overstated. The per-sample series stays in the "
+        "per-clip index file (index_path in the routed summaries), "
+        "never in a prompt."
+    ),
+    "how_to_address_a_peak": (
+        "By KIND and occurrence through a sub-block anchor, never by "
+        "seconds: a VFX/transition plan entry carries anchor "
+        "{motion_peak} (the nth apex in the block) or {action_onset} "
+        "(the nth onset), with optional {occurrence} (1-based, the "
+        "default is 1). The post-bridge resolves it to the exact "
+        "frame (library/tools/sub_block_anchor.py). Seconds are shown "
+        "so a duration can be sanity-checked, not so an entry can "
+        "name one."
+    ),
+    "withheld": (
+        "The per-sample direction/magnitude series stays out of the "
+        "prompt deliberately (AGENTS.md 10.1): peaks per block is what "
+        "a plan entry names, and the code that cuts on timings reads "
+        "the full series from the unprojected inputs, never from the "
+        "prompt."
+    ),
+}
+
+
+def _motion(data: dict) -> dict:
+    """Measured motion per spine block, for cuts and effects on action.
+
+    Fidelity rung 4d: vision gives prose ("the camera pans"), and no
+    planning step could see a measured direction, a magnitude, or the
+    moment an action starts or peaks. This view is the addressed
+    middle: one row per block with a source clip, carrying the clip's
+    dominant direction and kind plus the onsets and apexes inside the
+    block's own source range, each with timeline seconds. The model
+    still decides; the measurement is context.
+
+    Reads the routed temporal summaries (`temporal_event_indices`,
+    or `temporal_index` where the edge lands under that name) - the
+    same shape `view:transcript` reads, carrying `motion_peaks`,
+    `dominant_motion`, `dominant_direction` and `motion_method` per
+    clip. A block with no source clip, no source range, or no measured
+    clip is NAMED in one line, not silently absent.
+    """
+    from library.tools.spine_contract import source_to_timeline
+
+    summaries = data.get("temporal_event_indices")
+    if not isinstance(summaries, list):
+        summaries = data.get("temporal_index")
+    if not isinstance(summaries, list):
+        return {}
+    by_clip = {}
+    for entry in summaries:
+        if isinstance(entry, dict) and entry.get("clip_id"):
+            by_clip[str(entry["clip_id"])] = entry
+
+    spine = data.get("timed_spine")
+    if isinstance(spine, dict):
+        spine = spine.get("structure")
+        if spine is None:
+            spine = []
+    if not isinstance(spine, list):
+        return {}
+
+    rows, unmeasured = [], []
+    for block in spine:
+        if not isinstance(block, dict):
+            continue
+        position = block.get("position")
+        clip_id = block.get("clip_id")
+        src_start = block.get("source_start")
+        src_end = block.get("source_end")
+        tl_start = block.get("timeline_start")
+        tl_end = block.get("timeline_end")
+        summary = by_clip.get(str(clip_id)) if clip_id else None
+        flow_ok = (
+            summary is not None
+            and isinstance(summary.get("motion_peaks"), list)
+            and summary.get("motion_method", "unmeasured")
+            != "unmeasured"
+            and isinstance(src_start, (int, float))
+            and isinstance(src_end, (int, float))
+            and isinstance(tl_start, (int, float))
+            and isinstance(tl_end, (int, float))
+        )
+        if not flow_ok:
+            unmeasured.append(position)
+            continue
+        peaks = []
+        for peak in summary.get("motion_peaks") or []:
+            if not isinstance(peak, dict):
+                continue
+            try:
+                moment = float(peak.get("time", float("nan")))
+            except (TypeError, ValueError):
+                continue
+            if not (float(src_start) - 0.1 <= moment
+                    <= float(src_end) + 0.1):
+                continue
+            peaks.append({
+                "timeline_seconds": round(source_to_timeline(
+                    moment, block), 3),
+                "kind": peak.get("kind"),
+                "magnitude": peak.get("magnitude"),
+            })
+        peaks.sort(key=lambda p: (p["timeline_seconds"],
+                                  str(p["kind"])))
+        rows.append({
+            "block_position": position,
+            "clip_id": clip_id,
+            "clip_direction": summary.get(
+                "dominant_direction", "unknown"),
+            "clip_motion": summary.get("dominant_motion", "unknown"),
+            "motion_method": summary.get("motion_method", "unmeasured"),
+            "peaks": peaks,
+        })
+
+    view: dict = {"legend": MOTION_LEGEND}
+    if rows:
+        view["blocks"] = rows
+        view["blocks_measured"] = len(rows)
+    if unmeasured:
+        view["not_measured"] = (
+            f"{len(unmeasured)} block(s) have no motion measurement "
+            f"(no source clip, no source range, or an unmeasured "
+            f"clip): "
+            + ", ".join(sorted({str(p) for p in unmeasured}))
+        )
+    if not rows and not unmeasured:
+        return {}
+    return {"motion": view}
+
+
 # name -> builder(routed_inputs) -> a dict merged into the projection.
 #
 # A view's NAME is the key it writes.  That is what makes a second
@@ -984,6 +1148,7 @@ CONTEXT_VIEWS = {
     "beatgrid": _beatgrid,
     "sectiongrid": _sectiongrid,
     "emphasis": _emphasis,
+    "motion": _motion,
 }
 
 

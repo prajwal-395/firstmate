@@ -129,7 +129,8 @@ def words_in_span(block: dict, start_tl: float, end_tl: float) -> list:
 def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
                       incoming: dict, boundary_frame: int,
                       frame_rate: float, music_analysis=None,
-                      music_selection=None, index=0) -> dict:
+                      music_selection=None, temporal_indices=None,
+                      index=0) -> dict:
     """Resolve the plan's offset to an exact audio cut, in frames.
 
     The reference is the V1 boundary frame - where the eye cuts a
@@ -194,7 +195,9 @@ def resolve_audio_cut(*, kind: str, entry: dict, outgoing: dict,
         side = ("outgoing" if kind == "j_cut" else "incoming")
         hit = resolve_anchor(
             anchor, block=host, music_analysis=music_analysis,
-            music_selection=music_selection, frame_rate=frame_rate,
+            music_selection=music_selection,
+            temporal_indices=temporal_indices,
+            frame_rate=frame_rate,
             step="plan_transitions", plan="transition_creative",
             index=index)
         anchored_cut = hit["timeline_seconds"]

@@ -8,13 +8,16 @@ the block start, 3.06 s early, and stretched the punch across the whole
 10 s block. An `at_word` key nobody read was the silent form of the
 same defect; rung 1 (PR #1373) made unread keys refuse instead.
 
-This module is the vocabulary rung 2 adds: a word anchor (the word,
-resolved to its transcript word and occurrence), a beat or downbeat
-anchor (bar and beat on the detected grid), a section anchor (a
-functional label from the measured section grid, resolved to its
-first downbeat), and a frame anchor (timeline frame), each with an
-optional offset, alongside the existing block reference. It is defined
-ONCE, here, and every placement-bearing post-bridge reads it from here:
+This module is the vocabulary rung 2 adds - and rung 4d extends to the
+picture's own motion: a word anchor (the word, resolved to its
+transcript word and occurrence), a beat or downbeat anchor (bar and
+beat on the detected grid), a section anchor (a functional label from
+the measured section grid, resolved to its first downbeat), a motion
+anchor (an action onset or a motion apex from the clip's measured
+motion peaks, resolved through the routed temporal summaries), and a
+frame anchor (timeline frame), each with an optional offset, alongside
+the existing block reference. It is defined ONCE, here, and every
+placement-bearing post-bridge reads it from here:
 
 - step 4.02 `plan_transitions` (cut points),
 - step 4.03 `plan_vfx` (effect spans),
@@ -40,8 +43,11 @@ falls back to the block start silently:
 
 Word timings are read through the spine contract - the block's own
 `word_timestamps`, mapped with `source_to_timeline` - which is the
-existing transcript interface. Nothing here touches step 1.04
-transcription (a concurrent lane owns it).
+existing transcript interface. Motion peaks are read through the
+routed temporal summaries (`temporal_event_indices`, the per-clip
+`motion_peaks` in source seconds, mapped the same way) - nothing here
+opens the per-clip index files, so the vocabulary stays hermetic to
+the post-bridge's inputs and to the replay bench.
 
 The section grid is read through `library/tools/music_sections.py`,
 the one module that knows the producer's shape - the same position
@@ -179,6 +185,126 @@ def _resolve_word(anchor: dict, block: dict, step: str, plan: str,
     return float(source_time), (
         f"word {raw!r} occurrence {occurrence} {edge} "
         f"(block {block.get('position')!r})")
+
+
+def _motion_summaries(temporal_indices) -> dict:
+    """The routed temporal summaries keyed by clip id.
+
+    Tolerates the wrapped shape (`{"temporal_event_indices": [...]}`)
+    the runners sometimes hand over alongside the bare list. Entries
+    without a clip id carry nothing an anchor can join to and are
+    skipped - a summary that cannot be addressed is not an address.
+    """
+    if isinstance(temporal_indices, dict):
+        temporal_indices = temporal_indices.get(
+            "temporal_event_indices", [])
+    by_clip: dict = {}
+    for entry in temporal_indices or []:
+        if isinstance(entry, dict) and entry.get("clip_id"):
+            by_clip[str(entry["clip_id"])] = entry
+    return by_clip
+
+
+def _resolve_motion(anchor: dict, block: dict, temporal_indices,
+                    kind: str, step: str, plan: str, index, end: str):
+    """A motion anchor to one measured peak inside the block.
+
+    `kind` is `motion_peak` (an apex, where the action PEAKS) or
+    `action_onset` (an onset, where it STARTS). The anchor's value is
+    the 1-based occurrence among that kind inside the block's source
+    range - `{motion_peak: 2}` is the block's second apex. A peak is
+    a point: `edge` refuses here, and offsets apply after like every
+    other form.
+    """
+    clip_id = block.get("clip_id")
+    if not clip_id:
+        raise _refuse(
+            step, plan, index, end,
+            f"a {kind} anchor on block {block.get('position')!r}, "
+            f"which names no source clip",
+            f"re-plan entry {index} of `{plan}` with a motion anchor "
+            f"on a block cut from a source clip (a cutaway-covered "
+            f"block names none - its motion is the cutaway's, which "
+            f"no block range addresses), or drop the anchor.")
+    summaries = _motion_summaries(temporal_indices)
+    if not summaries:
+        raise _refuse(step, plan, index, end,
+                      "no motion measurement is routed to this step",
+                      f"re-plan entry {index} of `{plan}` without "
+                      f"the motion anchor, or drop the anchor.")
+    summary = summaries.get(str(clip_id))
+    if summary is None:
+        raise _refuse(
+            step, plan, index, end,
+            f"clip {clip_id!r} has no motion measurement in the "
+            f"routed summaries",
+            f"re-plan entry {index} of `{plan}` without the motion "
+            f"anchor, or drop the anchor.")
+    peaks = summary.get("motion_peaks")
+    if (not isinstance(peaks, list)
+            or summary.get("motion_method", "unmeasured")
+            == "unmeasured"):
+        raise _refuse(
+            step, plan, index, end,
+            f"clip {clip_id!r} motion is unmeasured "
+            f"({summary.get('motion_method', 'unmeasured')})",
+            f"re-plan entry {index} of `{plan}` without the motion "
+            f"anchor, or drop the anchor.")
+    if "edge" in anchor:
+        raise _refuse(step, plan, index, end,
+                      f"edge on a {kind} anchor: a peak is a point",
+                      f"re-plan entry {index} of `{plan}` without "
+                      f"the edge (start/end is a word and section "
+                      f"idea), or drop the anchor.")
+    raw = anchor.get(kind)
+    occurrence = (1 if raw is None
+                  else _positive_int(raw, kind, step, plan,
+                                     index, end))
+    want = "apex" if kind == "motion_peak" else "onset"
+    src_start = block.get("source_start")
+    src_end = block.get("source_end")
+    if (isinstance(src_start, bool) or isinstance(src_end, bool)
+            or not isinstance(src_start, (int, float))
+            or not isinstance(src_end, (int, float))):
+        raise _refuse(
+            step, plan, index, end,
+            f"a {kind} anchor on block {block.get('position')!r}, "
+            f"which names no source range",
+            f"re-plan entry {index} of `{plan}` without the motion "
+            f"anchor, or drop the anchor.")
+    candidates = []
+    for peak in peaks:
+        if not isinstance(peak, dict) or peak.get("kind") != want:
+            continue
+        try:
+            moment = float(peak.get("time", float("nan")))
+        except (TypeError, ValueError):
+            continue
+        if float(src_start) - 0.1 <= moment <= float(src_end) + 0.1:
+            candidates.append((moment, peak))
+    candidates.sort(key=lambda c: c[0])
+    if not candidates:
+        raise _refuse(
+            step, plan, index, end,
+            f"no measured {want} inside block "
+            f"{block.get('position')!r} (clip {clip_id!r} carries "
+            f"{len([p for p in peaks if isinstance(p, dict) and p.get('kind') == want])} "
+            f"in total)",
+            f"re-plan entry {index} of `{plan}` with an anchor the "
+            f"block's own motion carries - the `motion` view shows "
+            f"its peaks - or drop the anchor.")
+    if occurrence > len(candidates):
+        raise _refuse(
+            step, plan, index, end,
+            f"{kind} occurrence {occurrence} was asked for but block "
+            f"{block.get('position')!r} carries {len(candidates)} "
+            f"{want}(s)",
+            f"re-plan entry {index} of `{plan}` with {kind} "
+            f"1..{len(candidates)}, or drop the anchor.")
+    source_time = candidates[occurrence - 1][0]
+    return float(source_time), (
+        f"{want} {occurrence} of {len(candidates)} in block "
+        f"{block.get('position')!r} (clip {clip_id!r})")
 
 
 def _resolve_section(anchor: dict, music_analysis, music_selection,
@@ -338,15 +464,19 @@ def _resolve_beat(anchor: dict, music_analysis, music_selection,
 
 
 def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
-                   music_selection=None, frame_rate: float = 30.0,
+                   music_selection=None, temporal_indices=None,
+                   frame_rate: float = 30.0,
                    step: str = "?", plan: str = "?",
                    index=0, end: str = "anchor") -> dict:
     """Resolve one anchor dict to an exact timeline frame.
 
     `block` is the spine block the entry addresses (the existing block
     reference stays mandatory - the anchor refines inside it, it never
-    replaces it). Returns `{"timeline_seconds", "frame", "method"}`.
-    Raises `AnchorRefused` where the anchor names nothing placeable.
+    replaces it). `temporal_indices` are the routed temporal summaries
+    carrying each clip's `motion_peaks` - required only by the motion
+    forms, which refuse without them. Returns `{"timeline_seconds",
+    "frame", "method"}`. Raises `AnchorRefused` where the anchor names
+    nothing placeable.
 
     Forms (exactly one address key per anchor):
 
@@ -359,12 +489,17 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
         {"section": "chorus"}                     first downbeat of the chorus
         {"section": "verse", "occurrence": 2}     first downbeat of verse 2
         {"section": "bridge", "edge": "end"}      the bridge's end
+        {"motion_peak": 1}                        the block's 1st motion apex
+        {"motion_peak": 2}                        its 2nd apex
+        {"action_onset": 1}                       the block's 1st action onset
         {"frame": 343}                            timeline frame 343
 
-    Any form takes `offset_seconds` and/or `offset_frames`, applied
-    after the address resolves. The addressed moment must lie inside
-    the block - a frame (or an offset result) outside it refuses,
-    because an anchor is sub-block addressing, not a second position.
+    A peak is a point: the motion forms take `occurrence` (1-based,
+    default 1) but never `edge`. Any form takes `offset_seconds`
+    and/or `offset_frames`, applied after the address resolves. The
+    addressed moment must lie inside the block - a frame (or an offset
+    result) outside it refuses, because an anchor is sub-block
+    addressing, not a second position.
     """
     from library.tools.frame_utils import seconds_to_frame
     from library.tools.spine_contract import source_to_timeline
@@ -376,7 +511,8 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
                       f"anchor object (one of word / beat / bar+beat / "
                       f"downbeat / frame), or drop the anchor.")
     address = [k for k in ("word", "beat", "bar", "downbeat",
-                            "section", "frame")
+                            "section", "frame",
+                            "motion_peak", "action_onset")
                 if k in anchor]
     # `bar` without `beat` addresses the bar's downbeat; `beat` beside
     # `bar` is the beat inside it - one form, not two.
@@ -388,12 +524,13 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
             f"anchor {anchor!r} names {forms} addresses "
             f"({', '.join(address) or 'none'})",
             f"re-plan entry {index} of `{plan}` with exactly one "
-            f"address - word, beat, bar (+ beat), downbeat, section "
-            f"or frame - or drop the anchor.")
+            f"address - word, beat, bar (+ beat), downbeat, section, "
+            f"motion_peak, action_onset or frame - or drop the anchor.")
     known_modifiers = {"occurrence", "edge", "offset_seconds",
                        "offset_frames", "grid"}
     for key in anchor:
-        if key in ("word", "beat", "bar", "downbeat", "section", "frame"):
+        if key in ("word", "beat", "bar", "downbeat", "section", "frame",
+                   "motion_peak", "action_onset"):
             continue
         if key not in known_modifiers:
             raise _refuse(step, plan, index, end,
@@ -403,10 +540,14 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
                           f"edge, offset_seconds, offset_frames, grid), "
                           f"or drop the anchor.")
 
-    if (("word" in anchor or "frame" in anchor or "section" in anchor)
+    if (("word" in anchor or "frame" in anchor or "section" in anchor
+            or "motion_peak" in anchor or "action_onset" in anchor)
             and anchor.get("grid", GRID_ANY) not in (GRID_ANY,)):
         which = ("word" if "word" in anchor
-                 else "frame" if "frame" in anchor else "section")
+                 else "frame" if "frame" in anchor
+                 else "motion" if ("motion_peak" in anchor
+                                   or "action_onset" in anchor)
+                 else "section")
         raise _refuse(step, plan, index, end,
                       f"grid applies to beat anchors, not {which} ones",
                       f"re-plan entry {index} of `{plan}` without "
@@ -415,6 +556,12 @@ def resolve_anchor(anchor: dict, *, block: dict, music_analysis=None,
     if "word" in anchor:
         source_time, method = _resolve_word(anchor, block, step, plan,
                                             index, end)
+        moment = source_to_timeline(float(source_time), block)
+    elif "motion_peak" in anchor or "action_onset" in anchor:
+        kind = "motion_peak" if "motion_peak" in anchor else "action_onset"
+        source_time, method = _resolve_motion(
+            anchor, block, temporal_indices, kind,
+            step, plan, index, end)
         moment = source_to_timeline(float(source_time), block)
     elif "section" in anchor:
         moment, method = _resolve_section(anchor, music_analysis,

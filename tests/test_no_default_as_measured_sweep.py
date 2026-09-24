@@ -69,19 +69,21 @@ def _ffmpeg_result(n_frames, fill=0):
     )
 
 
-# ── Anchor: step_1_04 optical-flow shift search ───────────────────────
+# ── Anchor: step_1_04 dense-motion pair measurement ─────────────────
 
 
 def test_flow_where_no_candidate_survives_is_unknown_not_static(monkeypatch):
-    """Every (dx, dy) raising must leave the pair unmeasured.
+    """Every pair neither estimator measures leaves the series empty.
 
     Pre-fix this published magnitude 0.0 per pair and classified the
     clip "static" - a default presented as a measurement.
 
-    Only the candidate evaluations fail here: the means the
-    classifier reads afterwards keep working, so a fix that merely
-    moves the crash (the function's outer handler already converts a
-    *later* crash into unknown) does not pass - the zero vectors
+    The estimators run dense-first: Farneback raises here, and every
+    one of the block-match fallback's 81 shift candidates raises too,
+    so the pair contributes no sample rather than a zero one, and the
+    clip reads "unknown". Only the candidate evaluations fail here:
+    the means the classifier reads afterwards keep working, so a fix
+    that merely moves the crash does not pass - the zero vectors
     themselves must never publish.
     """
     real_mean = numpy.mean
@@ -95,12 +97,44 @@ def test_flow_where_no_candidate_survives_is_unknown_not_static(monkeypatch):
             raise RuntimeError("boom")
         return real_mean(*args, **kwargs)
 
+    def dense_boom(_prev, _curr):
+        raise RuntimeError("no dense field")
+
     monkeypatch.setattr(
         subprocess, "run", lambda *a, **k: _ffmpeg_result(2))
     monkeypatch.setattr(numpy, "mean", flaky_mean)
+    monkeypatch.setattr(
+        step_1_04, "_farneback_pair_stats", dense_boom)
     result = step_1_04.compute_optical_flow_direction("clip.mp4")
     assert result["values"] == []
     assert result["dominant_motion"] == "unknown"
+    assert result["motion_peaks"] == []
+
+
+def test_flow_where_only_the_fallback_answers_is_block_match(monkeypatch):
+    """The mirror: a degraded but real measurement still reads measured.
+
+    Dense flow fails on the pair but the block-match fallback answers,
+    so the sample is published - labelled `block_match`, with no
+    dense-only keys (`subject_energy`, `divergence`) zero-filled onto
+    it. A future "fix" that drops fallback samples, or fills the
+    dense-only keys with a constant, fails here.
+    """
+    def dense_boom(_prev, _curr):
+        raise RuntimeError("no dense field")
+
+    monkeypatch.setattr(
+        subprocess, "run", lambda *a, **k: _ffmpeg_result(2))
+    monkeypatch.setattr(
+        step_1_04, "_farneback_pair_stats", dense_boom)
+    result = step_1_04.compute_optical_flow_direction("clip.mp4")
+    assert len(result["values"]) == 1
+    sample = result["values"][0]
+    assert sample["method"] == "block_match"
+    assert result["method"] == "block_match"
+    assert "subject_energy" not in sample
+    assert "divergence" not in sample
+    assert result["dominant_motion"] != "unknown"
 
 
 # ── music_pipeline windowed key / chords ─────────────────────────────

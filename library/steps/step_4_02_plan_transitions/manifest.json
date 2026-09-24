@@ -130,7 +130,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-          "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale, plus OPTIONAL anchor (the exact point of the cut: {word} in the OUTGOING block, {beat}/{bar+beat}/{downbeat} on the measured grid, or {frame}; with optional offset_seconds/offset_frames; no anchor_end on a cut). A boundary may ALSO carry one J/L audio-offset entry (type j_cut with lead_seconds, or l_cut with lag_seconds, and/or an anchor resolving in the outgoing (J) or incoming (L) block; no duration_feel, fallback_type or anchor_end on it): the picture stays the resolved cut and the audio edit point moves by the offset, with the opened gap filled by measured room tone. An anchored cut lands exactly where the anchor resolves, winning over the word-end and beat-snap; an unresolvable anchor refuses the step. Empty is a legitimate answer on a cut-less edit - and where no cut earned a drawn gesture; the post-bridge carries no floor and adds none."
+          "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale, plus OPTIONAL anchor (the exact point of the cut: {word} in the OUTGOING block, {beat}/{bar+beat}/{downbeat} on the measured grid, {motion_peak}/{action_onset} on the outgoing block's measured action, or {frame}; with optional offset_seconds/offset_frames; no anchor_end on a cut). A boundary may ALSO carry one J/L audio-offset entry (type j_cut with lead_seconds, or l_cut with lag_seconds, and/or an anchor resolving in the outgoing (J) or incoming (L) block; no duration_feel, fallback_type or anchor_end on it): the picture stays the resolved cut and the audio edit point moves by the offset, with the opened gap filled by measured room tone. An anchored cut lands exactly where the anchor resolves, winning over the word-end and beat-snap; an unresolvable anchor refuses the step. Empty is a legitimate answer on a cut-less edit - and where no cut earned a drawn gesture; the post-bridge carries no floor and adds none."
       }
     ],
     "requirements": [
@@ -187,6 +187,7 @@
     "view:stability",
     "view:beatgrid",
     "view:sectiongrid",
-    "view:emphasis"
+    "view:emphasis",
+    "view:motion"
   ]
 }

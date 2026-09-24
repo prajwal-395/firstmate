@@ -32,7 +32,8 @@ CUTS_HEADERS = [
     "cut_point_position", "cut_time", "type",
     "can_carry_drawn_transition", "carry_basis",
     "narrative_verdict", "verdict_note",
-    "beat_near_cut", "outgoing_footage", "incoming_footage",
+    "beat_near_cut", "outgoing_motion", "incoming_motion",
+    "outgoing_footage", "incoming_footage",
 ]
 
 
@@ -246,7 +247,7 @@ def _derived_column_prose() -> str:
     read as a steer inside a column definition.
     """
     text = HANDOFF.read_text(encoding="utf-8")
-    start = text.index("Four more columns are DERIVED")
+    start = text.index("more columns are DERIVED")
     end = text.index("Use this data to decide which transitions to apply",
                      start)
     return text[start:end]
@@ -258,7 +259,8 @@ def test_the_handoff_defines_every_derived_column():
     apart, which is the one thing the data route did for free."""
     prose = _derived_column_prose()
     for column in ("can_carry_drawn_transition", "carry_basis",
-                   "narrative_verdict", "verdict_note"):
+                   "narrative_verdict", "verdict_note",
+                   "outgoing_motion", "incoming_motion"):
         assert f"`{column}`" in prose, (
             f"{column} reaches the table and the prompt never says what "
             f"it is")

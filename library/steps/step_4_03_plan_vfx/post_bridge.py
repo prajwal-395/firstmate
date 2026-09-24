@@ -300,6 +300,7 @@ def resolve_vfx(
     dropped: list = None,
     music_analysis: dict | None = None,
     music_selection: dict | None = None,
+    temporal_indices: list | None = None,
 ) -> list:
     """Resolve creative VFX plan to execution specs.
 
@@ -509,6 +510,7 @@ def resolve_vfx(
                 vfx["anchor"], block=block,
                 music_analysis=music_analysis,
                 music_selection=music_selection,
+                temporal_indices=temporal_indices,
                 frame_rate=frame_rate, step="plan_vfx",
                 plan="vfx_creative", index=len(resolved))
             span_start = hit["timeline_seconds"]
@@ -518,6 +520,7 @@ def resolve_vfx(
                 vfx["anchor_end"], block=block,
                 music_analysis=music_analysis,
                 music_selection=music_selection,
+                temporal_indices=temporal_indices,
                 frame_rate=frame_rate, step="plan_vfx",
                 plan="vfx_creative", index=len(resolved),
                 end="anchor_end")
@@ -752,6 +755,9 @@ def main():
     fps = data.get("frame_rate", 30.0)
     music_analysis = data.get("music_analysis", {})
     music_selection = data.get("music_selection", {})
+    temporal_raw = data.get("temporal_event_indices", [])
+    if isinstance(temporal_raw, dict):
+        temporal_raw = temporal_raw.get("temporal_event_indices", [])
 
     # An empty plan is a legitimate answer - the handoff says so in as many
     # words ("an empty list is a legitimate answer for a piece that wants
@@ -762,7 +768,8 @@ def main():
     dropped = []
     result = resolve_vfx(creative, spine, fps, dropped=dropped,
                          music_analysis=music_analysis,
-                         music_selection=music_selection)
+                         music_selection=music_selection,
+                         temporal_indices=temporal_raw)
 
     # Extract generator presets for the overlay track.
     # resolve_vfx rejects these from the clip-effect path; this routes

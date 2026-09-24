@@ -130,6 +130,12 @@ One address per anchor (exactly one):
   (`occurrence: 2` for the second chorus span, `edge: end` for a
   span's end). Labels come from the `sectiongrid` view in your
   context; a label the grid did not measure refuses with what it has.
+- `{motion_peak: 1}` - the block's first measured motion APEX, where
+  the action peaks (`occurrence: 2` for the second apex).
+  `{action_onset: 1}` - the block's first action ONSET, where the
+  action starts (`occurrence: 2` for the second). Peaks come from the
+  `motion` view in your context; a peak is a point, so there is never
+  an `edge` on these forms.
 - `{frame: 343}` - timeline frame 343. It must fall inside the block.
 
 Any form takes `offset_seconds` / `offset_frames` (applied after, and
@@ -145,6 +151,23 @@ loudness and duration - with the formula stated there. Punch the word
 the brief names, or the block's most emphasized word; span it with
 `anchor` and `anchor_end` exactly as above. The score is context, not
 an order - you still decide.
+
+Motion: the `motion` view in your context names, per block, the
+measured motion of the picture it plays - the clip's dominant
+direction and kind, and the action onsets and apexes inside the block
+with their timeline seconds - and `vfx_shot_stills` shows you one
+representative frame per candidate block, drawn at the block's first
+measured motion apex where one exists. OPEN the still for any block
+you are considering before you decide it: the prose says what happens
+in a clip and cannot say what it looks like. Place the effect ON the
+action: a shake lands on the apex through `anchor: {motion_peak: 1}`,
+a ramp leads into it through `{action_onset: 1}`. The peaks are
+context, not an order - you still decide. A motion anchor on a block
+whose motion is unmeasured refuses with the fix, and you re-plan; it
+never falls back to the block span. `still_motion_notes` carries what
+the still router saw in those stills - one motion line per file - as
+a second reading beside your own; where nothing answered, the absence
+is stated and the still paths above remain for you to open.
 
 ### Context data available:
 

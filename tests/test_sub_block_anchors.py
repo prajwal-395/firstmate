@@ -278,6 +278,112 @@ def test_refusal_is_the_ren_shape_with_a_fix():
     assert "sfx_creative" in rendered
 
 
+# ── Motion anchors: cut and place on action ───────────────────────────
+
+def _motion():
+    # The action IS the word: the onset lands on "quit"'s start and
+    # the apex on its end, so a motion-anchored plan and a
+    # word-anchored one agree to the frame - the two vocabularies
+    # addressing one moment.
+    return [{"clip_id": "clip_001", "motion_method": "farneback",
+             "motion_peaks": [
+                 {"time": 103.44, "kind": "onset",
+                  "magnitude": 0.5},
+                 {"time": 103.84, "kind": "apex",
+                  "magnitude": 0.7},
+                 {"time": 107.0, "kind": "apex",
+                  "magnitude": 0.4}]}]
+
+
+def test_effect_spans_from_onset_to_apex():
+    """A shake from where the action starts to where it peaks."""
+    plan = [{
+        "target_block_position": 1,
+        "effect_type": "screen_shake",
+        "params": {"shake_x": 0.02, "shake_y": 0.02,
+                   "shake_decay_frames": 12},
+        "rationale": "shake on the action, not the block",
+        "anchor": {"action_onset": 1},
+        "anchor_end": {"motion_peak": 1},
+    }]
+    resolved = resolve_vfx(plan, _spine(), FPS,
+                           temporal_indices=_motion())
+    assert len(resolved) == 1
+    vfx = resolved[0]
+    assert vfx["timeline_start"] == pytest.approx(QUIT_START, abs=1e-9)
+    assert vfx["timeline_end"] == pytest.approx(QUIT_END, abs=1e-9)
+    frame_error = abs(seconds_to_frame(vfx["timeline_start"], FPS)
+                      - QUIT_FRAME)
+    assert frame_error <= 1, f"motion punch frame error: {frame_error}"
+
+
+def test_cut_lands_on_the_action_onset():
+    """A transition anchored to the onset cuts at 11.44 s."""
+    plan = [{
+        "cut_point_position": 2,
+        "type": "hard_cut",
+        "rationale": "cut on the action",
+        "anchor": {"action_onset": 1},
+    }]
+    resolved = resolve_transitions(plan, _spine(), {}, _motion(),
+                                   frame_rate=FPS)
+    assert len(resolved) == 1
+    cut = resolved[0]["cut_point_timeline"]
+    assert cut == pytest.approx(QUIT_START, abs=1e-9)
+    assert abs(seconds_to_frame(cut, FPS) - QUIT_FRAME) <= 1
+
+
+MOTION_UNRESOLVABLE = [
+    pytest.param({"motion_peak": 9}, "occurrence 9",
+                 id="occurrence-overflow"),
+    pytest.param({"action_onset": 1, "edge": "end"}, "a peak is a point",
+                 id="edge-on-a-point"),
+    pytest.param({"motion_peak": 1, "grid": "detected"},
+                 "not motion ones", id="grid-on-motion"),
+]
+
+
+@pytest.mark.parametrize(("anchor", "match"), MOTION_UNRESOLVABLE)
+def test_unresolvable_motion_anchors_refuse(anchor, match):
+    with pytest.raises(AnchorRefused) as excinfo:
+        resolve_anchor(anchor, block=_block(),
+                       temporal_indices=_motion(),
+                       frame_rate=FPS, step="plan_vfx",
+                       plan="vfx_creative", index=0)
+    assert match in str(excinfo.value)
+
+
+def test_motion_anchor_without_measurement_refuses():
+    """No routed summaries, or an unmeasured clip: refuse, never guess."""
+    with pytest.raises(AnchorRefused) as excinfo:
+        resolve_anchor({"motion_peak": 1}, block=_block(),
+                       temporal_indices=[],
+                       frame_rate=FPS, step="plan_vfx",
+                       plan="vfx_creative", index=0)
+    assert "no motion measurement is routed" in str(excinfo.value)
+    rated = [{"clip_id": "clip_001", "motion_method": "unmeasured",
+              "motion_peaks": []}]
+    with pytest.raises(AnchorRefused) as excinfo:
+        resolve_anchor({"motion_peak": 1}, block=_block(),
+                       temporal_indices=rated,
+                       frame_rate=FPS, step="plan_vfx",
+                       plan="vfx_creative", index=0)
+    assert "unmeasured" in str(excinfo.value)
+
+
+def test_motion_anchor_outside_the_block_range_refuses():
+    """Peaks the block's range does not contain are not addressable."""
+    far = [{"clip_id": "clip_001", "motion_method": "farneback",
+            "motion_peaks": [
+                {"time": 150.0, "kind": "apex", "magnitude": 0.9}]}]
+    with pytest.raises(AnchorRefused) as excinfo:
+        resolve_anchor({"motion_peak": 1}, block=_block(),
+                       temporal_indices=far,
+                       frame_rate=FPS, step="plan_vfx",
+                       plan="vfx_creative", index=0)
+    assert "no measured apex inside block" in str(excinfo.value)
+
+
 # ── The beat-grid view behind the anchors ─────────────────────────────
 
 def test_beatgrid_view_lists_bars_with_provenance():

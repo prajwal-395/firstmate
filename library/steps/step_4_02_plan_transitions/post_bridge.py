@@ -326,7 +326,8 @@ def resolve_transitions(
             candidate = _resolve_picture_entry(
                 trans, block, outgoing, beat_positions, frame_rate,
                 creative_direction, brand_effect,
-                music_analysis, music_selection, index=len(resolved))
+                music_analysis, music_selection, index=len(resolved),
+                temporal_indices=temporal_indices)
             if candidate is None:
                 # Dropped for no stated hold (message already printed):
                 # the boundary stays free for the next entry, exactly
@@ -346,7 +347,7 @@ def resolve_transitions(
             trans_dict = _attach_jl_offset(
                 jl_entry, trans_dict, block, outgoing, beat_positions,
                 frame_rate, music_analysis, music_selection,
-                index=len(resolved))
+                index=len(resolved), temporal_indices=temporal_indices)
 
         if trans_dict is not None:
             resolved.append(trans_dict)
@@ -363,7 +364,8 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
                            beat_positions: list, frame_rate: float,
                            creative_direction: dict, brand_effect: dict,
                            music_analysis, music_selection,
-                           index: int = 0):
+                           index: int = 0,
+                           temporal_indices: list = None):
     """Resolve one picture-transition plan entry to its spec dict.
 
     Returns None when the entry drops for no stated hold (the message
@@ -454,7 +456,8 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
     # nowhere.
     cut_time, cut_info, beat_aligned, snap_delta = _resolve_picture_cut(
         trans, block, outgoing, beat_positions, frame_rate,
-        music_analysis, music_selection, index=index)
+        music_analysis, music_selection, index=index,
+        temporal_indices=temporal_indices)
 
     trans_dict = {
         "transition_id": f"trans_tmp_{index+1:03d}",
@@ -487,7 +490,7 @@ def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
 def _resolve_picture_cut(trans: dict | None, block: dict, outgoing: dict,
                          beat_positions: list, frame_rate: float,
                          music_analysis, music_selection,
-                         index: int = 0) -> tuple:
+                         index: int = 0, temporal_indices: list = None) -> tuple:
     """The picture cut in timeline seconds, plus its resolution record.
 
     `trans` is the picture entry (its `anchor`, when present, wins
@@ -512,6 +515,7 @@ def _resolve_picture_cut(trans: dict | None, block: dict, outgoing: dict,
             trans["anchor"], block=outgoing,
             music_analysis=music_analysis,
             music_selection=music_selection,
+            temporal_indices=temporal_indices,
             frame_rate=frame_rate, step="plan_transitions",
             plan="transition_creative",
             index=index)
@@ -543,7 +547,7 @@ def _attach_jl_offset(jl_entry: dict, trans_dict: dict | None,
                       block: dict, outgoing: dict,
                       beat_positions: list, frame_rate: float,
                       music_analysis, music_selection,
-                      index: int = 0):
+                      index: int = 0, temporal_indices: list = None):
     """Resolve a J/L plan entry and carry its audio offset on the cut.
 
     The picture decoration (when the boundary carries one) is resolved
@@ -628,6 +632,7 @@ def _attach_jl_offset(jl_entry: dict, trans_dict: dict | None,
         kind=kind, entry=jl_entry, outgoing=outgoing, incoming=block,
         boundary_frame=boundary_frame, frame_rate=frame_rate,
         music_analysis=music_analysis, music_selection=music_selection,
+        temporal_indices=temporal_indices,
         index=index)
     trans_dict["audio_offset"] = {
         "kind": kind,

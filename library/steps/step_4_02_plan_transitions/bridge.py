@@ -68,6 +68,36 @@ def main():
         return (block.get("clip_id")
                 or broll_by_position.get(str(block.get("position"))))
 
+    # Measured motion either side of each cut, so the planner can cut
+    # ON action and match (or deliberately contrast) direction across
+    # it. Reads the routed temporal summaries - the per-clip
+    # `dominant_motion`, `dominant_direction` and `motion_peaks` step
+    # 1.04 banks there - never the per-sample series, which stays in
+    # the per-clip index files. A B-roll-covered block resolves to the
+    # cutaway's clip, the same join as `block_clip_id` above; a block
+    # with no measurable clip reads `unmeasured`, never a stillness.
+    temporal_raw = data.get("temporal_event_indices", [])
+    if isinstance(temporal_raw, dict):
+        temporal_raw = temporal_raw.get("temporal_event_indices", [])
+    motion_by_clip = {}
+    for entry in temporal_raw or []:
+        if isinstance(entry, dict) and entry.get("clip_id"):
+            motion_by_clip[str(entry["clip_id"])] = entry
+
+    def block_motion(block):
+        cid = block_clip_id(block)
+        summary = motion_by_clip.get(str(cid)) if cid else None
+        if not summary or summary.get("motion_method",
+                                      "unmeasured") == "unmeasured":
+            return "unmeasured"
+        peaks = [p for p in summary.get("motion_peaks", [])
+                 if isinstance(p, dict)]
+        cell = (f"{summary.get('dominant_motion', 'unknown')}, "
+                f"{summary.get('dominant_direction', 'unknown')}")
+        cell += (f", {len(peaks)} peak(s)"
+                 if peaks else ", no peaks")
+        return cell
+
     # Which cuts can carry a DRAWN transition at all, read off the same
     # V1-membership rule compile_manifest builds its V1 track from. Every
     # B-roll placement goes on V2, so a cut whose outgoing block is a
@@ -158,11 +188,13 @@ def main():
             "narrative_verdict": cv.verdict_column(verdicts, position),
             "verdict_note": cv.note_column(verdicts, position),
             "beat_near_cut": beat_near_cut,
+            "outgoing_motion": block_motion(prev_block),
+            "incoming_motion": block_motion(curr_block),
             "outgoing_footage": get_desc(prev_sem),
             "incoming_footage": get_desc(curr_sem)
         })
 
-    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_footage", "incoming_footage"], cut_rows)
+    cuts_toon = format_toon(["cut_point_position", "cut_time", "type", "can_carry_drawn_transition", "carry_basis", "narrative_verdict", "verdict_note", "beat_near_cut", "outgoing_motion", "incoming_motion", "outgoing_footage", "incoming_footage"], cut_rows)
 
     # The four derived columns are DEFINED in this step's handoff.md
     # ("Context data available"), not shipped beside the table as data.

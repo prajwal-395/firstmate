@@ -1179,160 +1179,503 @@ def extract_word_end_times(speech_regions: list) -> list:
     return sorted(ends)
 
 
-# ── 8. Optical flow direction (5Hz) ──────────────────────────────────
+# ── 8. Dense motion field (5Hz) ────────────────────────────────────────
+
+#: Proxy size the flow is measured on. 160x90 keeps a minute of 5 Hz
+#: pairs under a second of Farneback; the vectors are normalized by
+#: `FLOW_NORM_PX` so no number names this size.
+FLOW_PROXY_W = 160
+FLOW_PROXY_H = 90
+
+#: What a normalized magnitude of 1.0 means: 8 proxy-px of displacement
+#: between two samples (0.2 s apart at 5 Hz). The same divisor the old
+#: block matcher used, so magnitudes stay comparable across methods.
+FLOW_NORM_PX = 8.0
+
+#: Below this normalized magnitude a sample is stillness, not a direction.
+FLOW_STATIC_MAG = 0.05
+
+#: A zoom reads as radial flow about the frame centre. The clip-level
+#: verdict says zoom only when the mean radial component clears this
+#: floor AND carries at least `DIVERGENCE_ZOOM_RATIO` of the mean
+#: magnitude - conservative on purpose, because a dolly past a textured
+#: wall expands too, and the legend says so.
+DIVERGENCE_ZOOM_MIN = 0.08
+DIVERGENCE_ZOOM_RATIO = 0.5
+
+#: Motion-peak detection on the magnitude curve. Apexes are scipy local
+#: maxima with this prominence, at least `PEAK_MIN_SEPARATION_S` apart,
+#: and at or above the onset threshold - a wobble below it is ripple,
+#: not action. Onsets are rising-edge crossings of the onset threshold
+#: with the same separation and `ONSET_HYSTERESIS` of re-arm: after an
+#: onset fires, the curve must dip that far back under the threshold
+#: before the next one can fire, so a curve hovering ON the threshold
+#: reads as one sustained action rather than one onset per wobble.
+#: An onset needs a below-threshold predecessor inside the clip - motion
+#: already in progress on the first sample is never given a guessed
+#: start, and a clip opening above the threshold arms only after a
+#: real dip below the re-arm level.
+APEX_PROMINENCE = 0.15
+PEAK_MIN_SEPARATION_S = 0.5
+ONSET_FLOOR = 0.20
+ONSET_HYSTERESIS = 0.05
+
+
+def _compass(dx: float, dy: float) -> str:
+    """Eight-way direction of a normalized (dx, dy) vector.
+
+    Screen coordinates: dx > 0 is rightward on screen, dy > 0 is
+    downward. "up" therefore means dy < 0. Pure helper, no thresholds -
+    the caller decides what counts as stillness.
+    """
+    import math
+
+    names = ["right", "up-right", "up", "up-left",
+             "left", "down-left", "down", "down-right"]
+    angle = math.degrees(math.atan2(-dy, dx))
+    return names[int(round(angle / 45.0)) % 8]
+
+
+def _direction_of(med_x: float, med_y: float, mean_mag: float) -> str:
+    """The direction label for one translation-plus-spread reading.
+
+    `static` below the stillness floor; `mixed` where the field moves
+    but has no dominant translation (a zoom's median is ~0 while its
+    mean is not - compassing that noise would present a direction
+    nothing decided); otherwise the median's eight-way compass.
+    """
+    import math
+
+    if mean_mag < FLOW_STATIC_MAG:
+        return "static"
+    med_mag = math.sqrt(med_x ** 2 + med_y ** 2)
+    if med_mag < 0.3 * mean_mag:
+        return "mixed"
+    return _compass(med_x, med_y)
+
+
+def _extract_gray_proxy(
+    video_path: str,
+    sample_rate_hz: int,
+) -> "object | None":
+    """Low-resolution grayscale frames at the sample rate, or None.
+
+    One ffmpeg pass at `FLOW_PROXY_W`x`FLOW_PROXY_H`; None when ffmpeg
+    fails or yields nothing, so the caller reports unmeasured rather
+    than measuring zero frames. The array shape is (n, H, W) uint8.
+    """
+    import numpy as np
+
+    result = subprocess.run(
+        [
+            "ffmpeg", "-i", video_path,
+            "-vf", (f"fps={sample_rate_hz},scale="
+                    f"{FLOW_PROXY_W}:{FLOW_PROXY_H},format=gray"),
+            "-f", "rawvideo", "-pix_fmt", "gray",
+            "-v", "quiet",
+            "-",
+        ],
+        capture_output=True, timeout=120,
+    )
+    if result.returncode != 0 or not result.stdout:
+        return None
+    frame_size = FLOW_PROXY_W * FLOW_PROXY_H
+    raw = np.frombuffer(result.stdout, dtype=np.uint8)
+    n_frames = len(raw) // frame_size
+    if n_frames == 0:
+        return None
+    return raw[:n_frames * frame_size].reshape(
+        n_frames, FLOW_PROXY_H, FLOW_PROXY_W)
+
+
+def _block_match_shift(prev, curr) -> "tuple | None":
+    """The content motion between two proxy frames, or None.
+
+    Mean absolute difference over shifts of -8..8 px in steps of 2 -
+    the estimator this step used before dense flow landed. Returns
+    `(dx, dy)` in proxy px, content-motion sign (rightward content
+    movement reads positive dx, matching the Farneback median): the
+    search finds the shift that aligns curr back onto prev, which
+    points the OTHER way, so it is negated before it leaves. Returns
+    None when no shift candidate survives, so the pair contributes no
+    vector rather than a zero one (AGENTS.md 10.3 - a default
+    presented as a measurement).
+    """
+    import numpy as np
+
+    height, width = prev.shape
+    best_dx, best_dy = 0, 0
+    best_score = float("inf")
+    for dy in range(-8, 9, 2):
+        for dx in range(-8, 9, 2):
+            # Shift curr by (dx, dy) and compare to prev
+            if dy >= 0:
+                p_rows = slice(dy, None)
+                c_rows = slice(None, height - dy if dy > 0 else None)
+            else:
+                p_rows = slice(None, height + dy)
+                c_rows = slice(-dy, None)
+            if dx >= 0:
+                p_cols = slice(dx, None)
+                c_cols = slice(None, width - dx if dx > 0 else None)
+            else:
+                p_cols = slice(None, width + dx)
+                c_cols = slice(-dx, None)
+            try:
+                diff = np.mean(np.abs(
+                    prev[p_rows, p_cols] - curr[c_rows, c_cols]
+                ))
+                if diff < best_score:
+                    best_score = diff
+                    best_dx, best_dy = dx, dy
+            except Exception:
+                pass
+    if best_score == float("inf"):
+        return None
+    # Content-motion sign: the search aligns curr back onto prev, so
+    # its shift points against the movement. Negated, rightward
+    # content motion reads positive dx - the same sign the Farneback
+    # median carries, and the one the classifier's pan labels assume.
+    return (-best_dx, -best_dy)
+
+
+def _farneback_pair_stats(prev, curr) -> dict:
+    """Dense Farneback field between two proxy frames, as sample stats.
+
+    Returns the per-sample measurement WITHOUT its timestamp (the
+    caller stamps it): normalized median translation (`dx`, `dy`),
+    mean-field `magnitude`, eight-way `direction`, the global shift
+    read as the camera hypothesis (`camera_tx`, `camera_ty`), the
+    motion the global shift does NOT explain (`subject_energy`), and
+    the mean radial component about the frame centre (`divergence`,
+    positive = expansion: a zoom or dolly in). Raises where nothing
+    about the pair was measured, so the pair stays unmeasured.
+
+    `subject_energy` is a separation HYPOTHESIS, and the view legend
+    says so: the median is read as camera, the rest as subject and
+    shake - and a subject filling the frame reads as camera.
+    """
+    import numpy as np
+
+    import cv2
+
+    flow = cv2.calcOpticalFlowFarneback(
+        prev, curr, None,
+        pyr_scale=0.5, levels=2, winsize=9,
+        iterations=2, poly_n=5, poly_sigma=1.1, flags=0,
+    )
+    fx = flow[..., 0]
+    fy = flow[..., 1]
+    mag = np.sqrt(fx ** 2 + fy ** 2)
+    med_x = float(np.median(fx))
+    med_y = float(np.median(fy))
+    mean_mag = float(mag.mean())
+    # What the global shift leaves behind: subject movement, shake,
+    # parallax - anything that is not one translation.
+    resid = np.sqrt((fx - med_x) ** 2 + (fy - med_y) ** 2)
+    subject = float(resid.mean())
+    # Radial component about the centre: expansion reads positive.
+    height, width = prev.shape
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float32)
+    xs = xs - (width - 1) / 2.0
+    ys = ys - (height - 1) / 2.0
+    radius = np.sqrt(xs ** 2 + ys ** 2)
+    radius[radius == 0] = 1.0
+    divergence = float(((fx * xs + fy * ys) / radius).mean())
+
+    norm = FLOW_NORM_PX
+    magnitude = mean_mag / norm
+    med_nx, med_ny = med_x / norm, med_y / norm
+    direction = _direction_of(med_nx, med_ny, magnitude)
+    return {
+        "dx": round(med_nx, 3),
+        "dy": round(med_ny, 3),
+        "magnitude": round(magnitude, 3),
+        "direction": direction,
+        "camera_tx": round(med_nx, 3),
+        "camera_ty": round(med_ny, 3),
+        "subject_energy": round(subject / norm, 3),
+        "divergence": round(divergence / norm, 3),
+        "method": "farneback",
+    }
+
+
+def detect_motion_peaks(
+    magnitudes: list,
+    sample_rate_hz: int,
+) -> tuple:
+    """Onsets and apexes of action on a magnitude-over-time curve.
+
+    Returns `(peaks, onset_threshold)`: `peaks` are
+    `{"time", "kind", "magnitude"}` sorted by time, `kind` one of
+    `"onset"` (a rising-edge crossing of the threshold, re-armed only
+    after a dip `ONSET_HYSTERESIS` back under it) or `"apex"` (a scipy
+    local maximum at or above the threshold). `onset_threshold` is
+    `max(ONSET_FLOOR, median + 0.75 * std)` of the curve - recorded
+    because a peak without its threshold cannot be re-derived.
+
+    Pure function of the curve: the unit tests drive it on synthetic
+    magnitudes, and `compute_optical_flow_direction` is its only
+    production caller.
+    """
+    import numpy as np
+
+    peaks: list = []
+    if not magnitudes:
+        return peaks, 0.0
+    curve = np.array([float(m) for m in magnitudes], dtype=float)
+    median = float(np.median(curve))
+    std = float(np.std(curve))
+    threshold = round(max(ONSET_FLOOR, median + 0.75 * std), 3)
+
+    separation = PEAK_MIN_SEPARATION_S
+    rearm = threshold - ONSET_HYSTERESIS
+    # A clip opening above the threshold is motion in progress, not an
+    # onset about to happen: it arms only after a real dip.
+    armed = bool(curve[0] < threshold)
+    last_onset = float("-inf")
+    for i, value in enumerate(curve):
+        if i == 0:
+            continue
+        if armed and value >= threshold and curve[i - 1] < threshold:
+            moment = round((i + 1) / sample_rate_hz, 3)
+            if moment - last_onset >= separation - 1e-9:
+                peaks.append({
+                    "time": moment,
+                    "kind": "onset",
+                    "magnitude": round(float(value), 3),
+                })
+                last_onset = moment
+                armed = False
+        elif value < rearm:
+            armed = True
+
+    try:
+        from scipy.signal import find_peaks
+
+        hits, _ = find_peaks(
+            curve, prominence=APEX_PROMINENCE,
+            distance=max(1, int(round(sample_rate_hz
+                                     * PEAK_MIN_SEPARATION_S))),
+        )
+        for hit in hits:
+            if float(curve[int(hit)]) < threshold:
+                continue
+            peaks.append({
+                "time": round((int(hit) + 1) / sample_rate_hz, 3),
+                "kind": "apex",
+                "magnitude": round(float(curve[int(hit)]), 3),
+            })
+    except ImportError:
+        print(
+            "  WARNING: scipy not available, motion apexes unmeasured",
+            file=sys.stderr,
+        )
+
+    peaks.sort(key=lambda p: (p["time"], p["kind"]))
+    return peaks, threshold
+
 
 def compute_optical_flow_direction(
     video_path: str,
     sample_rate_hz: int = 5,
 ) -> dict:
-    """Compute dominant optical flow direction at 5Hz.
+    """Dense motion field at 5 Hz: direction, magnitude, peaks, zoom.
 
-    Extracts low-resolution grayscale frames, estimates the dominant
-    frame-to-frame translation with a block-matching search (mean
-    absolute difference over shifts of -8..8 px in steps of 2 on
-    160x90 gray frames - NOT Farneback dense flow, which needs OpenCV),
-    and summarizes the dominant motion vector (dx, dy) per sample.
+    Extracts low-resolution grayscale frames and measures a DENSE
+    Farneback flow field per consecutive pair (OpenCV, on the
+    `FLOW_PROXY_W`x`FLOW_PROXY_H` proxy). Where OpenCV is unavailable
+    the pair falls back to the block-matching global shift
+    (`_block_match_shift`) and says so per sample - a degraded but
+    real measurement, never a silent substitution.
 
-    Interpretation:
-      - dx > 0 = rightward motion (pan right or subject moves right)
-      - dy > 0 = downward motion (tilt down or subject moves down)
-      - Large consistent vectors = camera pan/tilt
-      - Expanding vectors from center = zoom in
-      - High magnitude with random directions = handheld shake
+    Per sample (`values`):
 
-    Returns:
-        {
-            "sample_rate_hz": 5,
-            "values": [{"dx": float, "dy": float, "magnitude": float}, ...],
-            "dominant_motion": "static | pan_left | pan_right | tilt_up |
-                                tilt_down | zoom | handheld | mixed"
-        }
+      - `dx`, `dy` - the field's MEDIAN translation, normalized by
+        `FLOW_NORM_PX`. The same keys the old block matcher wrote, so
+        `decompose_camera_motion` keeps reading them unchanged.
+      - `magnitude` - mean field magnitude, normalized the same way.
+      - `direction` - the median's eight-way compass (`right`,
+        `up-right`, `up`, ...; screen coordinates, dy > 0 is down),
+        `static` below `FLOW_STATIC_MAG`, or `mixed` where the field
+        moves with no dominant translation (a zoom's median is ~0
+        while its mean is not - compassing that noise would present
+        a direction nothing decided).
+      - `camera_tx`, `camera_ty` - the global shift read as the CAMERA
+        hypothesis: the median IS the translation one rigid move
+        explains.
+      - `subject_energy` - mean residual past the median: the motion NO
+        rigid move explains (subject, shake, parallax). Farneback
+        pairs only; absent elsewhere, never zero-filled.
+      - `divergence` - mean radial component about the frame centre,
+        positive = expansion (a zoom or dolly in). The MEASURED
+        answer to the always-1.0 `zoom_factor` this step used to
+        report: that constant is gone (see `decompose_camera_motion`
+        and `tests/test_no_constant_zoom_factor.py`), and this is
+        what replaced it - a number with a floor and a ratio, not a
+        factor that could never move.
+      - `method` - `farneback`, `block_match`, or `unmeasured`.
+
+    Clip level:
+
+      - `dominant_motion` - `static`, `pan_left`, `pan_right`,
+        `tilt_up`, `tilt_down`, `zoom_in`, `zoom_out`, `handheld`,
+        `mixed` or `unknown`. Zoom fires only when the mean
+        divergence clears `DIVERGENCE_ZOOM_MIN` AND carries at least
+        `DIVERGENCE_ZOOM_RATIO` of the mean magnitude.
+      - `dominant_direction` - compass of the clip's mean vector.
+      - `method` - `farneback` when every pair measured densely,
+        `block_match` when none did, `farneback+block_match` between.
+      - `motion_peaks` - `detect_motion_peaks` on the magnitude curve:
+        `{"time", "kind" ("onset"|"apex"), "magnitude"}` sorted by
+        time. Onsets are where action STARTS, apexes where it PEAKS -
+        the two moments a cut or an effect anchors to.
+      - `onset_threshold`, `apex_prominence`,
+        `peak_min_separation_s` - the peak detector's own settings,
+        recorded so a peak can be re-derived.
+
+    A pair neither estimator measures contributes NO sample rather
+    than a zero one; a clip with no samples reports `unknown`, never
+    `static` (AGENTS.md 10.3).
     """
     try:
         import numpy as np
 
-        # Extract low-res grayscale frames at target FPS
-        fps = sample_rate_hz
-        result = subprocess.run(
-            [
-                "ffmpeg", "-i", video_path,
-                "-vf", f"fps={fps},scale=160:90,format=gray",
-                "-f", "rawvideo", "-pix_fmt", "gray",
-                "-v", "quiet",
-                "-",
-            ],
-            capture_output=True, timeout=120,
-        )
-
-        if result.returncode != 0 or not result.stdout:
+        frames = _extract_gray_proxy(video_path, sample_rate_hz)
+        if frames is None:
             return {
                 "sample_rate_hz": sample_rate_hz,
                 "values": [],
                 "dominant_motion": "unknown",
+                "dominant_direction": "unknown",
+                "method": "unmeasured",
+                "motion_peaks": [],
+                "onset_threshold": 0.0,
+                "apex_prominence": APEX_PROMINENCE,
+                "peak_min_separation_s": PEAK_MIN_SEPARATION_S,
             }
 
-        frame_size = 160 * 90
-        raw = np.frombuffer(result.stdout, dtype=np.uint8)
-        n_frames = len(raw) // frame_size
-
+        n_frames = frames.shape[0]
         if n_frames < 2:
             return {
                 "sample_rate_hz": sample_rate_hz,
-                "values": [{"dx": 0.0, "dy": 0.0, "magnitude": 0.0}],
+                "values": [{
+                    "dx": 0.0, "dy": 0.0, "magnitude": 0.0,
+                    "direction": "static",
+                    "camera_tx": 0.0, "camera_ty": 0.0,
+                    "method": "unmeasured",
+                }],
                 "dominant_motion": "static",
+                "dominant_direction": "static",
+                "method": "unmeasured",
+                "motion_peaks": [],
+                "onset_threshold": 0.0,
+                "apex_prominence": APEX_PROMINENCE,
+                "peak_min_separation_s": PEAK_MIN_SEPARATION_S,
             }
 
-        frames = raw[:n_frames * frame_size].reshape(n_frames, 90, 160)
-
-        flow_vectors = []
+        samples = []
         for i in range(n_frames - 1):
-            prev = frames[i].astype(np.float32)
-            curr = frames[i + 1].astype(np.float32)
+            prev = frames[i]
+            curr = frames[i + 1]
+            moment = round((i + 1) / sample_rate_hz, 3)
+            try:
+                sample = _farneback_pair_stats(prev, curr)
+            except Exception as dense_failed:
+                # Dense flow owes no answer: the global shift below is a
+                # degraded but real measurement of the same pair, and it
+                # says which method answered. Only a pair NEITHER
+                # measures stays out of the series.
+                shift = _block_match_shift(prev, curr)
+                if shift is None:
+                    print(
+                        "  WARNING: motion unmeasured for "
+                        f"frame pair {i} ({dense_failed}); leaving it "
+                        "out of the series",
+                        file=sys.stderr,
+                    )
+                    continue
+                magnitude = (float(np.sqrt(shift[0] ** 2
+                                           + shift[1] ** 2))
+                             / FLOW_NORM_PX)
+                med_nx = float(shift[0]) / FLOW_NORM_PX
+                med_ny = float(shift[1]) / FLOW_NORM_PX
+                sample = {
+                    "dx": round(med_nx, 3),
+                    "dy": round(med_ny, 3),
+                    "magnitude": round(magnitude, 3),
+                    "direction": _direction_of(med_nx, med_ny, magnitude),
+                    "camera_tx": round(med_nx, 3),
+                    "camera_ty": round(med_ny, 3),
+                    "method": "block_match",
+                }
+            sample["time"] = moment
+            samples.append(sample)
 
-            # Simple block-matching approximation using gradient correlation.
-            # Full Farneback requires OpenCV — use a fast numpy alternative:
-            # compute mean absolute difference in shifted versions to find
-            # the dominant translation (dx, dy) between frames.
-            best_dx, best_dy = 0, 0
-            best_score = float("inf")
-
-            for dy in range(-8, 9, 2):
-                for dx in range(-8, 9, 2):
-                    # Shift curr by (dx, dy) and compare to prev
-                    if dy >= 0:
-                        p_rows = slice(dy, None)
-                        c_rows = slice(None, 90 - dy if dy > 0 else None)
-                    else:
-                        p_rows = slice(None, 90 + dy)
-                        c_rows = slice(-dy, None)
-                    if dx >= 0:
-                        p_cols = slice(dx, None)
-                        c_cols = slice(None, 160 - dx if dx > 0 else None)
-                    else:
-                        p_cols = slice(None, 160 + dx)
-                        c_cols = slice(-dx, None)
-
-                    try:
-                        diff = np.mean(np.abs(
-                            prev[p_rows, p_cols] - curr[c_rows, c_cols]
-                        ))
-                        if diff < best_score:
-                            best_score = diff
-                            best_dx, best_dy = dx, dy
-                    except Exception:
-                        pass
-
-            if best_score == float("inf"):
-                # No shift candidate survived for this pair: nothing
-                # about it was measured, so it contributes no vector
-                # rather than a zero one. A zero vector here would
-                # read downstream as measured stillness (AGENTS.md
-                # 10.3 - a default presented as a measurement).
-                print(
-                    "  WARNING: optical flow shift search failed for "
-                    f"frame pair {i}, leaving it unmeasured",
-                    file=sys.stderr,
-                )
-                continue
-
-            # Normalize: divide by frame pixel range (0-255) → 0-1 per pixel
-            magnitude = float(np.sqrt(best_dx ** 2 + best_dy ** 2)) / 8.0
-            flow_vectors.append({
-                "dx": round(float(best_dx) / 8.0, 3),
-                "dy": round(float(best_dy) / 8.0, 3),
-                "magnitude": round(magnitude, 3),
-            })
-
-        # Classify dominant motion pattern across all vectors
-        if not flow_vectors:
+        # Classify dominant motion pattern across all samples
+        if not samples:
             # Every pair went unmeasured (or there was nothing to
             # compare): "unknown" is the admitted absence this
             # function already returns when ffmpeg or numpy fails.
             # "static" would claim a stillness nothing measured.
             dominant = "unknown"
+            dominant_direction = "unknown"
+            method = "unmeasured"
+            peaks: list = []
+            onset_threshold = 0.0
         else:
-            mean_dx = float(np.mean([v["dx"] for v in flow_vectors]))
-            mean_dy = float(np.mean([v["dy"] for v in flow_vectors]))
-            mean_mag = float(np.mean([v["magnitude"] for v in flow_vectors]))
+            mean_dx = float(np.mean([s["dx"] for s in samples]))
+            mean_dy = float(np.mean([s["dy"] for s in samples]))
+            mean_mag = float(np.mean([s["magnitude"] for s in samples]))
+            divergences = [s["divergence"] for s in samples
+                           if "divergence" in s]
+            mean_div = (float(np.mean(divergences)) if divergences
+                        else 0.0)
 
-            if mean_mag < 0.05:
+            if mean_mag < FLOW_STATIC_MAG:
                 dominant = "static"
+            elif (divergences
+                    and abs(mean_div) > DIVERGENCE_ZOOM_MIN
+                    and abs(mean_div) > DIVERGENCE_ZOOM_RATIO * mean_mag):
+                # Measured radial expansion/contraction dominating the
+                # translation: a zoom or a dolly, stated as one because
+                # the field cannot tell them apart.
+                dominant = ("zoom_in" if mean_div > 0 else "zoom_out")
             elif abs(mean_dx) > abs(mean_dy) * 1.5:
                 dominant = "pan_right" if mean_dx > 0 else "pan_left"
             elif abs(mean_dy) > abs(mean_dx) * 1.5:
                 dominant = "tilt_down" if mean_dy > 0 else "tilt_up"
             else:
                 # Check magnitude consistency — consistent = pan, variable = handheld
-                mag_std = float(np.std([v["magnitude"] for v in flow_vectors]))
+                mag_std = float(np.std([s["magnitude"] for s in samples]))
                 if mag_std > 0.15:
                     dominant = "handheld"
                 else:
                     dominant = "mixed"
+            dominant_direction = _direction_of(
+                mean_dx, mean_dy, mean_mag)
+
+            methods = {s.get("method") for s in samples}
+            if methods == {"farneback"}:
+                method = "farneback"
+            elif methods == {"block_match"}:
+                method = "block_match"
+            else:
+                method = "farneback+block_match"
+
+            peaks, onset_threshold = detect_motion_peaks(
+                [s["magnitude"] for s in samples], sample_rate_hz)
 
         return {
             "sample_rate_hz": sample_rate_hz,
-            "values": flow_vectors,
+            "values": samples,
             "dominant_motion": dominant,
+            "dominant_direction": dominant_direction,
+            "method": method,
+            "motion_peaks": peaks,
+            "onset_threshold": onset_threshold,
+            "apex_prominence": APEX_PROMINENCE,
+            "peak_min_separation_s": PEAK_MIN_SEPARATION_S,
         }
 
     except ImportError:
@@ -1340,13 +1683,71 @@ def compute_optical_flow_direction(
             "  WARNING: numpy not available for optical flow direction",
             file=sys.stderr,
         )
-        return {"sample_rate_hz": sample_rate_hz, "values": [], "dominant_motion": "unknown"}
+        return {"sample_rate_hz": sample_rate_hz, "values": [],
+                "dominant_motion": "unknown",
+                "dominant_direction": "unknown", "method": "unmeasured",
+                "motion_peaks": [], "onset_threshold": 0.0,
+                "apex_prominence": APEX_PROMINENCE,
+                "peak_min_separation_s": PEAK_MIN_SEPARATION_S}
     except Exception as e:
         print(
             f"  WARNING: optical flow direction failed: {e}",
             file=sys.stderr,
         )
-        return {"sample_rate_hz": sample_rate_hz, "values": [], "dominant_motion": "unknown"}
+        return {"sample_rate_hz": sample_rate_hz, "values": [],
+                "dominant_motion": "unknown",
+                "dominant_direction": "unknown", "method": "unmeasured",
+                "motion_peaks": [], "onset_threshold": 0.0,
+                "apex_prominence": APEX_PROMINENCE,
+                "peak_min_separation_s": PEAK_MIN_SEPARATION_S}
+
+
+def motion_backfill_needed(index: dict) -> bool:
+    """Whether a cached per-clip index predates dense motion.
+
+    True when the document has no optical-flow measurement at all, when
+    it was measured without a recorded method (the block-match era
+    wrote none), when the method is not dense flow, or when the peak
+    list is absent. Anything dense and peaked is current and stays
+    cached - a backfill that rewrote those would re-measure every
+    project on every run for nothing.
+    """
+    flow = (index or {}).get("optical_flow_direction")
+    if not isinstance(flow, dict):
+        return True
+    if flow.get("method") != "farneback":
+        return True
+    return not isinstance(flow.get("motion_peaks"), list)
+
+
+def backfill_motion_measurement(index: dict, video_path: str = None) -> bool:
+    """Measure dense motion onto a cached index that predates it.
+
+    Mutates `index` in place, replacing `optical_flow_direction` with
+    a fresh `compute_optical_flow_direction` measurement. Returns
+    whether anything changed. The footage is read from `video_path`
+    (or the document's own `source_file`); when neither names a file
+    on disk the document is left alone and False is returned - a
+    stale measurement is served, never an invented one.
+
+    A measurement that yields no samples (`unknown`) is NOT written:
+    an upgrade that replaces one absence with another is churn, and
+    the next run would retry it either way.
+    """
+    path = video_path or (index or {}).get("source_file")
+    if not path or not os.path.isfile(path):
+        print(
+            f"  WARNING: motion backfill skipped for "
+            f"{(index or {}).get('clip_id', '?')}: no footage file "
+            f"at {path!r}",
+            file=sys.stderr,
+        )
+        return False
+    flow = compute_optical_flow_direction(str(path))
+    if not flow.get("values"):
+        return False
+    index["optical_flow_direction"] = flow
+    return True
 
 
 # ── 9. Camera motion decomposition (5Hz) ─────────────────────────────
@@ -2594,8 +2995,24 @@ def build_temporal_index(
             index = _load_cached_index(index_path, expected_language=language)
             if index is not None:
                 reused += 1
-                print(f"  reusing {os.path.basename(index_path)}",
-                      file=sys.stderr)
+                # A cached document predating dense motion is UPGRADED,
+                # not re-transcribed: the backfill measures only the
+                # flow and rewrites the same file, so old projects gain
+                # peaks and directions for the cost of one ffmpeg pass.
+                if motion_backfill_needed(index):
+                    print(f"  backfilling dense motion for "
+                          f"{os.path.basename(index_path)}",
+                          file=sys.stderr)
+                    if backfill_motion_measurement(index, filepath):
+                        with open(index_path, "w", encoding="utf-8") as f:
+                            json.dump(index, f, indent=2)
+                    else:
+                        print(f"  motion backfill yielded nothing; "
+                              f"serving cached measurement",
+                              file=sys.stderr)
+                else:
+                    print(f"  reusing {os.path.basename(index_path)}",
+                          file=sys.stderr)
             else:
                 index = index_clip(
                     filepath, clip_id, layout, whisper_model_size,
@@ -2607,6 +3024,14 @@ def build_temporal_index(
                     json.dump(index, f, indent=2)
 
 
+            # The motion half of the summary: what the cut and effect
+            # planners address. Peaks ride here (times, kinds,
+            # magnitudes) so sub-block anchors resolve without opening
+            # the per-clip file; the per-sample series stays in that
+            # file, named by `index_path` below.
+            flow = index.get("optical_flow_direction") or {}
+            if not isinstance(flow, dict):
+                flow = {}
             results.append({
                 "clip_id": clip_id,
                 "index_path": index_path,
@@ -2626,6 +3051,14 @@ def build_temporal_index(
                 "high_motion_count": len(
                     index["motion_energy"]["high_motion_times"]
                 ),
+                "dominant_motion": flow.get("dominant_motion", "unknown"),
+                "dominant_direction": flow.get(
+                    "dominant_direction", "unknown"),
+                "motion_method": flow.get("method", "unmeasured"),
+                "motion_peaks": [
+                    p for p in flow.get("motion_peaks", [])
+                    if isinstance(p, dict)
+                ],
             })
 
         except Exception as e:

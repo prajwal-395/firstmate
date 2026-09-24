@@ -83,6 +83,12 @@
         "type": "object",
         "required": false,
         "description": "State input: prosody_analysis. Read through view:emphasis only - the per-block most-emphasized words a punch or shake may anchor to. Optional because a run that measured no prosody still plans; the view states the absence in one line."
+      },
+      {
+        "name": "temporal_event_indices",
+        "type": "array",
+        "required": false,
+        "description": "State input: temporal_event_indices. The per-clip temporal summaries carrying each clip's measured motion peaks, dominant direction and motion kind. Read through view:motion only, and by the post-bridge to resolve motion_peak / action_onset sub-block anchors. Optional because a run with unmeasured motion still plans; the view states the absence in one line and a motion anchor on an unmeasured block refuses with the fix."
       }
     ],
     "outputs": [
@@ -99,6 +105,16 @@
         "name": "vfx_candidates_toon",
         "type": "string",
         "description": "State output: vfx_candidates_toon"
+      },
+      {
+        "name": "vfx_shot_stills",
+        "type": "string",
+        "description": "Bridge output: one representative still per VFX-candidate block, drawn at the block's first measured motion apex where one exists (else the middle of its range), with the directory holding them. Prompt-only: it shows the motion designer the picture the effect lands on. A block whose still could not be drawn is NAMED in the block, never quietly absent. See library/tools/shot_colour.py."
+      },
+      {
+        "name": "still_motion_notes",
+        "type": "object",
+        "description": "Bridge output: what the still router saw in the VFX stills - one motion line per file plus which vision answered (the driving LLM's own vision, or the gemma4 fallback), or a stated absence with the reason. A second reading beside the deterministic numbers, never a replacement for them. See library/tools/still_vision.py."
       }
     ],
     "llm_outputs": [
@@ -107,7 +123,7 @@
         "type": "list",
         "required": true,
         "may_be_empty": true,
-        "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, params, rationale. Drift motion on a static hold (`slow_zoom_in` / `slow_zoom_out`, or `ken_burns` with the direction read off `zoom_start`/`zoom_end`) applies ONLY where the entry states a per-shot rationale saying why that shot wants it - an entry with a missing or blank rationale gets no motion and is dropped as `no_stated_reason` (captain's ruling 2026-09-08; motion is never a blanket rule or a default). A `ken_burns` entry whose params state no direction (`zoom_end` equal to `zoom_start`, or either missing) is dropped as `ken_burns_without_direction` - the direction is derived, never defaulted. `stabilize` is the one corrective treatment: it runs Resolve's own Stabilize on the clip (judged by its return) and takes no params - name it only where the measured stability in context (`view:stability`, the candidate table's camera text) says the shot needs it; nothing stabilizes unless the plan asks (captain, 2026-09-24). OPTIONAL anchor / anchor_end name the effect's sub-block span (a word, beat/downbeat/bar or frame inside the block, with optional offset_seconds/offset_frames; a punch spanning one word anchors the word's start and its end). Either alone leaves the other end on the block boundary; an unresolvable anchor refuses the step."
+        "description": "Visual effects, at most one per block. Each: target_block_position, effect_type, params, rationale. Drift motion on a static hold (`slow_zoom_in` / `slow_zoom_out`, or `ken_burns` with the direction read off `zoom_start`/`zoom_end`) applies ONLY where the entry states a per-shot rationale saying why that shot wants it - an entry with a missing or blank rationale gets no motion and is dropped as `no_stated_reason` (captain's ruling 2026-09-08; motion is never a blanket rule or a default). A `ken_burns` entry whose params state no direction (`zoom_end` equal to `zoom_start`, or either missing) is dropped as `ken_burns_without_direction` - the direction is derived, never defaulted. `stabilize` is the one corrective treatment: it runs Resolve's own Stabilize on the clip (judged by its return) and takes no params - name it only where the measured stability in context (`view:stability`, the candidate table's camera text) says the shot needs it; nothing stabilizes unless the plan asks (captain, 2026-09-24). OPTIONAL anchor / anchor_end name the effect's sub-block span (a word, beat/downbeat/bar, motion apex, action onset or frame inside the block, with optional offset_seconds/offset_frames; a punch spanning one word anchors the word's start and its end, a shake on an action anchors its apex at `{motion_peak: 1}`). Either alone leaves the other end on the block boundary; an unresolvable anchor refuses the step."
       }
     ],
     "requirements": [
@@ -163,6 +179,9 @@
     "view:beatgrid",
     "view:sectiongrid",
     "view:emphasis",
+    "view:motion",
+    "vfx_shot_stills",
+    "still_motion_notes",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename"
   ],

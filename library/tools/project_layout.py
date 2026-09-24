@@ -348,6 +348,7 @@ class Area(str, Enum):
     QA_FRAMES = "qa_frames"
     GATE_STILLS = "gate_stills"
     SHOT_STILLS = "shot_stills"
+    VFX_STILLS = "vfx_stills"
 
     # Project-level, and deliberately NOT under steps/: nesting these
     # under a step would be a lie about who wrote them.
@@ -576,6 +577,13 @@ AREAS: dict[Area, AreaSpec] = {
         "shot-colour numbers describe, so the colourist sees the picture "
         "beside the measurement. See library/tools/shot_colour.py.",
         step="color_grade"),
+    Area.VFX_STILLS: AreaSpec(
+        _step_path("plan_vfx", "vfx_stills"), Kind.OUTPUT,
+        "One representative still per VFX-candidate block, drawn at the "
+        "block's first measured motion apex where one exists, so the "
+        "motion designer sees the picture the effect lands on. See "
+        "library/steps/step_4_03_plan_vfx/bridge.py.",
+        step="plan_vfx"),
 
     # ── Project-level: not a step's product ─────────────────────────
     Area.THUMBNAILS: AreaSpec(

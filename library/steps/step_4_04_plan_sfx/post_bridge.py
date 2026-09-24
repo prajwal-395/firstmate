@@ -675,6 +675,7 @@ def resolve_sfx(
                 sfx["anchor"], block=block,
                 music_analysis=music_analysis,
                 music_selection=music_selection,
+                temporal_indices=temporal_indices,
                 frame_rate=frame_rate, step="plan_sfx",
                 plan="sfx_creative", index=plan_index)
             refined_start = anchored["timeline_seconds"]
