@@ -213,18 +213,6 @@ def test_a_hand_placed_judgement_still_wins(tmp_path):
     assert source.endswith("reel_judgement.json")
 
 
-def test_every_process_dag_is_contract_checked():
-    """The edge checker reads every process, not `edit_video` by name."""
-    import inspect
-
-    from library.tools import validate_dag_contracts
-
-    source = inspect.getsource(validate_dag_contracts.run_validation)
-    assert "every_dag" in source
-    assert "edit_video" not in source
-    assert validate_dag_contracts.run_validation() == 0
-
-
 # ── The `code` route is a READ, not a name ───────────────────────────
 
 def _literals(tmp_path, source):

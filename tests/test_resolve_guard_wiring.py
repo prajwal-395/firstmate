@@ -129,10 +129,7 @@ CONNECTS_BUT_IS_NOT_DISPATCHED = {
     "library/tools/resolve_locale.py",        # the connection itself
     "library/tools/resolve_health.py",        # is Resolve up?
     "library/tools/resolve_relinker.py",      # operator tool
-    "library/tools/resolve_project_sync.py",  # operator tool
     "library/tools/timeline_serializer.py",   # debugging dump
-    "library/tools/capture_timeline.py",      # operator tool
-    "library/tools/capture_fusion_comps.py",  # operator tool
     "library/tools/qa/timeline_sync_qa.py",   # operator tool
     "library/tools/versions/store.py",  # called under `promote`
     "library/steps/step_4_05_render_subtitles/step.py",  # reached

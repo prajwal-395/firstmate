@@ -58,7 +58,6 @@ ren doctor
 ren init                              # create the projects root
 ren new my-vlog --name "My Vlog"      # then copy the footage into its raw/
 ren edit my-vlog                      # run the editing pipeline
-ren review my-vlog                    # the review dashboard
 ren propose my-vlog                   # reel candidates for your approval
 ren build my-vlog                     # build the approved reels in Resolve
 ren deliver my-vlog 1                 # render reel 1 to a file

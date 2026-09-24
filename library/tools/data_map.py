@@ -1612,7 +1612,31 @@ NOT_READ_ANCHORS: Dict[str, str] = {
 }
 
 
-KNOWN_MISSED_READS: Dict[str, str] = {}
+KNOWN_MISSED_READS: Dict[str, str] = {
+    "DOC@pipeline_run#held_before_step":
+        "Read by `library/tools/run_restart.py:classify` through "
+        "`_first_str(previous, \"held_before_step\")`, where `previous` "
+        "is the previous run's pipeline_run.json loaded by "
+        "`run_control.read_run_status` (run_pipeline.py:3122). The map "
+        "does not propagate a string key through a helper call, so the "
+        "restart-after-hold read is invisible to it.",
+    "DOC@pipeline_run#finished_at":
+        "Read by `library/tools/run_restart.py:classify` through "
+        "`_first_str(previous, \"finished_at\")`, recorded as "
+        "`previous_finished_at` on the restart record. Same helper-call "
+        "blind spot as `held_before_step` above.",
+    "DOC@project_config#status":
+        "Read through `ProjectConfig` attributes, which the map does not "
+        "resolve to the project.yaml document: `list_projects` filters "
+        "`c.status == status` (project_registry.py:210) and the info "
+        "view reads `config.status.value` (project_registry.py:369).",
+    "DOC@pipeline_run#current_step_name":
+        "Read by a human: the captain reading pipeline_run.json directly "
+        "(\"the captain tomorrow\", run_pipeline.py:3107). The per-step "
+        "write (run_pipeline.py:3305) carries the human-readable step "
+        "name beside the `current_step` id for exactly that reader, and "
+        "no code reader exists by design.",
+}
 """Fields this map reports as unread that a HAND CHECK found a reader for.
 
 The map errs in one direction and this is what that direction looks

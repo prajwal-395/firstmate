@@ -3,24 +3,22 @@
 
 The captain could not open the review dashboard on 2026-08-26 because
 `manage_project.py` checked for `mlx_vlm`, `whisperx`, `easyocr` and
-`torch` at IMPORT time, before argparse had seen the command.  The
-dashboard needs none of them, and the error then told the captain to
-run `source .venv/bin/activate` in a checkout that has no `.venv`.
+`torch` at IMPORT time, before argparse had seen the command.  The fix
+moved the check to the commands that need it.  (P2 retired the dashboard
+itself; the preflight design it forced stays.)
 
-These tests hold the three halves of the fix:
+These tests hold the halves of the fix that remain:
 
-  1. Every command except the ones in ML_DEPENDENT_COMMANDS is served
-     with the whole ML stack unimportable, and the dashboard server is
-     constructible and serves in that state.
-  2. The advice names a path that is really on disk.
-  3. A project kept outside PROJECTS_ROOT is openable by path, and a
-     slug that is not there says which root was searched and what was
-     in it.
+   1. Every command except the ones in ML_DEPENDENT_COMMANDS is served
+      with the whole ML stack unimportable.
+   2. The advice names a path that is really on disk.
+   3. A project kept outside PROJECTS_ROOT is openable by path, and a
+      slug that is not there says which root was searched and what was
+      in it.
 """
 
 import builtins
 import importlib.util
-import json
 import os
 import subprocess
 import sys
@@ -107,7 +105,7 @@ def test_run_still_refuses_when_the_stack_is_absent(ml_stack_absent, capsys):
     out = capsys.readouterr().out
     assert "whisperx" in out
     # It says which commands still work, so a reader is not stuck.
-    assert "dashboard" in out
+    assert "status" in out
 
 
 # ── 2. The advice names something real ──────────────────────────
@@ -156,15 +154,15 @@ def test_advice_sends_the_reader_to_the_ONE_location(tmp_path, monkeypatch):
 
 
 
-# ── 3. The dashboard really starts without the ML stack ─────────
+# ── 3. The child-interpreter blocker ──────────────────────────────
 
 # The guard the child interpreters install, as the first thing they run.
 #
 # NOT a sitecustomize.py on PYTHONPATH: that shadows the interpreter's
 # own sitecustomize, and on a Homebrew python that is the module which
 # puts /opt/homebrew/lib/pythonX.Y/site-packages on sys.path - so the
-# blocker silently took fastapi away with it and the test failed for a
-# reason that had nothing to do with the ML stack.
+# blocker silently took unrelated packages away with it and the test
+# failed for a reason that had nothing to do with the ML stack.
 #
 # A meta path finder rather than a wrapped builtins.__import__, because
 # it covers importlib.import_module too.
@@ -201,115 +199,7 @@ def test_the_blocker_really_blocks():
         assert f"blocked by test: {package}" in proc.stderr, proc.stderr
 
 
-def test_the_blocker_leaves_everything_else_importable():
-    """And it must not take the dashboard's own dependencies with it."""
-    proc = _child("import fastapi, uvicorn; print('ok')")
-    assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
-    assert proc.stdout.strip().splitlines()[-1] == "ok"
-
-
-def test_dashboard_server_is_constructible_without_the_ml_stack():
-    """The import the captain's command performs, with nothing installed."""
-    proc = _child(
-        "from library.dashboard.server import start_server\n"
-        "print(callable(start_server))")
-    assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
-    assert proc.stdout.strip().splitlines()[-1] == "True"
-
-
-def _write_project(project_dir: Path, slug: str) -> None:
-    yaml = pytest.importorskip("yaml")
-    (project_dir / "raw").mkdir(parents=True, exist_ok=True)
-    (project_dir / "pipeline_output").mkdir(parents=True, exist_ok=True)
-    (project_dir / "project.yaml").write_text(yaml.safe_dump({
-        "name": slug.upper(),
-        "slug": slug,
-        "status": "in_progress",
-        "source": {"type": "iphone_mov", "resolution": "1080x1920", "fps": 30},
-        "pipeline": {},
-        "resolve": {"project_name": slug, "timeline_name": "Main Edit"},
-    }), encoding="utf-8")
-    (project_dir / "pipeline_data.json").write_text(
-        json.dumps({"preflight_completed": {}, "edit_completed": {},
-                    "step_outputs": {}}), encoding="utf-8")
-
-
-def test_dashboard_serves_a_project_with_the_ml_stack_unimportable(tmp_path):
-    """End to end, in a fresh interpreter, exactly as a person runs it.
-
-    The child blocks the ML packages before anything is imported, so
-    this fails if any part of the dashboard path reaches one of them -
-    which is what an in-process fixture cannot fully prove, because
-    pytest has already imported plenty.
-    """
-    project_dir = tmp_path / "001"
-    _write_project(project_dir, "001")
-
-    env = dict(os.environ)
-    env["PIPELINE_PROJECTS_ROOT"] = str(tmp_path / "empty-root")
-
-    proc = _child("""
-        import sys, threading, time, urllib.request
-        import uvicorn
-        from library.dashboard import server
-        server._project_dir = sys.argv[1]
-        server._project_slug = "001"
-        config = uvicorn.Config(server.app, host="127.0.0.1", port=0,
-                                log_level="error")
-        srv = uvicorn.Server(config)
-        threading.Thread(target=srv.run, daemon=True).start()
-        for _ in range(400):
-            if srv.started and srv.servers:
-                break
-            time.sleep(0.05)
-        assert srv.started, "server never started"
-        port = srv.servers[0].sockets[0].getsockname()[1]
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/project") as r:
-            body = r.read().decode("utf-8")
-        srv.should_exit = True
-        print(body)
-    """, str(project_dir), env=env)
-    assert proc.returncode == 0, f"stdout={proc.stdout}\nstderr={proc.stderr}"
-    payload = json.loads(proc.stdout.strip().splitlines()[-1])
-    assert payload["slug"] == "001"
-
-
 # ── 4. A project outside PROJECTS_ROOT ──────────────────────────
-
-
-
-
-
-def test_the_picker_names_the_project_being_served(tmp_path, monkeypatch):
-    """A project served from outside PROJECTS_ROOT is in its own picker.
-
-    /api/projects enumerated PROJECTS_ROOT only, so the dropdown showed
-    some other project as selected while the page rendered this one, and
-    navigating away left no route back to it.
-    """
-    from fastapi.testclient import TestClient
-
-    from library.dashboard import server
-
-    outside = tmp_path / "somewhere else" / "001"
-    _write_project(outside, "001")
-    root = tmp_path / "video_projects"
-    _write_project(root / "4th-wall", "4th-wall")
-
-    monkeypatch.setattr(server, "_project_dir", str(outside))
-    monkeypatch.setattr(server, "_project_slug", "001")
-    monkeypatch.setattr("library.tools.paths.PROJECTS_ROOT", root)
-    monkeypatch.setattr("library.tools.project_registry.PROJECTS_ROOT", root)
-
-    with TestClient(server.app) as client:
-        listed = client.get("/api/projects").json()
-
-    assert listed[0]["project_root"] == str(outside), listed
-    assert listed[0]["slug"] == "001"
-    assert listed[0]["name"] == "001".upper()
-    # And it appears exactly once, not twice.
-    roots = [p["project_root"] for p in listed]
-    assert roots.count(str(outside)) == 1, roots
 
 
 # ── 4. Importable is not the same as USABLE ─────────────────────

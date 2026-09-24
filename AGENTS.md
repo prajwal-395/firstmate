@@ -21,7 +21,6 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `library/steps/`: individual pipeline steps, named by phase (e.g. `step_1_01_scan_project`).
 - `library/tools/`: shared utilities for Resolve scripting, vision analysis and file management.
 - `library/schemas/`: Pydantic schemas for pipeline state and project configuration.
-- `library/dashboard/`: FastAPI server for the human-in-the-loop review dashboard.
 - Brand templates live with the project as `brand.json` (§10.1).
 - `library/profiles/`: declared run configurations - which steps a run fires and where it stops (§3).
 - `.agents/skills/`: the ONE skill source - Codex and opencode read it, `.claude/skills` links to it; a pipeline skill's entry point is `library/skills/<name>/`.
@@ -32,9 +31,10 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. It execs `manage_project.py`, which stays underneath. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`).
 - `requirements.txt`: Python dependencies.
 
-**One thing in `library/tools/` is a prototype: it is in the DASHBOARD and stays out of the PIPELINE.**
-`footage_query.py` / `footage_segments.py` / `footage_query_bridge.py` are a cross-clip footage
-search - "where in all my footage does X happen".
+**One thing in `library/tools/` is a prototype: it is a `ren search` verb and stays out of the PIPELINE.**
+`footage_query.py` / `footage_segments.py` are a cross-clip footage
+search - "where in all my footage does X happen". Its stdin/stdout bridge
+(`footage_query_bridge.py`) was retired in P2 - `ren search` is the caller now.
 
 [`docs/FOOTAGE_INDEX_PROTOTYPE.md`](docs/FOOTAGE_INDEX_PROTOTYPE.md) has what it measured, the
 measured score floor that lets it answer "not in this footage", and the 66x reduction of
@@ -58,7 +58,7 @@ One enumeration, `library/tools/processes.py`. [why](docs/REEL_BUILD_HAS_NO_OWNI
 | `--from <step_id>` | resume from a step |
 | `--step <step_id>` | run one isolated step |
 | `--auto` | auto-complete hybrid steps from bridge output instead of pausing for LLM input |
-| `--review` | enable review gates that pause for human inspection on the dashboard |
+| `--review` | enable review gates; a human answers in `review_gate.py` |
 | `--resume` | continue after a review gate is approved or revised |
 | `--dry-run` | print the execution plan without running steps |
 | `--rerun <target>` | redo finished work; repeatable, and the ONLY supported way to re-run a completed step |
@@ -133,52 +133,54 @@ One enumeration, `library/tools/reel_rebuild_need.py`, and the decision is FAIL-
 
 ## 4. Dashboard
 
-**The picker lists the project the server is SERVING, first**, even when that project is outside the root.
+Retired from the product (P2, D3): no server, no browser surface, no `ren review` verb. What stays is the
+shell side - `ren search` / `ren search-index` for footage search (Q11), `python3 -m library.tools.review_gate answer`
+for review gates, `python3 -m library.dashboard.review_channel poll|reply|list` for the hook layer's note feed,
+and the file protocol in `library/tools/run_control.py` (`pipeline.hold`, `pipeline.pid`, `pipeline_run.json`).
 
 - Review gates pause execution for inspection.  A rejected gate halts the pipeline entirely; a revised gate applies the reviewer's modifications directly to the step output in `pipeline_data.json`.
-- The dashboard also captures annotations and feedback as structured data for agents.
-- **Extend this dashboard. Never author a fresh per-run review page.**
+- Retired with the browser: **The picker lists the project the server is SERVING, first**;
+  **Extend this dashboard. Never author a fresh per-run review page.**;
+  **Footage Search is a span search; Footage Library is a clip browser. Keep them apart.**
 
 ### Footage search
 
-**Footage Search is a span search; Footage Library is a clip browser. Keep them apart.**
-`library/dashboard/footage_search.py` is the dashboard's half of the footage-index prototype
-(§2); `ren search` is the other caller (Q11).
+`ren search-index` builds the index ONLY when asked, into
+`<project>/pipeline_output/scratch/footage_index/`. No build at server start or on first query:
+both wrote into the captain's project unasked.
 
-- The index is built ONLY when the reviewer asks (button, `ren search-index`), into
-  `<project>/pipeline_output/scratch/footage_index/`, and the view states that path first.
-  Never build it at server start or on first query: both write into the captain's project
-  unasked.
-- The embedding model is loaded once per server in a background thread; the banner reports
-  `cold`/`loading`/`ready`/`unavailable` and names the backend, because a degraded backend
-  must say so rather than quietly return worse results.
 - **A ranking cannot say "not here", so there is a floor.** Retention is judged on the RAW
   dense cosine (`DENSE_SCORE_FLOOR`), never on the blended score. Below it and above
   `DENSE_WEAK_FLOOR` is a WEAK band.
 - Staleness compares an `ingest_fingerprint` recorded at build time. `pipeline_data.json` is
   fingerprinted by its `catalog` subtree only - the state writer rewrites the whole file after
   every step, so a downstream step landing is not a change to the footage.
-- `tests/test_dashboard_footage_search.py`.
+- Retired with the browser: `library/dashboard/footage_search.py` (warm index,
+  `cold`/`loading`/`ready`/`unavailable` loader).
+
 ### The review return channel
 
-**A note is anchored to a specific element, and the anchor is computed in the browser.**
-`computeAnchor` in `library/dashboard/static/components/review-channel.js` measures a CSS path plus the element's tag and visible text; `resolveAnchor` walks it back to a live element after a view re-renders, path first and tag+text second.
-
-A note whose `anchor.selector` is empty is REJECTED.
-
 **One send carries the whole queue and wakes an agent, which replies onto the same surface.**
-`library/dashboard/review_channel.py` is the store and the agent side; `/api/review/*` in `server.py` is the browser's half.
-The agent parks on `wait_for_batch` (or `GET /api/review/poll`) and is released the moment the reviewer sends.
+`library/dashboard/review_channel.py` is the store and the agent side; the browser half
+(`/api/review/*` in `server.py`, polled as `GET /api/review/poll`) is retired. The agent polls with
+`python3 -m library.dashboard.review_channel poll` (`wait_for_batch`) and replies onto the notes.
 
 Notes live per project in `pipeline_output/review/channel.json`, each recording the view it was written on.
 
+A note whose `anchor.selector` is empty is REJECTED.
+
+- Retired with the browser: **A note is anchored to a specific element, and the anchor is computed in the browser.**
+  `computeAnchor` in `library/dashboard/static/components/review-channel.js` measured it and `resolveAnchor`
+  walked it back; the store keeps the measured anchor.
+
 ### Run control
 
-Start, Handbrake, Resume and Step launch `run_pipeline.py` as a child process.
+**The handbrake is a file, not a signal.** `library/tools/run_control.py` owns the whole vocabulary -
+`pipeline.hold`, `pipeline.pid`, `pipeline_run.json` at project root - and both processes speak only through it.
+`pipeline_run.json` is the runner's own account of itself (mode, current step, how it ended).
 
-- Start uses `--full-auto agent` and does NOT pass `--review`; gates are an opt-in tick box.
-- **The handbrake is a file, not a signal.** `library/tools/run_control.py` owns the whole vocabulary - `pipeline.hold`, `pipeline.pid`, `pipeline_run.json` at project root - and both processes speak only through it.
-- `pipeline_run.json` is the runner's own account of itself (mode, current step, how it ended). 
+- Retired with the browser: the Start, Handbrake, Resume and Step buttons, which launched
+  `run_pipeline.py` as a child process (Start used `--full-auto agent` and did NOT pass `--review`).
 
 ## 5. DaVinci Resolve integration - CRITICAL RULES
 
@@ -298,7 +300,7 @@ Each step reads required upstream outputs based on the DAG's `data_mapping` edge
 - Create with `python3 manage_project.py new <slug> --name "Project Name"`.
 - Project configuration is `project.yaml` inside each project directory; the `ProjectConfig` schema defines source settings, pipeline options and Resolve bindings.
 - The project registry scans the root directory to list and manage available projects.
-- A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status`, `info` and `dashboard`. 
+- A project outside `PIPELINE_PROJECTS_ROOT` is addressed by passing its absolute path in place of the slug to `run`, `status` and `info`. 
 
 ### Where a project's files go
 

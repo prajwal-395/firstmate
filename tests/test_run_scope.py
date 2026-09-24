@@ -428,18 +428,3 @@ def test_the_refusal_happens_before_anything_is_written(bare_project):
     assert not (bare_project / "pipeline_output").exists(), (
         "a refused run created output directories")
 
-
-
-
-# ── The dashboard drives a default run ──────────────────────────────
-
-def test_the_dashboard_step_button_does_not_advance_into_a_default_off_step():
-    """`Step` resolves the first topologically-unrun step server-side.
-    Reading the raw DAG would park it forever on a step the pipeline
-    declined, on every project that has never run one."""
-    from library.dashboard.server import _step_order
-
-    order = _step_order()
-    for node_id in DESELECTED_BY_DEFAULT:
-        assert node_id not in order
-

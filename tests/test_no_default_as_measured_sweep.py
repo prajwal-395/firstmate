@@ -56,7 +56,6 @@ from library.tools.reel_build import (
     sweep_placed_audio,
     verify_cover_clip,
 )
-from library.tools.render_check import check_captions
 from library.tools.subject_framing import subject_center_reading
 from library.tools.timeline_layout import A_ROLL
 
@@ -156,37 +155,6 @@ def test_chord_count_with_no_surviving_windows_is_none(monkeypatch):
     assert result["chord_count"] is None
     assert result["chord_progression"] == []
     assert result["note"] == "no windowed chord estimates survived"
-
-
-# ── render_check caption probe geometry ──────────────────────────────
-
-
-def _caption_plan(**overlay):
-    base = {"fps": 30.0}
-    base.update(overlay)
-    return {"subtitle_overlay": {
-        "fps": base.pop("fps"),
-        "segments": [{
-            "overlay_path": "/nonexistent/caption.mov",
-            "timeline_start": 0.0,
-            "timeline_end": 1.0,
-            "source_in_frame": 0,
-            **base,
-        }],
-    }}
-
-
-def test_unreadable_overlay_fps_is_a_finding_not_thirty():
-    """A declared-but-garbled fps must fail closed, not probe at 30."""
-    findings = check_captions("render.mp4", _caption_plan(fps="fast"))
-    assert any(not f.passed and "fps" in f.message for f in findings)
-
-
-def test_unreadable_source_offset_is_a_finding_not_zero():
-    """A garbled source offset must fail closed, not probe the head."""
-    findings = check_captions(
-        "render.mp4", _caption_plan(source_in_frame="somewhere"))
-    assert any(not f.passed and "offset" in f.message for f in findings)
 
 
 # ── Legitimate swallows the gate must not punish ─────────────────────

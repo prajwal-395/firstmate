@@ -1,36 +1,34 @@
 """
 The review return channel: anchored notes, one batched send, agent replies
-that land back on the dashboard next to the anchor they answer.
+that land back next to the anchor they answer.
 
-This is the dashboard's version of the two properties that make the
-captain's Lavish review pages work (captain's ruling, 2026-08-17: extend
-the dashboard, do not author a fresh per-run page):
+P2 (Ren consolidate, D3): the dashboard browser surface is retired. What
+stays is this store and its agent side - the hook layer (`steer`) and
+`reel_hearing.announce` queue notes here, and an agent polls and replies
+from a shell (see below). Notes are still anchored: a note whose anchor
+has no `selector` is REJECTED, because a note with no anchor is a page
+comment, not a review note.
 
-1. A note is attached to a SPECIFIC THING ON SCREEN. The anchor is computed
-   in the browser - a CSS path plus the element's tag and visible text - so
-   the note survives the dashboard re-rendering the view underneath it.
-   The server never computes an anchor; it stores what the browser measured.
-   See `library/dashboard/static/components/review-channel.js`.
+1. A note is attached to a SPECIFIC THING. The anchor is a CSS path plus
+   the element's tag and visible text, measured where the note was
+   written; the store keeps what it was given and never computes one.
 
 2. A QUEUE-AND-SEND BATCH wakes an agent, and the agent REPLIES ONTO THE
-   SAME SURFACE. Several notes are queued, sent once, and the answer appears
-   under the note that prompted it. `wait_for_batch` is the agent's wake-up:
-   it blocks until a batch is sent. `add_reply` is the way back.
+   SAME PLACE. Several notes are queued, sent once, and the answer is
+   threaded under the note that prompted it. `wait_for_batch` is the
+   agent's wake-up: it blocks until a batch is sent. `add_reply` is the
+   way back.
 
 Storage is one JSON document per project at
 `pipeline_output/review/channel.json`. Notes are stored per project and each
 one records the view it was written on, so partitioning them per run later
-is a filter, not a migration - whether the review surface is per-run or per
-project is NOT settled and nothing here decides it.
+is a filter, not a migration.
 
 Agent side, from a shell:
 
     python3 -m library.dashboard.review_channel poll  --project <dir>
     python3 -m library.dashboard.review_channel reply --project <dir> \
         --batch <batch_id> --note <note_id> --text "what you did"
-
-or over HTTP against a running dashboard - see the `/api/review/*` routes in
-`library/dashboard/server.py`, which are the same operations.
 """
 
 from __future__ import annotations
@@ -59,9 +57,9 @@ NOTE_STATUSES = ("queued", "sent", "answered")
 # asymmetry is what made the hook layer's `steer` action unbuildable
 # without either a second feed or a lie, and both were worse than a field.
 #
-# `library/tools/hooks.py` writes ORIGIN_HOOK. The browser never sets this:
-# `/api/review/notes` does not accept it, so a note posted from the
-# dashboard is the captain's by construction rather than by trust.
+# `library/tools/hooks.py` writes ORIGIN_HOOK. Nothing else in this
+# repository sets it: a note queued straight into the store is the
+# captain's by construction rather than by trust.
 ORIGIN_CAPTAIN = "captain"
 ORIGIN_HOOK = "hook"
 NOTE_ORIGINS = (ORIGIN_CAPTAIN, ORIGIN_HOOK)
@@ -331,7 +329,7 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         prog="python3 -m library.dashboard.review_channel",
-        description="Agent side of the dashboard review return channel.",
+        description="Agent side of the review return channel.",
     )
     parser.add_argument("command", choices=["poll", "reply", "list"])
     parser.add_argument("--project", required=True, help="Project directory")

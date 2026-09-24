@@ -203,13 +203,12 @@ def test_a_steer_with_nowhere_to_pin_reports_rather_than_guessing(project):
     assert "anchor_step" in fired[0].detail
 
 
-def test_the_browser_cannot_post_a_note_claiming_to_be_a_hook(project):
-    """A note posted through the dashboard is the captain's BY
-    CONSTRUCTION: the route does not pass an origin, so a browser cannot
-    claim to be a hook and a hook cannot claim to be the captain."""
-    from library.dashboard.models import ReviewNoteRequest
-    assert "origin" not in ReviewNoteRequest.model_fields
+def test_a_note_claiming_to_be_a_hook_is_refused(project):
+    """Origin is provenance, not a field a writer claims.
 
+    The store takes no origin from an untrusted writer: a note queued
+    straight into it is the captain's BY CONSTRUCTION, and only the
+    hook layer writes ORIGIN_HOOK, from inside this repository."""
     note = review_channel.queue_note(
         str(project), "typed by hand", {"selector": "#a", "tag": "div"})
     assert note["origin"] == review_channel.ORIGIN_CAPTAIN

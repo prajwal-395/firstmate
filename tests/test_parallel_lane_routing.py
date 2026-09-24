@@ -41,7 +41,7 @@ HEAVY_ML_FILE = "tests/test_ml_dependencies_real.py"
 # measured and the parallel prize shrinks for no reason.
 KNOWN_SAFE = [
     "tests/test_gemma_shim.py",  # own servers on ephemeral ports
-    "tests/test_cli_ml_preflight.py",  # uvicorn on port=0
+    "tests/test_cli_ml_preflight.py",  # blocked-import child interpreters
     "tests/test_transcript_corrections.py",  # /tmp path to a fake backend
     "tests/test_llm_client.py",  # provider calls with keys absent/patched
     "tests/test_brief_reference.py",  # FakeClient swap

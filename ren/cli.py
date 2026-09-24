@@ -62,7 +62,6 @@ VERBS = (
     Verb("info", "Projects", "Show a project's configuration as JSON", subcommand="info"),
     Verb("check", "Projects", "Run a project's readiness check", subcommand="check"),
     Verb("edit", "Projects", "Run the editing pipeline on a project", subcommand="run"),
-    Verb("review", "Projects", "Open the review dashboard", subcommand="dashboard"),
     Verb("trace", "Projects", "Regenerate the run traceback and artifact index", subcommand="trace"),
     Verb("organize", "Projects", "Bring a project folder onto the standard layout", subcommand="organize"),
     Verb("archive", "Projects", "Archive a finished project", subcommand="archive"),

@@ -18,8 +18,6 @@ Usage:
     python3 manage_project.py status "/abs/path/to/a/project"
     python3 manage_project.py run my-show
     python3 manage_project.py run my-show --from creative_direction
-    python3 manage_project.py dashboard my-show
-    python3 manage_project.py dashboard "/abs/path/to/a/project"
     python3 manage_project.py archive my-show
     python3 manage_project.py init-root
 
@@ -43,7 +41,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # (step_1_04_temporal_index, and the analysis tools under
 # library/tools/analysis/), never by this CLI.  Everything else this
 # file does - listing projects, reading a project.yaml, regenerating a
-# traceback, serving the review dashboard - reaches none of them.
+# traceback - reaches none of them.
 #
 # So the check belongs to the commands that need it, and `run` is the
 # whole list: it launches library/processes/edit_video/run_pipeline.py
@@ -51,10 +49,10 @@ sys.path.insert(0, str(REPO_ROOT))
 # one the steps will import from, and checking it here is a real check
 # of the child rather than a guess about it.
 #
-# It used to run at import time, before argparse had seen the command.
-# `dashboard` needs none of these packages - the server is fully
-# constructible with whisperx absent - and the captain could not open
-# the dashboard because of a missing transcription library.
+# It used to run at import time, before argparse had seen the command,
+# and the captain could not open the review dashboard for want of a
+# transcription library a command that needed none of it. (P2 retired
+# the dashboard; the preflight design it forced stays.)
 ML_DEPENDENT_COMMANDS = ("run",)
 
 # Every subcommand main() registers, so the message above can say which
@@ -67,7 +65,7 @@ ALL_COMMANDS = (
     "watch-reel", "hear-reel", "touch-reel", "ren-dry-run", "status",
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
-    "check", "run", "dashboard", "archive", "notes",
+    "check", "run", "archive", "notes",
     "round-diff", "sign-off", "discharge-uncarried", "variant", "relink",
 )
 
@@ -1445,39 +1443,6 @@ def cmd_relink(args):
             print(f"  Could not locate: {unfixable}")
 
 
-def cmd_dashboard(args):
-    """Start the review dashboard for a project."""
-    try:
-        from library.dashboard.server import start_server
-    except ImportError as e:
-        print(f"  Error: Could not import dashboard server: {e}", file=sys.stderr)
-        print(f"  Install dependencies: pip install fastapi uvicorn", file=sys.stderr)
-        sys.exit(1)
-
-    if args.slug:
-        try:
-            config = get_project(args.slug)
-            project_dir = str(config.project_root)
-            slug = config.slug
-        except FileNotFoundError as e:
-            print(f"  Error: {e}", file=sys.stderr)
-            sys.exit(1)
-    else:
-        # No slug provided - check if PROJECTS_ROOT has any projects
-        configs = list_projects()
-        if not configs:
-            print("  No projects found. Create one first:", file=sys.stderr)
-            print("    python3 manage_project.py new <slug> --name '<name>'", file=sys.stderr)
-            sys.exit(1)
-        # Use the most recently modified project
-        config = configs[0]
-        project_dir = str(config.project_root)
-        slug = config.slug
-        print(f"  No slug provided, using: {slug}")
-
-    start_server(project_dir, slug=slug, port=args.port)
-
-
 def cmd_propose_reels(args):
     """Publish step 3.4's chosen moments as the captain's review file."""
     from library.tools.reel_proposal import write_from_step_output
@@ -1504,6 +1469,7 @@ def cmd_build_reels(args):
     code = run_reels.run(_reel_project_folder(args.project), args)
     if code:
         sys.exit(code)
+
 
 
 def cmd_drift(args):
@@ -2273,12 +2239,6 @@ def main():
                        help="Timeout for LLM response in agent backend")
     p_run.set_defaults(func=cmd_run)
 
-    # dashboard
-    p_dash = sub.add_parser("dashboard", help="Start the review dashboard for a project")
-    p_dash.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT (optional)")
-    p_dash.add_argument("--port", type=int, default=8420, help="Server port (default: 8420)")
-    p_dash.set_defaults(func=cmd_dashboard)
-
     # archive
     p_archive = sub.add_parser("archive", help="Archive a completed project")
     p_archive.add_argument("slug", metavar="PROJECT", help="Project slug, or an absolute/relative path to the project directory (or its project.yaml) for projects that live outside PIPELINE_PROJECTS_ROOT")
@@ -2434,7 +2394,7 @@ def main():
     p_variant.set_defaults(func=cmd_variant)
 
     p_relink = sub.add_parser("relink", help="Relink offline media in Resolve after migration")
-    p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info/dashboard, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
+    p_relink.add_argument("slug", nargs="?", default="", metavar="PROJECT", help="Project slug (optional). Unlike run/status/info, relink resolves the project by scanning PIPELINE_PROJECTS_ROOT, so a path is not accepted here")
     p_relink.add_argument("--scan", action="store_true", help="Scan only, don't relink")
     p_relink.set_defaults(func=cmd_relink)
 

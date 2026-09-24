@@ -78,10 +78,6 @@ easyocr>=1.7
 Pillow>=9.0
 sam2>=1.0.0
 
-# Dashboard subsystem
-fastapi>=0.100.0
-uvicorn>=0.23.0
-
 # Test-gate parallelism
 # scripts/full_suite_gate.sh shards each marker selection (`not heavy_ml
 # and not heavy`, `heavy`) across

@@ -472,7 +472,6 @@ READER_MODULES = {
     "library/tools/timeline_conformance.py",
     "library/tools/timeline_qa.py",
     "library/tools/captain_edits.py",
-    "library/tools/capture_fusion_comps.py",
     "library/tools/overlay_placement.py",
     "library/tools/reel_build.py",
     "library/tools/reel_look.py",

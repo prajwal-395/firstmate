@@ -6,9 +6,9 @@ wire it in, so "nothing imports it" is a property of the repository, not
 a promise in a PR description. That test fails the moment a step, the
 DAG or a manifest reaches for it. It was NARROWED on 2026-08-26 when the
 captain authorised the dashboard - and only the dashboard - to call it;
-its own docstring carries the reasoning, and
-`test_the_guard_still_fires_when_a_step_imports_the_index` shows it
-still fires.
+P2 retired the dashboard, and the carve-out moved to `ren search` /
+`ren search-index` (Q11). `test_the_guard_still_fires_when_a_step_imports_the_index`
+shows it still fires.
 
 Every other test builds its project under `tmp_path`. No test reads a
 real project (§8).
@@ -322,8 +322,10 @@ def _name_the_prototype(roots) -> list:
     return offenders
 
 
-# The roots the captain's constraint still covers. `library/dashboard/`
-# used to be here and is NOT any more - see the docstring below.
+# The roots the captain's constraint still covers. The dashboard's half
+# (`library/dashboard/footage_search.py`) used to be carved out here and
+# is NOT any more - P2 retired it, and the person half moved to `ren`
+# (see the carve-out test below), which this scan never covered.
 PIPELINE_ROOTS = (
     REPO_ROOT / "library" / "steps",
     REPO_ROOT / "library" / "processes",
@@ -332,7 +334,7 @@ PIPELINE_ROOTS = (
 
 
 def test_footage_index_stays_unwired():
-    """No STEP may reach for the prototype. The dashboard now may.
+    """No STEP may reach for the prototype. `ren search` may.
 
     The captain's ruling was "not actually wiring it in until we are ready
     for it", and their reason for wanting the index was two-sided: "to
@@ -340,20 +342,22 @@ def test_footage_index_stays_unwired():
     what it is looking for."
 
     On 2026-08-26 they authorised the FIRST half and only the first half -
-    "can you wire this index search into the UI we have for this project" -
-    so `library/dashboard/` came out of this scan. A reviewer searching
-    their own rushes in a browser is a person using a tool; a step calling
-    the same module is the pipeline making an editorial decision out of a
+    "can you wire this index search into the UI we have for this project".
+    P2 retired that UI (D3) and the captain re-authorised the same half as
+    `ren search` / `ren search-index` (Q11, 2026-09-23): "Keep the search
+    modules as a chat-callable ren verb, no UI". A person searching their
+    own rushes from a chat is a person using a tool; a step calling the
+    same module is the pipeline making an editorial decision out of a
     prototype whose retrieval quality has not been signed off. Those are
     different acts and only the first one is allowed.
 
-    So this test was NARROWED, not weakened. `library/steps/`,
+    So this test stays NARROWED, not weakened. `library/steps/`,
     `library/processes/` and `manage_project.py` are still scanned, which
     is every route by which the index could reach a run: a step module, a
     step's bridge, a `dag.json`, a `manifest.json`, or the CLI that drives
-    them. `manage_project.py` reaches the dashboard through
-    `library.dashboard.server.start_server` and never needs to name either
-    prototype module, so it stays in the scan.
+    them. `ren/cli.py` reaches the prototype through `-m
+    library.tools.analysis.footage_query` and never needs to name it from
+    `manage_project.py`, so the CLI stays in the scan.
 
     Widening it back is the captain's call, in the same direction the
     narrowing went: state which half is being authorised.
@@ -393,23 +397,29 @@ def test_the_guard_still_fires_when_a_step_imports_the_index(tmp_path):
     assert _name_the_prototype([clean]) == []
 
 
-def test_the_dashboard_is_the_one_caller_that_was_carved_out():
-    """The carve-out is real and it is exactly one module.
+def test_ren_search_is_the_one_caller_that_is_carved_out():
+    """The carve-out is real and it is exactly one verb table.
 
-    `library/dashboard/footage_search.py` is where the dashboard reaches
-    the prototype. If a future change reaches it from somewhere else in
-    the dashboard, that is fine - but the scan above no longer notices, so
-    this records where the authorised caller lives.
-
-    The SECOND carve-out is `ren/cli.py`'s `search` / `search-index`
-    verbs: the captain's Q11 (2026-09-23), "Keep the search modules as a
-    chat-callable ren verb, no UI". That is the person-using-a-tool half
-    again, from a chat instead of a browser; no step is involved.
+    `ren search` / `ren search-index` (`ren/cli.py`) are where a person
+    reaches the prototype from a chat - the captain's Q11 (2026-09-23),
+    "Keep the search modules as a chat-callable ren verb, no UI". That is
+    the person-using-a-tool half, and no step is involved. The dashboard
+    half P2 retired is gone: nothing under `library/dashboard/` may name
+    the prototype any more.
     """
-    caller = REPO_ROOT / "library" / "dashboard" / "footage_search.py"
-    assert caller.is_file(), "the dashboard's half of the footage index went missing"
-    source = caller.read_text(encoding="utf-8")
-    assert "footage_query" in source
+    from ren.cli import VERBS
+
+    by_name = {verb.name: verb for verb in VERBS}
+    for name in ("search", "search-index"):
+        assert name in by_name, f"ren lost its {name!r} verb"
+        assert "footage_query" in " ".join(by_name[name].module_argv), (
+            f"ren {name!r} no longer reaches the footage index")
+    dashboard = REPO_ROOT / "library" / "dashboard"
+    if dashboard.is_dir():
+        offenders = _name_the_prototype([dashboard])
+        assert not offenders, (
+            "the retired dashboard half still reaches the prototype:\n  "
+            + "\n  ".join(offenders))
     assert "footage_query" not in (REPO_ROOT / "manage_project.py").read_text(encoding="utf-8")
 
 

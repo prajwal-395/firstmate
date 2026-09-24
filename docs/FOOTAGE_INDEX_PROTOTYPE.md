@@ -1,6 +1,11 @@
 # Cross-clip footage index - prototype
 
-**Status: PROTOTYPE. In the DASHBOARD, out of the PIPELINE.**
+**Status: PROTOTYPE. A `ren search` verb, out of the PIPELINE** (P2, D3/Q11: the dashboard half is retired).
+
+P2 retired the dashboard half and the bridge. The caller is `ren search` / `ren search-index`, which reach
+`footage_query.py` directly; `footage_query_bridge.py` and `library/dashboard/footage_search.py` are deleted.
+The constraint is unchanged - no step may call it - and the sentence that used to carry it is retired with
+the dashboard: **One thing in `library/tools/` is a prototype: it is in the DASHBOARD and stays out of the PIPELINE.**
 
 The captain wanted this index for two reasons, their words: "to speed up
 both a person's workflow and also help the LLM actually find what it is
