@@ -10,19 +10,28 @@ is how beat-aligned cutting sat unreachable for four audits.
 There is now exactly one shape.  Every spine block carries:
 
     position            block identity ("hook" or an int)
-    block_type          "hook" | "speech" (speech), "intro_card" |
+    block_type          "hook" | "speech" (speech) | "music" (a
+                        music-led moment, see MUSIC_BLOCK_TYPES) |
+                        "picture" (a picture-led moment, see
+                        PICTURE_BLOCK_TYPES) | "intro_card" |
                         "outro_card" | "end_card" (a template-declared
                         card, see BOOKEND_BLOCK_TYPES) | anything else
                         (non-speech: "intro", "transition_slot", "outro")
-    clip_id             source clip id, or None for non-speech blocks
-    source_start        source-domain in point (None for non-speech)
-    source_end          source-domain out point (None for non-speech)
+    clip_id             source clip id; None for non-speech blocks,
+                        EXCEPT a "picture" block, which names the clip
+                        its picture is cut from
+    source_start        source-domain in point (None for non-speech,
+                        except "picture", which carries its cut range)
+    source_end          source-domain out point (None for non-speech,
+                        except "picture", which carries its cut range)
     timeline_start      timeline-domain in point
     timeline_end        timeline-domain out point
     word_timestamps     list of {word, source_start, source_end};
-                        non-empty for every speech/hook block
+                        non-empty for every speech/hook block, empty
+                        for everything else (a "picture" block shows a
+                        clip and says nothing)
     alignment_method    how word_timestamps were derived (non-null for
-                        speech/hook blocks)
+                        speech/hook blocks, null for everything else)
 
 Consumers read these keys directly (`block["clip_id"]`, not
 `block.get("clip_id", "")`).  A missing key is a contract violation and must
@@ -65,6 +74,43 @@ chosen hole from an accidental one - `compile_manifest` on the manifest,
 from library.tools.music_behavior import is_known_behavior, MUSIC_BEHAVIORS
 
 SPEECH_BLOCK_TYPES = ("speech", "hook")
+
+# Block types that lead with MUSIC rather than speech.  A "music" block
+# is a moment the edit builds from a span of a chosen track - a montage
+# beat, a music-video passage - instead of from a spoken passage.  It
+# keeps the non-speech shape (no clip_id, no source range, no word
+# timings); what it PLAYS is carried under `content`, beside the
+# contract fields rather than in them, because the block-level
+# source_start/source_end are a CLIP range everywhere else and reusing
+# them for a track span would teach every consumer a second meaning:
+#
+#     content.track       the track - the audio_path or title of one of
+#                         the tracks music_selection chose, the same
+#                         vocabulary a music_bed entry's `track` uses.
+#                         Omit it and the conducted bed decides.
+#     content.source_in   the second of THAT file this moment starts at
+#     content.source_out  the second of THAT file this moment ends at
+#
+# Layering is NOT an overlapping timeline range: blocks partition the
+# timeline (`blocks_overlapping` reads them half-open, and the coverage
+# assertion in compile_manifest requires every second to be covered
+# exactly once), so two blocks can never share a second.  Music under
+# speech is the conducted bed (`music_bed`, resolved in mesh_spine)
+# plus the per-block `music_behavior` word - that IS the layered shape,
+# and a "music" block is the interleaved one.
+MUSIC_BLOCK_TYPES = ("music",)
+
+# Block types that lead with PICTURE rather than speech.  A "picture"
+# block is a moment the edit builds from a clip span instead of from a
+# spoken passage - the spine the captain asked for when the picture is
+# the better backbone.  It carries its own clip_id, source_start and
+# source_end like a speech block, but no words: word_timestamps is
+# empty and alignment_method is None, because there is nothing said to
+# align.  assign_aroll places its video the way it places speech (it
+# reaches V1 - see `library/tools/transition_carriers.py`), and
+# select_broll treats it the way it treats speech: covered already, so
+# no mandatory cutaway, but open to interjections.
+PICTURE_BLOCK_TYPES = ("picture",)
 
 # Block types that play a CARD rather than footage.  Nothing produces one
 # unless a brand template declares it - see `library/tools/bookends.py`,
@@ -115,6 +161,16 @@ def is_speech_block(block: dict) -> bool:
     return block.get("block_type") in SPEECH_BLOCK_TYPES
 
 
+def is_music_block(block: dict) -> bool:
+    """True when the block is a music-led moment (audio from a track)."""
+    return block.get("block_type") in MUSIC_BLOCK_TYPES
+
+
+def is_picture_block(block: dict) -> bool:
+    """True when the block is a picture-led moment (video from a clip)."""
+    return block.get("block_type") in PICTURE_BLOCK_TYPES
+
+
 def is_bookend_block(block: dict) -> bool:
     """True when the block plays an intro, outro or end card."""
     return block.get("block_type") in BOOKEND_BLOCK_TYPES
@@ -141,6 +197,11 @@ def validate_passage_coverage(blocks: list, body_sequence_len: int) -> None:
     permits the hook as a snippet of a body passage (intentional
     shortform technique). Hook references count toward coverage but
     never toward doubling.
+
+    An EMPTY body_sequence is legal and obligates nothing: a spine with
+    no speech blocks (music-led, picture-led, or both) covers zero
+    passages out of zero. Speech is optional; this check refuses lost
+    or doubled speech, never absent speech.
     """
     referenced = set()
     speech_refs = []
@@ -212,6 +273,41 @@ def _bookend_problems(block: dict, label: str) -> list:
     return problems
 
 
+def _music_ref_problems(block: dict, label: str) -> list:
+    """What is wrong with a music block's track reference, if anything.
+
+    The reference is OPTIONAL - a music block without one plays whatever
+    the conducted bed puts under it. But a half-written one (a span with
+    no track, an end before its start) is a plan nothing can play, and
+    it fails here rather than as a hole in the mix downstream.
+    """
+    problems = []
+    content = block.get("content") or {}
+    track = content.get("track")
+    source_in = content.get("source_in")
+    source_out = content.get("source_out")
+    if track is None and source_in is None and source_out is None:
+        return problems
+    if not isinstance(track, str) or not track.strip():
+        problems.append(
+            f"{label}: music block names a span but no track - "
+            f"content.track must name one of the tracks "
+            f"music_selection chose")
+    for key, value in (("source_in", source_in),
+                       ("source_out", source_out)):
+        if value is not None and not isinstance(value, (int, float)):
+            problems.append(
+                f"{label}: music block content.{key}={value!r} is not "
+                f"a number - a track span is seconds of that file")
+    if (isinstance(source_in, (int, float))
+            and isinstance(source_out, (int, float))
+            and source_out <= source_in):
+        problems.append(
+            f"{label}: music block span runs {source_in}-{source_out}s - "
+            f"the out point must be after the in point")
+    return problems
+
+
 def validate_spine_blocks(blocks: list, total_duration: float = None, target_duration_zone: tuple = None) -> None:
     """Raise SpineContractError if any block violates the spine contract.
 
@@ -247,11 +343,18 @@ def validate_spine_blocks(blocks: list, total_duration: float = None, target_dur
 
         # Optional black-beat declaration: catch malformed ones at the gate
         # so they fail here rather than silently reaching compile_manifest.
+        # Only a block that shows NO picture of its own may declare one:
+        # speech is never held on black, and neither is a picture block
+        # or a bookend card - both play a clip, so a beat on either is a
+        # hole wearing a name. A music block may: like a transition_slot
+        # it carries no picture, and the beat is the picture's absence
+        # said on purpose.
         if block.get("intentional_black_beat"):
-            if is_speech_block(block):
+            if is_speech_block(block) or is_picture_block(block):
                 problems.append(
-                    f"{label}: speech block declares intentional_black_beat "
-                    f"- speech is never held on black"
+                    f"{label}: {block['block_type']} block declares "
+                    f"intentional_black_beat - a block that plays a clip "
+                    f"is never held on black"
                 )
             reason = block.get("black_beat_reason")
             if not isinstance(reason, str) or not reason.strip():
@@ -273,6 +376,30 @@ def validate_spine_blocks(blocks: list, total_duration: float = None, target_dur
 
         if is_bookend_block(block):
             problems.extend(_bookend_problems(block, label))
+
+        if is_picture_block(block):
+            if not block["clip_id"]:
+                problems.append(f"{label}: picture block has no clip_id")
+            for key in ("source_start", "source_end"):
+                if block[key] is None:
+                    problems.append(f"{label}: picture block has {key}=None")
+            if block["word_timestamps"]:
+                problems.append(
+                    f"{label}: picture block carries word_timestamps - "
+                    f"a picture-led moment says nothing, so there is "
+                    f"nothing to align"
+                )
+            if block["alignment_method"]:
+                problems.append(
+                    f"{label}: picture block carries alignment_method - "
+                    f"with no word timings there is nothing it could "
+                    f"describe"
+                )
+            continue
+
+        if is_music_block(block):
+            problems.extend(_music_ref_problems(block, label))
+            continue
 
         if not is_speech_block(block):
             continue
@@ -319,15 +446,16 @@ def validate_spine_blocks(blocks: list, total_duration: float = None, target_dur
 def declares_black_beat(block: dict) -> bool:
     """True when the block carries a declaration a gate may honour.
 
-    A declaration counts only when it comes from a non-speech block and
-    carries a non-empty reason - the same two conditions
+    A declaration counts only when it comes from a block that shows no
+    picture of its own (a music block, intro, transition_slot or outro)
+    and carries a non-empty reason - the same two conditions
     `validate_spine_blocks` enforces at emit time.  Anything else is a
     malformed declaration, and honouring it would excuse a hole the spine
     gate would have rejected.
     """
     if not isinstance(block, dict) or not block.get("intentional_black_beat"):
         return False
-    if is_speech_block(block):
+    if is_speech_block(block) or is_picture_block(block):
         return False
     reason = block.get("black_beat_reason")
     return isinstance(reason, str) and bool(reason.strip())

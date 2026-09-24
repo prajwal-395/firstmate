@@ -70,6 +70,8 @@ construct the complete audio spine.
 | `hook` | Opening attention-grabber (a speech passage) | prominent or background |
 | `intro` | Music + visual moment before speech (no speech) | prominent |
 | `speech` | Contiguous spoken A-roll audio | background (music under) |
+| `music` | Music-led moment: the edit follows a span of a chosen track, not a spoken passage. Picture comes from B-roll, as on a transition slot. Optionally pin the span with `content.track` (one of the chosen tracks) plus `content.source_in`/`source_out` (seconds of that file); without one the conducted bed decides. | prominent |
+| `picture` | Picture-led moment: the edit follows a clip span, not a spoken passage. Names its own picture with `content.clip_id` plus `content.source_start`/`source_end`. Carries no words. | background or prominent |
 | `transition_slot` | Non-speech moment for B-roll + music | prominent |
 | `outro` | Closing section | fade_out |
 
@@ -100,6 +102,34 @@ card.
 - Music and speech CAN overlap — music_behavior controls the relationship
 - Every block must have music_behavior specified
 - Assign a visual_note to each block (guidance for Phase 3, not binding)
+
+### Spines with little or no speech:
+
+Speech is one way to lead a spine, not the only one. The spine is
+audio-led: speech only, music only, or both - and where the picture is
+the better backbone, picture-led blocks carry it.
+
+- **Speech only** (today's shape): `hook`/`speech` blocks, every
+  `content.passage_ref` resolving against the speech_sequence body.
+- **Music only**: `music` blocks. The speech_sequence body is empty on
+  such a run (step 2.02 always runs, and answers zero transcribed
+  speech with an empty body) - no `passage_ref` will resolve, so write
+  no `hook`/`speech` block.
+- **Both, interleaved**: `speech` blocks alternating with `music`
+  blocks - voice, then a music moment, then voice.
+- **Both, layered**: `speech` blocks with music under them. Layering
+  is the conducted `music_bed` plus each block's `music_behavior`
+  (`background`/`prominent`), not two blocks sharing a second: blocks
+  partition the timeline, so overlap is not representable and is not
+  asked for.
+- **Picture-led, no speech**: `picture` blocks (each naming its own
+  clip span), optionally interleaved with `music` blocks for the
+  audio-only stretches.
+
+A `picture` block's duration follows its span the way a speech block's
+follows its words: the post-bridge syncs `duration_seconds` to the
+`content.source_start`/`source_end` you name. A `music` block keeps the
+duration you give it, like a transition slot.
 
 ### Duration invariant (CRITICAL):
 
@@ -189,7 +219,9 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
 Every `hook` or `speech` block MUST include `content.passage_ref` which
 links back to the speech_sequence passage it came from:
 - `"passage_ref": <position>` matching that passage's 1-based order in
-  the speech_sequence `body_sequence`.
+  the speech_sequence `body_sequence`. When the body is empty (or the
+  sequence absent), no position resolves - so a speechless spine writes
+  no `hook`/`speech` block at all.
 
 There is no other way to name a passage. A block that OPENS the video is
 addressed exactly like every other one - by the position of the passage
@@ -206,14 +238,17 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 
 ## Evaluation Criteria
 
-1. **Structural completeness**: Has speech and has a defined ending
+1. **Structural completeness**: Has a defined ending, and at least one
+   content block (`speech`, `music` or `picture`) - a spine of only
+   gaps is no spine
 2. **Pacing variety**: Not a monotone monologue — transition slots and
    music moments create breathing room
 3. **Energy arc coherence**: The spine follows the creative direction's
    energy arc
 4. **Music-speech fit**: Music behavior is appropriate for each block type
-5. **No content loss**: Every speech passage from body_sequence appears in
-   exactly one speech block
+5. **No content loss**: When the body_sequence is non-empty, every
+   speech passage from it appears in exactly one speech block. An
+   empty body obligates nothing.
 6. **Duration plausibility**: The shape you chose lands inside the target
    duration band once the real passage durations replace your estimates.
    The summation and the verdict are `validate_spine_blocks`'.

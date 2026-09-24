@@ -797,7 +797,11 @@ def _check_no_fabricated_source_ranges(manifest: dict) -> list[str]:
         # is a rendered card that starts at its own frame 0 and runs the
         # length the template declared, so whole seconds are what a
         # correct one looks like. See library/tools/bookends.py.
-        if clip.get("bookend"):
+        # A picture-led V1 clip is cut from footage but NOT to word
+        # boundaries: its span is the model's own choice (there are no
+        # words to align), so whole seconds are legitimate there too.
+        # compile_manifest marks those clips `picture_led`.
+        if clip.get("bookend") or clip.get("picture_led"):
             continue
         if _is_round(src_in) and _is_round(src_out):
             errors.append(

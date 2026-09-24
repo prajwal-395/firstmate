@@ -142,6 +142,26 @@ evaluates THIS script, NOT the intended text from the speech sequence -
 and NOT a reconstruction of your own, which would be a second answer to a
 question that already has one.
 
+### Cuts with no speech
+
+When `actual_script.full_text` is empty, the cut has no monologue and
+Checks 6 and 7 do not run - there is no sentence to complete and no
+pair of blocks to rate. Say so in one line ("no speech: checks 6-7
+skipped") and judge what is there instead:
+
+- A picture-led cut (A-roll placed, `unvoiced` naming every range) is
+  EXPECTED to read this way: the ranges say why each one produced no
+  words. Do not fail a picture block for having no transcript.
+- A music-only cut (no A-roll at all) is judged on Check 8 alone: does
+  the picture and the music deliver the creative direction's arc.
+  Check 9 asks after verbatim words, which a speechless cut has none
+  of - say which key moments the picture carries instead, and which it
+  drops, rather than failing the absence of words.
+
+An empty script on a cut the spine planned AS speech is different: a
+speech block that produced no words is a broken alignment, and that
+fails here, not as a narrative judgement but as one.
+
 ### Check 6: Sentence Completion
 
 Every A-roll block must end on a complete thought. Specifically:

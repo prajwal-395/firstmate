@@ -45,6 +45,13 @@ speech sequence for the video.
 ### What to produce:
 
 **Body sequence**: Ordered list of speech passages forming the narrative arc.
+
+The body may be EMPTY. When the footage's speech serves nothing the
+creative direction asks for - or when the piece is better led by music
+or by picture - return `"body_sequence": []` with the reason recorded
+in `excluded_passages`. An empty body is a decision the spine plans
+around, not a failure to select; the post-bridge accepts it without a
+duration verdict. Do not pad it to satisfy a count: there is none.
 Each passage needs:
 - clip_id (which clip it's from)
 - text (exact verbatim words from the temporal index transcript)
@@ -162,6 +169,10 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
    transcripts — no paraphrasing, no invented words
 5. **Exclusion transparency**: Excluded passages must have genuine reasons,
    not filler explanations
+
+With an empty body, criteria 1-4 are satisfied vacuously - judge the
+exclusion instead: does `excluded_passages` say, in genuine reasons,
+why no speech serves this piece.
 
 ---
 

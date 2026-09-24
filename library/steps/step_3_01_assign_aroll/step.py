@@ -4,7 +4,9 @@ Step 3.1: Assign A-Roll Video to Speech Blocks
 
 For each speech block in the audio spine, assigns the corresponding A-roll
 video — the video from the same source file and timestamps as the speech audio.
-Also assigns the hook block's video.
+Also assigns the hook block's video, and any picture-led block's video -
+a picture block names its own clip span, so its picture is placed here
+rather than left for B-roll.
 
 Classification: Deterministic / Data Transformation
 Input:  { "audio_spine": {...}, "clip_catalog": [...] }
@@ -19,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
 from library.tools.duration_tolerance import DURATION_TOLERANCE  # noqa: E402
+from library.tools.spine_contract import PICTURE_BLOCK_TYPES, SPEECH_BLOCK_TYPES  # noqa: E402
 
 # TARGET_WIDTH / TARGET_HEIGHT / TARGET_FRAME_RATE were here, described as
 # "used only by callers that import the helpers directly".  There were no
@@ -54,13 +57,10 @@ def needs_conform(clip: dict, target_width: int, target_height: int, target_fps:
 
 def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, target_height: int, target_fps: float = 30.0) -> dict:
     """
-    Map speech blocks and hook to their A-roll video source files.
+    Map speech blocks, hook and picture blocks to their A-roll video source files.
 
     The target frame is REQUIRED - the delivery format the caller
     resolved (`resolve_delivery_format`), never a shape literal here.
-    """
-    """
-    Map speech blocks and hook to their A-roll video source files.
     """
     # Build clip lookup
     clip_lookup = {c["clip_id"]: c for c in clip_catalog}
@@ -71,7 +71,7 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
 
     for block in structure:
         block_type = block["block_type"]
-        if block_type not in ("hook", "speech"):
+        if block_type not in SPEECH_BLOCK_TYPES + PICTURE_BLOCK_TYPES:
             continue
 
         # The spine contract puts the clip reference and the source range
@@ -136,10 +136,12 @@ def assign_a_roll(audio_spine: dict, clip_catalog: list, target_width: int, targ
 
 
     # --- Verification ---
-    # Every speech and hook block has a video assignment
-    speech_blocks = [b for b in structure if b["block_type"] in ("speech", "hook")]
+    # Every speech, hook and picture block has a video assignment.
+    # Music blocks and transition slots carry no A-roll - their picture
+    # is B-roll's job, placed by step 3.02.
+    speech_blocks = [b for b in structure if b["block_type"] in SPEECH_BLOCK_TYPES + PICTURE_BLOCK_TYPES]
     assert len(a_roll_assignments) == len(speech_blocks), \
-        f"Assignment count ({len(a_roll_assignments)}) != speech and hook blocks ({len(speech_blocks)})"
+        f"Assignment count ({len(a_roll_assignments)}) != speech, hook and picture blocks ({len(speech_blocks)})"
 
     # Hook has a video assignment
     if any(b["block_type"] == "hook" for b in structure):

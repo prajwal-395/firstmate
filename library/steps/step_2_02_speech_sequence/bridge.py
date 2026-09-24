@@ -99,14 +99,45 @@ def main():
     topics_toon = format_toon(["clip_id", "topics"], topic_rows)
     
     if not transcript_rows:
+        # No transcribed speech - but a BROKEN index and an EMPTY one
+        # are different facts. A missing or unreadable index is a
+        # defect upstream and refuses loudly. A valid index with zero
+        # speech regions is the footage saying nothing (music, montage,
+        # no dialogue), and the step answers it deterministically: an
+        # EMPTY body. The runner then has nothing left to ask the model
+        # (outputs minus what is already in hand is empty), so the call
+        # is skipped and the run proceeds speechless - no model, no
+        # human, no --skip. The old stub defect cannot recur here:
+        # that one built a sequence FROM regions, and there are none.
+        if not ti_dir or not os.path.isdir(ti_dir):
+            print(json.dumps({
+                "error": (
+                    f"No transcript regions found and no readable "
+                    f"temporal index at {ti_dir!r} - there is "
+                    f"nothing to build a speech sequence from"
+                ),
+                "step": "2.02_bridge",
+            }))
+            sys.exit(1)
+        print(
+            f"  No speech regions in {ti_dir!r} - emitting an empty "
+            f"body_sequence; the edit is led by music or picture",
+            file=sys.stderr,
+        )
         print(json.dumps({
-            "error": (
-                f"No transcript regions found in {ti_dir!r} - there is "
-                f"nothing to build a speech sequence from"
-            ),
-            "step": "2.02_bridge",
+            "transcripts_toon": format_toon(
+                ["clip_id", "start", "end", "text"], []),
+            "topics_toon": topics_toon,
+            "speech_sequence": {
+                "body_sequence": [],
+                "excluded_passages": [{
+                    "reason_excluded":
+                        "no transcribed speech in the footage - zero "
+                        "speech regions in the temporal index",
+                }],
+            },
         }))
-        sys.exit(1)
+        return
 
     # Context only. This used to also emit a `speech_sequence` stub built
     # from EVERY transcript region, which is not an edit - it is the raw

@@ -869,7 +869,23 @@ def main():
     # No passage count check. How many passages the edit needs is a
     # creative decision driven by the duration target and the footage.
     # Captain's directive 2026-09-02: remove hardcoded creative values.
-    total_duration = total_speech_seconds(enriched.get("body_sequence", []))
+    #
+    # An EMPTY body is a legal answer, not a missing one: the edit may
+    # be led by music or by picture, in which case this step chose no
+    # speech and mesh_spine plans around that. Refusing it here would
+    # force speech into every project, which is what P4 removes - so
+    # the zone check below is skipped and the absence is stated.
+    body = enriched.get("body_sequence", [])
+    if not body:
+        print(f"NOTE: empty body_sequence - the edit carries no speech; "
+              f"mesh_spine plans the spine from music and picture.",
+              file=sys.stderr)
+        json.dump({
+            "speech_sequence": enriched,
+        }, sys.stdout, indent=2)
+        return
+
+    total_duration = total_speech_seconds(body)
 
     from library.tools.duration_targets import (
         NO_TARGET_DECLARED, get_target_duration_zone)

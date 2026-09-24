@@ -180,11 +180,44 @@ def test_the_bridge_emits_context_only(tmp_path):
     assert set(json.loads(proc.stdout)) == {"transcripts_toon", "topics_toon"}
 
 
-def test_no_transcript_fails_the_step_rather_than_sending_an_empty_table(
-        tmp_path):
+# ── No speech in the footage ────────────────────────────────────────
+#
+# A valid index with zero speech regions is the footage saying nothing
+# (music, montage, no dialogue), and the bridge answers it
+# deterministically with an empty body - the run proceeds speechless
+# with no model call and no human. A missing or unreadable index is a
+# defect upstream and still refuses.
+
+def _empty_index_project(tmp_path: Path) -> Path:
+    """A project whose temporal index exists but says nothing."""
     project = tmp_path / "empty"
     project.mkdir()
-    ProjectLayout(project).write_dir(Area.TEMPORAL_INDEX, step="temporal_index")
+    layout = ProjectLayout(project)
+    index_dir = layout.write_dir(Area.TEMPORAL_INDEX, step="temporal_index")
+    (index_dir / "clip_001.json").write_text(
+        json.dumps({"speech_regions": []}), encoding="utf-8")
+    layout.pipeline_data_path.write_text(json.dumps(
+        {"step_outputs": {"temporal_index": {"index_dir": str(index_dir)}}}),
+        encoding="utf-8")
+    return project
+
+
+def test_zero_speech_regions_yield_an_empty_sequence_not_a_refusal(
+        tmp_path):
+    """Speechless footage gets an empty body the run plans around."""
+    proc = run_bridge(_payload(_empty_index_project(tmp_path)))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["speech_sequence"]["body_sequence"] == []
+    assert out["speech_sequence"]["excluded_passages"]
+    _, rows = parse_table(out["transcripts_toon"])
+    assert rows == []
+
+
+def test_a_missing_index_still_refuses(tmp_path):
+    """No index on disk is a broken run, not a quiet one."""
+    project = tmp_path / "missing"
+    project.mkdir()
     proc = run_bridge({
         "project_folder": str(project),
         "temporal_index": {},

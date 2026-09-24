@@ -223,8 +223,8 @@ def resolve_broll(
         video_in, video_out = choice.as_tuple()
 
         # A cutaway can be shorter than the block it covers - but only
-        # where something plays underneath. A speech or hook block (or a
-        # bookend card) puts a clip on V1 - `block_reaches_v1`, the one
+        # where something plays underneath. A speech, hook or picture
+        # block (or a bookend card) puts a clip on V1 - `block_reaches_v1`, the one
         # statement of V1 membership compile_manifest builds its V1 track
         # from, so the two cannot drift - and returning to A-roll early is
         # safe there. The shortfall is DECLARED on the assignment as

@@ -1576,6 +1576,13 @@ def compile_manifest(out_dir: str) -> dict:
             assignment = a_roll_dict.get(block.get("position"))
             _fi, _fp, _cf = _resolve_framing(block)
 
+            # A V1 clip cut from a picture-led block carries ranges the
+            # model chose, not word alignments - whole seconds are what
+            # a correct one looks like, so the fabricated-range check in
+            # manifest_validator exempts what this marks. Same shape as
+            # the `bookend` marker card clips carry.
+            picture_led = block.get("block_type") == "picture"
+
             if assignment and assignment.get("video_segments"):
                 current_tl_in = block.get("timeline_start", 0.0)
                 for seg_idx, seg in enumerate(assignment["video_segments"]):
@@ -1591,6 +1598,8 @@ def compile_manifest(out_dir: str) -> dict:
                         "link_group_id": seg.get("link_group_id", lgid),
                         "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
                     }
+                    if picture_led:
+                        clip["picture_led"] = True
                     convert_clip_to_frames(clip, fps)
                     clip.update(_conform_fields(clip_metadata, get_clip_id(seg), proj_res,
                         framing_intent=_fi, framing_pan_x=_fp,
@@ -1613,6 +1622,8 @@ def compile_manifest(out_dir: str) -> dict:
                     "link_group_id": lgid,
                     "label": f"{block['block_type']}_{block['position']}",
                 }
+                if picture_led:
+                    clip["picture_led"] = True
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
                 clip.update(_conform_fields(clip_metadata, get_clip_id(assignment), proj_res,
@@ -1635,6 +1646,8 @@ def compile_manifest(out_dir: str) -> dict:
                     "link_group_id": lgid,
                     "label": f"{block['block_type']}_{block['position']}",
                 }
+                if picture_led:
+                    clip["picture_led"] = True
                 if clip["timeline_in_frame"] is None:
                     convert_clip_to_frames(clip, fps)
                 clip.update(_conform_fields(clip_metadata, get_clip_id(block), proj_res,

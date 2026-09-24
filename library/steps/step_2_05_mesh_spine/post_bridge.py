@@ -35,6 +35,9 @@ import os
 from library.tools.pipeline_validation import require_keys
 from library.tools.spine_contract import (
     BOOKEND_BLOCK_TYPES,
+    MUSIC_BLOCK_TYPES,
+    PICTURE_BLOCK_TYPES,
+    SPEECH_BLOCK_TYPES,
     validate_passage_coverage,
     validate_spine_blocks,
 )
@@ -58,8 +61,16 @@ from library.tools.music_bed import resolve_bed
 def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None) -> dict:
     """
     Enrich the LLM's creative spine with execution-layer data.
+
+    `speech_sequence` is always present - step 2.02 runs on every run
+    and answers zero transcribed speech with an empty body - but the
+    body may be empty. Both are the same promise: no passage_ref will
+    resolve, and a spine with no speech blocks is a legal spine. Only a
+    speech/hook block on a speechless run fails, by name, like any
+    other dangling ref.
     """
     structure = spine.get("structure", [])
+    speech_sequence = speech_sequence or {}
 
     # Build lookup: passage position → resolved passage data.
     #
@@ -94,7 +105,7 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
         enriched["word_timestamps"] = []
         enriched["alignment_method"] = None
 
-        if block_type in ("hook", "speech"):
+        if block_type in SPEECH_BLOCK_TYPES:
             # Generate link_group_id for A/V synchronization.
             # This allows the XMEML generator to pair video and audio
             # clipitems using reciprocal <link> blocks.
@@ -152,6 +163,54 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
                     f"{src_dur:.2f}s (word boundaries)",
                     file=sys.stderr,
                 )
+        elif block_type in PICTURE_BLOCK_TYPES:
+            # A picture-led block names its own clip span - the model's
+            # `content.clip_id/source_start/source_end`, lifted onto the
+            # block like a passage's timings, because assign_aroll and
+            # compile_manifest read the block, never the content. No
+            # words and no alignment: the moment says nothing.
+            # Duration syncs to the span for the same reason speech
+            # does - the timeline plays the span for the block's
+            # duration, so a disagreement truncates or stretches it.
+            pic_clip = content.get("clip_id")
+            pic_start = content.get("source_start")
+            pic_end = content.get("source_end")
+            if pic_clip is None or pic_start is None or pic_end is None:
+                unresolved.append(
+                    f"block position {block.get('position')!r} is a "
+                    f"picture block but names no clip span "
+                    f"(content.clip_id/source_start/source_end)"
+                )
+                continue
+            enriched["content"] = {
+                "clip_id": pic_clip,
+                "source_start": pic_start,
+                "source_end": pic_end,
+            }
+            enriched["clip_id"] = pic_clip
+            enriched["source_clip_id"] = pic_clip
+            enriched["source_start"] = pic_start
+            enriched["source_end"] = pic_end
+            try:
+                span_dur = float(pic_end) - float(pic_start)
+            except (TypeError, ValueError):
+                span_dur = None
+            block_dur = enriched.get("duration_seconds", 0)
+            if (span_dur is not None and span_dur > 0
+                    and abs(span_dur - (block_dur or 0)) > 0.05):
+                enriched["duration_seconds"] = round(span_dur, 3)
+                print(
+                    f"  Block [{enriched.get('position')}]: "
+                    f"synced duration {block_dur:.2f}s → "
+                    f"{span_dur:.2f}s (picture span)",
+                    file=sys.stderr,
+                )
+        elif block_type in MUSIC_BLOCK_TYPES:
+            # A music-led moment carries its track reference (if any) in
+            # content, as written - the conducted bed resolves what
+            # actually plays. Nothing to lift: the block keeps the
+            # non-speech shape, and B-roll covers its picture.
+            enriched["content"] = dict(content) if content else None
         else:
             enriched["content"] = dict(content) if content else None
 
@@ -164,7 +223,8 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     if unresolved:
         raise ValueError(
             "mesh_spine could not resolve "
-            f"{len(unresolved)} spine block(s) to speech passages:\n  - "
+            f"{len(unresolved)} spine block(s) to speech passages or "
+            f"picture spans:\n  - "
             + "\n  - ".join(unresolved)
         )
 
@@ -172,7 +232,8 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     # in the spine, and no passage twice across speech blocks. Which
     # passage opens, continues or closes is the editorial decision; the
     # integer bookkeeping around it is not. A hook reusing a body
-    # passage is permitted (see validate_passage_coverage).
+    # passage is permitted (see validate_passage_coverage). An empty
+    # body obligates nothing - a speechless spine covers zero of zero.
     validate_passage_coverage(
         enriched_blocks, len(speech_sequence.get("body_sequence", [])))
 
@@ -329,6 +390,11 @@ def main():
     # C3 fix: Accept LLM output format. The LLM outputs {structure: [...],
     # total_estimated_duration_seconds: ...} directly, not nested under a
     # "spine" key. Support both formats for robustness.
+    #
+    # speech_sequence is REQUIRED and always present: step 2.02 runs on
+    # every run, emitting an empty body for a speechless edit - the
+    # manifest declares the same hard edge, so --only runs pull its
+    # producer in.
     require_keys(data, ["speech_sequence", "music_selection"], "step_2_05_mesh_spine/post_bridge.py")
     if "spine" in data:
         spine_data = data["spine"]
@@ -356,7 +422,7 @@ def main():
     # and wrapped formats).
     spine = spine_data
 
-    speech = data.get("speech_sequence", {})
+    speech = data.get("speech_sequence") or {}
     music = data.get("music_selection", {})
 
     result = enrich_spine(spine, speech, music, data)

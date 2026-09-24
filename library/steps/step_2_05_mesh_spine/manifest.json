@@ -52,7 +52,7 @@
         "name": "speech_sequence",
         "type": "object",
         "required": true,
-        "description": "State input: speech_sequence"
+        "description": "State input: speech_sequence. Step 2.02 runs on every run and always emits - a speechless edit carries an empty body_sequence, never an absence. The post_bridge resolves passage_refs against whatever body is there (zero of zero is covered) and refuses only a speech/hook block nothing can resolve. Surveyed by library/tools/input_contract.py."
       },
       {
         "name": "temporal_index",
@@ -107,7 +107,7 @@
         "name": "structure",
         "type": "list",
         "required": true,
-        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"|\"transition_slot\"|\"intro\"|\"outro\" - the handoff's own block-type table) and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position. Do NOT write \"intro_card\", \"outro_card\" or \"end_card\" blocks: those are CARDS, they come from the brand template's content.bookends, and the bridge REFUSES the step by name if the plan writes one. \"intro\" and \"outro\" are not cards - they are a breath of music and B-roll, they are yours to write, and nothing drops them."
+        "description": "Ordered spine blocks. Each block: position (\"hook\" or int), block_type (\"hook\"|\"speech\"|\"music\"|\"picture\"|\"transition_slot\"|\"intro\"|\"outro\" - the handoff's own block-type table) and duration_seconds. A \"hook\"/\"speech\" block also carries content.passage_ref matching a speech_sequence position (which requires a non-empty body_sequence). A \"picture\" block carries content.clip_id plus content.source_start/source_end naming the clip span its picture is cut from. A \"music\" block may carry content.track (one of the chosen tracks) plus content.source_in/source_out naming the span of that file; without one the conducted bed decides. Do NOT write \"intro_card\", \"outro_card\" or \"end_card\" blocks: those are CARDS, they come from the brand template's content.bookends, and the bridge REFUSES the step by name if the plan writes one. \"intro\" and \"outro\" are not cards - they are a breath of music and B-roll, they are yours to write, and nothing drops them."
       },
       {
         "name": "music_bed",

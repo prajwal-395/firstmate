@@ -117,14 +117,17 @@ def cutaway_slot_seconds(timed_spine: dict) -> list:
 
     A window's length IS the slot's length (`post_bridge` passes
     `block_duration` straight to `choose_window`), so these come off the
-    spine rather than from a constant. Speech blocks are left out: a
-    cutaway covers a non-speech block, which is the coverage requirement
+    spine rather than from a constant. Speech, hook and picture blocks
+    are left out: each already plays its own picture on V1 (a cutaway
+    there is an interjection over A-roll, not the cover the block
+    needs), and a cutaway covers a block with no V1 picture, which is
+    the coverage requirement
     `compile_manifest._assert_timeline_fully_covered` enforces.
     """
     blocks = timed_spine.get("structure") or []
     seconds = set()
     for block in blocks:
-        if block.get("block_type") in ("speech", "hook"):
+        if block.get("block_type") in ("speech", "hook", "picture"):
             continue
         start, end = block.get("timeline_start"), block.get("timeline_end")
         if isinstance(start, (int, float)) and isinstance(end, (int, float)):

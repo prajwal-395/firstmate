@@ -52,7 +52,7 @@
         "name": "speech_sequence",
         "type": "object",
         "required": true,
-        "description": "State input: speech_sequence"
+        "description": "State input: speech_sequence. Step 2.02 runs on every run, so this is always present - an empty body_sequence on a speechless cut, never an absence. The narrative half judges actual_script (built by this step's own deterministic half from the spine's measured words), not the sequence's intended text; the handoff's no-speech section says what is judged instead."
       },
       {
         "name": "temporal_index",
