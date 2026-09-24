@@ -669,24 +669,41 @@ def assert_every_frame_covered(tracks: Sequence[Mapping],
                                changes: Sequence[ItemChange],
                                insertions: Sequence[Insertion] = (),
                                row: str = "V1") -> list:
-    """The picture row must have no gap and no overlap after the edit.
+    """The picture row must gain no gap and no overlap from the edit.
 
     AGENTS.md 10.2: every frame of the timeline must show a clip.  The
     spike's predecessor left two black frames behind by passing an
     inclusive `endFrame`; this is the arithmetic that catches that class
     BEFORE the delete, while the timeline is still whole.
+
+    Judged on what the edit CHANGES: a gap or overlap already present
+    before the edit is the approved build's shape - a V2 cutaway over a
+    V1 hole, for example - and is not this edit's defect, so it does not
+    refuse.  A gap or overlap the post-edit plan introduces that was not
+    there before still refuses exactly as it always has.
     """
     spans = post_edit_spans(tracks, changes, insertions, row)
+    before = post_edit_spans(tracks, (), (), row)
     gaps = [[a[1], b[0]] for a, b in zip(spans, spans[1:]) if b[0] > a[1]]
     overlaps = [[b[0], a[1]] for a, b in zip(spans, spans[1:]) if b[0] < a[1]]
-    if gaps or overlaps:
+    before_gaps = [[a[1], b[0]] for a, b in zip(before, before[1:])
+                   if b[0] > a[1]]
+    before_overlaps = [[b[0], a[1]] for a, b in zip(before, before[1:])
+                       if b[0] < a[1]]
+    new_gaps = [gap for gap in gaps if gap not in before_gaps]
+    new_overlaps = [overlap for overlap in overlaps
+                    if overlap not in before_overlaps]
+    if new_gaps or new_overlaps:
         raise PlacementNotVerified(
-            f"REFUSING to place: the plan leaves {len(gaps)} gap(s) "
-            f"({gaps}) and {len(overlaps)} overlap(s) ({overlaps}) on "
-            f"{row}. Every frame of the timeline must show a clip - "
-            f"Resolve draws nothing in a gap and the reel delivers black "
-            f"- and `AppendToTimeline` silently places NOTHING where it "
-            f"would collide with a live item.")
+            f"REFUSING to place: the plan leaves {len(new_gaps)} new "
+            f"gap(s) ({new_gaps}) and {len(new_overlaps)} new overlap(s) "
+            f"({new_overlaps}) on {row} "
+            f"(before: {len(before_gaps)} gap(s), "
+            f"{len(before_overlaps)} overlap(s)). Every frame of the "
+            f"timeline must show a clip - Resolve draws nothing in a gap "
+            f"and the reel delivers black - and `AppendToTimeline` "
+            f"silently places NOTHING where it would collide with a live "
+            f"item.")
     return spans
 
 
