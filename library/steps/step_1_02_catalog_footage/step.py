@@ -331,12 +331,22 @@ def extract_metadata(filepath: str, program_stream=None,
         elif stream.get("codec_type") == "audio":
             audio_streams.append(stream)
 
+    fmt = probe.get("format", {})
+
     if not video_stream:
+        if audio_streams:
+            # Audio-only: a voiceover take or a music bed. No picture
+            # measurements exist for it - no width, height or frame
+            # rate - so it is cataloged on its own contract (see
+            # `catalog_footage`), never refused for having no video.
+            return _audio_only_metadata(
+                filepath, probe, fmt,
+                program_stream=program_stream,
+                measure_program_stream=measure_program_stream)
         err_msg = "No video stream found"
         print(f"WARNING: {err_msg} in {filepath}", file=sys.stderr)
         return {"error": err_msg}
 
-    fmt = probe.get("format", {})
     fmt_tags = fmt.get("tags", {})
 
     # Extract creation_time from format tags (multiple possible keys)
@@ -445,6 +455,62 @@ def extract_metadata(filepath: str, program_stream=None,
     }
 
 
+def _audio_only_metadata(filepath: str, probe: dict, fmt: dict,
+                         program_stream=None,
+                         measure_program_stream: bool = False) -> dict:
+    """The catalog entry for a voiceover take or music bed.
+
+    No width, height or frame rate: those keys are ABSENT, not None,
+    because the audio catalog has its own contract and a video-field
+    check must never see these entries. Duration, every audio stream
+    and the program-stream decision travel; the selection machinery
+    is shared with video (`select_program_stream`), so a multi-stream
+    voiceover recording is declared or measured, never defaulted.
+    """
+    described_streams = describe_audio_streams(probe)
+    _program_selection = None
+    _program_refusal = None
+    _measured_selection = None
+    if (program_stream is None and measure_program_stream
+            and len(described_streams) > 1):
+        try:
+            _measured_selection = measure_program_selection(
+                filepath, described_streams,
+                source=os.path.basename(filepath))
+        except ProgramStreamRefused as exc:
+            _program_refusal = str(exc)
+    if _program_refusal is None:
+        try:
+            _program_selection = select_program_stream(
+                described_streams, declaration=program_stream,
+                source=os.path.basename(filepath),
+                measured_selection=_measured_selection)
+        except ProgramStreamRefused as exc:
+            _program_refusal = str(exc)
+
+    try:
+        duration = round(float(fmt.get("duration", 0)), 3)
+    except (TypeError, ValueError):
+        duration = 0.0
+
+    return {
+        "duration_seconds": duration,
+        "audio_streams": described_streams,
+        "program_stream": _program_selection,
+        "program_stream_refusal": _program_refusal,
+        "audio_codec": _program_selection.get("codec") if _program_selection else None,
+        "audio_channels": (
+            _program_selection.get("channels")
+            if _program_selection else None
+        ),
+        "audio_sample_rate": (
+            _program_selection.get("sample_rate")
+            if _program_selection else None
+        ),
+        "has_audio": True,
+    }
+
+
 def parse_creation_time(ct_str: str | None) -> datetime | None:
     """Parse a creation_time string into a datetime for sorting."""
     if not ct_str:
@@ -469,7 +535,8 @@ def parse_creation_time(ct_str: str | None) -> datetime | None:
 def catalog_footage(raw_footage_files: list, program_stream=None,
                     project_config: dict | None = None,
                     project_folder: str = "",
-                    measure_program_stream: bool | None = None) -> dict:
+                    measure_program_stream: bool | None = None,
+                    raw_audio_files: list | None = None) -> dict:
     """
     Extract metadata for each file, sort chronologically, assign ordering.
 
@@ -479,6 +546,13 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
     one, `measure_program_stream` (or
     `source.measure_program_stream`) opts into measuring it off the
     footage; an indecisive measurement refuses like an undeclared one.
+
+    `raw_audio_files` (scan's `raw_audio_files`, `audio_001`
+    numbering) is cataloged into a SEPARATE `audio_catalog`: voiceover
+    and music carry no picture, so video-field verification
+    (`width`, `height`, `frame_rate`) never sees them, and no reader
+    of `clip_catalog` can mistake one for footage. `project_fps` and
+    `source_resolution` are measured off the video entries only.
     """
     if program_stream is None and project_config:
         program_stream = (project_config.get("audio") or {}).get(
@@ -618,13 +692,119 @@ def catalog_footage(raw_footage_files: list, program_stream=None,
     ids = [e["clip_id"] for e in entries]
     assert len(ids) == len(set(ids)), "Duplicate clip_id values"
 
+    audio_catalog = _catalog_audio(
+        raw_audio_files or [],
+        program_stream=program_stream,
+        measure_program_stream=measure_program_stream)
+
     return {
         "clip_catalog": entries,
         "total_clips": len(entries),
         "skipped_files": skipped,
         "project_fps": project_fps,
         "source_resolution": source_res,
+        "audio_catalog": audio_catalog,
     }
+
+
+def _catalog_audio(raw_audio_files: list, program_stream=None,
+                   measure_program_stream: bool = False) -> list:
+    """Probe each audio-only file into an `audio_catalog` entry.
+
+    The contract is the audio half of `catalog_footage`: `audio_id`
+    (`audio_001` numbering, never a `clip_id`), `audio_order`, path
+    and filename, `duration_seconds`, every audio stream with the
+    program-stream decision or its refusal, and the legacy singular
+    audio fields off the SELECTED stream. No `width`, `height` or
+    `frame_rate` keys at all - verification of those fields must
+    never see these entries, which is why they are a separate list
+    rather than rows of `clip_catalog`.
+
+    A file that fails probing is SKIPPED with its reason, the same
+    way video handles it: one corrupt bed must not fail the catalog.
+    Entries sort by creation time (mtime fallback) like video, for
+    the same chronological reading.
+    """
+    cataloged = []
+    for position, file_info in enumerate(raw_audio_files or []):
+        filepath = file_info.get("path", "") if isinstance(
+            file_info, dict) else str(file_info)
+        filename = (file_info.get("filename", "") if isinstance(
+            file_info, dict) else os.path.basename(filepath))
+        audio_id = (file_info.get("audio_id", "") if isinstance(
+            file_info, dict) else "") or f"audio_{position + 1:03d}"
+
+        if not filepath or not os.path.isfile(filepath):
+            print(f"WARNING: audio file not found, skipping: "
+                  f"{filepath or audio_id}", file=sys.stderr)
+            continue
+
+        metadata = extract_metadata(
+            filepath, program_stream=program_stream,
+            measure_program_stream=measure_program_stream)
+        if metadata is None or "error" in metadata:
+            err = (metadata.get("error", "metadata extraction failed")
+                   if metadata else "metadata extraction failed")
+            print(f"WARNING: audio metadata failed, skipping "
+                  f"{filename}: {err}", file=sys.stderr)
+            continue
+
+        if "width" in metadata:
+            # An audio-enumerated file carrying a video stream - usually
+            # cover art on an m4a, which ffprobe reports as mjpeg. The
+            # audio contract is picture-free, so the picture keys are
+            # dropped rather than carried; the file stays audio because
+            # that is what its extension declared it.
+            print(f"WARNING: {filename} carries a video stream "
+                  f"({metadata.get('width')}x{metadata.get('height')}) "
+                  f"but enumerates as audio - cataloging the audio only.",
+                  file=sys.stderr)
+            for key in ("width", "height", "frame_rate", "video_codec",
+                        "rotation", "pixel_format", "source_resolution"):
+                metadata.pop(key, None)
+
+        size = 0
+        if isinstance(file_info, dict):
+            size = file_info.get("size_bytes", 0)
+        if not size:
+            try:
+                size = os.path.getsize(filepath)
+            except OSError:
+                size = 0
+
+        cataloged.append({
+            "path": filepath,
+            "source_file": filepath,
+            "filename": filename,
+            "file_size_bytes": size,
+            "audio_id": audio_id,
+            **metadata,
+        })
+
+    for entry in cataloged:
+        if not entry.get("creation_time"):
+            try:
+                mtime = os.path.getmtime(entry["path"])
+                entry["creation_time"] = datetime.fromtimestamp(
+                    mtime).strftime("%Y-%m-%dT%H:%M:%S")
+            except OSError:
+                entry["creation_time"] = ""
+
+    cataloged.sort(key=lambda e: (
+        parse_creation_time(e["creation_time"]) or datetime.min,
+        e["filename"],
+    ))
+
+    for i, entry in enumerate(cataloged):
+        entry["audio_order"] = i + 1
+
+    orders = [e["audio_order"] for e in cataloged]
+    assert orders == list(range(1, len(cataloged) + 1)), \
+        "audio_order values are not sequential"
+    ids = [e["audio_id"] for e in cataloged]
+    assert len(ids) == len(set(ids)), "Duplicate audio_id values"
+
+    return cataloged
 
 
 def main():
@@ -646,6 +826,7 @@ def main():
             project_folder=input_data.get("project_folder", ""),
             measure_program_stream=input_data.get(
                 "measure_program_stream"),
+            raw_audio_files=input_data.get("raw_audio_files"),
         )
     except (ValueError, RuntimeError) as e:
         print(json.dumps({

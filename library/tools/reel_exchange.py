@@ -322,6 +322,38 @@ def exchange_windows(turns: Sequence[Turn], lead: str, answerer: str,
     return out
 
 
+def monologue_windows(turns: Sequence[Turn], speaker: str,
+                      minimum: float = LENGTH_GUIDANCE[0],
+                      maximum: float = ABSURD_SECONDS) -> List[Exchange]:
+    """Every candidate window of a ONE-speaker project, measured.
+
+    The monologue path: a project declaring a single speaker has no
+    exchange structure - no lead to open, no answerer to weigh, no
+    alternations to count - so `exchange_windows` offers it nothing
+    (its two-speaker requirement skips every run). A window here is a
+    run of turns grown until the exchange is at least `minimum` long
+    and bounded by `ABSURD_SECONDS`, the same shape minus the
+    conversation. Measurements are the same table; `alternations` is
+    0 and the speaker shares are 1.0 by construction, which is what
+    tells a reader this candidate was cut on delivery and close
+    rather than on exchange.
+    """
+    out: List[Exchange] = []
+    own = [t for t in turns if t.speaker == speaker]
+    for i, turn in enumerate(own):
+        for j in range(i + 1, len(own)):
+            span = own[j].end - turn.start
+            if span < minimum:
+                continue
+            if span > maximum:
+                break
+            run = tuple(own[i:j + 1])
+            out.append(Exchange(start=turn.start, end=own[j].end,
+                                turns=run))
+            break
+    return out
+
+
 # ── Retakes of a whole exchange ──────────────────────────────────────
 
 def _vocabulary(exchange: Exchange) -> set:

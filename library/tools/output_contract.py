@@ -263,6 +263,16 @@ REPORTED_NOT_CONSUMED = {
         "`step_2_04_music_selection/post_bridge.py` all read a different "
         "dict.",
 
+    ("temporal_index", "audio_indices"):
+        "One sound-only index per cataloged voiceover/music file "
+        "(speech regions in the project's language, energy, onsets, "
+        "events). DECISION (P4 lane b): it stays unread UNTIL the "
+        "audio-led spine (P4 lane a) wires voiceover and music into "
+        "mesh_spine - that lane owns the reading, and removes this "
+        "entry when it lands or this survey fails it as stale. Until "
+        "then the per-audio files beside the video indices are the "
+        "artifact, and the speech in them is measured, not promised.",
+
 }
 
 

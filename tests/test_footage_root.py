@@ -101,7 +101,12 @@ def test_an_uppercase_extension_is_still_footage(tmp_path):
 # ── The frame rate a project declares ────────────────────────────────
 
 def test_a_fractional_frame_rate_survives_the_config(tmp_path):
-    """`fps` was an int, which silently truncated 23.976 to 23."""
+    """`fps` was an int, which silently truncated 23.976 to 23.
+
+    `type`/`resolution` used to be declared beside it and are now
+    ignored - nothing ever read them, the catalog measures both off
+    the footage. A file that still carries them reads fine.
+    """
     from library.schemas.project_config import load_project_config
     project = _project(tmp_path, "name: T\nslug: t\nsource:\n"
                                  "  type: mxf\n"
@@ -109,5 +114,3 @@ def test_a_fractional_frame_rate_survives_the_config(tmp_path):
                                  "  fps: 23.976\n")
     config = load_project_config(str(project / "project.yaml"))
     assert config.source.fps == 23.976
-    assert config.source.width == 3840
-    assert config.source.height == 2160

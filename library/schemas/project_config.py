@@ -13,10 +13,17 @@ Usage:
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import List, Optional
+
+
+# A language code: two or three letters, optional region (`en`,
+# `es`, `pt-BR`). Permissive on purpose - the transcriber, not the
+# schema, knows which codes it can hear.
+_LANGUAGE_RE = re.compile(r"^[A-Za-z]{2,3}(-[A-Za-z]{2,4})?$")
 
 
 class ProjectStatus(str, Enum):
@@ -30,9 +37,16 @@ class ProjectStatus(str, Enum):
 
 @dataclass
 class SourceConfig:
-    """Describes the source media characteristics."""
-    type: str = "iphone_mov"       # iphone_mov | sony_raw | screen_capture | mixed
-    resolution: str = "1080x1920"  # WxH
+    """Describes the source media characteristics.
+
+    `type` and `resolution` used to live here (`iphone_mov`,
+    `1080x1920`) and were DROPPED: nothing ever read them. The
+    catalog measures both off the footage (`project_fps`,
+    `source_resolution`, `clip_catalog[].width/height`), so a
+    declared duplicate could only rot. Project files that still
+    carry them read fine - unknown keys are ignored - and new
+    projects stop writing them.
+    """
 
     fps: float = 30
     """FLOAT, not int. 23.976 and 29.97 are real project rates and an
@@ -75,17 +89,74 @@ class SourceConfig:
     undeclared one - measurement decides only when it is decisive.
     A declaration always wins over a measurement."""
 
-    @property
-    def width(self) -> int:
-        return int(self.resolution.split("x")[0])
+    language: str = "en"
+    """The language spoken in the footage, as a BCP-47 code (`en`,
+    `es`, `de`, ...). Step 1.04 transcribes and aligns in this
+    language instead of forcing English. Undeclared means English,
+    which is what every project transcribed before the setting
+    existed."""
 
-    @property
-    def height(self) -> int:
-        return int(self.resolution.split("x")[1])
+    shape: str = ""
+    """What this video is built from: `speech`, `music`, `both` or
+    `picture-led`. Undeclared ("") means the historical shape -
+    speech-led - and reads the same everywhere. The spine is the
+    reader; intake only scaffolds the declaration."""
 
-    @property
-    def is_vertical(self) -> bool:
-        return self.height > self.width
+    speakers: Optional[list] = None
+    """Who speaks in this footage, as `[{name, role?}]`. The COUNT is
+    what the pipeline reads: reel selection no longer requires two
+    voices, a one-speaker project is cut as a monologue, and a
+    declared-empty list (`[]`) is a zero-speaker project - music,
+    montage - where nothing spoken is selected. None means
+    undeclared, which reads as the historical two. Roles are free
+    strings the model weighs; no deterministic mapping reads them.
+
+    None and `[]` are different answers and round-trip as such: an
+    absent key means nobody said, an empty list means nobody speaks."""
+
+    def validate_source(self) -> list[str]:
+        """Refusals for the three intake declarations, by name."""
+        errors = []
+        if (not isinstance(self.language, str)
+                or not _LANGUAGE_RE.match(self.language.strip())):
+            errors.append(
+                "source.language must be a language code like `en` or "
+                f"`es`, got {self.language!r}.")
+        if self.shape not in ("", "speech", "music", "both",
+                              "picture-led"):
+            errors.append(
+                "source.shape must be one of speech, music, both or "
+                f"picture-led, got {self.shape!r}.")
+        if self.speakers is not None:
+            if not isinstance(self.speakers, list):
+                errors.append(
+                    "source.speakers must be a list of {name, role?} "
+                    f"entries, got {type(self.speakers).__name__}.")
+            else:
+                for i, entry in enumerate(self.speakers):
+                    if not isinstance(entry, dict):
+                        errors.append(
+                            f"source.speakers[{i}] must be a mapping "
+                            f"with a `name`, got "
+                            f"{type(entry).__name__}.")
+                        continue
+                    name = entry.get("name")
+                    if (not isinstance(name, str) or not name.strip()):
+                        errors.append(
+                            f"source.speakers[{i}] names no speaker: "
+                            f"each entry needs a non-empty string `name`.")
+                    role = entry.get("role")
+                    if role is not None and not isinstance(role, str):
+                        errors.append(
+                            f"source.speakers[{i}] carries role "
+                            f"{role!r}, which must be a string.")
+                    unknown = sorted(set(entry) - {"name", "role"})
+                    if unknown:
+                        errors.append(
+                            f"source.speakers[{i}] declares {unknown}, "
+                            f"which nothing reads. A speaker takes "
+                            f"`name` and an optional `role`.")
+        return errors
 
 
 @dataclass
@@ -280,6 +351,7 @@ class ProjectConfig:
             errors.append(
                 "source.measure_program_stream must be true or false, "
                 f"got {self.source.measure_program_stream!r}.")
+        errors.extend(self.source.validate_source())
         if self.pipeline.delivery_format:
             from library.tools.delivery_format import DELIVERY_FORMATS
             if self.pipeline.delivery_format not in DELIVERY_FORMATS:
@@ -398,21 +470,32 @@ class ProjectConfig:
                             f"each entry needs a non-empty string `name`.")
         return errors
 
-@dataclass
-class ProjectJsonConfig:
-    """Schema for project.json configuration."""
-    target_duration_seconds: int = 60
-    style_preset: str = "shortform_vertical"
-    subtitle_style: str = "word_by_word"
 
-    @classmethod
-    def from_dict(cls, data: dict) -> "ProjectJsonConfig":
-        return cls(
-            target_duration_seconds=data.get("target_duration_seconds", 60),
-            style_preset=data.get("style_preset", "shortform_vertical"),
-            subtitle_style=data.get("subtitle_style", "word_by_word"),
-        )
+def _parse_language(raw) -> object:
+    """`source.language` off YAML: normalised, never defaulted blind.
 
+    Missing means English. Anything else passes through as written -
+    normalised where it is a string - so `validate_source` refuses a
+    malformed declaration by name instead of this quietly repairing
+    it into English."""
+    if raw is None:
+        return "en"
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return raw
+
+
+def _parse_speakers(raw) -> object:
+    """`source.speakers` off YAML: None stays None, a list stays a list.
+
+    A non-list passes through untouched so `validate_source` refuses
+    it by name. `list("Bob")` would be `["B", "o", "b"]`, which is
+    exactly the silent repair this avoids."""
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [dict(e) if isinstance(e, dict) else e for e in raw]
+    return raw
 
 
 def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectConfig:
@@ -422,13 +505,14 @@ def _dict_to_project_config(data: dict, project_root: Path = None) -> ProjectCon
     resolve_data = data.get("resolve", {})
 
     source = SourceConfig(
-        type=source_data.get("type", "iphone_mov"),
-        resolution=source_data.get("resolution", "1080x1920"),
         fps=source_data.get("fps", 30),
         footage_root=source_data.get("footage_root", "") or "",
         program_stream=source_data.get("program_stream"),
         measure_program_stream=source_data.get(
             "measure_program_stream", False),
+        language=_parse_language(source_data.get("language")),
+        shape=(source_data.get("shape", "") or "").strip().lower(),
+        speakers=_parse_speakers(source_data.get("speakers")),
     )
 
     pipeline = PipelineConfig(
@@ -503,14 +587,26 @@ def project_config_to_dict(config: ProjectConfig) -> dict:
         "created": config.created,
         "status": config.status.value if isinstance(config.status, ProjectStatus) else config.status,
         "source": {
-            "type": config.source.type,
-            "resolution": config.source.resolution,
             "fps": config.source.fps,
             # Only when declared. An empty `footage_root:` in every
             # project.yaml would read as a decision nobody made, and
             # "" and "not declared" are the same answer here anyway.
             **({"footage_root": config.source.footage_root}
                if config.source.footage_root else {}),
+            # Only when non-default: every project before the setting
+            # transcribed English, so writing `language: en` everywhere
+            # would read as decisions nobody made.
+            **({"language": config.source.language}
+               if config.source.language != "en" else {}),
+            # Only when declared: "" is the historical speech-led
+            # shape, and writing it everywhere would claim an answer
+            # nobody gave.
+            **({"shape": config.source.shape}
+               if config.source.shape else {}),
+            # None OMITTED, [] WRITTEN: undeclared and declared-zero
+            # are different answers (see SourceConfig.speakers).
+            **({"speakers": [dict(s) for s in config.source.speakers]}
+               if config.source.speakers is not None else {}),
             # Only when declared: an undeclared program mix must stay
             # absent so downstream reads it as "nothing chosen", never
             # as channel 1.

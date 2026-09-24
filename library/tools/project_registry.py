@@ -219,24 +219,39 @@ def create_project(
     name: str,
     client: str = "",
     template: str = "",
-    source_type: str = "iphone_mov",
-    resolution: str = "1080x1920",
     fps: float = 30,
     resolve_project_name: str = "",
     resolve_folder: str = "",
     tags: list[str] = None,
     description: str = "",
     root: Path = None,
+    language: str = "en",
+    shape: str = "",
+    speakers: list | None = None,
+    brief_title: str = "",
+    brand_series: str = "",
 ) -> ProjectConfig:
     """Scaffold a new project directory with standard structure.
 
     Creates:
         <root>/[<client>/]<slug>/
             project.yaml
+            brand.json        # starter: declares nothing, loads clean
+            brief.md          # starter: intake answers as facts, the rest
+                              # as open questions - no invented taste
+            style.yaml        # starter: commented fields, nothing locked
+            video.yaml        # starter: commented fields, no overrides
             raw/
             pipeline_output/
             exports/
             ...
+
+    `language` is the `source.language` transcription code, `shape`
+    one of speech/music/both/picture-led (or "" for undeclared),
+    `speakers` the `source.speakers` roster ([{name, role?}], [] for
+    a declared-zero project, None for undeclared). Every one of them
+    is a project.yaml declaration the pipeline reads; the four files
+    are what the interview behind `manage_project.py new` fills in.
     """
     root = root or PROJECTS_ROOT
 
@@ -254,24 +269,24 @@ def create_project(
                 f"Use get_project('{slug}') to load it."
             )
 
-    # Create directory structure. The output side comes from the layout
-    # owner, which also writes README-LAYOUT.md so the folder explains
-    # itself; the input side is these three, empty and read-only to the
-    # pipeline.
-    project_dir.mkdir(parents=True, exist_ok=True)
-    for subdir in PROJECT_INPUT_DIRS:
-        (project_dir / subdir).mkdir(parents=True, exist_ok=True)
-    ProjectLayout(project_dir).ensure()
-
-    # Build config
+    # Build config first and validate BEFORE touching disk: a
+    # refusal must not leave an empty directory behind.
     config = ProjectConfig(
         name=name,
         slug=slug,
         client=client,
         created=time.strftime("%Y-%m-%d"),
         status=ProjectStatus.DRAFT,
-        source=SourceConfig(type=source_type, resolution=resolution, fps=fps),
-        pipeline=PipelineConfig(brand_template=template),
+        source=SourceConfig(
+            fps=fps,
+            language=(language or "en"),
+            shape=(shape or ""),
+            speakers=speakers,
+        ),
+        pipeline=PipelineConfig(
+            brand_template=template,
+            creative_brief="brief.md",
+        ),
         resolve=ResolveConfig(
             project_name=resolve_project_name or name,
             folder=resolve_folder or client,
@@ -281,8 +296,32 @@ def create_project(
     )
     config._project_root = project_dir
 
+    errors = config.validate()
+    if errors:
+        raise ValueError(
+            f"Refusing to scaffold {slug}: "
+            f"{'; '.join(errors)}")
+
+    # Create directory structure. The output side comes from the layout
+    # owner, which also writes README-LAYOUT.md so the folder explains
+    # itself; the input side is these three, empty and read-only to the
+    # pipeline.
+    project_dir.mkdir(parents=True, exist_ok=True)
+    for subdir in PROJECT_INPUT_DIRS:
+        (project_dir / subdir).mkdir(parents=True, exist_ok=True)
+    ProjectLayout(project_dir).ensure()
+
     # Write project.yaml
     _write_project_yaml(project_dir / "project.yaml", config)
+
+    # The four starters the interview fills in. Each loads clean and
+    # changes nothing until the project declares something in it.
+    _write_brand_starter(project_dir / "brand.json",
+                         brand_series or slug)
+    _write_brief_starter(project_dir / "brief.md", config,
+                         brief_title or name)
+    _write_style_starter(project_dir / "style.yaml")
+    _write_video_starter(project_dir / "video.yaml")
 
     return config
 
@@ -327,6 +366,137 @@ def _write_yaml_manual(f, data: dict, indent: int = 0) -> None:
                 f.write(f'{prefix}{key}: "{value}"\n')
             else:
                 f.write(f"{prefix}{key}: {value}\n")
+
+
+# ─── Intake starters ────────────────────────────────────────────
+#
+# What `manage_project.py new` scaffolds beside project.yaml. Each
+# file loads clean through its own reader and changes NOTHING until
+# the project declares something in it: a starter that silently
+# altered a run would be a decision nobody made.
+
+
+def _write_brand_starter(path: Path, series: str) -> None:
+    """A brand.json that declares nothing and loads clean.
+
+    The product ships no templates: the project's own brand.json IS
+    the declaration (library/tools/brand_registry.BRAND_JSON), so a
+    new project carries one with empty slots. Empty slots read as
+    absence everywhere - no look, no palette, no bookends - which is
+    exactly the no-brand run, stated in a file instead of inferred.
+    """
+    import json
+    path.write_text(json.dumps({
+        "series_id": series,
+        "delivery_format": "",
+        "style": {},
+        "effect": {},
+        "content": {},
+    }, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_style_starter(path: Path) -> None:
+    """A style.yaml with commented fields and nothing locked.
+
+    YAML has comments, so the starter documents the shape
+    (library/tools/video_prefs.VIDEO_PREF_FIELDS) without declaring
+    it: the loader merges to nothing and returns None, which is
+    today's behaviour exactly.
+    """
+    path.write_text(
+        "# Project-level video preferences (library/tools/video_prefs).\n"
+        "# Uncomment and set what this project wants locked for every\n"
+        "# video; list locked names under `locked:` and a per-video\n"
+        "# video.yaml can then override only what is not locked.\n"
+        "#\n"
+        "# style: calm\n"
+        "# delivery_format: vertical_1080x1920\n"
+        "# color_grade:\n"
+        "#   path: brand_assets/grade.drx\n"
+        "#   provenance: series colorist, 2026-09-24\n"
+        "# subtitle_style: word_by_word\n"
+        "# target_length_seconds: 60\n"
+        "# content_rules:\n"
+        "#   speakers_must_interact: [Craig, Akshita]\n"
+        "#   require_value_add: true\n"
+        "#   require_cta: true\n"
+        "locked: []\n",
+        encoding="utf-8")
+
+
+def _write_video_starter(path: Path) -> None:
+    """A video.yaml with commented fields and no overrides.
+
+    Same contract as the style starter: documents the per-video
+    layer (shared fields on top, `reels[R]` sections per reel)
+    without declaring any, so the loader merges to nothing.
+    """
+    path.write_text(
+        "# Per-video preferences (library/tools/video_prefs).\n"
+        "# Shared fields on top override style.yaml where the project\n"
+        "# left them unlocked; a `reels:` mapping keyed by reel lets\n"
+        "# two reels of one multi-reel project differ.\n"
+        "#\n"
+        "# target_length_seconds: 45\n"
+        "# content_rules:\n"
+        "#   require_cta: false\n"
+        "# reels:\n"
+        "#   3:\n"
+        "#     target_length_seconds: 90\n",
+        encoding="utf-8")
+
+
+def _write_brief_starter(path: Path, config: ProjectConfig,
+                         title: str) -> None:
+    """A brief.md seeded with the intake answers, and nothing else.
+
+    Facts the interview collected (shape, language, speakers) arrive
+    as facts. Everything else is an OPEN section - headings with no
+    claims under them - because inventing taste (a mood, a promise,
+    an audience) on the project's behalf is the one thing the
+    pipeline must never do (AGENTS.md 10.5). The run attaches this
+    file through `pipeline.creative_brief`; the open sections are
+    what the planning steps ask about.
+    """
+    source = config.source
+    if source.speakers is None:
+        speakers_line = "Undecided - who speaks in this footage is not declared yet."
+    elif not source.speakers:
+        speakers_line = "None - a project with no voices (music / montage)."
+    else:
+        speakers_line = ", ".join(
+            entry.get("name", "")
+            + (f" ({entry['role']})" if entry.get("role") else "")
+            for entry in source.speakers)
+    shape_line = (source.shape or
+                  "Undecided - speech, music, both or picture-led.")
+    lines = [
+        f"# {title}",
+        "",
+        "Creative brief. Facts first, then open questions - fill the",
+        "open sections before the run plans anything, or the planning",
+        "steps will ask about them.",
+        "",
+        "## Facts (from intake)",
+        "",
+        f"- Shape: {shape_line}",
+        f"- Language: {source.language}",
+        f"- Speakers: {speakers_line}",
+        "",
+        "## Audience",
+        "",
+        "Who is this for?",
+        "",
+        "## Promise",
+        "",
+        "What does the viewer get that they did not have before?",
+        "",
+        "## Close",
+        "",
+        "What should the viewer go and do after watching?",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
 
 
 def project_status(slug: str, root: Path = None) -> dict:

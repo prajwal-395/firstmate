@@ -216,7 +216,8 @@
       "from": "scan",
       "to": "catalog",
       "data_mapping": {
-        "raw_footage_files": "raw_footage_files"
+        "raw_footage_files": "raw_footage_files",
+        "raw_audio_files": "raw_audio_files"
       }
     },
     {
@@ -1016,6 +1017,13 @@
       "to": "render_motion_graphics",
       "data_mapping": {
         "project_fps": "project_fps"
+      }
+    },
+    {
+      "from": "catalog",
+      "to": "temporal_index",
+      "data_mapping": {
+        "audio_catalog": "audio_catalog"
       }
     }
   ],

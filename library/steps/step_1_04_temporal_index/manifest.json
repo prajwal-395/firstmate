@@ -11,6 +11,12 @@
         "type": "array",
         "required": true,
         "description": "State input: raw_footage_files"
+      },
+      {
+        "name": "audio_catalog",
+        "type": "array",
+        "required": false,
+        "description": "State input: audio_catalog - the catalog's audio-only entries in audio_001 numbering. Absent on runs whose catalog predates it; empty on video-only projects."
       }
     ],
     "outputs": [
@@ -43,7 +49,14 @@
         "name": "total_reused",
         "type": "int",
         "may_be_empty": true,
-        "description": "Clips whose per-clip index was reused from disk rather than re-transcribed. `may_be_empty` because ZERO IS THE CORRECT VALUE on a run that transcribed everything fresh - which is every first run, and was project 001's run of record. run_pipeline.validate_step_output treats any `total_*` output of 0 as semantically empty, so without this the honest answer was reported as a defect."
+        "description": "Clips whose per-clip index was reused from disk rather than re-transcribed. `may_be_empty` because ZERO IS THE CORRECT VALUE on any run that transcribed fresh - which is every first run, and was project 001's run of record. run_pipeline.validate_step_output treats any `total_*` output of 0 as semantically empty, so without this the honest answer was reported as a defect."
+      },
+      {
+        "name": "audio_indices",
+        "type": "array",
+        "description": "State output: audio_indices - one sound-only index per cataloged audio file (speech regions in the project's language, energy, onsets, events). Empty on video-only projects, which is the normal case. Read by the voiceover/music spine; until that lane lands, the per-audio files beside the video indices are the artifact.",
+        "may_be_empty": true,
+        "required": false
       }
     ]
   },

@@ -35,6 +35,12 @@
         "type": "boolean",
         "required": false,
         "description": "Direct input: measure the program mix off the footage, overriding any declaration. Absent in ordinary runs."
+      },
+      {
+        "name": "raw_audio_files",
+        "type": "array",
+        "required": false,
+        "description": "State input: raw_audio_files - scan's audio-only files in audio_001 numbering. Absent on runs whose scan predates it; empty on video-only projects."
       }
     ],
     "outputs": [
@@ -62,6 +68,13 @@
         "name": "source_resolution",
         "type": "array",
         "description": "Modal SOURCE resolution. Describes the footage; NOT the render target. The delivery format comes from library/tools/delivery_format.py."
+      },
+      {
+        "name": "audio_catalog",
+        "type": "array",
+        "description": "State output: audio_catalog - voiceover and music files in audio_001 numbering with duration, audio streams and the program-stream decision. No picture keys by contract. Empty on video-only projects, which is the normal case.",
+        "may_be_empty": true,
+        "required": false
       }
     ]
   },

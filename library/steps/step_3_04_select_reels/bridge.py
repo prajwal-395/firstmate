@@ -39,7 +39,52 @@ LEAD = "lead_speaker"
 ANSWERER = "answering_speaker"
 
 
-def _speakers(transcript: dict) -> tuple:
+def _declared_roster(data: dict):
+    """The project's declared speaker roster, or None.
+
+    `source.speakers` in project.yaml via `footage_identity` - None
+    means undeclared (the historical two-speaker reading), `[]` a
+    declared-zero project, else `[{name, role?}]`. Never fails the
+    step: an unreadable declaration reads as undeclared, the same
+    way video preferences do below.
+    """
+    project_folder = (data or {}).get("project_folder") or ""
+    if not project_folder:
+        return None
+    try:
+        from library.tools.footage_identity import declared_speakers
+        return declared_speakers(project_folder)
+    except Exception:  # noqa: BLE001 - roster never fails a build
+        return None
+
+
+def _roster_notes(declared, counts: Dict[str, int]) -> list:
+    """What the transcript says about the declared roster, as notes.
+
+    A transcript voice the roster does not name, and a declared name
+    that never speaks, are both REPORTED - the model weighs them, and
+    neither changes the count the thresholds read.
+    """
+    if not declared:
+        return []
+    notes = []
+    names = [entry["name"] for entry in declared]
+    for speaker in sorted(counts):
+        if speaker not in names:
+            notes.append(
+                f"{speaker} speaks in this cut but the project's "
+                f"declared roster names only {names} - weigh their "
+                f"lines as heard, not as a second voice the project "
+                f"asked for.")
+    silent = [name for name in names if name not in counts]
+    if silent:
+        notes.append(
+            f"declared speaker(s) {silent} never speak in this cut - "
+            f"no candidate can carry them.")
+    return notes
+
+
+def _speakers(transcript: dict, declared=None) -> tuple:
     from library.tools.reel_exchange import turns_from_transcript
 
     turns = turns_from_transcript(transcript)
@@ -53,6 +98,44 @@ def _speakers(transcript: dict) -> tuple:
         seconds[turn.speaker] = seconds.get(turn.speaker, 0.0) + turn.duration
         if turn.asks:
             asks[turn.speaker] = asks.get(turn.speaker, 0) + 1
+
+    if declared is not None and len(declared) == 0:
+        # A declared-zero project: music, montage. There is no lead
+        # to find and no second voice to miss - the caller offers no
+        # candidates and says so.
+        return None, None, turns, (
+            "the project declares no speakers, so no exchange can be "
+            "identified and none is looked for")
+
+    if declared is not None and len(declared) == 1:
+        # The monologue path: one declared voice, no answerer. The
+        # lead is the declared name where it speaks, else whoever the
+        # transcript holds - said, not smoothed over.
+        name = declared[0]["name"]
+        if not counts:
+            return None, None, turns, (
+                f"the project declares one speaker ({name}) but this "
+                f"cut holds no speech at all - nothing to cut a "
+                f"monologue from")
+        if name in counts:
+            lead = name
+            why = (f"{name} is the project's declared speaker"
+                   + (f" ({declared[0]['role']})"
+                      if declared[0].get("role") else "")
+                   + " - no exchange structure to infer.")
+        elif len(counts) == 1:
+            lead = next(iter(counts))
+            why = (f"the project declares {name} but this cut holds "
+                   f"{lead} - weighed as the monologue voice, and the "
+                   f"mismatch is reported.")
+        else:
+            lead = max(counts, key=lambda s: seconds[s])
+            why = (f"the project declares one speaker ({name}) but "
+                   f"this cut holds {sorted(counts)} - {lead} speaks "
+                   f"longest and is weighed as the monologue voice, "
+                   f"and the mismatch is reported.")
+        return lead, None, turns, why
+
     if len(counts) < 2:
         return None, None, turns, ""
 
@@ -69,6 +152,12 @@ def _speakers(transcript: dict) -> tuple:
            f"{ask_rate(answerer):.0%} for {answerer}, and speaks for "
            f"{mean_turn(lead):.0f}s a turn against {mean_turn(answerer):.0f}s. "
            f"Inferred, not declared - correct it if it is wrong.")
+    if declared:
+        roster = ", ".join(
+            entry["name"]
+            + (f" ({entry['role']})" if entry.get("role") else "")
+            for entry in declared)
+        why += f" Declared roster: {roster}."
     return lead, answerer, turns, why
 
 
@@ -287,21 +376,98 @@ def _publish_video_preferences(data: dict) -> dict:
 def build_context(data: dict) -> dict:
     from library.tools.reel_exchange import (
         LENGTH_GUIDANCE, collapse_overlapping, collapse_retakes,
-        exchange_windows)
+        exchange_windows, monologue_windows)
 
     transcript = data.get("timeline_transcript") or {}
-    lead, answerer, turns, why = _speakers(transcript)
-    if not lead or not answerer:
+    declared = _declared_roster(data)
+    lead, answerer, turns, why = _speakers(transcript, declared)
+    counts: Dict[str, int] = {}
+    for turn in turns:
+        if turn.speaker:
+            counts[turn.speaker] = counts.get(turn.speaker, 0) + 1
+    notes = _roster_notes(declared, counts)
+    turn_rows = [{
+        "speaker": t.speaker,
+        "start": round(t.start, 2),
+        "end": round(t.end, 2),
+    } for t in turns]
+
+    if declared is not None and len(declared) == 0:
+        # A declared-zero project: music, montage. No candidates are
+        # offered and none are looked for - an empty table with the
+        # reason, not a refusal.
         out = _publish_video_preferences(data)
+        undetermined = [why]
+        undetermined.extend(notes)
+        out.update({
+            "turns": turn_rows,
+            "reel_candidates": [],
+            "declared_speakers": [],
+            "undetermined": undetermined,
+        })
+        return out
+
+    if not lead:
+        out = _publish_video_preferences(data)
+        undetermined = ([why] if why else [
+            "the transcript names fewer than two speakers, so no "
+            "exchange can be identified - a reel is a conversation "
+            "and this step cannot invent a second voice"
+        ])
+        undetermined.extend(notes)
         out.update({
             "turns": [],
             "reel_candidates": [],
-            "undetermined": [
-                "the transcript names fewer than two speakers, so no "
-                "exchange can be identified - a reel is a conversation "
-                "and this step cannot invent a second voice"
-            ],
+            "undetermined": undetermined,
         })
+        if declared is not None:
+            out["declared_speakers"] = declared
+        return out
+
+    if answerer is None:
+        # The monologue path: one declared voice. Candidates are runs
+        # of that voice grown to length, measured with the same table
+        # minus the exchange structure. No ANSWERER key: there is no
+        # second voice, and a null one would read as a missing one.
+        windows = monologue_windows(turns, lead)
+        stretches = collapse_overlapping(windows)
+        grouped = collapse_retakes([group[0] for group in stretches])
+
+        candidates: List[dict] = []
+        for group in grouped:
+            for exchange in group:
+                candidates.append(exchange.measurements(lead=lead))
+        candidates.sort(key=lambda c: c["start"])
+        for candidate in candidates:
+            inside = repetition_inside(candidate["start"],
+                                       candidate["end"], transcript)
+            if inside:
+                candidate["repetition_inside"] = inside
+            retakes = retake_candidates_inside(
+                candidate["start"], candidate["end"], transcript)
+            if retakes:
+                candidate["retake_candidates"] = retakes
+            retold = retellings_inside(candidate["start"],
+                                       candidate["end"], transcript)
+            if retold:
+                candidate["possible_retellings"] = retold
+
+        out = _publish_video_preferences(data)
+        out.update({
+            "turns": turn_rows,
+            "reel_candidates": candidates,
+            "length_guidance_seconds": list(LENGTH_GUIDANCE),
+            "picture_holes": (transcript.get("derived_from") or {}).get(
+                "picture_holes") or [],
+            LEAD: lead,
+            "who_leads_was_inferred": why,
+            "declared_speakers": declared,
+        })
+        if notes:
+            out["undetermined"] = notes
+        from library.tools.display_respell import apply_post_pass
+        apply_post_pass(out, (data or {}).get("project_folder") or "",
+                        "select_reels bridge (reel_candidates)")
         return out
 
     windows = exchange_windows(turns, lead, answerer)
@@ -351,6 +517,10 @@ def build_context(data: dict) -> dict:
         ANSWERER: answerer,
         "who_leads_was_inferred": why,
     })
+    if declared is not None:
+        out["declared_speakers"] = declared
+    if notes:
+        out["undetermined"] = notes
     # Recorded spelling corrections, enforced on the regenerated
     # measurements (the 3.04 keep-exclusion precedent): a candidate
     # quoting speech the correction respelt carries the corrected

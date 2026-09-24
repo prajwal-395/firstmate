@@ -53,7 +53,8 @@
       {
         "name": "reel_candidates",
         "type": "array",
-        "description": "State output: reel_candidates. Built by bridge.py. One row per contiguous exchange stretch the measurements found - the shape of each candidate conversation the model chooses reels from."
+        "description": "State output: reel_candidates. Built by bridge.py. One row per contiguous exchange stretch the measurements found - the shape of each candidate conversation the model chooses reels from. Empty is the correct answer on a project declaring no speakers - nothing spoken is selected - and on a cut too short to hold a window; it is not a missing measurement.",
+        "may_be_empty": true
       },
       {
         "name": "turns",
@@ -96,7 +97,8 @@
       {
         "name": "answering_speaker",
         "type": "string",
-        "description": "Bridge output: the other voice - the speaker the lead is measured against. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+        "description": "Bridge output: the other voice - the speaker the lead is measured against. Absent on the monologue path: a one-speaker project has no second voice, and a null one would read as a missing one. Declared here because the bridge emits it on conversation runs and validate_step_output otherwise reports it as an unexpected extra field.",
+        "required": false
       },
       {
         "name": "who_leads_was_inferred",
@@ -107,7 +109,7 @@
         "name": "undetermined",
         "type": "array",
         "required": false,
-        "description": "Bridge output, degenerate path only: why no exchange can be identified - the transcript names fewer than two speakers, and a reel is a conversation. (A bridge key, not the could_not_determine demand signal in library/tools/undetermined.py.) Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
+        "description": "Bridge output: what the model needs told - why no exchange can be identified on the degenerate path (the transcript names fewer than two speakers, and a reel is a conversation), or where the transcript disagrees with the project's declared speaker roster on any other path. (A bridge key, not the could_not_determine demand signal in library/tools/undetermined.py.) Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
       },
       {
         "name": "reel_selection",
@@ -118,6 +120,12 @@
           "considered": "list",
           "undetermined": "list"
         }
+      },
+      {
+        "name": "declared_speakers",
+        "type": "array",
+        "required": false,
+        "description": "Bridge output, only when the project declares source.speakers: the roster ([{name, role?}]) the speaker-count thresholds read - monologue, zero, or conversation. [] is a declared-zero project, not an absence. Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
       }
     ],
     "llm_outputs": [
@@ -139,7 +147,8 @@
     "creative_brief",
     "creative_direction",
     "brand_constraints",
-    "video_preferences"
+    "video_preferences",
+    "declared_speakers"
   ],
   "classification": {
     "stage": "edit",

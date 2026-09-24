@@ -192,7 +192,8 @@ def test_rerun_one_clip_re_indexes_exactly_that_clip(project, monkeypatch):
 
     indexed = []
 
-    def fake_index_clip(video_path, clip_id, layout, whisper_model_size):
+    def fake_index_clip(video_path, clip_id, layout, whisper_model_size,
+                        language="en"):
         indexed.append(clip_id)
         return {
             "clip_id": clip_id,

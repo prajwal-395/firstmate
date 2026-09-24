@@ -55,6 +55,17 @@ SUPPORTED_VIDEO_EXTENSIONS = {
     ".mxf",
 }
 
+# Voiceover and music audio: the takes and beds a project brings that
+# carry no picture. Enumerated SEPARATELY from video (`enumerate_audio`
+# below), in their own `audio_001` numbering, for one reason: clip ids
+# are assigned centrally sorted by path, so admitting a voiceover wav
+# into the video numbering would RENUMBER every video clip after it
+# and orphan every cached per-clip analysis. A separate space means a
+# project can add narration without invalidating its footage.
+SUPPORTED_AUDIO_EXTENSIONS = {
+    ".mp3", ".wav", ".aif", ".aiff", ".m4a", ".flac",
+}
+
 # How much of each end of a file the digest covers.  Big enough that two
 # takes cannot collide on it, small enough that seventeen clips cost
 # milliseconds.
@@ -182,6 +193,68 @@ def measure_program_stream_flag(project_folder: str) -> bool:
         "measure_program_stream", False))
 
 
+def declared_language(project_folder: str) -> str:
+    """The language the project declares its footage speaks, or "en".
+
+    `source.language` in project.yaml. Undeclared, unreadable and
+    malformed all read as English: every project transcribed English
+    before the setting existed, and `ProjectConfig.validate` - not
+    this - is what tells the project its declaration is malformed.
+    """
+    raw = source_block(project_folder).get("language")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().lower()
+    return "en"
+
+
+def declared_speakers(project_folder: str) -> Optional[list]:
+    """Who the project declares speaks in its footage, or None.
+
+    `source.speakers` in project.yaml: None means undeclared (the
+    historical two-speaker reading), `[]` means declared-zero - a
+    project with no voices - and otherwise `[{name, role?}]`. Entries
+    with no usable name are dropped; a non-list reads as undeclared.
+    Malformed is not refused here: `ProjectConfig.validate` owns the
+    refusal, the same split `source_block` documents.
+    """
+    raw = source_block(project_folder).get("speakers")
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return None
+    out = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        clean = {"name": name.strip()}
+        role = entry.get("role")
+        if isinstance(role, str) and role.strip():
+            clean["role"] = role.strip()
+        out.append(clean)
+    return out
+
+
+def expected_speaker_count(project_folder: str = "",
+                           declaration=None) -> Optional[int]:
+    """How many speakers the project declares, or None when it doesn't.
+
+    The count is what reel selection, judging and verification read
+    instead of the bare constant 2: a declared one is a monologue, a
+    declared zero is music/montage. Callers default None to 2, which
+    is the historical reading and stays it for projects that declare
+    nothing. `declaration` is the already-read roster where the caller
+    has one; the project folder is read otherwise.
+    """
+    if declaration is None and project_folder:
+        declaration = declared_speakers(project_folder)
+    if declaration is None:
+        return None
+    return len(declaration)
+
+
 def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
     """Every video file under the project's footage root, with clip ids.
 
@@ -237,6 +310,57 @@ def enumerate_footage(project_folder: str) -> Tuple[List[dict], List[dict]]:
     return files, skipped
 
 
+def enumerate_audio(project_folder: str) -> Tuple[List[dict], List[dict]]:
+    """Every audio-only file under the project's footage root.
+
+    Voiceover takes and music beds: what the project brings that
+    carries no picture. Same root as video (`footage_root`), same
+    fingerprint mechanics, but a separate `audio_001` numbering - see
+    `SUPPORTED_AUDIO_EXTENSIONS` for why the spaces must not mix.
+
+    Returns `(raw_audio_files, skipped_files)`. Entries carry `path`,
+    `filename`, `extension`, `size_bytes` and `audio_id`, mirroring
+    `enumerate_footage` so the catalog and the identity check walk
+    both lists the same way.
+    """
+    raw_dir = footage_root(project_folder)
+    if not os.path.isdir(raw_dir):
+        raise FileNotFoundError(
+            f"Missing 'raw' subdirectory in project folder: {project_folder}"
+        )
+
+    files: List[dict] = []
+    skipped: List[dict] = []
+
+    for root, _dirs, names in os.walk(raw_dir):
+        for fname in sorted(names):
+            filepath = os.path.join(root, fname)
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in SUPPORTED_AUDIO_EXTENSIONS:
+                continue
+            if not os.access(filepath, os.R_OK):
+                skipped.append({"path": filepath,
+                                "reason": "permission denied"})
+                continue
+            size = os.path.getsize(filepath)
+            if size == 0:
+                skipped.append({"path": filepath,
+                                "reason": "zero-byte file (likely corrupt)"})
+                continue
+            files.append({
+                "path": os.path.abspath(filepath),
+                "filename": fname,
+                "extension": ext,
+                "size_bytes": size,
+            })
+
+    files.sort(key=lambda entry: entry["path"])
+    for i, entry in enumerate(files):
+        entry["audio_id"] = f"audio_{i + 1:03d}"
+
+    return files, skipped
+
+
 def fingerprints_for(raw_footage_files: List[dict]) -> Dict[str, dict]:
     """``{clip_id: {path, size_bytes, content_digest}}`` for a footage list.
 
@@ -247,7 +371,10 @@ def fingerprints_for(raw_footage_files: List[dict]) -> Dict[str, dict]:
     for i, entry in enumerate(raw_footage_files):
         if isinstance(entry, dict):
             path = entry.get("path", "")
-            clip_id = entry.get("clip_id") or f"clip_{i + 1:03d}"
+            # Audio entries carry `audio_id`, video entries `clip_id` -
+            # the two numbering spaces must not collide in one record.
+            clip_id = (entry.get("clip_id") or entry.get("audio_id")
+                       or f"clip_{i + 1:03d}")
         else:
             path = str(entry)
             clip_id = f"clip_{i + 1:03d}"

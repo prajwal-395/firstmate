@@ -371,31 +371,168 @@ def cmd_list(args):
     print(f"\n  {len(configs)} project(s) found")
 
 
+def _interview_new(args) -> dict:
+    """Ask the captain what a project needs, in the terminal.
+
+    Runs only on a TTY when an intake answer is missing and
+    `--non-interactive` was not passed, so the LLM driving `new`
+    end-to-end (pipes, flags) never blocks on a question. Every
+    answer has a non-interactive flag; the interview writes the same
+    values the flags would. An empty answer keeps the default, which
+    is always "undeclared" - never a guess dressed as one.
+    """
+    answers = {}
+
+    def ask(prompt: str, default: str = "") -> str:
+        suffix = f" [{default}]" if default else ""
+        try:
+            reply = input(f"    {prompt}{suffix}: ").strip()
+        except EOFError:
+            return default
+        return reply or default
+
+    if not args.shape:
+        print("    What is this video built from?")
+        print("      speech   - talk-led, like the podcast")
+        print("      music    - a music bed carries it")
+        print("      both     - speech and music interleaved or layered")
+        print("      picture-led - montage / music video, no speech needed")
+        shape = ask("Shape (speech/music/both/picture-led, blank=undecided)")
+        shape = shape.strip().lower()
+        if shape and shape not in ("speech", "music", "both",
+                                   "picture-led"):
+            print(f"    Not a shape - leaving undeclared.", file=sys.stderr)
+            shape = ""
+        answers["shape"] = shape
+
+    if not args.language:
+        answers["language"] = ask(
+            "Language spoken in the footage (BCP-47)", "en")
+
+    if not args.speaker and not args.no_speakers:
+        print("    Who speaks in this footage? One `Name` or `Name:role` "
+              "per line, blank line to finish, blank first line for "
+              "undecided.")
+        speakers = []
+        while True:
+            try:
+                line = input("    Speaker: ").strip()
+            except EOFError:
+                break
+            if not line:
+                break
+            name, _, role = line.partition(":")
+            name = name.strip()
+            if not name:
+                continue
+            entry = {"name": name}
+            if role.strip():
+                entry["role"] = role.strip()
+            speakers.append(entry)
+        answers["speakers"] = speakers
+        answers["speakers_undecided"] = not speakers
+
+    if not args.brief_title:
+        answers["brief_title"] = ask(
+            "Brief title (blank keeps the project name)")
+
+    if not args.brand_series:
+        answers["brand_series"] = ask(
+            "Brand series id for brand.json (blank keeps the slug)")
+
+    return answers
+
+
 def cmd_new(args):
-    """Create a new project."""
+    """Create a new project, interviewing for what flags don't say."""
+    # getattr throughout: namespaces built before these flags existed
+    # (and the fractional-fps regression test) carry no intake attrs.
+    shape = getattr(args, "shape", None)
+    language = getattr(args, "language", None)
+    cli_speakers = getattr(args, "speaker", None)
+    no_speakers = getattr(args, "no_speakers", False)
+    brief_title = getattr(args, "brief_title", None)
+    brand_series = getattr(args, "brand_series", None)
+    interactive = (sys.stdin.isatty()
+                   and not getattr(args, "non_interactive", False))
+    interviewed = {}
+    if interactive and (
+            not shape or not language
+            or (not cli_speakers and not no_speakers)
+            or not brief_title or not brand_series):
+        print(f"\n  New project: {args.slug} - a few questions "
+              f"(blank keeps the default):")
+        interviewed = _interview_new(args)
+
+    if no_speakers and cli_speakers:
+        print("  Error: --no-speakers and --speaker cannot be combined: "
+              "one declares zero voices, the other names them.",
+              file=sys.stderr)
+        sys.exit(2)
+
+    if no_speakers:
+        speakers = []
+    elif cli_speakers:
+        speakers = []
+        for raw in cli_speakers:
+            name, _, role = raw.partition(":")
+            name = name.strip()
+            if not name:
+                print(f"  Error: --speaker {raw!r} names nobody.",
+                      file=sys.stderr)
+                sys.exit(2)
+            entry = {"name": name}
+            if role.strip():
+                entry["role"] = role.strip()
+            speakers.append(entry)
+    elif interviewed.get("speakers_undecided"):
+        speakers = None
+    else:
+        speakers = interviewed.get("speakers")
+
     try:
         config = create_project(
             slug=args.slug,
             name=args.name or args.slug.replace("-", " ").title(),
             client=args.client or "",
             template=args.template or "",
-            source_type=args.source_type or "iphone_mov",
-            resolution=args.resolution or "1080x1920",
             fps=float(args.fps) if args.fps else 30,
             resolve_project_name=args.resolve_name or "",
             tags=args.tags.split(",") if args.tags else [],
             description=args.description or "",
+            language=(language
+                      or interviewed.get("language") or "en"),
+            shape=shape or interviewed.get("shape") or "",
+            speakers=speakers,
+            brief_title=(brief_title
+                         or interviewed.get("brief_title") or ""),
+            brand_series=(brand_series
+                          or interviewed.get("brand_series") or ""),
         )
         print(f"\n  ✓ Created project: {config.name}")
         print(f"    Slug:     {config.slug}")
         print(f"    Path:     {config.project_root}")
         print(f"    Resolve:  {config.resolve.project_name}")
         print(f"    Template: {config.pipeline.brand_template}")
+        print(f"    Language: {config.source.language}")
+        print(f"    Shape:    {config.source.shape or '(undecided)'}")
+        if config.source.speakers is None:
+            print(f"    Speakers: (undecided)")
+        elif not config.source.speakers:
+            print(f"    Speakers: none declared (music / montage)")
+        else:
+            print(f"    Speakers: "
+                  f"{', '.join(s.get('name', '') for s in config.source.speakers)}")
+        print(f"\n  Scaffolded: project.yaml, brand.json, brief.md, "
+              f"style.yaml, video.yaml")
         print(f"\n  Next steps:")
         print(f"    1. Copy raw footage to: {config.raw_dir}")
-        print(f"    2. Run pipeline: python3 manage_project.py run {config.slug}")
+        print(f"    2. Fill brief.md, then run pipeline: python3 manage_project.py run {config.slug}")
 
     except FileExistsError as e:
+        print(f"  Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
         print(f"  Error: {e}", file=sys.stderr)
         sys.exit(1)
 
@@ -1990,12 +2127,23 @@ def main():
     p_new.add_argument("--name", help="Human-readable project name")
     p_new.add_argument("--client", help="Client grouping (creates client/slug/ structure)")
     p_new.add_argument("--template", help="Brand template name the project's own brand.json carries (default: none)")
-    p_new.add_argument("--source-type", help="Source media type (default: iphone_mov)")
-    p_new.add_argument("--resolution", help="Resolution WxH (default: 1080x1920)")
     p_new.add_argument("--fps", help="Frame rate (default: 30)")
     p_new.add_argument("--resolve-name", help="DaVinci Resolve project name")
     p_new.add_argument("--tags", help="Comma-separated tags")
     p_new.add_argument("--description", help="Project description")
+    p_new.add_argument("--shape", choices=["speech", "music", "both", "picture-led"],
+                       help="What the video is built from (default: undecided)")
+    p_new.add_argument("--language", help="Language spoken in the footage, BCP-47 (default: en)")
+    p_new.add_argument("--speaker", action="append", default=[],
+                       help="A speaker as Name or Name:role; repeatable. "
+                            "Omitted means undecided; --no-speakers declares zero.")
+    p_new.add_argument("--no-speakers", action="store_true",
+                       help="Declare the project has no voices (music / montage)")
+    p_new.add_argument("--brief-title", help="Title line for the scaffolded brief.md (default: project name)")
+    p_new.add_argument("--brand-series", help="Series id for the scaffolded brand.json (default: slug)")
+    p_new.add_argument("--non-interactive", action="store_true",
+                       help="Never prompt; missing answers stay undeclared. "
+                            "Implied when stdin is not a terminal.")
     p_new.set_defaults(func=cmd_new)
 
     # status

@@ -1566,17 +1566,20 @@ def overlaps_picture_hole(moment: ReelMoment,
                 )
     return None
 
-def is_conversation(moment: ReelMoment, transcript: dict) -> Optional[str]:
-    """None if the moment is a conversation, else a reason string.
+def is_conversation(moment: ReelMoment, transcript: dict,
+                    min_speakers: int = 2) -> Optional[str]:
+    """None if the moment meets the project's speaker count, else a reason.
 
-    A single-speaker moment is a bad PICK, not an integrity failure.
-    validate_proposal raises on integrity; this returns a reason for
-    post_bridge to drop the moment and report it.
+    A single-speaker moment on a two-speaker project is a bad PICK, not
+    an integrity failure. validate_proposal raises on integrity; this
+    returns a reason for post_bridge to drop the moment and report it.
 
-    The captain, rejecting the first ten reels: 'its mostly just a
-    single person yapping and not really a convo'.  They classified
-    'both speakers with real turns' as the CHECKABLE half, explicitly
-    not taste.
+    `min_speakers` is the PROJECT's declared count (select_reels reads
+    it off `source.speakers`): 2 is the historical two-hander - the
+    captain, rejecting the first ten reels: 'its mostly just a single
+    person yapping and not really a convo' - 1 is a monologue, where
+    only a moment nobody speaks in fails, and 0 passes everything with
+    speech (validate_proposal still refuses an invented timecode).
     """
     bound = bound_segments(transcript)
     hits = _speech_within(bound, moment.timeline_start, moment.timeline_end)
@@ -1591,10 +1594,16 @@ def is_conversation(moment: ReelMoment, transcript: dict) -> Optional[str]:
         turn_by_speaker[speaker] = turn_by_speaker.get(speaker, 0.0) + dur
     real_speakers = [s for s, d in turn_by_speaker.items()
                      if d >= MIN_TURN_SECONDS]
-    if len(real_speakers) < 2:
+    if len(real_speakers) < min_speakers:
         found = ", ".join(f"{s} ({d:.1f}s)" for s, d in
                           sorted(turn_by_speaker.items(),
                                  key=lambda x: -x[1]))
+        if min_speakers <= 1:
+            return (
+                f"has no speaker with real turns "
+                f"(>= {MIN_TURN_SECONDS}s each): {found or 'none'}. "
+                f"A moment nobody speaks in is an invented timecode."
+            )
         return (
             f"has {len(real_speakers)} speaker(s) with real turns "
             f"(>= {MIN_TURN_SECONDS}s each): {found or 'none'}. "

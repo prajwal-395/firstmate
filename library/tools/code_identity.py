@@ -143,6 +143,17 @@ STEP_IMPLEMENTATION_DEPS = {
         "library/tools/segment_coverage.py",
     ),
     "step_1_04_temporal_index": (
+        # The project's declared transcription language: a fix here
+        # changes which language every cached index is heard in.
+        "library/tools/footage_identity.py",
+        # Imported by footage_identity: the declaration parsing behind
+        # the language and footage-root reads, so a schema fix changes
+        # what the step accepts.
+        "library/schemas/project_config.py",
+        # Imported by project_config: the subtitle_overlay_geometry /
+        # subtitle_overlay_container vocabularies the declaration
+        # parsing validates against (same chain as the scan entry).
+        "library/tools/overlay_mode.py",
         # Face measurement feeding the per-clip index.
         "library/tools/subject_framing.py",
         # Span extraction feeding region re-measurement.

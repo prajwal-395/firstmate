@@ -98,6 +98,21 @@ def resolve(llm_output: dict, data: dict) -> dict:
             keep_exclusions = _tc.keep_exclusions(project_folder)
         except Exception:  # noqa: BLE001 - exclusions never break selection
             keep_exclusions = []
+    # How many voices a moment must hold: the project's declared
+    # speaker count, else the historical two. A monologue project (1)
+    # keeps any moment somebody speaks in; a declared-zero project (0)
+    # keeps everything with speech - `validate_proposal` still refuses
+    # an invented timecode below.
+    min_speakers = 2
+    if project_folder:
+        try:
+            from library.tools.footage_identity import (
+                expected_speaker_count)
+            declared_count = expected_speaker_count(project_folder)
+            if declared_count is not None:
+                min_speakers = declared_count
+        except Exception:  # noqa: BLE001 - the roster never breaks selection
+            pass
     chosen = (
         llm_output.get("moments")
         or llm_output.get("reels")
@@ -159,7 +174,8 @@ def resolve(llm_output: dict, data: dict) -> dict:
         if hole_reason:
             dropped.append({"entry": entry, "reason": hole_reason})
             continue
-        not_convo = is_conversation(enriched, transcript)
+        not_convo = is_conversation(enriched, transcript,
+                                      min_speakers=min_speakers)
         if not_convo:
             dropped.append({"entry": entry, "reason": not_convo})
             continue

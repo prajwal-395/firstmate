@@ -180,12 +180,18 @@ def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
 
 # ── 2. Speech region detection (WhisperX: faster-whisper + wav2vec2) ──
 
-def _get_whisperx_models(model_size: str = "large-v3"):
+def _get_whisperx_models(model_size: str = "large-v3",
+                         language: str = "en"):
     """Load WhisperX transcription + alignment models using model_lifecycle.
 
     Transcription uses CTranslate2 (CPU-only on macOS).
     Alignment uses wav2vec2 via PyTorch — uses MPS on Apple Silicon
     for GPU acceleration, falls back to CPU.
+
+    `language` is the project's `source.language`, NOT a constant:
+    the alignment model is per-language and transcription is forced
+    to it. An undeclared language reads as English, which is what
+    every project transcribed before the setting existed.
     """
     try:
         import torchaudio
@@ -210,7 +216,7 @@ def _get_whisperx_models(model_size: str = "large-v3"):
             device = "cpu"
             print("  Loading wav2vec2 alignment model (cpu)...", file=sys.stderr)
             
-        model, metadata = whisperx.load_align_model(language_code="en", device=device)
+        model, metadata = whisperx.load_align_model(language_code=language, device=device)
         return (model, metadata, device)
 
     transcribe_model = load_model("whisperx_transcribe", _load_transcribe)
@@ -290,6 +296,7 @@ def detect_speech_regions(
     output_dir: str,
     onsets: list = None,
     whisper_model_size: str = "large-v3",
+    language: str = "en",
 ) -> list:
     """Detect speech regions using WhisperX with forced alignment.
 
@@ -324,12 +331,12 @@ def detect_speech_regions(
         import whisperx
 
         trans_model, align_model, align_metadata, align_device = \
-            _get_whisperx_models(whisper_model_size)
+            _get_whisperx_models(whisper_model_size, language)
 
         # Pass 1: Transcribe with faster-whisper (batched)
         audio = whisperx.load_audio(audio_path)
         result = trans_model.transcribe(
-            audio, batch_size=4, language="en",
+            audio, batch_size=4, language=language,
         )
 
         # Guard: clips with no speech (ambient, B-roll, silence)
@@ -1676,6 +1683,7 @@ def index_clip(
     clip_id: str,
     layout: ProjectLayout,
     whisper_model_size: str = "large-v3",
+    language: str = "en",
 ) -> dict:
     """
     Build temporal event index for a single clip.
@@ -1722,6 +1730,7 @@ def index_clip(
         audio_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
         onsets=onsets,
         whisper_model_size=whisper_model_size,
+        language=language,
     )
     speech_dur = sum(r["end"] - r["start"] for r in speech)
     word_count = sum(len(r.get("words", [])) for r in speech)
@@ -1809,6 +1818,11 @@ def index_clip(
         "clip_id": clip_id,
         "source_file": video_path,
         "duration": round(duration, 3),
+        # What language this clip was transcribed in. A cached index
+        # in another language is STALE (see `_load_cached_index`) -
+        # without this the reuse below would serve English words for
+        # a project that now declares Spanish.
+        "transcription_language": language,
 
         # ── Original signal outputs ──────────────────────────────────
         "scene_boundaries": scenes,
@@ -1846,12 +1860,19 @@ def index_clip(
     }
 
 
-def _load_cached_index(index_path: str):
+def _load_cached_index(index_path: str, expected_language=None,
+                       require_picture: bool = True):
     """An existing per-clip index, or None if there is nothing usable.
 
     A truncated or corrupt file reads as "no cache" and is recomputed - a
     half-written index is worse than none, because every downstream
     creative decision is made against it.
+
+    A cache in another LANGUAGE reads as no cache too: the words on
+    disk are in the wrong language for this run. Index documents
+    written before `transcription_language` existed read as English,
+    which is what every one of them was. Pass None to skip the check
+    (callers that do not transcribe).
     """
     if not os.path.isfile(index_path) or os.path.getsize(index_path) == 0:
         return None
@@ -1864,18 +1885,178 @@ def _load_cached_index(index_path: str):
         return None
     required = ("scene_boundaries", "speech_regions", "energy_curve",
                 "audio_events", "motion_energy")
+    if not require_picture:
+        # Audio-only indices carry no picture measurements (see
+        # `index_audio_clip`) - requiring them would re-index every
+        # voiceover and bed on every run.
+        required = ("speech_regions", "energy_curve", "audio_events")
     missing = [k for k in required if k not in index]
     if missing:
         print(f"  WARNING: index {index_path} is missing {missing}; "
               f"re-indexing", file=sys.stderr)
         return None
+    if expected_language is not None:
+        cached_language = (index.get("transcription_language") or "en")
+        if cached_language != expected_language:
+            print(f"  WARNING: index {index_path} was transcribed as "
+                  f"{cached_language}, this run wants "
+                  f"{expected_language}; re-indexing", file=sys.stderr)
+            return None
     return index
+
+
+def index_audio_clip(
+    audio_path: str,
+    audio_id: str,
+    layout: ProjectLayout,
+    whisper_model_size: str = "large-v3",
+    language: str = "en",
+) -> dict:
+    """The temporal index of a voiceover take or music bed: SOUND only.
+
+    No scene detection, motion, flow, faces or colour - there is no
+    picture to measure. What travels is what an audio file has:
+    speech regions (a voiceover transcribed in the project's
+    language; a music bed transcribes to nothing, which is the
+    correct answer), the energy curve, onsets, audio events and the
+    derived word timings. The document is cached beside the video
+    indices under its own `audio_001` name.
+    """
+    print(f"\n  Indexing {audio_id}: {Path(audio_path).name}",
+          file=sys.stderr)
+    t0 = time.time()
+
+    duration = get_duration(audio_path)
+    print(f"    Duration: {duration:.1f}s", file=sys.stderr)
+
+    cache_dir = str(layout.write_dir(Area.AUDIO_CACHE,
+                                     step="temporal_index"))
+    wav_path = extract_audio_16k(audio_path, cache_dir, clip_id=audio_id)
+
+    print("    [1/5] Energy curve (30Hz)...", file=sys.stderr)
+    energy = compute_energy_curve(wav_path)
+
+    print("    [2/5] Onset detection...", file=sys.stderr)
+    onsets = detect_onsets(wav_path)
+
+    print("    [3/5] Speech detection (WhisperX + wav2vec2)...",
+          file=sys.stderr)
+    speech = detect_speech_regions(
+        wav_path, str(layout.read_dir(Area.OUTPUT_ROOT)),
+        onsets=onsets,
+        whisper_model_size=whisper_model_size,
+        language=language,
+    )
+    speech_dur = sum(r["end"] - r["start"] for r in speech)
+    word_count = sum(len(r.get("words", [])) for r in speech)
+    print(
+        f"           {len(speech)} regions, {speech_dur:.1f}s speech, "
+        f"{word_count} words (wav2vec2 aligned)",
+        file=sys.stderr,
+    )
+
+    print("    [4/5] Audio events...", file=sys.stderr)
+    audio_events = classify_audio_events(wav_path, speech_regions=speech)
+
+    print("    [5/5] Word end times...", file=sys.stderr)
+    word_ends = extract_word_end_times(speech)
+
+    speech_activity = derive_speech_activity_curve(speech, duration)
+
+    elapsed = time.time() - t0
+    print(f"    Done ({elapsed:.1f}s)", file=sys.stderr)
+
+    return {
+        "audio_id": audio_id,
+        "source_file": audio_path,
+        "duration": round(duration, 3),
+        "transcription_language": language,
+        "speech_regions": speech,
+        "energy_curve": energy,
+        "audio_events": audio_events,
+        "onset_times": onsets,
+        "word_end_times": word_ends,
+        "speech_activity": speech_activity,
+    }
+
+
+def _index_audio_files(
+    audio_catalog: list,
+    layout: ProjectLayout,
+    whisper_model_size: str = "large-v3",
+    language: str = "en",
+) -> list:
+    """Index every cataloged audio file, reusing whatever is on disk.
+
+    One JSON file per audio id in the TEMPORAL_INDEX area, the same
+    cache contract as video (`_load_cached_index`, including the
+    language check). A file that fails to index is an error ENTRY,
+    not an exception: one corrupt bed must not fail the step.
+    """
+    index_dir = str(layout.write_dir(Area.TEMPORAL_INDEX,
+                                     step="temporal_index"))
+    out = []
+    total = len(audio_catalog)
+    for i, entry in enumerate(audio_catalog):
+        if isinstance(entry, dict):
+            filepath = entry.get("path", "")
+            filename = entry.get("filename", Path(filepath).name
+                                 if filepath else "")
+            audio_id = entry.get("audio_id") or f"audio_{i + 1:03d}"
+        else:
+            filepath = str(entry)
+            filename = Path(filepath).name
+            audio_id = f"audio_{i + 1:03d}"
+
+        print(f"\n[{i + 1}/{total}] {filename}", file=sys.stderr)
+
+        if not filepath or not os.path.isfile(filepath):
+            print("  WARNING: file not found, skipping", file=sys.stderr)
+            continue
+
+        index_path = os.path.join(index_dir, f"{audio_id}.json")
+        try:
+            index = _load_cached_index(
+                index_path, expected_language=language,
+                require_picture=False)
+            if index is None:
+                index = index_audio_clip(
+                    filepath, audio_id, layout, whisper_model_size,
+                    language=language)
+                with open(index_path, "w", encoding="utf-8") as f:
+                    json.dump(index, f, indent=2)
+            else:
+                print(f"  reusing {os.path.basename(index_path)}",
+                      file=sys.stderr)
+            out.append({
+                "audio_id": audio_id,
+                "index_path": index_path,
+                "speech_regions": index["speech_regions"],
+                "speech_duration": round(
+                    sum(r["end"] - r["start"]
+                        for r in index["speech_regions"]),
+                    2,
+                ),
+                "total_words": sum(
+                    len(r.get("words", []))
+                    for r in index["speech_regions"]
+                ),
+                "energy_peaks": len(index["energy_curve"]["peak_times"]),
+                "audio_events": len(index["audio_events"]),
+            })
+        except Exception as e:
+            print(f"  ERROR: indexing failed for {filename}: {e}",
+                  file=sys.stderr)
+            out.append({"audio_id": audio_id, "error": str(e)})
+    return out
 
 
 def build_temporal_index(
     raw_footage_files: list,
     layout: ProjectLayout,
     whisper_model_size: str = "large-v3",
+    language: str = "en",
+    audio_catalog: list = None,
 ) -> dict:
     """
     Build temporal event index for all clips.
@@ -1925,14 +2106,15 @@ def build_temporal_index(
         index_path = os.path.join(index_dir, f"{clip_id}.json")
 
         try:
-            index = _load_cached_index(index_path)
+            index = _load_cached_index(index_path, expected_language=language)
             if index is not None:
                 reused += 1
                 print(f"  reusing {os.path.basename(index_path)}",
                       file=sys.stderr)
             else:
                 index = index_clip(
-                    filepath, clip_id, layout, whisper_model_size
+                    filepath, clip_id, layout, whisper_model_size,
+                    language=language,
                 )
                 # Write per-clip JSON
                 with open(index_path, "w", encoding="utf-8") as f:
@@ -1976,6 +2158,9 @@ def build_temporal_index(
         "total_failed": sum(1 for r in results if "error" in r),
         "total_reused": reused,
         "index_dir": index_dir,
+        "audio_indices": _index_audio_files(
+            audio_catalog or [], layout, whisper_model_size,
+            language=language),
     }
 
 
@@ -2138,19 +2323,31 @@ def main():
     layout = ProjectLayout(
         project_folder or str(Path(args.output_dir).resolve().parent))
 
+    # The language this footage speaks. The project's `source.language`
+    # (library/tools/footage_identity.declared_language); undeclared
+    # reads as English, which is what every project transcribed before
+    # the setting existed.
+    from library.tools.footage_identity import declared_language
+    language = declared_language(
+        project_folder or str(Path(args.output_dir).resolve().parent))
+
     # ── Index, reusing whatever is already on disk ──
     result = build_temporal_index(
-        raw_files, layout, args.whisper_model
+        raw_files, layout, args.whisper_model,
+        language=language,
+        audio_catalog=input_data.get("audio_catalog"),
     )
     result["source"] = "cache" if result["total_reused"] == len(raw_files) else "fresh"
 
     # Summary
+    audio_done = len(result.get("audio_indices") or [])
     print(
         f"\n{'=' * 50}\n"
-        f"Temporal Event Index Complete\n"
+        f"Temporal Event Index Complete ({language})\n"
         f"  Indexed: {result['total_indexed']} clips\n"
         f"  Reused:  {result['total_reused']} clips\n"
         f"  Failed:  {result['total_failed']} clips\n"
+        f"  Audio indexed: {audio_done} file(s)\n"
         f"  Output:  {result['index_dir']}\n"
         f"{'=' * 50}",
         file=sys.stderr,
@@ -2185,7 +2382,8 @@ if __name__ == "__main__":
 def reindex_region(project_folder: str, clip_id: str, source_file: str,
                    source_start: float, source_end: float,
                    whisper_model_size: str = "large-v3",
-                   pad_seconds: float = 0.5) -> list:
+                   pad_seconds: float = 0.5,
+                   language: str = None) -> list:
     """Re-measure the speech in ONE span of one clip.
 
     Returns `speech_regions` in the CLIP'S OWN source seconds, not the
@@ -2209,6 +2407,12 @@ def reindex_region(project_folder: str, clip_id: str, source_file: str,
     layout = ProjectLayout(project_folder)
     cache_dir = Path(layout.write_dir(Area.AUDIO_CACHE, step="temporal_index"))
 
+    if language is None:
+        # The project's own declaration, else English - the same
+        # resolution `main()` applies to whole clips.
+        from library.tools.footage_identity import declared_language
+        language = declared_language(project_folder)
+
     padded_start = max(0.0, source_start - pad_seconds)
     padded_end = source_end + pad_seconds
     span_wav = extract_span(source_file, padded_start, padded_end, cache_dir)
@@ -2216,7 +2420,7 @@ def reindex_region(project_folder: str, clip_id: str, source_file: str,
     with tempfile.TemporaryDirectory() as scratch:
         measured = detect_speech_regions(
             audio_path=str(span_wav), output_dir=scratch, onsets=[],
-            whisper_model_size=whisper_model_size)
+            whisper_model_size=whisper_model_size, language=language)
 
     # Back onto the clip's clock, then bounded to what was ASKED for.
     regions = []

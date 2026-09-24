@@ -24,7 +24,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from library.tools.footage_identity import (
+    SUPPORTED_AUDIO_EXTENSIONS,
     SUPPORTED_VIDEO_EXTENSIONS,
+    enumerate_audio,
     enumerate_footage,
 )
 from library.tools.project_layout import ProjectLayout
@@ -57,6 +59,14 @@ def scan_project_folder(project_folder: str) -> dict:
     raw_footage_files, skipped_files = enumerate_footage(project_folder)
 
     for entry in skipped_files:
+        print(f"WARNING: Skipping file ({entry['reason']}): {entry['path']}",
+              file=sys.stderr)
+
+    # Voiceover and music audio, in their own numbering - see
+    # `SUPPORTED_AUDIO_EXTENSIONS`. Absent on video-only projects,
+    # which is the normal case and not an error.
+    raw_audio_files, skipped_audio = enumerate_audio(project_folder)
+    for entry in skipped_audio:
         print(f"WARNING: Skipping file ({entry['reason']}): {entry['path']}",
               file=sys.stderr)
 
@@ -96,6 +106,7 @@ def scan_project_folder(project_folder: str) -> dict:
     return {
         "raw_footage_files": raw_footage_files,
         "total_files": len(raw_footage_files),
+        "raw_audio_files": raw_audio_files,
         "skipped_files": skipped_files,
         "project_config": project_config,
     }

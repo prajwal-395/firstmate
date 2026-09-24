@@ -4083,8 +4083,16 @@ def check_plan_length(reel_name: str,
 def check_plan_speakers(reel_name: str,
                         placements: Sequence[PlannedPlacement],
                         min_speaker_seconds: float = 2.0,
+                        expected_speakers: int = 2,
                         ) -> List[Finding]:
-    """Plan quality: both speakers present with real turns."""
+    """Plan quality: the project's speakers present with real turns.
+
+    `expected_speakers` is the PROJECT's declared count (2 when it
+    declares none): a monologue project warns only when NOBODY speaks,
+    and a declared-zero project never warns on voices - the count is
+    what the project said it would bring, not a floor every reel must
+    clear twice over.
+    """
     findings: List[Finding] = []
     by_speaker: Dict[str, float] = {}
     for p in placements:
@@ -4096,19 +4104,21 @@ def check_plan_speakers(reel_name: str,
         s for s, dur in by_speaker.items()
         if dur >= min_speaker_seconds
     ]
-    if len(speakers_with_real_turns) < 2:
+    if len(speakers_with_real_turns) < expected_speakers:
         findings.append(Finding(
             finding_class=FindingClass.PQ_SPEAKERS,
             reel=reel_name,
             message=(
                 f"only {len(speakers_with_real_turns)} speaker(s) with "
-                f">= {min_speaker_seconds}s of real turns: "
+                f">= {min_speaker_seconds}s of real turns against "
+                f"{expected_speakers} declared: "
                 f"{by_speaker}"),
             severity="warning",
             detail={
                 "speakers": dict(by_speaker),
                 "speakers_with_real_turns": speakers_with_real_turns,
                 "minimum_seconds": min_speaker_seconds,
+                "expected_speakers": expected_speakers,
             },
         ))
     return findings
@@ -4936,6 +4946,7 @@ def verify_reel(plan: ReelPlan,
                  expected_frame: Optional[Tuple[int, int]] = None,
                  draw_gain: float = None,
                  word_coverage: Optional[dict] = None,
+                 expected_speakers: Optional[int] = None,
                  ) -> ReelResult:
     from library.tools.resolve_transform import FALLBACK_DRAW_GAIN
     if draw_gain is None:
@@ -5249,7 +5260,10 @@ def verify_reel(plan: ReelPlan,
 
     # Plan quality gates
     findings.extend(check_plan_length(plan.reel_name, plan.plan_seconds))
-    findings.extend(check_plan_speakers(plan.reel_name, plan.placements))
+    findings.extend(check_plan_speakers(
+        plan.reel_name, plan.placements,
+        expected_speakers=(expected_speakers
+                           if expected_speakers is not None else 2)))
     if master_holes is not None:
         # `master_video_items` is what this check MEASURES, and until
         # 2026-09-06 no caller passed it - `check_plan_picture_continuity`
@@ -6797,6 +6811,23 @@ def run_verification(
         print(f"Declared framing_intent: {declared_intent} "
               f"(crop factor {declared_crop_factor})", file=err)
 
+    # How many voices the project declares: the speaker-count gates
+    # read this instead of the bare constant 2. Undeclared reads as
+    # None and every gate defaults to 2 - the historical reading.
+    # Read ONCE: the roster cannot differ between reels of one run.
+    declared_speaker_count = None
+    if project_folder:
+        try:
+            from library.tools.footage_identity import (
+                expected_speaker_count)
+            declared_speaker_count = expected_speaker_count(
+                project_folder)
+        except Exception as exc:  # noqa: BLE001 - derivation, never a gate
+            print(f"Speaker roster: unreadable ({exc}) - grading "
+                  f"against two voices.", file=err)
+    if declared_speaker_count is not None:
+        print(f"Declared speakers: {declared_speaker_count}", file=err)
+
     # ── F25's reading position: the rendered props artefacts ─────────
     #
     # The captioned words come from the `<stem>_props.json` artefacts
@@ -6920,7 +6951,8 @@ def run_verification(
                     lower_third_plans, name),
                 expected_frame=expected_frame,
                 draw_gain=draw_gain,
-                word_coverage=word_coverage)
+                word_coverage=word_coverage,
+                expected_speakers=declared_speaker_count)
 
         for tl in reel_timelines:
             name = tl.GetName()

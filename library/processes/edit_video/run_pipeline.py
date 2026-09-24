@@ -866,8 +866,7 @@ def apply_rerun_requests(project_dir: str, state: dict, targets: list,
 
     current = {}
     try:
-        files, _skipped = footage_identity.enumerate_footage(project_dir)
-        current = footage_identity.fingerprints_for(files)
+        current = _current_source_fingerprints(project_dir)
     except (OSError, FileNotFoundError):
         pass
     recorded = state.get(step_ledger.SOURCE_FINGERPRINTS_KEY, {})
@@ -951,6 +950,25 @@ def apply_rerun_requests(project_dir: str, state: dict, targets: list,
     return applied
 
 
+def _current_source_fingerprints(project_dir: str) -> dict:
+    """Video AND audio fingerprints, in their own id spaces.
+
+    The identity check guards cached per-clip work, and audio files
+    have per-audio indices now - a re-recorded voiceover must
+    invalidate them the same way new footage does. `audio_001` ids
+    cannot collide with `clip_001` ones, so one record holds both.
+    """
+    files, _skipped = footage_identity.enumerate_footage(project_dir)
+    current = footage_identity.fingerprints_for(files)
+    try:
+        audio_files, _audio_skipped = footage_identity.enumerate_audio(
+            project_dir)
+    except (OSError, FileNotFoundError):
+        return current
+    current.update(footage_identity.fingerprints_for(audio_files))
+    return current
+
+
 def apply_source_identity(project_dir: str, state: dict, stage_by_node: dict,
                           manifests: dict):
     """Invalidate cached preflight work whose source footage has changed.
@@ -966,12 +984,11 @@ def apply_source_identity(project_dir: str, state: dict, stage_by_node: dict,
     its keep from the second run onward.
     """
     try:
-        files, _skipped = footage_identity.enumerate_footage(project_dir)
+        current = _current_source_fingerprints(project_dir)
     except (OSError, FileNotFoundError):
         # No raw/ yet, or unreadable. `scan` will fail with a real message.
         return None
 
-    current = footage_identity.fingerprints_for(files)
     recorded = state.get(step_ledger.SOURCE_FINGERPRINTS_KEY)
     if not recorded:
         state[step_ledger.SOURCE_FINGERPRINTS_KEY] = current

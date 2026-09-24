@@ -215,6 +215,8 @@ MEASURED_OUTPUTS = {
     # measurement and prose-vs-prose reads as CONTRADICTED.
     "semantic_analysis_documents": "1.03 - the vision pass's per-window scene, camera, action and assessment measurements (MIXED with VLM prose - see VISION_PROSE_PATHS)",
     "temporal_event_indices": "1.04 - the same index, per clip, as the event view",
+    "audio_catalog": "1.02 - measured duration and audio streams per audio-only file (voiceover / music)",
+    "audio_indices": "1.04 - the same sound index, per audio file, as the speech/energy view",
     "prosody_analysis": "1.05 - parselmouth pitch contour, speaking rate, voice quality and intensity",
     "object_segmentation": "1.06 - SAM 2 subject masks (unwired; nothing consumes them)",
     "ocr_extraction": "1.07 - on-screen text read off the frames",
@@ -341,6 +343,7 @@ DECLINED_OUTPUTS = {
     "sfx_library_status": "0.01 validates a SHARED library, not this project's material",
     "project_config": "1.01 - the project's own declarations, not a measurement of anything",
     "raw_footage_files": "1.01 - a listing of what is on disk",
+    "raw_audio_files": "1.01 - a listing of audio-only files on disk",
     "skipped_files": "1.01/1.02 - a listing of what was not read",
     "total_files": "1.01 - a count of a listing",
     "total_clips": "1.02 - a count of a listing",

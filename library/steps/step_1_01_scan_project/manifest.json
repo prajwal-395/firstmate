@@ -25,6 +25,13 @@
         "description": "State output: raw_footage_files"
       },
       {
+        "name": "raw_audio_files",
+        "type": "array",
+        "description": "State output: raw_audio_files - voiceover and music audio in audio_001 numbering (library/tools/footage_identity.enumerate_audio). Empty on video-only projects, which is the normal case.",
+        "may_be_empty": true,
+        "required": false
+      },
+      {
         "name": "skipped_files",
         "type": "array",
         "description": "State output: skipped_files"
