@@ -196,16 +196,36 @@ an ending the engine made up.
  to tune and no second slope to get wrong, for the same reason beat 5
  is one gesture.
 
- What is measured, as numbers: :func:`text_contrast_report` reads the
- type's separation from the ground at its worst full-presence frame
- against :data:`TEXT_CONTRAST_FLOOR`, and :func:`describe` reports how
- long the type stands at full legibility against
- :data:`READ_TIME_FLOOR_SECONDS` and how long the full lockup - mark
- complete AND type full - holds. Both are REPORTED, not gated, the
- same way :func:`separation_report` reports against
- :data:`SEPARATION_FLOOR`: the captain judges the render, and the
- numbers are what he judges it with.
- """
+  What is measured, as numbers: :func:`text_contrast_report` reads the
+  type's separation from the ground at its worst full-presence frame
+  against :data:`TEXT_CONTRAST_FLOOR`, and :func:`describe` reports how
+  long the type stands at full legibility against
+  :data:`READ_TIME_FLOOR_SECONDS` and how long the full lockup - mark
+  complete AND type full - holds. Both are REPORTED, not gated, the
+  same way :func:`separation_report` reports against
+  :data:`SEPARATION_FLOOR`: the captain judges the render, and the
+  numbers are what he judges it with.
+
+  The animated variant
+  --------------------
+  The captain, 2026-09-24: the two bottom lines should animate in and
+  out rather than sit static. Same 72 frames, same mark, same flash,
+  same navy, same fade to black, same colours, font and copy - the
+  lines' entrance and exit are the ONLY difference, and a
+  ``closing_lockup`` declaring no ``motion`` renders the static
+  version pixel for pixel, so both stay reproducible from one module.
+
+  The motion is declared data on the lockup
+  (:class:`ClosingTextMotion`, read by
+  :func:`motion_from_declaration`): which gesture (``style``), each
+  line's entrance window, the shared exit window, and how far a line
+  travels below its seat arriving and leaving. The engine interprets
+  it - per-frame presence and travel (:func:`text_motion_state`),
+  drawn through the same rasterizer as the static layer - and refuses
+  a half-declared or out-of-range motion rather than completing or
+  clipping one. Full legibility (:func:`text_full_frames`) is the
+  envelope's own numbers then, not beat 5's.
+  """
 from __future__ import annotations
 
 import argparse
@@ -442,6 +462,39 @@ class SourceNotClosed(ValueError):
 
 
 @dataclass(frozen=True)
+class ClosingTextMotion:
+    """How the two lines arrive and leave, as declared data.
+
+    All fields are REQUIRED - there are no defaults, because every one
+    of them is a creative value (when a line arrives, how far it
+    travels, when both leave) and the engine states none of its own
+    (AGENTS.md 10.5). A :class:`ClosingText` with no motion is today's
+    static version, reproduced exactly; a motion that is half-declared
+    is REFUSED where it is read, not completed from constants.
+
+    ``style`` names the gesture the engine interprets - ``"rise"`` is
+    the lines rising into their seats while fading in, staggered one
+    after the other, and sinking while fading out together. An unknown
+    style is REFUSED: the engine renders only what it knows how to
+    interpret.
+
+    Windows are [start, end] frame indices into the 72-frame asset:
+    ``line1_in`` / ``line2_in`` ramp that line's presence 0 to 1,
+    ``lines_out`` ramps both lines' presence 1 to 0. ``rise_px`` is how
+    far below its seat a line starts; ``exit_px`` how far below its
+    seat it sinks as it leaves. The easing between is a smoothstep -
+    mechanics, not taste, the same curve the flash rises on.
+    """
+
+    style: str
+    line1_in: tuple[int, int]
+    line2_in: tuple[int, int]
+    lines_out: tuple[int, int]
+    rise_px: int
+    exit_px: int
+
+
+@dataclass(frozen=True)
 class ClosingText:
     """The two lines at the bottom, as declared data.
 
@@ -452,10 +505,17 @@ class ClosingText:
     with no lines is unused, and lines with no colour are REFUSED
     where the layer is built, because the engine states no colour of
     its own (AGENTS.md 14).
+
+    ``motion`` is how the lines arrive and leave
+    (:class:`ClosingTextMotion`), or None for the static version - up
+    with the cut, out on beat 5's fade. None is not a default the
+    engine chose; it is the absence of a declaration, and it renders
+    pixel for pixel what this module rendered before motion existed.
     """
 
     lines: tuple[str, ...] = ()
     color: tuple[float, float, float] | None = None
+    motion: ClosingTextMotion | None = None
 
 
 @dataclass(frozen=True)
@@ -586,7 +646,93 @@ def lines_from_brand_template(path: str) -> ClosingText:
             "states no colour of its own, so uncoloured type is refused "
             "rather than set in one")
     return ClosingText(lines=tuple(entry.strip() for entry in raw_lines),
-                       color=parse_ground(str(declared_color)))
+                       color=parse_ground(str(declared_color)),
+                       motion=motion_from_declaration(
+                           path, lockup.get("motion")))
+
+
+MOTION_STYLES = ("rise",)
+"""The text gestures this module knows how to interpret.
+
+One member. A declaration naming anything else is REFUSED rather than
+rendered as the nearest thing - a nearest thing is a substitution, and
+substitutions raise.
+"""
+
+MOTION_KEYS = ("style", "line1_in", "line2_in", "lines_out",
+               "rise_px", "exit_px")
+"""Every key a motion declaration carries. A half-declared motion is
+refused rather than completed from constants, and an unknown key is
+refused rather than ignored - both are a declaration saying half a
+thing."""
+
+
+def motion_from_declaration(path: str, declared: object
+                            ) -> ClosingTextMotion | None:
+    """The lines' entrance and exit, as the template declares them.
+
+    ``motion`` under ``content.closing_lockup``. Absent (or null) means
+    the static version - up with the cut, out on beat 5's fade - which
+    is how the 2026-09-21 asset stays reproducible. Present means a
+    complete statement: ``style`` plus all five numbers, validated
+    here structurally (ints, ordered windows, no negative travel) and
+    against the source's frame count where it renders.
+    """
+    if declared is None:
+        return None
+    if not isinstance(declared, dict):
+        raise SourceNotClosed(
+            f"{path} declares content.closing_lockup.motion as "
+            f"{type(declared).__name__}, not a mapping of style and "
+            "frame windows")
+    unknown = sorted(key for key in declared if key not in MOTION_KEYS)
+    if unknown:
+        raise SourceNotClosed(
+            f"{path} declares closing motion with unknown "
+            f"{'key' if len(unknown) == 1 else 'keys'} "
+            f"{', '.join(unknown)}: this module interprets "
+            f"{', '.join(MOTION_KEYS)} and nothing else")
+    missing = [key for key in MOTION_KEYS if key not in declared]
+    if missing:
+        raise SourceNotClosed(
+            f"{path} declares closing motion without "
+            f"{', '.join(missing)}: a half-declared entrance is refused "
+            "rather than completed from constants")
+    style = declared["style"]
+    if style not in MOTION_STYLES:
+        raise SourceNotClosed(
+            f"{path} declares closing motion style {style!r}: this "
+            f"module interprets {', '.join(MOTION_STYLES)} and nothing "
+            "else")
+    windows = {}
+    for key in ("line1_in", "line2_in", "lines_out"):
+        window = declared[key]
+        if (not isinstance(window, list) or len(window) != 2
+                or not all(isinstance(end, int) for end in window)):
+            raise SourceNotClosed(
+                f"{path} declares closing motion {key} as {window!r}: "
+                "a window is two frame indices, [start, end]")
+        start, end = window
+        if not 0 <= start < end:
+            raise SourceNotClosed(
+                f"{path} declares closing motion {key} as "
+                f"[{start}, {end}]: windows run forward from frame 0")
+        windows[key] = (start, end)
+    if windows["lines_out"][0] < windows["line1_in"][1] or \
+            windows["lines_out"][0] < windows["line2_in"][1]:
+        raise SourceNotClosed(
+            f"{path} declares closing motion lines_out starting before "
+            "an entrance ends: leaving before arriving is refused")
+    for key in ("rise_px", "exit_px"):
+        travel = declared[key]
+        if not isinstance(travel, int) or travel < 0:
+            raise SourceNotClosed(
+                f"{path} declares closing motion {key} as {travel!r}: "
+                "travel is pixels, zero or more")
+    return ClosingTextMotion(
+        style=style, line1_in=windows["line1_in"],
+        line2_in=windows["line2_in"], lines_out=windows["lines_out"],
+        rise_px=declared["rise_px"], exit_px=declared["exit_px"])
 
 
 # ── The four beats, as measurements ──────────────────────────────────
@@ -837,13 +983,32 @@ def text_layer(text: ClosingText, width: int, height: int,
     on frame 0 and its alpha is ridden by the caller on
     :func:`picture_fade`'s own numbers, so it leaves on beat 5 with
     everything else.
+
+    With a declared motion this is still the whole static story - and
+    the motion path draws through the same rasterizer, so a motion
+    frame at full presence and zero travel IS this layer.
     """
-    from PIL import Image, ImageDraw, ImageFont
+    if not text.lines:
+        return None
+    fonts, seats = _text_setup(text, width, profile)
+    return _draw_text_layer(text, width, height, fonts, seats,
+                            alphas=(1.0,) * len(text.lines),
+                            offsets_px=(0.0,) * len(text.lines))
+
+
+def _text_setup(text: ClosingText, width: int,
+                profile: ClosingProfile) -> tuple[list, list]:
+    """Fonts, seats and fit for the declared lines, or refuse.
+
+    The guards the static layer always made - a colour, at most two
+    lines, a measurable Montserrat file, the declared Bold weight, a
+    line that fits the frame - in one place, so the motion path
+    refuses exactly what the static path refuses.
+    """
+    from PIL import ImageFont
 
     from library.tools.render_fonts import measurable_font_path
 
-    if not text.lines:
-        return None
     if text.color is None:
         raise SourceNotClosed(
             "closing lines with no color: the engine states no colour "
@@ -882,20 +1047,109 @@ def text_layer(text: ClosingText, width: int, height: int,
                 f"closing line {line!r} measures {right - left}px and "
                 f"the frame allows {limit}: shrinking it would be a "
                 "layout this module authored on the declaration's behalf")
+    return fonts, seats[:len(text.lines)]
+
+
+def _draw_text_layer(text: ClosingText, width: int, height: int,
+                     fonts: list, seats: list,
+                     alphas: Sequence[float],
+                     offsets_px: Sequence[float]) -> np.ndarray:
+    """One straight-alpha RGBA layer, with per-line ink and travel.
+
+    The single rasterizer behind :func:`text_layer` and
+    :func:`text_motion_layer`: same seats, same fonts, same anchor -
+    so a motion frame at full presence and zero travel IS the static
+    layer, and the static version stays reproducible by construction
+    rather than by a second code path that could drift.
+
+    ``alphas`` scales each line's ink (the entrance and the exit);
+    ``offsets_px`` moves each line below its seat (positive sits
+    lower - the rise starts below, the exit sinks below). Both are per
+    line, in seat order.
+    """
+    from PIL import Image, ImageDraw
 
     mask = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(mask)
     # One line sits in the senior line's seat: a single line has no
     # second position decided for it, so it takes the first.
-    for line, font, center_y in zip(text.lines, fonts,
-                                   seats[:len(text.lines)]):
-        draw.text((width / 2, center_y), line, font=font, fill=255,
-                  anchor="mm")
+    for line, font, center_y, alpha, offset in zip(
+            text.lines, fonts, seats, alphas, offsets_px):
+        strength = int(round(255.0 * min(1.0, max(0.0, alpha))))
+        if strength <= 0:
+            continue
+        draw.text((width / 2, center_y + offset), line, font=font,
+                  fill=strength, anchor="mm")
     alpha = np.asarray(mask, dtype=np.float64) / 255.0
     layer = np.empty((height, width, 4), dtype=np.float64)
     layer[..., :3] = np.asarray(text.color, dtype=np.float64)
     layer[..., 3] = alpha
     return layer
+
+
+def text_motion_state(index: int, motion: ClosingTextMotion,
+                      line: int) -> tuple[float, float]:
+    """(presence 0 to 1, y offset in px below the seat) for one line.
+
+    ``line`` is 1 or 2, in seat order. The entrance ramps presence up
+    over that line's own window while the line travels from
+    ``rise_px`` below its seat to the seat itself; the hold sits at
+    full presence on the seat; ``lines_out`` ramps both lines down
+    together while each sinks ``exit_px`` below its seat. Every ramp
+    is a smoothstep - the same easing the flash rises on - so each
+    arrives and leaves with zero slope at both ends.
+    """
+    if line not in (1, 2):
+        raise SourceNotClosed(
+            f"a closing animation has {MAX_TEXT_LINES} lines, not "
+            f"line {line}")
+    enter = motion.line1_in if line == 1 else motion.line2_in
+    if index <= enter[0]:
+        arrived = 0.0
+    elif index >= enter[1]:
+        arrived = 1.0
+    else:
+        t = (index - enter[0]) / (enter[1] - enter[0])
+        arrived = t * t * (3.0 - 2.0 * t)
+    out = motion.lines_out
+    if index <= out[0]:
+        leaving = 0.0
+    elif index >= out[1]:
+        leaving = 1.0
+    else:
+        t = (index - out[0]) / (out[1] - out[0])
+        leaving = t * t * (3.0 - 2.0 * t)
+    presence = min(arrived, 1.0 - leaving)
+    offset = motion.rise_px * (1.0 - arrived) + motion.exit_px * leaving
+    return presence, offset
+
+
+def text_motion_layer(text: ClosingText, width: int, height: int,
+                      profile: ClosingProfile, index: int) -> np.ndarray:
+    """The declared lines as drawn on frame ``index``, in motion.
+
+    Presence and travel come from :func:`text_motion_state` per line,
+    so the two lines arrive staggered and leave together while the
+    mark does whatever the mark is doing. The envelope OWNS the exit:
+    the caller composites this layer at full strength and lets the
+    layer's own alpha carry the leaving, rather than riding it on
+    beat 5's fade a second time.
+    """
+    if text.motion is None:
+        raise SourceNotClosed(
+            "a motion frame with no declared motion: the static version "
+            "renders through text_layer, not here")
+    if not text.lines:
+        raise SourceNotClosed(
+            "a closing motion with no lines: motion moves type, and "
+            "there is none")
+    fonts, seats = _text_setup(text, width, profile)
+    states = [text_motion_state(index, text.motion, line + 1)
+              for line in range(len(text.lines))]
+    return _draw_text_layer(
+        text, width, height, fonts, seats,
+        alphas=tuple(presence for presence, _ in states),
+        offsets_px=tuple(offset for _, offset in states))
 
 def bulb_frame(rgba: np.ndarray, intensity: float, present: float,
                profile: ClosingProfile, standing: float = 1.0,
@@ -961,10 +1215,13 @@ def bulb_sequence(frames: Sequence[np.ndarray], rate: float,
     """The whole closing animation, envelope, fade, ground and all.
 
     ``text`` is the declared lines (:class:`ClosingText`), or None for
-    today's logo-only animation. The layer is built ONCE, off the
-    frame geometry, and every frame rides it on :func:`picture_fade`'s
-    own numbers - up with the cut, full through the flash, out on
-    beat 5.
+    today's logo-only animation. Without a declared motion the layer is
+    built ONCE, off the frame geometry, and every frame rides it on
+    :func:`picture_fade`'s own numbers - up with the cut, full through
+    the flash, out on beat 5. With one, each frame draws its own layer
+    (:func:`text_motion_layer`) and the envelope owns the exit, so the
+    lines arrive staggered and leave together while the mark does
+    whatever the mark is doing.
     """
     areas, levels = mark_measurements(frames, profile)
     completion = completion_index(areas, profile)
@@ -972,18 +1229,77 @@ def bulb_sequence(frames: Sequence[np.ndarray], rate: float,
     presence = fade_scale(levels, profile)
     standing = picture_fade(levels, profile)
     spread, normaliser = field_geometry(frames, profile)
-    layer = (text_layer(text, frames[0].shape[1], frames[0].shape[0],
-                        profile)
-             if text is not None and text.lines else None)
+    motion = (text.motion if text is not None and text.lines
+              else None)
+    if motion is not None:
+        _refuse_motion_past_the_asset(motion, len(frames))
+        height, width = frames[0].shape[:2]
 
     out: List[np.ndarray] = []
-    for rgba, intensity, present, left in zip(frames, intensities,
-                                              presence, standing):
+    if motion is None:
+        layer = (text_layer(text, frames[0].shape[1], frames[0].shape[0],
+                            profile)
+                 if text is not None and text.lines else None)
+        for rgba, intensity, present, left in zip(frames, intensities,
+                                                  presence, standing):
+            _, ink_alpha = separate_ink(rgba, profile.light)
+            pool = field_pool(ink_alpha * present, spread, normaliser)
+            out.append(bulb_frame(rgba, intensity, present, profile, left,
+                                  pool, layer, present))
+        return out
+    for index, (rgba, intensity, present, left) in enumerate(
+            zip(frames, intensities, presence, standing)):
         _, ink_alpha = separate_ink(rgba, profile.light)
         pool = field_pool(ink_alpha * present, spread, normaliser)
+        layer = text_motion_layer(text, width, height, profile, index)
         out.append(bulb_frame(rgba, intensity, present, profile, left,
-                              pool, layer, present))
+                              pool, layer, 1.0))
     return out
+
+
+def _refuse_motion_past_the_asset(motion: ClosingTextMotion,
+                                  count: int) -> None:
+    """A motion window ending past the asset is refused, by name.
+
+    An entrance that never completes leaves type half-legible; an exit
+    that never completes leaves it standing into the black. Both are a
+    declaration written for a different length, and length is the
+    captain's ruling to revise - not this module's to clip.
+    """
+    for key in ("line1_in", "line2_in", "lines_out"):
+        end = getattr(motion, key)[1]
+        if end >= count:
+            raise SourceNotClosed(
+                f"closing motion {key} ends on frame {end} and the "
+                f"asset carries {count}: a window past the last frame "
+                "is refused rather than clipped")
+
+
+def text_full_frames(text: ClosingText, presence: Sequence[float],
+                     standing: Sequence[float]) -> List[int]:
+    """Frames where the type stands at full legibility.
+
+    Without a declared motion that is beat 5's own numbers - the mark's
+    presence and the ground's standing, the static version's whole
+    story. With one it is the ENVELOPE's numbers: every line at full
+    presence on a fully standing ground. The mark's presence is not
+    consulted there, because the envelope owns the exit and the type
+    is fully legible while the mark is already leaving.
+    """
+    full = []
+    for index, left in enumerate(standing):
+        if left < 1.0 - 1e-9:
+            continue
+        if text.motion is None:
+            if presence[index] < 1.0 - 1e-9:
+                continue
+        elif not all(presence_ >= 1.0 - 1e-9
+                     for presence_, _ in
+                     (text_motion_state(index, text.motion, line + 1)
+                      for line in range(len(text.lines)))):
+            continue
+        full.append(index)
+    return full
 
 
 def describe(frames: Sequence[np.ndarray], rate: float,
@@ -1027,17 +1343,25 @@ def describe(frames: Sequence[np.ndarray], rate: float,
         "dark_frames_at_the_end": len(frames) - 1 - (lit[-1] if lit else -1),
     }
     if text is not None and text.lines:
-        full = [index for index, (present, left)
-                in enumerate(zip(presence, standing))
-                if present >= 1.0 - 1e-9 and left >= 1.0 - 1e-9]
+        full = text_full_frames(text, presence, standing)
         lockup = [index for index in full if index >= completion]
         report["lines"] = list(text.lines)
         report["type_full_frames"] = len(full)
         report["type_full_seconds"] = round(len(full) / rate, 3)
+        report["type_full_span"] = [full[0], full[-1]] if full else []
         report["type_clears_read_time"] = (
             len(full) / rate >= profile.read_time_floor_seconds)
         report["lockup_full_frames"] = len(lockup)
         report["lockup_full_seconds"] = round(len(lockup) / rate, 3)
+        if text.motion is not None:
+            report["motion"] = {
+                "style": text.motion.style,
+                "line1_in": list(text.motion.line1_in),
+                "line2_in": list(text.motion.line2_in),
+                "lines_out": list(text.motion.lines_out),
+                "rise_px": text.motion.rise_px,
+                "exit_px": text.motion.exit_px,
+            }
     return report
 
 
@@ -1074,10 +1398,12 @@ def render_file(source: str, destination: str,
     report["base_separation"] = separation_report(frames, closed, profile)
     if text is not None and text.lines:
         _, levels = mark_measurements(frames, profile)
+        presence = fade_scale(levels, profile)
+        standing = picture_fade(levels, profile)
         report["text_contrast"] = text_contrast_report(
             text_layer(text, width, height, profile), closed,
-            fade_scale(levels, profile), picture_fade(levels, profile),
-            profile)
+            presence, standing, profile,
+            full_frames=text_full_frames(text, presence, standing))
 
     encoder = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-y",
@@ -1368,7 +1694,8 @@ def text_contrast_report(layer: np.ndarray | None,
                          closed: Sequence[np.ndarray],
                          presence: Sequence[float],
                          standing: Sequence[float],
-                         profile: ClosingProfile) -> dict:
+                         profile: ClosingProfile,
+                         full_frames: Sequence[int] | None = None) -> dict:
     """:data:`TEXT_CONTRAST_FLOOR`, checked rather than claimed.
 
     CIE76 dE between the type's INTERIOR and the ground immediately
@@ -1380,10 +1707,12 @@ def text_contrast_report(layer: np.ndarray | None,
     which is exactly the frame a single-number claim would hide.
 
     Only where the type is FULLY PRESENT: past that it is going out on
-    beat 5 on purpose, and type that still read there would be the
-    fade failing. With no layer there is no type and nothing to check.
-    REPORTED, never gated - the captain judges the render, and this is
-    one of the numbers he judges it with.
+    purpose, and type that still read there would be the fade failing.
+    ``full_frames`` carries that set when a declared motion owns it
+    (:func:`text_full_frames`); without one it is beat 5's own
+    numbers, as before. With no layer there is no type and nothing to
+    check. REPORTED, never gated - the captain judges the render, and
+    this is one of the numbers he judges it with.
     """
     from scipy import ndimage
 
@@ -1397,10 +1726,14 @@ def text_contrast_report(layer: np.ndarray | None,
               & (layer[..., 3] <= 0.0))
     if not inside.any() or not around.any():
         return {"type_set": False, "floor": profile.text_contrast_floor}
+    if full_frames is None:
+        full_frames = [index for index, (present, left)
+                       in enumerate(zip(presence, standing))
+                       if present >= 1.0 - 1e-9
+                       and left >= 1.0 - 1e-9]
     measured = {}
-    for index, frame in enumerate(closed):
-        if presence[index] < 1.0 - 1e-9 or standing[index] < 1.0 - 1e-9:
-            continue
+    for index in full_frames:
+        frame = closed[index]
         gap = float(np.sqrt(np.square(
             _lab(frame[..., :3][inside].mean(axis=0))
             - _lab(frame[..., :3][around].mean(axis=0))).sum()))

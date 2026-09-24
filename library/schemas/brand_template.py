@@ -229,7 +229,19 @@ class BrandTemplate:
                             "description": "The lines at the bottom of the two-line closing animation. Omit for the logo-only animation. See library/tools/logo_bulb.py.",
                             "properties": {
                                 "lines": {"type": "array", "items": {"type": "string"}},
-                                "color": {"type": "string"}
+                                "color": {"type": "string"},
+                                "motion": {
+                                    "type": "object",
+                                    "description": "How the lines arrive and leave. Omit for the static version. See library/tools/logo_bulb.ClosingTextMotion.",
+                                    "properties": {
+                                        "style": {"type": "string"},
+                                        "line1_in": {"type": "array", "items": {"type": "integer"}},
+                                        "line2_in": {"type": "array", "items": {"type": "integer"}},
+                                        "lines_out": {"type": "array", "items": {"type": "integer"}},
+                                        "rise_px": {"type": "integer"},
+                                        "exit_px": {"type": "integer"}
+                                    }
+                                }
                             }
                         },
                         "watermark": {"type": "object"},
