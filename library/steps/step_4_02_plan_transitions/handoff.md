@@ -73,8 +73,41 @@ stated in the plan. The one exception is stated, not invented: a
 `fallback_type` on the entry names the granted native transition to
 ship instead, and only then is it shipped.
 
-`light_leak`, `j_cut` and `l_cut` have no implementation.
-J/L cuts are audio edits and are handled by the audio pass, not here.
+`light_leak` has no implementation.
+
+### J/L cuts (audio offsets):
+
+A `j_cut` crosses the join with the EAR first: the outgoing speech
+ends early and the incoming room arrives under the outgoing picture. An
+`l_cut` LINGERS: the incoming speech starts late and the outgoing room
+lingers under the incoming picture. The picture cut stays on the V1
+boundary - only the audio edit point moves, and the gap it opens is
+filled with measured room tone, never silence.
+
+A J/L cut is its own entry at the boundary (`cut_point_position`, the
+INCOMING block), beside any picture entry there - one join may carry
+one picture decoration AND one audio offset, never two offsets.
+The offset is measured from the V1 boundary FRAME (where the eye cuts
+and the incoming speech row starts), in whole frames: a `lead_seconds`
+that quantizes onto the boundary is a straight cut and refuses.
+
+| Type | Parameters | When to use |
+|------|-----------|------------|
+| `j_cut` | `lead_seconds` and/or `anchor` | The next moment starts audible before it is visible. Doc dialogue, reactions |
+| `l_cut` | `lag_seconds` and/or `anchor` | The last moment rings on after the picture has moved on. Pauses that breathe |
+
+State the offset with `lead_seconds` (`j_cut`) or `lag_seconds`
+(`l_cut`) - your own number in seconds - or with `anchor`, or both
+agreeing: a word in the block the audio leaves (`anchor: {word:
+"yeah"}` - the outgoing block for a J-cut, the incoming block for an
+L-cut), a beat/downbeat/bar on the measured grid, or a frame, each
+with optional `offset_seconds` / `offset_frames`. The offset MUST sit
+inside the pause AT the boundary: the J lead has to fit between the
+outgoing block's last word and the boundary, the L lag between the
+boundary and the incoming block's first word - trimming speech refuses
+the step, so pick a join that breathes. Both sides of the join must
+reach V1. No `duration_feel`, no `fallback_type`, no `anchor_end` on
+an audio cut - all three refuse.
 
 ### Rules:
 - You MUST output a transition entry for EVERY single cut point in the shot list.

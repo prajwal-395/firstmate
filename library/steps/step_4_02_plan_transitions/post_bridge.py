@@ -49,6 +49,12 @@ BEAT_COINCIDENCE_TOLERANCE = 0.05
 # (Whip Pan, Dip, Push, Blur Dissolve - see library/tools/native_ops.py):
 # a refused name is never downgraded or swapped unless the plan states
 # the substitute, and this key is how it states one.
+# `lead_seconds` / `lag_seconds` state the audio offset of a J/L cut
+# (library/tools/jl_cut.py): the plan's own number for how far the ear
+# crosses before (J) or lingers after (L) the picture cut, or the anchor
+# beside it states it instead. `anchor` on a J/L entry is the AUDIO
+# cut - a word in the outgoing block (J) or the incoming one (L), a
+# beat/downbeat/bar, or a frame - never the picture cut.
 TRANSITION_ENTRY_KEYS = frozenset({
     "cut_point_position",
     "cut_point_original",
@@ -58,6 +64,8 @@ TRANSITION_ENTRY_KEYS = frozenset({
     "transition_type",
     "fallback_type",
     "duration_feel",
+    "lead_seconds",
+    "lag_seconds",
     "rationale",
 } | ANCHOR_ENTRY_KEYS)
 
@@ -257,10 +265,21 @@ def resolve_transitions(
 
     from library.tools.transition_selector import select_transition
     from library.tools.transition_vocabulary import is_cut
+    from library.tools.jl_cut import (
+        JLCutRefused,
+        normalise_kind as _jl_kind,
+        resolve_audio_cut as _resolve_audio_cut,
+    )
+    from library.tools.transition_carriers import block_reaches_v1
 
-    resolved = []
-    seen_block_indices = set()
-
+    # Entries are grouped by boundary FIRST: a boundary may carry ONE
+    # picture decoration and ONE J/L audio offset (a drawn dissolve
+    # whose audio crosses early is one cut, not two). Two audio offsets
+    # at one boundary refuse - two numbers for one audio cut is an
+    # ambiguous spec - while second picture decorations drop exactly as
+    # before. Grouping preserves plan order inside each boundary and
+    # the final sort below makes boundary order irrelevant downstream.
+    indexed = []
     for trans in creative_plan:
         block_idx = _resolve_cut_block_index(trans, spine_blocks)
         if block_idx is None:
@@ -270,172 +289,67 @@ def resolve_transitions(
                 file=sys.stderr,
             )
             continue
+        indexed.append((block_idx, trans))
+    groups: dict = {}
+    for block_idx, trans in indexed:
+        groups.setdefault(block_idx, []).append(trans)
 
-        # A cut is a boundary between two blocks. Two plan entries landing
-        # on the same boundary are the same cut - stacking them is what
-        # produced ten transitions all sitting at one timeline position.
-        if block_idx in seen_block_indices:
-            print(
-                f"  Dropped duplicate transition at spine boundary "
-                f"{spine_blocks[block_idx].get('position')!r}",
-                file=sys.stderr,
-            )
-            continue
-        seen_block_indices.add(block_idx)
+    resolved = []
 
+    for block_idx in sorted(groups):
+        entries = groups[block_idx]
         block = spine_blocks[block_idx]
         original_tl = block["timeline_start"]
         outgoing = spine_blocks[block_idx - 1]
 
-        # Use the content-aware transition selector
-        selected_trans = select_transition(
-            from_clip=outgoing,
-            to_clip=block,
-            brand_effect=brand_effect,
-            creative_direction=creative_direction,
-            requested_type=trans.get("type", trans.get("transition_type", "")),
-            fallback_type=trans.get("fallback_type", ""),
-        )
+        jl_here = [t for t in entries
+                   if _jl_kind(t.get("type",
+                                     t.get("transition_type", "")))
+                   is not None]
+        if len(jl_here) > 1:
+            raise JLCutRefused(
+                what=(f"step plan_transitions plans two audio offsets "
+                      f"at spine boundary "
+                      f"{block.get('position')!r}"),
+                why=("one join carries one audio cut - two offsets is "
+                     "an ambiguous spec, and placing one silently "
+                     "would ship timing the plan did not agree on."),
+                fix=(f"re-plan a single `j_cut` or `l_cut` entry into "
+                     f"block {block.get('position')!r}, or drop one of "
+                     f"them."),
+            )
+        pic_here = [t for t in entries
+                    if all(t is not j for j in jl_here)]
 
-        ttype = selected_trans["type"]
-
-        # Duration frame calculation.
-        #
-        # How long a transition holds is PACE, and the plan is what says
-        # it.  The handoff asks the model for a `duration_feel` on every
-        # drawn transition and it answers one; this used to read the
-        # brand template's `transition_duration_ms` FIRST and consult the
-        # plan only if that came out under a frame, so on project 001 a
-        # "quick" defocus and a "medium" defocus were both held for
-        # 500 ms - the top of a range in default_brand.yaml, a template
-        # the project never selected.  The model's own rationale for the
-        # second one reads "'medium' (333ms)".
-        #
-        # `duration_map` is not a choice of pace: it is the rendering of
-        # the word the model wrote into frames, the same way
-        # `audio_mix` renders a declared `music_behavior` into dB.
-        if is_cut(ttype):
-            dur_frames = 0
-        else:
-            duration_map = {
-                "instant": 0,
-                "quick": int(6 * (frame_rate / 30)),
-                "medium": int(10 * (frame_rate / 30)),
-                "slow": int(15 * (frame_rate / 30)),
-            }
-            feel = trans.get("duration_feel")
-            declared_ms = selected_trans.get("duration_ms")
-            if feel in duration_map:
-                dur_frames = duration_map[feel]
-                # A brand's {min, max} is a permission, so it BOUNDS the
-                # plan's choice rather than replacing it.
-                lo, hi = selected_trans.get("duration_bounds_ms", (None, None))
-                # `instant` is zero frames: the plan asking for no hold.
-                # Clamping it up to the brand's minimum would give it one.
-                if lo is not None and dur_frames > 0:
-                    dur_frames = max(dur_frames, int((lo / 1000.0) * frame_rate))
-                if hi is not None and dur_frames > 0:
-                    dur_frames = min(dur_frames, int((hi / 1000.0) * frame_rate))
-            elif declared_ms:
-                # The plan declared no pace and the brand declared ONE
-                # length (a scalar, not a range). That is a chosen value.
-                dur_frames = int((declared_ms / 1000.0) * frame_rate)
-            else:
-                # DROPPED, with the reason.  A drawn transition needs a
-                # length, and neither the plan nor a selected brand
-                # template gave one - so there is nothing to hold it for
-                # that anybody chose.  Emitting it at zero frames leaves a
-                # `defocus` in the spec that draws nothing and says
-                # nothing, which is the unread-parameter failure of
-                # AGENTS.md 10.2; completing it from a constant is the
-                # invented-taste failure of 10.5.  This is the third
-                # option that rule names: drop it and say so.
+        trans_dict = None
+        for pos, trans in enumerate(pic_here):
+            candidate = _resolve_picture_entry(
+                trans, block, outgoing, beat_positions, frame_rate,
+                creative_direction, brand_effect,
+                music_analysis, music_selection, index=len(resolved))
+            if candidate is None:
+                # Dropped for no stated hold (message already printed):
+                # the boundary stays free for the next entry, exactly
+                # as the discard below used to.
+                continue
+            trans_dict = candidate
+            for dup in pic_here[pos + 1:]:
                 print(
-                    f"  Dropped {ttype!r} at spine boundary "
-                    f"{block.get('position')!r}: the plan declares no "
-                    f"duration_feel ({feel!r}) and no selected brand "
-                    f"template declares a single transition duration, so "
-                    f"nothing has said how long to hold it",
+                    f"  Dropped duplicate transition at spine boundary "
+                    f"{block.get('position')!r}",
                     file=sys.stderr,
                 )
-                seen_block_indices.discard(block_idx)
-                continue
+            break
 
-        # Resolve the precise cut point. A sub-block anchor wins
-        # exactly: the plan named the word, beat or frame, so the
-        # word-end and beat-snap below do not run on it. A cut is a
-        # point, so an end anchor refuses here rather than landing
-        # nowhere.
-        if trans.get("anchor_end") is not None:
-            raise AnchorRefused(
-                what=(f"step plan_transitions plan entry at boundary "
-                      f"{block.get('position')!r} anchor_end names an "
-                      f"end anchor on a cut"),
-                why=("a cut is one point in time: the entry carries "
-                     "`anchor_end` and nothing in this step reads it "
-                     "as an end."),
-                fix=(f"re-plan the cut into block "
-                     f"{block.get('position')!r} with `anchor` alone "
-                     f"for the point it lands on, and drop "
-                     f"`anchor_end`."),
-            )
-        if trans.get("anchor") is not None:
-            hit = resolve_anchor(
-                trans["anchor"], block=outgoing,
-                music_analysis=music_analysis,
-                music_selection=music_selection,
-                frame_rate=frame_rate, step="plan_transitions",
-                plan="transition_creative",
+        if jl_here:
+            (jl_entry,) = jl_here
+            trans_dict = _attach_jl_offset(
+                jl_entry, trans_dict, block, outgoing, beat_positions,
+                frame_rate, music_analysis, music_selection,
                 index=len(resolved))
-            cut_time = hit["timeline_seconds"]
-            cut_info = {"cut_time": cut_time,
-                        "method": f"anchor: {hit['method']}",
-                        "word_beat_coincidence": False}
-        else:
-            cut_info = resolve_cut_point(
-                incoming=block,
-                outgoing=outgoing,
-                beat_grid=beat_positions,
-            )
-            cut_time = cut_info["cut_time"]
 
-        # Final beat-snap for non-word-end cuts
-        beat_aligned = False
-        snap_delta = 0.0
-        if cut_info["method"] == "block-boundary":
-            snapped, beat_aligned, snap_delta = snap_to_beat(
-                cut_time, beat_positions,
-            )
-            cut_time = snapped
-        elif "beat" in cut_info["method"]:
-            beat_aligned = True
-
-        trans_dict = {
-            "transition_id": f"trans_{len(resolved)+1:03d}",
-            "cut_point_timeline": round(cut_time, 3),
-            "cut_point_original": round(original_tl, 3),
-            "transition_type": ttype,
-            "duration_frames": dur_frames,
-            "beat_aligned": beat_aligned,
-            "snap_delta_seconds": snap_delta,
-            # How far the resolved cut ended up from the block boundary
-            # the plan named. `snap_delta_seconds` only measures the
-            # snap_to_beat path, so a cut relocated by word-end matching
-            # recorded 0.0 while having moved 2.2 seconds. Always
-            # recorded, so a relocation is visible in the manifest
-            # without re-deriving it.
-            "displacement_seconds": round(cut_time - original_tl, 3),
-            "placement_method": cut_info["method"],
-            "word_beat_coincidence": cut_info["word_beat_coincidence"],
-            "rationale": trans.get("rationale", ""),
-            # What the plan asked for, and why it is not what shipped.
-            # The rationale used to be carried through unchanged onto a
-            # transition it no longer described - "Standard dialogue cut"
-            # sitting on a 15-frame dissolve.
-            "requested_type": selected_trans["requested_type"],
-            "downgrade_reason": selected_trans["downgrade_reason"],
-        }
-        resolved.append(trans_dict)
+        if trans_dict is not None:
+            resolved.append(trans_dict)
 
     resolved.sort(key=lambda t: t["cut_point_timeline"])
     for i, t in enumerate(resolved, start=1):
@@ -443,6 +357,291 @@ def resolve_transitions(
 
     _assert_transitions_distinct(resolved)
     return resolved
+
+
+def _resolve_picture_entry(trans: dict, block: dict, outgoing: dict,
+                           beat_positions: list, frame_rate: float,
+                           creative_direction: dict, brand_effect: dict,
+                           music_analysis, music_selection,
+                           index: int = 0):
+    """Resolve one picture-transition plan entry to its spec dict.
+
+    Returns None when the entry drops for no stated hold (the message
+    is printed here) - the boundary stays free for the next entry.
+    """
+    from library.tools.transition_selector import select_transition
+    from library.tools.transition_vocabulary import is_cut
+
+    original_tl = block["timeline_start"]
+
+    # Use the content-aware transition selector
+    selected_trans = select_transition(
+        from_clip=outgoing,
+        to_clip=block,
+        brand_effect=brand_effect,
+        creative_direction=creative_direction,
+        requested_type=trans.get("type", trans.get("transition_type", "")),
+        fallback_type=trans.get("fallback_type", ""),
+    )
+
+    ttype = selected_trans["type"]
+
+# Duration frame calculation.
+#
+# How long a transition holds is PACE, and the plan is what says
+# it.  The handoff asks the model for a `duration_feel` on every
+    # drawn transition and it answers one; this used to read the
+    # brand template's `transition_duration_ms` FIRST and consult the
+    # plan only if that came out under a frame, so on project 001 a
+    # "quick" defocus and a "medium" defocus were both held for
+    # 500 ms - the top of a range in default_brand.yaml, a template
+    # the project never selected.  The model's own rationale for the
+    # second one reads "'medium' (333ms)".
+    #
+    # `duration_map` is not a choice of pace: it is the rendering of
+    # the word the model wrote into frames, the same way
+    # `audio_mix` renders a declared `music_behavior` into dB.
+    if is_cut(ttype):
+        dur_frames = 0
+    else:
+        duration_map = {
+            "instant": 0,
+            "quick": int(6 * (frame_rate / 30)),
+            "medium": int(10 * (frame_rate / 30)),
+            "slow": int(15 * (frame_rate / 30)),
+        }
+        feel = trans.get("duration_feel")
+        declared_ms = selected_trans.get("duration_ms")
+        if feel in duration_map:
+            dur_frames = duration_map[feel]
+            # A brand's {min, max} is a permission, so it BOUNDS the
+            # plan's choice rather than replacing it.
+            lo, hi = selected_trans.get("duration_bounds_ms", (None, None))
+            # `instant` is zero frames: the plan asking for no hold.
+            # Clamping it up to the brand's minimum would give it one.
+            if lo is not None and dur_frames > 0:
+                dur_frames = max(dur_frames, int((lo / 1000.0) * frame_rate))
+            if hi is not None and dur_frames > 0:
+                dur_frames = min(dur_frames, int((hi / 1000.0) * frame_rate))
+        elif declared_ms:
+            # The plan declared no pace and the brand declared ONE
+            # length (a scalar, not a range). That is a chosen value.
+            dur_frames = int((declared_ms / 1000.0) * frame_rate)
+        else:
+            # DROPPED, with the reason.  A drawn transition needs a
+            # length, and neither the plan nor a selected brand
+            # template gave one - so there is nothing to hold it for
+            # that anybody chose.  Emitting it at zero frames leaves a
+            # `defocus` in the spec that draws nothing and says
+            # nothing, which is the unread-parameter failure of
+            # AGENTS.md 10.2; completing it from a constant is the
+            # invented-taste failure of 10.5.  This is the third
+            # option that rule names: drop it and say so.
+            print(
+                f"  Dropped {ttype!r} at spine boundary "
+                f"{block.get('position')!r}: the plan declares no "
+                f"duration_feel ({feel!r}) and no selected brand "
+                f"template declares a single transition duration, so "
+                f"nothing has said how long to hold it",
+                file=sys.stderr,
+            )
+            return None
+
+    # Resolve the precise cut point. A sub-block anchor wins
+    # exactly: the plan named the word, beat or frame, so the
+    # word-end and beat-snap below do not run on it. A cut is a
+    # point, so an end anchor refuses here rather than landing
+    # nowhere.
+    cut_time, cut_info, beat_aligned, snap_delta = _resolve_picture_cut(
+        trans, block, outgoing, beat_positions, frame_rate,
+        music_analysis, music_selection, index=index)
+
+    trans_dict = {
+        "transition_id": f"trans_tmp_{index+1:03d}",
+        "cut_point_timeline": round(cut_time, 3),
+        "cut_point_original": round(original_tl, 3),
+        "transition_type": ttype,
+        "duration_frames": dur_frames,
+        "beat_aligned": beat_aligned,
+        "snap_delta_seconds": snap_delta,
+        # How far the resolved cut ended up from the block boundary
+        # the plan named. `snap_delta_seconds` only measures the
+        # snap_to_beat path, so a cut relocated by word-end matching
+        # recorded 0.0 while having moved 2.2 seconds. Always
+        # recorded, so a relocation is visible in the manifest
+        # without re-deriving it.
+        "displacement_seconds": round(cut_time - original_tl, 3),
+        "placement_method": cut_info["method"],
+        "word_beat_coincidence": cut_info["word_beat_coincidence"],
+        "rationale": trans.get("rationale", ""),
+        # What the plan asked for, and why it is not what shipped.
+        # The rationale used to be carried through unchanged onto a
+        # transition it no longer described - "Standard dialogue cut"
+        # sitting on a 15-frame dissolve.
+        "requested_type": selected_trans["requested_type"],
+        "downgrade_reason": selected_trans["downgrade_reason"],
+    }
+    return trans_dict
+
+
+def _resolve_picture_cut(trans: dict | None, block: dict, outgoing: dict,
+                         beat_positions: list, frame_rate: float,
+                         music_analysis, music_selection,
+                         index: int = 0) -> tuple:
+    """The picture cut in timeline seconds, plus its resolution record.
+
+    `trans` is the picture entry (its `anchor`, when present, wins
+    exactly) or None for a J/L-only boundary (the default word-end /
+    beat-snap resolution). Returns (cut_time, cut_info).
+    """
+    if trans is not None and trans.get("anchor_end") is not None:
+        raise AnchorRefused(
+            what=(f"step plan_transitions plan entry at boundary "
+                  f"{block.get('position')!r} anchor_end names an "
+                  f"end anchor on a cut"),
+            why=("a cut is one point in time: the entry carries "
+                 "`anchor_end` and nothing in this step reads it "
+                 "as an end."),
+            fix=(f"re-plan the cut into block "
+                 f"{block.get('position')!r} with `anchor` alone "
+                 f"for the point it lands on, and drop "
+                 f"`anchor_end`."),
+        )
+    if trans is not None and trans.get("anchor") is not None:
+        hit = resolve_anchor(
+            trans["anchor"], block=outgoing,
+            music_analysis=music_analysis,
+            music_selection=music_selection,
+            frame_rate=frame_rate, step="plan_transitions",
+            plan="transition_creative",
+            index=index)
+        cut_time = hit["timeline_seconds"]
+        cut_info = {"cut_time": cut_time,
+                    "method": f"anchor: {hit['method']}",
+                    "word_beat_coincidence": False}
+    else:
+        cut_info = resolve_cut_point(
+            incoming=block,
+            outgoing=outgoing,
+            beat_grid=beat_positions,
+        )
+        cut_time = cut_info["cut_time"]
+
+    beat_aligned = False
+    snap_delta = 0.0
+    if cut_info["method"] == "block-boundary":
+        snapped, beat_aligned, snap_delta = snap_to_beat(
+            cut_time, beat_positions,
+        )
+        cut_time = snapped
+    elif "beat" in cut_info["method"]:
+        beat_aligned = True
+    return cut_time, cut_info, beat_aligned, snap_delta
+
+
+def _attach_jl_offset(jl_entry: dict, trans_dict: dict | None,
+                      block: dict, outgoing: dict,
+                      beat_positions: list, frame_rate: float,
+                      music_analysis, music_selection,
+                      index: int = 0):
+    """Resolve a J/L plan entry and carry its audio offset on the cut.
+
+    The picture decoration (when the boundary carries one) is resolved
+    first so the audio cut is measured against the picture cut the eye
+    actually gets. A J/L-only boundary ships the hard cut it already
+    is - the absence of decoration, never a choice of effect - with
+    the audio offset beside it. Returns the transition spec dict.
+    """
+    from library.tools.jl_cut import JLCutRefused
+    from library.tools.jl_cut import normalise_kind as _jl_kind
+    from library.tools.jl_cut import resolve_audio_cut as _audio_cut
+    from library.tools.transition_carriers import block_reaches_v1
+
+    kind = _jl_kind(jl_entry.get("type",
+                                 jl_entry.get("transition_type", "")))
+    join_label = f"boundary {block.get('position')!r}"
+    for key in ("duration_feel", "fallback_type"):
+        if jl_entry.get(key) is not None:
+            raise JLCutRefused(
+                what=(f"step plan_transitions J/L entry at {join_label} "
+                      f"states `{key}`"),
+                why=("a J/L cut draws no picture transition, so a hold "
+                     "or a substitute transition on it is read by "
+                     "nothing - an unread key is how P5's `at_word` "
+                     "landed 3.06 s early."),
+                fix=(f"re-plan the cut into block "
+                     f"{block.get('position')!r} without `{key}` - the "
+                     f"picture stays the hard cut the boundary already "
+                     f"is - or move the decoration onto a picture "
+                     f"transition entry at the same boundary."),
+            )
+    if jl_entry.get("anchor_end") is not None:
+        raise AnchorRefused(
+            what=(f"step plan_transitions J/L entry at {join_label} "
+                  f"anchor_end names an end anchor on an audio cut"),
+            why=("an audio cut is one point in time: the entry "
+                 "carries `anchor_end` and nothing in this step reads "
+                 "it as an end."),
+            fix=(f"re-plan the cut into block "
+                 f"{block.get('position')!r} with `anchor` alone for "
+                 f"the point the audio crosses on, and drop "
+                 f"`anchor_end`."),
+        )
+    if not block_reaches_v1(outgoing) or not block_reaches_v1(block):
+        raise JLCutRefused(
+            what=(f"step plan_transitions J/L entry at {join_label} "
+                  f"joins blocks that do not both reach V1"),
+            why=("both sides of a J/L join must put picture on V1: "
+                 "the trim is addressed to the speech row the V1 "
+                 "clips play with."),
+            fix=(f"re-plan the cut at a join between two V1 blocks, "
+                 f"or drop it."),
+        )
+    from library.tools.frame_utils import seconds_to_frame
+    boundary_frame = seconds_to_frame(float(block["timeline_start"]),
+                                      frame_rate)
+    boundary_seconds = boundary_frame / float(frame_rate)
+    if trans_dict is None:
+        # A J/L-only boundary ships the hard cut it already is, AT
+        # the boundary frame - the eye cuts where the V1 clips abut,
+        # so the default word-end/beat-snap resolution (which can sit
+        # seconds inside the outgoing block) would record a picture
+        # cut the timeline never plays.
+        original_tl = block["timeline_start"]
+        trans_dict = {
+            "transition_id": f"trans_tmp_{index+1:03d}",
+            "cut_point_timeline": round(boundary_seconds, 3),
+            "cut_point_original": round(original_tl, 3),
+            "transition_type": "hard_cut",
+            "duration_frames": 0,
+            "beat_aligned": False,
+            "snap_delta_seconds": 0.0,
+            "displacement_seconds": round(boundary_seconds - original_tl,
+                                          3),
+            "placement_method": "v1-boundary",
+            "word_beat_coincidence": False,
+            "rationale": jl_entry.get("rationale", ""),
+            "requested_type": kind,
+            "downgrade_reason": "",
+        }
+    hit = _audio_cut(
+        kind=kind, entry=jl_entry, outgoing=outgoing, incoming=block,
+        boundary_frame=boundary_frame, frame_rate=frame_rate,
+        music_analysis=music_analysis, music_selection=music_selection,
+        index=index)
+    trans_dict["audio_offset"] = {
+        "kind": kind,
+        "picture_cut_timeline": hit["picture_cut_timeline"],
+        "picture_cut_frame": hit["picture_cut_frame"],
+        "audio_cut_timeline": hit["audio_cut_timeline"],
+        "audio_cut_frame": hit["audio_cut_frame"],
+        "audio_cut_exact": hit["audio_cut_exact"],
+        "lead_seconds": hit["lead_seconds"],
+        "method": hit["method"],
+        "outgoing_position": outgoing.get("position"),
+        "incoming_position": block.get("position"),
+    }
+    return trans_dict
 
 
 def _assert_transitions_distinct(resolved: list) -> None:

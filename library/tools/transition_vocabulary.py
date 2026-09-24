@@ -154,14 +154,22 @@ WITHDRAWN = {
         "`element_overlay` in OVERLAY_TYPES, and it mixes nothing."
     ),
     "j_cut": (
-        "An audio-lead edit, not a picture effect. The audio thread was ruled "
-        "OUT OF SCOPE on 2026-08-15, and the unreachable J/L cut offset code "
-        "was removed under that ruling."
+        "An audio-lead edit, not a picture effect, so it is not drawn "
+        "on the per-clip Fusion route - or any picture route. It IS "
+        "deliverable: plan it as a J/L audio-offset entry in step 4.02 "
+        "(`library/tools/jl_cut.py`), which trims the speech row and "
+        "fills the opened gap with measured room tone. A `j_cut` "
+        "reaching a Fusion builder is a misroute, not a missing "
+        "capability."
     ),
     "l_cut": (
-        "An audio-lag edit, not a picture effect. The audio thread was ruled "
-        "OUT OF SCOPE on 2026-08-15, and the unreachable J/L cut offset code "
-        "was removed under that ruling."
+        "An audio-lag edit, not a picture effect, so it is not drawn "
+        "on the per-clip Fusion route - or any picture route. It IS "
+        "deliverable: plan it as a J/L audio-offset entry in step 4.02 "
+        "(`library/tools/jl_cut.py`), which trims the speech row and "
+        "fills the opened gap with measured room tone. An `l_cut` "
+        "reaching a Fusion builder is a misroute, not a missing "
+        "capability."
     ),
     "light_leak": (
         "Needs a light-leak asset library. library/presets ships none."

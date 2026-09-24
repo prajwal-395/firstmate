@@ -737,6 +737,13 @@ def build_timeline(
         if isinstance(c, dict) and c.get('voiceover')]
     # SFX live in exactly one place: tracks.A3.clips (see compile_manifest).
     a3_clips = tracks.get('A3', {}).get('clips', [])
+    # J/L room-tone fills (fidelity rung R5a): audio-only clips the
+    # compile staged over exactly the gaps its trims opened, plus the
+    # applied-join records the link pass matches against below. Read
+    # here so a declared fill with no reader fails loudly at the
+    # output_contract survey instead of shipping as silence.
+    room_tone_fills = manifest.get('room_tone_fills', []) or []
+    jl_cut_plans = manifest.get('jl_cuts', []) or []
     # Note: transitions are applied via fusion_effects.transitions, not
     # the top-level 'transitions' key (which is informational only).
 
@@ -926,6 +933,12 @@ def build_timeline(
     total_imported += _import_to_folder(
         bin_layout.SOURCE_BIN,
         [c.get('source_file', '') for c in a2_clips + a3_clips])
+    # Room-tone fills ride the same bin as the fetched bed and SFX:
+    # pipeline audio the build placed, filed by the organiser under
+    # the timelines that place it.
+    total_imported += _import_to_folder(
+        bin_layout.SOURCE_BIN,
+        [c.get('source_file', '') for c in room_tone_fills])
     # Voiceover narration rides no V1 carrier, so its files arrive
     # through no other import: without this the A1 placement below
     # finds nothing pooled and the words never reach the timeline.
@@ -1638,6 +1651,104 @@ def build_timeline(
     if verify_clip_placement:
         for _row, (_items, _clips) in placed_by_row.items():
             _run_qa(verify_clip_placement(timeline, {_row: _items}, {_row: _clips}))
+
+    # ══════════════════════════════════════════════════════════
+    # PLACE ROOM-TONE FILLS (J/L joins, fidelity rung R5a)
+    # ══════════════════════════════════════════════════════════
+    # The speech row is continuous by construction: each J/L trim
+    # opened exactly one gap and each fill below closes one. Fills
+    # ride the angle's own speech row as audio-only items (the SFX
+    # placement shape below), placed HERE - after speech, before the
+    # music/SFX rows exist - and BEFORE deliver_mix, so the OTIO
+    # round trip carries them like every other audio item. Each
+    # placement is judged by read-back: a fill that did not land is
+    # a gap left as digital silence, so it errors the build rather
+    # than warning past it. The link pass joins each fill to its
+    # picture group after the rebuild.
+    _fill_placed = []  # (fill record, timeline item)
+    results["jl_cuts"] = []
+    if room_tone_fills:
+        print(f"\n── Room-tone fills: {len(room_tone_fills)} gap(s) ──",
+              file=sys.stderr)
+        _fill_speech = track_plan.speech_row_for_angle("main")
+        if _fill_speech is None:
+            _rows = track_plan.speech_rows()
+            _fill_speech = _rows[0] if _rows else None
+        if _fill_speech is None:
+            results["errors"].append(
+                "J/L room-tone fills planned with no speech row; "
+                "refusing to place them unrowed.")
+        else:
+            _frow = _fill_speech.index
+            while timeline.GetTrackCount("audio") < _frow:
+                timeline.AddTrack("audio")
+            for fill in room_tone_fills:
+                _fsrc = fill.get('source_file', '')
+                _flabel = fill.get('label', '?')
+                if not _fsrc:
+                    results["errors"].append(
+                        f"Room-tone fill {_flabel} names no source_file - "
+                        f"its gap would ship as digital silence.")
+                    continue
+                _fpool = _find_pool_clip(_fsrc)
+                if not _fpool:
+                    results["errors"].append(
+                        f"Room-tone fill {_flabel} ({_fsrc}) is not in "
+                        f"the media pool - its gap would ship as "
+                        f"digital silence.")
+                    continue
+                _f_tl_in = fill.get('timeline_in_frame')
+                _f_tl_out = fill.get('timeline_out_frame')
+                if _f_tl_in is None or _f_tl_out is None:
+                    results["errors"].append(
+                        f"Room-tone fill {_flabel} carries no timeline "
+                        f"frames - nothing says where its gap is.")
+                    continue
+                _f_src_fps = _source_fps(_fpool, fps)
+                _f_src_in = round(fill.get('source_in', 0) * _f_src_fps)
+                _f_src_dur = round(((_f_tl_out - _f_tl_in) / fps)
+                                   * _f_src_fps)
+                assert_current_timeline(project, timeline)
+                _f_res = media_pool.AppendToTimeline([{
+                    "mediaPoolItem": _fpool,
+                    "startFrame": _f_src_in,
+                    "endFrame": _f_src_in + _f_src_dur,
+                    "trackIndex": _frow,
+                    "recordFrame": _f_tl_in,
+                    "mediaType": 2,  # audio-only placement
+                }])
+                if not _f_res:
+                    results["errors"].append(
+                        f"Room-tone fill {_flabel} at {_f_tl_in}: "
+                        f"AppendToTimeline returned nothing - its gap "
+                        f"would ship as digital silence.")
+                    continue
+                _f_item = (_f_res[0] if isinstance(_f_res, list)
+                           else _f_res)
+                try:
+                    _f_span = (_f_item.GetStart(), _f_item.GetEnd(),
+                               _f_item.GetDuration())
+                except Exception as exc:
+                    results["errors"].append(
+                        f"Room-tone fill {_flabel} placed but unreadable "
+                        f"({exc}) - an unjudged placement claims "
+                        f"nothing.")
+                    continue
+                if (_f_span[0] != _f_tl_in
+                        or _f_span[0] + _f_span[2] != _f_tl_out):
+                    results["errors"].append(
+                        f"Room-tone fill {_flabel} read back "
+                        f"{_f_span[0]}-{_f_span[0] + _f_span[2]} "
+                        f"against planned {_f_tl_in}-{_f_tl_out} - the "
+                        f"gap is not exactly covered.")
+                    continue
+                _fill_placed.append((fill, _f_item))
+                results["tracks"][f"A{_frow}"] = (
+                    results["tracks"].get(f"A{_frow}", 0) + 1)
+                print(f"  ✓ {_flabel}: A{_frow} {_f_span[0]}-"
+                      f"{_f_span[0] + _f_span[2]} "
+                      f"({fill.get('level_dbfs')} dBFS room)",
+                      file=sys.stderr)
 
     # ══════════════════════════════════════════════════════════
     # NOW create music and SFX audio rows (AFTER speech — so they start clean)
@@ -2837,6 +2948,19 @@ def build_timeline(
     # (measured 2026-09-09). The call's result is read back, not trusted.
     print(f"\n── Link Pass ──", file=sys.stderr)
     _speech_index = []  # (start, end, item, angle_key)
+    # Room-tone fills (fidelity rung R5a) are speech-row items that
+    # link ONLY inside their J/L group below - never by same-start
+    # (no picture starts mid-clip) and never as a caption host (a
+    # word-timed caption fully inside a wordless gap is a plan that
+    # contradicts its own words). They are indexed separately and
+    # kept out of the pair loop's index.
+    _fill_starts = {
+        int(f.get("timeline_in_frame")) for f in room_tone_fills
+        if isinstance(f, dict) and f.get("timeline_in_frame") is not None
+    }
+    _main_speech = track_plan.speech_row_for_angle("main")
+    _main_speech_idx = (_main_speech.index if _main_speech is not None
+                        else None)
     for _srow in track_plan.speech_rows():
         try:
             _sitems = timeline.GetItemListInTrack("audio", _srow.index) or []
@@ -2844,10 +2968,15 @@ def build_timeline(
             _sitems = []
         for _s in _sitems:
             try:
-                _speech_index.append((_s.GetStart(), _s.GetEnd(), _s,
-                                      _srow.occupant))
+                _span = (_s.GetStart(), _s.GetEnd())
             except Exception:
                 continue
+            if (_main_speech_idx is not None
+                    and _srow.index == _main_speech_idx
+                    and _span[0] in _fill_starts):
+                continue
+            _speech_index.append((_span[0], _span[1], _s,
+                                  _srow.occupant))
 
     def _picture_at(angle_key, start):
         _vrow = track_plan.video_row_for_angle(angle_key)
@@ -2885,7 +3014,121 @@ def build_timeline(
         except Exception:
             return None
 
+    # J/L groups (fidelity rung R5a): an offset pair cannot link by
+    # same-start - its starts differ BY DESIGN - so each group is
+    # resolved here from the manifest records, by timeline frame: the
+    # picture item, the offset speech item, and the fill. A claimed
+    # speech item is never paired twice (linking is exclusive: a
+    # second call breaks the first group), and the caption loop below
+    # folds each fill into its host's group call instead of ejecting
+    # it with a picture-plus-speech-only call.
+    _v1_by_position = {}
+    for _vc in v1_clips:
+        if isinstance(_vc, dict) and _vc.get("spine_position") is not None:
+            _v1_by_position[str(_vc.get("spine_position"))] = _vc
+    _jl_claimed_speech = set()  # start frames the groups own
+    _jl_host_fill = {}  # speech start frame -> fill timeline item
+    _jl_pending = []  # (join label, kind, pic, speech, fill or None)
+    for _plan in jl_cut_plans:
+        if not isinstance(_plan, dict):
+            continue
+        _kind = _plan.get("kind")
+        _join = (f"{_plan.get('outgoing_position')}->"
+                 f"{_plan.get('incoming_position')}")
+        _out = _v1_by_position.get(str(_plan.get("outgoing_position")))
+        _inc = _v1_by_position.get(str(_plan.get("incoming_position")))
+        if _out is None or _inc is None:
+            results["warnings"].append(
+                f"J/L link {_kind} join {_join}: positions match no V1 "
+                f"clip - its items link by same-start only.")
+            continue
+        try:
+            _pcut = int(round(float(_plan["picture_cut_timeline"]) * fps))
+            _acut = int(round(float(_plan["audio_cut_timeline"]) * fps))
+            _out_pic = int(_out["timeline_in_frame"])
+            _in_pic = int(_inc["timeline_in_frame"])
+        except (KeyError, TypeError, ValueError):
+            results["warnings"].append(
+                f"J/L link {_kind} join {_join}: records carry no "
+                f"frames - its items link by same-start only.")
+            continue
+        if _kind == "j_cut":
+            _pic_start, _speech_start, _fill_start = (
+                _out_pic, _out_pic, _acut)
+        elif _kind == "l_cut":
+            _pic_start, _speech_start, _fill_start = (
+                _in_pic, _acut, _pcut)
+        else:
+            results["warnings"].append(
+                f"J/L link join {_join} names kind {_kind!r} - its "
+                f"items link by same-start only.")
+            continue
+        _pic_item = _picture_at("main", _pic_start)
+        # Speech and fill members come off the main speech row by
+        # start frame: a same-start item on any other row is another
+        # clip's sound, not this join's.
+        _speech_item = None
+        _fill_item = None
+        if _main_speech_idx is not None:
+            try:
+                _row_items = (timeline.GetItemListInTrack(
+                    "audio", _main_speech_idx) or [])
+            except Exception:
+                _row_items = []
+            _by_start = {}
+            for _cand in _row_items:
+                try:
+                    _by_start.setdefault(_cand.GetStart(), _cand)
+                except Exception:
+                    continue
+            _speech_item = _by_start.get(_speech_start)
+            _fill_item = _by_start.get(_fill_start)
+        if _pic_item is None or _speech_item is None \
+                or _fill_item is None:
+            results["warnings"].append(
+                f"J/L link {_kind} join {_join}: "
+                f"{'picture ' if _pic_item is None else ''}"
+                f"{'speech ' if _speech_item is None else ''}"
+                f"{'fill ' if _fill_item is None else ''}unmatched on "
+                f"the timeline - its items link by same-start only.")
+            continue
+        _jl_claimed_speech.add(_speech_start)
+        _jl_host_fill[_speech_start] = _fill_item
+        _jl_pending.append((_join, _kind, _pic_item, _speech_item,
+                            _fill_item))
+
+    for _join, _kind, _pic_item, _speech_item, _fill_item in _jl_pending:
+        try:
+            ok = timeline.SetClipsLinked(
+                [_pic_item, _speech_item, _fill_item], True)
+        except Exception as exc:
+            results["warnings"].append(
+                f"Link J/L {_kind} join {_join} raised {exc!r}")
+            continue
+        if not ok:
+            results["warnings"].append(
+                f"Link J/L {_kind} join {_join} declined")
+            continue
+        _have = _linked_ids(_speech_item)
+        if _item_uid(_pic_item) in _have \
+                and _item_uid(_fill_item) in _have:
+            results["link_groups"].append(
+                {"picture_start": _pic_item.GetStart(),
+                 "speech_row_occupant": "main",
+                 "members": 3, "jl_kind": _kind, "join": _join})
+            print(f"  ✓ J/L {_kind} join {_join}: picture + speech + "
+                  f"fill linked", file=sys.stderr)
+        else:
+            results["warnings"].append(
+                f"Link J/L {_kind} join {_join} read back unlinked")
     for _start, _end, _s, _angle_key in _speech_index:
+        if _start in _jl_claimed_speech and _angle_key == "main":
+            # Claimed by a J/L group above: a J-cut's outgoing speech
+            # starts with its picture, so the same-start pairing below
+            # would link it a second time and break the triple. The
+            # group call is the link; there is no second one.
+            continue
+        _pic = _picture_at(_angle_key, _start)
         _pic = _picture_at(_angle_key, _start)
         if _pic is None or _pic is _s:
             continue
@@ -2944,8 +3187,15 @@ def build_timeline(
         for _key in sorted(_caps_by_host):
             _entry = _caps_by_host[_key]
             _host, _pic = _entry["host"], _entry["pic"]
+            # A host claimed by a J/L group brings its fill along:
+            # the group call below is the ONE call for this host, and
+            # a picture-plus-speech-only call here would eject the
+            # fill (linking is exclusive, not additive).
+            _extra = ([_jl_host_fill[_entry["speech_start"]]]
+                      if _entry["speech_start"] in _jl_host_fill else [])
             _group = ([_pic] if _pic is not None and _pic is not _host
-                      else []) + [_host] + [c for _, _, c in _entry["caps"]]
+                      else []) + [_host] + _extra + [
+                          c for _, _, c in _entry["caps"]]
             try:
                 ok = timeline.SetClipsLinked(_group, True)
             except Exception as exc:

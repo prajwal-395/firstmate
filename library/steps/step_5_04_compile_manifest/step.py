@@ -1607,6 +1607,11 @@ def compile_manifest(out_dir: str) -> dict:
                         "timeline_out_frame": None,
                         "link_group_id": seg.get("link_group_id", lgid),
                         "label": f"{block['block_type']}_{block['position']}_seg{seg_idx}",
+                        # The spine join a J/L audio offset trims against
+                        # (library/tools/jl_cut.py). Labels carry it too,
+                        # but the join reads this key directly - a rename
+                        # fails loudly instead of trimming the wrong clip.
+                        "spine_position": block.get("position"),
                     }
                     if picture_led:
                         clip["picture_led"] = True
@@ -1631,6 +1636,10 @@ def compile_manifest(out_dir: str) -> dict:
                     "timeline_out_frame": block.get("timeline_end_frame"),
                     "link_group_id": lgid,
                     "label": f"{block['block_type']}_{block['position']}",
+                    # The spine join a J/L audio offset trims against
+                    # (library/tools/jl_cut.py) - see the segment branch
+                    # above for why this is explicit rather than parsed.
+                    "spine_position": block.get("position"),
                 }
                 if picture_led:
                     clip["picture_led"] = True
@@ -1655,6 +1664,9 @@ def compile_manifest(out_dir: str) -> dict:
                     "timeline_out_frame": block.get("timeline_end_frame"),
                     "link_group_id": lgid,
                     "label": f"{block['block_type']}_{block['position']}",
+                    # The spine join a J/L audio offset trims against
+                    # (library/tools/jl_cut.py) - explicit, not parsed.
+                    "spine_position": block.get("position"),
                 }
                 if picture_led:
                     clip["picture_led"] = True
@@ -2391,6 +2403,55 @@ def compile_manifest(out_dir: str) -> dict:
             "duration_frames": t["duration_frames"],
         })
 
+    # ── J/L cuts: trim the speech row, fill the gap with room ──
+    # Fidelity rung R5a (P3: doc J-cuts with room tone). Step 4.02
+    # resolves each planned J/L entry onto its cut as `audio_offset`
+    # (kind, picture/audio cut timelines, lead, join positions); here
+    # the offset becomes sound: the trimmed side's `audio_src_in/out`
+    # moves (picture ranges are untouched, so the eye still cuts at
+    # the picture cut), and the gap the trim opens is staged with the
+    # joining source's measured room tone. `apply_jl_cuts` asserts the
+    # speech row stays continuous - no join drops to digital silence -
+    # and refuses by name what it cannot build.
+    jl_offsets = [
+        t.get("audio_offset") for t in transitions
+        if isinstance(t, dict)
+        and isinstance(t.get("audio_offset"), dict)
+    ]
+    jl_cuts = []
+    room_tone_measurements: dict = {}
+    room_tone_fills = []
+    if jl_offsets:
+        from library.tools import jl_cut as _jl
+        from library.tools import room_tone as _room
+
+        jl_result = _jl.apply_jl_cuts(
+            v1_clips, jl_offsets, structure, fps,
+            _room.measure_room_tone, _room.stage_fill, out_dir)
+        v1_clips = jl_result["v1_clips"]
+        jl_cuts = jl_result["applied"]
+        room_tone_measurements = jl_result["room_tone"]
+        room_tone_fills = jl_result["fills"]
+        for row in jl_cuts:
+            print(
+                f"  J/L {row['kind']} join "
+                f"{row['outgoing_position']}->{row['incoming_position']}: "
+                f"picture {row['picture_cut_timeline']:.3f}s, audio "
+                f"{row['audio_cut_timeline']:.3f}s "
+                f"({row['method']}), fill {row['fill']} from "
+                f"{row['room_source']} at {row['room_level_dbfs']} dBFS",
+                file=sys.stderr,
+            )
+        for source_file, record in room_tone_measurements.items():
+            print(
+                f"  Room tone {os.path.basename(source_file)}: "
+                f"{record['segment_start']:.2f}-"
+                f"{record['segment_end']:.2f}s at "
+                f"{record['level_dbfs']} dBFS "
+                f"({record['method']})",
+                file=sys.stderr,
+            )
+
     # Audio config
     audio_preset = sfx_preset or audio_mix_data.get("audio_mix_spec", {}).get("fairlight_preset", "")
     audio_config = {
@@ -2550,6 +2611,15 @@ def compile_manifest(out_dir: str) -> dict:
         # read-back. Read by the timeline build - see output_contract.
         "native_speed_ops": native_speed_ops,
         "native_transitions": native_transitions,
+        # J/L audio offsets (fidelity rung R5a): the applied joins
+        # (picture/audio cut timelines, lead, fill label), the room-tone
+        # measurement per fill source, and the staged fills themselves -
+        # audio-only clips the build places on the speech row. Read by
+        # the timeline build (`resolve_build_timeline`), which judges
+        # each by read-back.
+        "jl_cuts": jl_cuts,
+        "room_tone": room_tone_measurements,
+        "room_tone_fills": room_tone_fills,
         "neural_engine_directives": neural_engine_directives,
         # The authoritative record of what creative_cohesion asked for and
         # what actually happened to each request.
