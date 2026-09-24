@@ -57,8 +57,6 @@ Each passage needs:
 - text (exact verbatim words from the temporal index transcript)
 - source_start / source_end (roughly WHERE in that clip the text sits - a
   location hint, not a timing; see "Where the passage is" below)
-- role (describe the structural function of this passage in your own words, e.g. "hook", "development", "punchline")
-- flow_note (how this passage connects to the next)
 - engagement (how strongly this passage holds a viewer, judged ONLY
   against the other passages in this sequence - rank the hook
   in the same ordering):
@@ -198,8 +196,7 @@ why no speech serves this piece.
 - Two body passages from the same clip must not claim overlapping source
   ranges: the overlapping audio would play twice across the cut. The
   bridge re-anchors such a passage past the previous one, or fails it.
-- The flow_note for the LAST passage should describe how the video ends.
-- Most passages will have role "development" — that's fine.
+- Order the body so the last passage lands the ending. Nothing reads a separate structural label: a role/flow_note pair used to be asked for here and no step read either, so the sequence order carries the structure now.
 - All `text` values must match the temporal index transcript verbatim.
 
 ---

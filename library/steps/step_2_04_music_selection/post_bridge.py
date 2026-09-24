@@ -60,6 +60,33 @@ from library.tools.music_selection_contract import (  # noqa: E402
     validate_selection,
     acquired_media_dir,
 )
+from library.tools.plan_keys import refuse_unknown_keys  # noqa: E402
+
+
+# The selection keys this step reads or forwards. Anything else is
+# REFUSED by `refuse_unknown_keys` in `resolve_selection`, never
+# dropped: an unread key is how a probe's SFX `at_word` landed 3.06 s
+# early on the block start. `splices`, `section` and `section_shortlist`
+# are read beside the choice; `tracks` merges the multi-track case;
+# `candidates_evaluated` is forwarded into the output and the audit
+# trail, where a reviewer reads the choice's evidence.
+# Deliberately absent: `bpm` and `key`. The manifest used to ask the
+# model to state them and nothing verified or used the answer - tempo
+# and key are read from step 2.06's own analysis, never from this
+# selection - so stating them was a guess preserved as a measurement.
+SELECTION_KEYS = frozenset({
+    "title",
+    "source",
+    "audio_path",
+    "source_url",
+    "duration_seconds",
+    "direction_justification",
+    "candidates_evaluated",
+    "tracks",
+    "splices",
+    "section_shortlist",
+    "section",
+})
 
 
 def _probe_duration(audio_path: str) -> float:
@@ -109,6 +136,13 @@ def resolve_selection(
     project_folder: str,
 ) -> dict:
     """Validate, fetch if needed, re-measure, validate again."""
+    # A selection key nothing here reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the choice carrying a guess nothing
+    # verifies (a stated bpm/key used to ride into the output as though
+    # measured).
+    refuse_unknown_keys([selection], SELECTION_KEYS,
+                         step="music_selection", plan="music_selection")
     if (selection.get("source") or "").lower() == "external" \
             and not (selection.get("audio_path") or "").strip() \
             and (selection.get("source_url") or "").strip():

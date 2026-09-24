@@ -27,6 +27,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../tools")))
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")))
 from library.tools.project_layout import Area, ProjectLayout
+from library.tools.plan_keys import refuse_unknown_keys
 
 # No engagement score is attached here any more.  `engagement_scorer` read
 # `prosody_data.get("energy_rms", 0)` off step 1.05's whole output - a key
@@ -600,6 +601,19 @@ def enrich_speech_sequence(
     Uses timestamp-based lookup. Each passage must have start/end
     timestamps resolved from the temporal index.
     """
+    # The passage keys this step reads or forwards. Anything else on a
+    # passage is REFUSED, never dropped: an unread key is how a probe's
+    # SFX `at_word` landed 3.06 s early on the block start. `clip_id`,
+    # `source_start`/`source_end` (lookup hints) and `text` are read by
+    # `enrich_passage`; `position` identifies the row; `engagement` is
+    # forwarded to the readers that rank by it (5.03, the reel bar).
+    # (`role` and `flow_note` used to be advertised beside them and
+    # nothing read either - the handoff no longer asks for them.)
+    refuse_unknown_keys(
+        speech_sequence.get("body_sequence", []),
+        {"clip_id", "source_start", "source_end", "text", "position",
+         "engagement"},
+        step="speech_sequence", plan="body_sequence")
 
     # Cache loaded temporal indices
     ti_cache = {}

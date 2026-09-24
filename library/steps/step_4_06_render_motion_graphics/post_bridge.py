@@ -42,6 +42,8 @@ from typing import Optional
 
 from generate_motion_props import PLAN_KEY, generate_motion_props
 
+from library.tools.plan_keys import refuse_unknown_keys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))
 from library.tools.delivery_format import resolve_delivery_format  # noqa: E402
@@ -719,6 +721,43 @@ def render_one_segment(planned: dict, out_dir: str,
     return _maybe_bind_measured(_entry(overlay_path, "rendered", key))
 
 
+# The model-plan entry keys `motion_graphics_plan` reads. Anything
+# else on an entry is REFUSED, never dropped: an unread key is how a
+# probe's SFX `at_word` landed 3.06 s early on the block start.
+# `element_key`, `asset_file`, `colour` and `rationale` are the legacy
+# spellings of `element`, `asset`, `color` and `why`; `anchor_phrase`
+# and `hold_seconds`/`subject` are the anchored-timing form, read
+# beside the timed `start_seconds`/`duration_seconds` pair. Timeline
+# bounds and progress fractions (`timeline_start`, `timing_basis`,
+# ...) are writer-side keys the planner module adds to RENDERED
+# elements - a plan entry carrying them is refused like any other key
+# nothing reads.
+MG_PLAN_ENTRY_KEYS = frozenset({
+    "element",
+    "element_key",
+    "anchor",
+    "start_seconds",
+    "duration_seconds",
+    "anchor_phrase",
+    "hold_seconds",
+    "subject",
+    "asset",
+    "asset_file",
+    "data",
+    "entrance",
+    "exit",
+    "row",
+    "footprint",
+    "emphasis",
+    "why",
+    "rationale",
+    "copy",
+    "colour_role",
+    "color",
+    "colour",
+})
+
+
 def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     """Render the model's motion-graphics plan, its bookends and timed text.
 
@@ -739,6 +778,15 @@ def render_motion_graphics(data: dict, reuse: bool = False) -> dict:
     # read now that this step has one - the runner projects them into
     # the context and the plan comes back here already decided.
     motion_graphics_plan = data.get(PLAN_KEY)
+
+    # A plan key nothing here reads is refused before anything renders
+    # - the refusal travels the post-bridge retry path so the model
+    # re-plans instead of an entry drawing without what the key asked
+    # for. (The reels path builds its own entries through the shared
+    # planner module, never through this function, so it is unaffected.)
+    refuse_unknown_keys(motion_graphics_plan or [], MG_PLAN_ENTRY_KEYS,
+                         step="render_motion_graphics",
+                         plan="motion_graphics_plan")
 
     # The Remotion project comes from `_remotion_dir`, which is the one
     # locator, rather than a fourth derivation beside it.  PILOT_ROOT is

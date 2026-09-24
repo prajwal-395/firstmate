@@ -886,9 +886,11 @@ def compute_optical_flow_direction(
 ) -> dict:
     """Compute dominant optical flow direction at 5Hz.
 
-    Extracts low-resolution grayscale frames, computes frame-to-frame
-    optical flow using Farneback's dense optical flow algorithm, and
-    summarizes the dominant motion vector (dx, dy) per sample.
+    Extracts low-resolution grayscale frames, estimates the dominant
+    frame-to-frame translation with a block-matching search (mean
+    absolute difference over shifts of -8..8 px in steps of 2 on
+    160x90 gray frames - NOT Farneback dense flow, which needs OpenCV),
+    and summarizes the dominant motion vector (dx, dy) per sample.
 
     Interpretation:
       - dx > 0 = rightward motion (pan right or subject moves right)
@@ -1059,19 +1061,23 @@ def decompose_camera_motion(
     Components:
       - translation_x: horizontal camera motion (positive = panning right)
       - translation_y: vertical camera motion (positive = tilting down)
-      - zoom_factor:   1.0 = no zoom. >1.0 = zoom in. <1.0 = zoom out.
-                       Estimated from magnitude increase toward frame edges
-                       vs. center — approximated from mean magnitude here.
       - residual:      leftover motion energy (subject movement, shake)
 
-    Note: true zoom decomposition requires center-weighted optical flow
-    analysis. This provides a useful approximation for editorial purposes.
+    There is deliberately NO zoom_factor here. A zoom estimate used to
+    sit alongside these keys (`1.0 + max(0, mag - translation_mag) *
+    0.3`), but the inputs are a single global translation vector per
+    sample with magnitude = sqrt(dx^2 + dy^2), which is never larger
+    than |dx| + |dy| - so the term was 0.0 on every sample and the
+    factor read 1.0 always. A constant presented as a measurement.
+    True zoom needs a center-weighted dense field (radial expansion
+    toward the frame edges), which the block matcher above does not
+    compute, so no zoom is reported rather than a wrong one.
 
     Returns:
         {
             "sample_rate_hz": 5,
             "values": [{"translation_x", "translation_y",
-                         "zoom_factor", "residual"}, ...]
+                         "residual"}, ...]
         }
     """
     values = flow_direction.get("values", [])
@@ -1088,18 +1094,16 @@ def decompose_camera_motion(
         tx = round(dx, 3)
         ty = round(dy, 3)
 
-        # Zoom approximation: when motion magnitude is high but direction
-        # is radially outward from center, interpret as zoom-in.
-        # We approximate: if magnitude is high and dx/dy are small
-        # relative to magnitude → possible zoom.
+        # Leftover motion energy past the translation. (A zoom term used
+        # to be derived here from mag - (|dx| + |dy|); that difference is
+        # never positive for a translation vector, so it is gone - see
+        # the docstring.)
         translation_mag = abs(dx) + abs(dy)
         residual = round(max(0.0, mag - translation_mag * 0.5), 3)
-        zoom_factor = round(1.0 + max(0.0, mag - translation_mag) * 0.3, 3)
 
         decomposed.append({
             "translation_x": tx,
             "translation_y": ty,
-            "zoom_factor": zoom_factor,
             "residual": residual,
         })
 

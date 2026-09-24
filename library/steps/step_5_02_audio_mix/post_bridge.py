@@ -36,6 +36,22 @@ from library.steps.step_5_02_audio_mix.mix import (
     solve_automation,
 )
 from library.tools import decided_value
+from library.tools.plan_keys import refuse_unknown_keys
+
+
+# The decision-entry keys this step reads. Anything else is REFUSED,
+# never dropped: an unread key is how a probe's SFX `at_word` landed
+# 3.06 s early on the block start. (`decided_value.take` already
+# strips the raw answer down to these keys before the bridge runs, so
+# this gate covers the merge entries the bridge actually reads -
+# `answers_from` matches on `slot`/`scope` and `decide` reads `value`
+# and the required `why`.)
+DECISION_ENTRY_KEYS = frozenset({
+    "slot",
+    "scope",
+    "value",
+    "why",
+})
 
 
 def _speech_reference(windows, scope):
@@ -83,6 +99,13 @@ def resolve_audio_mix(data: dict) -> dict:
     """
     if not isinstance(data, dict):
         raise ValueError("Input data must be a dictionary")
+
+    # A decision key nothing here reads is refused before anything
+    # solves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the mix carrying a key nobody reads.
+    refuse_unknown_keys(data.get(decided_value.MERGE_KEY) or [],
+                         DECISION_ENTRY_KEYS, step="audio_mix",
+                         plan="value_decisions")
 
     pre_output = {
         "bed_measurements": data.get("bed_measurements") or {},

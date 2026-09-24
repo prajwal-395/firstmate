@@ -71,7 +71,7 @@ class TestGeneratorRejectedFromClipEffect:
         creative_plan = [{
             "target_block_position": 1,
             "effect_type": "fireworks",  # a generator preset
-            "intensity": "moderate",
+            "rationale": "opens with a burst",
         }]
         timed_spine = {
             "structure": [{

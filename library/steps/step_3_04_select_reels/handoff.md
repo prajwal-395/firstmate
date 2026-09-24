@@ -323,10 +323,7 @@ For each stretch you choose:
 |-------|------------|
 | `start`, `end` | Where the reel begins and ends, in seconds of the cut |
 | `slug` | A short topic name, lowercase words joined by hyphens |
-| `reason` | One line: the argument for why this stretch works as a standalone reel under the captain's definition. Do NOT write a generic topic label (e.g. 'Breakdown of X'). Explain what complete exchange is delivered and how it lands/closes (e.g., crisp takeaway, realization, or CTA) |
-| `value` | What the viewer gets from it |
-| `hook` | The opening line, and why it earns the next five seconds |
-| `close` | How it ends, and whether that ending is a CTA |
+| `reason` | One line: the argument for why this stretch works as a standalone reel under the captain's definition. Do NOT write a generic topic label (e.g. 'Breakdown of X'). Explain what complete exchange is delivered and how it lands/closes (e.g., crisp takeaway, realization, or CTA) - what the viewer gets from it, why the opening line earns the next five seconds, and how it ends. (Separate `value`, `hook` and `close` keys were removed: nothing read them, so they were dropped silently. Argue the whole reel here.) |
 | `cta` | Optional. `{start, end, note}` — the spoken closer this reel ends on, taken from anywhere in the episode and played after the body. Omit it when the stretch already closes on one of its own. `note` is one line on why you chose that closer |
 | `takes_dropped` | Any repeated take you are choosing not to play: `{start, end, reason}` per take, with the seconds and one line on why the other telling plays instead. A verdict here STICKS - it is recorded as a keep exclusion and stays out of every regeneration, so name exact seconds and mean them. A strike with no reason, outside the timeline, or covering the whole moment is refused and reported rather than recorded |
 

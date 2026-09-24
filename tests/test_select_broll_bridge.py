@@ -263,17 +263,18 @@ def test_only_one_cutaway_reaches_a_block():
     assert len(out["b_roll_assignments"]) == 1
 
 
-def test_a_wrong_needs_conform_from_the_model_is_overwritten():
-    """The prompt asks the model to compute `needs_conform` from width,
-    height and rotation - a 3-number comparison. The script recomputes
-    it on every assignment regardless of what the model wrote, so a
-    wrong value is corrected, not carried. clip_009 needs conforming;
-    the model saying otherwise changes nothing."""
-    out = _resolve([{"clip_id": "clip_009", "spine_block_position": 1,
-                      "needs_conform": False}],
-                   spine={"structure": [dict(SPINE["structure"][0],
-                                             clip_id="clip_001")]})
-    assert out["b_roll_assignments"][0]["needs_conform"] is True
+def test_a_needs_conform_from_the_model_is_refused():
+    """The handoff tells the model not to answer `needs_conform` - the
+    bridge recomputes it from the catalog on every assignment. A model
+    that answers it anyway is refused, naming the key and the known
+    keys, so it re-plans instead of its wrong value being silently
+    overwritten (or worse, carried)."""
+    from library.tools.plan_keys import UnreadPlanKey
+    with pytest.raises(UnreadPlanKey, match="needs_conform"):
+        _resolve([{"clip_id": "clip_009", "spine_block_position": 1,
+                   "needs_conform": False}],
+                 spine={"structure": [dict(SPINE["structure"][0],
+                                           clip_id="clip_001")]})
 
 
 def test_an_interjection_is_trimmed_around_broll_already_on_v2():

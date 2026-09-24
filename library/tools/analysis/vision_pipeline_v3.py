@@ -133,6 +133,13 @@ PROMPT_ACTION_WINDOW = """This is a {window_dur:.0f}-second segment (seconds {wi
 {transcript_line}
 Describe what is physically happening in this segment.
 
+This video clip has NO AUDIO TRACK - it was stripped before analysis,
+so you cannot hear anything. The only words that exist are the
+transcript text above (if any). NEVER quote speech: do not put words in
+quotation marks and do not attribute utterances to the person on
+screen. `speech_cue` describes VISIBLE delivery only - mouth moving,
+apparent effort, gestures while talking - never words.
+
 For each distinct action or behavior change, report:
 - What the person is physically doing
 - Observable speech delivery cues (if speaking): mouth movement, apparent volume, gestures while talking
@@ -150,7 +157,9 @@ Rules:
 - All timestamps must be within [{window_start}, {window_end}].
 - Describe ONLY what you observe — "frowning, arms crossed" not "feeling upset."
 - If one continuous action spans the whole window, return a single action entry.
-- speech_cue should be null (not the string "null") if the person is not speaking."""
+- speech_cue should be null (not the string "null") if the person is not speaking.
+- No quotation marks anywhere in your answer: with no audio, any quoted
+  words would be invented, and a deterministic check strips them."""
 
 PROMPT_OBJECTS_COARSE = """These are {n_frames} frames extracted from a {duration:.0f}-second video clip at the timestamps shown.
 
@@ -610,7 +619,12 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
                 ["ffmpeg", "-y", "-i", str(clip_path),
                  "-ss", str(start), "-t", str(end - start),
                  "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
-                 "-an",  # No audio needed for visual analysis
+                 # No audio in the window clip. The model therefore
+                 # cannot hear anything in it: any speech it reports
+                 # must come from the transcript text the prompt
+                 # carries, and any quoted words from a window with no
+                 # transcript are stripped by analyze_actions below.
+                 "-an",
                  "-loglevel", "error",
                  str(out_path)],
                 capture_output=True,
@@ -770,6 +784,12 @@ def get_window_transcript(temporal_index, window_start, window_end, full_transcr
 
     Uses word-level timestamps from the temporal index for precision.
     Falls back to proportion-based slicing of the full transcript.
+
+    Returns (text, is_word_timed): `is_word_timed` is True only when
+    the text comes from speech regions overlapping this window. A
+    proportional slice is positioned by character count, not by words
+    heard in this window, so presenting it as the window's speech
+    would let the model quote words that played elsewhere.
     """
     if temporal_index:
         texts = []
@@ -779,7 +799,7 @@ def get_window_transcript(temporal_index, window_start, window_end, full_transcr
                 if t:
                     texts.append(t)
         if texts:
-            return " ".join(texts)
+            return " ".join(texts), True
 
     # Fallback: proportion-based
     if full_transcript:
@@ -789,9 +809,9 @@ def get_window_transcript(temporal_index, window_start, window_end, full_transcr
             int(window_start * chars_per_sec):int(window_end * chars_per_sec)
         ].strip()
         if excerpt:
-            return excerpt
+            return excerpt, False
 
-    return ""
+    return "", False
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1346,6 +1366,37 @@ def analyze_camera(analyzer, video_path, duration):
     return result, elapsed
 
 
+def _strip_unheard_quotations(text):
+    """Remove quoted spans the model could not have heard.
+
+    Action windows are silent video (`extract_video_clips` strips the
+    audio), so quoted words in the model's answer are invented -
+    measured: a quotation attributed to the person on screen from a
+    window with no speech. Returns (cleaned_text_or_None,
+    stripped_any). A leftover unbalanced quote mark nulls the field:
+    the span patterns could not bound the invention, so the field goes
+    rather than shipping half of one. A straight apostrophe (') is
+    never a quote mark and is kept.
+    """
+    import re
+    if not isinstance(text, str) or not text:
+        return text, False
+    span_res = (
+        re.compile(r'"[^"]*"'),
+        re.compile("\u201c[^\u201d]*\u201d"),
+        re.compile("\u2018[^\u2019]*\\s[^\u2019]*\u2019"),
+    )
+    cleaned = text
+    for rx in span_res:
+        cleaned = rx.sub("", cleaned)
+    if any(q in cleaned for q in ('"', "\u201c", "\u201d")):
+        return None, True
+    cleaned = " ".join(cleaned.split())
+    if not cleaned:
+        return None, bool(text.strip())
+    return cleaned, cleaned != " ".join(text.split())
+
+
 def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript):
     """Analyze actions/behavior - one model call per 10s video clip.
 
@@ -1364,11 +1415,17 @@ def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
         w_dur = w_end - w_start
 
         # Get transcript for this window
-        w_transcript = get_window_transcript(
+        w_transcript, w_word_timed = get_window_transcript(
             temporal_index, w_start, w_end, full_transcript=transcript
         )
-        if w_transcript:
+        if w_transcript and w_word_timed:
             transcript_line = f'\nSPEECH IN THIS SEGMENT: "{w_transcript}"'
+        elif w_transcript:
+            transcript_line = (
+                f'\nAPPROXIMATE SPEECH NEAR THIS SEGMENT (positioned by '
+                f'character count, not word-timed - do not quote it as '
+                f'heard here): "{w_transcript}"'
+            )
         else:
             transcript_line = "\n(No speech in this segment.)"
 
@@ -1409,6 +1466,30 @@ def analyze_actions(analyzer, video_clips, duration, temporal_index, transcript)
             print(f"    ⚠ Actions [{w_start:.0f}-{w_end:.0f}s]: "
                   f"window recorded as UNPARSED (VLM response was not "
                   f"valid JSON after retry)", file=sys.stderr)
+
+        # The window clip carries no audio, so the model heard nothing.
+        # Quoted words in its answer are invented - measured on a silent
+        # window as a quotation attributed to the person on screen. The
+        # prompt forbids them; this enforces it where the transcript
+        # gives the window no words of its own (word-timed speech may
+        # echo the transcript text it was given, which is attributed
+        # correctly by construction).
+        if not (w_transcript and w_word_timed):
+            quote_stripped = False
+            for action in entry["actions"]:
+                if not isinstance(action, dict):
+                    continue
+                for field in ("action", "speech_cue", "body_language"):
+                    cleaned, stripped = _strip_unheard_quotations(
+                        action.get(field))
+                    if stripped:
+                        quote_stripped = True
+                        action[field] = cleaned
+            if quote_stripped:
+                entry["speech_quote_stripped"] = True
+                print(f"    ⚠ Actions [{w_start:.0f}-{w_end:.0f}s]: "
+                      f"stripped quoted speech the silent window could "
+                      f"not have produced", file=sys.stderr)
 
         results.append(entry)
 

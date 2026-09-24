@@ -14,6 +14,7 @@ Idempotent: Yes
 import json
 import sys
 from library.tools.pipeline_validation import require_keys
+from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.vfx_plan_basis import (
     DroppedEntry,
     PlanBasis,
@@ -132,6 +133,25 @@ DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
 # See docs/RULE_EVIDENCE.md#the-default-that-outvoted-the-plan.
 
 
+# The entry keys this step reads. Anything else on an entry is
+# REFUSED by `refuse_unknown_keys` below, never dropped: an unread key
+# is how a probe's SFX `at_word` landed 3.06 s early on the block
+# start, and a dropped VFX entry is recorded in `planning_basis`
+# rather than re-planned - which is right for a bad VALUE (a
+# withdrawn alias, an effect the toolkit has not got) and wrong for a
+# key nothing reads. `segment_id` is the legacy spelling of
+# `target_block_position`; `composite_mode` is read on the generator
+# overlay path only.
+VFX_ENTRY_KEYS = frozenset({
+    "target_block_position",
+    "segment_id",
+    "effect_type",
+    "params",
+    "rationale",
+    "composite_mode",
+})
+
+
 def _builtin_effect_names() -> set:
     """The built-in Fusion clip effects the handoff offers, by name.
 
@@ -212,6 +232,11 @@ def resolve_vfx(
     every entry was dropped came out byte-identical to a plan the model
     deliberately left empty.  See `library/tools/vfx_plan_basis.py`.
     """
+    # An entry key nothing here reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans, which a recorded drop cannot do.
+    refuse_unknown_keys(creative_plan, VFX_ENTRY_KEYS,
+                         step="plan_vfx", plan="vfx_creative")
     def _drop(pos, effect_type, reason, detail):
         print(f"  {detail}", file=sys.stderr)
         if dropped is not None:

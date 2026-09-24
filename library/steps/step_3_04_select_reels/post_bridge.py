@@ -30,6 +30,28 @@ from __future__ import annotations
 import sys
 from typing import List
 
+from library.tools.plan_keys import refuse_unknown_keys
+
+
+# The moment-entry keys this step reads. Anything else on a moment is
+# REFUSED by `refuse_unknown_keys` in `resolve`, never dropped: an
+# unread key is how a probe's SFX `at_word` landed 3.06 s early on the
+# block start. `title` is the legacy spelling of `slug`;
+# `call_to_action` the legacy spelling of `cta`. (`value`, `hook` and
+# `close` used to be advertised beside them and nothing read any of
+# the three - the handoff no longer asks for them; what they carried
+# is inside `reason`, which must argue the whole reel.)
+MOMENT_ENTRY_KEYS = frozenset({
+    "start",
+    "end",
+    "slug",
+    "title",
+    "reason",
+    "cta",
+    "call_to_action",
+    "takes_dropped",
+})
+
 
 def _call_to_action(entry: dict, body_start: float, body_end: float,
                     transcript: dict):
@@ -119,6 +141,13 @@ def resolve(llm_output: dict, data: dict) -> dict:
         or (llm_output.get("reel_selection") or {}).get("moments")
         or []
     )
+
+    # A moment key nothing here reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the reel shipping without what the key
+    # asked for.
+    refuse_unknown_keys(chosen, MOMENT_ENTRY_KEYS,
+                         step="select_reels", plan="moments")
 
     moments: List[ReelMoment] = []
     dropped: List[dict] = []

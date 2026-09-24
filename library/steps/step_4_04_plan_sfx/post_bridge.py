@@ -64,6 +64,7 @@ import sys
 
 from library.tools.fairlight_presets import select_preset_for_content
 from library.tools.pipeline_validation import require_keys, require_type
+from library.tools.plan_keys import UnreadPlanKey, refuse_unknown_keys
 from library.tools.sfx_duration import (
     SfxDurationRefused,
     declick_fade_seconds,
@@ -90,6 +91,26 @@ from library.tools.spine_contract import (
 # property of the sound, and the library measures it. The table used to
 # say `bass_impact: 0.5` while the file behind that name was a 5.317s
 # riser, so the manifest asserted a length the audio did not have.
+
+# The entry keys this step reads or forwards. Anything else on an
+# entry is REFUSED by `refuse_unknown_keys` below, never dropped: a
+# probe's SFX carried `at_word`, nothing named it, and the whoosh
+# landed 3.06 s early on the block start. `spine_block_position` is the
+# advertised position; `target_block_position`, `timeline_start` and
+# `timeline_in` are legacy spellings `_locate_sfx` still honours.
+SFX_ENTRY_KEYS = frozenset({
+    "sfx_id",
+    "spine_block_position",
+    "target_block_position",
+    "timeline_start",
+    "timeline_in",
+    "volume_db",
+    "duration_seconds",
+    "role",
+    "lead_seconds",
+    "rationale",
+})
+
 
 # What an entry IS in the mix: `literal` is a sound tied to a visible
 # event, placed at it; `layer` is the atmospheric layer (captain's
@@ -458,6 +479,13 @@ def resolve_sfx(
     `catalog` is `sfx_library.load_sfx_catalog()`; it is a parameter so a
     test can drive this against a library it built itself.
     """
+    # An entry key nothing here reads is refused before anything
+    # resolves: resolving around it would land the sound on the block
+    # start while the plan asked for something finer. The refusal
+    # carries the known keys, and the runner hands it back to the
+    # model as retry feedback.
+    refuse_unknown_keys(creative_plan, SFX_ENTRY_KEYS,
+                         step="plan_sfx", plan="sfx_creative")
     catalog = load_sfx_catalog() if catalog is None else catalog
     entry_by_index = assert_plan_is_playable(creative_plan, catalog)
     spine_blocks = timed_spine.get("structure", timed_spine.get("audio_spine", {}).get("structure", []))
@@ -830,10 +858,13 @@ def main():
     # A plan naming a sound the library cannot play fails HERE, in step
     # 4.04, and not three steps later inside compile_manifest. The message
     # names every offending id, so the retry has something to act on.
+    # An unread entry key fails on the same path: the refusal names the
+    # key and the keys this step reads, so the re-plan has something to
+    # act on rather than a sound landing on the block start.
     try:
         result = resolve_sfx(creative, spine, temporal, music,
                              music_selection, fps, cd, brand_audio)
-    except (UnplayableSfxPlan, SfxDurationRefused) as unplayable:
+    except (UnplayableSfxPlan, SfxDurationRefused, UnreadPlanKey) as unplayable:
         print(json.dumps({"error": str(unplayable), "step": "4.04_bridge"}))
         sys.exit(1)
 

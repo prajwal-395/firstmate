@@ -40,6 +40,31 @@ from __future__ import annotations
 
 from typing import List
 
+from library.tools.plan_keys import refuse_unknown_keys
+
+
+# The reading-entry keys `read_one` checks. Anything else on a reading
+# is REFUSED by `refuse_unknown_keys` in `resolve`, never dropped: an
+# unread key is how a probe's SFX `at_word` landed 3.06 s early on the
+# block start. (`could_not_determine` is not listed because it is not
+# a reading key: the runner splits it out of the answer before this
+# bridge runs, and `undetermined.py` reads it there.)
+READING_ENTRY_KEYS = frozenset({
+    "reel",
+    "claim_quote",
+    "claim",
+    "opening_quote",
+    "closing_quote",
+    "closing_asks_for",
+    "takeaway_quote",
+    "takeaway",
+    "assumes_known",
+    "claim_parts",
+    "stops_developing_at",
+    "rank",
+    "basis",
+})
+
 
 def resolve(llm_output: dict, data: dict) -> dict:
     from library.tools.reel_proposal import ReelMoment
@@ -61,6 +86,13 @@ def resolve(llm_output: dict, data: dict) -> dict:
         or (llm_output.get("reel_judgement") or {}).get("readings")
         or []
     )
+
+    # A reading key nothing here reads is refused before anything is
+    # checked - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the reading shipping without what the
+    # key asked for.
+    refuse_unknown_keys(entries, READING_ENTRY_KEYS,
+                         step="judge_reels", plan="readings")
 
     readings: List[dict] = []
     refused: List[dict] = []

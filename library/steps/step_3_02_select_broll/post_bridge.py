@@ -33,7 +33,28 @@ import sys
 from library.tools.semantic_index import build_semantic_lookup
 from library.tools.delivery_format import resolve_delivery_format
 from library.tools.cutaway_window import choose_window
+from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.transition_carriers import block_reaches_v1
+
+# The entry keys this step reads, per plan list. Anything else on an
+# entry is REFUSED by `refuse_unknown_keys` in `resolve_broll`, never
+# dropped: an unread key is how a probe's SFX `at_word` landed 3.06 s
+# early on the block start.
+BROLL_ENTRY_KEYS = frozenset({
+    "clip_id",
+    "spine_block_position",
+    "preferred_moment",
+    "selection_rationale",
+})
+INTERJECTION_ENTRY_KEYS = frozenset({
+    "clip_id",
+    "over_spine_block_position",
+    "preferred_moment",
+    "selection_rationale",
+    "purpose",
+    "timeline_start",
+    "timeline_end",
+})
 
 def _require_keys(obj, keys, context):
     missing = [k for k in keys if k not in obj]
@@ -137,6 +158,13 @@ def resolve_broll(
     The target frame is REQUIRED - the delivery format the caller
     resolved (`resolve_delivery_format`), never a shape literal here.
     """
+    # Entry keys nothing here reads are refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the cutaway landing somewhere unasked.
+    refuse_unknown_keys(broll_creative, BROLL_ENTRY_KEYS,
+                         step="select_broll", plan="broll_creative")
+    refuse_unknown_keys(broll_interjections, INTERJECTION_ENTRY_KEYS,
+                         step="select_broll", plan="b_roll_interjections")
 
     catalog_lookup = {c["clip_id"]: c for c in clip_catalog}
     analysis_lookup = build_semantic_lookup(semantic_docs, clip_catalog)

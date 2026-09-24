@@ -32,8 +32,9 @@ RENDER_DIR = os.path.join(REPO, "library", "steps", "step_6_01_render")
 REQUIRED_TOOLING = [
     ("apply_super_scale", "neural Super Scale directives"),
     ("apply_stabilization", "neural stabilisation directives"),
-    ("get_preset", "the Fairlight preset lookup"),
-    ("apply_fairlight_preset", "the Fairlight preset application"),
+    # No fairlight rows: the per-item stub (`get_preset` /
+    # `apply_fairlight_preset`) is removed - it returned True having
+    # applied nothing - and the renderer no longer imports that module.
     ("verify_clip_placement", "the clip placement QA station"),
     ("verify_transitions", "the transition QA station"),
     ("verify_color_grades", "the colour grade QA station"),

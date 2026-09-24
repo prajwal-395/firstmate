@@ -47,6 +47,7 @@ from library.tools.bookends import (
     insert_bookend_blocks,
     resolve_bookend,
 )
+from library.tools.plan_keys import refuse_unknown_keys
 
 # Add parent directories to path so we can import shared tools
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -56,6 +57,43 @@ from tools.frame_utils import seconds_to_frame
 from library.tools.music_bed import BED_KEY
 from library.tools.music_bed import describe as describe_bed
 from library.tools.music_bed import resolve_bed
+
+
+# The block keys this step reads or forwards. Anything else on a block
+# is REFUSED by `refuse_unknown_keys` in `enrich_spine`, never dropped:
+# an unread key is how a probe's SFX `at_word` landed 3.06 s early on
+# the block start. `position`, `block_type`, `duration_seconds` and
+# `content` are read below; `music_track` is read for its presence;
+# `music_behavior` is forwarded on the enriched blocks to the readers
+# that decide the mix (5.02), the manifest (5.04) and render QA;
+# `visual_note` is the plan's guidance for Phase 3, read by the 4.03
+# and 4.04 pre-bridges;
+# `intentional_black_beat`/`black_beat_reason` are the plan's declared
+# hole, read by the spine contract, the manifest coverage assertion and
+# render QA.
+SPINE_BLOCK_KEYS = frozenset({
+    "position",
+    "block_type",
+    "duration_seconds",
+    "content",
+    "music_track",
+    "music_behavior",
+    "visual_note",
+    "intentional_black_beat",
+    "black_beat_reason",
+})
+
+# The conducted-bed entry keys `music_bed.resolve_bed` reads. Anything
+# else on an entry is refused alongside the blocks: the resolver
+# rebuilds each entry from these keys, so an extra one would vanish
+# silently into the bed.
+BED_ENTRY_KEYS = frozenset({
+    "track",
+    "source_in",
+    "starts_at_block",
+    "crossfade_seconds",
+    "why",
+})
 
 
 def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = None) -> dict:
@@ -69,6 +107,14 @@ def enrich_spine(spine: dict, speech_sequence: dict, music: dict, data: dict = N
     speech/hook block on a speechless run fails, by name, like any
     other dangling ref.
     """
+    # Block and bed keys nothing downstream reads are refused before
+    # anything resolves - the refusal travels the post-bridge retry path
+    # so the model re-plans instead of the spine carrying a key nobody
+    # reads (or the bed silently dropping one it rebuilds without).
+    refuse_unknown_keys(spine.get("structure", []), SPINE_BLOCK_KEYS,
+                         step="mesh_spine", plan="structure")
+    refuse_unknown_keys(spine.get(BED_KEY) or (data or {}).get(BED_KEY) or [],
+                         BED_ENTRY_KEYS, step="mesh_spine", plan=BED_KEY)
     structure = spine.get("structure", [])
     speech_sequence = speech_sequence or {}
 

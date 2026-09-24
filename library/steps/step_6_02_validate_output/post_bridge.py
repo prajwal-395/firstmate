@@ -10,6 +10,19 @@ import json
 import os
 
 
+# The model's verdict keys this step reads. Anything else on
+# `validation_result` is REFUSED, never dropped: an unread key is how a
+# probe's SFX `at_word` landed 3.06 s early on the block start. (The
+# `checks` mapping itself merges opaquely - its sub-keys are carried,
+# never interpreted.)
+VERDICT_KEYS = frozenset({
+    "status",
+    "checks",
+    "all_issues",
+    "summary",
+})
+
+
 def _repo_root() -> str:
     return os.path.abspath(os.path.join(
         os.path.dirname(__file__), "..", "..", ".."))
@@ -140,6 +153,19 @@ def resolve_validation(data: dict) -> dict:
     """
     det = data.get("deterministic_validation", {})
     llm = data.get("validation_result", {})
+
+    # A verdict key nothing here reads is refused before anything
+    # merges - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the verdict carrying a key nobody reads.
+    # Imported late like every other `library` import in this module:
+    # it also runs as a bare script with only its own dir on sys.path.
+    _root = _repo_root()
+    if _root not in sys.path:
+        sys.path.insert(0, _root)
+    from library.tools.plan_keys import refuse_unknown_keys
+    refuse_unknown_keys([llm] if isinstance(llm, dict) else [],
+                         VERDICT_KEYS, step="validate_output",
+                         plan="validation_result")
 
     # The timeline gate is decisive over both halves: a timeline that
     # disobeys the SOP - or that could not be read back - fails the

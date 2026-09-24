@@ -78,32 +78,14 @@ def select_preset_for_content(content_type: str, brand_audio: dict) -> str:
     else:
         return "dialogue_enhancement"
 
-def apply_fairlight_preset(timeline_item, preset: dict) -> bool:
-    """
-    Apply EQ/compressor/limiter settings via Resolve scripting API 
-    (using Fairlight page controls).
-    """
-    try:
-        # Check if the object is valid by calling a method, not with hasattr
-        timeline_item.GetProperty()
-    except Exception:
-        return False
-        
-    try:
-        # Resolve scripting API doesn't have deep Fairlight plugin controls exposed 
-        # for individual parameters like compressor threshold directly via SetProperty 
-        # on all versions, but we attempt what's possible via standard clip properties.
-        # Often this requires applying a pre-saved Fairlight preset or adjusting audio levels.
-        # We simulate applying the preset chain properties if they were supported.
-        
-        # In a real scenario with full API, we would iterate through preset["chain"]
-        # and apply specific plugins or settings.
-        
-        # Example of applying clip properties that might be available
-        if "target_lufs" in preset:
-            # We don't have direct LUFS target in API, but we could adjust clip volume
-            pass
-            
-        return True
-    except Exception:
-        return False
+
+# There is no per-item `apply_fairlight_preset` here, and there must not
+# be one again. It returned True having applied nothing: the Resolve
+# scripting API exposes no per-parameter Fairlight EQ/compressor
+# controls on a timeline item, so the stub "applied" the preset chain
+# with `pass` and the build printed "Applied Fairlight preset" for an
+# EQ that never happened. A fake success is worse than no function.
+# The preset NAME still travels (4.04 selects it, the manifest records
+# it under audio.fairlight_preset) and the one real application is the
+# timeline-level `ApplyFairlightPresetToCurrentTimeline` call in
+# resolve_build_timeline, which is judged by what Resolve returns.

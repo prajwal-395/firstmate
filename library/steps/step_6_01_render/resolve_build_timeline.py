@@ -113,11 +113,9 @@ except ImportError as _e:
     apply_super_scale = apply_stabilization = None
     _TOOLING_IMPORT_ERRORS["neural_engine"] = str(_e)
 
-try:
-    from fairlight_presets import get_preset, apply_fairlight_preset
-except ImportError as _e:
-    get_preset = apply_fairlight_preset = None
-    _TOOLING_IMPORT_ERRORS["fairlight_presets"] = str(_e)
+# No fairlight_presets import: the per-item stub is removed (see the
+# note at the placement site below), and nothing else in this file
+# reads that module.
 
 try:
     from timeline_qa import (
@@ -1546,15 +1544,14 @@ def build_timeline(
                 print(f"  ✓ [{ci}] {clip.get('label', basename)}: "
                       f"V{_vrow} {v_in}-{v_out} at {tl_in_f}, {audio_note}", file=sys.stderr)
 
-                # Apply Fairlight preset to this dialogue track item
-                fairlight_preset_name = manifest.get('audio', {}).get('fairlight_preset', '')
-                if fairlight_preset_name and get_preset and apply_fairlight_preset and a_placed:
-                    preset = get_preset(fairlight_preset_name)
-                    success = apply_fairlight_preset(a_placed, preset)
-                    if success:
-                        print(f"    ✓ Applied Fairlight preset: {fairlight_preset_name}", file=sys.stderr)
-                    else:
-                        results["warnings"].append(f"Fairlight preset {fairlight_preset_name} could not be applied to {basename}")
+                # No per-item Fairlight application here. A stub used to
+                # call apply_fairlight_preset(a_placed, preset) and print
+                # "Applied Fairlight preset" for an EQ nothing applied -
+                # the API has no per-item EQ controls, so it is removed
+                # (library/tools/fairlight_presets.py). The preset name
+                # still reaches the one real application, the
+                # timeline-level ApplyFairlightPresetToCurrentTimeline
+                # call below, which is judged by what Resolve returns.
 
             else:
                 results["errors"].append(f"V{_vrow}[{ci}] AppendToTimeline failed for {basename}")

@@ -20,6 +20,7 @@ import os
 import sys
 import math
 from library.tools.pipeline_validation import require_keys
+from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.spine_contract import (
     block_word_end_times_timeline,
     is_speech_block,
@@ -28,6 +29,23 @@ from library.tools.spine_contract import (
 
 # A word end counts as landing on a beat within this many seconds.
 BEAT_COINCIDENCE_TOLERANCE = 0.05
+
+# The entry keys this step reads. Anything else on an entry is REFUSED
+# by `refuse_unknown_keys` in `resolve_transitions`, never dropped: an
+# unread key is how a probe's SFX `at_word` landed 3.06 s early on the
+# block start. `type` is the advertised kind; `transition_type` is the
+# legacy spelling; the three `cut_point_*` keys are legacy timeline
+# spellings of `cut_point_position`.
+TRANSITION_ENTRY_KEYS = frozenset({
+    "cut_point_position",
+    "cut_point_original",
+    "cut_point_timeline",
+    "cut_time",
+    "type",
+    "transition_type",
+    "duration_feel",
+    "rationale",
+})
 
 # How far back from the end of a block's speech a beat-coincident word end
 # may be taken. About one short word: the point is to nudge a cut onto the
@@ -202,6 +220,11 @@ def resolve_transitions(
     3. Beat-snap (prefer word-end + beat coincidence)
     4. Resolve duration_feel to frame count
     """
+    # An entry key nothing here reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the cut landing somewhere unasked.
+    refuse_unknown_keys(creative_plan, TRANSITION_ENTRY_KEYS,
+                         step="plan_transitions", plan="transition_creative")
     if creative_direction is None:
         creative_direction = {}
     if brand_effect is None:

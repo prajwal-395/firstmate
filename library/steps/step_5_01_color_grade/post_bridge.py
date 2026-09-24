@@ -40,7 +40,23 @@ from library.tools.color_correction import (
     FIELD,
     read_corrections,
 )
+from library.tools.plan_keys import refuse_unknown_keys
 from library.tools.series_look import effective_series_look
+
+
+# The subject-grade entry keys `subject_grade.parse_plan_entry` reads.
+# Anything else on an entry is REFUSED, never dropped: an unread key is
+# how a probe's SFX `at_word` landed 3.06 s early on the block start,
+# and the clean rebuild below keeps only these four, so an extra one
+# would vanish silently into the grade. (Per-clip `color_correction`
+# entries need no gate here: `read_corrections` already refuses unknown
+# terms as `ColorCorrectionRefused`, carried back to the model.)
+SUBJECT_ENTRY_KEYS = frozenset({
+    "clip_id",
+    "scope",
+    "target",
+    "grade",
+})
 
 
 def resolve_color_grade(data: dict) -> dict:
@@ -54,6 +70,14 @@ def resolve_color_grade(data: dict) -> dict:
 
     project_folder = data.get("project_folder", "")
     entries = collect_entries(data)
+
+    # A subject entry key nothing reads is refused before anything
+    # resolves - the refusal travels the post-bridge retry path so the
+    # model re-plans instead of the grade shipping without what the key
+    # asked for.
+    refuse_unknown_keys(data.get("subject_grades") or [],
+                         SUBJECT_ENTRY_KEYS, step="color_grade",
+                         plan="subject_grades")
 
     # The pre-bridge's own measurement, carried through by the runner.
     # Re-measuring here would run ffprobe a second time over every source
