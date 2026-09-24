@@ -120,7 +120,6 @@ from tools.native_ops import (
     refuse_native_transition,
     resolve_transition_name,
 )
-from tools.vision_schema_adapter import camera_prose, stability_summary
 from tools.brand_registry import (
     project_template_name, resolve_project_template, project_timeline_name,
     resolve_project_name)
@@ -139,13 +138,15 @@ from tools.project_layout import (
     STEP_OUTPUT_FILE, Area, ProjectLayout, ProjectLayoutViolation,
 )
 
-# Wording that means the camera was not locked off. Read from the vision
-# analysis's own stability verdict and motion prose, which is where both
-# the v3 schema and the retired one put it.
-_UNSTABLE_CAMERA_WORDS = (
-    "handheld", "hand-held", "shaky", "shake", "unstable", "jitter",
-    "wobble", "bumpy", "walking",
-)
+# `stabilize` is a plan-requested neural-engine treatment, never a
+# keyword decision. compile used to set it off vision prose
+# (`_UNSTABLE_CAMERA_WORDS` matched against the stability summary,
+# camera prose, scene text and assessment keywords), so Ren stabilized
+# clips nobody asked it to. A clip is stabilized only when an
+# `enhancement_spec.visual_effects` entry with
+# `effect_type == "stabilize"` (step 4.03 plan_vfx) covers it - see the
+# VFX section below, which routes those entries here instead of the
+# Fusion comp engine. Captain's note, 2026-09-24.
 
 def apply_cohesion_adjustments(transitions_raw: list, cohesion_review: dict) -> dict:
     """Apply the cohesion review's adjustments and record every one of them.
@@ -1379,7 +1380,7 @@ def compile_manifest(out_dir: str) -> dict:
     # documents by FILE STEM while the catalog uses clip_XXX. This used to
     # read `semantic_data["semantic_analysis"]["clips"]` - a key nothing
     # writes - so the lookup was empty on every run and no clip was ever
-    # stabilised. build_semantic_lookup does the id join in one place.
+    # upscaled. build_semantic_lookup does the id join in one place.
     semantic_lookup = build_semantic_lookup(
         semantic_data, catalog_data.get("clip_catalog", []))
 
@@ -1396,34 +1397,21 @@ def compile_manifest(out_dir: str) -> dict:
     if semantic_docs and not semantic_lookup:
         raise ValueError(
             f"semantic_analysis carries {len(semantic_docs)} document(s) but "
-            f"none of them joined to a catalog clip. Stabilisation and Super "
-            f"Scale decide off this lookup, so an empty join means no clip "
-            f"gets either."
+            f"none of them joined to a catalog clip. Super Scale decides "
+            f"off this lookup, so an empty join means no clip gets it."
         )
 
     neural_engine_directives = {}
 
     def compute_neural_directives(clip_id, clip_entry):
+        # Super Scale only. Stabilization is NEVER decided here: it is a
+        # plan-requested treatment (`effect_type == "stabilize"` in
+        # `enhancement_spec.visual_effects`, step 4.03), applied in the
+        # VFX section below once the picture tracks exist to map it
+        # onto. Vision prose is context the planner reads, not a trigger
+        # this step adjudicates (captain, 2026-09-24).
         directives = {}
-        sem = semantic_lookup.get(clip_id) or {}
         meta = clip_metadata.get(clip_id, {})
-
-        # Read the adapter's derived view, which exists for both the v3
-        # schema (scene/camera/actions/objects) and the retired one. The
-        # old code read `tags`/`description`, which neither schema has.
-        analysis = sem.get("analysis") or {}
-        assessment = sem.get("assessment") or {}
-        text_data = " ".join(str(part).lower() for part in (
-            stability_summary(sem),
-            analysis.get("motion") or camera_prose(sem),
-            analysis.get("scene") or "",
-            " ".join(str(k) for k in (assessment.get("keywords") or [])),
-        ) if part)
-
-        if text_data:
-            unstable = any(w in text_data for w in _UNSTABLE_CAMERA_WORDS)
-            if unstable:
-                directives["stabilize"] = True
 
         # Magic Mask is NOT emitted. DaVinci's CreateMagicMask returns
         # False for every mode on the supported build, so a directive for
@@ -1440,6 +1428,11 @@ def compile_manifest(out_dir: str) -> dict:
 
         if directives:
             neural_engine_directives[clip_entry["label"]] = directives
+
+    def apply_requested_stabilization(label):
+        """Record a plan-requested stabilize on a placed clip label."""
+        entry = neural_engine_directives.setdefault(label, {})
+        entry["stabilize"] = True
 
     a_roll_dict = {}
     for assignment in aroll_data.get("a_roll_assignments", []):
@@ -2043,6 +2036,19 @@ def compile_manifest(out_dir: str) -> dict:
     # path: the effect type decides, never the marker alone.
     native_speed_ops = []
     for v in vfx:
+        # A requested stabilization: a Neural Engine treatment, not a
+        # Fusion comp. The plan (step 4.03) asks for it by naming
+        # `effect_type == "stabilize"`; this routes it to
+        # `neural_engine_directives` where the build judges Resolve's
+        # own answer. Nothing here decides it from vision prose.
+        if (v.get("route") == "neural_engine"
+                or v.get("effect_type") == "stabilize"):
+            label = _picture_label_at(v1_clips, v2_clips, v["timeline_start"])
+            if label is None:
+                unplaced_vfx.append(v)
+                continue
+            apply_requested_stabilization(label)
+            continue
         if (v.get("route") == "native_resolve"
                 or v.get("effect_type") in ("speed_ramp", "freeze_frame")):
             label = _picture_label_at(v1_clips, v2_clips, v["timeline_start"])

@@ -47,6 +47,7 @@ reason, rather than passed on to draw nothing.
 | `cut_in` | Tighter framing held for the shot — simulates multi-cam | `zoom_start`, `zoom_mid`, `zoom_end` (all three equal holds the reframe) |
 | `speed_ramp` | A stepped speed change across the block — a montage ramp, a slow push into a moment | `segments`: a non-empty list of `percent` steps, each above 0 (e.g. `[{percent: 50}, {percent: 150}]`) |
 | `freeze_frame` | A held frame — time stops on the block or its anchored span | No params: the span is what freezes |
+| `stabilize` | A shaky block you want steadied - Resolve's own Stabilize runs on the clip and its answer is judged | No params: the span is what stabilizes. Name it only where the measured stability (`vfx_suggested` camera text, `view:stability`) says the shot needs it; nothing stabilizes unless you ask. |
 
 A zoom value of `1.0` is the untouched frame; above it is tighter, below
 it is wider.

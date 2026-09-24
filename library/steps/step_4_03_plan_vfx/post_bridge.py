@@ -151,6 +151,18 @@ DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
 # `freeze_frame`, never a 0% step. Entries resolve with
 # `"route": "native_resolve"` so `compile_manifest` carries them to the
 # build instead of the comp engine.
+
+# Requested stabilization: a Neural Engine treatment, not a Fusion comp.
+# Compile used to decide this itself off vision prose (a keyword match),
+# so Ren stabilized clips nobody asked it to (captain, 2026-09-24).
+# Now the plan asks for it by naming `stabilize`, reading the measured
+# stability the bridge already carries (`vfx_suggested` camera text and
+# the `view:stability` context) as context rather than as a trigger.
+# It takes no params - the span is what stabilizes - and resolves with
+# `"route": "neural_engine"` so `compile_manifest` carries it to the
+# build's neural applicator (judged by Resolve's own answer) instead of
+# the comp engine.
+STABILIZE_EFFECT = "stabilize"
 def _validate_native_speed(raw_type, effect_type, params, pos, _drop):
     """Check a native speed entry's params; return step percents or None.
 
@@ -401,12 +413,19 @@ def resolve_vfx(
         # the resolved entry is built after the span is known.
         native_step_percents = None
         is_native_speed = effect_type in NATIVE_SPEED_EFFECTS
+        is_stabilize = effect_type == STABILIZE_EFFECT
         if is_native_speed:
             native_step_percents = _validate_native_speed(
                 raw_type, effect_type, params, pos, _drop)
             if native_step_percents is None:
                 covered_positions.discard(str(pos))
                 continue
+        elif effect_type == STABILIZE_EFFECT:
+            # A requested stabilization takes no params: the span is
+            # what stabilizes, through Resolve's own Stabilize judged
+            # by its return. Anything carried is ignored, never read -
+            # the same shape as `freeze_frame`.
+            params = {}
         elif effect_type in _builtin_effect_names():
             # A built-in Fusion clip effect, imported whole by the renderer.
             # It is applied whole and takes no parameters.
@@ -469,7 +488,8 @@ def resolve_vfx(
                 f"Dropped VFX {raw_type!r} on block {pos!r}: "
                 + (f"{withdrawn}. " if withdrawn else "")
                 + f"not in the effect toolkit "
-                f"({', '.join(sorted(TOOLKIT_PARAMETERS))}), not a "
+                f"({', '.join(sorted(TOOLKIT_PARAMETERS))}), not "
+                f"`{STABILIZE_EFFECT}`, not a "
                 f"native speed effect ({', '.join(NATIVE_SPEED_EFFECTS)}) "
                 f"and not a built-in Fusion clip effect",
             )
@@ -531,6 +551,25 @@ def resolve_vfx(
                 )
                 continue
             covered_positions.add(span_key)
+
+        if is_stabilize:
+            # A requested stabilization travels the anchor path above
+            # (a request may span a moment, not the block) but NOT the
+            # Fusion comp path: there is no comp to check params
+            # against. The build judges Resolve's own Stabilize answer.
+            resolved.append({
+                "vfx_id": f"vfx_{len(resolved)+1:03d}",
+                "target_block_position": block["position"],
+                "timeline_start": round(span_start, 3),
+                "timeline_end": round(span_end, 3),
+                "effect_type": STABILIZE_EFFECT,
+                "params": {},
+                "rationale": vfx.get("rationale", ""),
+                "route": "neural_engine",
+            })
+            if anchor_method is not None:
+                resolved[-1]["anchor_method"] = anchor_method
+            continue
 
         if is_native_speed:
             # The steps divide the resolved span equally: a ramp is

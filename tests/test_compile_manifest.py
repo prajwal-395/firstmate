@@ -122,13 +122,14 @@ class TestCompileManifest(unittest.TestCase):
         self.assertIn("V1", manifest["tracks"])
         self.assertGreater(len(manifest["tracks"]["V1"]["clips"]), 0)
         
-        # Handheld footage must actually be marked for stabilisation:
-        # the lookup this decides off used to join nothing, so no clip in
-        # any run was ever stabilised.
+        # Handheld wording alone stabilizes nothing: stabilization is a
+        # plan-requested treatment (`effect_type == "stabilize"` in step
+        # 4.03's plan), never a keyword decision off vision prose
+        # (captain, 2026-09-24). This fixture's handheld/shake words
+        # used to pin the keyword match; now they pin its absence.
         self.assertIn("neural_engine_directives", manifest)
-        self.assertIn("speech_1", manifest["neural_engine_directives"])
-        directives = manifest["neural_engine_directives"]["speech_1"]
-        self.assertTrue(directives.get("stabilize"))
+        directives = manifest["neural_engine_directives"].get("speech_1", {})
+        self.assertNotIn("stabilize", directives)
         # Magic Mask is withdrawn: CreateMagicMask returns False for every
         # mode, so a directive for it could never be honoured.
         self.assertNotIn("magic_mask", directives)
