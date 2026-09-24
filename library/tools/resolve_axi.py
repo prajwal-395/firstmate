@@ -22,7 +22,11 @@ dry-run default), `launch` (idempotent app start, never opens a
 project), `project` (identity plus the delivery-relevant settings),
 `audio` (audio tracks with enable state and clip counts), `run`
 (the cheap escape hatch: a caller script with ready Resolve names
-in scope, its `result` rendered as TOON rows).
+in scope, its `result` rendered as TOON rows), and the write verbs:
+`edit place|trim|move|delete|title` (reel items, cursor-asserted),
+`edit transition` (carriers reported; the write refused to the
+build), `ingest` (pool imports), `render queue|start|stop`,
+`project set` (one setting), `timeline duplicate` (versioning).
 
 Safety shape, stated once:
 
@@ -44,7 +48,15 @@ Safety shape, stated once:
 - `run --unsafe` still refuses `CopyGrades` unless
   `--acknowledge-copy-grades` names it out loud: the call replaces
   the target's whole grade, reports success, and versions nothing
-  to go back to (`_COPYGRADES_TRAP`).
+  to go back to (`_COPYGRADES_TRAP`). No write verb here calls it.
+- Every write verb is dry-run by default and `--apply` to write;
+  timeline-scoped writes assert the cursor sits on the reel (appends
+  and queueing act on the CURRENT timeline); every write is read
+  back and the read-back decides. An append is never retried, and a
+  delete that answers False is re-read before one retry at most.
+- Write verbs keep explicit flags: the bare-positional rule covers
+  reads, and a destructive path with a bare primary argument is one
+  typo from the wrong reel.
 - `markers restore` defaults to a dry-run diff. `--apply` is the
   explicit flag, and it restores the TIMELINE plane only; a snapshot
   holding clip/pool-plane rows is REFUSED unless `--allow-partial`
@@ -87,7 +99,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 
 DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
 
@@ -2381,6 +2393,1292 @@ def cmd_run(args) -> int:
     return 0
 
 
+# ── writes: first-class mutating verbs ─────────────────────────
+#
+# Reads stop at `run --unsafe`'s escape hatch; these verbs are the
+# control surface for the mutations agents actually perform, grouped
+# small (`edit`, `ingest`, `render`, `project set`,
+# `timeline duplicate`) instead of one command per API method.
+#
+# Every verb shares one discipline, stated once:
+#
+# - Dry-run by default: the plan prints and nothing is written.
+#   `--apply` is the explicit flag that writes.
+# - Reads hold the Resolve lease SHARED; writes hold it EXCLUSIVE.
+# - Timeline-scoped writes ASSERT the cursor sits on the reel first
+#   (the restore/reply shape) - `AppendToTimeline` and `AddRenderJob`
+#   act on the CURRENT timeline, so writing while the cursor sits
+#   elsewhere would land somewhere unasked.
+# - Project-scoped writes (`ingest`, `project set`, `timeline
+#   duplicate`, `render stop`) report the cursor before and after
+#   instead: they depend on nothing positional, and the report proves
+#   they moved nothing.
+# - Every write is read back, and the read-back decides the exit
+#   code - never the API's return value alone. Two measured traps
+#   from the comparison that scoped this work are implemented here:
+#   an append is never retried (a retry after a landed append places
+#   the clip twice), and a delete that answers False is re-read
+#   before any retry, and retried at most once.
+# - No verb here calls `CopyGrades`: the `--acknowledge-copy-grades`
+#   guard in `run` stays the only path that reaches for it.
+# - Write verbs keep explicit flags by design. The bare-positional
+#   rule covers reads; a destructive path that accepts a bare
+#   timeline name is one typo from the wrong reel.
+
+
+import re as _re
+
+#: `--track video1`: the only addressing a write accepts. A bare
+#: position on a track (`--index 0`) resolves against the live item
+#: list and the dry run names what it found, so a shifted timeline
+#: cannot silently retarget the write.
+_EDIT_TRACK_RE = _re.compile(r"^(video|audio|subtitle)(\d+)$")
+
+#: Title-text property keys, plain text first. `SetProperty` exposes
+#: no title key on every build; when none takes, the verb refuses and
+#: names the Fusion-comp route instead of guessing at one.
+_TITLE_KEYS = ("Styled Text", "StyledText", "Text", "Rich Text")
+
+
+def _parse_track(spec: str) -> tuple:
+    match = _EDIT_TRACK_RE.match(spec or "")
+    if not match:
+        raise AxiError(
+            f"bad track {spec!r} - tracks read video1, audio2, ...",
+            f"{TOOL} items --timeline \"<name>\"")
+    return match.group(1), int(match.group(2))
+
+
+def _cursor_name(resolve) -> str:
+    from library.tools.marker_feedback import current_timeline
+    try:
+        open_timeline, _ = current_timeline(resolve)
+        return open_timeline.GetName()
+    except Exception:
+        return "(none open)"
+
+
+def _assert_cursor_on(resolve, timeline_name: str) -> None:
+    """Refuse unless the cursor already sits on the reel.
+
+    Appends and render queueing act on the CURRENT timeline: writing
+    while the cursor sits elsewhere lands somewhere unasked. This
+    asserts rather than moving, the way the marker writes do.
+    """
+    cursor = _cursor_name(resolve)
+    if cursor != timeline_name:
+        raise AxiError(
+            f"the cursor sits on {cursor!r}, not {timeline_name!r} - "
+            f"a write asserts the cursor rather than depending on "
+            f"it. Open the reel and re-run.",
+            f"{TOOL} cursor --expect \"{timeline_name}\"")
+
+
+def _edit_item(timeline, track_spec: str, index: int):
+    """The live timeline item at `--track`/`--index`, or a refusal.
+
+    Returns `(item, track_type, track_index, uid)`. An index past the
+    end is refused with the track's size - the dry run then names
+    what a corrected index would hit.
+    """
+    track_type, track_index = _parse_track(track_spec)
+    if index is None:
+        raise AxiError(
+            f"{track_type}{track_index} names the track - pass --index "
+            f"for the position on it (0-based).",
+            f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+    try:
+        items = (timeline.GetItemListInTrack(track_type, track_index)
+                 or [])
+    except Exception as exc:
+        raise AxiError(
+            f"timeline {timeline.GetName()!r} would not read "
+            f"{track_type}{track_index} ({exc}).",
+            f"{TOOL} items --timeline \"{timeline.GetName()}\"") from exc
+    if index < 0 or index >= len(items):
+        raise AxiError(
+            f"{track_type}{track_index} holds {len(items)} item(s) - "
+            f"index {index} names nothing.",
+            f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+    item = items[index]
+    try:
+        uid = item.GetUniqueId()
+    except Exception:
+        uid = ""
+    return item, track_type, track_index, uid
+
+
+def _item_span(item) -> dict:
+    """The span a dry run names and a read-back checks. Best effort
+    per field: a verb refuses on the fields it needs, never on a
+    neighbour's blank."""
+    span: dict = {"name": "", "record_in": "", "record_out": "",
+                  "source_in": "", "source_out": "", "uid": ""}
+    for key, method in (("name", "GetName"),
+                        ("record_in", "GetStart"),
+                        ("record_out", "GetEnd"),
+                        ("source_in", "GetSourceStartFrame"),
+                        ("source_out", "GetSourceEndFrame"),
+                        ("uid", "GetUniqueId")):
+        try:
+            span[key] = item.__getattribute__(method)()
+        except Exception:
+            continue
+    return span
+
+
+def _presence(timeline, uid: str) -> bool:
+    """Whether the unique id still sits anywhere on the timeline."""
+    if not uid:
+        return False
+    for track_type in ("video", "audio", "subtitle"):
+        try:
+            count = timeline.GetTrackCount(track_type) or 0
+        except Exception:
+            continue
+        for track_index in range(1, count + 1):
+            try:
+                items = (timeline.GetItemListInTrack(track_type,
+                                                     track_index) or [])
+            except Exception:
+                continue
+            for item in items:
+                try:
+                    if item.GetUniqueId() == uid:
+                        return True
+                except Exception:
+                    continue
+    return False
+
+
+def _pool_find_clip(project, clip_name: str, bin_path: str):
+    """The one pool item named `clip_name` under `--bin`, or a refusal.
+
+    An empty bin scopes the search; several hits refuse with the
+    candidates instead of guessing. Timelines in the pool are not
+    placeable and never match.
+    """
+    try:
+        pool = project.GetMediaPool()
+        root = pool.GetRootFolder()
+    except Exception as exc:
+        raise AxiError(
+            f"project {project.GetName()!r} would not open its media "
+            f"pool ({exc}).",
+            f"{TOOL} pool") from exc
+    folder, walked = _resolve_bin(root, bin_path or "")
+    if folder is None:
+        raise AxiError(
+            f"no bin {bin_path!r} under "
+            f"{('/' + walked) if walked else 'the pool root'}.",
+            f"{TOOL} pool")
+    rows, _bins, _skipped = _pool_clip_rows(folder, walked)
+    hits = [r for r in rows if r["name"] == clip_name]
+    if not hits:
+        raise AxiError(
+            f"no clip named {clip_name!r} under "
+            f"{('/' + walked) if walked else 'the pool root'}.",
+            f"{TOOL} pool"
+            + (f" \"{walked}\"" if walked else ""))
+    if len(hits) > 1:
+        bins = sorted({h["bin"] for h in hits})
+        raise AxiError(
+            f"{clip_name!r} names {len(hits)} clips - pass --bin to "
+            f"choose: {bins}.",
+            f"{TOOL} pool")
+    wanted = hits[0]
+    found = []
+
+    def visit(current):
+        try:
+            clips = current.GetClipList() or []
+        except Exception:
+            clips = []
+        for clip in clips:
+            try:
+                if clip.GetName() == clip_name:
+                    found.append(clip)
+            except Exception:
+                continue
+        try:
+            subs = current.GetSubFolderList() or []
+        except Exception:
+            subs = []
+        for sub in subs:
+            visit(sub)
+
+    visit(folder)
+    for clip in found:
+        try:
+            props = clip.GetClipProperty() or {}
+        except Exception:
+            continue
+        if isinstance(props, dict) and (props.get("File Path") or ""):
+            return clip, wanted
+    raise AxiError(
+        f"{clip_name!r} is not a placeable source clip.",
+        f"{TOOL} pool")
+
+
+def cmd_edit_place(args) -> int:
+    """Append a pool clip onto the reel. The plan says where; the
+    read-back says where it actually landed.
+
+    `AppendToTimeline` acts on the CURRENT timeline, so the cursor is
+    asserted first. The call is never retried: a retry after a landed
+    append places the clip twice, and the item-count delta tells the
+    two cases apart.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if not args.clip:
+            return fail("place needs --clip.",
+                        f"{TOOL} pool")
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        try:
+            clip, row = _pool_find_clip(project, args.clip,
+                                        args.bin or "")
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if args.media not in ("both", "video", "audio"):
+            return fail(f"bad --media {args.media!r}: both|video|audio.",
+                        f"{TOOL} edit place --help")
+        payload: dict = {"mediaPoolItem": clip}
+        if args.source_in is not None:
+            payload["startFrame"] = args.source_in
+        if args.source_out is not None:
+            payload["endFrame"] = args.source_out
+        if args.media == "video":
+            payload["mediaType"] = 1
+        elif args.media == "audio":
+            payload["mediaType"] = 2
+        if args.track is not None:
+            payload["trackIndex"] = args.track
+        if args.record is not None:
+            payload["recordFrame"] = args.record
+        where = (f"track {args.track} at frame {args.record}"
+                 if args.track is not None and args.record is not None
+                 else "the reel end (Resolve positions it)")
+        if not args.apply:
+            emit([kv_block("place_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "clip": args.clip,
+                      "bin": row["bin"] or "/ (root)",
+                      "where": where,
+                  }),
+                  note,
+                  f"dry run - pass --apply to append under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} edit place --timeline "
+                      f"\"{timeline.GetName()}\" --clip \"{args.clip}\" "
+                      f"--apply"])])
+            return 0
+        before = sum(
+            len(timeline.GetItemListInTrack(t, i) or [])
+            for t in ("video", "audio", "subtitle")
+            for i in range(1, (timeline.GetTrackCount(t) or 0) + 1))
+        try:
+            placed = project.GetMediaPool().AppendToTimeline([payload])
+        except Exception as exc:
+            return fail(f"append answered with an exception ({exc}) - "
+                        f"nothing was re-read, so verify by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        after = sum(
+            len(timeline.GetItemListInTrack(t, i) or [])
+            for t in ("video", "audio", "subtitle")
+            for i in range(1, (timeline.GetTrackCount(t) or 0) + 1))
+        delta = after - before
+        new_items = list(placed or []) if placed else []
+        if delta == 0:
+            return fail(f"append reported "
+                        f"{'success' if placed else 'nothing'} but the "
+                        f"item count did not move ({before} -> {after}) "
+                        f"- nothing landed.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        spans = [_item_span(item) for item in new_items] or [
+            {"name": args.clip, "record_in": "", "record_out": "",
+             "source_in": "", "source_out": "", "uid": ""}]
+        emit([kv_block("placed", {
+                  "timeline": timeline.GetName(),
+                  "clip": args.clip,
+                  "items_delta": delta,
+                  "verified": ("yes (item count moved, no retry - a "
+                               "retry would place it twice)"),
+              }),
+              table("new", spans,
+                    ["name", "record_in", "record_out", "source_in",
+                     "source_out", "uid"]),
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def _replace_item(timeline, pool, orig, source_in: int,
+                  source_out: int, record_frame: int,
+                  track_index: int | None):
+    """Re-place one item at a new source range/position.
+
+    Returns `(new_item, error)`: `place` and `trim` share this because
+    the scripting API offers no move and no trim - only append plus
+    delete. The delete half runs only after the place half verifies.
+    """
+    try:
+        pool_item = orig.GetMediaPoolItem()
+    except Exception as exc:
+        return None, (f"the item would not name its pool clip ({exc}) "
+                       f"- nothing was changed.")
+    if pool_item is None:
+        return None, ("the item carries no pool clip (a generator or "
+                      "title?) - nothing was changed.")
+    payload = {"mediaPoolItem": pool_item,
+               "startFrame": source_in, "endFrame": source_out,
+               "recordFrame": record_frame}
+    if track_index is not None:
+        payload["trackIndex"] = track_index
+    try:
+        before = _presence(timeline, _item_span(orig)["uid"])
+        placed = pool.AppendToTimeline([payload])
+        new_items = list(placed or []) if placed else []
+    except Exception as exc:
+        return None, (f"the re-place raised ({exc}) - the original is "
+                       f"untouched.")
+    if not new_items:
+        return None, ("the re-place returned nothing - the original "
+                      "is untouched.")
+    return new_items[0], ""
+
+
+def _drop_original(timeline, orig, uid: str):
+    """Delete after a verified re-place. Returns an error, or ""."""
+    try:
+        ok = bool(timeline.DeleteClips([orig], False))
+    except Exception as exc:
+        return (f"the replacement landed but the original could not "
+                f"be deleted ({exc}) - remove one by hand.")
+    if _presence(timeline, uid):
+        try:
+            ok = bool(timeline.DeleteClips([orig], False))
+        except Exception as exc:
+            return (f"the replacement landed but the original could "
+                    f"not be deleted ({exc}) - remove one by hand.")
+        if _presence(timeline, uid):
+            return (f"the replacement landed and the original is "
+                    f"still there (delete reports {ok}) - remove one "
+                    f"by hand; the write needs the Edit page.")
+    return ""
+
+
+def cmd_edit_delete(args) -> int:
+    """Delete one item off the reel, verified by absence.
+
+    The call answers False while deleting nothing on some pages and
+    flops its first attempt on others, so False is re-read before any
+    retry, and retried at most once. `--ripple` closes the gap and is
+    never defaulted: it cannot be selectively undone.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("delete_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "track": f"{track_type}{track_index}",
+                      "index": args.index,
+                      "name": span["name"],
+                      "record_in": span["record_in"],
+                      "record_out": span["record_out"],
+                      "ripple": "yes - the gap closes" if args.ripple
+                      else "no",
+                  }),
+                  note,
+                  f"dry run - pass --apply to delete under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} edit delete --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index}"
+                      f"{' --ripple' if args.ripple else ''} --apply"])])
+            return 0
+        try:
+            first = bool(timeline.DeleteClips([item], args.ripple))
+        except Exception as exc:
+            return fail(f"delete raised ({exc}) - verify by hand.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        if _presence(timeline, uid):
+            try:
+                second = bool(timeline.DeleteClips([item], args.ripple))
+            except Exception as exc:
+                return fail(
+                    f"delete raised on retry ({exc}) and the item is "
+                    f"still there - verify by hand.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+            if _presence(timeline, uid):
+                return fail(
+                    f"delete reports {second} and the item is still "
+                    f"there - the write needs the Edit page open, and "
+                    f"nothing was retried past once.",
+                    f"{TOOL} items --timeline "
+                    f"\"{timeline.GetName()}\"")
+        emit([kv_block("deleted", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "verified": "yes (unique id absent on re-read)"
+                  if uid else "partially (the item carried no id - "
+                  "the call reported "
+                  f"{first})",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def cmd_edit_move(args) -> int:
+    """Move one item to a new record frame: verified re-place, then
+    the original is deleted. The place half verifies before the
+    delete half runs, so a failed move leaves the original alone."""
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        dest_track = args.track_to or f"{track_type}{track_index}"
+        try:
+            _dest_type, dest_index = _parse_track(dest_track)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if args.to is None:
+            return fail("move needs --to.",
+                        f"{TOOL} edit move --help")
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("move_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "name": span["name"],
+                      "from": (f"{track_type}{track_index}@"
+                               f"{span['record_in']}"),
+                      "to": f"{dest_track}@{args.to}",
+                  }),
+                  note,
+                  f"dry run - pass --apply to re-place and delete "
+                  f"under the Resolve lease",
+                  help_block([
+                      f"{TOOL} edit move --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--to {args.to} --apply"])])
+            return 0
+        try:
+            src_in = int(span["source_in"])
+            src_out = int(span["source_out"])
+        except (TypeError, ValueError):
+            return fail(
+                f"{span['name']!r} would not report its source range "
+                f"- the move cannot be re-placed faithfully.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        new_item, error = _replace_item(
+            timeline, project.GetMediaPool(), item, src_in, src_out,
+            args.to, dest_index)
+        if error:
+            return fail(error, f"{TOOL} items --timeline "
+                               f"\"{timeline.GetName()}\"")
+        drop_error = _drop_original(timeline, item, uid)
+        if drop_error:
+            return fail(drop_error, f"{TOOL} items --timeline "
+                                    f"\"{timeline.GetName()}\"")
+        new_span = _item_span(new_item)
+        emit([kv_block("moved", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "record_in": new_span["record_in"],
+                  "record_out": new_span["record_out"],
+                  "verified": "yes (re-place present, original "
+                  "absent)",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def cmd_edit_trim(args) -> int:
+    """Narrow an item's source range in place: verified re-place at
+    the shifted record frame, then the original is deleted. The API
+    offers no trim, so this is the trim - and the dry run says so."""
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        if args.source_in is None and args.source_out is None:
+            return fail("trim needs --source-in and/or --source-out.",
+                        f"{TOOL} items --timeline "
+                        f"\"{timeline.GetName()}\"")
+        try:
+            orig_in = int(span["source_in"])
+            orig_out = int(span["source_out"])
+            orig_rec = int(span["record_in"])
+        except (TypeError, ValueError):
+            return fail(
+                f"{span['name']!r} would not report its spans - the "
+                f"trim cannot be re-placed faithfully.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        new_in = orig_in if args.source_in is None else args.source_in
+        new_out = (orig_out if args.source_out is None
+                   else args.source_out)
+        if not orig_in <= new_in <= new_out <= orig_out:
+            return fail(
+                f"[{new_in}, {new_out}] reaches past the handles "
+                f"[{orig_in}, {orig_out}] - trim only narrows.",
+                f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+        new_rec = orig_rec + (new_in - orig_in)
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("trim_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "name": span["name"],
+                      "source": f"[{orig_in}, {orig_out}] -> "
+                      f"[{new_in}, {new_out}]",
+                      "record_in": f"{orig_rec} -> {new_rec}",
+                  }),
+                  note,
+                  f"dry run - pass --apply to re-place and delete "
+                  f"under the Resolve lease",
+                  help_block([
+                      f"{TOOL} edit trim --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--source-in {new_in} --source-out {new_out} "
+                      f"--apply"])])
+            return 0
+        new_item, error = _replace_item(
+            timeline, project.GetMediaPool(), item, new_in, new_out,
+            new_rec, track_index)
+        if error:
+            return fail(error, f"{TOOL} items --timeline "
+                               f"\"{timeline.GetName()}\"")
+        drop_error = _drop_original(timeline, item, uid)
+        if drop_error:
+            return fail(drop_error, f"{TOOL} items --timeline "
+                                    f"\"{timeline.GetName()}\"")
+        new_span = _item_span(new_item)
+        emit([kv_block("trimmed", {
+                  "timeline": timeline.GetName(),
+                  "name": span["name"],
+                  "source_in": new_span["source_in"],
+                  "source_out": new_span["source_out"],
+                  "record_in": new_span["record_in"],
+                  "verified": "yes (re-place present, original "
+                  "absent)",
+              }),
+              note,
+              help_block([f"{TOOL} items --timeline "
+                          f"\"{timeline.GetName()}\""])])
+        return 0
+
+
+def _title_current(item) -> str:
+    for key in _TITLE_KEYS:
+        try:
+            value = item.GetProperty(key)
+        except Exception:
+            continue
+        if value:
+            return str(value)
+    return ""
+
+
+def cmd_edit_title(args) -> int:
+    """Set a title card's text, verified by read-back.
+
+    Tries the known title keys plain-first; a build that takes none
+    is refused with the Fusion-comp route named instead of guessed
+    at - the same text often lives on the item's TextPlus input.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            item, track_type, track_index, _uid = _edit_item(
+                timeline, args.track, args.index)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        span = _item_span(item)
+        current = _title_current(item)
+        if not args.text:
+            return fail("title needs --text.",
+                        f"{TOOL} edit title --help")
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("title_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "name": span["name"],
+                      "current": preview(current, False),
+                      "text": preview(args.text, False),
+                  }),
+                  note,
+                  f"dry run - pass --apply to write under the "
+                  f"Resolve lease",
+                  help_block([
+                      f"{TOOL} edit title --timeline "
+                      f"\"{timeline.GetName()}\" --track "
+                      f"{track_type}{track_index} --index {args.index} "
+                      f"--text \"...\" --apply"])])
+            return 0
+        attempts = []
+        for key in _TITLE_KEYS:
+            try:
+                ok = bool(item.SetProperty(key, args.text))
+            except Exception as exc:
+                attempts.append(f"{key}: raised {exc}")
+                continue
+            if not ok:
+                attempts.append(f"{key}: refused")
+                continue
+            try:
+                back = item.GetProperty(key)
+            except Exception as exc:
+                attempts.append(f"{key}: wrote, re-read raised {exc}")
+                continue
+            if back == args.text:
+                emit([kv_block("titled", {
+                          "timeline": timeline.GetName(),
+                          "name": span["name"],
+                          "key": key,
+                          "verified": "yes (read back equal)",
+                      }),
+                      note,
+                      help_block([f"{TOOL} items --timeline "
+                                  f"\"{timeline.GetName()}\""])])
+                return 0
+            attempts.append(f"{key}: wrote, re-read differs")
+        return fail(
+            f"no title key took the text ({'; '.join(attempts)}) - "
+            f"the text may live on the item's Fusion TextPlus input, "
+            f"which this verb does not write; set it in the "
+            f"pipeline build.",
+            f"{TOOL} items --timeline \"{timeline.GetName()}\"")
+
+
+def cmd_edit_transition(args) -> int:
+    """Where a drawn transition can sit - and the write it refuses.
+
+    A drawn transition is a tail on the outgoing V1 clip and a head
+    on the next one, drawn by the pipeline build per clip. This verb
+    reports every cut that can carry one. `--apply` is refused on
+    purpose: placing the Fusion comp live needs the isolated import
+    process plus a live-verified comp, neither of which a blind write
+    may assume - transitions reach timelines through the build.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            clips = (timeline.GetItemListInTrack("video", 1) or [])
+        except Exception as exc:
+            return fail(f"timeline {timeline.GetName()!r} would not "
+                        f"read V1 ({exc}).",
+                        f"{TOOL} timeline list")
+        rows = []
+        for first, second in zip(clips, clips[1:]):
+            try:
+                cut = first.GetEnd()
+                outgoing = first.GetName()
+                incoming = second.GetName()
+            except Exception:
+                continue
+            rows.append({"cut": cut, "outgoing": outgoing,
+                         "incoming": incoming})
+    if args.apply:
+        return fail(
+            f"{len(rows)} carrier cut(s) found, none written: live "
+            f"Fusion-comp placement needs the isolated import "
+            f"process and a live-verified comp - transitions reach "
+            f"timelines through the pipeline build "
+            f"(compile_manifest + apply_fusion_comps).",
+            f"{TOOL} edit transition --timeline "
+            f"\"{timeline.GetName()}\"")
+    emit([kv_block("carriers", {
+              "timeline": timeline.GetName() +
+              (" (current)" if is_current else ""),
+              "cuts": len(rows),
+          }),
+          note,
+          table("cuts", rows, ["cut", "outgoing", "incoming"]),
+          help_block([f"{TOOL} items --timeline "
+                      f"\"{timeline.GetName()}\""])])
+    return 0
+
+
+def _current_folder_name(pool) -> str:
+    try:
+        folder = pool.GetCurrentFolder()
+    except Exception:
+        return "(unknown folder)"
+    try:
+        return folder.GetName() or "(unknown folder)"
+    except Exception:
+        return "(unknown folder)"
+
+
+def cmd_ingest(args) -> int:
+    """Import files into the pool's current folder, verified by name.
+
+    `ImportMedia` lands in the CURRENT pool folder, so the dry run
+    names it - and `--bin` is refused rather than moving the folder
+    there and back around the write. Missing local files refuse
+    before any Resolve contact.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            pool = project.GetMediaPool()
+        except Exception as exc:
+            return fail(f"project {project.GetName()!r} would not open "
+                        f"its media pool ({exc}).",
+                        f"{TOOL} cursor")
+        folder_name = _current_folder_name(pool)
+        missing = [p for p in args.paths
+                   if not os.path.exists(p)]
+        if missing:
+            return fail(
+                f"{len(missing)} path(s) are not on disk: {missing} - "
+                f"nothing was imported.",
+                f"{TOOL} ingest <existing-paths...>")
+        before = _cursor_name(resolve)
+        if not args.apply:
+            emit([kv_block("ingest_plan", {
+                      "project": project.GetName(),
+                      "folder": folder_name,
+                      "files": len(args.paths),
+                  }),
+                  table("files", [{"file": p} for p in args.paths],
+                        ["file"]),
+                  f"dry run - pass --apply to import under the "
+                  f"Resolve lease",
+                  help_block([f"{TOOL} ingest {' '.join(args.paths)} "
+                              f"--apply"])])
+            return 0
+        try:
+            imported = pool.ImportMedia(list(args.paths)) or []
+        except Exception as exc:
+            return fail(f"import raised ({exc}) - verify by hand.",
+                        f"{TOOL} pool")
+        names = []
+        for item in imported:
+            try:
+                names.append(item.GetName())
+            except Exception:
+                continue
+        after = _cursor_name(resolve)
+        if len(imported) != len(args.paths):
+            return fail(
+                f"import returned {len(imported)} item(s) for "
+                f"{len(args.paths)} path(s) ({names}) - partial, "
+                f"verify by hand.",
+                f"{TOOL} pool")
+        emit([kv_block("ingested", {
+                  "project": project.GetName(),
+                  "folder": folder_name,
+                  "files": len(names),
+                  "cursor_before": before,
+                  "cursor_after": after,
+                  "verified": "yes (one pool item per path, named)",
+              }),
+              table("imported", [{"file": n} for n in names], ["file"]),
+              help_block([f"{TOOL} pool"])])
+        return 0
+
+
+def _render_job_rows(project, ids=None) -> list:
+    try:
+        jobs = project.GetRenderJobList() or []
+    except Exception:
+        return []
+    rows = []
+    for job in jobs:
+        if not isinstance(job, dict):
+            continue
+        if ids is not None and job.get("JobId") not in ids:
+            continue
+        job_id = job.get("JobId") or ""
+        try:
+            status = project.GetRenderJobStatus(job_id) or {}
+        except Exception:
+            status = {}
+        if not isinstance(status, dict):
+            status = {}
+        rows.append({
+            "job": job.get("RenderJobName") or job_id,
+            "id": job_id,
+            "timeline": job.get("TimelineName") or "",
+            "state": _render_state(status),
+            "output": "/".join([
+                str(job.get("TargetDir") or "").rstrip("/"),
+                str(job.get("OutputFilename") or "")]).strip("/"),
+        })
+    return rows
+
+
+def cmd_render_queue(args) -> int:
+    """Queue the reel for render under a preset, verified by JobId.
+
+    `AddRenderJob` renders the CURRENT timeline from the CURRENT
+    settings, so the cursor is asserted and the preset pinned first:
+    without `--preset` the dry run says plainly that today's settings
+    go. The read-back names the real output path off the queued row.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        if args.preset:
+            try:
+                presets = project.GetRenderPresetList() or []
+            except Exception as exc:
+                return fail(
+                    f"project {project.GetName()!r} would not list "
+                    f"render presets ({exc}).",
+                    f"{TOOL} project")
+            if args.preset not in list(presets):
+                return fail(
+                    f"no render preset {args.preset!r}.",
+                    f"{TOOL} project")
+        if args.apply:
+            try:
+                _assert_cursor_on(resolve, timeline.GetName())
+            except AxiError as exc:
+                return fail(str(exc), exc.fix)
+        else:
+            emit([kv_block("queue_plan", {
+                      "timeline": timeline.GetName() +
+                      (" (current)" if is_current else ""),
+                      "preset": args.preset or
+                      "(current settings, unchanged - pass --preset "
+                      "to pin them)",
+                  }),
+                  note,
+                  f"dry run - pass --apply to queue under the "
+                  f"Resolve lease (cursor must sit on the reel)",
+                  help_block([
+                      f"{TOOL} render queue --timeline "
+                      f"\"{timeline.GetName()}\""
+                      f"{' --preset ' + args.preset if args.preset else ''} "
+                      f"--apply"])])
+            return 0
+        if args.preset:
+            try:
+                loaded = bool(project.LoadRenderPreset(args.preset))
+            except Exception as exc:
+                return fail(f"preset {args.preset!r} would not load "
+                            f"({exc}) - nothing queued.",
+                            f"{TOOL} project")
+            if not loaded:
+                return fail(f"preset {args.preset!r} would not load - "
+                            f"nothing queued.",
+                            f"{TOOL} project")
+        try:
+            job_id = project.AddRenderJob()
+        except Exception as exc:
+            return fail(f"queueing raised ({exc}) - verify by hand.",
+                        f"{TOOL} renders")
+        if not job_id:
+            return fail("queueing answered empty - nothing queued.",
+                        f"{TOOL} renders")
+        rows = _render_job_rows(project, ids=[job_id])
+        if not rows:
+            return fail(
+                f"job {job_id!r} is not in the queue on re-read - "
+                f"verify by hand.",
+                f"{TOOL} renders")
+        row = rows[0]
+        if row["timeline"] != timeline.GetName():
+            return fail(
+                f"queued job {job_id!r} names {row['timeline']!r}, not "
+                f"{timeline.GetName()!r} - the cursor moved mid-flight. "
+                f"Remove it by hand.",
+                f"{TOOL} renders")
+        emit([kv_block("queued", {
+                  "timeline": timeline.GetName(),
+                  "job": row["job"],
+                  "output": row["output"],
+                  "verified": "yes (JobId in the queue, timeline "
+                  "matches)",
+              }),
+              note,
+              help_block([f"{TOOL} renders",
+                          f"{TOOL} render start --job {job_id}"])])
+        return 0
+
+
+def cmd_render_start(args) -> int:
+    """Start render jobs. Names them or passes `--all`; reports
+    whether pixels actually started moving."""
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        rows = _render_job_rows(project)
+        if not rows:
+            return fail("the render queue is empty - queue first.",
+                        f"{TOOL} render queue --timeline \"<name>\" "
+                        f"--apply")
+        if args.all:
+            ids = [r["id"] for r in rows if r["id"]]
+            wanted = rows
+        else:
+            if not args.job:
+                return fail("name --job <id> (repeatable), or --all.",
+                            f"{TOOL} renders")
+            ids = [j for j in args.job if j]
+            wanted = [r for r in rows if r["id"] in ids]
+            missing = [j for j in ids
+                       if j not in {r["id"] for r in rows}]
+            if missing:
+                return fail(f"no queued job(s): {missing}.",
+                            f"{TOOL} renders")
+        before = _cursor_name(resolve)
+        if not args.apply:
+            emit([kv_block("start_plan", {
+                      "jobs": len(wanted),
+                      "cursor": before,
+                  }),
+                  table("jobs", wanted,
+                        ["job", "id", "timeline", "state"]),
+                  f"dry run - pass --apply to start rendering (this "
+                  f"spends real machine time)",
+                  help_block([f"{TOOL} renders"])])
+            return 0
+        try:
+            started = bool(project.StartRendering(ids, False))
+        except Exception as exc:
+            return fail(f"starting raised ({exc}) - verify by hand.",
+                        f"{TOOL} renders")
+        try:
+            rendering = bool(project.IsRenderingInProgress())
+        except Exception:
+            rendering = False
+        after = _cursor_name(resolve)
+        if started and rendering:
+            verified = "yes (in progress on re-read)"
+        elif rendering:
+            verified = ("partially (already rendering - the call "
+                        "answered False)")
+        else:
+            return fail("start reported "
+                        f"{started} and nothing is rendering.",
+                        f"{TOOL} renders")
+        emit([kv_block("started", {
+                  "jobs": len(wanted),
+                  "cursor_before": before,
+                  "cursor_after": after,
+                  "verified": verified,
+              }),
+              table("jobs", _render_job_rows(project,
+                                             ids=set(ids)),
+                    ["job", "id", "timeline", "state"]),
+              help_block([f"{TOOL} renders",
+                          f"{TOOL} render stop"])])
+        return 0
+
+
+def cmd_render_stop(args) -> int:
+    """Stop whatever is rendering. Read back to stopped, or failed."""
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            rendering = bool(project.IsRenderingInProgress())
+        except Exception:
+            rendering = False
+        before = _cursor_name(resolve)
+        if not args.apply:
+            emit([kv_block("stop_plan", {
+                      "project": project.GetName(),
+                      "rendering": "yes" if rendering else "no",
+                      "cursor": before,
+                  }),
+                  f"dry run - pass --apply to stop",
+                  help_block([f"{TOOL} renders"])])
+            return 0
+        try:
+            project.StopRendering()
+        except Exception as exc:
+            return fail(f"stopping raised ({exc}) - verify by hand.",
+                        f"{TOOL} renders")
+        try:
+            rendering = bool(project.IsRenderingInProgress())
+        except Exception:
+            rendering = True
+        after = _cursor_name(resolve)
+        if rendering:
+            return fail("stop answered but rendering continues.",
+                        f"{TOOL} renders")
+        emit([kv_block("stopped", {
+                  "project": project.GetName(),
+                  "cursor_before": before,
+                  "cursor_after": after,
+                  "verified": "yes (not rendering on re-read)",
+              }),
+              help_block([f"{TOOL} renders"])])
+        return 0
+
+
+def cmd_project_set(args) -> int:
+    """Set one project setting, verified by read-back.
+
+    The old value is read first and shown in the dry run; the write
+    tries the plural `SetSettings` and falls back to the singular
+    `SetSetting` only when the plural is absent (same key, same
+    value - the fallback cannot double-apply anything). A read-back
+    that disagrees fails: a silent setting is worse than a refused
+    one.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        if not args.key:
+            return fail("project set needs --key.",
+                        f"{TOOL} project")
+        try:
+            old = project.GetSetting(args.key)
+        except Exception:
+            old = ""
+        before = _cursor_name(resolve)
+        if not args.apply:
+            emit([kv_block("setting_plan", {
+                      "project": project.GetName(),
+                      "key": args.key,
+                      "old": old,
+                      "new": args.value,
+                      "cursor": before,
+                  }),
+                  f"dry run - pass --apply to write under the "
+                  f"Resolve lease",
+                  help_block([f"{TOOL} project set --key {args.key} "
+                              f"--value \"{args.value}\" --apply"])])
+            return 0
+        wrote, how = False, ""
+        try:
+            wrote = bool(project.SetSettings({args.key: args.value}))
+            how = "SetSettings"
+        except AttributeError:
+            try:
+                wrote = bool(project.SetSetting(args.key, args.value))
+                how = "SetSetting"
+            except Exception as exc:
+                return fail(f"setting {args.key!r} raised ({exc}) - "
+                            f"verify by hand.",
+                            f"{TOOL} project")
+        except Exception as exc:
+            return fail(f"setting {args.key!r} raised ({exc}) - verify "
+                        f"by hand.",
+                        f"{TOOL} project")
+        try:
+            back = project.GetSetting(args.key)
+        except Exception:
+            back = None
+        after = _cursor_name(resolve)
+        if not wrote or (back is not None
+                         and str(back) != str(args.value)):
+            return fail(
+                f"setting {args.key!r} reports {wrote} and re-reads "
+                f"{back!r} for {args.value!r} - refusing to claim it.",
+                f"{TOOL} project")
+        emit([kv_block("setting", {
+                  "project": project.GetName(),
+                  "key": args.key,
+                  "old": old,
+                  "new": args.value,
+                  "via": how,
+                  "cursor_before": before,
+                  "cursor_after": after,
+                  "verified": "yes (read back equal)",
+              }),
+              help_block([f"{TOOL} project"])])
+        return 0
+
+
+def cmd_timeline_duplicate(args) -> int:
+    """Version a reel: duplicate the timeline under a new exact name.
+
+    The name is refused when taken - exact names only, here as
+    everywhere. Verified by the name listing afterwards.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=args.apply):
+        project = _project(resolve, args.project)
+        try:
+            timeline, _is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        names = _timeline_names(project)
+        if not args.name:
+            return fail("duplicate needs --name.",
+                        f"{TOOL} timeline duplicate --timeline "
+                        f"\"{timeline.GetName()}\" --name \"<new>\"")
+        if args.name in names:
+            return fail(
+                f"a timeline named {args.name!r} already exists - "
+                f"exact names only, refusing rather than doubling.",
+                f"{TOOL} timeline list")
+        before = _cursor_name(resolve)
+        if not args.apply:
+            emit([kv_block("duplicate_plan", {
+                      "timeline": timeline.GetName(),
+                      "name": args.name,
+                      "cursor": before,
+                  }),
+                  note,
+                  f"dry run - pass --apply to duplicate under the "
+                  f"Resolve lease",
+                  help_block([
+                      f"{TOOL} timeline duplicate --timeline "
+                      f"\"{timeline.GetName()}\" --name \"{args.name}\" "
+                      f"--apply"])])
+            return 0
+        try:
+            created = timeline.DuplicateTimeline(args.name)
+        except Exception as exc:
+            return fail(f"duplicating raised ({exc}) - verify by hand.",
+                        f"{TOOL} timeline list")
+        names = _timeline_names(project)
+        after = _cursor_name(resolve)
+        if args.name not in names:
+            return fail(
+                f"duplicate answered "
+                f"{'with a timeline' if created else 'empty'} but "
+                f"{args.name!r} is not listed - verify by hand.",
+                f"{TOOL} timeline list")
+        emit([kv_block("duplicated", {
+                  "timeline": timeline.GetName(),
+                  "name": args.name,
+                  "cursor_before": before,
+                  "cursor_after": after,
+                  "verified": "yes (listed on re-read)",
+              }),
+              note,
+              help_block([f"{TOOL} timeline list"])])
+        return 0
+
+
 # ── setup / update ───────────────────────────────────────────────────
 
 
@@ -2474,6 +3772,9 @@ def build_parser() -> Parser:
   {TOOL} luts list
   {TOOL} project
   {TOOL} audio --timeline "Reel 29"
+  {TOOL} edit delete --timeline "Reel 29" --track video1 --index 0
+  {TOOL} ingest /footage/a.mov
+  {TOOL} render queue --timeline "Reel 29" --preset "H.265 Master"
   {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
   {TOOL} run --timeline "Reel 29" "result = timeline_names\"""")
     subs = parser.add_subparsers(dest="command")
@@ -2493,6 +3794,144 @@ def build_parser() -> Parser:
     pg.add_argument("--project", default="",
                     help="expect this Resolve project open")
     pg.set_defaults(func=cmd_timeline_get)
+    pd = tsubs.add_parser("duplicate", help="version a reel under a new "
+                                            "exact name; --apply writes")
+    pd.add_argument("--project", default="",
+                    help="expect this Resolve project open")
+    pd.add_argument("--timeline", default="",
+                    help="which timeline to duplicate (exact or unique "
+                         "prefix)")
+    pd.add_argument("--name", default="",
+                    help="the new timeline's name (refused when taken)")
+    pd.add_argument("--apply", action="store_true",
+                    help="duplicate under the Resolve lease (default "
+                         "is a dry-run plan)")
+    pd.set_defaults(func=cmd_timeline_duplicate)
+
+    p = subs.add_parser("edit", help="mutating verbs on reel items - "
+                                     "dry-run default, --apply writes")
+    esubs = p.add_subparsers(dest="edit_command", required=True)
+
+    def _edit_scope(q, what: str) -> None:
+        _add_scope(q, what)
+        q.add_argument("--track", required=True,
+                       help="video1, audio2, ...")
+        q.add_argument("--index", required=True, type=int,
+                       help="position on the track, 0-based")
+        q.add_argument("--apply", action="store_true",
+                       help="write under the Resolve lease with the "
+                            "cursor asserted (default is a dry-run "
+                            "plan)")
+
+    q = esubs.add_parser("place", help="append a pool clip onto the "
+                                        "reel; --apply writes")
+    _add_scope(q, "place")
+    q.add_argument("--clip", default="",
+                   help="pool clip name (exact; --bin disambiguates)")
+    q.add_argument("--bin", default="",
+                   help="scope the clip search to bin path A/B/C")
+    q.add_argument("--source-in", default=None, type=int,
+                   help="source start frame")
+    q.add_argument("--source-out", default=None, type=int,
+                   help="source end frame")
+    q.add_argument("--media", default="both",
+                   help="both|video|audio")
+    q.add_argument("--track", default=None, type=int,
+                   help="destination track index")
+    q.add_argument("--record", default=None, type=int,
+                   help="record frame position")
+    q.add_argument("--apply", action="store_true",
+                   help="append under the Resolve lease with the "
+                        "cursor asserted (default is a dry-run plan)")
+    q.set_defaults(func=cmd_edit_place)
+
+    q = esubs.add_parser("trim", help="narrow an item's source range "
+                                       "in place; --apply writes")
+    _edit_scope(q, "trim")
+    q.add_argument("--source-in", default=None, type=int,
+                   help="new source start frame (within the handles)")
+    q.add_argument("--source-out", default=None, type=int,
+                   help="new source end frame (within the handles)")
+    q.set_defaults(func=cmd_edit_trim)
+
+    q = esubs.add_parser("move", help="move an item to a new record "
+                                       "frame; --apply writes")
+    _edit_scope(q, "move")
+    q.add_argument("--to", default=None, type=int,
+                   help="destination record frame (required)")
+    q.add_argument("--track-to", default="",
+                   help="destination track (default stays)")
+    q.set_defaults(func=cmd_edit_move)
+
+    q = esubs.add_parser("delete", help="delete one item, verified by "
+                                         "absence; --apply writes")
+    _edit_scope(q, "delete")
+    q.add_argument("--ripple", action="store_true",
+                   help="close the gap (never defaulted - cannot be "
+                        "selectively undone)")
+    q.set_defaults(func=cmd_edit_delete)
+
+    q = esubs.add_parser("title", help="set a title card's text, "
+                                        "verified by read-back; "
+                                        "--apply writes")
+    _edit_scope(q, "title")
+    q.add_argument("--text", default="",
+                   help="the new title text (required)")
+    q.set_defaults(func=cmd_edit_title)
+
+    q = esubs.add_parser("transition", help="cuts that can carry a "
+                                             "drawn transition (--apply "
+                                             "is refused: transitions "
+                                             "reach timelines through "
+                                             "the build)")
+    _add_scope(q, "transition")
+    q.add_argument("--apply", action="store_true",
+                   help="refused with the build path")
+    q.set_defaults(func=cmd_edit_transition)
+
+    p = subs.add_parser("ingest", help="import files into the pool's "
+                                       "current folder; --apply writes")
+    p.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    p.add_argument("paths", nargs="+",
+                   help="local file paths to import")
+    p.add_argument("--apply", action="store_true",
+                   help="import under the Resolve lease (default is a "
+                        "dry-run plan)")
+    p.set_defaults(func=cmd_ingest)
+
+    p = subs.add_parser("render", help="queue, start and stop render "
+                                       "jobs; --apply writes")
+    rsubs = p.add_subparsers(dest="render_command", required=True)
+    q = rsubs.add_parser("queue", help="queue the reel under a preset; "
+                                        "--apply writes")
+    _add_scope(q, "queue")
+    q.add_argument("--preset", default="",
+                   help="render preset name (else current settings go, "
+                        "unchanged)")
+    q.add_argument("--apply", action="store_true",
+                   help="queue under the Resolve lease with the cursor "
+                        "asserted (default is a dry-run plan)")
+    q.set_defaults(func=cmd_render_queue)
+    q = rsubs.add_parser("start", help="start queued jobs; --apply "
+                                        "spends machine time")
+    q.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    q.add_argument("--job", default=[], action="append",
+                   help="job id (repeatable)")
+    q.add_argument("--all", action="store_true",
+                   help="start every queued job")
+    q.add_argument("--apply", action="store_true",
+                   help="start under the Resolve lease (default is a "
+                        "dry-run plan)")
+    q.set_defaults(func=cmd_render_start)
+    q = rsubs.add_parser("stop", help="stop rendering; --apply stops")
+    q.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    q.add_argument("--apply", action="store_true",
+                   help="stop under the Resolve lease (default is a "
+                        "dry-run plan)")
+    q.set_defaults(func=cmd_render_stop)
 
     p = subs.add_parser("markers", help="every note on a reel, both "
                                         "marker planes in one call; "
@@ -2692,6 +4131,20 @@ def build_parser() -> Parser:
     p.add_argument("--project", default="",
                    help="expect this Resolve project open")
     p.set_defaults(func=cmd_project)
+    psubs = p.add_subparsers(dest="project_command")
+    q = psubs.add_parser("set", help="set one project setting, "
+                                      "verified by read-back; --apply "
+                                      "writes")
+    q.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    q.add_argument("--key", default="",
+                   help="setting name, e.g. timelineFrameRate")
+    q.add_argument("--value", default="",
+                   help="new value (passes as given)")
+    q.add_argument("--apply", action="store_true",
+                   help="write under the Resolve lease (default is a "
+                        "dry-run plan)")
+    q.set_defaults(func=cmd_project_set)
 
     p = subs.add_parser("audio", help="audio tracks: enable state and "
                                       "clip counts (read-only)")

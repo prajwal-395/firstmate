@@ -30,8 +30,15 @@ from library.tools.resolve_axi import (
     cmd_audio,
     cmd_captions,
     cmd_cursor,
+    cmd_edit_delete,
+    cmd_edit_move,
+    cmd_edit_place,
+    cmd_edit_title,
+    cmd_edit_transition,
+    cmd_edit_trim,
     cmd_frames,
     cmd_fusion,
+    cmd_ingest,
     cmd_items,
     cmd_launch,
     cmd_luts_delete,
@@ -45,8 +52,13 @@ from library.tools.resolve_axi import (
     cmd_markers_snapshot,
     cmd_pool,
     cmd_project,
+    cmd_project_set,
+    cmd_render_queue,
+    cmd_render_start,
+    cmd_render_stop,
     cmd_renders,
     cmd_run,
+    cmd_timeline_duplicate,
     cmd_timeline_get,
     cmd_timeline_list,
     table,
@@ -104,20 +116,70 @@ class _PoolClip:
 class _MediaPool:
     def __init__(self, root):
         self._root = root
+        self._current = None
+        self._append_empty = False
 
     def GetRootFolder(self):
         return self._root
 
+    def GetCurrentFolder(self):
+        return self._root
+
+    def ImportMedia(self, paths):
+        made = []
+        for path in paths:
+            import os as _os
+            clip = _PoolClip(_os.path.basename(path) or path,
+                             {"Type": "Video", "File Path": path})
+            self._root._clips.append(clip)
+            made.append(clip)
+        return made
+
+    def AppendToTimeline(self, payloads):
+        """Onto the wired current timeline's video track 1, honouring
+        the payload's record/source addressing like the plan claims."""
+        made = []
+        for entry in payloads or []:
+            clip = entry.get("mediaPoolItem")
+            name = clip.GetName() if clip is not None else "placed"
+            start = entry.get("recordFrame")
+            src_in = entry.get("startFrame", 0)
+            src_out = entry.get("endFrame", src_in + 49)
+            if start is None:
+                items = self._current._tracks.get(("video", 1),
+                                                  {}).get("items", [])
+                start = max([i.GetEnd() for i in items] or [0])
+            end = start + (src_out - src_in + 1)
+            item = _Item(name, start, end, pool=clip,
+                         track_type="video",
+                         track_index=entry.get("trackIndex", 1))
+            # Source spans travel on the item the way Resolve reports
+            # them: the fake stores them where the getters read.
+            item.GetSourceStartFrame = lambda s=src_in: s
+            item.GetSourceEndFrame = lambda s=src_out: s
+            self._current._tracks.setdefault(
+                ("video", 1), {"name": "V1",
+                                "items": []})["items"].append(item)
+            made.append(item)
+        self.appended = getattr(self, "appended", []) + list(payloads)
+        return [] if self._append_empty else made
+
 
 class _Item:
     def __init__(self, name, start, end, pool=None, markers=None,
-                 transform=None):
+                 transform=None, track_type="video", track_index=1,
+                 properties=None, uid="", stubborn=False):
         self._name = name
         self._start = start
         self._end = end
         self._pool = pool
         self._markers = dict(markers or {})
         self._transform = dict(transform or {})
+        self._track_type = track_type
+        self._track_index = track_index
+        self._properties = dict(properties or {})
+        self._uid = uid or f"uid-{self._name}"
+        self._stubborn = stubborn
 
     def GetName(self):
         return self._name
@@ -146,7 +208,7 @@ class _Item:
         return 0
 
     def GetUniqueId(self):
-        return f"uid-{self._name}"
+        return self._uid
 
     def GetClipColor(self):
         return ""
@@ -157,8 +219,14 @@ class _Item:
     def GetClipEnabled(self):
         return True
 
-    def GetProperty(self):
-        return dict(self._transform)
+    def GetProperty(self, key=None):
+        if key is None:
+            return {**self._transform, **self._properties}
+        if key in self._properties:
+            return self._properties[key]
+        if key in self._transform:
+            return self._transform[key]
+        raise KeyError(key)
 
     def GetCDL(self):
         return {}
@@ -178,6 +246,15 @@ class _Item:
     def GetMediaPoolItem(self):
         return self._pool
 
+    def GetTrackTypeAndIndex(self):
+        return [self._track_type, self._track_index]
+
+    def SetProperty(self, key, value):
+        if self._stubborn:
+            return False
+        self._properties[key] = value
+        return True
+
 
 class _Timeline:
     def __init__(self, name, markers=None, tracks=None, start=0,
@@ -188,6 +265,11 @@ class _Timeline:
         self._start = start
         self._end = end
         self.added = []
+        self.deleted = []
+        self.copied = []
+        self._delete_fail_once = False
+        self._delete_fail_always = False
+        self._project_timelines = []
 
     def GetName(self):
         return self._name
@@ -239,6 +321,25 @@ class _Timeline:
         self.copied = list(items)
         return True
 
+    def DeleteClips(self, items, ripple=False):
+        self.deleted.append(([i.GetUniqueId() for i in items], ripple))
+        if self._delete_fail_always:
+            return False
+        if self._delete_fail_once:
+            self._delete_fail_once = False
+            return False
+        gone = {i.GetUniqueId() for i in items}
+        for key in self._tracks:
+            self._tracks[key]["items"] = [
+                i for i in self._tracks[key]["items"]
+                if i.GetUniqueId() not in gone]
+        return True
+
+    def DuplicateTimeline(self, name):
+        twin = _Timeline(name, tracks={})
+        self._project_timelines.append(twin)
+        return twin
+
 
 class _Project:
     """A project whose cursor cannot be moved: any attempt raises."""
@@ -260,6 +361,10 @@ class _Project:
             "timelineResolutionHeight": "2160"})
         self._presets = list(presets or [])
         self._render_presets = list(render_presets or [])
+        if current is not None:
+            self._pool._current = current
+        for timeline in self._timelines:
+            timeline._project_timelines = self._timelines
 
     def GetName(self):
         return self._name
@@ -299,6 +404,38 @@ class _Project:
 
     def GetRenderPresetList(self):
         return list(self._render_presets)
+
+    def SetSettings(self, settings):
+        self._settings.update(dict(settings))
+        return True
+
+    def SetSetting(self, key, value):
+        self._settings[key] = value
+        return True
+
+    def LoadRenderPreset(self, name):
+        return name in self._render_presets
+
+    def AddRenderJob(self):
+        job_id = str(len(self._render_jobs) + 1)
+        current = (self._current.GetName()
+                   if self._current is not None else "")
+        self._render_jobs.append(
+            {"JobId": job_id, "RenderJobName": f"job-{job_id}",
+             "TimelineName": current, "TargetDir": "/tmp/out",
+             "OutputFilename": f"out-{job_id}.mov"})
+        self._render_status[job_id] = {"JobStatus": "Ready",
+                                       "CompletionPercentage": 0}
+        return job_id
+
+    def StartRendering(self, job_ids, interactive=False):
+        self._started = (list(job_ids), interactive)
+        self._rendering = True
+        return True
+
+    def StopRendering(self):
+        self._rendering = False
+        return True
 
 
 class _Manager:
@@ -388,23 +525,37 @@ def notes(monkeypatch):
 def test_source_carries_no_cursor_moving_call_outside_writes():
     """The invariant that lets this tool run while builds run.
 
-    `SetCurrentTimeline`/`SetCurrentProject` (and opens/creates) may
-    not appear anywhere in the module: reads never move the cursor,
-    and the two writes (`markers restore --apply`, `markers reply
-    --apply`) assert it rather than moving it. A future edit that
-    reaches for the cursor to read fails here, not on a sibling's
-    Fusion pass.
+    Reads never move the cursor, and the declared writes assert it
+    (or report it) rather than moving it. Cursor and project-lifecycle
+    movers may not appear anywhere in the module. Every other Resolve
+    writer must be a DECLARED one: a future edit that reaches for a
+    new writer fails here until it is named below, lease-guarded,
+    and covered by a read-back test.
     """
+    from library.tools.resolve_axi import _RUN_WRITE_PREFIXES
     source = Path(resolve_axi.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
-    movers = {"SetCurrentTimeline", "SetCurrentProject", "SetCurrentTimeLine",
-              "OpenProject", "CreateTimeline", "DeleteTimeline",
-              "SetSetting"}
+    movers = {"SetCurrentTimeline", "SetCurrentProject",
+              "SetCurrentTimeLine", "OpenProject", "CreateTimeline",
+              "DeleteTimeline"}
     hits = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and node.attr in movers:
             hits.append((node.attr, node.lineno))
     assert hits == [], f"cursor-moving calls in resolve_axi: {hits}"
+    declared = {"AddMarker", "AppendToTimeline", "DeleteClips",
+                "SetProperty", "SetSettings", "SetSetting",
+                "ImportMedia", "AddRenderJob", "StartRendering",
+                "StopRendering", "LoadRenderPreset",
+                "DuplicateTimeline"}
+    undeclared = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute)
+                and node.attr.startswith(_RUN_WRITE_PREFIXES)
+                and node.attr not in declared):
+            undeclared.append((node.attr, node.lineno))
+    assert undeclared == [], \
+        f"undeclared Resolve writers in resolve_axi: {undeclared}"
 
 
 # ── The seven commands ───────────────────────────────────────────────
@@ -1168,3 +1319,408 @@ def test_audio_full_tolerates_a_missing_voice_call(audio_patched,
     out = capsys.readouterr().out
     assert "Stereo" in out
     assert "voice_isolation" in out
+
+
+# ── edit: the write verbs ──────────────────────────────────────
+#
+# Every write here runs against fakes - never the captain's project.
+# The suite proves the discipline, not the pixels: dry runs write
+# nothing, applies verify by re-read, and the two measured traps
+# (no append retry, delete re-read before one retry) hold.
+
+
+@pytest.fixture()
+def edit_patched(monkeypatch, tmp_path):
+    src = tmp_path / "a.mov"
+    src.write_text("footage", encoding="utf-8")
+    pool_clip = _PoolClip("a.mov", {"Type": "Video",
+                                    "File Path": str(src)})
+    root = _Folder("root", clips=[pool_clip],
+                   subs=[_Folder("Day 1", clips=[_PoolClip(
+                       "b.mov", {"Type": "Video",
+                                 "File Path": "/nope/b.mov"})])])
+    first = _Item("LC0001.MXF", 0, 50,
+                  pool=_PoolClip("LC0001.MXF", {"Type": "Video",
+                                                "File Path":
+                                                "/footage/LC0001.MXF"}),
+                  uid="uid-1", track_type="video", track_index=1)
+    second = _Item("LC0002.MXF", 50, 100,
+                   pool=_PoolClip("LC0002.MXF", {"Type": "Video",
+                                                 "File Path":
+                                                 "/footage/LC0002.MXF"}),
+                   uid="uid-2", track_type="video", track_index=1)
+    timeline = _Timeline(
+        "Reel 29 - salvage",
+        tracks={("video", 1): {"name": "V1",
+                                "items": [first, second]},
+                ("audio", 1): {"name": "A1", "items": []}},
+        start=0, end=99)
+    project = _Project("Podcast (field test)", [timeline],
+                       current=timeline, pool=_MediaPool(root),
+                       render_presets=["H.265 Master"])
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    return {"timeline": timeline, "project": project,
+            "resolve": _Resolve(project)}
+
+
+def _place_ns(**over):
+    base = {"project": "", "timeline": "Reel 29 - salvage",
+            "clip": "a.mov", "bin": "", "source_in": None,
+            "source_out": None, "media": "both", "track": None,
+            "record": None, "apply": False}
+    base.update(over)
+    return _ns(**base)
+
+
+def _track_count(edit):
+    return len(edit["timeline"]._tracks[("video", 1)]["items"])
+
+
+def test_place_dry_run_plans_without_appending(edit_patched, capsys):
+    assert cmd_edit_place(_place_ns()) == 0
+    out = capsys.readouterr().out
+    assert "place_plan" in out
+    assert "a.mov" in out
+    assert _track_count(edit_patched) == 2
+
+
+def test_place_apply_appends_verified(edit_patched, capsys):
+    assert cmd_edit_place(_place_ns(apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "items_delta: 1" in out
+    assert "verified" in out
+    assert _track_count(edit_patched) == 3
+
+
+def test_place_refuses_unknown_clip(edit_patched, capsys):
+    assert cmd_edit_place(_place_ns(clip="nope.mov")) == 1
+    assert "no clip named 'nope.mov'" in capsys.readouterr().out
+    assert _track_count(edit_patched) == 2
+
+
+def test_place_refuses_an_ambiguous_name(edit_patched, tmp_path,
+                                         capsys):
+    root = edit_patched["project"]._pool._root
+    root._subs[0]._clips.append(
+        _PoolClip("a.mov", {"Type": "Video", "File Path": "/x/a.mov"}))
+    assert cmd_edit_place(_place_ns(clip="a.mov")) == 1
+    out = capsys.readouterr().out
+    assert "names 2 clips" in out
+    assert "--bin" in out
+
+
+def test_place_reports_landed_despite_falsy_return(edit_patched,
+                                                   capsys):
+    """The measured trap: a falsy answer with a moved count means the
+    append LANDED. Retrying would place it twice, so this reports
+    success and never retries."""
+    edit_patched["project"]._pool._append_empty = True
+    assert cmd_edit_place(_place_ns(apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "items_delta: 1" in out
+    assert "no retry" in out
+    assert _track_count(edit_patched) == 3
+
+
+def test_place_cursor_mismatch_refuses(edit_patched, monkeypatch,
+                                       capsys):
+    import library.tools.marker_feedback as feedback
+    other = _Timeline("Reel 16 - other")
+    monkeypatch.setattr(feedback, "current_timeline",
+                        lambda resolve=None: (other, None))
+    assert cmd_edit_place(_place_ns(apply=True)) == 1
+    assert "cursor sits on" in capsys.readouterr().out
+    assert _track_count(edit_patched) == 2
+
+
+def _item_ns(cmd, **over):
+    base = {"project": "", "timeline": "Reel 29 - salvage",
+            "track": "video1", "index": 0, "ripple": False,
+            "apply": False}
+    base.update(over)
+    return _ns(**base)
+
+
+def test_delete_dry_run_names_the_victim(edit_patched, capsys):
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete)) == 0
+    out = capsys.readouterr().out
+    assert "delete_plan" in out
+    assert "LC0001.MXF" in out
+    assert _track_count(edit_patched) == 2
+
+
+def test_delete_apply_removes_verified(edit_patched, capsys):
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "unique id absent" in out
+    assert _track_count(edit_patched) == 1
+    assert edit_patched["timeline"].deleted == [(["uid-1"], False)]
+
+
+def test_delete_flaky_first_attempt_still_verifies(edit_patched,
+                                                   capsys):
+    edit_patched["timeline"]._delete_fail_once = True
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True)) == 0
+    assert "unique id absent" in capsys.readouterr().out
+    assert _track_count(edit_patched) == 1
+
+
+def test_delete_persistent_failure_names_the_edit_page(edit_patched,
+                                                       capsys):
+    edit_patched["timeline"]._delete_fail_always = True
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "Edit page" in out
+    assert "past once" in out
+    assert _track_count(edit_patched) == 2
+
+
+def test_delete_ripple_is_explicit(edit_patched, capsys):
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete, apply=True,
+                                     ripple=True)) == 0
+    assert edit_patched["timeline"].deleted == [(["uid-1"], True)]
+
+
+def test_delete_refuses_a_bad_address(edit_patched, capsys):
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete, track="video9",
+                                     index=0, apply=True)) == 1
+    assert cmd_edit_delete(_item_ns(cmd_edit_delete, track="video1",
+                                     index=9, apply=True)) == 1
+    assert "holds 2" in capsys.readouterr().out
+
+
+def test_move_apply_replaces_at_the_new_frame(edit_patched, capsys):
+    assert cmd_edit_move(_item_ns(
+        cmd_edit_move, to=200, track_to="", apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "verified" in out
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    assert [i.GetUniqueId() for i in items] == ["uid-2",
+                                                "uid-LC0001.MXF"]
+    moved = items[1]
+    assert (moved.GetStart(), moved.GetEnd()) == (200, 250)
+    assert (moved.GetSourceStartFrame(),
+            moved.GetSourceEndFrame()) == (1000, 1049)
+
+
+def test_move_place_failure_keeps_the_original(edit_patched,
+                                               monkeypatch, capsys):
+    def raising(payloads):
+        raise RuntimeError("nope")
+    monkeypatch.setattr(edit_patched["project"]._pool,
+                        "AppendToTimeline", raising)
+    assert cmd_edit_move(_item_ns(
+        cmd_edit_move, to=200, track_to="", apply=True)) == 1
+    assert "untouched" in capsys.readouterr().out
+    assert _track_count(edit_patched) == 2
+
+
+def test_trim_apply_narrows_in_place(edit_patched, capsys):
+    assert cmd_edit_trim(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, source_in=1010, source_out=1049, apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "verified" in out
+    items = edit_patched["timeline"]._tracks[("video", 1)]["items"]
+    assert [i.GetUniqueId() for i in items] == ["uid-2",
+                                                "uid-LC0001.MXF"]
+    trimmed = items[1]
+    assert (trimmed.GetSourceStartFrame(),
+            trimmed.GetSourceEndFrame()) == (1010, 1049)
+    assert trimmed.GetStart() == 10
+
+
+def test_trim_refuses_past_the_handles(edit_patched, capsys):
+    assert cmd_edit_trim(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, source_in=999, source_out=1049, apply=True)) == 1
+    assert "handles" in capsys.readouterr().out
+    assert _track_count(edit_patched) == 2
+
+
+def test_title_dry_run_shows_current_text(edit_patched, capsys):
+    edit_patched["timeline"]._tracks[("video", 1)]["items"][0]._properties[
+        "Styled Text"] = "old words"
+    assert cmd_edit_title(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, text="new words", apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "old words" in out
+    assert "new words" in out
+
+
+def test_title_apply_verifies_by_readback(edit_patched, capsys):
+    assert cmd_edit_title(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, text="new words", apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "read back equal" in out
+    assert "Styled Text" in out
+
+
+def test_title_refuses_when_no_key_takes(edit_patched, capsys):
+    edit_patched["timeline"]._tracks[("video", 1)]["items"][
+        0]._stubborn = True
+    assert cmd_edit_title(_ns(
+        project="", timeline="Reel 29 - salvage", track="video1",
+        index=0, text="new words", apply=True)) == 1
+    assert "Fusion" in capsys.readouterr().out
+
+
+def test_transition_lists_carriers(edit_patched, capsys):
+    assert cmd_edit_transition(_ns(
+        project="", timeline="Reel 29 - salvage", apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "cuts: 1" in out
+    assert "LC0001.MXF" in out
+    assert "LC0002.MXF" in out
+
+
+def test_transition_apply_refuses_to_the_build(edit_patched, capsys):
+    assert cmd_edit_transition(_ns(
+        project="", timeline="Reel 29 - salvage", apply=True)) == 1
+    out = capsys.readouterr().out
+    assert "compile_manifest" in out
+    assert "apply_fusion_comps" in out
+
+
+def test_writes_keep_explicit_flags():
+    """The positional rule stops at reads: a destructive path with a
+    bare primary argument is one typo from the wrong reel, so `edit`
+    owns no positional - missing flags fail loud at argparse."""
+    with pytest.raises(SystemExit) as exc:
+        resolve_axi.main(["edit", "delete"])
+    assert exc.value.code == 2
+    with pytest.raises(SystemExit) as exc:
+        resolve_axi.main(["edit", "delete", "--timeline", "Reel 29"])
+    assert exc.value.code == 2
+
+
+# ── ingest: pool imports ───────────────────────────────────────
+
+
+def test_ingest_refuses_missing_files(edit_patched, capsys):
+    assert cmd_ingest(_ns(project="", paths=["/nope/m.mov"],
+                           apply=True)) == 1
+    assert "not on disk" in capsys.readouterr().out
+
+
+def test_ingest_dry_run_plans(edit_patched, tmp_path, capsys):
+    src = str(tmp_path / "a.mov")
+    assert cmd_ingest(_ns(project="", paths=[src],
+                           apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "ingest_plan" in out
+    assert "root" in out
+
+
+def test_ingest_apply_imports_named(edit_patched, tmp_path, capsys):
+    src = tmp_path / "c.mov"
+    src.write_text("footage", encoding="utf-8")
+    assert cmd_ingest(_ns(project="", paths=[str(src)],
+                           apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "verified" in out
+    assert "c.mov" in out
+
+
+# ── render: queue, start, stop ─────────────────────────────────
+
+
+def test_render_queue_cursor_mismatch_refuses(edit_patched,
+                                              monkeypatch, capsys):
+    import library.tools.marker_feedback as feedback
+    other = _Timeline("Reel 16 - other")
+    monkeypatch.setattr(feedback, "current_timeline",
+                        lambda resolve=None: (other, None))
+    assert cmd_render_queue(_ns(
+        project="", timeline="Reel 29 - salvage", preset="",
+        apply=True)) == 1
+    assert "cursor sits on" in capsys.readouterr().out
+
+
+def test_render_queue_refuses_unknown_preset(edit_patched, capsys):
+    assert cmd_render_queue(_ns(
+        project="", timeline="Reel 29 - salvage", preset="Nope",
+        apply=True)) == 1
+    assert "no render preset" in capsys.readouterr().out
+
+
+def test_render_queue_apply_verifies_the_job(edit_patched, capsys):
+    assert cmd_render_queue(_ns(
+        project="", timeline="Reel 29 - salvage",
+        preset="H.265 Master", apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "verified" in out
+    assert "tmp/out/out-1.mov" in out
+
+
+def test_render_start_refuses_an_empty_queue(edit_patched, capsys):
+    assert cmd_render_start(_ns(project="", job=[], all=False,
+                                 apply=True)) == 1
+    assert "empty" in capsys.readouterr().out
+
+
+def test_render_start_apply_reports_progress(edit_patched, capsys):
+    assert cmd_render_queue(_ns(
+        project="", timeline="Reel 29 - salvage", preset="",
+        apply=True)) == 0
+    capsys.readouterr()
+    assert cmd_render_start(_ns(project="", job=[], all=True,
+                                 apply=True)) == 0
+    assert "in progress" in capsys.readouterr().out
+
+
+def test_render_stop_apply_verifies_stopped(edit_patched, capsys):
+    edit_patched["project"]._rendering = True
+    assert cmd_render_stop(_ns(project="", apply=True)) == 0
+    assert "not rendering" in capsys.readouterr().out
+
+
+# ── project set / timeline duplicate ───────────────────────────
+
+
+def test_project_set_dry_run_shows_old_to_new(edit_patched, capsys):
+    assert cmd_project_set(_ns(project="", key="timelineFrameRate",
+                                value="29.97", apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "23.976" in out
+    assert "29.97" in out
+
+
+def test_project_set_apply_verifies(edit_patched, capsys):
+    assert cmd_project_set(_ns(project="", key="timelineFrameRate",
+                                value="29.97", apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "read back equal" in out
+    assert edit_patched["project"]._settings["timelineFrameRate"] == \
+        "29.97"
+
+
+def test_project_set_refuses_a_silent_write(edit_patched, monkeypatch,
+                                             capsys):
+    monkeypatch.setattr(_Project, "SetSettings",
+                        lambda self, settings: True)
+    assert cmd_project_set(_ns(project="", key="timelineFrameRate",
+                                value="29.97", apply=True)) == 1
+    assert "refusing to claim it" in capsys.readouterr().out
+
+
+def test_duplicate_refuses_a_taken_name(edit_patched, capsys):
+    assert cmd_timeline_duplicate(_ns(
+        project="", timeline="Reel 29 - salvage",
+        name="Reel 29 - salvage", apply=True)) == 1
+    assert "already exists" in capsys.readouterr().out
+
+
+def test_duplicate_apply_versions_listed(edit_patched, capsys):
+    assert cmd_timeline_duplicate(_ns(
+        project="", timeline="Reel 29 - salvage", name="Reel 29 - v2",
+        apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "listed on re-read" in out
+    assert "Reel 29 - v2" in [
+        t.GetName() for t in edit_patched["project"]._timelines]
