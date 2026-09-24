@@ -8,38 +8,54 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── ONNX Runtime telemetry: disabled to prevent SIGSEGV on teardown ─────
+# ── ONNX Runtime telemetry: never loaded, so its teardown never races ──
 #
 # onnxruntime ships a Microsoft Applications Events telemetry subsystem
-# that spawns a native background thread (WorkerThread::threadFunc) on
-# first import.  That thread accesses std::map nodes owned by
-# ILogConfiguration after Python has torn them down, producing a
-# KERN_INVALID_ADDRESS / SIGSEGV on thread 3.  The crash is intermittent
-# because it races the interpreter's atexit / module-cleanup sequence:
-# if the thread happens to be idle when the process exits, no fault.
+# that spawns native background threads (WorkerThread::threadFunc) on
+# first import.  Those threads race interpreter shutdown, intermittently
+# aborting a process whose tests all passed:
 #
-# Two mechanisms, belt-and-suspenders:
-#   1. The pytest_configure hook calls ort.disable_telemetry_events()
-#      the moment onnxruntime becomes importable.  This is the reliable
-#      path - it is the official Python API and it stops event collection,
-#      which starves the background thread of work to do during teardown.
-#   2. As a fallback, the hook also sets the session env so any child
-#      process that imports onnxruntime inherits the setting.
+#   2026-09-07: WorkerThread -> uploadAsync -> handleRetrieveEvents ->
+#     ILogConfiguration::operator[] -> SEGV (KERN_INVALID_ADDRESS).
+#     Evidence: ~/Library/Logs/DiagnosticReports/python3.12-2026-09-07-*.ips
+#   2026-09-23: the same teardown, a different losing thread -
+#     WorkerThread -> onHttpResponse -> handleDecode ->
+#     HttpResponseDecoder::DispatchEvent -> LogManagerImpl::DispatchEvent
+#     -> DebugEventSource::DispatchEvent -> recursive_mutex::lock() throws
+#     system_error -> terminate -> abort (SIGABRT), while the main thread
+#     sits in PosixTelemetry::Shutdown -> FlushAndTeardown ->
+#     cancelAllRequests.  The tier's one test had passed.
+#     Evidence: python3.12-2026-09-23-215150.ips and -221358.ips,
+#     identical stacks.
 #
-# Evidence: ~/Library/Logs/DiagnosticReports/python3.12-2026-09-07-*.ips
-# both show the identical stack:
-#   onnxruntime_pybind11_state.so  WorkerThread::threadFunc
-#     -> uploadAsync -> handleRetrieveEvents -> GetMaximumUploadSizeBytes
-#     -> ILogConfiguration::operator[] -> __emplace_unique_key_args (SEGV)
+# The 2026-09-07 fix (import onnxruntime in pytest_configure, then call
+# disable_telemetry_events()) did not hold, and its shape is why:
+# disable_telemetry_events() stops ORT telemetry EVENT collection, not
+# the 1DS SDK's own upload/debug-event path - and the eager import was
+# itself the ONLY thing loading onnxruntime_pybind11_state.so into the
+# test process (no test imports it; the heavy_ml test measures with
+# parselmouth only), queueing the session-start upload whose response
+# handler crashes at exit.
+#
+# So the fix is structural: pytest_configure never imports onnxruntime.
+# It disables telemetry only when onnxruntime is ALREADY loaded (a test
+# that genuinely uses it), and imports nothing itself.  A process that
+# never loads onnxruntime_pybind11_state.so has no WorkerThread to race
+# shutdown with.
 
 
 def pytest_configure(config):
-    """Disable ONNX Runtime telemetry before any test imports it."""
-    try:
-        import onnxruntime
-        onnxruntime.disable_telemetry_events()
-    except ImportError:
-        pass  # onnxruntime not installed - nothing to disable
+    """Disable ONNX Runtime telemetry only if it is already loaded.
+
+    Never imports onnxruntime here: importing it to "disable" telemetry
+    loads the native library into every test process and arms the
+    shutdown race this block exists to prevent (2026-09-23 SIGABRT).
+    """
+    ort = sys.modules.get("onnxruntime")
+    if ort is not None:
+        disable = getattr(ort, "disable_telemetry_events", None)
+        if disable is not None:
+            disable()
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:

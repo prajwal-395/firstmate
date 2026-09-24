@@ -3,7 +3,6 @@ import sys
 
 import pytest
 
-
 @pytest.fixture
 def hello_wav(tmp_path):
     wav_path = tmp_path / "hello.wav"
@@ -82,3 +81,35 @@ def test_prosody_speaking_rate_comes_from_handed_regions(hello_wav, tmp_path):
         f"register label reappeared: {vq!r}")
     hnr = vq.get("hnr_db")
     assert hnr is None or isinstance(hnr, float), f"hnr_db is not measured: {hnr!r}"
+
+
+@pytest.mark.heavy_ml
+def test_onnxruntime_is_never_loaded_by_this_tier():
+    """Nothing in this tier loads onnxruntime, so its teardown cannot race.
+
+    onnxruntime's telemetry threads abort the process at interpreter
+    shutdown, after the tests have passed: on 2026-09-23 the heavy_ml
+    tier reported "1 passed then NATIVE CRASH (SIGABRT)" twice, both
+    crash reports showing the 1DS WorkerThread dispatching an
+    HTTP-response debug event (DebugEventSource::DispatchEvent ->
+    recursive_mutex::lock() throws system_error -> terminate -> abort)
+    while the main thread tears telemetry down
+    (PosixTelemetry::Shutdown -> FlushAndTeardown).  The 2026-09-07
+    conftest "fix" (eagerly import onnxruntime, then
+    disable_telemetry_events()) did not hold: the disable call stops ORT
+    event collection, not the SDK's own upload/debug path - and the eager
+    import was itself the only thing loading
+    onnxruntime_pybind11_state.so into this process, which measures with
+    parselmouth only.
+
+    This asserts the structural property the fix establishes: onnxruntime
+    was never imported into this process.  Deterministic, no subprocess,
+    no extra ML load - it fails the moment anything eagerly imports
+    onnxruntime into the test process again.
+    """
+    assert "onnxruntime" not in sys.modules, (
+        "onnxruntime was imported into the heavy_ml test process - its "
+        "telemetry threads SIGABRT at interpreter shutdown (2026-09-23: "
+        "1 passed then NATIVE CRASH). This tier measures with parselmouth "
+        "only; nothing here may load onnxruntime_pybind11_state.so."
+    )
