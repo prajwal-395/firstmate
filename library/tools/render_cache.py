@@ -156,3 +156,149 @@ def motion_segment_name(project_folder: str, digest: str) -> str:
     never as the file's identity.
     """
     return f"mg_{project_stem(project_folder)}_{short_digest(digest)}"
+
+
+# ── Reuse ACROSS names: the content-addressed half ────────────────────
+#
+# The filename is provenance plus a short digest, and a skip used to be
+# asked of ONE name: the file this segment's own stem computes. So the
+# same pixels under a different provenance stem - a passage re-anchored
+# a few milliseconds along its source, which moves the span in the name
+# and nothing that draws - rendered again beside a byte-identical twin.
+# Measured on geo-podcast (P3 audit, 2026-09-23): 81 caption movs, 126
+# MB, were exact duplicates of another file in the same directory.
+#
+# The authority stays the sidecar: a stem is a hit only where its
+# recorded `_reuse_key.txt` equals the FULL three-factor key, re-read at
+# the moment of the hit. The directory scan below is an index of those
+# sidecars and nothing more - a stale index can only cost a miss.
+#
+# The hit is MATERIALISED under this segment's own name as a HARD LINK,
+# so the listing stays legible (the captain's 2026-09-09 ruling: a
+# subtitle file is named for the footage it came from) and the bytes
+# are stored once. Sidecars are COPIED, never linked: each is rewritten
+# in place by its owner (`open(..., "w")`), and a linked sidecar would
+# rewrite its twin's. The artefact is linked, so anything that rewrites
+# one in place must `detach` it first.
+
+REUSE_KEY_SUFFIX = "_reuse_key.txt"
+
+_key_index: dict[str, tuple[int, dict[str, str]]] = {}
+
+
+def _index(directory: str) -> dict[str, str]:
+    """`{full key: stem}` for every recorded key in `directory`.
+
+    Memoised per directory on its mtime, which moves whenever a sidecar
+    is CREATED. A sidecar rewritten in place does not move it, which is
+    why every hit re-reads the sidecar it points at (`find_by_key`).
+    """
+    try:
+        stamp = os.stat(directory).st_mtime_ns
+    except OSError:
+        return {}
+    cached = _key_index.get(directory)
+    if cached and cached[0] == stamp:
+        return cached[1]
+    keys: dict[str, str] = {}
+    try:
+        names = sorted(os.listdir(directory))
+    except OSError:
+        return {}
+    for name in names:
+        if not name.endswith(REUSE_KEY_SUFFIX):
+            continue
+        try:
+            recorded = Path(directory, name).read_text(
+                encoding="utf-8").strip()
+        except OSError:
+            continue
+        if recorded:
+            keys.setdefault(recorded, name[:-len(REUSE_KEY_SUFFIX)])
+    _key_index[directory] = (stamp, keys)
+    return keys
+
+
+def find_by_key(directory: str, key: str, artefact_suffix: str,
+                exclude: str = "") -> str:
+    """The stem of a file in `directory` whose recorded key IS `key`.
+
+    `""` when there is none, when `key` is `""` (an unestablished key
+    never matches - see `content_key`), or when the only match is
+    `exclude`. The match is re-proved against the sidecar on disk and
+    the artefact must exist as a regular file.
+    """
+    if not key:
+        return ""
+    stem = _index(directory).get(key, "")
+    if not stem or stem == exclude:
+        return ""
+    try:
+        recorded = Path(directory, stem + REUSE_KEY_SUFFIX).read_text(
+            encoding="utf-8").strip()
+    except OSError:
+        return ""
+    if recorded != key or not os.path.isfile(
+            os.path.join(directory, stem + artefact_suffix)):
+        return ""
+    return stem
+
+
+def detach(path: str) -> None:
+    """Break a hard link before `path` is rewritten in place.
+
+    A renderer opens its output for writing, which TRUNCATES the inode:
+    an adopted file shares its inode with the stem it was adopted from,
+    so writing through it would rewrite pixels another placing plays -
+    mid-render, a timeline reading that file reads a half-written one.
+    Unlinking the name first gives the rewrite a fresh inode and leaves
+    the twin untouched. A file with one link is left alone.
+    """
+    try:
+        if os.path.isfile(path) and os.stat(path).st_nlink > 1:
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+def adopt(directory: str, key: str, stem: str, artefact_suffix: str,
+          sidecar_suffixes: tuple = ()) -> str:
+    """Serve `stem` from a file another stem already rendered. Returns the source stem.
+
+    A no-op returning `""` when `stem` already holds `key` (its own
+    reuse path decides that) or when no other stem holds it. Otherwise
+    the artefact is hard-linked to `stem + artefact_suffix` (copied
+    where the filesystem refuses a link), each existing sidecar in
+    `sidecar_suffixes` is copied, and the reuse key is written LAST: a
+    killed adoption leaves no key claiming the file is current, so the
+    next pass renders rather than trusting half a copy.
+    """
+    import shutil
+
+    if not key:
+        return ""
+    own_key = os.path.join(directory, stem + REUSE_KEY_SUFFIX)
+    own_artefact = os.path.join(directory, stem + artefact_suffix)
+    try:
+        if Path(own_key).read_text(encoding="utf-8").strip() == key \
+                and os.path.isfile(own_artefact):
+            return ""
+    except OSError:
+        pass
+    source = find_by_key(directory, key, artefact_suffix, exclude=stem)
+    if not source:
+        return ""
+    for stale in (own_key, own_artefact):
+        if os.path.lexists(stale):
+            os.unlink(stale)
+    source_artefact = os.path.join(directory, source + artefact_suffix)
+    try:
+        os.link(source_artefact, own_artefact)
+    except OSError:
+        shutil.copy2(source_artefact, own_artefact)
+    for suffix in sidecar_suffixes:
+        sidecar = os.path.join(directory, source + suffix)
+        if os.path.isfile(sidecar):
+            shutil.copyfile(sidecar, os.path.join(directory, stem + suffix))
+    Path(own_key).write_text(key, encoding="utf-8")
+    return source

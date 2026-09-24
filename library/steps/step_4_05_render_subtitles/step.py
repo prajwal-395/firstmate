@@ -86,7 +86,9 @@ from library.tools.qa.subtitle_qa import (
     check_caption_geometry,
 )
 from library.tools.render_cache import (
+    adopt as _adopt_by_key,
     content_key as _content_key,
+    detach as _detach_link,
     drawing_digest as _drawing_digest_of,
     renderer_fingerprint as _renderer_fingerprint,
 )
@@ -996,6 +998,21 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
 
     # ── Skip only on proven-identical CONTENT ──
     if reuse:
+        # The same pixels may already be on disk under ANOTHER stem - a
+        # passage re-anchored along its source moves the span in the
+        # name and nothing that draws. Served here as a hard link under
+        # this segment's own name, and then judged by the ordinary skip
+        # below, tight-placement re-gate included. A frames directory
+        # is never adopted: a link per frame would be rewritten in
+        # place by the next render into it. See
+        # `library/tools/render_cache.py`.
+        if key and not is_frames:
+            adopted = _adopt_by_key(
+                out_dir, key, f"{segment_name}{suffix}", ".mov",
+                ("_props.json", "_box.json"))
+            if adopted:
+                print(f"  {progress} {segment_name}{suffix} adopts the "
+                      f"pixels of {adopted}", file=sys.stderr)
         recorded = ""
         try:
             recorded = Path(key_path).read_text(encoding="utf-8").strip()
@@ -1123,6 +1140,9 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
     # geometry, the draws-nothing fallback, and tight - whose constant
     # canvas is drawn natively, never cropped from a probe.
     engine = renderer or _default_unit_engine(remotion_dir, container)
+    # An adopted name shares its inode with another stem's file: the
+    # render must write a fresh one, never through the link.
+    _detach_link(overlay_path)
     ok, error = engine.render(props_path, overlay_path,
                               sequence=is_frames)
     if not ok:
@@ -1203,6 +1223,7 @@ def render_one_segment(props: dict, out_dir: str, timeline_label: str,
             key = _reuse_key(props, remotion_dir, geometry, container)
             with open(props_path, "w") as handle:
                 json.dump(render_props, handle, indent=2)
+            _detach_link(overlay_path)
             ok, error = engine.render(props_path, overlay_path,
                                       sequence=is_frames)
             if not ok:

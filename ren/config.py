@@ -19,6 +19,7 @@ SETTINGS = (
     ("PIPELINE_SFX_LIBRARY", "sound-effect library (audio files + profiles/)"),
     ("PIPELINE_MUSIC_LIBRARY", "music library"),
     ("PIPELINE_REMOTION_COMPOSITIONS", "project-owned Remotion compositions"),
+    ("REN_RETENTION", "lean (purge after sign-off) or keep; default lean"),
     ("HF_TOKEN", "HuggingFace token, for gated model downloads"),
     ("GEMMA_SERVER_URL", "resident vision-model server (optional)"),
     ("RESOLVE_SCRIPT_API", "Resolve scripting API folder"),
@@ -42,6 +43,11 @@ STARTER = """\
 # PIPELINE_SFX_LIBRARY="$HOME/Movies/Ren/assets/sfx library"
 # PIPELINE_MUSIC_LIBRARY="$HOME/Movies/Ren/assets/music"
 
+# What a project keeps once a reel is signed off: `lean` (the default)
+# plans a purge of superseded renders, quarantine, scratch and stale
+# journals; `keep` retains them all.
+# REN_RETENTION=lean
+
 # HuggingFace token, for gated model downloads.
 # HF_TOKEN=
 """
@@ -63,6 +69,7 @@ def effective_settings(environ_before: dict) -> list:
         "PIPELINE_SFX_LIBRARY": paths.SFX_LIBRARY,
         "PIPELINE_MUSIC_LIBRARY": paths.MUSIC_LIBRARY,
         "PIPELINE_REMOTION_COMPOSITIONS": paths.REMOTION_COMPOSITIONS,
+        "REN_RETENTION": "lean",
         "RESOLVE_SCRIPT_API": paths.RESOLVE_SCRIPT_API,
         "RESOLVE_SCRIPT_LIB": paths.RESOLVE_SCRIPT_LIB,
     }

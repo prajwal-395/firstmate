@@ -75,6 +75,7 @@ VERBS = (
     Verb("hear", "Reels", "Hear a delivered reel against its plan", subcommand="hear-reel"),
     Verb("drift", "Reels", "Compare each reel's build snapshot with the live timeline", subcommand="drift"),
     Verb("sign-off", "Reels", "Record the captain's sign-off on a built reel", subcommand="sign-off"),
+    Verb("purge", "Reels", "Plan (default) or --apply the lean-retention purge", subcommand="purge"),
     Verb("discharge", "Reels", "Discharge a dropped note a promotion filed", subcommand="discharge-uncarried"),
     Verb("variant", "Reels", "Two versions of one reel: new, build, list, diff, choose, merge", subcommand="variant"),
     Verb("rounds", "Reels", "What changed between two feedback rounds", subcommand="round-diff"),

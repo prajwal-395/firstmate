@@ -66,7 +66,8 @@ ALL_COMMANDS = (
     "info", "trace", "organize", "resolve-organize", "resolve-prune",
     "resolve-mark-master",
     "check", "run", "archive", "notes",
-    "round-diff", "sign-off", "discharge-uncarried", "variant", "relink",
+    "round-diff", "sign-off", "purge", "discharge-uncarried", "variant",
+    "relink",
 )
 
 ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
@@ -548,6 +549,46 @@ def cmd_sign_off(args):
           + f", by {entry['by']}.")
     print(f"  A promotion that would replace it now REFUSES unless it "
            f"declares `build-reels --supersede {entry['reel']!r}`.")
+    from library.tools import retention
+    print(f"  {retention.after_signoff(project_folder)}")
+
+
+def cmd_purge(args):
+    """Plan, or apply, the lean-retention purge. See library/tools/retention.py.
+
+    Without `--apply` this only PLANS: it writes the manifest of what
+    would go and removes nothing. `--apply <manifest>` removes exactly
+    what that manifest still lists, after re-proving every path.
+    """
+    from library.tools import retention
+
+    try:
+        config = get_project(args.slug)
+        project_folder = str(config.project_root)
+    except FileNotFoundError:
+        project_folder = args.slug
+    try:
+        db_paths = args.db or retention.database_paths(project_folder)
+        if args.apply:
+            record = retention.apply_purge(args.apply, db_paths,
+                                           project_folder=project_folder)
+            print(f"Removed {record['removed_count']} path(s), "
+                  f"{record['bytes'] / (1024 ** 3):.2f} GiB. The manifest "
+                  f"stays at {args.apply}.")
+            return
+        plan = retention.plan_purge(project_folder, db_paths)
+    except (retention.PurgeRefused,
+            retention.RetentionSettingInvalid) as refused:
+        print(f"{refused}", file=sys.stderr)
+        sys.exit(1)
+    if plan.mode == retention.KEEP:
+        print(f"Retention is {retention.KEEP!r}: nothing is purged.")
+        return
+    manifest = retention.write_plan(plan)
+    print(f"{len(plan.candidates)} path(s), "
+          f"{plan.reclaimable_bytes / (1024 ** 3):.2f} GiB would go - "
+          f"listed in {manifest}. Nothing was removed; apply with "
+          f"`ren purge {args.slug} --apply {manifest}`.")
 
 
 def cmd_discharge_uncarried(args):
@@ -2293,6 +2334,19 @@ def main():
                            help="withdraw the sign-off on this reel; the "
                                 "withdrawal is recorded, never erased")
     p_signoff.set_defaults(func=cmd_sign_off)
+
+    p_purge = sub.add_parser(
+        "purge",
+        help="Plan (default) or apply the lean-retention purge of "
+             "superseded renders, quarantine, scratch and stale journals")
+    p_purge.add_argument("slug", metavar="PROJECT",
+                         help="Project slug or absolute path")
+    p_purge.add_argument("--apply", default="", metavar="MANIFEST",
+                         help="remove what this plan's manifest still lists")
+    p_purge.add_argument("--db", action="append", default=[],
+                         help="Resolve Project.db path (repeatable); read "
+                              "through a copy. Default: the running Resolve's")
+    p_purge.set_defaults(func=cmd_purge)
 
     p_discharge = sub.add_parser(
         "discharge-uncarried",

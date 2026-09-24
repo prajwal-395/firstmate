@@ -357,3 +357,59 @@ def test_gc_shared_file_stays_live_while_any_placing_names_it(tmp_path):
     assert _live_paths()[shared].status != LIVE
 
 
+
+
+# ── Reuse across provenance stems ─────────────────────────────────
+
+
+def test_the_same_pixels_under_another_stem_render_once(tmp_path):
+    """A passage re-anchored a few milliseconds along its source moves the
+    span in the filename and nothing that draws. Before the cross-name
+    lookup it rendered again beside a byte-identical twin - 81 such
+    duplicates, 126 MB, on geo-podcast."""
+    out_dir = tmp_path / "captions"
+    out_dir.mkdir()
+    remotion = _remotion_tree(tmp_path)
+    stub = _StubRenderer()
+
+    first = _render_caption(_caption_props(), out_dir, VARIANTS[0],
+                            remotion, stub)
+    shifted = _caption_props()
+    shifted["_source_start"] = 10.004
+    second = _render_caption(shifted, out_dir, VARIANTS[1], remotion, stub)
+
+    assert second["overlay_path"] != first["overlay_path"]
+    assert second["provenance"] == REUSED
+    assert len(stub.calls) == 1
+    assert os.path.samefile(first["overlay_path"], second["overlay_path"])
+
+
+def test_rerendering_an_adopted_name_never_writes_through_its_twin(
+        tmp_path):
+    """An adopted file is a hard link. A render truncates its output, so
+    writing through the link would rewrite - mid-render, half-written -
+    the file another placing plays."""
+    out_dir = tmp_path / "captions"
+    out_dir.mkdir()
+    remotion = _remotion_tree(tmp_path)
+    first = _render_caption(_caption_props(), out_dir, VARIANTS[0],
+                            remotion, _StubRenderer())
+    shifted = _caption_props()
+    shifted["_source_start"] = 10.004
+    second = _render_caption(shifted, out_dir, VARIANTS[1], remotion,
+                             _StubRenderer())
+    assert os.path.samefile(first["overlay_path"], second["overlay_path"])
+
+    class _Repaints(_StubRenderer):
+        def render(self, props_path, overlay_path, sequence=False):
+            self.calls.append((props_path, overlay_path, sequence))
+            with open(overlay_path, "wb") as handle:
+                handle.write(b"repainted")
+            return True, ""
+
+    render_one_segment(shifted, str(out_dir), VARIANTS[1],
+                       remotion_dir=remotion, reuse=False,
+                       renderer=_Repaints(), overlay_geometry="full")
+
+    with open(first["overlay_path"], "rb") as handle:
+        assert handle.read() == b"pixels"
