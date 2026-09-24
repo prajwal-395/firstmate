@@ -1058,6 +1058,27 @@
       "data_mapping": {
         "music_selection": "music_selection"
       }
+    },
+    {
+      "from": "prosody_analysis",
+      "to": "plan_transitions",
+      "data_mapping": {
+        "prosody_analysis": "prosody_analysis"
+      }
+    },
+    {
+      "from": "prosody_analysis",
+      "to": "plan_vfx",
+      "data_mapping": {
+        "prosody_analysis": "prosody_analysis"
+      }
+    },
+    {
+      "from": "prosody_analysis",
+      "to": "plan_sfx",
+      "data_mapping": {
+        "prosody_analysis": "prosody_analysis"
+      }
     }
   ],
   "entry_nodes": [

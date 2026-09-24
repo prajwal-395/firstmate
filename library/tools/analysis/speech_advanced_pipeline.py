@@ -68,6 +68,162 @@ class ProsodyUnavailable(RuntimeError):
     """
 
 
+# ── Per-word emphasis (fidelity rung 5b) ─────────────────────────────
+#
+# Clip-level pitch stats say the speaker varies; they do not say WHERE.
+# A plan that punches in "on the most emphasized word" needs one number
+# per word, measured from the Voz+MFA word timings step 1.04 already
+# timed - not a second transcription, and not the model guessing from
+# punctuation. Three unit-scaled terms, each relative to its own
+# baseline so a loud fast high-pitched speaker does not read as
+# emphasizing everything:
+#
+#   f0_term   = f0_rel_semitones / 3.0   (word median F0 vs the clip's
+#               own voiced median; 3 semitones is a clear excursion)
+#   loud_term = loud_rel_db / 4.0        (word median dB vs the phrase's
+#               own word-span median; 4 dB is clearly louder)
+#   dur_term  = log2(dur_ratio)          (actual vs expected from the
+#               speaker's own seconds-per-letter; +1 is twice as slow)
+#
+#   emphasis = mean of the terms that could be measured.
+#
+# Median, not mean, inside each word span: one octave-error frame
+# (Praat spikes to ~580 Hz on this footage) must not decide a word.
+# A word with no voiced frames carries no f0 term, a word between two
+# intensity samples carries no loud term - the score is the mean of
+# what is there, and `terms` says how many answered. Duration always
+# answers (it is the aligner's own stamps), so every timed word scores.
+
+#: Divisors in WORD_EMPHASIS_FORMULA. Perceptual units, not fitted:
+#: they hold across clips because each term is already relative.
+F0_EMPHASIS_DIVISOR_ST = 3.0
+LOUD_EMPHASIS_DIVISOR_DB = 4.0
+
+WORD_EMPHASIS_FORMULA = (
+    "emphasis = mean(f0_rel_semitones/3.0, loud_rel_db/4.0, "
+    "log2(dur_ratio)) over the terms that measured"
+)
+
+
+def _median(values):
+    """Median of a non-empty list, or None. No numpy: this runs in tests."""
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2:
+        return float(ordered[mid])
+    return float((ordered[mid - 1] + ordered[mid]) / 2.0)
+
+
+def _letters(word: str) -> int:
+    return sum(1 for c in str(word or "") if c.isalnum())
+
+
+def measure_word_prosody(speech_regions, pitch_samples,
+                         intensity_samples) -> dict:
+    """One emphasis row per timed word. Pure: no parselmouth, no disk.
+
+    `speech_regions` are step 1.04's `{start, end, words: [{word,
+    start, end}]}` (Voz+MFA stamps, audio clock == source clock).
+    `pitch_samples` / `intensity_samples` are `(time, value-or-None)`
+    lists at whatever resolution Praat produced. Returns
+    `{"words", "baseline_f0_median_hz", "sec_per_letter", "formula"}`.
+    A word that measures nothing still rows - with nulls - so the
+    table and the transcript stay joinable word for word.
+    """
+    import math
+
+    regions = speech_regions or []
+    voiced = [f for _, f in pitch_samples or [] if f is not None]
+    baseline = _median(voiced) if voiced else None
+
+    total_letters = 0
+    total_speech = 0.0
+    for region in regions:
+        for word in region.get("words", []) or []:
+            total_letters += _letters(word.get("word"))
+            try:
+                total_speech += float(word.get("end", 0)) - float(
+                    word.get("start", 0))
+            except (TypeError, ValueError):
+                pass
+    sec_per_letter = (total_speech / total_letters
+                      if total_letters > 0 and total_speech > 0 else None)
+
+    rows = []
+    for region in regions:
+        region_words = region.get("words", []) or []
+        # The phrase reference is the median intensity over this region's
+        # own word spans - the same population the words are drawn
+        # from. A mean over the whole region would drag silence and
+        # pauses into the reference and read every word as loud
+        # (measured +9.4 dB on 001 clip_017 before this).
+        phrase_db = [
+            db for (time, db) in intensity_samples or []
+            if db is not None and any(
+                w.get("start", 0) <= time < w.get("end", 0)
+                for w in region_words
+                if isinstance(w, dict))
+        ]
+        phrase_mean = (_median(phrase_db) if phrase_db else None)
+
+        for word in region_words:
+            if not isinstance(word, dict):
+                continue
+            text = word.get("word", "")
+            try:
+                start = float(word.get("start", 0))
+                end = float(word.get("end", 0))
+            except (TypeError, ValueError):
+                continue
+            f0_in = [f for (time, f) in pitch_samples or []
+                     if f is not None and start <= time < end]
+            db_in = [db for (time, db) in intensity_samples or []
+                     if db is not None and start <= time < end]
+
+            f0_st = loud_db = dur_ratio = None
+            if f0_in and baseline:
+                f0_st = round(12 * math.log2(_median(f0_in) / baseline),
+                              2)
+            if db_in and phrase_mean is not None:
+                loud_db = round(_median(db_in) - phrase_mean, 2)
+            letters = _letters(text)
+            if letters and sec_per_letter:
+                expected = letters * sec_per_letter
+                if expected > 0 and end > start:
+                    dur_ratio = round((end - start) / expected, 3)
+
+            terms = []
+            if f0_st is not None:
+                terms.append(f0_st / F0_EMPHASIS_DIVISOR_ST)
+            if loud_db is not None:
+                terms.append(loud_db / LOUD_EMPHASIS_DIVISOR_DB)
+            if dur_ratio is not None and dur_ratio > 0:
+                terms.append(math.log2(dur_ratio))
+            emphasis = (round(sum(terms) / len(terms), 3)
+                        if terms else None)
+
+            rows.append({
+                "word": text,
+                "start": round(start, 3),
+                "end": round(end, 3),
+                "f0_rel_semitones": f0_st,
+                "loud_rel_db": loud_db,
+                "dur_ratio": dur_ratio,
+                "emphasis": emphasis,
+                "terms": len(terms),
+            })
+
+    return {
+        "words": rows,
+        "baseline_f0_median_hz": (round(baseline, 1)
+                                  if baseline else None),
+        "sec_per_letter": (round(sec_per_letter, 4)
+                           if sec_per_letter else None),
+        "formula": WORD_EMPHASIS_FORMULA,
+    }
+
+
 def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
     """Extract prosodic features using Praat via parselmouth.
 
@@ -208,6 +364,30 @@ def analyze_prosody(audio_path: str, speech_regions: list = None) -> dict:
             "speaking_rate": speaking_rate,
             "intensity_contour_50ms": intensity_values[:1200],  # Cap at 60s
             "duration_s": round(duration, 2),
+        }
+
+        # Per-word emphasis from the Voz+MFA stamps, measured on the
+        # FULL in-memory contours - the saved contours above are capped
+        # at 30/60 s and a word past the cap would read as unvoiced
+        # against them. A clip with no speech regions still profiles:
+        # an empty table, not a missing one.
+        word_rows = [
+            (p["time"], p["f0_hz"]) for p in pitch_values
+        ]
+        word_db = [
+            (v["time"], v["db"]) for v in intensity_values
+        ]
+        word_prosody = measure_word_prosody(
+            speech_regions, word_rows, word_db)
+        result["word_prosody"] = word_prosody["words"]
+        result["word_prosody_formula"] = word_prosody["formula"]
+        result["word_prosody_baseline"] = {
+            "f0_median_hz": word_prosody["baseline_f0_median_hz"],
+            "sec_per_letter": word_prosody["sec_per_letter"],
+            "n_words": len(word_prosody["words"]),
+            "n_scored": sum(
+                1 for row in word_prosody["words"]
+                if row.get("emphasis") is not None),
         }
 
         print(f"  prosody: F0 mean={pitch_stats.get('mean_f0_hz', '?')}Hz, "

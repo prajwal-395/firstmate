@@ -55,8 +55,8 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
   - **Raw `blocks` in a `context_fields` allow-list is the wrong route**, several times the view's size once `json.dumps`'d into a cell. `tests/test_picture_view.py` fails if one comes back.
 - `view:stability` is the two camera-steadiness signals SIDE BY SIDE - declared by `select_broll`, `plan_transitions` and `plan_vfx`. **It resolves nothing**: whatever picked a winner would become the measurement (section 10.5). The VLM's per-window `camera[].stability` and the deterministic per-clip `assessment.camera_stability` measure different things and on 001 they disagreed on 9 of 17 clips while three tables in one run carried two different answers about the same clip.
 - `view:alignment` is what step 2.02's `alignment_report` measured about each passage's INSIDES - declared by `review_rough_cut`. It ORDERS and REPORTS; no threshold fires on any of it. The run summary is its second reader (`library/tools/alignment_findings.py`).
-- `view:prosody` has NO consumer since #F5 unwired step 1.05, and is kept for whatever declares one next. It is what step 2.01 used to read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through; the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
-- `view:prosody` has NO consumer since step 1.05 was unwired, kept for whatever declares one next. It selects by `library/tools/prosody_profile.profile_defect`; real profiles pass through, the rest become ONE line. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
+- `view:prosody` is what steps 2.01 and 2.02 read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through (minus the contour and per-word lists, which never reach a prompt); the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
+- `view:emphasis` is what the anchor-consuming planners (4.02, 4.03, 4.04) read instead of the per-word prosody table: three scored words per spine block, joinable by `block_position` and addressable through `anchor: {word}` with `occurrence`. The model still decides; the measurement is context.
 - `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
@@ -141,8 +141,15 @@ def _prosody(data: dict) -> dict:
             cleaned = {}
             for k, v in profile.items():
                 if k == "prosody" and isinstance(v, dict):
-                    cleaned[k] = {pk: pv for pk, pv in v.items() 
-                                  if pk not in ("pitch_contour_10ms", "intensity_contour_50ms")}
+                    cleaned[k] = {pk: pv for pk, pv in v.items()
+                                  if pk not in ("pitch_contour_10ms",
+                                                "intensity_contour_50ms",
+                                                # The per-word table is
+                                                # 219 rows on 001's
+                                                # longest clip; steps that
+                                                # plan from it read
+                                                # view:emphasis instead.
+                                                "word_prosody")}
                 else:
                     cleaned[k] = v
             measured[clip_id] = cleaned
@@ -726,6 +733,155 @@ def _beatgrid(data: dict) -> dict:
     }}
 
 
+EMPHASIS_LEGEND = {
+    "what_this_is": (
+        "Per spine block, the three most emphasized spoken words, "
+        "measured from pitch, loudness and duration - not guessed from "
+        "punctuation. `most_emphasized_word` is a hint, not an order: "
+        "a brief that names a word wins over it."
+    ),
+    "formula": (
+        "emphasis = mean(f0_rel_semitones/3.0, loud_rel_db/4.0, "
+        "log2(dur_ratio)) over the terms that measured: word-median F0 "
+        "in semitones above the speaker's own clip median, word-median "
+        "dB above the phrase's own word-span median, actual duration "
+        "over expected from the speaker's own seconds-per-letter. "
+        "`terms` says how many of the three answered; duration always "
+        "does. Components ride along so a high score can be judged, "
+        "not just taken."
+    ),
+    "how_to_address_a_word": (
+        "By NAME through a sub-block anchor, never by seconds: a "
+        "VFX/SFX/transition plan entry carries anchor {word: <word>} "
+        "with optional {occurrence} (the nth saying in the block, "
+        "1-based) and {edge: end}. The post-bridge resolves it to the "
+        "exact frame (library/tools/sub_block_anchor.py). The anchor "
+        "names the spelling in the block's line; `occurrence` here "
+        "counts that same spelling."
+    ),
+    "withheld": (
+        "The per-word table for the whole clip stays out of the prompt "
+        "deliberately (AGENTS.md 10.1): three words per block is what a "
+        "plan entry names, and the code that cuts on timings reads the "
+        "full table from the unprojected inputs, never from the prompt."
+    ),
+}
+
+_EMPHASIS_STRIP = " \t\n\r…—–!?,.;:'\"()[]{}"
+
+
+def _emphasis_norm(text) -> str:
+    return str(text or "").strip(_EMPHASIS_STRIP).lower()
+
+
+def _emphasis(data: dict) -> dict:
+    """The most emphasized words per spine block, for anchored plans.
+
+    Fidelity rung 5b: step 1.05 measures one emphasis score per timed
+    word, but the steps that plan punches and sounds (4.02, 4.03, 4.04)
+    are routed `timed_spine` with the word timings projected OUT - by
+    design, they are too big for a prompt. This view is the addressed
+    middle: three scored words per block, joinable to the block by
+    `block_position` and to the anchor by `(word, occurrence)`.
+    The model still decides; the measurement is context.
+
+    Matching is by spelling, paired in spoken order within each
+    spelling: the profile and the block share the source clock, but
+    step 2.02 may re-anchor a passage past its hint, so a time window
+    would drop shifted words while order survives. A block whose clip
+    measured nothing is NAMED in one line, not silently absent.
+    """
+    analysis = data.get("prosody_analysis")
+    if not isinstance(analysis, dict):
+        return {}
+    profiles = analysis.get("profiles")
+    if isinstance(profiles, list):
+        profiles = {str(p.get("clip_id", i)): p
+                    for i, p in enumerate(profiles)
+                    if isinstance(p, dict)}
+    if not isinstance(profiles, dict) or not profiles:
+        return {}
+
+    spine = data.get("timed_spine")
+    if isinstance(spine, dict):
+        spine = spine.get("structure")
+    if not isinstance(spine, list):
+        return {}
+
+    rows, unmeasured = [], []
+    for block in spine:
+        if not isinstance(block, dict):
+            continue
+        position = block.get("position")
+        words = block.get("word_timestamps")
+        if isinstance(block.get("content"), dict) and not words:
+            words = block["content"].get("word_timestamps")
+        if not words:
+            continue
+        profile = profiles.get(str(block.get("clip_id")))
+        prosody = (profile or {}).get("prosody") or {}
+        scored = prosody.get("word_prosody") or []
+        if not scored:
+            unmeasured.append(position)
+            continue
+
+        by_spelling: dict = {}
+        for entry in scored:
+            if not isinstance(entry, dict):
+                continue
+            by_spelling.setdefault(
+                _emphasis_norm(entry.get("word")), []).append(entry)
+        for entries in by_spelling.values():
+            entries.sort(key=lambda e: float(e.get("start", 0)))
+
+        block_words = [w for w in words if isinstance(w, dict)]
+        seen: dict = {}
+        candidates = []
+        for entry in block_words:
+            spelling = _emphasis_norm(entry.get("word"))
+            pool = by_spelling.get(spelling) or []
+            index = seen.get(spelling, 0)
+            seen[spelling] = index + 1
+            if index >= len(pool):
+                continue
+            hit = pool[index]
+            if hit.get("emphasis") is None:
+                continue
+            candidates.append({
+                "word": spelling,
+                "occurrence": index + 1,
+                "emphasis": hit["emphasis"],
+                "f0_st": hit.get("f0_rel_semitones"),
+                "loud_db": hit.get("loud_rel_db"),
+                "dur_ratio": hit.get("dur_ratio"),
+            })
+        if not candidates:
+            unmeasured.append(position)
+            continue
+        candidates.sort(key=lambda c: -c["emphasis"])
+        top = candidates[:3]
+        rows.append({
+            "block_position": position,
+            "top_words": top,
+            "most_emphasized_word": top[0]["word"],
+            "most_emphasized_occurrence": top[0]["occurrence"],
+        })
+
+    view: dict = {"legend": EMPHASIS_LEGEND}
+    if rows:
+        view["blocks"] = rows
+        view["blocks_measured"] = len(rows)
+    if unmeasured:
+        view["not_measured"] = (
+            f"{len(unmeasured)} block(s) have no word-emphasis "
+            f"measurement: "
+            + ", ".join(sorted({str(p) for p in unmeasured}))
+        )
+    if not rows and not unmeasured:
+        return {}
+    return {"emphasis": view}
+
+
 # name -> builder(routed_inputs) -> a dict merged into the projection.
 #
 # A view's NAME is the key it writes.  That is what makes a second
@@ -741,6 +897,7 @@ CONTEXT_VIEWS = {
     "stability": _stability,
     "alignment": _alignment,
     "beatgrid": _beatgrid,
+    "emphasis": _emphasis,
 }
 
 

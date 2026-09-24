@@ -133,6 +133,13 @@ word the block does not say, a bar past the grid, a frame outside the
 block, or an end at or before its start - REFUSES the step with the
 fix, and you re-plan; it never falls back to the block span.
 
+Word emphasis: the `emphasis` view in your context names, per block,
+the three most emphasized spoken words as MEASURED from pitch,
+loudness and duration - with the formula stated there. Punch the word
+the brief names, or the block's most emphasized word; span it with
+`anchor` and `anchor_end` exactly as above. The score is context, not
+an order - you still decide.
+
 ### Context data available:
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.

@@ -115,10 +115,15 @@ CONSUMER_FIELDS = [
 def test_prosody_is_declared_by_its_wired_consumers():
     """Prosody was re-wired on 2026-09-01: its deterministic measurements
     are unbiased signal the model lacks. Steps 2.01 and 2.02 declare it
-    as an optional input and project it via view:prosody."""
+    as an optional input and project it via view:prosody; rung 5b routes
+    it to every anchor consumer (4.02, 4.03, 4.04), projected as
+    view:emphasis."""
     expected_consumers = {
         "step_2_01_creative_direction",
         "step_2_02_speech_sequence",
+        "step_4_02_plan_transitions",
+        "step_4_03_plan_vfx",
+        "step_4_04_plan_sfx",
     }
     actual = set()
     for path in sorted((REPO / "library" / "steps").glob("*/manifest.json")):

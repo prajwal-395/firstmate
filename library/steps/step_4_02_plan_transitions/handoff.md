@@ -132,6 +132,13 @@ block. Any form takes `offset_seconds` / `offset_frames`. An anchor
 that names nothing placeable REFUSES the step with the fix, and you
 re-plan. A cut is a point, so there is no `anchor_end` on it.
 
+Word emphasis: the `emphasis` view in your context names, per block,
+the three most emphasized spoken words as MEASURED from pitch,
+loudness and duration - with the formula stated there. Cut after the
+word the brief names, or after an emphasized word, through
+`anchor: {word, edge: end}` exactly as above. The score is context,
+not an order - you still decide.
+
 ### Context data available:
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.

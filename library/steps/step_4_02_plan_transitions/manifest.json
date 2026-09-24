@@ -95,6 +95,12 @@
         "type": "number",
         "required": true,
         "description": "Timebase from the catalog. `duration_frames` is computed from it, and until this edge existed the post-bridge read `frame_rate` - a key nothing in the pipeline produces - and every transition on a 23.976 fps project was cut at 30.0. Same declaration, same reason, as step 4.04's."
+      },
+      {
+        "name": "prosody_analysis",
+        "type": "object",
+        "required": false,
+        "description": "State input: prosody_analysis. Read through view:emphasis only - the per-block most-emphasized words a cut may anchor to. Optional because a run that measured no prosody still cuts; the view states the absence in one line."
       }
     ],
     "outputs": [
@@ -178,6 +184,7 @@
     "temporal_event_indices.*.clip_id",
     "view:picture",
     "view:stability",
-    "view:beatgrid"
+    "view:beatgrid",
+    "view:emphasis"
   ]
 }

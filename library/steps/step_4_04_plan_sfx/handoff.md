@@ -93,6 +93,13 @@ block - REFUSES the step with the fix, and you re-plan; it never lands
 on the block start. There is no `anchor_end` on a sound: a sound's
 extent is its `duration_seconds`.
 
+Word emphasis: the `emphasis` view in your context names, per block,
+the three most emphasized spoken words as MEASURED from pitch,
+loudness and duration - with the formula stated there. Land a sound on
+the word the brief names, or on the block's most emphasized word; name
+it through `anchor: {word}` with its `occurrence`, exactly as above.
+The score is context, not an order - you still decide.
+
 ### Context data available:
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.

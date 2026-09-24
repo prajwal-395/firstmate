@@ -77,6 +77,12 @@
         "type": "object",
         "required": true,
         "description": "State input: music_selection"
+      },
+      {
+        "name": "prosody_analysis",
+        "type": "object",
+        "required": false,
+        "description": "State input: prosody_analysis. Read through view:emphasis only - the per-block most-emphasized words a punch or shake may anchor to. Optional because a run that measured no prosody still plans; the view states the absence in one line."
       }
     ],
     "outputs": [
@@ -155,6 +161,7 @@
     "view:picture",
     "view:stability",
     "view:beatgrid",
+    "view:emphasis",
     "clip_catalog.*.clip_id",
     "clip_catalog.*.filename"
   ],
