@@ -45,9 +45,9 @@ Output: Per-clip JSON files in <project>/pipeline_output/temporal_index/<clip_id
 Requires:
     - ffmpeg on PATH
     - librosa + soundfile
-    - the on-device transcriber (`da`) for the primary arm, MFA for
-      the preferred aligner; faster-whisper + whisperx stay as the
-      measured fallback behind both
+    - the on-device transcriber (`da`) and MFA: they are the only
+      transcription path since the whisperx fallback arms left on
+      2026-09-24
 
 
 Rules relocated from AGENTS.md 10.3
@@ -184,15 +184,16 @@ def detect_scenes(video_path: str, threshold: float = 0.3) -> list:
     return deduped
 
 
-# ── 2. Speech region detection (Voz + MFA, WhisperX fallback) ──
+# ── 2. Speech region detection (Voz + MFA) ──
 #
 # The transcription itself lives in
 # `library/tools/timeline_transcript.transcribe_audio` - the seam the
 # reel builds transcribe through, adopted there in PR 1180: the
-# on-device transcriber's words (`da`) through MFA where its
-# environment is present, wav2vec2 where MFA declines, full WhisperX
-# where the hybrid cannot answer at all. This step calls that seam
-# rather than keeping its own transcriber (the old faster-whisper +
+# on-device transcriber's words (`da`) through MFA. The WhisperX
+# fallback arms are gone with the whisperx pin since 2026-09-24, so a
+# hybrid refusal on speech-bearing audio is a loud per-clip warning,
+# not a second transcription. This step calls that seam rather than
+# keeping its own transcriber (the old faster-whisper +
 # wav2vec2 direct call is gone with `_get_whisperx_models`), so the
 # edit pipeline's words and the reels' words are timed by the same
 # instruments. What this step still owns is everything AFTER the
@@ -312,9 +313,15 @@ def _transcription_from_record(record: dict, whisper_model_size: str,
     """Which instrument answered, in the shape the index stores."""
     from library.tools import hybrid_transcription
 
-    arm = (record or {}).get("arm") or hybrid_transcription.ARM_WHISPERX
-    aligner = ((record or {}).get("aligner")
-               or hybrid_transcription.ALIGNER_WAV2VEC2)
+    arm = (record or {}).get("arm")
+    aligner = (record or {}).get("aligner")
+    if arm == UNTRANSCRIBED:
+        # The seam heard nothing and said so: keep the "none" stamp
+        # rather than letting the legacy defaults below rewrite it
+        # into an instrument that never ran.
+        return _untranscribed(whisper_model_size, language)
+    arm = arm or hybrid_transcription.ARM_WHISPERX
+    aligner = aligner or hybrid_transcription.ALIGNER_WAV2VEC2
     detected = (record or {}).get("language") or {}
     detected_language = (detected.get("language") if isinstance(
         detected, dict) else None) or language
@@ -332,10 +339,10 @@ def _regions_from_segments(segments: list, onsets: list,
 
     One place, both transcription paths (the single-clip seam and the
     batched run below): onset snapping, the shared boundary hygiene,
-    and the region keys. `confidence` is the transcriber's own
-    segment confidence where the arm publishes one and 0.0 where it
-    publishes none - the same default an absent key always carried,
-    never a measurement.
+    and the region keys. `confidence` reads the transcriber's own
+    segment confidence where one is carried and 0.0 elsewhere - no
+    remaining arm publishes one, so 0.0 is what every region holds;
+    the same default an absent key always carried, never a measurement.
     """
     regions: list = []
     for segment in segments or []:
@@ -388,13 +395,14 @@ def detect_speech_regions(
     """Detect speech regions through the reel path's transcription seam.
 
     The words come from `timeline_transcript.transcribe_audio` - the
-    on-device transcriber through MFA where its environment is
-    present, wav2vec2 where MFA declines, full WhisperX where the
-    hybrid cannot answer. Everything after the words is this step's
-    own: word start times are snapped to the nearest audio onset
-    (from librosa onset detection) when within 30ms, giving consonant
-    attacks sub-frame precision, and the shared boundary hygiene is
-    applied.
+    on-device transcriber through MFA. The WhisperX fallback arms left
+    with the whisperx pin on 2026-09-24, so a hybrid refusal is either
+    silence (returned empty and attributed) or a loud per-clip warning
+    caught below - there is no second transcription. Everything after
+    the words is this step's own: word start times are snapped to the
+    nearest audio onset (from librosa onset detection) when within
+    30ms, giving consonant attacks sub-frame precision, and the shared
+    boundary hygiene is applied.
 
     Returns `(regions, transcription)`:
 
@@ -406,10 +414,10 @@ def detect_speech_regions(
             "confidence": 0.92,
             "method": "hybrid-mfa"
         }, ...]
-        `confidence` is the transcriber's own segment confidence where
-        the arm publishes one (the full-WhisperX fallback) and 0.0
-        where the arm publishes none (the hybrid) - the same default
-        an absent key always carried, never a measurement.
+        `confidence` is 0.0: no remaining arm publishes the
+        transcriber's own segment confidence (the full-WhisperX fallback
+        was the one that did) - the same default an absent key always
+        carried, never a measurement.
       * `transcription` - which instrument answered:
         `{"arm", "aligner", "detected_language", "method"}`.
         A clip nothing could transcribe returns `[]` with the arm and
@@ -594,8 +602,8 @@ def transcribe_clips_batched(requests: list,
                                    for w in windows]
                         by_language.setdefault(detected, []).append(
                             (key, path, onsets, shifted))
-                    # The reel path's own aligner (MFA preferred,
-                    # wav2vec2 behind it) - the batch is timed by the
+                    # The reel path's own aligner (MFA, the only one
+                    # since whisperx left) - the batch is timed by the
                     # same instrument the single path is.
                     aligner = timeline_transcript._aligner()
                     for group_language, group in by_language.items():

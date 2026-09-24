@@ -9,7 +9,8 @@ pyyaml>=6.0
 # there is no set of these packages in which transcription works, and the
 # failure is silent. Measured 2026-08-17, on project 001's real footage.
 #
-# The chain, so nobody re-derives it:
+# The chain, so nobody re-derives it (whisperx era, kept because the
+# failure mode is what the preflight's version-floor check exists for):
 #   - 3.14 has no wheel for the ctranslate2 whisperx 3.2.0 pins, so an env
 #     built there installs faster-whisper 1.2.1 instead of the 1.0.0
 #     whisperx 3.2.0 requires. 1.2.x added `multilingual` and `hotwords`
@@ -25,12 +26,17 @@ pyyaml>=6.0
 #     `torchaudio.list_audio_backends()` and imports `AudioMetaData`, both
 #     removed by then. Shimming one surfaces the next.
 #
-# On 3.12 the resolver finds a coherent set on its own, with a MATCHED
-# torch/torchaudio pair, which is the thing that was never true on 3.14:
-#   whisperx 3.8.6, faster-whisper 1.2.1, ctranslate2 4.8.1,
-#   torch 2.8.0, torchaudio 2.8.0, pyannote.audio 4.0.7
-# Verified by transcribing 001 footage, not by importing the module.
-whisperx>=3.8,<4
+# whisperx is GONE since 2026-09-24, and that is a second chain worth
+# writing down so nobody re-adds the pin. Ingest transcribes through Voz
+# (`da voz`) and aligns through MFA since PR 1374, and whisperx 3.8.6 -
+# the latest release - pins `huggingface-hub<1.0.0` while every mlx-vlm
+# new enough to load gemma4 needs transformers>=5.1 (Hub>=1.5). The
+# solve is disjoint, so whisperx left the venv and the file together
+# with its fallback arms in `library/tools/timeline_transcript.py`.
+# What left with it: the full-WhisperX transcription fallback, the
+# wav2vec2 aligner behind MFA, and faster-whisper (nothing else
+# imported it). Non-English material and MFA outages now refuse loudly
+# instead of falling back - that tradeoff is the PR body, not this pin.
 librosa>=0.10
 # Beat and downbeat detection (step 2.06 via music_pipeline, surfaced per
 # candidate at choice time in 2.04). beat_this (CPJKU, MIT licence -
@@ -66,9 +72,10 @@ yt-dlp>=2026.08.19
 praat-parselmouth>=0.4.3
 numpy>=1.24
 scipy>=1.10
-# Left to whisperx to pin: torch and torchaudio must match each other, and
-# hand-pinning them is how the 3.14 environment ended up with torch 2.13
-# beside torchaudio 2.11 and a pyannote that worked with neither.
+# torch and torchaudio must match each other - hand-pinning one without
+# the other is how the 3.14 environment ended up with torch 2.13 beside
+# torchaudio 2.11 and a pyannote that worked with neither. Keep the two
+# floors together and let the resolver match the pair.
 torch>=2.8
 torchaudio>=2.8
 # Pinned below 5: OpenCV 5 dropped Haar cascades entirely (no
@@ -101,4 +108,15 @@ faiss-cpu>=1.7
 
 # Subtitles subsystem
 # Node.js Remotion used for rendering (see remotion-subtitles)
-mlx_vlm>=0.0.14; sys_platform == 'darwin'
+# Vision (step 1.03 via vision_pipeline_v3, Apple Silicon only).
+# 0.7.2 is the floor, not a preference: 0.3.9 cannot load
+# mlx-community/gemma-4-12b-it-4bit (`ValueError: Model type
+# gemma4_unified not supported`), so vision is broken on every real
+# project below it. Verified 2026-09-24 by loading the cached weights
+# and answering on the captain's footage, not by importing the module.
+# mlx and mlx-lm ride along as mlx-vlm's own floors - stated here so a
+# resolver run that drifts them below what vision was verified against
+# fails loudly at the preflight instead of inside the step.
+mlx>=0.32.2; sys_platform == 'darwin'
+mlx-lm>=0.31.3; sys_platform == 'darwin'
+mlx_vlm>=0.7.2; sys_platform == 'darwin'

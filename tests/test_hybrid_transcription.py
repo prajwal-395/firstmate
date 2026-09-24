@@ -337,10 +337,13 @@ def test_the_aligner_is_asked_for_the_language_the_identifier_heard(
 
 
 def test_a_fallback_record_names_the_trigger_and_what_was_measured():
+    """The refusal travels with its reason: no arm answered ("none",
+    nothing timed), so the trigger and detail are the whole account."""
     failure = hybrid_transcription.FallbackRequired(
         hybrid_transcription.WORD_OVER_THE_CLAMP, "'starting' spans 62.63s")
     record = hybrid_transcription.fallback_record(failure, attempted="craig.wav")
-    assert record["arm"] == hybrid_transcription.ARM_WHISPERX
+    assert record["arm"] == "none"
+    assert record["aligner"] is None
     assert record["fell_back_because"]["trigger"] == \
         hybrid_transcription.WORD_OVER_THE_CLAMP
     assert "62.63s" in record["fell_back_because"]["detail"]

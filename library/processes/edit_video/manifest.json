@@ -54,7 +54,7 @@
     "preconditions": [
       "Project folder exists and contains raw/ subdirectory with .MOV or .mp4 files",
       "DaVinci Resolve is running with a project open",
-      "WhisperX is installed (pip install whisperx)",
+      "Voz transcription (da voz) and MFA alignment are installed for ingest",
       "Remotion is installed in the remotion-subtitles/ directory",
       "MLX framework available for Gemma4 12B vision analysis (Apple Silicon)",
       "HF_TOKEN environment variable set (for Audio Flamingo Next SFX profiling)"
@@ -87,7 +87,7 @@
     "color-grading",
     "audio-mix",
     "remotion",
-    "whisperx",
+    "voz",
     "ollama",
     "gemma4",
     "shortform"

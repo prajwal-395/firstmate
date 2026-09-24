@@ -337,16 +337,16 @@ def test_a_flagged_line_is_still_a_row_and_still_a_boundary():
 
 
 # ── What the transcriber writes down, so a re-run has it ─────────────
-
-def test_the_transcriber_stops_throwing_the_number_away():
-    """Both write sites rebuilt the dict without it. `avg_logprob` is
-    the one the aligner carries, so it survives with nothing
-    re-attaching it."""
-    source = (REPO / "library" / "tools"
-              / "timeline_transcript.py").read_text(encoding="utf-8")
-    assert "AVG_LOGPROB: s.avg_logprob" in source, (
-        "the segment handed to the aligner is rebuilt without the "
-        "transcriber's own confidence again")
+#
+# NOTE 2026-09-24: the write-site test that lived here
+# (`test_the_transcriber_stops_throwing_the_number_away`) pinned the
+# fallback arm rebuilding each faster-whisper segment with its
+# `avg_logprob` for the aligner to carry. That arm left with whisperx,
+# and no remaining arm publishes segment confidence at all - Voz emits
+# nothing like it, MFA emits no per-word score. There is no write site
+# left to pin; the absence is stated loudly in the transcript block,
+# `confidence_notice`, and the model-read view instead, and the legacy
+# fixtures below keep old transcripts loading.
 
 
 

@@ -29,13 +29,13 @@ halves, one store:
 
 Biasing at decode time
 ----------------------
-`faster_whisper` accepts `initial_prompt` and `hotwords` (measured on
-the pinned 1.2.1: both are parameters of `WhisperModel.transcribe`,
-and `transcribe_audio` forwards them - see the stub-model test). Both
-are biases, not guarantees: they move the decoder, they do not decide
-it. The post-transcription pass is the guarantee, and it runs even
-when biasing worked, because a pass that finds nothing is the proof
-biasing held. A transcript that still says "lucy" after the pass is a
+Until 2026-09-24 `faster_whisper` accepted `initial_prompt` and
+`hotwords` and `transcribe_audio` forwarded them (measured on the
+pinned 1.2.1). That decoder left with the whisperx pin, so both are
+biases nothing reads now - kept on the call but inert. The
+post-transcription pass below is the guarantee, and it runs always,
+because a pass that finds nothing is the proof nothing needed
+respelling. A transcript that still says "lucy" after the pass is a
 correction that stopped matching, and that is reported, not hidden.
 
 Keep-range corrections

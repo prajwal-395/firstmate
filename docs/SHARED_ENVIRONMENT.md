@@ -8,7 +8,7 @@ identical for every checkout of the same commit:
 | | what | size |
 |---|---|---|
 | **Node** | `node_modules` for the Remotion renderer, which draws every caption, motion graphic, timed-text card, bookend and full-frame element | 285 MB |
-| **Python** | an interpreter carrying whisperx, mlx_vlm, torch and the rest of the ML stack | ~4 GB |
+| **Python** | an interpreter carrying mlx_vlm, torch and the rest of the ML stack (whisperx left it on 2026-09-24; transcription runs through Voz+MFA, not pip) | ~4 GB |
 
 Both were assumed to live inside whichever checkout was running. Neither
 does, on any machine this repository has been installed on. This page is
@@ -131,7 +131,7 @@ back to `/usr/bin/python3`. **No checkout on the build machine has a
 `.venv`** - the working environment is the durable one at
 `~/.local/share/vep/venv-py312`, which `ML_ENVIRONMENT.md` put outside
 every checkout deliberately. So the caller always took the fallback,
-and `/usr/bin/python3` carries none of whisperx, mlx_vlm or torch. The
+and `/usr/bin/python3` carries none of mlx_vlm or torch. The
 call died inside a step's import, reporting a package nobody had
 mentioned.
 

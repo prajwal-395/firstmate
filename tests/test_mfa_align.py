@@ -16,11 +16,14 @@ What these pin, and why each is here
   hyphenated compounds, possessive "AI's") is UNTIMED, never lost and
   never mis-timed - the same shape whisperx emits for a word it could
   not place, which `interpolate_untimed_words` already handles.
-- A transiently empty chunk (~0.9% of sentences, recovered 12 of 12
-  on rerun) is RETRIED; only a chunk still empty after the retry
-  declines the run to wav2vec2.
-- An absent MFA environment declines to wav2vec2 rather than raising,
-  and the record says which aligner timed the run either way.
+- A transiently empty chunk (~0.9% of sentences, recovered 12 of
+  12 on rerun) is RETRIED; only a chunk still empty after the retry
+  declines the run.
+- An absent MFA environment declines rather than raising, and the
+  record says which aligner timed the run either way. Since
+  2026-09-24 there is no wav2vec2 second chance behind a decline:
+  the decline travels up to the seam, which answers silence or
+  refuses loudly.
 """
 
 from __future__ import annotations
@@ -207,7 +210,7 @@ def test_a_transiently_empty_chunk_is_retried(monkeypatch, tmp_path):
 
 def test_a_chunk_empty_after_retry_declines_the_run(monkeypatch, tmp_path):
     """Without the retry real words silently lose their timings; with
-    it but still nothing, wav2vec2 takes the run instead."""
+    it but still nothing, the run is refused instead."""
     audio = _wav(tmp_path / "speaker.wav")
     monkeypatch.setattr(mfa_align, "_run_mfa", lambda corpus_dir, out_dir: None)
     with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
@@ -215,7 +218,7 @@ def test_a_chunk_empty_after_retry_declines_the_run(monkeypatch, tmp_path):
     assert refused.value.reason == mfa_align.MFA_CHUNK_UNALIGNED
 
 
-# ── 5. the declines, each one to wav2vec2 rather than a crash
+# ── 5. the declines, each one a refusal rather than a crash
 
 
 def test_an_absent_environment_declines_rather_than_raising(monkeypatch, tmp_path):
@@ -225,7 +228,7 @@ def test_an_absent_environment_declines_rather_than_raising(monkeypatch, tmp_pat
     assert refused.value.reason == mfa_align.MFA_ENVIRONMENT_ABSENT
 
 
-# ── 6. the seam: MFA preferred, wav2vec2 live behind it, record says which
+# ── 6. the seam: MFA times the run, the record says which aligner ──
 
 
 def _heard(monkeypatch):
@@ -249,8 +252,8 @@ def _heard(monkeypatch):
 
 
 def test_mfa_success_is_recorded_on_the_run(monkeypatch, tmp_path):
-    """The preferred path stamps its own document; the record copies
-    the stamp, the same way the arm is recorded today."""
+    """The MFA path stamps its own document; the record copies
+    the stamp, the same way the arm is recorded."""
     import library.tools.timeline_transcript as tt
 
     _heard(monkeypatch)
@@ -269,13 +272,6 @@ def test_mfa_success_is_recorded_on_the_run(monkeypatch, tmp_path):
             "aligner": hybrid_transcription.ALIGNER_MFA,
         },
     )
-    monkeypatch.setattr(
-        tt,
-        "_whisperx_transcribe_and_align",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("the fallback must not run")
-        ),
-    )
 
     aligned, record = tt.transcribe_audio(tmp_path / "craig.wav")
     assert record["arm"] == hybrid_transcription.ARM_HYBRID
@@ -283,53 +279,31 @@ def test_mfa_success_is_recorded_on_the_run(monkeypatch, tmp_path):
     assert aligned["segments"][0]["words"][0]["word"] == "Absolutely."
 
 
-def test_an_mfa_decline_runs_wav2vec2_and_records_it(monkeypatch, tmp_path):
-    """Absent environment (or any MFA decline) falls back to the live
-    wav2vec2 aligner for the run - a lane without MFA transcribes."""
+def test_an_mfa_decline_is_refused_not_realigned(monkeypatch, tmp_path):
+    """Absent environment (or any MFA decline) is an aligner-side
+    refusal: speech exists that nothing can place, so the decline
+    propagates out of the seam instead of an empty transcript. The
+    wav2vec2 second chance behind it left with whisperx on
+    2026-09-24."""
     import library.tools.timeline_transcript as tt
 
     _heard(monkeypatch)
-    asked = {"wav2vec2": 0}
 
     def _declined(segments, language, audio_path):
         raise hybrid_transcription.FallbackRequired(
             mfa_align.MFA_ENVIRONMENT_ABSENT, "no MFA here"
         )
 
-    def _wav2vec2(segments, language, audio_path):
-        asked["wav2vec2"] += 1
-        return {
-            "segments": [
-                {
-                    "start": 0.35,
-                    "end": 1.55,
-                    "text": "Absolutely.",
-                    "words": [
-                        {"word": "Absolutely.", "start": 0.5, "end": 1.4, "score": 0.8}
-                    ],
-                }
-            ],
-            "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
-        }
-
     monkeypatch.setattr(mfa_align, "align", _declined)
-    monkeypatch.setattr(tt, "align_segments", _wav2vec2)
-    monkeypatch.setattr(
-        tt,
-        "_whisperx_transcribe_and_align",
-        lambda *a, **k: (_ for _ in ()).throw(
-            AssertionError("the full fallback must not run")
-        ),
-    )
 
-    aligned, record = tt.transcribe_audio(tmp_path / "craig.wav")
-    assert asked == {"wav2vec2": 1}
-    assert record["arm"] == hybrid_transcription.ARM_HYBRID
-    assert record["aligner"] == hybrid_transcription.ALIGNER_WAV2VEC2
-    assert aligned["segments"][0]["text"] == "Absolutely."
+    with pytest.raises(hybrid_transcription.FallbackRequired) as refused:
+        tt.transcribe_audio(tmp_path / "craig.wav")
+    assert refused.value.reason == mfa_align.MFA_ENVIRONMENT_ABSENT
 
 
 def test_the_document_says_which_aligner_timed_each_speaker():
+    """The wav2vec2 value below is legacy vocabulary for transcripts
+    written before 2026-09-24 - still readable, no longer producible."""
     import library.tools.timeline_transcript as tt
 
     record = tt.transcription_record(

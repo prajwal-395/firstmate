@@ -91,9 +91,10 @@ VENV=~/.local/share/vep/venv-py312
 # 1. the interpreter is 3.12
 $VENV/bin/python3 -V                       # Python 3.12.x
 
-# 2. whisperx imports AND satisfies the declared range
-$VENV/bin/python3 -c "import whisperx; import importlib.metadata as m; \
-    print('whisperx', m.version('whisperx'))"     # must be >=3.8,<4
+# 2. mlx_vlm imports AND satisfies the declared floor - vision is
+#    broken on every real project below it, and it imports fine there
+$VENV/bin/python3 -c "import mlx_vlm; import importlib.metadata as m; \
+    print('mlx_vlm', m.version('mlx_vlm'))"     # must be >=0.7.2
 
 # 3. parselmouth imports - prosody measures nothing without it, and
 #    reports available:false rather than failing
@@ -111,9 +112,18 @@ $VENV/bin/python3 -m pytest tests/ -m heavy_ml -rs
 # expected: 2 passed
 ```
 
-Measured on the durable venv, 2026-09-05: `2 passed, 4407 deselected in 23.96s`, with
-whisperx 3.8.6, faster-whisper 1.2.1, ctranslate2 4.8.2, torch 2.8.0, torchaudio 2.8.0,
-pyannote.audio 4.0.7.
+Measured on the durable venv, 2026-09-24: `2 passed` with mlx-vlm
+0.7.2, mlx-lm 0.31.3, mlx 0.32.2 (latest), transformers 5.17.0,
+huggingface-hub 1.33.0, torch 2.8.0, torchaudio 2.8.0 - and gemma4
+12B loading the cached weights in 5.0s and answering on the
+captain's footage in 4.9s through `vision_pipeline_v3`'s own load
+path (see the PR body for the excerpt).
+
+Transcription is NOT verified here: ingest transcribes through Voz
+(`da voz`) and aligns through MFA, neither of which is a pip package.
+`ren doctor` checks both are installed; step 1.04 refuses loudly on
+audio neither can hear since the whisperx fallback arms left on
+2026-09-24 (requirements.txt header has the chain).
 
 ## Point the gate at it
 

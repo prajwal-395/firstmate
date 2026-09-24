@@ -7,9 +7,12 @@ Two halves that were already in the repository, joined:
   * `library/tools/heard_speech.py` - the contained third-party
     transcriber, 275-344x realtime, which writes the WORDS but whose own
     timings move more than a frame for 67.7% of them (measured), and
-  * `whisperx.load_align_model` / `whisperx.align` - the wav2vec2 forced
-    aligner the pipeline has always used, which is what actually places
-    a word boundary.
+  * `library/tools/mfa_align.py` - the MFA forced aligner, which is
+    what actually places a word boundary. Until 2026-09-24 this half
+    was whisperx's wav2vec2 aligner; it left with the whisperx pin
+    (huggingface-hub disjoint with gemma4-capable mlx-vlm), and MFA -
+    until then the preferred aligner with wav2vec2 behind it - is now
+    the only one.
 
 Handing the transcriber's text to the aligner takes the word-start error
 against today's shipped transcript from **94.1ms to 25.6ms** and the
@@ -21,12 +24,13 @@ project's own mic audio:
 
 **What that number is, stated exactly, because the headline hides it.**
 Every accuracy figure above is a DISTANCE FROM WhisperX's own output,
-which was the reference because it is what the pipeline consumes today.
-By construction the hybrid cannot beat it on that metric: the control
-arm - WhisperX's own text through the same aligner - scores 10.9ms. So
-the honest claim is **far faster and close enough**, never more
-accurate. That is the whole reason the fallback below is real machinery
-rather than a comment.
+which was the reference because it is what the pipeline consumed
+until 2026-09-24. By construction the hybrid cannot beat it on that
+metric: the control arm - WhisperX's own text through the same
+aligner - scored 10.9ms. So the honest claim is **far faster and
+close enough**, never more accurate. The control arm left with
+whisperx and cannot be re-run; the figures stand as the recorded
+basis, not as a live comparison.
 
 The window, and why it is these two numbers
 -------------------------------------------
@@ -50,11 +54,14 @@ zero**, for 8% more alignment time. Shorter windows are worse on both
 axes monotonically and cost MORE, so there is no cap: the sweep measured
 that directly and it is the opposite of what was expected.
 
-The fallback is real, and it is triggered by measurement
+The refusal is real, and it is triggered by measurement
 --------------------------------------------------------
-`FallbackRequired` is raised - never a degraded return - and the caller
-runs the full WhisperX path it ran before. Three conditions, each
-detectable and each with a counted reason:
+`FallbackRequired` is raised - never a degraded return - and since
+2026-09-24 there is no fallback transcriber left to run: the
+full-WhisperX arm went with the whisperx pin. What the refusal becomes
+is the SEAM's decision (`timeline_transcript.transcribe_audio`) -
+silence is returned empty and attributed, anything else propagates.
+Three conditions, each detectable and each with a counted reason:
 
   1. **The language.** The transcriber covers 25 languages, its CLI does
      not enumerate which 25, and on one it does not cover it writes
@@ -81,28 +88,28 @@ that "unavailable" would send someone to check their PATH.
 threshold and this pipeline does not invent one. Zero is not invented:
 it is what this exact configuration measured over 150.7 minutes, so a
 single occurrence says the audio is not the material the configuration
-was proved on. The downside is bounded and worth writing down - falling
-back costs the hybrid's own 5% on top of today's path, never less than
-today and never much more.
+was proved on. The downside is bounded and worth writing down - with
+no fallback transcriber left, a refusal on speech-bearing audio is a
+loud failure rather than a slower answer.
 
 What the hybrid CANNOT give back
 ---------------------------------
 `avg_logprob`, the segment-level ASR confidence
 `library/tools/transcript_confidence.py` exists to publish. faster-whisper
-emits it; this transcriber emits nothing like it, and `whisperx.align`
-only carries what it was handed. **The absence is stated, loudly, in
+emitted it; this transcriber emits nothing like it. **The absence is stated, loudly, in
 three places** - the transcript document's own `transcription` block,
 `transcript_confidence.confidence_notice`, and the view a model reads -
 because a null that reads as "confident" is exactly the hole that made
 Reel 26's caption defect invisible.
 
-What the wav2vec2 aligner restores instead is a per-WORD
+What the wav2vec2 aligner restored instead was a per-WORD
 `alignment_score`, which is a different thing and is labelled as one:
 it says the characters fit the audio, not that they are the right
 characters. Measured, a wrong proper noun scores HIGHER than the right
-one. It is reported and nothing routes on it. MFA, the preferred
-aligner (`library/tools/mfa_align.py`), emits no per-word score, so a
-run it timed publishes no per-row number at all - `transcript_confidence
+one. It was reported and nothing routed on it. MFA, the only aligner
+since 2026-09-24 (`library/tools/mfa_align.py`), emits no per-word
+score, so a run it timed publishes no per-row number at all -
+`transcript_confidence
 .ALIGNMENT_SCORE_ABSENT_MFA` is the sentence that says so, and adopting
 MFA costs that column. That is the real trade and it is stated here
 rather than left for whoever wonders why it emptied.
@@ -119,6 +126,8 @@ from library.tools import heard_speech
 
 ARM_HYBRID = "hybrid"
 ARM_WHISPERX = "whisperx"
+"""Kept as record vocabulary for transcripts written before 2026-09-24:
+no new transcript can carry the second arm, but old ones still read."""
 
 ALIGNER_MFA = "mfa"
 ALIGNER_WAV2VEC2 = "wav2vec2"
@@ -127,10 +136,9 @@ ALIGNER_WAV2VEC2 = "wav2vec2"
 Recorded on the hybrid's record under `aligner`, the same way `arm`
 says which transcriber wrote the words: every accuracy number in this
 programme is only interpretable if you know which instrument produced
-it, and there are now two. MFA is preferred where its environment is
-present; the wav2vec2 aligner from `whisperx.align` is the fallback
-that stays live behind it. Neither the wav2vec2 aligner nor the full
-WhisperX arm is removed.
+it, and there were two. MFA was preferred where its environment was
+present with the wav2vec2 aligner behind it; since 2026-09-24 MFA is
+the only one. The second value stays readable for old records.
 """
 
 ASR_CONFIDENCE_ABSENT = "absent_by_construction"
@@ -163,13 +171,15 @@ MIN_WORD_SECONDS = 0.020
 
 
 class FallbackRequired(RuntimeError):
-    """The hybrid may not answer for this audio; run full WhisperX.
+    """The hybrid may not answer for this audio; nothing else will either.
 
     Carries `reason` (a stable slug a record can be grouped by) and
     `detail` (what was measured, in words). Raised rather than returning
     a degraded transcript, because a caller that cannot tell "this is
     what was said" from "this is the best I could do" will write the
-    second onto a timeline.
+    second onto a timeline. Until 2026-09-24 the caller ran full
+    WhisperX on this exception; with that arm removed, the seam answers
+    silence or propagates - see `timeline_transcript.transcribe_audio`.
     """
 
     def __init__(self, reason: str, detail: str):
@@ -457,12 +467,18 @@ def transcribe_and_align(audio_path: str, aligner: Aligner,
 
 def fallback_record(failure: FallbackRequired,
                     attempted: Optional[str] = None) -> Dict[str, Any]:
-    """The account a fallback leaves behind, so a run can be read back."""
+    """The account a refusal leaves behind, so a run can be read back.
+
+    Until 2026-09-24 this was the account a fallback run left behind;
+    now it travels on the empty answer (`transcribe_audio` returns no
+    segments for audio the transcriber heard nothing in) so the silence
+    is attributed rather than silent."""
     record: Dict[str, Any] = {
-        "arm": ARM_WHISPERX,
-        # The fallback's own text is timed by the wav2vec2 aligner, so
-        # its instrument is known even though no hybrid record exists.
-        "aligner": ALIGNER_WAV2VEC2,
+        # No arm answered: "none" is step_1_04's own UNTRANSCRIBED
+        # vocabulary, and no aligner timed anything. The trigger below
+        # is the whole account of why.
+        "arm": "none",
+        "aligner": None,
         "fell_back_because": {"trigger": failure.reason,
                               "detail": failure.detail},
     }

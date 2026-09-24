@@ -73,7 +73,7 @@ ALL_COMMANDS = (
     "relink", "reindex", "setup-hooks",
 )
 
-ML_REQUIRED_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch")
+ML_REQUIRED_PACKAGES = ("mlx_vlm", "easyocr", "torch")
 
 # Import name -> the distribution name on PyPI, for the ones that differ.
 # Needed because the version check below asks `importlib.metadata` for an
@@ -104,12 +104,14 @@ def _missing_ml_packages():
 
 # ─── Importable is not the same as USABLE ─────────────────────────
 #
-# An import check answers "is a whisperx here", never "is it the
-# whisperx this pipeline declares".  On 2026-09-05 every ML environment
-# on the build machine carried whisperx 3.2.0 against a declared
-# `whisperx>=3.8,<4`, because they were built on Python 3.14 - which
-# requirements.txt forbids in its own header, in capitals, for exactly
-# this reason.  3.2.0 imports perfectly and then raises
+# An import check answers "is the package here", never "is it the
+# version this pipeline declares".  The incident that built this check,
+# kept because the failure mode is what the floor below guards against:
+# on 2026-09-05 every ML environment on the build machine carried
+# whisperx 3.2.0 against a declared `whisperx>=3.8,<4`, because they
+# were built on Python 3.14 - which requirements.txt forbids in its own
+# header, in capitals, for exactly this reason.  3.2.0 imports
+# perfectly and then raises
 #
 #     TypeError: TranscriptionOptions.__init__() missing 2 required
 #     positional arguments: 'multilingual' and 'hotwords'
@@ -119,6 +121,8 @@ def _missing_ml_packages():
 # "0 regions, 0.0s speech, 0 words", no spine, no subtitles - the entire
 # edit missing, reported as success.  requirements.txt has documented
 # that whole chain since 2026-08-17 and nothing ever checked it.
+# (whisperx itself left the venv and the manifest on 2026-09-24; the
+# check stays because mlx_vlm carries a floor with the same shape.)
 #
 # The declared version is read from requirements.txt rather than
 # restated here.  A second copy of the pin in this file is the local
@@ -133,8 +137,9 @@ def _declared_specifiers(repo_root: Path) -> dict:
     be this file having an opinion the manifest does not.
     """
     from packaging.requirements import Requirement
+    from packaging.utils import canonicalize_name
 
-    wanted = {ML_DISTRIBUTION_NAMES.get(p, p).lower()
+    wanted = {canonicalize_name(ML_DISTRIBUTION_NAMES.get(p, p))
               for p in ML_REQUIRED_PACKAGES}
     found = {}
     path = repo_root / "requirements.txt"
@@ -150,8 +155,13 @@ def _declared_specifiers(repo_root: Path) -> dict:
             req = Requirement(line)
         except Exception:
             continue
-        if req.name.lower() in wanted and str(req.specifier):
-            found[req.name.lower()] = req.specifier
+        # Canonicalized: `Requirement` keeps `mlx_vlm` as written while
+        # the manifest names the distribution `mlx-vlm`, and an
+        # un-normalized comparison silently enforces nothing. Found
+        # 2026-09-24 when the mlx_vlm floor this check exists for never
+        # matched its own requirements line.
+        if canonicalize_name(req.name) in wanted and str(req.specifier):
+            found[canonicalize_name(req.name)] = req.specifier
     return found
 
 
@@ -265,9 +275,9 @@ def preflight_check(command: str, repo_root: Path = REPO_ROOT) -> None:
         print("")
         print("  A version outside the declared range imports fine and then "
               "fails inside the step.")
-        print("  whisperx below 3.8 raises TypeError on every transcribe "
-              "call, step 1.04 catches it per clip, and the run reports "
-              "success with no transcript, no spine and no subtitles.")
+        print("  mlx_vlm below 0.7.2 raises ValueError on every vision load "
+              "call - the gemma4 weights need a newer loader - and vision "
+              "is broken on every real project until it is upgraded.")
         print("  requirements.txt's header has the full chain, and "
               "docs/ML_ENVIRONMENT.md is how to rebuild this environment.")
         _print_ml_advice(command, repo_root)

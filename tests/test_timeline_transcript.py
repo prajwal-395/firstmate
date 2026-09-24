@@ -437,17 +437,18 @@ def test_a_rebound_transcript_says_it_was_rebound():
     assert "the one the transcribe pass produced" in after["measurement"]
 
 
-# ── The seam: which transcriber hears one speaker ────────────────────
+# ── The seam: the hybrid hears one speaker ─────────────────────────
 #
-# `transcribe_audio` is the whole of the choice, and nothing above it
-# knows there is one. These run it with both arms stubbed: no
+# `transcribe_audio` is the whole of the choice, and since 2026-09-24
+# there is one arm, not two: the full-WhisperX fallback left with the
+# whisperx pin. These run the seam with the hybrid stubbed: no
 # transcriber, no alignment model, no audio.
 
-def _stub_seam(monkeypatch, hybrid=None, fallback=None):
-    """Replace both arms and report what each was asked."""
+def _stub_seam(monkeypatch, hybrid=None):
+    """Replace the hybrid arm and report whether it was asked."""
     from library.tools import hybrid_transcription
 
-    asked = {"hybrid": 0, "fallback": 0}
+    asked = {"hybrid": 0}
 
     def _hybrid(audio_path, aligner, label=""):
         asked["hybrid"] += 1
@@ -455,12 +456,7 @@ def _stub_seam(monkeypatch, hybrid=None, fallback=None):
             raise hybrid
         return hybrid
 
-    def _fallback(audio_path, **kwargs):
-        asked["fallback"] += 1
-        return fallback if fallback is not None else {"segments": []}
-
     monkeypatch.setattr(hybrid_transcription, "transcribe_and_align", _hybrid)
-    monkeypatch.setattr(tt, "_whisperx_transcribe_and_align", _fallback)
     return asked
 
 
@@ -477,46 +473,67 @@ def _hybrid_result():
                     hybrid_transcription.ASR_CONFIDENCE_ABSENT})
 
 
-def test_the_hybrid_is_primary_and_the_fallback_is_not_run(monkeypatch):
+def test_the_hybrid_answer_is_returned_with_its_record(monkeypatch):
     asked = _stub_seam(monkeypatch, hybrid=_hybrid_result())
     aligned, record = tt.transcribe_audio(Path("craig.wav"))
-    assert asked == {"hybrid": 1, "fallback": 0}
+    assert asked == {"hybrid": 1}
     assert aligned["segments"][0]["text"] == "hi"
     assert record["arm"] == "hybrid"
 
 
-def test_a_refusal_runs_the_full_whisperx_path(monkeypatch):
+def test_silence_is_returned_empty_and_attributed(monkeypatch):
+    """The transcriber heard nothing: functional silence, not a failure.
+
+    The removed fallback produced an empty segment list for the same
+    audio; the seam still does, with the refusal on the record so the
+    silence is attributed rather than silent.
+    """
+    from library.tools import hybrid_transcription
+
+    asked = _stub_seam(
+        monkeypatch,
+        hybrid=hybrid_transcription.FallbackRequired(
+            hybrid_transcription.HEARD_NOTHING,
+            "the transcriber returned no words"))
+    aligned, record = tt.transcribe_audio(Path("craig.wav"))
+    assert asked == {"hybrid": 1}
+    assert aligned["segments"] == []
+    assert record["arm"] == "none"
+    assert record["fell_back_because"]["trigger"] == \
+        hybrid_transcription.HEARD_NOTHING
+    assert record["attempted_on"] == "craig.wav"
+
+
+def test_a_refusal_the_seam_cannot_answer_propagates(monkeypatch):
+    """A misaligned word means speech exists the seam cannot place.
+
+    With no second instrument left, an empty transcript would read as
+    "no speech" where the honest answer is "could not hear" - so the
+    refusal travels up. Step 1.04 catches it per clip; the reels path
+    fails loudly.
+    """
     from library.tools import hybrid_transcription
 
     asked = _stub_seam(
         monkeypatch,
         hybrid=hybrid_transcription.FallbackRequired(
             hybrid_transcription.WORD_OVER_THE_CLAMP,
-            "'starting' spans 62.63s"),
-        fallback={"segments": [{"text": "from whisperx"}]})
-    aligned, record = tt.transcribe_audio(Path("craig.wav"))
-    assert asked == {"hybrid": 1, "fallback": 1}
-    assert aligned["segments"][0]["text"] == "from whisperx"
-    assert record["arm"] == "whisperx"
-    assert record["fell_back_because"]["trigger"] == \
-        hybrid_transcription.WORD_OVER_THE_CLAMP
-    assert "62.63s" in record["fell_back_because"]["detail"]
-    assert record["attempted_on"] == "craig.wav"
-
-
-def test_the_fallback_can_be_asked_for_and_the_record_says_so(monkeypatch):
-    """A comparison run wants the fallback's own answer, and a
-    transcript that got it must not read as one the hybrid refused."""
-    asked = _stub_seam(monkeypatch, hybrid=_hybrid_result())
-    _aligned, record = tt.transcribe_audio(Path("craig.wav"),
-                                           prefer_hybrid=False)
-    assert asked == {"hybrid": 0, "fallback": 1}
-    assert record["fell_back_because"]["trigger"] == "asked_for"
+            "'starting' spans 62.63s"))
+    with pytest.raises(hybrid_transcription.FallbackRequired) as exc:
+        tt.transcribe_audio(Path("craig.wav"))
+    assert asked == {"hybrid": 1}
+    assert exc.value.reason == hybrid_transcription.WORD_OVER_THE_CLAMP
+    assert "62.63s" in exc.value.detail
 
 
 
 
 def test_the_document_says_which_arm_heard_each_speaker():
+    """The "whisperx" arm below is legacy vocabulary, kept readable.
+
+    No transcript written since 2026-09-24 can carry it, but old ones
+    still read - and a mixed transcript must still name each speaker's
+    instrument rather than blending into one."""
     from library.tools import hybrid_transcription
 
     record = tt.transcription_record({

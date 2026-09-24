@@ -58,21 +58,24 @@ def test_ingest_regions_carry_the_hybrid_arm_and_aligner(monkeypatch):
         "word": "absolutely.", "start": 0.5, "end": 1.4}
 
 
-def test_ingest_fallback_words_say_they_are_the_fallback(monkeypatch):
+def test_ingest_legacy_whisperx_words_keep_their_method(monkeypatch):
     """Full-WhisperX words must not wear the hybrid's method: a run
     that fell back and a run that did not are different instruments,
-    and the audit's numbers only mean anything per instrument."""
+    and the audit's numbers only mean anything per instrument. The
+    record below is legacy vocabulary - no transcript written since
+    2026-09-24 carries the whisperx arm, but old indexes still map.
+    """
     _seam(monkeypatch,
           {"segments": [{
               "start": 0.35, "end": 1.55, "text": "Absolutely.",
               "words": [{"word": "Absolutely.", "start": 0.55,
                          "end": 1.45}],
               "avg_logprob": -0.08}]},
-          hybrid_transcription.fallback_record(
-              hybrid_transcription.FallbackRequired(
-                  hybrid_transcription.TRANSCRIBER_UNAVAILABLE,
-                  "no transcriber here"),
-              attempted="clip.wav"))
+          {"arm": hybrid_transcription.ARM_WHISPERX,
+           "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
+           "language": {"language": "en", "confidence": 0.98},
+           "fell_back_because": {"trigger": "heard_nothing",
+                                 "detail": "no words"}})
 
     regions, transcription = temporal_index.detect_speech_regions(
         "/tmp/clip.wav", "/tmp", onsets=[], language="en")
@@ -83,6 +86,30 @@ def test_ingest_fallback_words_say_they_are_the_fallback(monkeypatch):
     assert regions[0]["confidence"] == -0.08
 
 
+def test_ingest_silence_keeps_its_none_stamp(monkeypatch):
+    """The seam heard nothing and said so: the index must keep the
+    "none" stamp, not let the legacy whisperx defaults rewrite it
+    into an instrument that never ran."""
+    import library.tools.timeline_transcript as tt
+
+    monkeypatch.setattr(
+        tt, "transcribe_audio",
+        lambda *a, **k: (
+            {"segments": []},
+            hybrid_transcription.fallback_record(
+                hybrid_transcription.FallbackRequired(
+                    hybrid_transcription.HEARD_NOTHING,
+                    "the transcriber returned no words"),
+                attempted="clip.wav")))
+
+    regions, transcription = temporal_index.detect_speech_regions(
+        "/tmp/clip.wav", "/tmp", onsets=[], language="en")
+
+    assert regions == []
+    assert transcription["arm"] == temporal_index.UNTRANSCRIBED
+    assert transcription["aligner"] == temporal_index.UNTRANSCRIBED
+
+
 def test_ingest_failure_is_empty_with_an_honest_stamp(monkeypatch):
     """Nothing transcribed is `[]` with the arm as `"none"` - an
     empty region list is not a measurement of silence, and a null
@@ -91,7 +118,7 @@ def test_ingest_failure_is_empty_with_an_honest_stamp(monkeypatch):
 
     monkeypatch.setattr(
         tt, "transcribe_audio",
-        lambda *a, **k: (_ for _ in ()).throw(ImportError("no faster_whisper")))
+        lambda *a, **k: (_ for _ in ()).throw(ImportError("no transcriber")))
 
     regions, transcription = temporal_index.detect_speech_regions(
         "/tmp/clip.wav", "/tmp", onsets=[], language="en")

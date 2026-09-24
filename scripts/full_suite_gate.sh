@@ -437,7 +437,7 @@ MAIN_DETAIL="${PHASE_DETAIL}"
 # So the tier is refused rather than mis-reported, and the verdict line
 # NAMES the module that is missing.  This reports through the SAME
 # capability mechanism as every other environment gap.
-HEAVY_DEPS="parselmouth whisperx"
+HEAVY_DEPS="parselmouth"
 heavy_ml_is_runnable() {
   local missing=""
   for module in ${HEAVY_DEPS}; do

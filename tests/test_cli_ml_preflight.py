@@ -2,10 +2,12 @@
 """The ML preflight belongs to the commands that need it.
 
 The captain could not open the review dashboard on 2026-08-26 because
-`manage_project.py` checked for `mlx_vlm`, `whisperx`, `easyocr` and
+`manage_project.py` checked for `mlx_vlm`, `easyocr` and
 `torch` at IMPORT time, before argparse had seen the command.  The fix
 moved the check to the commands that need it.  (P2 retired the dashboard
-itself; the preflight design it forced stays.)
+itself; the preflight design it forced stays. whisperx was a fourth
+member until 2026-09-24, when it left the venv and the manifest with
+its fallback arms.)
 
 These tests hold the halves of the fix that remain:
 
@@ -50,7 +52,7 @@ cli = _load_cli()
 
 # ── The ML stack, made unimportable ─────────────────────────────
 
-ML_PACKAGES = ("mlx_vlm", "whisperx", "easyocr", "torch", "torchaudio")
+ML_PACKAGES = ("mlx_vlm", "easyocr", "torch", "torchaudio")
 
 
 @pytest.fixture
@@ -58,7 +60,7 @@ def ml_stack_absent(monkeypatch):
     """Make every ML package raise ImportError, present or not.
 
     This machine really does have torch, easyocr and mlx_vlm installed,
-    so removing whisperx alone would not exercise the case the fix is
+    so blocking one alone would not exercise the case the fix is
     about.  Blocking all of them proves the CLI reaches none of them.
     """
     real_import = builtins.__import__
@@ -90,11 +92,11 @@ def test_preflight_passes_legitimate_commands_without_refusing(
     for command in [c for c in cli.ALL_COMMANDS
                     if c not in cli.ML_DEPENDENT_COMMANDS]:
         cli.preflight_check(command)
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("mlx_vlm",))
     monkeypatch.setattr(cli, "_missing_ml_packages", lambda: [])
     monkeypatch.setattr(
         "importlib.metadata.version",
-        lambda dist: "3.8.6" if dist == "whisperx" else "1.0.0")
+        lambda dist: "0.7.2" if dist == "mlx-vlm" else "1.0.0")
     cli.preflight_check("run")  # must not raise
 
 
@@ -103,7 +105,7 @@ def test_run_still_refuses_when_the_stack_is_absent(ml_stack_absent, capsys):
         cli.preflight_check("run")
     assert exit_info.value.code == 1
     out = capsys.readouterr().out
-    assert "whisperx" in out
+    assert "mlx_vlm" in out
     # It says which commands still work, so a reader is not stuck.
     assert "status" in out
 
@@ -211,26 +213,28 @@ def test_the_blocker_really_blocks():
 # step 1.04 catches that per clip, so a real run produced no transcript,
 # no spine and no subtitles and reported success.  The import check above
 # passed the whole time, because a wrong version is not a missing one.
+# (whisperx left the venv on 2026-09-24; the tests below exercise the
+# same machinery with the live mlx_vlm floor, which has the same shape.)
 
 
 
 
 def test_a_version_outside_the_declared_range_is_reported(monkeypatch):
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("mlx_vlm",))
     monkeypatch.setattr(
         "importlib.metadata.version",
-        lambda dist: "3.2.0" if dist == "whisperx" else "1.0.0")
+        lambda dist: "0.3.9" if dist == "mlx-vlm" else "1.0.0")
     problems = cli._noncompliant_ml_packages(REPO_ROOT)
-    assert [p[0] for p in problems] == ["whisperx"]
-    assert problems[0][1] == "3.2.0"
+    assert [p[0] for p in problems] == ["mlx_vlm"]
+    assert problems[0][1] == "0.3.9"
 
 
 def test_a_version_inside_the_declared_range_is_not_reported(monkeypatch):
     """The check must be capable of PASSING, or it is not a check."""
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("mlx_vlm",))
     monkeypatch.setattr(
         "importlib.metadata.version",
-        lambda dist: "3.8.6" if dist == "whisperx" else "1.0.0")
+        lambda dist: "0.7.2" if dist == "mlx-vlm" else "1.0.0")
     assert cli._noncompliant_ml_packages(REPO_ROOT) == []
 
 
@@ -243,22 +247,22 @@ def test_a_version_inside_the_declared_range_is_not_reported(monkeypatch):
 
 
 def test_run_refuses_a_wrong_version_and_says_both_numbers(monkeypatch, capsys):
-    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("whisperx",))
+    monkeypatch.setattr(cli, "ML_REQUIRED_PACKAGES", ("mlx_vlm",))
     monkeypatch.setattr(cli, "_missing_ml_packages", lambda: [])
     monkeypatch.setattr(
         "importlib.metadata.version",
-        lambda dist: "3.2.0" if dist == "whisperx" else "1.0.0")
+        lambda dist: "0.3.9" if dist == "mlx-vlm" else "1.0.0")
 
     with pytest.raises(SystemExit) as exit_info:
         cli.preflight_check("run")
     assert exit_info.value.code == 1
 
     out = capsys.readouterr().out
-    assert "whisperx" in out
-    assert "3.2.0" in out, "the refusal must say what IS installed"
-    assert ">=3.8" in out, "the refusal must say what is REQUIRED"
+    assert "mlx_vlm" in out
+    assert "0.3.9" in out, "the refusal must say what IS installed"
+    assert ">=0.7" in out, "the refusal must say what is REQUIRED"
     # It explains the consequence, because "wrong version" reads as
-    # cosmetic and this one deletes the entire edit.
-    assert "reports success" in out
+    # cosmetic and this one breaks vision on every real project.
+    assert "fails inside the step" in out
 
 

@@ -30,7 +30,7 @@ The two required pieces, both measured, both here
    TextGrid, including mundane ones like "Absolutely.", and a rerun
    recovered 12 of 12 with sane timings. Transient, not
    text-dependent. Chunks still empty after the retry DECLINE the run
-   to wav2vec2 rather than silently losing real words' timings.
+   rather than silently losing real words' timings.
 2. DIGIT AND SYMBOL NORMALIZATION before alignment. Tokens like "20%"
    and "3.5" fall outside the pronunciation dictionary and are
    dropped. They are spelled out for the aligner's benefit ONLY - the
@@ -51,12 +51,13 @@ Where the decline goes
 ----------------------
 Every failure of THIS aligner - environment absent, language not
 covered, the `mfa` run itself failing, a chunk still empty after the
-retry - raises `hybrid_transcription.FallbackRequired`, and
-`timeline_transcript._aligner` catches exactly that and runs the
-wav2vec2 `align_segments` for the run instead. A lane or machine
-without MFA still transcribes. Nothing here raises anything else, and
-nothing here falls through to full WhisperX: that arm is the
-TRANSCRIBER-level fallback and is untouched.
+retry - raises `hybrid_transcription.FallbackRequired`, and since
+2026-09-24 there is no wav2vec2 second chance behind it: that aligner
+left with the whisperx pin. A lane or machine without MFA no longer
+transcribes - the decline travels up to `transcribe_audio`, which
+answers silence or refuses loudly. Nothing here raises anything else,
+and nothing here falls through to a second transcriber: the full
+WhisperX arm went the same day.
 
 What adopting this costs
 ------------------------
@@ -86,9 +87,9 @@ from library.tools import shared_environment
 #
 # These are `FallbackRequired` reasons, but they are NOT in
 # `hybrid_transcription.TRIGGERS`: that tuple enumerates the
-# transcriber-level conditions that route audio to full WhisperX, and
-# these route a run to the wav2vec2 aligner one level down instead.
-# The composite in `timeline_transcript._aligner` catches them.
+# transcriber-level conditions, and these are the aligner level below
+# it. Since 2026-09-24 nothing catches them for a second attempt -
+# `transcribe_audio` answers silence or propagates.
 
 MFA_ENVIRONMENT_ABSENT = "mfa_environment_absent"
 MFA_LANGUAGE_NOT_COVERED = "mfa_language_not_covered"
@@ -107,8 +108,8 @@ _MFA_TIMEOUT_SECONDS = 3600
 
 Measured marginal cost is ~5 ms per audio-second under ~35 s fixed
 per run; an hour of audio is minutes. This is a backstop against a
-hung subprocess, not a budget - and a timeout DECLINES to wav2vec2
-like every other failure here.
+hung subprocess, not a budget - and a timeout DECLINES like every
+other failure here.
 """
 
 _INTERVAL = re.compile(
@@ -128,10 +129,11 @@ def align(segments: List[dict], language: str, audio_path: str) -> dict:
     """Time `segments` against `audio_path` with MFA.
 
     `segments` are the hybrid's alignment windows (`start`, `end`,
-    `text` in audio-file time); the return is whisperx's own
-    `{"segments": [...]}` with the ORIGINAL window text and tokens on
-    it, stamped `"aligner": "mfa"`. Raises `FallbackRequired` for
-    anything MFA cannot answer, so the wav2vec2 aligner takes the run.
+    `text` in audio-file time); the return is the same
+    `{"segments": [...]}` shape whisperx used to return, with the
+    ORIGINAL window text and tokens on it, stamped `"aligner": "mfa"`.
+    Raises `FallbackRequired` for anything MFA cannot answer, which
+    travels up to `transcribe_audio` - there is no second aligner.
     """
     usable, detail = shared_environment.mfa_available()
     if not usable:
@@ -167,7 +169,7 @@ def align(segments: List[dict], language: str, audio_path: str) -> dict:
                     MFA_CHUNK_UNALIGNED,
                     f"{len(still_missing)} window(s) still produced no "
                     f"alignment after a retry ({texts}); the loss would "
-                    f"be silent, so wav2vec2 takes this run instead.",
+                    f"be silent, so this run is refused instead.",
                 )
             return _merge_all(
                 segments,
@@ -213,7 +215,7 @@ def _read_audio(audio_path: str) -> dict:
         raise hybrid_transcription.FallbackRequired(
             MFA_RUN_FAILED,
             f"could not read {audio_path} as wav ({exc}); MFA aligns "
-            f"chunk files sliced from it, so wav2vec2 takes this run.",
+            f"chunk files sliced from it, so this run is refused.",
         )
     return {"params": params, "frames": frames}
 
@@ -271,7 +273,7 @@ def _run_mfa(corpus_dir: Path, out_dir: Path) -> None:
         raise hybrid_transcription.FallbackRequired(
             MFA_RUN_FAILED,
             f"`mfa align` on {len(list(corpus_dir.glob('*.wav')))} "
-            f"chunk(s) did not finish ({exc}); wav2vec2 takes this run.",
+            f"chunk(s) did not finish ({exc}); this run is refused.",
         )
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip()[-500:]
@@ -279,7 +281,7 @@ def _run_mfa(corpus_dir: Path, out_dir: Path) -> None:
             MFA_RUN_FAILED,
             f"`mfa align` on {len(list(corpus_dir.glob('*.wav')))} "
             f"chunk(s) exited {proc.returncode} ({tail}); "
-            f"wav2vec2 takes this run.",
+            f"this run is refused.",
         )
     print(
         f"  aligned {len(list(corpus_dir.glob('*.wav')))} window(s) "

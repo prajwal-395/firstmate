@@ -283,7 +283,7 @@ def test_the_heavy_ml_tier_is_refused_rather_than_failed_when_it_cannot_run():
 
     The heavy_ml tests ASSERT that a real measurement happened instead of
     skipping (AGENTS.md 10.3, "a file on disk is not a measurement"), so
-    an interpreter without `whisperx` fails them for a reason that has
+    an interpreter without `parselmouth` fails them for a reason that has
     nothing to do with the diff. That is a gate failing correct output,
     which AGENTS.md 10.4 says is no more coverage than a gate that cannot
     fail - and a permanently red gate is one everybody learns to ignore.
@@ -295,10 +295,10 @@ def test_the_heavy_ml_tier_is_refused_rather_than_failed_when_it_cannot_run():
     source = LOCAL_GATE.read_text(encoding="utf-8")
     assert "HEAVY_DEPS=" in source, (
         "the gate no longer checks that the heavy_ml dependencies are "
-        "importable, so a machine without whisperx reports FAIL for an "
+        "importable, so a machine without parselmouth reports FAIL for an "
         "environment fault and the verdict stops meaning anything"
     )
-    for module in ("parselmouth", "whisperx"):
+    for module in ("parselmouth",):
         assert module in source, (
             f"{module} is not named in the gate's heavy_ml precondition, so "
             f"its absence is reported as a test failure rather than as an "

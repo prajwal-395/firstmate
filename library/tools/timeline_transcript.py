@@ -66,11 +66,14 @@ the measurement and the reason; `clip_of_word` is the test, and it is
 WHICH transcriber hears it is a SEAM
 ------------------------------------
 `transcribe_audio` is that seam and nothing above it knows there is a
-choice.  The hybrid - the on-device transcriber's text through the same
-`whisperx.align` call this module has always made - is primary, and full
-WhisperX is the fallback, entered on a MEASURED refusal.  The whole
-account, including what the hybrid cannot give back, is
-`library/tools/hybrid_transcription.py`.
+choice.  The hybrid - the on-device transcriber's text through MFA -
+is the only arm.  There is no fallback transcriber: the full-WhisperX
+arm and the wav2vec2 aligner behind MFA left with whisperx on
+2026-09-24 (its latest release pins `huggingface-hub<1.0`, disjoint
+with the Hub>=1.5 every gemma4-capable mlx-vlm needs), so a hybrid
+refusal is answered the way the record says, never by a second
+instrument.  The whole account, including what the hybrid cannot give
+back, is `library/tools/hybrid_transcription.py`.
 
 What is NOT decided here
 ------------------------
@@ -366,252 +369,93 @@ def to_source_time(clip, timeline_time: float) -> float:
 def transcribe_audio(audio_path: Path, model_size: str = "large-v3",
                      beam_size: int = 5, initial_prompt: str | None = None,
                      hotwords: str | None = None,
-                     prefer_hybrid: bool = True,
                      label: str = "") -> tuple:
     """THE SEAM: which transcriber hears one speaker's rebuilt audio.
 
-    Returns `(aligned, record)` - whisperx's own aligned document, and
-    the account of WHICH arm produced it. Everything above this function
-    is unaware there is a choice.
+    Returns `(aligned, record)` - the hybrid's aligned document, and
+    the account of how it was heard. Everything above this function
+    is unaware there is a choice, and since 2026-09-24 there is only
+    one arm to choose: the hybrid (`library/tools/hybrid_transcription.py`),
+    the on-device transcriber's text through MFA
+    (`library/tools/mfa_align.py`).
 
-    Two arms, and the choice is made by measurement
-    -----------------------------------------------
-    * The HYBRID (`library/tools/hybrid_transcription.py`) is primary:
-      the on-device transcriber's text through the forced aligner - MFA
-      (`library/tools/mfa_align.py`) where its environment is present,
-      the same `whisperx.align` call this function has always made
-      where it declines. 20-41x faster end to end, word starts a median
-      9.1ms from what the fallback writes. Which aligner timed each
-      speaker is in the record under `aligner`.
-    * Full WhisperX is the FALLBACK, and it is the code below, unchanged.
-      It runs when the hybrid raises `FallbackRequired` - an uncovered
-      language, a window that aligned to no words, a word still over the
-      clamp - and when the transcriber is not installed at all.
+    The full-WhisperX fallback this seam used to run on a measured
+    refusal left with whisperx itself - its latest release pins
+    `huggingface-hub<1.0`, disjoint with the Hub>=1.5 every
+    gemma4-capable mlx-vlm needs, so the pin went instead of vision.
+    What a refusal becomes now depends on what was refused:
+
+    * The transcriber heard nothing (`heard_nothing`, or it refused a
+      file it will not read). That is functional silence, and it is
+      returned as an empty segment list with the refusal on the
+      record - the same outcome the fallback produced, minus the
+      wasted transcription run, and still attributed.
+    * Anything else - an uncovered language, an alignment window that
+      produced no words, a word still over the clamp, MFA declining
+      the run, the transcriber not installed at all - propagates as
+      `hybrid_transcription.FallbackRequired`. The seam cannot answer
+      those without a second instrument, and an empty transcript would
+      read as "no speech" where the honest answer is "could not hear".
+      Step 1.04 catches that per clip and carries on with a warning;
+      the reels path (`build_and_transcribe` below) fails loudly.
 
     The captain's ruling, 2026-09-16: *"augment all systems to take this
     superior variant and have the whisperX as a backup / fallback"*. The
-    one thing that wording does not capture, and which the module
-    docstring beside the hybrid states in full: every accuracy figure is
-    a DISTANCE FROM this fallback's own output, so the honest claim is
-    far faster and close enough, never more accurate.
+    backup half of that ruling is what left: every accuracy figure is
+    still a DISTANCE FROM WhisperX's own output, so the honest claim is
+    still far faster and close enough, never more accurate - there is
+    just no control arm left to re-run.
 
-    `prefer_hybrid=False` runs the fallback directly and records that it
-    was asked for, which is what a comparison run wants.
+    `prefer_hybrid` is gone with the fallback it selected: there is one
+    arm, so there is nothing to prefer.
 
-    How the fallback half works, and the version skew it survives
-    -------------------------------------------------------------
-    TRANSCRIPTION goes through `faster_whisper` directly, and ALIGNMENT
-    through `whisperx.align`.  Step 1.04 calls `whisperx.load_model`,
-    which does both at once, and that call is BROKEN in this
-    environment - measured 2026-09-04, two independent version skews:
-
-        whisperx.load_model(...)
-          -> TranscriptionOptions.__init__() missing 2 required
-             positional arguments: 'multilingual' and 'hotwords'
-             (whisperx builds its option dict for an older faster_whisper)
-
-        and once that is supplied via asr_options=:
-          -> Inference.__init__() got an unexpected keyword argument
-             'use_auth_token'
-             (whisperx's VAD passes an argument this pyannote.audio
-             dropped)
-
-    Only `load_model` is affected.  `load_align_model` and `align` touch
-    neither faster_whisper's options nor pyannote, so the alignment half
-    - which is the part worth having, and the reason this repo uses
-    WhisperX at all - still works, on MPS where available.
-    `faster_whisper`'s own `vad_filter` replaces the VAD chunking that
-    `load_model` would have provided.
-
-    **Step 1.04 makes the identical `load_model` call and will fail the
-    same way.**  It is not changed here, and neither is its transcriber:
-    this change is the REELS path only, and ingest follows once a real
-    run has proved this one.
+    `model_size`, `beam_size`, `initial_prompt` and `hotwords` fed the
+    removed fallback's decoder and are now inert; they stay on the
+    signature so the two callers do not churn. Decoder biasing left
+    with the decoder - a project's recorded corrections are enforced
+    after transcription by `transcript_corrections.apply_to_document`,
+    which was always the guarantee and is now the only half.
     """
     from library.tools import hybrid_transcription
 
-    if prefer_hybrid:
-        try:
-            hybrid = hybrid_transcription.transcribe_and_align(
-                str(audio_path), _aligner(), label=label or audio_path.name)
-        except hybrid_transcription.FallbackRequired as fell_back:
-            print(f"  hybrid declined ({fell_back.reason}): "
-                  f"{fell_back.detail}", file=sys.stderr)
-            print(f"  falling back to full WhisperX on "
-                  f"{audio_path.name}", file=sys.stderr)
-            record = hybrid_transcription.fallback_record(
-                fell_back, attempted=audio_path.name)
-        else:
-            print(f"  heard by the hybrid: "
-                  f"{hybrid.record['alignment_window']['windows']} aligned "
-                  f"window(s), language "
-                  f"{hybrid.record['language']['language']}",
-                  file=sys.stderr)
-            return hybrid.aligned, hybrid.record
-    else:
-        record = {"arm": hybrid_transcription.ARM_WHISPERX,
-                  "aligner": hybrid_transcription.ALIGNER_WAV2VEC2,
-                  "fell_back_because": {
-                      "trigger": "asked_for",
-                      "detail": "this run asked for the fallback "
-                                "transcriber directly."}}
-
-    return _whisperx_transcribe_and_align(
-        audio_path, model_size=model_size, beam_size=beam_size,
-        initial_prompt=initial_prompt, hotwords=hotwords), record
-
-
-def _whisperx_transcribe_and_align(
-        audio_path: Path, model_size: str = "large-v3", beam_size: int = 5,
-        initial_prompt: str | None = None,
-        hotwords: str | None = None) -> dict:
-    """The FALLBACK arm: faster-whisper's own text, then `whisperx.align`.
-
-    Unchanged from the path that shipped before the hybrid landed, and
-    that is deliberate: a fallback nobody exercises is not a fallback,
-    and one that was rewritten at the same time as the thing it backs up
-    is not a control either.
-    """
     try:
-        import torchaudio
-        if not hasattr(torchaudio, "set_audio_backend"):
-            torchaudio.set_audio_backend = lambda x: None
-        if not hasattr(torchaudio, "get_audio_backend"):
-            torchaudio.get_audio_backend = lambda: "soundfile"
-    except ImportError:
-        pass
-
-    import whisperx
-    from faster_whisper import WhisperModel
-
-    # Lazy, like every other `library.*` import in this module: it is
-    # also a command-line entry point, and a top-level import puts the
-    # repository root on the critical path of `--help`.
-    from library.tools.transcript_confidence import AVG_LOGPROB
-
-    print(f"  transcribing with faster-whisper ({model_size}, int8, cpu)...",
+        hybrid = hybrid_transcription.transcribe_and_align(
+            str(audio_path), _aligner(), label=label or audio_path.name)
+    except hybrid_transcription.FallbackRequired as fell_back:
+        print(f"  hybrid declined ({fell_back.reason}): "
+              f"{fell_back.detail}", file=sys.stderr)
+        if fell_back.reason in (
+                hybrid_transcription.TRANSCRIBER_REFUSED,
+                hybrid_transcription.HEARD_NOTHING):
+            # The transcriber is installed and heard no words: silence,
+            # or a file it will not read. Returned empty with the
+            # refusal on the record, which is what the removed fallback
+            # produced for the same audio.
+            return ({"segments": []},
+                    hybrid_transcription.fallback_record(
+                        fell_back, attempted=audio_path.name))
+        raise
+    print(f"  heard by the hybrid: "
+          f"{hybrid.record['alignment_window']['windows']} aligned "
+          f"window(s), language "
+          f"{hybrid.record['language']['language']}",
           file=sys.stderr)
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
-    # Decode-time bias toward the project's recorded corrections
-    # (`library/tools/transcript_corrections.py`). Both are HINTS the
-    # decoder may honour, not guarantees - the deterministic
-    # post-transcription pass in `build_and_transcribe` is the
-    # guarantee, and it runs whether or not biasing held. An empty
-    # prompt is never sent: a call with nothing to ask is not made.
-    transcribe_kwargs = {"beam_size": beam_size, "vad_filter": True,
-                         "word_timestamps": False}
-    if initial_prompt:
-        transcribe_kwargs["initial_prompt"] = initial_prompt
-    if hotwords:
-        transcribe_kwargs["hotwords"] = hotwords
-    raw_segments, info = model.transcribe(
-        str(audio_path), **transcribe_kwargs)
-    # `avg_logprob` is the transcriber's own confidence in the words it
-    # just wrote, and it was being thrown away HERE - rebuilt out of
-    # three keys and handed to the aligner without it. It cost a reel 15
-    # seconds: a selector run hit a line that reads as Hangul in the
-    # middle of an English sentence, could not tell a garbled READING
-    # from garbled AUDIO, and ended the reel early to keep the damaged
-    # line outside the span. `library/tools/transcript_confidence.py`
-    # holds that account and why this is the one number carried.
-    #
-    # `whisperx.align` copies it onto every aligned segment and through
-    # the groupby that merges subsegments, so it survives to
-    # `segments_for_speaker` with nothing re-attaching it.
-    segments = [{"start": s.start, "end": s.end, "text": s.text,
-                 AVG_LOGPROB: s.avg_logprob}
-                for s in raw_segments]
-    print(f"  {len(segments)} segments, language {info.language}",
-          file=sys.stderr)
-    if not segments:
-        return {"segments": [], "language": info.language}
-
-    return align_segments(segments, info.language, str(audio_path))
-
-
-def aligner_covers(language: str) -> bool:
-    """Whether the forced aligner has a model for `language`.
-
-    Asked of whisperx's own two tables rather than a list kept here: a
-    second copy of a vendor's coverage goes stale silently, and this one
-    decides whether a whole file is transcribed by the hybrid or not.
-    """
-    import whisperx.alignment as alignment
-
-    code = (language or "").strip().lower()
-    return bool(code) and (
-        code in alignment.DEFAULT_ALIGN_MODELS_TORCH
-        or code in alignment.DEFAULT_ALIGN_MODELS_HF)
-
-
-def align_segments(segments: List[dict], language: str,
-                   audio_path: str) -> dict:
-    """Force-align `segments` against `audio_path`. BOTH arms come here.
-
-    The one place `whisperx.load_align_model` and `whisperx.align` are
-    called in this module, so the hybrid and the fallback are timed by
-    the same code and a comparison between them is a comparison of their
-    TEXT.  MPS where available, falling back to cpu - measured, MPS buys
-    18%, so the cpu path is a slowdown and not a failure.
-    """
-    import torch
-    import whisperx
-
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
-    print(f"  aligning word timings on {device}...", file=sys.stderr)
-    audio = whisperx.load_audio(audio_path)
-    align_model, metadata = whisperx.load_align_model(
-        language_code=language, device=device)
-    try:
-        aligned = whisperx.align(segments, align_model, metadata, audio,
-                                 device, return_char_alignments=False)
-    except Exception as exc:                # pragma: no cover - device path
-        print(f"  alignment on {device} failed ({exc}); retrying on cpu",
-              file=sys.stderr)
-        align_model, metadata = whisperx.load_align_model(
-            language_code=language, device="cpu")
-        aligned = whisperx.align(segments, align_model, metadata, audio,
-                                 "cpu", return_char_alignments=False)
-    # The instrument, stamped beside the timings: this is what the
-    # hybrid's record copies onto `aligner`, so a run says whether MFA
-    # or wav2vec2 placed its boundaries. BOTH arms come here, so a
-    # full-WhisperX fallback is stamped honestly too.
-    from library.tools.hybrid_transcription import ALIGNER_WAV2VEC2
-
-    aligned["aligner"] = ALIGNER_WAV2VEC2
-    return aligned
+    return hybrid.aligned, hybrid.record
 
 
 def _aligner():
     """This module's aligner, handed to the hybrid as two callables.
 
-    MFA is preferred where its environment is present and it covers
-    the language; the wav2vec2 `align_segments` below is the fallback
-    that stays live behind it, reached through the same
-    `FallbackRequired` mechanism the transcriber-level fallback uses.
-    A lane or machine without MFA still transcribes - the decline is
-    per run, and the document says which aligner timed it.
+    MFA is the only forced aligner since whisperx left the venv on
+    2026-09-24: the wav2vec2 second chance behind it went with the pin.
+    Where MFA's environment is absent or it declines a run, the hybrid
+    declines with it, and `transcribe_audio` answers silence or refuses
+    loudly - a lane or machine without MFA no longer transcribes.
     """
     from library.tools.hybrid_transcription import Aligner
+    from library.tools import mfa_align
 
-    def _covers(language: str) -> bool:
-        from library.tools import mfa_align
-
-        return mfa_align.covers(language) or aligner_covers(language)
-
-    def _align(segments, language, audio_path):
-        from library.tools import hybrid_transcription, mfa_align
-
-        try:
-            return mfa_align.align(segments, language, audio_path)
-        except hybrid_transcription.FallbackRequired as declined:
-            print(f"  MFA declined ({declined.reason}): "
-                  f"{declined.detail}", file=sys.stderr)
-            print(f"  aligning word timings with wav2vec2 instead",
-                  file=sys.stderr)
-            return align_segments(segments, language, audio_path)
-
-    return Aligner(covers=_covers, align=_align)
+    return Aligner(covers=mfa_align.covers, align=mfa_align.align)
 
 
 def interpolate_untimed_words(words: List[dict]) -> List[dict]:
@@ -964,8 +808,7 @@ def transcript_document(snapshot, merged: List[SpokenSegment],
         "measurement": (
             "Speech transcribed from audio REBUILT out of the source "
             "spans the timeline plays, and every word boundary placed by "
-            "forced alignment - MFA where its environment was present, "
-            "wav2vec2 where it declined. Which transcriber wrote the "
+            "forced alignment through MFA. Which transcriber wrote the "
             "WORDS is in `transcription.arms`, which aligner placed "
             "them in `transcription.aligners`. Resolve was not opened "
             "and nothing was rendered. Times are timeline time."),
@@ -1050,11 +893,11 @@ def transcription_record(heard_by: Dict[str, dict]) -> dict:
             for speaker, record in heard_by.items()}
     any_hybrid = any(arm == hybrid_transcription.ARM_HYBRID
                      for arm in arms.values())
-    # Which forced aligner placed each speaker's boundaries - MFA where
-    # its environment was present, wav2vec2 where it declined. A
-    # speaker whose record predates the second aligner reads None,
-    # which is the honest answer: nobody recorded the instrument then,
-    # and it is not retro-labelled.
+    # Which forced aligner placed each speaker's boundaries - MFA since
+    # it became the only aligner; earlier records may read wav2vec2 or
+    # None. A speaker whose record predates the aligner stamp reads
+    # None, which is the honest answer: nobody recorded the instrument
+    # then, and it is not retro-labelled.
     aligners = {speaker: record.get("aligner")
                 for speaker, record in heard_by.items()}
     return {
@@ -1070,8 +913,7 @@ def transcription_record(heard_by: Dict[str, dict]) -> dict:
 
 def build_and_transcribe(project_folder: str, snapshot,
                          model_size: str = "large-v3",
-                         only_speakers: Optional[Iterable[str]] = None,
-                         prefer_hybrid: bool = True) -> dict:
+                         only_speakers: Optional[Iterable[str]] = None) -> dict:
     """The whole job: rebuild each speaker's audio, transcribe, bind back.
 
     Which transcriber hears each speaker is `transcribe_audio`'s to
@@ -1093,9 +935,12 @@ def build_and_transcribe(project_folder: str, snapshot,
     per_speaker: Dict[Optional[str], List[SpokenSegment]] = {}
     heard_by: Dict[str, dict] = {}
 
-    # Corrections recorded against this project bias the decoder AND
-    # are enforced after it (`library/tools/transcript_corrections.py`:
-    # biasing is a hint, the post pass is the guarantee).
+    # Corrections recorded against this project are enforced after
+    # transcription (`library/tools/transcript_corrections.py`: the
+    # post pass is the guarantee). Decoder biasing left with the
+    # fallback's decoder on 2026-09-24, so `initial_prompt`/`hotwords`
+    # below are carried but read by nothing - kept on the call so the
+    # seam's signature does not churn for a later arm.
     from library.tools import transcript_corrections
     initial_prompt, hotwords = transcript_corrections.bias_strings(
         project_folder)
@@ -1116,7 +961,7 @@ def build_and_transcribe(project_folder: str, snapshot,
         aligned, record = transcribe_audio(
             audio_path, model_size=model_size,
             initial_prompt=initial_prompt or None,
-            hotwords=hotwords or None, prefer_hybrid=prefer_hybrid,
+            hotwords=hotwords or None,
             label=str(speaker or "unnamed"))
         heard_by[str(speaker) if speaker else "unattributed"] = record
         segments = segments_for_speaker(aligned, speaker, clips)
@@ -1152,13 +997,6 @@ def main(argv=None) -> int:
     parser.add_argument("--out", default="",
                         help="where to write; default is the project's scratch")
     parser.add_argument(
-        "--fallback-transcriber", action="store_true",
-        help="do not offer the audio to the hybrid transcriber; run the "
-             "full WhisperX path directly. The hybrid is primary and "
-             "falls back on its own when it must - this is for a "
-             "deliberate comparison, and the transcript says it was "
-             "asked for")
-    parser.add_argument(
         "--rebind", action="store_true",
         help="do not transcribe: re-derive the CLIP BINDING of the "
              "transcript already on disk, keeping every word timing it "
@@ -1189,8 +1027,7 @@ def main(argv=None) -> int:
     else:
         document = build_and_transcribe(
             args.project_folder, snapshot, model_size=args.model,
-            only_speakers=args.speaker or None,
-            prefer_hybrid=not args.fallback_transcriber)
+            only_speakers=args.speaker or None)
 
     out = (Path(args.out) if args.out
            else transcript_path(args.project_folder))

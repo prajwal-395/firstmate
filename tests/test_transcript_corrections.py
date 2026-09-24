@@ -125,60 +125,29 @@ def test_apply_preserves_possessives_and_punctuation():
     assert out == "do not hallucinate"
 
 
-def test_transcribe_forwards_bias_arguments():
-    """What this stack honours is tested at the wiring, not read off
-    docs: `transcribe_audio` must hand `initial_prompt`/`hotwords` to
-    faster-whisper's decoder. A stubbed model records what it got.
+def test_transcribe_carries_bias_arguments_unread(monkeypatch):
+    """Decoder biasing left with the fallback's decoder on 2026-09-24,
+    so `initial_prompt`/`hotwords` are carried but read by nothing -
+    and that carrying is itself the contract: a caller passing the
+    project's recorded corrections must not TypeError, and the answer
+    must not change for them. The enforcement half is the post pass
+    (`apply_to_document`, tested above)."""
+    from library.tools import hybrid_transcription
+    from library.tools import timeline_transcript as tt
 
-    The FALLBACK arm is the one asked, explicitly, because it is the
-    only arm that has a decoder to bias: the hybrid's transcriber takes
-    no prompt at all, which is why the after-the-fact respelling in
-    `apply_to_document` carries the whole weight there."""
-    import types
-    seen = {}
+    def _refuse(audio_path, aligner, label=""):
+        raise hybrid_transcription.FallbackRequired(
+            hybrid_transcription.HEARD_NOTHING,
+            "the transcriber returned no words")
 
-    class FakeSegment:
-        start, end, text, avg_logprob = 0.0, 1.0, "lucy systems", -0.1
-
-    class FakeModel:
-        def transcribe(self, audio, **kwargs):
-            seen.update(kwargs)
-            info = types.SimpleNamespace(language="en")
-            return iter([FakeSegment()]), info
-
-    fake_fw = types.ModuleType("faster_whisper")
-    fake_fw.WhisperModel = lambda *a, **k: FakeModel()
-    fake_wx = types.ModuleType("whisperx")
-    fake_wx.load_audio = lambda p: [0.0]
-    fake_wx.load_align_model = lambda **k: (None, None)
-    fake_wx.align = lambda segments, *a, **k: {
-        "segments": [{"start": s["start"], "end": s["end"],
-                      "text": s["text"], "words": []}
-                     for s in segments],
-        "language": "en"}
-    sys.modules["faster_whisper"] = fake_fw
-    sys.modules["whisperx"] = fake_wx
-    try:
-        import torch  # noqa: F401 - real torch is fine if present
-    except ImportError:
-        fake_torch = types.ModuleType("torch")
-        fake_backends = types.SimpleNamespace(
-            mps=types.SimpleNamespace(is_available=lambda: False))
-        fake_torch.backends = fake_backends
-        sys.modules["torch"] = fake_torch
-    try:
-        from importlib import reload
-
-        import library.tools.timeline_transcript as tt
-        reload(tt)
-        tt.transcribe_audio(
-            Path("/tmp/nowhere.wav"), initial_prompt="Lucie Content",
-            hotwords="Lucie Content", prefer_hybrid=False)
-    finally:
-        sys.modules.pop("faster_whisper", None)
-        sys.modules.pop("whisperx", None)
-    assert seen.get("initial_prompt") == "Lucie Content"
-    assert seen.get("hotwords") == "Lucie Content"
+    monkeypatch.setattr(
+        hybrid_transcription, "transcribe_and_align", _refuse)
+    aligned, record = tt.transcribe_audio(
+        Path("/tmp/nowhere.wav"), initial_prompt="Lucie Content",
+        hotwords="Lucie Content")
+    assert aligned["segments"] == []
+    assert record["fell_back_because"]["trigger"] == \
+        hybrid_transcription.HEARD_NOTHING
 
 
 def test_bias_strings_carry_every_correction(tmp_path):

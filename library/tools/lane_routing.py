@@ -17,7 +17,7 @@ match):
    a file would misroute - the empirical provider audit (gate run with
    ``-v``, stderr grepped for "GEMMA SERVER answered") is the backstop.
 2. WEIGHT LOADS: a real ``SentenceTransformer(...)``,
-   ``whisperx.load_model``, ``load_align_model`` or ``WhisperModel(...)``
+   ``load_align_model`` or ``WhisperModel(...)``
    construction.  N workers loading gigabytes contend for RAM and the
    hub download.  (``load_audio`` merely decodes.  ``heavy_ml`` is this
    clause's existing name for the heaviest cases, and any file carrying
