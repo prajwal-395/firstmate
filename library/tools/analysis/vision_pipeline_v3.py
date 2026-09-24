@@ -289,6 +289,9 @@ Rules:
 - An "s" entry is EXACTLY 6 items: start, end, place, type, lighting,
   features-string. A 7th item is a format error - stop the entry
   instead.
+- Close each section's array before the next key: `"a": [[...]],
+  "s": [[...]], "c": [[...]] - a missing `]]` before `"s"`, `"c"`,
+  `"t"` or `"p"` loses the whole answer.
 - Keep every prose string within its word cap; brevity never drops a field."""
 
 PROMPT_OBJECTS_COARSE = """These are {n_frames} frames extracted from a {duration:.0f}-second video clip at the timestamps shown.
@@ -432,6 +435,82 @@ def parse_json_array(text):
     if greedy:
         return greedy
     return []
+
+
+def _close_section_arrays(text):
+    """Rewrite section keys opened inside the previous array.
+
+    Measured failure mode (2026-09-24, diet-vs-full check on source
+    footage, 3/24 diet calls): the compact answer drops the `]]`
+    closing one section's array before the next key -
+    `"a": [[...], ["s": ...` or `"s": [[...], "c": ...` - which no
+    generic fixup repairs, and the retry repeats. Each rewrite below
+    closes the row AND the array (a complete row already carries its
+    own `]`, which the pattern consumes). These rewrites only run
+    after strict parsing failed, and the result must still parse to a
+    dict carrying a compact key, so a prose string that happens to
+    hold the pattern cannot smuggle content past the expander
+    (answers may not contain quotation marks anyway).
+    """
+    import re
+    # A trailing comma before a closer (`...""],]` - measured
+    # 2026-09-24, the model trailing both a comma and an empty extra
+    # item) is the same sloppiness `_fix_json` forgives elsewhere.
+    text = re.sub(r",\s*([\]\}])", r"\1", text)
+    # Complete row, then the next key opened as a new element:
+    # `..."], ["s": ...` -> `..."]], "s": ...`.
+    text = re.sub(r'\]\s*,\s*\[\s*"(a|s|c|t|p)"\s*:',
+                  r']], "\1":', text)
+    # Unclosed row AND array: `...", ["s": ...` -> `..."]], "s": ...`.
+    text = re.sub(r'([^\]]),\s*\[\s*"(a|s|c|t|p)"\s*:',
+                  r'\1]], "\2":', text)
+    # Next key straight inside the array, no bogus bracket:
+    # `..."], "c": ...` -> `..."]], "c": ...`. The `[^\[\]]`
+    # guard keeps the well-formed `..."]], "s": ...` untouched.
+    text = re.sub(r'([^\[\]])\]\s*,\s*"(a|s|c|t|p)"\s*:',
+                  r'\1]], "\2":', text)
+    return text
+
+
+def parse_compact_window(text):
+    """Parse a compact window answer, repairing the measured bracket
+    error. Returns (parsed_dict, repaired_bool).
+
+    Strict JSON first (repaired False - the common path). Then the
+    section-array rewrite above, then bounded trailing-closer attempts
+    for an answer that stopped before closing. Anything still
+    unparsed returns ({}, False) and the caller falls back to the
+    full canonical prompt rather than dropping the window.
+    """
+    import re
+    stripped = _strip_markdown(text)
+    try:
+        result = json.loads(stripped)
+        if isinstance(result, dict):
+            return result, False
+    except (json.JSONDecodeError, ValueError):
+        pass
+    base = _close_section_arrays(stripped)
+    # The bogus `[` the rewrite removes was usually balanced by a
+    # surplus `]` before the final `}` - drop up to two.
+    bases = [base]
+    for _ in range(2):
+        narrower = re.sub(r"\]\s*}$", "}", bases[-1], count=1)
+        if narrower == bases[-1]:
+            break
+        bases.append(narrower)
+    for root in bases:
+        for candidate in [root] + [root + tail for tail in
+                                   ("]}", "]]}", "]}", "]")]:
+            try:
+                result = json.loads(candidate)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if isinstance(result, dict) and set(result) & {"a", "s",
+                                                           "c", "t",
+                                                           "p"}:
+                return result, candidate != stripped
+    return {}, False
 
 
 def parse_json_object(text):
@@ -1898,6 +1977,42 @@ def _expand_or_canonical(parsed):
     return parsed
 
 
+def run_window_call(analyzer, compact_prompt, fallback_prompt, video,
+                    audio, label):
+    """One window's model call: compact first, full canonical fallback.
+
+    Returns (expanded_result, compact_raw, elapsed_total, prompt_path)
+    where prompt_path is "compact", "compact_repaired" or
+    "full_fallback". A window the compact answer cannot describe is
+    re-asked with the full canonical prompt rather than recorded as
+    UNPARSED - measured 2026-09-24, the diet drops the `]]` closing a
+    section array on ~1 in 8 windows and the retry repeats it, and a
+    dropped window is never acceptable: the fallback costs one full
+    call and its wall joins the window's total.
+    """
+    state = {}
+
+    def _parse(text):
+        parsed, repaired = parse_compact_window(text)
+        state["repaired"] = repaired
+        return parsed
+
+    result, raw, elapsed = analyzer.analyze_with_retry(
+        compact_prompt, _parse, video=video, audio=audio,
+        max_tokens=MAX_TOKENS["window_all_compact"], label=label)
+    if result:
+        path = "compact_repaired" if state.get("repaired") else "compact"
+        return _expand_or_canonical(result), raw, elapsed, path
+    fb_result, _fb_raw, fb_elapsed = analyzer.analyze_with_retry(
+        fallback_prompt, parse_json_object, video=video, audio=audio,
+        max_tokens=MAX_TOKENS["window_all"],
+        label=label + " fallback")
+    elapsed += fb_elapsed
+    if fb_result:
+        fb_result = _expand_or_canonical(fb_result)
+    return fb_result, raw, elapsed, "full_fallback"
+
+
 def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
                     fps=None):
     """Analyze actions, scene, camera and assessment - one model call per 10s window.
@@ -1914,7 +2029,11 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
 
     The compact answer is expanded back to the canonical section shape
     (`_expand_or_canonical`) before anything reads it, so every
-    consumer below is unchanged.
+    consumer below is unchanged. A compact answer that still does not
+    parse - directly or via the section-array repair in
+    `parse_compact_window` - is re-asked once with the retired
+    canonical prompt (`run_window_call`); only a window both answers
+    fail to describe is recorded UNPARSED.
 
     Each window clip keeps its audio track, which the model hears
     alongside the video (`audio=`); `fps` records the sampling the call
@@ -1923,10 +2042,12 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
     Returns list of window results. Each entry carries the `actions`
     list (the shape `analyze_actions` used to return, unchanged), plus
     `scene`, `camera` and `assessment` sections answered from the same
-    call. Each entry carries ``parse_error`` when the VLM response could
-    not be parsed into valid JSON, so consumers can distinguish
-    *unparsed* (the model returned gibberish) from *genuinely empty*
-    (the model saw nothing happening).
+    call, and `prompt_path` recording which prompt described it
+    ("compact", "compact_repaired" or "full_fallback"). Each entry
+    carries ``parse_error`` only when the compact answer AND the full
+    fallback both could not be parsed, so consumers can distinguish
+    *unparsed* (the model returned gibberish twice) from *genuinely
+    empty* (the model saw nothing happening).
 
     An answer that came back without a key is not an answer of ``[]``.
     """
@@ -1954,30 +2075,30 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
 
         boundaries_text = _scene_boundaries_text(
             temporal_index, start=w_start, end=w_end)
-        prompt = PROMPT_WINDOW_ALL_COMPACT.format(
-            window_start=w_start,
-            window_end=w_end,
-            window_dur=w_dur,
-            duration=duration,
-            transcript_line=transcript_line,
-            boundaries=boundaries_text,
-        )
+        prompt_args = {
+            "window_start": w_start,
+            "window_end": w_end,
+            "window_dur": w_dur,
+            "duration": duration,
+            "transcript_line": transcript_line,
+            "boundaries": boundaries_text,
+        }
+        prompt = PROMPT_WINDOW_ALL_COMPACT.format(**prompt_args)
+        fallback_prompt = PROMPT_WINDOW_ALL.format(**prompt_args)
 
-        result, _raw, elapsed = analyzer.analyze_with_retry(
-            prompt, parse_json_object, video=clip_info["path"],
-            audio=clip_info["path"] if clip_info.get("has_audio") else None,
-            max_tokens=MAX_TOKENS["window_all_compact"],
-            label=f"Window [{w_start:.0f}-{w_end:.0f}s]"
-        )
+        video = clip_info["path"]
+        audio = video if clip_info.get("has_audio") else None
+        result, _raw, elapsed, prompt_path = run_window_call(
+            analyzer, prompt, fallback_prompt, video, audio,
+            f"Window [{w_start:.0f}-{w_end:.0f}s]")
 
-        # `parse_json_object` returns {} on total parse failure.
+        # `parse_compact_window` returns {} on total parse failure.
         # An empty dict is falsy; a dict with empty sections is truthy.
-        # The distinction matters: {} means the model's response could
-        # not be parsed at all, while {"actions": []} means the model
-        # saw nothing happening in this window.
+        # The distinction matters: {} means neither the compact nor
+        # the fallback response could be parsed at all, while
+        # {"actions": []} means the model saw nothing happening in
+        # this window.
         parse_failed = not result
-        if result:
-            result = _expand_or_canonical(result)
 
         # A section that came back without its key is not an answer of
         # `[]`: the key's absence is carried as the section missing, so
@@ -1996,6 +2117,11 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
             "camera": camera,
             "assessment": assessment,
             "analysis_time_s": round(elapsed, 2),
+            # Which prompt described this window - "compact",
+            # "compact_repaired" or "full_fallback" (see
+            # `run_window_call`). A dropped window is never silent
+            # about how it was recovered.
+            "prompt_path": prompt_path,
             # The window's own audio track reaches the model (`audio=`
             # above) when the source clip has one; a sourceless clip
             # yields silent windows, which hear nothing.
@@ -2009,8 +2135,9 @@ def analyze_windows(analyzer, video_clips, duration, temporal_index, transcript,
         if parse_failed:
             entry["parse_error"] = True
             print(f"    ⚠ Window [{w_start:.0f}-{w_end:.0f}s]: "
-                  f"window recorded as UNPARSED (VLM response was not "
-                  f"valid JSON after retry)", file=sys.stderr)
+                  f"window recorded as UNPARSED (neither the compact "
+                  f"nor the full fallback response parsed)",
+                  file=sys.stderr)
 
         # The model hears HOW speech is delivered in the window's audio,
         # but the transcript stays the only source of WORDS. Quoted words

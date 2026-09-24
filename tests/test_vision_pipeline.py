@@ -297,3 +297,196 @@ def test_analyze_windows_runs_the_compact_prompt_and_expands():
     assert entry["assessment"]["content_type"] == "person_talking_to_camera"
     assert "parse_error" not in entry
 
+
+# The exact malformed diet answers measured 2026-09-24 on source
+# footage (W02: next-section key opened inside the previous array plus
+# fences; W07: next key straight inside the array). Both must repair
+# to the full field set rather than dropping the window.
+W02_MALFORMED = (
+    '```json\n{"a": [[60, 70, "speaking to camera", '
+    '"moderate pace, clear articulation", '
+    '"facing camera, hand near face, neutral expression"], '
+    '["s": [[60, 70, "outdoor urban area", "outdoor", "daylight", '
+    '"geometric sculptures;plants"], "c": [[60, 70, "handheld", '
+    '"medium", "slight shake", "stationary"], '
+    '"t": "person_talking_to_camera", "p": [[60, 70]]]}\n```'
+)
+
+W07_MALFORMED = (
+    '{"a": [[55, 65, "man speaking and gesturing with hands", '
+    '"moderate pace, clear mouth movements", '
+    '"standing upright, hand gestures, neutral expression"]], '
+    '"s": [[55, 65, "modern interior with geometric wall", "indoor", '
+    '"dim lighting", "geometric wall panels;dark gray wall"], '
+    '"c": [[55, 65, "handheld", "medium", "steady", "stationary"]], '
+    '"t": "person_talking_to_camera", "p": [[55, 65]]}'
+)
+
+
+def test_parse_compact_window_repairs_unclosed_section_array():
+    """The measured `["s":` shape repairs with every field kept."""
+    parsed, repaired = vp.parse_compact_window(W02_MALFORMED)
+    assert repaired is True
+    assert sorted(parsed) == ["a", "c", "p", "s", "t"]
+    out = vp._expand_or_canonical(parsed)
+    assert len(out["actions"]) == 1
+    assert out["scene"][0]["type"] == "outdoor"
+    assert out["camera"][0]["mode"] == "handheld"
+    assert out["assessment"]["content_type"] == "person_talking_to_camera"
+
+
+def test_parse_compact_window_repairs_key_inside_array():
+    """The measured `, "c":` shape (no bogus bracket) repairs too."""
+    parsed, repaired = vp.parse_compact_window(W07_MALFORMED)
+    assert repaired is True
+    out = vp._expand_or_canonical(parsed)
+    assert out["scene"][0]["type"] == "indoor"
+    assert out["assessment"]["content_type"] == "person_talking_to_camera"
+
+
+def test_parse_compact_window_repairs_trailing_comma_and_empty_extra():
+    """The measured `"...;dark floor", ""],]` shape (W10, round 2).
+
+    The model trailed both a comma and an empty extra item after the
+    features string - the expander already merges a 7th item, so once
+    the comma is forgiven the row lands whole.
+    """
+    parsed, repaired = vp.parse_compact_window(
+        '{"a": [[295, 305, "speaking to camera", '
+        '"moderate pace, clear articulation", '
+        '"upright posture, hand gestures, neutral expression"]], '
+        '"s": [[295, 305, "geometric wall and floor", "indoor", '
+        '"dim lighting", "geometric wall patterns;dark floor", ""],], '
+        '"c": [[295, 305, "handheld", "medium", "slight shake", '
+        '"stationary"]], "t": "person_talking_to_camera", '
+        '"p": [[295, 305]]}')
+    assert repaired is True
+    out = vp._expand_or_canonical(parsed)
+    assert out["scene"][0]["notable_features"] == [
+        "geometric wall patterns", "dark floor"]
+    assert out["scene"][0]["type"] == "indoor"
+
+
+def test_parse_compact_window_leaves_good_answers_untouched():
+    """Strict JSON parses with repaired False - the common path."""
+    parsed, repaired = vp.parse_compact_window(
+        '{"a": [[0, 10, "speaking", null, "upright"]], '
+        '"t": "person_talking_to_camera"}')
+    assert repaired is False
+    assert parsed["t"] == "person_talking_to_camera"
+
+
+def test_parse_compact_window_rejects_garbage():
+    """Gibberish stays ({}, False) so the caller fires the fallback."""
+    assert vp.parse_compact_window("not json at all {{{") == ({}, False)
+    assert vp.parse_compact_window("") == ({}, False)
+
+
+def test_compact_prompt_states_the_close_each_array_rule():
+    """The prompt names the measured error: close each array."""
+    prompt = vp.PROMPT_WINDOW_ALL_COMPACT.format(
+        window_start=0, window_end=10, window_dur=10, duration=46,
+        transcript_line="\n(No speech in this segment.)",
+        boundaries="No hard scene boundaries detected (likely continuous)",
+    )
+    assert "Close each section" in prompt
+    assert "]]" in prompt
+
+
+class _SeqAnalyzer(_FakeAnalyzer):
+    """Canned answers in call order - compact first, fallback second."""
+
+    def __init__(self, texts):
+        super().__init__(texts[0])
+        self.texts = texts
+
+    def analyze_with_retry(self, prompt, parse_fn, **kwargs):
+        self.calls.append({"prompt": prompt, "kwargs": kwargs})
+        text = self.texts[min(len(self.calls) - 1, len(self.texts) - 1)]
+        return parse_fn(text), text, 19.5
+
+
+def _window_clips():
+    return [{"start": 0.0, "end": 10.0, "path": "/tmp/probe.mp4",
+             "has_audio": True}]
+
+
+def test_analyze_windows_records_compact_path():
+    """A clean compact answer takes one call and records its path."""
+    import json as _json
+    answer = _json.dumps({
+        "a": [[0, 10, "speaking to camera", None, "upright"]],
+        "s": [[0, 10, "office", "indoor", "warm", "whiteboard"]],
+        "c": [[0, 10, "handheld", "medium", "steady", "stationary"]],
+        "t": "person_talking_to_camera",
+        "p": [[0, 10]],
+    })
+    entries = vp.analyze_windows(_FakeAnalyzer(answer),
+                                 _window_clips(), 10.0, None, "")
+    assert entries[0]["prompt_path"] == "compact"
+    assert "parse_error" not in entries[0]
+
+
+def test_analyze_windows_records_compact_repaired_path():
+    """A repaired compact answer is kept (not re-asked) and recorded."""
+    analyzer = _FakeAnalyzer(W02_MALFORMED)
+    entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
+                                 None, "")
+    assert len(analyzer.calls) == 1
+    entry = entries[0]
+    assert entry["prompt_path"] == "compact_repaired"
+    assert "parse_error" not in entry
+    assert entry["actions"][0]["action"] == "speaking to camera"
+    assert entry["assessment"]["content_type"] == "person_talking_to_camera"
+
+
+def test_analyze_windows_falls_back_to_full_prompt():
+    """Gibberish compact AND gibberish fallback: two calls, UNPARSED.
+
+    A dropped window is never acceptable, so an unparseable compact
+    answer is re-asked with the canonical prompt - and only when both
+    fail is the window recorded as UNPARSED, with the path on it.
+    """
+    analyzer = _SeqAnalyzer(["not json at all {{{",
+                             "still not json ][["])
+    entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
+                                 None, "")
+    assert len(analyzer.calls) == 2
+    assert '"a"' in analyzer.calls[0]["prompt"]
+    assert analyzer.calls[0]["kwargs"]["max_tokens"] == \
+        vp.MAX_TOKENS["window_all_compact"]
+    assert '"actions"' in analyzer.calls[1]["prompt"]
+    assert analyzer.calls[1]["kwargs"]["max_tokens"] == \
+        vp.MAX_TOKENS["window_all"]
+    entry = entries[0]
+    assert entry["prompt_path"] == "full_fallback"
+    assert entry["parse_error"] is True
+    assert entry["actions"] == []
+
+
+def test_analyze_windows_full_fallback_recovers_the_window():
+    """A failed compact answer recovered by the canonical re-ask."""
+    import json as _json
+    canonical = _json.dumps({
+        "actions": [{"start": 0, "end": 10, "action": "speaking",
+                     "speech_cue": None, "body_language": "upright"}],
+        "scene": [{"start": 0, "end": 10, "location": "office",
+                   "type": "indoor", "lighting": "warm",
+                   "notable_features": ["whiteboard"]}],
+        "camera": [{"start": 0, "end": 10, "mode": "handheld",
+                    "framing": "medium", "stability": "steady",
+                    "movement": "stationary"}],
+        "assessment": {"content_type": "person_talking_to_camera",
+                       "primary_subject_visible": [[0, 10]]},
+    })
+    analyzer = _SeqAnalyzer(["not json at all {{{", canonical])
+    entries = vp.analyze_windows(analyzer, _window_clips(), 10.0,
+                                 None, "")
+    assert len(analyzer.calls) == 2
+    entry = entries[0]
+    assert entry["prompt_path"] == "full_fallback"
+    assert "parse_error" not in entry
+    assert entry["actions"][0]["action"] == "speaking"
+    assert entry["scene"][0]["notable_features"] == ["whiteboard"]
+    assert entry["analysis_time_s"] == 39.0
+

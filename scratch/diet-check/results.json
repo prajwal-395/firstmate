@@ -1,0 +1,2619 @@
+{
+ "windows": {
+  "W01/full/r1": {
+   "window": "W01",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 25,
+   "end": 35,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 37.9,
+   "wall": 38.0,
+   "raw_chars": 1283,
+   "parsed": {
+    "actions": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "action": "The person is speaking directly into the camera, with their mouth moving in sync with the speech. They are holding a small object in their right hand.",
+      "speech_cue": "The person speaks with a steady pace and moderate volume, with clear mouth movements and slight head tilts.",
+      "body_language": "The person is standing upright, facing the camera. They hold a small object in their right hand, which they move slightly. Their facial expression is neutral to slightly serious."
+     }
+    ],
+    "scene": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "location": "An outdoor area with a large geometric sculpture and greenery.",
+      "type": "outdoor",
+      "lighting": "Daylight, with shadows cast by the sculpture.",
+      "notable_features": [
+       "Large geometric sculpture with triangular facets",
+       "Greenery and trees"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       25.0,
+       35.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 25.0,\n      \"end\": 35.0,\n      \"action\": \"The person is speaking directly into the camera, with their mouth moving in sync with the speech. They are holding a small object in their right hand.\",\n      \"speech_cue\": \"The person speaks with a steady pace and moderate volume, with clear mouth movements and slight head tilts.\",\n      \"body_language\": \"The person is standing upright, facing the camera. They hold a small object in their right hand, which they move slightly. Their facial expression is neutral to slightly serious.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 25.0,\n      \"end\": 35.0,\n      \"location\": \"An outdoor area with a large geometric sculpture and greenery.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight, with shadows cast by the sculpture.\",\n      \"notable_features\": [\n        \"Large geometric sculpture with triangular facets\",\n        \"Greenery and trees\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 25.0,\n      \"end\": 35.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [25.0, 35.0]\n    ]\n  }\n}\n```"
+  },
+  "W01/full/r2": {
+   "window": "W01",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 25,
+   "end": 35,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 36.8,
+   "wall": 36.8,
+   "raw_chars": 1226,
+   "parsed": {
+    "actions": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "action": "The person is speaking directly into the camera, with their mouth moving and head slightly tilting as they talk.",
+      "speech_cue": "The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.",
+      "body_language": "The person is standing upright, facing the camera with a neutral to slightly serious facial expression. Their hands are held in front of them, one holding a small object."
+     }
+    ],
+    "scene": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "location": "An outdoor area with a large geometric sculpture and greenery.",
+      "type": "outdoor",
+      "lighting": "Daylight, slightly overcast.",
+      "notable_features": [
+       "Large geometric sculpture with triangular facets",
+       "Greenery and bushes"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       25.0,
+       35.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 25.0,\n      \"end\": 35.0,\n      \"action\": \"The person is speaking directly into the camera, with their mouth moving and head slightly tilting as they talk.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a neutral to slightly serious facial expression. Their hands are held in front of them, one holding a small object.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 25.0,\n      \"end\": 35.0,\n      \"location\": \"An outdoor area with a large geometric sculpture and greenery.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight, slightly overcast.\",\n      \"notable_features\": [\n        \"Large geometric sculpture with triangular facets\",\n        \"Greenery and bushes\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 25.0,\n      \"end\": 35.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [25.0, 35.0]\n    ]\n  }\n}\n```"
+  },
+  "W01/diet/r1": {
+   "window": "W01",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 25,
+   "end": 35,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 18.8,
+   "wall": 18.8,
+   "raw_chars": 392,
+   "parsed": {
+    "actions": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "action": "The person is speaking to the camera.",
+      "speech_cue": "Moderate pace, clear mouth movements",
+      "body_language": "Upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "location": "Outdoor area with geometric structures",
+      "type": "outdoor",
+      "lighting": "Daylight",
+      "notable_features": [
+       "Geometric sculptures",
+       "Plants",
+       "Trees"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "Slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       25.0,
+       35.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[25, 35, \"The person is speaking to the camera.\", \"Moderate pace, clear mouth movements\", \"Upright posture, hand gestures, neutral expression\"]], \"s\": [[25, 35, \"Outdoor area with geometric structures\", \"outdoor\", \"Daylight\", \"Geometric sculptures;Plants;Trees\"]], \"c\": [[25, 35, \"handheld\", \"medium\", \"Slightly shaky\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[25, 35]]}"
+  },
+  "W01/diet/r2": {
+   "window": "W01",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 25,
+   "end": 35,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 41.8,
+   "wall": 41.9,
+   "raw_chars": 384,
+   "parsed": {
+    "actions": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "action": "speaking to camera",
+      "speech_cue": "moderate pace, clear articulation, slight mouth movement",
+      "body_language": "upright posture, hand on chest, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "location": "outdoor garden area",
+      "type": "outdoor",
+      "lighting": "bright daylight",
+      "notable_features": [
+       "geometric sculptures",
+       "plants",
+       "stone wall"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 25.0,
+      "end": 35.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       25.0,
+       35.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[25, 35, \"speaking to camera\", \"moderate pace, clear articulation, slight mouth movement\", \"upright posture, hand on chest, neutral expression\"]], \"s\": [[25, 35, \"outdoor garden area\", \"outdoor\", \"bright daylight\", \"geometric sculptures;plants;stone wall\"]], \"c\": [[25, 35, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[25, 35]]}"
+  },
+  "W02/full/r1": {
+   "window": "W02",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 41.5,
+   "wall": 41.5,
+   "raw_chars": 1217,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The person is speaking directly into the camera, looking slightly to the side and then back at the lens.",
+      "speech_cue": "The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.",
+      "body_language": "The person is standing upright, facing the camera with a neutral to slightly serious facial expression. Their hands are held near their chest, and they are looking towards the camera."
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "An outdoor area with a large geometric sculpture and greenery.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows.",
+      "notable_features": [
+       "Large geometric sculpture with triangular facets",
+       "Greenery and bushes"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "stable",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"action\": \"The person is speaking directly into the camera, looking slightly to the side and then back at the lens.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a neutral to slightly serious facial expression. Their hands are held near their chest, and they are looking towards the camera.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"location\": \"An outdoor area with a large geometric sculpture and greenery.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows.\",\n      \"notable_features\": [\n        \"Large geometric sculpture with triangular facets\",\n        \"Greenery and bushes\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"stable\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [60.0, 70.0]\n    ]\n  }\n}\n```"
+  },
+  "W02/full/r2": {
+   "window": "W02",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 34.0,
+   "wall": 34.0,
+   "raw_chars": 1193,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The person is speaking directly into the camera, looking slightly to the side and then back at the lens.",
+      "speech_cue": "The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.",
+      "body_language": "The person is standing upright, facing the camera with a neutral to slightly serious facial expression. Their head tilts slightly as they speak."
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "An outdoor area with a large geometric sculpture and a tree.",
+      "type": "outdoor",
+      "lighting": "Daylight, slightly overcast.",
+      "notable_features": [
+       "Large geometric sculpture with triangular facets",
+       "Tree with green leaves"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"action\": \"The person is speaking directly into the camera, looking slightly to the side and then back at the lens.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a neutral to slightly serious facial expression. Their head tilts slightly as they speak.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"location\": \"An outdoor area with a large geometric sculpture and a tree.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight, slightly overcast.\",\n      \"notable_features\": [\n        \"Large geometric sculpture with triangular facets\",\n        \"Tree with green leaves\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [60.0, 70.0]\n    ]\n  }\n}\n```"
+  },
+  "W02/diet/r1": {
+   "window": "W02",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 33.7,
+   "wall": 33.7,
+   "raw_chars": 352,
+   "parsed": {},
+   "raw": "```json\n{\"a\": [[60, 70, \"speaking to camera\", \"moderate pace, clear articulation\", \"facing camera, hand near face, neutral expression\"], [\"s\": [[60, 70, \"outdoor urban area\", \"outdoor\", \"daylight\", \"geometric sculptures;plants\"], \"c\": [[60, 70, \"handheld\", \"medium\", \"slight shake\", \"stationary\"], \"t\": \"person_talking_to_camera\", \"p\": [[60, 70]]]}\n```"
+  },
+  "W02/diet/r2": {
+   "window": "W02",
+   "project": "geo-podcast",
+   "source": "LC4930.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 36.0,
+   "wall": 36.0,
+   "raw_chars": 352,
+   "parsed": {},
+   "raw": "```json\n{\"a\": [[60, 70, \"speaking to camera\", \"moderate pace, clear articulation\", \"facing camera, hand near face, neutral expression\"], [\"s\": [[60, 70, \"outdoor urban area\", \"outdoor\", \"daylight\", \"geometric sculptures;plants\"], \"c\": [[60, 70, \"handheld\", \"medium\", \"slight shake\", \"stationary\"], \"t\": \"person_talking_to_camera\", \"p\": [[60, 70]]]}\n```"
+  },
+  "W03/full/r1": {
+   "window": "W03",
+   "project": "geo-podcast",
+   "source": "LC4931.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 33.1,
+   "wall": 33.2,
+   "raw_chars": 1113,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "The person is looking towards the camera and speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person is facing the camera with a neutral to slightly serious facial expression, head tilted slightly forward."
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "A dark, industrial-looking space with geometric patterns and some greenery.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some highlights on the geometric structures.",
+      "notable_features": [
+       "Geometric patterns on walls and ceiling",
+       "Plants in the background"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"action\": \"The person is looking towards the camera and speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person is facing the camera with a neutral to slightly serious facial expression, head tilted slightly forward.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"location\": \"A dark, industrial-looking space with geometric patterns and some greenery.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some highlights on the geometric structures.\",\n      \"notable_features\": [\n        \"Geometric patterns on walls and ceiling\",\n        \"Plants in the background\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [55.0, 65.0]\n    ]\n  }\n}\n```"
+  },
+  "W03/full/r2": {
+   "window": "W03",
+   "project": "geo-podcast",
+   "source": "LC4931.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 32.2,
+   "wall": 32.2,
+   "raw_chars": 1074,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "The person is looking towards the camera and speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person is facing the camera with a neutral to slightly serious facial expression and upright posture."
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "A dark room with geometric patterns on the walls and a large screen displaying a geometric design.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some light reflecting off the walls.",
+      "notable_features": [
+       "Geometric patterns on the walls"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"action\": \"The person is looking towards the camera and speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person is facing the camera with a neutral to slightly serious facial expression and upright posture.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"location\": \"A dark room with geometric patterns on the walls and a large screen displaying a geometric design.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some light reflecting off the walls.\",\n      \"notable_features\": [\n        \"Geometric patterns on the walls\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [55.0, 65.0]\n    ]\n  }\n}\n```"
+  },
+  "W03/diet/r1": {
+   "window": "W03",
+   "project": "geo-podcast",
+   "source": "LC4931.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 18.0,
+   "wall": 18.0,
+   "raw_chars": 394,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "person is speaking to the camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "facing camera, neutral expression, upright posture"
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "outdoor area with geometric structures",
+      "type": "outdoor",
+      "lighting": "daylight",
+      "notable_features": [
+       "geometric sculptures",
+       "plants",
+       "trees"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[55, 65, \"person is speaking to the camera\", \"moderate pace, clear articulation\", \"facing camera, neutral expression, upright posture\"]], \"s\": [[55, 65, \"outdoor area with geometric structures\", \"outdoor\", \"daylight\", \"geometric sculptures;plants;trees\"]], \"c\": [[55, 65, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[55, 65]]}\n```"
+  },
+  "W03/diet/r2": {
+   "window": "W03",
+   "project": "geo-podcast",
+   "source": "LC4931.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 18.6,
+   "wall": 18.6,
+   "raw_chars": 424,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "person is speaking to the camera",
+      "speech_cue": "moderate pace, clear articulation, no visible effort",
+      "body_language": "upright posture, hand on chin, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "outdoor geometric structure",
+      "type": "outdoor",
+      "lighting": "bright daylight",
+      "notable_features": [
+       "geometric patterns",
+       "dark gray surface",
+       "green plants"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[55, 65, \"person is speaking to the camera\", \"moderate pace, clear articulation, no visible effort\", \"upright posture, hand on chin, neutral expression\"]], \"s\": [[55, 65, \"outdoor geometric structure\", \"outdoor\", \"bright daylight\", \"geometric patterns;dark gray surface;green plants\"]], \"c\": [[55, 65, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[55, 65]]}\n```"
+  },
+  "W04/full/r1": {
+   "window": "W04",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 37.2,
+   "wall": 37.2,
+   "raw_chars": 1162,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The person is speaking directly into the camera, holding a small device in their right hand.",
+      "speech_cue": "The person is speaking with moderate effort, mouth moving in sync with the words, and occasional hand gestures.",
+      "body_language": "The person is standing upright, facing the camera, with a neutral to serious facial expression and slight head movements."
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "A dark outdoor area with geometric, triangular-patterned walls and some greenery.",
+      "type": "outdoor",
+      "lighting": "Dim lighting with some highlights on the geometric structures.",
+      "notable_features": [
+       "Triangular patterns on the walls"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"action\": \"The person is speaking directly into the camera, holding a small device in their right hand.\",\n      \"speech_cue\": \"The person is speaking with moderate effort, mouth moving in sync with the words, and occasional hand gestures.\",\n      \"body_language\": \"The person is standing upright, facing the camera, with a neutral to serious facial expression and slight head movements.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"location\": \"A dark outdoor area with geometric, triangular-patterned walls and some greenery.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Dim lighting with some highlights on the geometric structures.\",\n      \"notable_features\": [\n        \"Triangular patterns on the walls\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [60.0, 70.0]\n    ]\n  }\n}\n```"
+  },
+  "W04/full/r2": {
+   "window": "W04",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 39.4,
+   "wall": 39.4,
+   "raw_chars": 1192,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The person is speaking directly to the camera, gesturing with their right hand and moving their head slightly.",
+      "speech_cue": "The person speaks with a steady pace and moderate effort, with clear mouth movements and occasional hand gestures.",
+      "body_language": "The person maintains a forward-facing posture, looking directly at the camera with a neutral to serious facial expression."
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "A dark, industrial-looking space with geometric patterns and some greenery.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some highlights on the geometric structures.",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Small plants"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"action\": \"The person is speaking directly to the camera, gesturing with their right hand and moving their head slightly.\",\n      \"speech_cue\": \"The person speaks with a steady pace and moderate effort, with clear mouth movements and occasional hand gestures.\",\n      \"body_language\": \"The person maintains a forward-facing posture, looking directly at the camera with a neutral to serious facial expression.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"location\": \"A dark, industrial-looking space with geometric patterns and some greenery.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some highlights on the geometric structures.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\",\n        \"Small plants\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [60.0, 70.0]\n    ]\n  }\n}\n```"
+  },
+  "W04/diet/r1": {
+   "window": "W04",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 44.6,
+   "wall": 44.6,
+   "raw_chars": 381,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "person speaks to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "outdoor area with geometric structures",
+      "type": "outdoor",
+      "lighting": "daylight",
+      "notable_features": [
+       "geometric patterns",
+       "plants",
+       "dark structures"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[60, 70, \"person speaks to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[60, 70, \"outdoor area with geometric structures\", \"outdoor\", \"daylight\", \"geometric patterns;plants;dark structures\"]], \"c\": [[60, 70, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[60, 70]]}"
+  },
+  "W04/diet/r2": {
+   "window": "W04",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 18.0,
+   "wall": 18.0,
+   "raw_chars": 365,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "person speaking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "outdoor urban area",
+      "type": "mixed",
+      "lighting": "daylight",
+      "notable_features": [
+       "geometric patterns",
+       "plants",
+       "concrete_structures"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[60, 70, \"person speaking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[60, 70, \"outdoor urban area\", \"mixed\", \"daylight\", \"geometric patterns;plants;concrete_structures\"]], \"c\": [[60, 70, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[60, 70]]}"
+  },
+  "W05/full/r1": {
+   "window": "W05",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 37.5,
+   "wall": 37.5,
+   "raw_chars": 1177,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "The person is looking towards the camera and slightly to the side, with their mouth moving as if speaking.",
+      "speech_cue": "The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.",
+      "body_language": "The person is standing with a neutral posture, head slightly tilted, and facial muscles showing slight tension during speech."
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "A dark, geometric structure with triangular patterns and some green foliage.",
+      "type": "outdoor",
+      "lighting": "Dim lighting with some highlights on the geometric structures.",
+      "notable_features": [
+       "Triangular geometric patterns"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"action\": \"The person is looking towards the camera and slightly to the side, with their mouth moving as if speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.\",\n      \"body_language\": \"The person is standing with a neutral posture, head slightly tilted, and facial muscles showing slight tension during speech.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"location\": \"A dark, geometric structure with triangular patterns and some green foliage.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Dim lighting with some highlights on the geometric structures.\",\n      \"notable_features\": [\n        \"Triangular geometric patterns\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [95.0, 105.0]\n    ]\n  }\n}\n```"
+  },
+  "W05/full/r2": {
+   "window": "W05",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 37.3,
+   "wall": 37.3,
+   "raw_chars": 1203,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "The person is looking towards the camera and slightly to the side, with their mouth moving as if speaking.",
+      "speech_cue": "The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.",
+      "body_language": "The person is standing with a neutral posture, head slightly tilted, and facial muscles showing slight movement during speech."
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "A dark room with geometric patterns on the walls and a large screen displaying a geometric design.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some light reflecting off the geometric wall patterns.",
+      "notable_features": [
+       "Geometric wall patterns"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"action\": \"The person is looking towards the camera and slightly to the side, with their mouth moving as if speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and a steady pace, with clear mouth movements and slight head tilts.\",\n      \"body_language\": \"The person is standing with a neutral posture, head slightly tilted, and facial muscles showing slight movement during speech.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"location\": \"A dark room with geometric patterns on the walls and a large screen displaying a geometric design.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some light reflecting off the geometric wall patterns.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [95.0, 105.0]\n    ]\n  }\n}\n```"
+  },
+  "W05/diet/r1": {
+   "window": "W05",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 19.2,
+   "wall": 19.2,
+   "raw_chars": 412,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "person looks at camera and speaks",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand on chin, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "outdoor area with geometric structures",
+      "type": "outdoor",
+      "lighting": "bright daylight",
+      "notable_features": [
+       "geometric sculptures",
+       "plants",
+       "dark ground"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[95, 105, \"person looks at camera and speaks\", \"moderate pace, clear articulation\", \"upright posture, hand on chin, neutral expression\"]], \"s\": [[95, 105, \"outdoor area with geometric structures\", \"outdoor\", \"bright daylight\", \"geometric sculptures;plants;dark ground\"],], \"c\": [[95, 105, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[95, 105]]}\n```"
+  },
+  "W05/diet/r2": {
+   "window": "W05",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 19.1,
+   "wall": 19.2,
+   "raw_chars": 398,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "person looks at camera and speaks",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand on chest, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "outdoor area with geometric structures",
+      "type": "outdoor",
+      "lighting": "daylight",
+      "notable_features": [
+       "geometric patterns",
+       "plants",
+       "fence"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[95, 105, \"person looks at camera and speaks\", \"moderate pace, clear articulation\", \"upright posture, hand on chest, neutral expression\"]], \"s\": [[95, 105, \"outdoor area with geometric structures\", \"outdoor\", \"daylight\", \"geometric patterns;plants;fence\"],], \"c\": [[95, 105, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[95, 105]]}\n```"
+  },
+  "W06/full/r1": {
+   "window": "W06",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 1695,
+   "end": 1705,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 34.7,
+   "wall": 34.7,
+   "raw_chars": 1077,
+   "parsed": {
+    "actions": [
+     {
+      "start": 1695,
+      "end": 1705,
+      "action": "The person is looking directly at the camera while speaking.",
+      "speech_cue": "The person is speaking with clear mouth movements and a steady pace.",
+      "body_language": "The person is sitting upright, facing the camera with a neutral facial expression and hands resting on their lap."
+     }
+    ],
+    "scene": [
+     {
+      "start": 1695,
+      "end": 1705,
+      "location": "A room with a large geometric wall mural and a window showing outdoor greenery.",
+      "type": "indoor",
+      "lighting": "Bright, natural light coming from a window.",
+      "notable_features": [
+       "Geometric wall mural",
+       "Window with outdoor greenery"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 1695,
+      "end": 1705,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "stable",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       1695,
+       1705
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 1695,\n      \"end\": 1705,\n      \"action\": \"The person is looking directly at the camera while speaking.\",\n      \"speech_cue\": \"The person is speaking with clear mouth movements and a steady pace.\",\n      \"body_language\": \"The person is sitting upright, facing the camera with a neutral facial expression and hands resting on their lap.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 1695,\n      \"end\": 1705,\n      \"location\": \"A room with a large geometric wall mural and a window showing outdoor greenery.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Bright, natural light coming from a window.\",\n      \"notable_features\": [\n        \"Geometric wall mural\",\n        \"Window with outdoor greenery\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 1695,\n      \"end\": 1705,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"stable\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [1695, 1705]\n    ]\n  }\n}\n```"
+  },
+  "W06/full/r2": {
+   "window": "W06",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 1695,
+   "end": 1705,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 48.5,
+   "wall": 48.6,
+   "raw_chars": 1034,
+   "parsed": {
+    "actions": [
+     {
+      "start": 1695,
+      "end": 1705,
+      "action": "The person is looking towards the camera and speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person is sitting upright, looking towards the camera with a neutral facial expression and hands resting on their lap."
+     }
+    ],
+    "scene": [
+     {
+      "start": 1695,
+      "end": 1705,
+      "location": "An outdoor area with a large geometric structure and greenery.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows.",
+      "notable_features": [
+       "Large geometric structure with triangular patterns"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 1695,
+      "end": 1705,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       1695,
+       1705
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 1695,\n      \"end\": 1705,\n      \"action\": \"The person is looking towards the camera and speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person is sitting upright, looking towards the camera with a neutral facial expression and hands resting on their lap.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 1695,\n      \"end\": 1705,\n      \"location\": \"An outdoor area with a large geometric structure and greenery.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows.\",\n      \"notable_features\": [\n        \"Large geometric structure with triangular patterns\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 1695,\n      \"end\": 1705,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [1695, 1705]\n    ]\n  }\n}\n```"
+  },
+  "W06/diet/r1": {
+   "window": "W06",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 1695,
+   "end": 1705,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 45.9,
+   "wall": 46.0,
+   "raw_chars": 407,
+   "parsed": {
+    "actions": [
+     {
+      "start": 1695.0,
+      "end": 1705.0,
+      "action": "speaking to camera",
+      "speech_cue": "moderate pace, clear mouth movements",
+      "body_language": "upright posture, hands clasped, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 1695.0,
+      "end": 1705.0,
+      "location": "outdoor area with geometric patterns",
+      "type": "outdoor",
+      "lighting": "bright daylight",
+      "notable_features": [
+       "geometric wall patterns",
+       "plants",
+       "fence_posts"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 1695.0,
+      "end": 1705.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       1695.0,
+       1705.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[1695, 1705, \"speaking to camera\", \"moderate pace, clear mouth movements\", \"upright posture, hands clasped, neutral expression\"]], \"s\": [[1695, 1705, \"outdoor area with geometric patterns\", \"outdoor\", \"bright daylight\", \"geometric wall patterns;plants;fence_posts\"]], \"c\": [[1695, 1705, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[1695, 1705, 1705]]}"
+  },
+  "W06/diet/r2": {
+   "window": "W06",
+   "project": "geo-podcast",
+   "source": "LC4932.MXF",
+   "start": 1695,
+   "end": 1705,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 57.6,
+   "wall": 57.6,
+   "raw_chars": 421,
+   "parsed": {
+    "actions": [
+     {
+      "start": 1695.0,
+      "end": 1705.0,
+      "action": "The person is speaking and gesturing with hands",
+      "speech_cue": "Moderate pace, clear mouth movements",
+      "body_language": "Upright posture, hands moving, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 1695.0,
+      "end": 1705.0,
+      "location": "Outdoor area with geometric structures",
+      "type": "outdoor",
+      "lighting": "Daylight",
+      "notable_features": [
+       "Geometric patterns",
+       "plants",
+       "trees"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 1695.0,
+      "end": 1705.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "Slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       1695.0,
+       1705.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[1695, 1705, \"The person is speaking and gesturing with hands\", \"Moderate pace, clear mouth movements\", \"Upright posture, hands moving, neutral expression\"]], \"s\": [[1695, 1705, \"Outdoor area with geometric structures\", \"outdoor\", \"Daylight\", \"Geometric patterns;plants;trees\"]], \"c\": [[1695, 1705, \"handheld\", \"medium\", \"Slightly shaky\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[1695, 1705, 1705]]}"
+  },
+  "W07/full/r1": {
+   "window": "W07",
+   "project": "podcast-roughcut",
+   "source": "LCATL0011.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 37.1,
+   "wall": 37.1,
+   "raw_chars": 1164,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "The person is speaking directly to the camera, gesturing with their right hand and pointing with their left hand.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements, with some hand gestures and head tilts.",
+      "body_language": "The person is standing upright, facing the camera, with a serious facial expression and active hand gestures."
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "An indoor space with a geometric patterned wall and a large screen.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some highlights on the wall and screen.",
+      "notable_features": [
+       "Geometric wall pattern",
+       "Large screen"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"action\": \"The person is speaking directly to the camera, gesturing with their right hand and pointing with their left hand.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements, with some hand gestures and head tilts.\",\n      \"body_language\": \"The person is standing upright, facing the camera, with a serious facial expression and active hand gestures.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"location\": \"An indoor space with a geometric patterned wall and a large screen.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some highlights on the wall and screen.\",\n      \"notable_features\": [\n        \"Geometric wall pattern\",\n        \"Large screen\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [55.0, 65.0]\n    ]\n  }\n}\n```"
+  },
+  "W07/full/r2": {
+   "window": "W07",
+   "project": "podcast-roughcut",
+   "source": "LCATL0011.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 38.0,
+   "wall": 38.0,
+   "raw_chars": 1287,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "The man is speaking directly to the camera, gesturing with his right hand and moving his head slightly.",
+      "speech_cue": "The man speaks with moderate effort and a steady pace, his mouth moving in sync with the words and his head tilting slightly as he emphasizes points.",
+      "body_language": "He maintains a forward-facing posture, holding a small device in his right hand and gesturing with his fingers. His facial expression is serious and focused."
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "A modern interior space with a geometric, faceted wall design.",
+      "type": "indoor",
+      "lighting": "Dimmed lighting with some highlights on the wall structures.",
+      "notable_features": [
+       "Geometric wall panels",
+       "A small sign with the text 'S' and '2.0' is partially visible"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"action\": \"The man is speaking directly to the camera, gesturing with his right hand and moving his head slightly.\",\n      \"speech_cue\": \"The man speaks with moderate effort and a steady pace, his mouth moving in sync with the words and his head tilting slightly as he emphasizes points.\",\n      \"body_language\": \"He maintains a forward-facing posture, holding a small device in his right hand and gesturing with his fingers. His facial expression is serious and focused.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"location\": \"A modern interior space with a geometric, faceted wall design.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dimmed lighting with some highlights on the wall structures.\",\n      \"notable_features\": [\n        \"Geometric wall panels\",\n        \"A small sign with the text 'S' and '2.0' is partially visible\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 55.0,\n      \"end\": 65.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [55.0, 65.0]\n    ]\n  }\n}\n```"
+  },
+  "W07/diet/r1": {
+   "window": "W07",
+   "project": "podcast-roughcut",
+   "source": "LCATL0011.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 35.2,
+   "wall": 35.2,
+   "raw_chars": 387,
+   "parsed": {},
+   "raw": "{\"a\": [[55, 65, \"man speaking and gesturing with hands\", \"moderate pace, clear mouth movements\", \"standing upright, hand gestures, neutral expression\"]], \"s\": [[55, 65, \"modern interior with geometric wall\", \"indoor\", \"dim lighting\", \"geometric wall panels;dark gray wall\"], \"c\": [[55, 65, \"handheld\", \"medium\", \"steady\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[55, 65]]}"
+  },
+  "W07/diet/r2": {
+   "window": "W07",
+   "project": "podcast-roughcut",
+   "source": "LCATL0011.MXF",
+   "start": 55,
+   "end": 65,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 18.4,
+   "wall": 18.4,
+   "raw_chars": 386,
+   "parsed": {
+    "actions": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "action": "man speaking and gesturing with hands",
+      "speech_cue": "moderate pace, clear mouth movements",
+      "body_language": "standing upright, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "location": "modern interior with geometric wall",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall panels",
+       "plant"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 55.0,
+      "end": 65.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       55.0,
+       65.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[55, 65, \"man speaking and gesturing with hands\", \"moderate pace, clear mouth movements\", \"standing upright, hand gestures, neutral expression\"]], \"s\": [[55, 65, \"modern interior with geometric wall\", \"indoor\", \"dim lighting\", \"geometric wall panels;plant\"],], \"c\": [[55, 65, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[55, 65]]}"
+  },
+  "W08/full/r1": {
+   "window": "W08",
+   "project": "podcast-roughcut",
+   "source": "LCATL0012.MXF",
+   "start": 195,
+   "end": 205,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 37.5,
+   "wall": 37.5,
+   "raw_chars": 1168,
+   "parsed": {
+    "actions": [
+     {
+      "start": 195,
+      "end": 205,
+      "action": "The person is speaking directly into the camera, holding a phone in their right hand and a small object in their left.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements, with some slight head tilts and hand gestures.",
+      "body_language": "The person is standing upright, facing the camera with a serious facial expression and focused gaze."
+     }
+    ],
+    "scene": [
+     {
+      "start": 195,
+      "end": 205,
+      "location": "An outdoor area with a geometric, dark-colored wall structure and a dark surface in the foreground.",
+      "type": "outdoor",
+      "lighting": "Dim lighting with some highlights on the geometric wall.",
+      "notable_features": [
+       "Geometric wall patterns"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 195,
+      "end": 205,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       195,
+       205
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 195,\n      \"end\": 205,\n      \"action\": \"The person is speaking directly into the camera, holding a phone in their right hand and a small object in their left.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements, with some slight head tilts and hand gestures.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a serious facial expression and focused gaze.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 195,\n      \"end\": 205,\n      \"location\": \"An outdoor area with a geometric, dark-colored wall structure and a dark surface in the foreground.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Dim lighting with some highlights on the geometric wall.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 195,\n      \"end\": 205,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [195, 205]\n    ]\n  }\n}\n```"
+  },
+  "W08/full/r2": {
+   "window": "W08",
+   "project": "podcast-roughcut",
+   "source": "LCATL0012.MXF",
+   "start": 195,
+   "end": 205,
+   "shot": "talking head",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 46.8,
+   "wall": 46.8,
+   "raw_chars": 1112,
+   "parsed": {
+    "actions": [
+     {
+      "start": 195,
+      "end": 205,
+      "action": "The person is holding a smartphone and looking at it while speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person is standing upright, holding the phone with both hands, and looking down at the screen while speaking."
+     }
+    ],
+    "scene": [
+     {
+      "start": 195,
+      "end": 205,
+      "location": "An outdoor area with a geometric patterned wall and a dark surface in the foreground.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows from the geometric wall.",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Dark surface with some light reflections"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 195,
+      "end": 205,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       195,
+       205
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 195,\n      \"end\": 205,\n      \"action\": \"The person is holding a smartphone and looking at it while speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person is standing upright, holding the phone with both hands, and looking down at the screen while speaking.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 195,\n      \"end\": 205,\n      \"location\": \"An outdoor area with a geometric patterned wall and a dark surface in the foreground.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows from the geometric wall.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\",\n        \"Dark surface with some light reflections\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 195,\n      \"end\": 205,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [195, 205]\n    ]\n  }\n}\n```"
+  },
+  "W08/diet/r1": {
+   "window": "W08",
+   "project": "podcast-roughcut",
+   "source": "LCATL0012.MXF",
+   "start": 195,
+   "end": 205,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 37.7,
+   "wall": 37.7,
+   "raw_chars": 367,
+   "parsed": {
+    "actions": [
+     {
+      "start": 195.0,
+      "end": 205.0,
+      "action": "speaking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 195.0,
+      "end": 205.0,
+      "location": "outdoor area with geometric wall",
+      "type": "outdoor",
+      "lighting": "daylight",
+      "notable_features": [
+       "geometric wall patterns",
+       "plants"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 195.0,
+      "end": 205.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       195.0,
+       205.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[195, 205, \"speaking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[195, 205, \"outdoor area with geometric wall\", \"outdoor\", \"daylight\", \"geometric wall patterns;plants\"]], \"c\": [[195, 205, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[195, 205]]}"
+  },
+  "W08/diet/r2": {
+   "window": "W08",
+   "project": "podcast-roughcut",
+   "source": "LCATL0012.MXF",
+   "start": 195,
+   "end": 205,
+   "shot": "talking head",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 18.7,
+   "wall": 18.7,
+   "raw_chars": 367,
+   "parsed": {
+    "actions": [
+     {
+      "start": 195.0,
+      "end": 205.0,
+      "action": "man speaking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 195.0,
+      "end": 205.0,
+      "location": "indoor room",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall panels",
+       "plant_pot_with_flowers"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 195.0,
+      "end": 205.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       195.0,
+       205.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[195, 205, \"man speaking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[195, 205, \"indoor room\", \"indoor\", \"dim lighting\", \"geometric wall panels;plant_pot_with_flowers\"]], \"c\": [[195, 205, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[195, 205]]}"
+  },
+  "W09/full/r1": {
+   "window": "W09",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 40.2,
+   "wall": 40.2,
+   "raw_chars": 1216,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The person is speaking directly into the camera, looking slightly to the right.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements, with a slight head tilt and occasional hand gestures.",
+      "body_language": "The person is standing upright, facing the camera with a serious facial expression and slight brow furrowing."
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "A modern outdoor space with a geometric, dark-colored wall structure and a large digital screen.",
+      "type": "outdoor",
+      "lighting": "Daytime lighting with shadows and highlights on the geometric wall.",
+      "notable_features": [
+       "Large digital screen displaying a dark background with some text and graphics."
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"action\": \"The person is speaking directly into the camera, looking slightly to the right.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements, with a slight head tilt and occasional hand gestures.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a serious facial expression and slight brow furrowing.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"location\": \"A modern outdoor space with a geometric, dark-colored wall structure and a large digital screen.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daytime lighting with shadows and highlights on the geometric wall.\",\n      \"notable_features\": [\n        \"Large digital screen displaying a dark background with some text and graphics.\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [60.0, 70.0]\n    ]\n  }\n}\n```"
+  },
+  "W09/full/r2": {
+   "window": "W09",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 35.4,
+   "wall": 35.4,
+   "raw_chars": 1147,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The person is looking directly at the camera while speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person maintains a steady posture, facing the camera with a neutral facial expression and a slight smile."
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "A modern outdoor space with geometric architectural structures and a dark textured wall.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows and highlights on the geometric structures.",
+      "notable_features": [
+       "Geometric triangular patterns on the walls",
+       "A dark textured wall with a small white symbol"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "stable",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"action\": \"The person is looking directly at the camera while speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person maintains a steady posture, facing the camera with a neutral facial expression and a slight smile.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"location\": \"A modern outdoor space with geometric architectural structures and a dark textured wall.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows and highlights on the geometric structures.\",\n      \"notable_features\": [\n        \"Geometric triangular patterns on the walls\",\n        \"A dark textured wall with a small white symbol\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 60.0,\n      \"end\": 70.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"stable\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [60.0, 70.0]\n    ]\n  }\n}\n```"
+  },
+  "W09/diet/r1": {
+   "window": "W09",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 18.3,
+   "wall": 18.3,
+   "raw_chars": 377,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "man speaking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, serious expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "outdoor urban area",
+      "type": "outdoor",
+      "lighting": "daylight",
+      "notable_features": [
+       "geometric wall patterns",
+       "plants",
+       "metal structure"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[60, 70, \"man speaking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, serious expression\"]], \"s\": [[60, 70, \"outdoor urban area\", \"outdoor\", \"daylight\", \"geometric wall patterns;plants;metal structure\"]], \"c\": [[60, 70, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[60, 70]]}\n```"
+  },
+  "W09/diet/r2": {
+   "window": "W09",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 60,
+   "end": 70,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 19.2,
+   "wall": 19.2,
+   "raw_chars": 417,
+   "parsed": {
+    "actions": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "action": "The man is speaking and gesturing with his hand.",
+      "speech_cue": "Moderate pace, clear mouth movements",
+      "body_language": "Upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "location": "A dark room with geometric wall patterns",
+      "type": "indoor",
+      "lighting": "Dim lighting",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Plants"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 60.0,
+      "end": 70.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "Slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       60.0,
+       70.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[60, 70, \"The man is speaking and gesturing with his hand.\", \"Moderate pace, clear mouth movements\", \"Upright posture, hand gestures, neutral expression\"]], \"s\": [[60, 70, \"A dark room with geometric wall patterns\", \"indoor\", \"Dim lighting\", \"Geometric wall patterns;Plants\"]], \"c\": [[60, 70, \"handheld\", \"medium\", \"Slightly shaky\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[60, 70]]}\n```"
+  },
+  "W10/full/r1": {
+   "window": "W10",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 295,
+   "end": 305,
+   "shot": "multi-person edge",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 35.9,
+   "wall": 35.9,
+   "raw_chars": 1056,
+   "parsed": {
+    "actions": [
+     {
+      "start": 295,
+      "end": 305,
+      "action": "The person is looking towards the camera and speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person is standing upright, facing the camera with a neutral facial expression and slight head movements."
+     }
+    ],
+    "scene": [
+     {
+      "start": 295,
+      "end": 305,
+      "location": "A dark room with geometric wall patterns and a large screen.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some light reflecting off the wall patterns.",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Large screen"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 295,
+      "end": 305,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       295,
+       305
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 295,\n      \"end\": 305,\n      \"action\": \"The person is looking towards the camera and speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a neutral facial expression and slight head movements.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 295,\n      \"end\": 305,\n      \"location\": \"A dark room with geometric wall patterns and a large screen.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some light reflecting off the wall patterns.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\",\n        \"Large screen\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 295,\n      \"end\": 305,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [295, 305]\n    ]\n  }\n}\n```"
+  },
+  "W10/full/r2": {
+   "window": "W10",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 295,
+   "end": 305,
+   "shot": "multi-person edge",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 34.6,
+   "wall": 34.6,
+   "raw_chars": 1056,
+   "parsed": {
+    "actions": [
+     {
+      "start": 295,
+      "end": 305,
+      "action": "The person is looking towards the camera and speaking.",
+      "speech_cue": "The person is speaking with moderate effort and clear mouth movements.",
+      "body_language": "The person is standing upright, facing the camera with a neutral facial expression and slight head movements."
+     }
+    ],
+    "scene": [
+     {
+      "start": 295,
+      "end": 305,
+      "location": "A dark room with geometric wall patterns and a large screen.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some light reflecting off the wall patterns.",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Large screen"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 295,
+      "end": 305,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       295,
+       305
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 295,\n      \"end\": 305,\n      \"action\": \"The person is looking towards the camera and speaking.\",\n      \"speech_cue\": \"The person is speaking with moderate effort and clear mouth movements.\",\n      \"body_language\": \"The person is standing upright, facing the camera with a neutral facial expression and slight head movements.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 295,\n      \"end\": 305,\n      \"location\": \"A dark room with geometric wall patterns and a large screen.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some light reflecting off the wall patterns.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\",\n        \"Large screen\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 295,\n      \"end\": 305,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [295, 305]\n    ]\n  }\n}\n```"
+  },
+  "W10/diet/r1": {
+   "window": "W10",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 295,
+   "end": 305,
+   "shot": "multi-person edge",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 19.3,
+   "wall": 19.3,
+   "raw_chars": 375,
+   "parsed": {
+    "actions": [
+     {
+      "start": 295.0,
+      "end": 305.0,
+      "action": "man speaking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 295.0,
+      "end": 305.0,
+      "location": "geometric wall and floor",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall panels",
+       "dark floor"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 295.0,
+      "end": 305.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "steady",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       295.0,
+       305.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[295, 305, \"man speaking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[295, 305, \"geometric wall and floor\", \"indoor\", \"dim lighting\", \"geometric wall panels;dark floor\"],], \"c\": [[295, 305, \"handheld\", \"medium\", \"steady\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[295, 305]]}\n```"
+  },
+  "W10/diet/r2": {
+   "window": "W10",
+   "project": "podcast-roughcut",
+   "source": "LCATL0013.MXF",
+   "start": 295,
+   "end": 305,
+   "shot": "multi-person edge",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 20.5,
+   "wall": 20.5,
+   "raw_chars": 383,
+   "parsed": {
+    "actions": [
+     {
+      "start": 295.0,
+      "end": 305.0,
+      "action": "man speaking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 295.0,
+      "end": 305.0,
+      "location": "geometric wall and floor",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall patterns",
+       "dark floor"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 295.0,
+      "end": 305.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       295.0,
+       305.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[295, 305, \"man speaking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[295, 305, \"geometric wall and floor\", \"indoor\", \"dim lighting\", \"geometric wall patterns;dark floor\"],], \"c\": [[295, 305, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[295, 305]]}\n```"
+  },
+  "W11/full/r1": {
+   "window": "W11",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 34.8,
+   "wall": 34.8,
+   "raw_chars": 1160,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "The person is speaking directly into the camera, holding a smartphone in their right hand.",
+      "speech_cue": "The person is speaking with visible mouth movements and slight facial muscle tension.",
+      "body_language": "The person is standing upright, holding the phone with one hand and gesturing slightly with the other. Their facial expression shows active engagement with the speech."
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "A modern building exterior with geometric, faceted gray and white panels.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows cast by the geometric structures.",
+      "notable_features": [
+       "Geometric wall patterns"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"action\": \"The person is speaking directly into the camera, holding a smartphone in their right hand.\",\n      \"speech_cue\": \"The person is speaking with visible mouth movements and slight facial muscle tension.\",\n      \"body_language\": \"The person is standing upright, holding the phone with one hand and gesturing slightly with the other. Their facial expression shows active engagement with the speech.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"location\": \"A modern building exterior with geometric, faceted gray and white panels.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows cast by the geometric structures.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 95.0,\n      \"end\": 105.0,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [95.0, 105.0]\n    ]\n  }\n}\n```"
+  },
+  "W11/full/r2": {
+   "window": "W11",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 37.1,
+   "wall": 37.1,
+   "raw_chars": 1205,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95,
+      "end": 105,
+      "action": "The person is speaking directly into the camera, looking slightly to the side and then back at the lens.",
+      "speech_cue": "The person is speaking with moderate effort, mouth moving in sync with the words, and head tilting slightly.",
+      "body_language": "The person is standing upright, holding a phone in their right hand and a small object in their left. Their facial expression is serious and focused."
+     }
+    ],
+    "scene": [
+     {
+      "start": 95,
+      "end": 105,
+      "location": "A modern outdoor area with geometric, faceted wall panels and a dark textured ground.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows cast by the geometric structures.",
+      "notable_features": [
+       "Geometric wall panels",
+       "Dark textured ground"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95,
+      "end": 105,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slightly shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95,
+       105
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 95,\n      \"end\": 105,\n      \"action\": \"The person is speaking directly into the camera, looking slightly to the side and then back at the lens.\",\n      \"speech_cue\": \"The person is speaking with moderate effort, mouth moving in sync with the words, and head tilting slightly.\",\n      \"body_language\": \"The person is standing upright, holding a phone in their right hand and a small object in their left. Their facial expression is serious and focused.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 95,\n      \"end\": 105,\n      \"location\": \"A modern outdoor area with geometric, faceted wall panels and a dark textured ground.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows cast by the geometric structures.\",\n      \"notable_features\": [\n        \"Geometric wall panels\",\n        \"Dark textured ground\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 95,\n      \"end\": 105,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"slightly shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [95, 105]\n    ]\n  }\n}\n```"
+  },
+  "W11/diet/r1": {
+   "window": "W11",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 18.2,
+   "wall": 18.2,
+   "raw_chars": 400,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "talking to camera",
+      "speech_cue": "moderate pace, clear articulation",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "geometric patterned wall",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall panels",
+       "dark floor"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "<|channel>thought\n<channel|>```json\n{\"a\": [[95, 105, \"talking to camera\", \"moderate pace, clear articulation\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[95, 105, \"geometric patterned wall\", \"indoor\", \"dim lighting\", \"geometric wall panels;dark floor\"],], \"c\": [[95, 105, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[95, 105]]}\n```"
+  },
+  "W11/diet/r2": {
+   "window": "W11",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 95,
+   "end": 105,
+   "shot": "multi-person edge",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 18.4,
+   "wall": 18.4,
+   "raw_chars": 394,
+   "parsed": {
+    "actions": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "action": "talking to camera",
+      "speech_cue": "moderate pace, clear effort",
+      "body_language": "upright posture, hand gestures, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "location": "geometric patterned wall",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall panels",
+       "dark floor"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 95.0,
+      "end": 105.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "slight shake",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       95.0,
+       105.0
+      ]
+     ]
+    }
+   },
+   "raw": "<|channel>thought\n<channel|>```json\n{\"a\": [[95, 105, \"talking to camera\", \"moderate pace, clear effort\", \"upright posture, hand gestures, neutral expression\"]], \"s\": [[95, 105, \"geometric patterned wall\", \"indoor\", \"dim lighting\", \"geometric wall panels;dark floor\"],], \"c\": [[95, 105, \"handheld\", \"medium\", \"slight shake\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[95, 105]]}\n```"
+  },
+  "W12/full/r1": {
+   "window": "W12",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 495,
+   "end": 505,
+   "shot": "motion",
+   "arm": "full",
+   "run": 1,
+   "elapsed_model": 36.0,
+   "wall": 36.0,
+   "raw_chars": 1026,
+   "parsed": {
+    "actions": [
+     {
+      "start": 495,
+      "end": 505,
+      "action": "The person is holding a phone and looking at it while standing in front of a geometric wall.",
+      "speech_cue": null,
+      "body_language": "The person is standing upright, holding a phone in their right hand, looking down at the screen with a neutral facial expression."
+     }
+    ],
+    "scene": [
+     {
+      "start": 495,
+      "end": 505,
+      "location": "An indoor space with a geometric wall and a dark floor.",
+      "type": "indoor",
+      "lighting": "Dim lighting with some highlights on the wall.",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Sign with text '00:09'"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 495,
+      "end": 505,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "shaky",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       495,
+       505
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 495,\n      \"end\": 505,\n      \"action\": \"The person is holding a phone and looking at it while standing in front of a geometric wall.\",\n      \"speech_cue\": null,\n      \"body_language\": \"The person is standing upright, holding a phone in their right hand, looking down at the screen with a neutral facial expression.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 495,\n      \"end\": 505,\n      \"location\": \"An indoor space with a geometric wall and a dark floor.\",\n      \"type\": \"indoor\",\n      \"lighting\": \"Dim lighting with some highlights on the wall.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\",\n        \"Sign with text '00:09'\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 495,\n      \"end\": 505,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"shaky\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [495, 505]\n    ]\n  }\n}\n```"
+  },
+  "W12/full/r2": {
+   "window": "W12",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 495,
+   "end": 505,
+   "shot": "motion",
+   "arm": "full",
+   "run": 2,
+   "elapsed_model": 211.4,
+   "wall": 211.4,
+   "raw_chars": 1090,
+   "parsed": {
+    "actions": [
+     {
+      "start": 495,
+      "end": 505,
+      "action": "The person is holding a smartphone in their right hand and looking at the screen while standing in front of a geometric wall.",
+      "speech_cue": null,
+      "body_language": "The person is standing upright, holding the phone with a steady grip. Their facial expression is neutral and focused on the screen."
+     }
+    ],
+    "scene": [
+     {
+      "start": 495,
+      "end": 505,
+      "location": "An outdoor area with a geometric patterned wall and a dark textured ground.",
+      "type": "outdoor",
+      "lighting": "Daylight with shadows cast by the geometric structures.",
+      "notable_features": [
+       "Geometric wall patterns",
+       "Dark textured ground"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 495,
+      "end": 505,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "stable",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       495,
+       505
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\n  \"actions\": [\n    {\n      \"start\": 495,\n      \"end\": 505,\n      \"action\": \"The person is holding a smartphone in their right hand and looking at the screen while standing in front of a geometric wall.\",\n      \"speech_cue\": null,\n      \"body_language\": \"The person is standing upright, holding the phone with a steady grip. Their facial expression is neutral and focused on the screen.\"\n    }\n  ],\n  \"scene\": [\n    {\n      \"start\": 495,\n      \"end\": 505,\n      \"location\": \"An outdoor area with a geometric patterned wall and a dark textured ground.\",\n      \"type\": \"outdoor\",\n      \"lighting\": \"Daylight with shadows cast by the geometric structures.\",\n      \"notable_features\": [\n        \"Geometric wall patterns\",\n        \"Dark textured ground\"\n      ]\n    }\n  ],\n  \"camera\": [\n    {\n      \"start\": 495,\n      \"end\": 505,\n      \"mode\": \"handheld\",\n      \"framing\": \"medium\",\n      \"stability\": \"stable\",\n      \"movement\": \"stationary\"\n    }\n  ],\n  \"assessment\": {\n    \"content_type\": \"person_talking_to_camera\",\n    \"primary_subject_visible\": [\n      [495, 505]\n    ]\n  }\n}\n```"
+  },
+  "W12/diet/r1": {
+   "window": "W12",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 495,
+   "end": 505,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 1,
+   "elapsed_model": 25.3,
+   "wall": 25.3,
+   "raw_chars": 370,
+   "parsed": {
+    "actions": [
+     {
+      "start": 495.0,
+      "end": 505.0,
+      "action": "holding phone and looking at camera",
+      "speech_cue": null,
+      "body_language": "upright posture, holding phone, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 495.0,
+      "end": 505.0,
+      "location": "geometric wall and dark floor",
+      "type": "indoor",
+      "lighting": "dim lighting",
+      "notable_features": [
+       "geometric wall patterns",
+       "dark floor",
+       "plants"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 495.0,
+      "end": 505.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "steady",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       495.0,
+       505.0
+      ]
+     ]
+    }
+   },
+   "raw": "```json\n{\"a\": [[495, 505, \"holding phone and looking at camera\", null, \"upright posture, holding phone, neutral expression\"]], \"s\": [[495, 505, \"geometric wall and dark floor\", \"indoor\", \"dim lighting\", \"geometric wall patterns;dark floor;plants\"]], \"c\": [[495, 505, \"handheld\", \"medium\", \"steady\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[495, 505]]}\n```"
+  },
+  "W12/diet/r2": {
+   "window": "W12",
+   "project": "podcast-roughcut",
+   "source": "LCATL0014.MXF",
+   "start": 495,
+   "end": 505,
+   "shot": "motion",
+   "arm": "diet",
+   "run": 2,
+   "elapsed_model": 23.2,
+   "wall": 23.2,
+   "raw_chars": 348,
+   "parsed": {
+    "actions": [
+     {
+      "start": 495.0,
+      "end": 505.0,
+      "action": "Holding phone and looking at camera",
+      "speech_cue": null,
+      "body_language": "Upright posture, hand on phone, neutral expression"
+     }
+    ],
+    "scene": [
+     {
+      "start": 495.0,
+      "end": 505.0,
+      "location": "Modern geometric wall and plants",
+      "type": "indoor",
+      "lighting": "Dim lighting",
+      "notable_features": [
+       "Geometric wall panels",
+       "Plants"
+      ]
+     }
+    ],
+    "camera": [
+     {
+      "start": 495.0,
+      "end": 505.0,
+      "mode": "handheld",
+      "framing": "medium",
+      "stability": "steady",
+      "movement": "stationary"
+     }
+    ],
+    "assessment": {
+     "content_type": "person_talking_to_camera",
+     "primary_subject_visible": [
+      [
+       495.0,
+       505.0
+      ]
+     ]
+    }
+   },
+   "raw": "{\"a\": [[495, 505, \"Holding phone and looking at camera\", null, \"Upright posture, hand on phone, neutral expression\"]], \"s\": [[495, 505, \"Modern geometric wall and plants\", \"indoor\", \"Dim lighting\", \"Geometric wall panels;Plants\"]], \"c\": [[495, 505, \"handheld\", \"medium\", \"steady\", \"stationary\"]], \"t\": \"person_talking_to_camera\", \"p\": [[495, 505]]}"
+  }
+ },
+ "meta": {}
+}
