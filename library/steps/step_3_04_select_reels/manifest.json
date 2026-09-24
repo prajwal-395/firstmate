@@ -2,7 +2,7 @@
   "id": "step_3_04_select_reels",
   "name": "Select Reels",
   "version": "1.0.0",
-  "description": "A short-form editor chooses which conversations from the cut are worth a standalone short, and where each one starts and ends.",
+  "description": "A reel editor chooses which conversations from the cut are worth a standalone video, and where each one starts and ends.",
   "level": "step",
   "interface": {
     "inputs": [
@@ -41,6 +41,12 @@
         "type": "object",
         "required": false,
         "description": "Brand template constraints (injected by the pipeline runner)."
+      },
+      {
+        "name": "video_preferences",
+        "type": "object",
+        "required": false,
+        "description": "The merged video preferences (style.yaml project layer, video.yaml per-video layer - see library/tools/video_prefs). Injected by the runner when the video declares any; absent otherwise. The bridge publishes its SOFT target_length_seconds and content_rules beside the candidates."
       }
     ],
     "outputs": [
@@ -58,6 +64,24 @@
         "name": "length_guidance_seconds",
         "type": "array",
         "description": "Bridge output: the brief's length guidance as numbers - published rather than enforced, because a hard ceiling silently withholds every story that needs longer to finish. Declared here because the bridge emits it on every run and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "target_length_seconds",
+        "type": "number",
+        "required": false,
+        "description": "Bridge output, only when the project's video preferences declare it: the SOFT target_length_seconds the video is cut toward - guidance the model weighs, never a gate or a refusal. Beside length_guidance_seconds, not replacing it. Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "target_length_note",
+        "type": "string",
+        "required": false,
+        "description": "Bridge output, with target_length_seconds only: what the soft target is. Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
+      },
+      {
+        "name": "content_rules",
+        "type": "object",
+        "required": false,
+        "description": "Bridge output, only when the project's video preferences declare them: content_rules (speakers_must_interact, require_value_add, require_cta) - the project's own statement of what a reel must do. Absence keeps today's format behaviour. Declared here because the bridge emits it on such runs and validate_step_output otherwise reports it as an unexpected extra field."
       },
       {
         "name": "picture_holes",
@@ -114,7 +138,8 @@
     "reel_candidates",
     "creative_brief",
     "creative_direction",
-    "brand_constraints"
+    "brand_constraints",
+    "video_preferences"
   ],
   "classification": {
     "stage": "edit",

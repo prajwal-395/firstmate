@@ -153,17 +153,41 @@ def _get_audio_duration(audio_path: str) -> float:
 def _target_duration(inputs: dict) -> float:
     """How long the finished piece is meant to run.
 
-    Read off the project's own `project.yaml`, the same way
-    `resolve_delivery_format` reads the delivery format - a value threaded
-    through the DAG is a value that gets renamed and defaulted away, and
-    2.04 runs before the spine exists so there is no measured duration to
-    read yet.
+    Precedence: an explicit `target_duration_seconds` input, then the
+    merged video preferences' SOFT `target_length_seconds`
+    (``style.yaml`` locked value, then ``video.yaml`` - see
+    ``library/tools/video_prefs.effective_target_length``), then the
+    project's own `project.yaml` `target_duration_seconds`, then the
+    60 s default. The preference is SOFT - a target the candidate
+    verdicts are measured against, never a gate: a longer or shorter
+    video with defensible quality is allowed, so this refuses nothing
+    on length.
+
+    Read off the project rather than threaded through the DAG - a value
+    threaded through is a value that gets renamed and defaulted away,
+    and 2.04 runs before the spine exists so there is no measured
+    duration to read yet.
     """
     declared = inputs.get("target_duration_seconds")
     if isinstance(declared, (int, float)) and declared > 0:
         return float(declared)
 
     project_folder = inputs.get("project_folder", "")
+    supplied = inputs.get("video_preferences")
+    if project_folder or supplied is not None:
+        try:
+            from library.tools.video_prefs import effective_target_length
+            soft = effective_target_length(
+                project_folder or "", video_preferences=supplied)
+            if soft is not None and soft > 0:
+                return float(soft)
+        except Exception as exc:
+            print(
+                "  WARNING: could not read video preferences "
+                f"target_length_seconds: {exc}",
+                file=sys.stderr,
+            )
+
     project_yaml = (
         str(ProjectLayout(project_folder).project_config_path)
         if project_folder else ""

@@ -17,7 +17,7 @@
 ## System Context
 
 You are an audio editor weaving speech and music into a single cohesive
-audio spine for a shortform video. You have the timestamp-resolved speech
+audio spine for a video. You have the timestamp-resolved speech
 sequence (what to say and when), the music selections (what music is
 available), and the creative direction (the vision).
 
@@ -91,7 +91,7 @@ card.
 
 ### Structural guidance:
 - Spine structure is a creative decision. A hook followed by an intro is a
-  common shortform pattern, but not the only one - cold opens, direct
+  common short-video pattern, but not the only one - cold opens, direct
   speech starts and other structures serve different content.
 - Long unbroken speech blocks can feel monotonous; transition slots give
   breathing room, but how long speech runs before a break depends on the
@@ -226,8 +226,8 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
   It says "good place for B-roll" or "needs a talking head shot."
 - Transition slots are where music carries energy and B-roll provides
   visual variety.
-- The hook CAN be a snippet of a body passage — intentional shortform
-  technique.
+- The hook CAN be a snippet of a body passage — an intentional
+  short-video technique.
 - music_behavior "background" means speech and music play simultaneously.
 - If speech and music don't mesh well, propose cutting a speech segment
   or swapping a music splice — document the change and rationale.

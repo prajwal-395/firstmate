@@ -41,6 +41,12 @@ except where the PR body names a consumer):
 import os
 from typing import Any, Dict, List, Optional
 
+from library.schemas.brand_template import DEFAULT_CAPTION_CASE
+from library.tools.delivery_format import DEFAULT_DELIVERY_FORMAT
+from library.tools.spine_contract import (
+    MAX_DECLARED_BLACK_BEAT_SECONDS as DEFAULT_BLACK_BEAT_SECONDS)
+from library.tools.subtitle_style import DEFAULT_SUBTITLE_STYLE
+
 STYLE_FILENAME = "style.yaml"
 VIDEO_FILENAME = "video.yaml"
 
@@ -52,6 +58,17 @@ VIDEO_PREF_FIELDS = (
     "target_length_seconds",
     "content_rules",
 )
+
+# Explicit engine defaults for a project that declares nothing.
+#
+# A project with no brand used to silently inherit four values: vertical
+# delivery, the `default_subtitles` shape, lowercase captions and the
+# 0.5 s black-beat cap. Each is a named default owned by the module
+# that enforces it and re-exported above, so "nothing declared" reads
+# as an explicit default rather than a silent inheritance, and there
+# is only one spelling of each value to drift. A declaration in
+# style.yaml / video.yaml, or in the existing brand/project.yaml
+# fallback, always wins over these.
 
 CONTENT_RULE_FIELDS = (
     "speakers_must_interact",
@@ -309,3 +326,107 @@ def build_style_context(
         return None
     return {"style": merged.get("style"), "preferences": merged,
             "reel": reel}
+
+
+def _merged_or_supplied(project_folder: str, reel,
+                        video_preferences) -> Dict[str, Any]:
+    """The merged preferences, from a supplied mapping or from disk.
+
+    `video_preferences` is an already-merged mapping (state's
+    `video_preferences`, resolved for the addressed reel) and wins
+    over a disk read, so callers that already hold state do not
+    re-parse YAML. None means "load for this folder and reel".
+    Absence answers `{}` rather than None, so callers fall through
+    to their brand/project.yaml fallback and then the explicit
+    defaults above. Never raises on absence; a malformed declaration
+    raises in `load_video_preferences` by name.
+    """
+    if video_preferences is not None:
+        return dict(video_preferences) if isinstance(
+            video_preferences, dict) else {}
+    if not project_folder:
+        return {}
+    try:
+        return load_video_preferences(project_folder, reel) or {}
+    except (VideoPreferencesError, LockedVideoPreferenceError):
+        raise
+
+
+def effective_delivery_format(
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[str]:
+    """The declared delivery format, or None when none is declared.
+
+    Precedence: the merged video preferences (locked style.yaml value,
+    then video.yaml shared and per-reel layers) win; absence falls
+    through to the caller's brand/project.yaml read and then
+    `DEFAULT_DELIVERY_FORMAT`. Never gates.
+    """
+    return _merged_or_supplied(
+        project_folder, reel, video_preferences).get("delivery_format")
+
+
+def effective_color_grade(
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[dict]:
+    """The declared color grade mapping, or None when none is declared.
+
+    The `color.power_grade_drx` shape (`path`, `provenance`,
+    `cdl_node`). Same precedence as `effective_delivery_format`.
+    Validation of the shape stays with the loader; deeper checks
+    (file on disk, `.drx`) stay with `resolve_color_page_grade`.
+    """
+    grade = _merged_or_supplied(
+        project_folder, reel, video_preferences).get("color_grade")
+    return dict(grade) if isinstance(grade, dict) else None
+
+
+def effective_subtitle_style(
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[str]:
+    """The declared subtitle style name, or None when none is declared.
+
+    Same precedence as `effective_delivery_format`: a declared video
+    preference wins over the brand template's `effect.subtitle_style`
+    and the project fallback, and absence keeps today's
+    `DEFAULT_SUBTITLE_STYLE` behaviour.
+    """
+    return _merged_or_supplied(
+        project_folder, reel, video_preferences).get("subtitle_style")
+
+
+def effective_target_length(
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[float]:
+    """The declared soft target length in seconds, or None.
+
+    SOFT by the captain's words: a target, never a gate or a refusal.
+    A longer or shorter video with defensible quality is allowed, so
+    consumers publish this as guidance (music candidates, reel length
+    guidance) and never refuse on it. Same precedence as the other
+    `effective_*` readers.
+    """
+    length = _merged_or_supplied(
+        project_folder, reel, video_preferences).get(
+            "target_length_seconds")
+    if length is None:
+        return None
+    if isinstance(length, bool) or not isinstance(
+            length, (int, float)) or length <= 0:
+        return None
+    return float(length)
+
+
+def effective_content_rules(
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[dict]:
+    """The declared content rules, or None when none are declared.
+
+    `speakers_must_interact` (names), `require_value_add` and
+    `require_cta` (flags). Same precedence as the other readers. A
+    consumer that honours these publishes them as the project's own
+    requirements; absence keeps today's hardcoded format behaviour.
+    """
+    rules = _merged_or_supplied(
+        project_folder, reel, video_preferences).get("content_rules")
+    return dict(rules) if isinstance(rules, dict) else None

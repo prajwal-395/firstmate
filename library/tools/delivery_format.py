@@ -104,15 +104,35 @@ def _project_pipeline_block(project_folder: Optional[str]) -> dict:
 
 
 def delivery_format_name(project_folder: Optional[str] = None,
-                         templates_dir: Optional[str] = None) -> str:
+                         templates_dir: Optional[str] = None,
+                         reel=None,
+                         video_preferences: Optional[dict] = None) -> str:
     """The declared format name, by precedence.
 
+    Merged video preferences (``style.yaml`` locked value, then
+    ``video.yaml`` shared and per-reel layers - see
+    ``library/tools/video_prefs.effective_delivery_format``)  >
     project.yaml ``pipeline.delivery_format``  >  the brand template's
     ``delivery_format``  >  :data:`DEFAULT_DELIVERY_FORMAT`.
 
-    The project override wins because a series may ship one video in a
-    different frame without forking its template.
+    The video preference wins because a locked project value is the
+    series' own frame and a per-video value is the video's own frame,
+    while the project override below it lets a series ship one video
+    in a different frame without forking its template. A video that
+    declares nothing reads exactly what it always read. `reel` is the
+    addressed reel where the caller has one (the Ren change spec's
+    `reel` on the reels path; absent for a single-video project), and
+    `video_preferences` is an already-merged mapping that wins over a
+    disk read.
     """
+    from library.tools import video_prefs as _video_prefs
+    preferred = _video_prefs.effective_delivery_format(
+        project_folder or "", reel=reel,
+        video_preferences=video_preferences)
+    if preferred:
+        resolve_format_name(preferred)  # raise here, naming the preference
+        return preferred
+
     pipeline_block = _project_pipeline_block(project_folder)
 
     override = (pipeline_block.get("delivery_format") or "").strip()
@@ -134,7 +154,10 @@ def delivery_format_name(project_folder: Optional[str] = None,
 
 
 def resolve_delivery_format(project_folder: Optional[str] = None,
-                            templates_dir: Optional[str] = None) -> List[int]:
+                            templates_dir: Optional[str] = None,
+                            reel=None,
+                            video_preferences: Optional[dict] = None
+                            ) -> List[int]:
     """``[width, height]`` the render, the overlays and the conform all use.
 
     This is the ONE call every consumer makes.  It is deliberately a
@@ -146,6 +169,8 @@ def resolve_delivery_format(project_folder: Optional[str] = None,
     its own fallback.
     """
     width, height = resolve_format_name(
-        delivery_format_name(project_folder, templates_dir=templates_dir)
+        delivery_format_name(
+            project_folder, templates_dir=templates_dir, reel=reel,
+            video_preferences=video_preferences)
     )
     return [width, height]

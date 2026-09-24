@@ -243,6 +243,47 @@ def retellings_inside(start: float, end: float, transcript: dict) -> list:
     return possible_retellings(float(start), float(end), transcript)
 
 
+def _publish_video_preferences(data: dict) -> dict:
+    """The project's own soft length target and content rules, if declared.
+
+    `target_length_seconds` is SOFT - guidance the model weighs, never a
+    gate: a longer or shorter reel with defensible quality is allowed, so
+    this publishes the seconds and refuses nothing on them. It sits
+    BESIDE `length_guidance_seconds` (the 45-90 s series guidance) rather
+    than replacing it, so a video that declares nothing reads exactly
+    what it always read. `content_rules` (`speakers_must_interact`,
+    `require_value_add`, `require_cta`) is the project's own statement
+    of what a reel must do; absence keeps today's hardcoded format
+    behaviour. Both come from the merged video preferences
+    (``style.yaml`` locked value, then ``video.yaml``); a supplied
+    `video_preferences` input wins over a disk read.
+    """
+    published: dict = {}
+    project_folder = (data or {}).get("project_folder") or ""
+    supplied = (data or {}).get("video_preferences")
+    if not project_folder and supplied is None:
+        return published
+    try:
+        from library.tools.video_prefs import (
+            effective_content_rules, effective_target_length)
+        soft = effective_target_length(
+            project_folder, video_preferences=supplied)
+        if soft is not None:
+            published["target_length_seconds"] = soft
+            published["target_length_note"] = (
+                "SOFT target from the project's video preferences - "
+                "guidance to weigh, never a gate or a refusal.")
+        rules = effective_content_rules(
+            project_folder, video_preferences=supplied)
+        if rules is not None:
+            published["content_rules"] = rules
+    except Exception as exc:  # noqa: BLE001 - prefs never fail a build
+        import sys
+        print(f"  WARNING: could not read video preferences: {exc}",
+              file=sys.stderr)
+    return published
+
+
 def build_context(data: dict) -> dict:
     from library.tools.reel_exchange import (
         LENGTH_GUIDANCE, collapse_overlapping, collapse_retakes,
@@ -251,7 +292,8 @@ def build_context(data: dict) -> dict:
     transcript = data.get("timeline_transcript") or {}
     lead, answerer, turns, why = _speakers(transcript)
     if not lead or not answerer:
-        return {
+        out = _publish_video_preferences(data)
+        out.update({
             "turns": [],
             "reel_candidates": [],
             "undetermined": [
@@ -259,7 +301,8 @@ def build_context(data: dict) -> dict:
                 "exchange can be identified - a reel is a conversation "
                 "and this step cannot invent a second voice"
             ],
-        }
+        })
+        return out
 
     windows = exchange_windows(turns, lead, answerer)
     stretches = collapse_overlapping(windows)
@@ -284,7 +327,8 @@ def build_context(data: dict) -> dict:
         if retold:
             candidate["possible_retellings"] = retold
 
-    out = {
+    out = _publish_video_preferences(data)
+    out.update({
         # The turn STRUCTURE, and no longer the words.  A turn's text is
         # exactly its segments' texts joined by a space - on the field
         # test, 47,975 characters against the segments' 47,182 plus the
@@ -306,7 +350,7 @@ def build_context(data: dict) -> dict:
         LEAD: lead,
         ANSWERER: answerer,
         "who_leads_was_inferred": why,
-    }
+    })
     # Recorded spelling corrections, enforced on the regenerated
     # measurements (the 3.04 keep-exclusion precedent): a candidate
     # quoting speech the correction respelt carries the corrected

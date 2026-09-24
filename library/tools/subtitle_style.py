@@ -282,6 +282,13 @@ class SubtitleStyle:
         }
 
 
+#: The caption shape a project that declares none renders in. The
+#: pre-P3.2 look, preserved exactly so it is a no-op rather than a
+#: surprise. Single owner - `video_prefs` reads this rather than
+#: restating it, so there is nothing left to drift.
+DEFAULT_SUBTITLE_STYLE = "default_subtitles"
+
+
 SUBTITLE_STYLES: Dict[str, SubtitleStyle] = {
     # The pre-P3.2 look, unchanged, so a template naming it renders
     # byte-identically to before.
@@ -539,13 +546,22 @@ def resolve_subtitle_style(
     project_folder: Optional[str] = None,
     speaker: Optional[str] = None,
     reel_name: Optional[str] = None,
+    video_preferences: Optional[Dict[str, Any]] = None,
+    reel=None,
 ) -> Dict[str, Any]:
     """Template slots in, Remotion props out.
 
-    `brand_effect.subtitle_style` picks the shape; `brand_style.typography`
-    and `brand_style.color_palette` supply the brand specifics. A template
-    that names no style gets the legacy look, because a project with no
-    brand template at all must keep rendering.
+    Precedence for the style NAME: the merged video preferences'
+    `subtitle_style` (``style.yaml`` locked value, then ``video.yaml``
+    shared and per-reel layers)  >  `brand_effect.subtitle_style`  >
+    :data:`DEFAULT_SUBTITLE_STYLE`. A template that names no style -
+    and a project with no brand template at all - gets the legacy
+    look, because it must keep rendering. `reel` is the addressed reel
+    where the caller has one; `video_preferences` is an already-merged
+    mapping that wins over a disk read.
+
+    `brand_style.typography` and `brand_style.color_palette` supply the
+    brand specifics.
 
     `project_folder` resolves the delivery format, and through it the safe
     area the captions must sit inside - and it carries the project's own
@@ -566,7 +582,15 @@ def resolve_subtitle_style(
     brand_effect = brand_effect or {}
     brand_style = brand_style or {}
 
-    name = brand_effect.get("subtitle_style") or "default_subtitles"
+    from library.tools import video_prefs as _video_prefs
+    preferred = _video_prefs.effective_subtitle_style(
+        project_folder or "", reel=reel,
+        video_preferences=video_preferences)
+    if preferred:
+        name = preferred
+    else:
+        name = (brand_effect.get("subtitle_style")
+                or DEFAULT_SUBTITLE_STYLE)
     style = get_subtitle_style(name)
     typography = dict(brand_style.get("typography") or {})
     typography.update(project_subtitle_typography(project_folder) or {})

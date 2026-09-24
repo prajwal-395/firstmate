@@ -129,10 +129,19 @@ def _project_color_block(project_folder: str) -> Optional[Mapping[str, Any]]:
 
 
 def resolve_color_page_grade(
-        project_folder: str = "") -> Optional[dict[str, Any]]:
+        project_folder: str = "", reel=None,
+        video_preferences=None) -> Optional[dict[str, Any]]:
     """The project's declared PowerGrade, or None when it declares none.
 
     Returns `{"path": <absolute drx path>, "provenance": {...}}`.
+
+    Precedence: the merged video preferences' `color_grade`
+    (``style.yaml`` locked value, then ``video.yaml`` shared and
+    per-reel layers)  >  the project.yaml `color.power_grade_drx`
+    block. A video that declares nothing reads exactly what it always
+    read. `reel` is the addressed reel where the caller has one;
+    `video_preferences` is an already-merged mapping that wins over a
+    disk read.
 
     A project that declares nothing gets nothing: no grade is applied,
     no file is read, and the CDL-plus-Fusion halves ship exactly as
@@ -140,26 +149,49 @@ def resolve_color_page_grade(
     this returns None for the first and raises `ColorPageGradeError` for
     the second.
     """
+    from library.tools import video_prefs as _video_prefs
+    preferred = _video_prefs.effective_color_grade(
+        project_folder or "", reel=reel,
+        video_preferences=video_preferences)
+    if preferred is not None:
+        return _resolve_grade_mapping(
+            preferred, project_folder or "",
+            "video preferences `color_grade`")
     block = _project_color_block(project_folder)
     if block is None:
         return None
     declaration = block.get("power_grade_drx")
     if declaration is None:
         return None
+    return _resolve_grade_mapping(
+        declaration, project_folder or "",
+        "project.yaml `color.power_grade_drx`")
+
+
+def _resolve_grade_mapping(
+        declaration: dict, project_folder: str, where: str
+        ) -> Optional[dict[str, Any]]:
+    """A `power_grade_drx`-shaped mapping resolved to disk, or None.
+
+    `where` names the declaration for refusals (the project.yaml
+    `color:` block or a video-preferences file). Shared by the
+    project.yaml read below and the video-preferences read above it,
+    so the two cannot disagree about what a grade declaration means.
+    """
     if not isinstance(declaration, dict):
         raise ColorPageGradeError(
-            "`color.power_grade_drx` must be a mapping carrying `path` "
+            f"{where} must be a mapping carrying `path` "
             f"and `provenance`; got {declaration!r}.")
     unknown = sorted(set(declaration) - {"path", "provenance", "cdl_node"})
     if unknown:
         raise ColorPageGradeError(
-            f"`color.power_grade_drx` carries {unknown}, which nothing "
+            f"{where} carries {unknown}, which nothing "
             "reads. Known: `path`, `provenance`, `cdl_node`.")
     cdl_node = declaration.get("cdl_node")
     if cdl_node is not None and (not isinstance(cdl_node, str)
                                  or not cdl_node.strip()):
         raise ColorPageGradeError(
-            f"`color.power_grade_drx` declares `cdl_node` {cdl_node!r}, "
+            f"{where} declares `cdl_node` {cdl_node!r}, "
             "which is not a node label. It must NAME a node in the "
             "graph the `.drx` builds - the label is matched, never a "
             "node index, because an index means a different node in "
@@ -167,30 +199,30 @@ def resolve_color_page_grade(
     path = declaration.get("path")
     if not path or not isinstance(path, str):
         raise ColorPageGradeError(
-            "`color.power_grade_drx` declares no `path`. A grade nobody "
+            f"{where} declares no `path`. A grade nobody "
             "can find is a grade nobody can review.")
     provenance = declaration.get("provenance")
     if not isinstance(provenance, dict) or not provenance:
         raise ColorPageGradeError(
-            f"`color.power_grade_drx` for {path!r} records no provenance. "
+            f"{where} for {path!r} records no provenance. "
             "A `.drx` the captain did not authorise is refused - record "
             "`source`, `authorised_by` and `licence` (AGENTS.md 11).")
     for key in ("source", "authorised_by", "licence"):
         if not provenance.get(key):
             raise ColorPageGradeError(
-                f"`color.power_grade_drx` provenance for {path!r} is "
+                f"{where} provenance for {path!r} is "
                 f"missing `{key}`. Provenance with a hole is provenance "
                 "nobody wrote.")
     abspath = (path if os.path.isabs(path)
                else os.path.join(project_folder, path))
     if not os.path.exists(abspath):
         raise ColorPageGradeError(
-            f"`color.power_grade_drx` points at {abspath!r}, which is not "
+            f"{where} points at {abspath!r}, which is not "
             "on disk. A declaration naming a file that is not there "
             "refuses rather than rendering ungraded.")
     if not abspath.lower().endswith(".drx"):
         raise ColorPageGradeError(
-            f"`color.power_grade_drx` points at {abspath!r}, which is not "
+            f"{where} points at {abspath!r}, which is not "
             "a `.drx`. `ApplyGradeFromDRX` reads stills; anything else "
             "fails inside Resolve with no message worth forwarding.")
     return {"path": abspath, "provenance": dict(provenance),

@@ -28,6 +28,7 @@ import sys
 
 sys.path.insert(0, os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..")))
+from library.schemas.brand_template import DEFAULT_CAPTION_CASE
 from library.tools.caption_reading import (
     apply_caption_reading,
 )
@@ -1533,16 +1534,17 @@ def main():
 
     # Read caption case from brand template's effect slot.
     #
-    # Every shipped template declares one. The `"lowercase"` written here
-    # when the slot is absent entirely is LOAD-BEARING and left in place
-    # deliberately: `EffectSlots.caption_case` defaults to it too, so
-    # removing it here would only move the same decision one file over,
-    # and a project running with no brand template at all must still
-    # render captions. It is listed for the captain as a creative default
-    # that survives this pass - see the PR that removed the rest.
+    # Every shipped template declares one. The fallback when the slot is
+    # absent entirely is LOAD-BEARING and left in place deliberately:
+    # it is `DEFAULT_CAPTION_CASE`, the one constant
+    # `library/schemas/brand_template.py` owns and `EffectSlots`
+    # defaults to, so a project running with no brand template at all
+    # still renders captions. It is listed for the captain as a
+    # creative default that survives this pass - see the PR that
+    # removed the rest.
     brand_effect = input_data.get("brand_effect", {})
     brand_style = input_data.get("brand_style", {})
-    caption_case = brand_effect.get("caption_case", "lowercase")
+    caption_case = brand_effect.get("caption_case", DEFAULT_CAPTION_CASE)
 
     try:
         result = generate_subtitles(
@@ -1566,7 +1568,7 @@ if __name__ == "__main__":
 # ── Region-scoped re-plan, and putting it back ──────────────────────
 
 def splice_region_plan(audio_spine: dict, stored_plan: dict, scope,
-                       caption_case: str = "lowercase",
+                       caption_case: str = DEFAULT_CAPTION_CASE,
                        brand_effect: dict = None,
                        brand_style: dict = None,
                        project_folder: str = "") -> dict:

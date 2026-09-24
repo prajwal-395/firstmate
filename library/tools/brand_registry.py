@@ -89,8 +89,9 @@ ABSENT_SLOT_READINGS = {
         "punch-in, no frame asset is placed on V2, and no power "
         "animation is drawn (library/tools/tv_frame.py)"),
     "style.typography": (
-        "the `default_subtitles` shape, 160/800 - PARKED with the rest of "
-        "the style layer, inventoried and deliberately unchanged "
+        "the `default_subtitles` shape, 160/800 - the preference layer's "
+        "explicit `video_prefs.DEFAULT_SUBTITLE_STYLE`, PARKED with the "
+        "rest of the style layer, inventoried and deliberately unchanged "
         "(library/tools/subtitle_style.py)"),
     "effect.transition_types": (
         "every drawable type is permitted, because an allow-list is a "
@@ -104,12 +105,15 @@ ABSENT_SLOT_READINGS = {
         "no intensity constraint reaches step 4.03's prompt "
         "(library/tools/template_loader.py)"),
     "effect.subtitle_style": (
-        "the `default_subtitles` shape - see style.typography"),
+        "the `default_subtitles` shape - the preference layer's explicit "
+        "`video_prefs.DEFAULT_SUBTITLE_STYLE`, see style.typography"),
     "effect.caption_case": (
-        "lowercase - PARKED.  It is the one creative value that survives "
-        "an absent template, it is why every caption card on 001 is "
-        "lowercase, and which case the copy is set in is the captain's "
-        "open decision (step_4_01_plan_subtitles/step.py)"),
+        "lowercase - the preference layer's explicit "
+        "`video_prefs.DEFAULT_CAPTION_CASE`. PARKED.  It is the one "
+        "creative value that survives an absent template, it is why "
+        "every caption card on 001 is lowercase, and which case the copy "
+        "is set in is the captain's open decision "
+        "(step_4_01_plan_subtitles/step.py)"),
     "effect.timed_text_overlay": (
         "no timed text (library/tools/timed_text_overlay.py)"),
     "content.bookends": "no intro, no outro, no end card (library/tools/bookends.py)",
@@ -123,7 +127,9 @@ ABSENT_SLOT_READINGS = {
         "(library/tools/duration_targets.py)"),
     "delivery_format": (
         "the product's own enumeration decides, and its default is "
-        "vertical 1080x1920 (library/tools/delivery_format.py)"),
+        "vertical 1080x1920 - the preference layer's explicit "
+        "`video_prefs.DEFAULT_DELIVERY_FORMAT` "
+        "(library/tools/delivery_format.py)"),
     "content.music_genre": (
         "NO READER.  Step 2.04's handoff names `brand_content.music_genre` "
         "but no manifest routes brand_content to it, so the slot reaches "

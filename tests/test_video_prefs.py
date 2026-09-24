@@ -279,3 +279,160 @@ def test_target_length_is_carried_not_gated(tmp_path):
     assert merged["content_rules"] == {
         "speakers_must_interact": ["akshita", "craig"],
         "require_value_add": True, "require_cta": True}
+
+
+# ── Consumers: a declared preference wins, absence changes nothing ──
+
+def test_delivery_format_pref_wins_over_project_yaml(tmp_path):
+    """A declared frame beats the project.yaml fallback.
+
+    The failure it pins: the preference loading but nothing reading
+    it - the run rendering vertical while the project declared
+    horizontal.
+    """
+    folder = _project(
+        tmp_path, "delivery_format: horizontal_1920x1080\n")
+    (tmp_path / "project.yaml").write_text(
+        "pipeline:\n  delivery_format: vertical_1080x1920\n",
+        encoding="utf-8")
+    from library.tools.delivery_format import delivery_format_name
+    assert delivery_format_name(folder) == "horizontal_1920x1080"
+
+
+def test_no_pref_keeps_todays_delivery_default(tmp_path):
+    """Nothing declared still ships vertical.
+
+    The failure it pins: the wiring moving a current project off the
+    frame it always rendered.
+    """
+    folder = _project(tmp_path)
+    from library.tools.delivery_format import (
+        DEFAULT_DELIVERY_FORMAT, delivery_format_name)
+    assert delivery_format_name(folder) == DEFAULT_DELIVERY_FORMAT == \
+        "vertical_1080x1920"
+
+
+def test_subtitle_style_pref_wins_over_brand_effect(tmp_path):
+    """A declared caption shape beats the template's.
+
+    The failure it pins: the style loading but the captions rendering
+    the template's shape anyway - `bold_large` (192) declared,
+    `minimal` (120) drawn.
+    """
+    folder = _project(tmp_path, "subtitle_style: bold_large\n")
+    from library.tools.subtitle_style import resolve_subtitle_style
+    got = resolve_subtitle_style({"subtitle_style": "minimal"}, {}, folder)
+    assert got["fontSize"] == 192
+
+
+def test_no_pref_keeps_legacy_subtitle_shape(tmp_path):
+    """Nothing declared still renders the legacy look."""
+    folder = _project(tmp_path)
+    from library.tools.subtitle_style import resolve_subtitle_style
+    assert resolve_subtitle_style({}, {}, folder)["fontSize"] == 160
+
+
+def test_color_grade_pref_resolves_like_project_yaml(tmp_path):
+    """A declared grade is applied, preferring the video preference.
+
+    The failure it pins: the grade loading but no clip ever wearing
+    it - declared in style.yaml, resolved to disk here, applied by
+    the same path the project.yaml grade takes.
+    """
+    (tmp_path / "pref.drx").write_bytes(b"DRX")
+    (tmp_path / "proj.drx").write_bytes(b"DRX")
+    folder = _project(
+        tmp_path,
+        "color_grade:\n"
+        "  path: pref.drx\n"
+        "  provenance:\n"
+        "    source: GUI-built\n"
+        "    authorised_by: captain\n"
+        "    licence: own\n")
+    import yaml
+    (tmp_path / "project.yaml").write_text(
+        yaml.safe_dump({"color": {"power_grade_drx": {
+            "path": str(tmp_path / "proj.drx"),
+            "provenance": {"source": "GUI-built",
+                           "authorised_by": "captain",
+                           "licence": "own"}}}}),
+        encoding="utf-8")
+    from library.tools.color_page_grade import resolve_color_page_grade
+    assert resolve_color_page_grade(folder)["path"] == \
+        str(tmp_path / "pref.drx")
+
+
+def test_no_pref_grade_applies_nothing(tmp_path):
+    """Nothing declared still grades nothing."""
+    folder = _project(tmp_path)
+    (tmp_path / "project.yaml").write_text(
+        "pipeline: {}\n", encoding="utf-8")
+    from library.tools.color_page_grade import resolve_color_page_grade
+    assert resolve_color_page_grade(folder) is None
+
+
+def test_soft_target_reaches_the_music_bridge(tmp_path):
+    """The music catalogue serves the declared soft target.
+
+    The failure it pins: the target loading but the choice still
+    judged against the 60 s default - a 45 s video offered tracks
+    that cannot cover it, or refused ones that can.
+    """
+    import importlib.util
+    bridge_path = (REPO / "library" / "steps"
+                   / "step_2_04_music_selection" / "bridge.py")
+    spec = importlib.util.spec_from_file_location(
+        "music_selection_bridge", str(bridge_path))
+    music_bridge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(music_bridge)
+    folder = _project(tmp_path, None, "target_length_seconds: 45\n")
+    assert music_bridge._target_duration(
+        {"project_folder": folder}) == 45.0
+
+
+def test_select_reels_bridge_publishes_rules_and_soft_target(tmp_path):
+    """The reel prompt sees the project's own rules and soft target.
+
+    The failure it pins: content rules declared but the chooser never
+    told - judging monologues as failed two-handers and lengths
+    against 45-90 s while the project asked for something else.
+    """
+    import importlib.util
+    bridge_path = (REPO / "library" / "steps"
+                   / "step_3_04_select_reels" / "bridge.py")
+    spec = importlib.util.spec_from_file_location(
+        "select_reels_bridge", str(bridge_path))
+    reels_bridge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reels_bridge)
+    folder = _project(
+        tmp_path, None,
+        "target_length_seconds: 45\n"
+        "content_rules:\n"
+        "  speakers_must_interact: [akshita]\n"
+        "  require_value_add: true\n"
+        "  require_cta: false\n")
+    out = reels_bridge.build_context(
+        {"timeline_transcript": {}, "project_folder": folder})
+    assert out["target_length_seconds"] == 45.0
+    assert out["content_rules"] == {
+        "speakers_must_interact": ["akshita"],
+        "require_value_add": True, "require_cta": False}
+
+
+def test_nothing_declared_publishes_nothing(tmp_path):
+    """A video with no preferences offers the prompt no new tables."""
+    import importlib.util
+    bridge_path = (REPO / "library" / "steps"
+                   / "step_3_04_select_reels" / "bridge.py")
+    spec = importlib.util.spec_from_file_location(
+        "select_reels_bridge_absence", str(bridge_path))
+    reels_bridge = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reels_bridge)
+    folder = _project(tmp_path)
+    out = reels_bridge.build_context(
+        {"timeline_transcript": {}, "project_folder": folder})
+    assert "target_length_seconds" not in out
+    assert "content_rules" not in out
+
+
+

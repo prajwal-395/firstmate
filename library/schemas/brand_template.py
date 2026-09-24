@@ -38,6 +38,15 @@ class StyleSlots:
     # the engine (§14).  Shape and readers: library/tools/tv_frame.py.
     tv_frame: Optional[Dict[str, Any]] = None
 
+#: The caption case a project that declares none renders in. The one
+#: creative value that survives an absent brand template, and the reason
+#: every caption card on project 001 is lowercase. PARKED: which case
+#: the copy is set in is the captain's open decision. Single owner -
+#: `video_prefs` and `step_4_01_plan_subtitles` read this rather than
+#: restating it, so there is nothing left to drift.
+DEFAULT_CAPTION_CASE = "lowercase"
+
+
 @dataclass
 class EffectSlots:
     transition_types: List[str] = field(default_factory=list)
@@ -49,12 +58,9 @@ class EffectSlots:
     # templates still declare it and dropping it would fail to parse them;
     # "" is "declares none" and nothing reads either value.
     sfx_density: str = ""
-    # "lowercase" | "as_written".  The one creative value that survives an
-    # absent brand template, and the reason every caption card on project
-    # 001 is lowercase.  PARKED: which case the copy is set in is the
-    # captain's open decision, so it is inventoried rather than changed.
-    # See ABSENT_SLOT_READINGS in library/tools/brand_registry.py.
-    caption_case: str = "lowercase"
+    # "lowercase" | "as_written".  See DEFAULT_CAPTION_CASE above and
+    # ABSENT_SLOT_READINGS in library/tools/brand_registry.py.
+    caption_case: str = DEFAULT_CAPTION_CASE
     # Motion graphics (P3.1). Both default to today's behaviour: the
     # corner accents and the progress bar were drawn unconditionally, and
     # whether the house style should keep them is Q3, a captain's call.

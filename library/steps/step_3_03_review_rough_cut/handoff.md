@@ -249,7 +249,7 @@ If the input includes `timeline_notes`, you MUST read and weigh them. Your outpu
    speech_sequence's intended text and not a reconstruction written in the
    review. A finding that quotes words outside `actual_script.full_text` is
    a finding about something the viewer does not hear.
-4. **Arc sensitivity**: The review should understand that shortform video
+4. **Arc sensitivity**: The review should understand that a short video
    doesn't need every arc element to be elaborate — but it does need the
    key emotional beats to land.
 

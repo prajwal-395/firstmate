@@ -216,7 +216,7 @@ DAG_PATH = LIBRARY_ROOT / "processes/edit_video/dag.json"
 # attachment choice and never raises: an empty folder is a stated
 # absence, and learnings simply scope to nothing.
 PROCESS_LEVEL_INPUTS = ("sfx_library", "music_library", "creative_brief",
-                        "project_context")
+                        "project_context", "video_preferences")
 
 # The one input carrying the LAST render's QA findings.  It is not a
 # process-level input and it is not DAG-routable - see the block in

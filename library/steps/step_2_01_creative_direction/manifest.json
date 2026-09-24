@@ -47,6 +47,12 @@
         "type": "object",
         "required": false,
         "description": "Per-clip prosody data from step 1.05: pitch contour, speaking rate, voice quality, intensity. Deterministic signal-processing measurements via parselmouth. Projected through view:prosody which filters hollow profiles."
+      },
+      {
+        "name": "video_preferences",
+        "type": "object",
+        "required": false,
+        "description": "The merged video preferences (style.yaml project layer, video.yaml per-video layer - see library/tools/video_prefs). Injected by the runner when the video declares any; absent otherwise. Read so the direction serves the project's own format, shape and preferences rather than an assumed one."
       }
     ],
     "outputs": [
@@ -98,6 +104,7 @@
     "source_process": "video_editing_pipeline"
   },
   "context_fields": [
+    "video_preferences",
     "semantic_analysis_documents.*.clip_id",
     "semantic_analysis_documents.*.duration_s",
     "semantic_analysis_documents.*.analysis.scene",
