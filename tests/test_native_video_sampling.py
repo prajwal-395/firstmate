@@ -23,6 +23,9 @@ These tests name that contract:
    entries record `has_audio` and `sampling`.
 5. A cached window cut under the old strip-audio policy is re-cut, not
    silently reused (its file would fail `load_audio`).
+6. Window clips are cut at 720p height, never upscaled; a cached window
+   taller than the cap is re-cut, not silently reused (it would keep
+   the slow full-resolution decode path).
 """
 import shutil
 import subprocess
@@ -50,9 +53,9 @@ def test_every_folded_window_samples_at_two_fps():
     assert plan["effective_fps"] == 2.0
 
 
-def _synth_clip(path, duration_s, with_audio=True):
+def _synth_clip(path, duration_s, with_audio=True, size="320x240"):
     cmd = ["ffmpeg", "-y", "-v", "error",
-           "-f", "lavfi", "-i", f"testsrc=duration={duration_s}:size=320x240:rate=24"]
+           "-f", "lavfi", "-i", f"testsrc=duration={duration_s}:size={size}:rate=24"]
     if with_audio:
         cmd += ["-f", "lavfi", "-i", f"sine=frequency=440:duration={duration_s}",
                 "-c:a", "aac", "-shortest"]
@@ -286,3 +289,53 @@ def test_extract_keeps_audio_and_recuts_legacy_silent_cache(tmp_path):
     assert len(clips) == 2
     assert all(c["has_audio"] for c in clips)
     assert vp._file_has_audio(Path(clips[0]["path"])) is True
+
+
+def test_extract_caps_window_height_at_720p(tmp_path):
+    """A 960p source yields 720p windows (aspect kept), not source-res."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs ffmpeg")
+    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True,
+                         size="1280x960")
+    assert vp.probe_clip(Path(source))["resolution"] == [1280, 960]
+    clips = vp.extract_video_clips(
+        Path(source), 12.0, tmp_path / "cache")
+    assert len(clips) == 2
+    for c in clips:
+        assert vp.probe_clip(Path(c["path"]))["resolution"] == [960, 720]
+        assert c["has_audio"] is True
+
+
+def test_extract_never_upscales_a_small_source(tmp_path):
+    """A 240p source keeps its own resolution - the cap only downscales."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs ffmpeg")
+    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True)
+    clips = vp.extract_video_clips(
+        Path(source), 12.0, tmp_path / "cache")
+    assert len(clips) == 2
+    for c in clips:
+        assert vp.probe_clip(Path(c["path"]))["resolution"] == [320, 240]
+
+
+def test_extract_recuts_oversize_cached_window(tmp_path):
+    """A cached window cut at source resolution is re-cut at the cap,
+    not silently reused."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("needs ffmpeg")
+    source = _synth_clip(tmp_path / "src.mp4", 12, with_audio=True,
+                         size="1280x960")
+    cache = tmp_path / "cache"
+    legacy_dir = cache / "src" / "clips"
+    legacy_dir.mkdir(parents=True)
+    subprocess.run(
+        ["ffmpeg", "-y", "-v", "error", "-i", str(source),
+         "-ss", "0", "-t", "10", "-c:v", "libx264", "-preset", "ultrafast",
+         "-crf", "23", "-c:a", "aac", str(legacy_dir / "clip_000.mp4")],
+        capture_output=True, check=True)
+    assert vp._video_height(legacy_dir / "clip_000.mp4") == 960
+
+    clips = vp.extract_video_clips(Path(source), 12.0, cache)
+    assert len(clips) == 2
+    assert vp._video_height(Path(clips[0]["path"])) == 720
+    assert all(c["has_audio"] for c in clips)

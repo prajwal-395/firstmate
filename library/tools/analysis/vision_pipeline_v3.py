@@ -103,6 +103,21 @@ MIN_WINDOW_S = 0.5
 NATIVE_VIDEO_FRAMES_PER_CALL = 32
 NATIVE_VIDEO_DECODE_FPS = 2.0
 
+# Window clips are cut at 720p height (aspect kept, never upscaled), not
+# at source resolution. Measured 2026-09-24 on the captain's M5/25.8 GB
+# box, mlx-vlm 0.7.2, `mlx-community/gemma-4-12b-it-4bit`, one folded
+# call per 10 s window: 720p input is ~16% faster end to end than 4K
+# (interleaved medians 43.5 s vs 52.7 s under load; prompt tokens
+# identical at 2723, so the token grid is unchanged - the saving is
+# decode plus processor resize). Verdicts held on the probe window:
+# actions/scene/camera counts, content_type, notable_features and
+# body_language all inside the 4K call's own run-to-run variation.
+# Cutting `max_soft_tokens` instead (70 -> 35/18) is REJECTED: prompt
+# tokens fall but wall barely moves (decode dominates) and verdicts
+# drift, including one 2000-token runaway. The 2 fps floor is untouched:
+# this changes pixels per frame, never frames per window.
+WINDOW_CLIP_HEIGHT = 720
+
 # Object detection — coarse sweep
 COARSE_FRAME_INTERVAL_S = 5       # 1 frame every 5 seconds
 COARSE_BATCH_SIZE = 15            # Max frames per model call
@@ -417,7 +432,16 @@ class VisionAnalyzer:
                 (`num_audios=1`), `prepare_inputs` yields `input_features`
                 (250 tokens per 10 s at 40 ms/token), and the model
                 projects them through `embed_audio`, whose weights the
-                checkpoint carries. The video loader (cv2 frames) never
+                checkpoint carries. gemma4-unified has no separate audio
+                tower (projection-only path - the `audio_tower` in
+                `mlx_vlm.models.gemma4` is not the class `load()` returns
+                for this checkpoint), so "embed_audio weights present" is
+                the whole of the static evidence - and it is backed by a
+                behavioral control, 2026-09-24: the same window intact,
+                muted and swapped for another window's audio, asked what
+                is said, 4/4 consistent per variant - answers track the
+                audio (swapped reports the other window's words, muted
+                reports none). The video loader (cv2 frames) never
                 hears anything on its own, so audio in the video file
                 alone is NOT heard - it must be passed here.
         """
@@ -736,6 +760,23 @@ def _file_has_audio(path):
         return False
 
 
+def _video_height(path):
+    """Height in px of a file's first video stream, or 0 when unknown."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", "-select_streams", "v:0", str(path)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False,
+        )
+        if result.returncode != 0:
+            return 0
+        streams = json.loads(result.stdout).get("streams", [])
+        return int(streams[0].get("height", 0)) if streams else 0
+    except (json.JSONDecodeError, OSError, ValueError, IndexError):
+        return 0
+
+
 def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S,
                         subdir="clips", prefix="clip", with_audio=True):
     """Extract video clips for windowed native-video analysis.
@@ -756,6 +797,10 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
     re-cut: caches written when action windows were stripped (`-an`)
     would otherwise be reused silently, and `load_audio` fails on them
     with "No audio streams found in file".
+
+    A cached window taller than `WINDOW_CLIP_HEIGHT` is re-cut too:
+    caches written at source resolution predate the 720p cap and would
+    otherwise be reused silently, keeping the slow decode path.
 
     A cut that carries no video stream (the tail sliver of a clip whose
     duration is not a multiple of `window_s` re-encodes to a husk cv2
@@ -792,11 +837,18 @@ def extract_video_clips(clip_path, duration, cache_dir, window_s=ACTION_WINDOW_S
                     out_path.unlink()
                 except OSError:
                     pass
+            elif _video_height(out_path) > WINDOW_CLIP_HEIGHT:
+                # Stale cache from before the 720p cap - re-cut below.
+                try:
+                    out_path.unlink()
+                except OSError:
+                    pass
 
         if not out_path.exists():
             cmd = ["ffmpeg", "-y", "-i", str(clip_path),
                    "-ss", str(start), "-t", str(end - start),
-                   "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"]
+                   "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                   "-vf", f"scale=-2:min({WINDOW_CLIP_HEIGHT}\\,ih)"]
             if want_audio:
                 cmd += ["-c:a", "aac"]
             else:
@@ -2237,7 +2289,7 @@ def run_pipeline(clips, cache_dir=CACHE_DIR, output_dir=OUTPUT_DIR, force=False,
             print(f"  Frames extracted: {len(frames)} (every {COARSE_FRAME_INTERVAL_S}s)")
 
             # Extract video clips (every native-video pass runs on these
-            # 10s segments at 2 fps, audio kept)
+            # 10s segments at 2 fps, 720p, audio kept)
             video_clips = extract_video_clips(clip_path, duration, cache_dir)
             n_aud = sum(1 for c in video_clips if c.get("has_audio"))
             print(f"  Video clips extracted: {len(video_clips)} × {ACTION_WINDOW_S}s "
