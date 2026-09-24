@@ -15,6 +15,11 @@ import json
 import sys
 from library.tools.pipeline_validation import require_keys
 from library.tools.plan_keys import refuse_unknown_keys
+from library.tools.sub_block_anchor import (
+    ANCHOR_ENTRY_KEYS,
+    AnchorRefused,
+    resolve_anchor,
+)
 from library.tools.vfx_plan_basis import (
     DroppedEntry,
     PlanBasis,
@@ -141,7 +146,11 @@ DRIFT_EFFECTS = ("slow_zoom_in", "slow_zoom_out")
 # withdrawn alias, an effect the toolkit has not got) and wrong for a
 # key nothing reads. `segment_id` is the legacy spelling of
 # `target_block_position`; `composite_mode` is read on the generator
-# overlay path only.
+# overlay path only. `anchor` / `anchor_end` are the sub-block address
+# (library/tools/sub_block_anchor.py): `anchor` moves the effect's
+# start onto a word, beat or frame inside the block, `anchor_end` its
+# end - a punch that spans one word carries both. Either alone leaves
+# the other end on the block boundary.
 VFX_ENTRY_KEYS = frozenset({
     "target_block_position",
     "segment_id",
@@ -149,7 +158,7 @@ VFX_ENTRY_KEYS = frozenset({
     "params",
     "rationale",
     "composite_mode",
-})
+} | ANCHOR_ENTRY_KEYS)
 
 
 def _builtin_effect_names() -> set:
@@ -222,6 +231,8 @@ def resolve_vfx(
     timed_spine: dict,
     frame_rate: float = 30.0,
     dropped: list = None,
+    music_analysis: dict | None = None,
+    music_selection: dict | None = None,
 ) -> list:
     """Resolve creative VFX plan to execution specs.
 
@@ -231,6 +242,10 @@ def resolve_vfx(
     stderr, which is where they used to go exclusively - and a plan whose
     every entry was dropped came out byte-identical to a plan the model
     deliberately left empty.  See `library/tools/vfx_plan_basis.py`.
+
+    `music_analysis` / `music_selection` route the beat grid beat
+    anchors resolve against; word and frame anchors need only the
+    spine. Absent, a beat anchor refuses naming the missing grid.
     """
     # An entry key nothing here reads is refused before anything
     # resolves - the refusal travels the post-bridge retry path so the
@@ -266,16 +281,23 @@ def resolve_vfx(
             )
             continue
 
-        # One effect per block. A second entry on the same block is a
-        # duplicate, not a stacked effect.
-        if str(pos) in covered_positions:
+        # One effect per timeline span. Two entries resolving onto the
+        # identical span are duplicates, not stacked effects - but two
+        # entries on the same block with different sub-block anchors
+        # are two different moments (a punch on each of two words),
+        # so the cover is keyed by span, not by block.
+        span_key = None
+        if vfx.get("anchor") is None and vfx.get("anchor_end") is None:
+            span_key = str(pos)
+        if span_key is not None and span_key in covered_positions:
             _drop(
                 pos, vfx.get("effect_type", ""), "duplicate_block",
                 f"Dropped duplicate VFX on block {pos!r} "
                 f"({vfx.get('effect_type', '?')})",
             )
             continue
-        covered_positions.add(str(pos))
+        if span_key is not None:
+            covered_positions.add(span_key)
 
         tl_start = block["timeline_start"]
         tl_end = block["timeline_end"]
@@ -386,15 +408,73 @@ def resolve_vfx(
             covered_positions.discard(str(pos))
             continue
 
+        # Sub-block span: the anchor moves the effect's start onto a
+        # word, beat or frame inside the block, the end anchor its end.
+        # Either alone leaves the other end on the block boundary - so a
+        # punch that spans one word carries both, and an effect with
+        # neither spans the block exactly as before. An end at or before
+        # the start refuses: a span is not a point.
+        span_start, span_end = tl_start, tl_end
+        anchor_method = None
+        if vfx.get("anchor") is not None:
+            hit = resolve_anchor(
+                vfx["anchor"], block=block,
+                music_analysis=music_analysis,
+                music_selection=music_selection,
+                frame_rate=frame_rate, step="plan_vfx",
+                plan="vfx_creative", index=len(resolved))
+            span_start = hit["timeline_seconds"]
+            anchor_method = hit["method"]
+        if vfx.get("anchor_end") is not None:
+            hit = resolve_anchor(
+                vfx["anchor_end"], block=block,
+                music_analysis=music_analysis,
+                music_selection=music_selection,
+                frame_rate=frame_rate, step="plan_vfx",
+                plan="vfx_creative", index=len(resolved),
+                end="anchor_end")
+            span_end = hit["timeline_seconds"]
+            anchor_method = (f"{anchor_method} to {hit['method']}"
+                             if anchor_method is not None
+                             else f"block start to {hit['method']}")
+        if span_end <= span_start:
+            raise AnchorRefused(
+                what=(f"step plan_vfx plan entry {len(resolved)} anchor "
+                      f"span ends at {span_end:.3f}s, at or before its "
+                      f"start {span_start:.3f}s"),
+                why=(f"an effect's extent is a span: entry "
+                     f"{len(resolved)} of `vfx_creative` anchors a span "
+                     f"that is not a span, and drawing it would put an "
+                     f"effect on the picture nobody placed."),
+                fix=(f"re-plan entry {len(resolved)} of `vfx_creative` "
+                     f"with `anchor_end` after `anchor` (a punch that "
+                     f"spans one word anchors the word's start and its "
+                     f"end), or drop one of the two anchors."),
+            )
+        if anchor_method is not None:
+            span_key = (str(pos), round(span_start, 3),
+                        round(span_end, 3))
+            if span_key in covered_positions:
+                _drop(
+                    pos, vfx.get("effect_type", ""), "duplicate_block",
+                    f"Dropped duplicate VFX on block {pos!r} "
+                    f"({vfx.get('effect_type', '?')}) spanning the same "
+                    f"anchored range",
+                )
+                continue
+            covered_positions.add(span_key)
+
         resolved.append({
             "vfx_id": f"vfx_{len(resolved)+1:03d}",
             "target_block_position": block["position"],
-            "timeline_start": round(tl_start, 3),
-            "timeline_end": round(tl_end, 3),
+            "timeline_start": round(span_start, 3),
+            "timeline_end": round(span_end, 3),
             "effect_type": effect_type,
             "params": params,
             "rationale": vfx.get("rationale", ""),
         })
+        if anchor_method is not None:
+            resolved[-1]["anchor_method"] = anchor_method
 
     resolved.sort(key=lambda v: v["timeline_start"])
     for i, v in enumerate(resolved, start=1):
@@ -416,8 +496,9 @@ def _assert_vfx_distinct(resolved: list) -> None:
     if len(ranges) < len(resolved):
         raise ValueError(
             f"{len(resolved)} VFX resolved to only {len(ranges)} distinct "
-            f"timeline range(s): {sorted(ranges)}. Each VFX must target "
-            f"its own spine block."
+            f"timeline range(s): {sorted(ranges)}. Each VFX must span its "
+            f"own timeline range - two entries on one block need "
+            f"different sub-block anchors."
         )
 
 
@@ -532,6 +613,8 @@ def main():
 
     spine = data.get("timed_spine", {})
     fps = data.get("frame_rate", 30.0)
+    music_analysis = data.get("music_analysis", {})
+    music_selection = data.get("music_selection", {})
 
     # An empty plan is a legitimate answer - the handoff says so in as many
     # words ("an empty list is a legitimate answer for a piece that wants
@@ -540,7 +623,9 @@ def main():
     # outright if the padding left it empty.
 
     dropped = []
-    result = resolve_vfx(creative, spine, fps, dropped=dropped)
+    result = resolve_vfx(creative, spine, fps, dropped=dropped,
+                         music_analysis=music_analysis,
+                         music_selection=music_selection)
 
     # Extract generator presets for the overlay track.
     # resolve_vfx rejects these from the clip-effect path; this routes

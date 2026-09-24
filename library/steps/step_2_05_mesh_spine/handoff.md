@@ -267,22 +267,27 @@ beat-aligned cutting downstream (see `library/tools/spine_contract.py`).
 - If speech and music don't mesh well, propose cutting a speech segment
   or swapping a music splice — document the change and rationale.
 
-### The music is already measured, and you are not the one measuring it
+### The music is already measured, and the bar starts are in your context
 
-Step 2.06 (`music_analysis`) measures the chosen track with librosa: the
-per-second energy curve, the tempo, the beats and the downbeats. None of
-those raw series reach you, and that is deliberate - this step's
-`context_fields` withhold `music_analysis.tempo.beats`,
+Step 2.06 (`music_analysis`) measures the chosen track with librosa:
+the per-second energy curve, the tempo, the beats and the downbeats.
+The raw series do not reach you - this step's `context_fields`
+withholds `music_analysis.tempo.beats`,
 `music_analysis.tempo.downbeats` and
-`music_analysis.energy_dynamics.energy_curve_1hz` by name (AGENTS.md 10.1,
-"No raw value list reaches a prompt"). What you get is the reading:
-`music_analysis` summary scalars and the music's own behaviour words.
+`music_analysis.energy_dynamics.energy_curve_1hz` by name (AGENTS.md
+10.1, "No raw value list reaches a prompt"). What you get instead is
+the addressed reading: the `beatgrid` view, one row per bar with its
+bar number, its downbeat second and the grid's provenance
+(detected or estimated).
 
-So do not try to derive a beat grid or an energy contour here. You have no
-shell, no audio file and no measurements to run one on, and a number you
-produced by describing an analysis you did not run is an invented number.
-Where a boundary should land on a beat, say so in the block's
-`visual_note` and let step 4.02 - which has the grid - place it.
+So do not try to derive a beat grid of your own. You have no shell, no
+audio file and no measurements to run one on, and a number you produced
+by describing an analysis you did not run is an invented number. Where
+a boundary should land on a beat, land it there: size a non-speech
+block (`intro`, `transition_slot`, `outro`) so its boundary falls on a
+bar start from the view, and name the bar in the block's `visual_note`
+so step 4.02 - which places the cut - can hold it. (Speech-block
+durations are the passages' real durations, not yours to size.)
 
 ---
 

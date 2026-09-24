@@ -64,6 +64,35 @@ Select and place sound effects at appropriate moments in the timeline.
   Each layered sound carries its own `volume_db`
 - Match the music rhythm and energy
 
+### Sub-block anchors (exact timing inside the block):
+
+Every entry names its block (`spine_block_position`), and a sound that
+belongs to a MOMENT inside that block - a word, a beat, a frame - says
+so with `anchor`. Without one the sound is placed by its envelope snap
+and kept off speech; with one it lands EXACTLY where the anchor
+resolves, winning over both. A whoosh timed to the word "quit" IS on
+speech, so it is not shifted into a word gap.
+
+One of (exactly one per anchor):
+
+- `anchor: {word: "quit"}` - the word's start in this block's line
+  (`occurrence: 2` for its second saying, `edge: end` for its end).
+  The word must be spoken in THIS block.
+- `anchor: {beat: 17}` - the 17th beat of the measured grid;
+  `{bar: 4, beat: 2}` is the 2nd beat of bar 4, `{downbeat: 4}` the
+  4th bar start. Bars come from the `beatgrid` view in your context.
+  `grid: detected` demands the tracker-heard grid and refuses an
+  estimated one.
+- `anchor: {frame: 343}` - timeline frame 343. It must fall inside the
+  block.
+
+Any form takes `offset_seconds` / `offset_frames` (applied after, and
+still inside the block). An anchor that names nothing placeable - a
+word the block does not say, a bar past the grid, a frame outside the
+block - REFUSES the step with the fix, and you re-plan; it never lands
+on the block start. There is no `anchor_end` on a sound: a sound's
+extent is its `duration_seconds`.
+
 ### Context data available:
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.

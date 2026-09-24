@@ -180,6 +180,7 @@
     "semantic_analysis_documents.*.assessment.clip_type",
     "semantic_analysis_documents.*.assessment.keywords",
     "semantic_analysis_documents.*.assessment.usable_ranges",
-    "semantic_analysis_documents.*.assessment.usable_ranges_method"
+    "semantic_analysis_documents.*.assessment.usable_ranges_method",
+    "view:beatgrid"
   ]
 }

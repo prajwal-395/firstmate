@@ -1025,6 +1025,20 @@
       "data_mapping": {
         "audio_catalog": "audio_catalog"
       }
+    },
+    {
+      "from": "music_analysis",
+      "to": "plan_vfx",
+      "data_mapping": {
+        "music_analysis": "music_analysis"
+      }
+    },
+    {
+      "from": "music_selection",
+      "to": "plan_vfx",
+      "data_mapping": {
+        "music_selection": "music_selection"
+      }
     }
   ],
   "entry_nodes": [

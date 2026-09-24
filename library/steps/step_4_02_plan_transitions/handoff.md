@@ -64,6 +64,22 @@ J/L cuts are audio edits and are handled by the audio pass, not here.
 - Beat-align major transitions when BPM data is available
 - Match energy of surrounding content
 
+### Sub-block anchors (the exact point of the cut):
+
+Every entry names its cut (`cut_point_position`, the INCOMING block),
+and a cut that belongs on a MOMENT inside the outgoing block - the end
+of a word, a downbeat - says so with `anchor`. Without one the cut is
+placed by the word-end and beat-snap below; with one it lands EXACTLY
+where the anchor resolves. The word form addresses the OUTGOING
+block's line (`anchor: {word: "quit", edge: end}` cuts right after
+"quit"); the beat forms address the measured grid (`{beat: 17}`,
+`{bar: 4, beat: 2}`, `{downbeat: 4}` - bars come from the `beatgrid`
+view in your context, and `grid: detected` demands the tracker-heard
+grid); the frame form names a timeline frame inside the outgoing
+block. Any form takes `offset_seconds` / `offset_frames`. An anchor
+that names nothing placeable REFUSES the step with the fix, and you
+re-plan. A cut is a point, so there is no `anchor_end` on it.
+
 ### Context data available:
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.

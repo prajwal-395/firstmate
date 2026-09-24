@@ -123,7 +123,7 @@
         "name": "transition_creative",
         "type": "list",
         "required": true,
-        "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale"
+        "description": "One entry per cut, each at a DISTINCT cut_point_position (the spine position of the INCOMING block). Fields: cut_point_position, type, duration_feel, rationale, plus OPTIONAL anchor (the exact point of the cut: {word} in the OUTGOING block, {beat}/{bar+beat}/{downbeat} on the measured grid, or {frame}; with optional offset_seconds/offset_frames; no anchor_end on a cut). An anchored cut lands exactly where the anchor resolves, winning over the word-end and beat-snap; an unresolvable anchor refuses the step."
       }
     ],
     "requirements": [
@@ -176,6 +176,7 @@
     "-timed_spine.structure.*.content.word_timestamps",
     "temporal_event_indices.*.clip_id",
     "view:picture",
-    "view:stability"
+    "view:stability",
+    "view:beatgrid"
   ]
 }

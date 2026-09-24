@@ -57,6 +57,7 @@ It never fails a run and catches zero-row tables only. [why](docs/RULE_EVIDENCE.
 - `view:alignment` is what step 2.02's `alignment_report` measured about each passage's INSIDES - declared by `review_rough_cut`. It ORDERS and REPORTS; no threshold fires on any of it. The run summary is its second reader (`library/tools/alignment_findings.py`).
 - `view:prosody` has NO consumer since #F5 unwired step 1.05, and is kept for whatever declares one next. It is what step 2.01 used to read instead of `prosody_analysis.profiles`. An allow-list selects by NAME and cannot tell a measurement from a record of its absence, so this selects by `library/tools/prosody_profile.profile_defect` - the same predicate step 1.05 refuses to write a hollow profile with. Real profiles pass through; the rest become ONE line saying how many measured nothing and why. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
 - `view:prosody` has NO consumer since step 1.05 was unwired, kept for whatever declares one next. It selects by `library/tools/prosody_profile.profile_defect`; real profiles pass through, the rest become ONE line. **State the absence, never hide it.** [why](docs/RULE_EVIDENCE.md#seventeen-copies-of-an-error-are-not-a-measurement)
+- `view:beatgrid` is what a step reads to address a beat by NUMBER instead of snapping to one in code: one row per bar (bar, downbeat seconds, beats in it) plus the grid's provenance. Declared by `mesh_spine`, `plan_transitions`, `plan_vfx` and `plan_sfx`; the per-beat series stays withheld and the post-bridge resolves every anchor to an exact frame (`library/tools/sub_block_anchor.py`).
 - **A view is not routing.** The step still has to declare the input the view reads.
 - **The code that cuts on the timings still gets every word**, because none of it reads the prompt: every post-bridge and `step.py` receives the UNPROJECTED inputs.
 - **A declaration of NOTHING BUT `-` paths means "everything, minus these".**
@@ -642,6 +643,89 @@ def _seconds(value):
         return None
 
 
+BEATGRID_LEGEND = {
+    "what_this_is": (
+        "One row per bar of the chosen music: the bar number, the "
+        "timeline second its downbeat lands on, and how many grid beats "
+        "the bar carries."
+    ),
+    "basis": (
+        "Downbeat seconds are timeline seconds assuming the bed opens "
+        "the reel at the chosen section (file time minus source_in). "
+        "They address the music; the post-bridge resolves them."
+    ),
+    "how_to_address_a_beat": (
+        "By NUMBER, never by seconds: a VFX/SFX/transition plan entry "
+        "carries anchor {bar, beat}, {downbeat} or {beat} "
+        "(library/tools/sub_block_anchor.py). Seconds are shown so a "
+        "duration can be sanity-checked, not so an entry can name one."
+    ),
+    "estimated_vs_detected": (
+        "downbeat_source says which grid answered: 'detected' where a "
+        "tracker heard the bar starts, 'estimated' where they are every "
+        "4th detected beat (which can sit a beat off). An anchor may "
+        "demand the detected grid with grid: detected."
+    ),
+    "withheld": (
+        "The per-beat series stays out of the prompt deliberately "
+        "(AGENTS.md 10.1): proximity is decided in code, addressing by "
+        "number is what this table is for."
+    ),
+}
+
+
+def _beatgrid(data: dict) -> dict:
+    """Bars and downbeats of the measured grid, for sub-block anchors.
+
+    Fidelity rung 2: plans address whole blocks because no step could
+    see the grid - `mesh_spine` is told not to derive one and the raw
+    series are withheld from every planning prompt by name. This view
+    is the addressed middle: bar numbers and downbeat seconds a plan
+    entry names through `anchor`, resolved to exact frames at
+    post-bridge time by `library/tools/sub_block_anchor.py`.
+
+    Empty (no view) when no usable downbeat grid is routed - an
+    estimated grid still answers, so only absence or sparseness says
+    nothing. A view is not routing: the step still declares
+    `music_analysis` and `music_selection`.
+    """
+    from library.tools.beat_grid import (
+        beat_positions,
+        bpm,
+        downbeat_positions,
+    )
+
+    analysis = data.get("music_analysis")
+    if not isinstance(analysis, dict):
+        return {}
+    selection = data.get("music_selection")
+    downbeats = downbeat_positions(analysis, selection)
+    if not downbeats:
+        return {}
+    beats = beat_positions(analysis, selection)
+    tempo = analysis.get("tempo") or {}
+
+    bars = []
+    for number, start in enumerate(downbeats, start=1):
+        stop = downbeats[number] if number < len(downbeats) else None
+        count = sum(
+            1 for b in beats
+            if b >= start - 1e-9 and (stop is None or b < stop - 1e-9))
+        bars.append({
+            "bar": number,
+            "downbeat_seconds": round(float(start), 2),
+            "beats_in_bar": count,
+        })
+    return {"beatgrid": {
+        "legend": BEATGRID_LEGEND,
+        "bpm": bpm(analysis),
+        "downbeat_source": tempo.get("downbeat_source") or "unknown",
+        "downbeat_method": tempo.get("method") or "unknown",
+        "bar_count": len(bars),
+        "bars": bars,
+    }}
+
+
 # name -> builder(routed_inputs) -> a dict merged into the projection.
 #
 # A view's NAME is the key it writes.  That is what makes a second
@@ -656,6 +740,7 @@ CONTEXT_VIEWS = {
     "picture": _picture,
     "stability": _stability,
     "alignment": _alignment,
+    "beatgrid": _beatgrid,
 }
 
 

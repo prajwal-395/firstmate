@@ -25,6 +25,11 @@ from library.tools.spine_contract import (
     block_word_end_times_timeline,
     is_speech_block,
 )
+from library.tools.sub_block_anchor import (
+    ANCHOR_ENTRY_KEYS,
+    AnchorRefused,
+    resolve_anchor,
+)
 
 
 # A word end counts as landing on a beat within this many seconds.
@@ -35,7 +40,11 @@ BEAT_COINCIDENCE_TOLERANCE = 0.05
 # unread key is how a probe's SFX `at_word` landed 3.06 s early on the
 # block start. `type` is the advertised kind; `transition_type` is the
 # legacy spelling; the three `cut_point_*` keys are legacy timeline
-# spellings of `cut_point_position`.
+# spellings of `cut_point_position`. `anchor` is the sub-block address
+# (library/tools/sub_block_anchor.py): a word in the OUTGOING block, a
+# beat/downbeat/bar or a timeline frame the cut lands on EXACTLY,
+# winning over the word-end and beat-snap below. A cut is a point, so
+# `anchor_end` is refused on it.
 TRANSITION_ENTRY_KEYS = frozenset({
     "cut_point_position",
     "cut_point_original",
@@ -45,7 +54,7 @@ TRANSITION_ENTRY_KEYS = frozenset({
     "transition_type",
     "duration_feel",
     "rationale",
-})
+} | ANCHOR_ENTRY_KEYS)
 
 # How far back from the end of a block's speech a beat-coincident word end
 # may be taken. About one short word: the point is to nudge a cut onto the
@@ -346,13 +355,43 @@ def resolve_transitions(
                 seen_block_indices.discard(block_idx)
                 continue
 
-        # Resolve the precise cut point
-        cut_info = resolve_cut_point(
-            incoming=block,
-            outgoing=outgoing,
-            beat_grid=beat_positions,
-        )
-        cut_time = cut_info["cut_time"]
+        # Resolve the precise cut point. A sub-block anchor wins
+        # exactly: the plan named the word, beat or frame, so the
+        # word-end and beat-snap below do not run on it. A cut is a
+        # point, so an end anchor refuses here rather than landing
+        # nowhere.
+        if trans.get("anchor_end") is not None:
+            raise AnchorRefused(
+                what=(f"step plan_transitions plan entry at boundary "
+                      f"{block.get('position')!r} anchor_end names an "
+                      f"end anchor on a cut"),
+                why=("a cut is one point in time: the entry carries "
+                     "`anchor_end` and nothing in this step reads it "
+                     "as an end."),
+                fix=(f"re-plan the cut into block "
+                     f"{block.get('position')!r} with `anchor` alone "
+                     f"for the point it lands on, and drop "
+                     f"`anchor_end`."),
+            )
+        if trans.get("anchor") is not None:
+            hit = resolve_anchor(
+                trans["anchor"], block=outgoing,
+                music_analysis=music_analysis,
+                music_selection=music_selection,
+                frame_rate=frame_rate, step="plan_transitions",
+                plan="transition_creative",
+                index=len(resolved))
+            cut_time = hit["timeline_seconds"]
+            cut_info = {"cut_time": cut_time,
+                        "method": f"anchor: {hit['method']}",
+                        "word_beat_coincidence": False}
+        else:
+            cut_info = resolve_cut_point(
+                incoming=block,
+                outgoing=outgoing,
+                beat_grid=beat_positions,
+            )
+            cut_time = cut_info["cut_time"]
 
         # Final beat-snap for non-word-end cuts
         beat_aligned = False

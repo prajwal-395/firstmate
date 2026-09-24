@@ -91,6 +91,33 @@ These produce content from nothing and have no image input. The post-bridge auto
   where it does not.
 - Effects modify display, not timeline positions
 
+### Sub-block anchors (an effect smaller than its block):
+
+Every entry names its block (`target_block_position`), and an effect
+that belongs to a MOMENT inside that block - a punch on one word, a
+shake on one beat - says so with `anchor` (where it starts) and
+`anchor_end` (where it ends). Either alone leaves the other end on the
+block boundary; neither spans the block exactly as before. A punch
+that spans the word "quit" carries `anchor: {word: "quit"}` and
+`anchor_end: {word: "quit", edge: end}`.
+
+One address per anchor (exactly one):
+
+- `{word: "quit"}` - the word's start in this block's line
+  (`occurrence: 2` for its second saying, `edge: end` for its end).
+  The word must be spoken in THIS block.
+- `{beat: 17}` - the 17th beat of the measured grid; `{bar: 4,
+  beat: 2}` is the 2nd beat of bar 4, `{downbeat: 4}` the 4th bar
+  start. Bars come from the `beatgrid` view in your context. `grid:
+  detected` demands the tracker-heard grid and refuses an estimated one.
+- `{frame: 343}` - timeline frame 343. It must fall inside the block.
+
+Any form takes `offset_seconds` / `offset_frames` (applied after, and
+still inside the block). An anchor that names nothing placeable - a
+word the block does not say, a bar past the grid, a frame outside the
+block, or an end at or before its start - REFUSES the step with the
+fix, and you re-plan; it never falls back to the block span.
+
 ### Context data available:
 
 Input data is provided in TOON format. Arrays use header notation: [N]{field1,field2,...} followed by rows.

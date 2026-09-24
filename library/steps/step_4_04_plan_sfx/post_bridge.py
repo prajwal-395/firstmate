@@ -79,6 +79,11 @@ from library.tools.spine_contract import (
     is_speech_block,
     source_to_timeline,
 )
+from library.tools.sub_block_anchor import (
+    ANCHOR_ENTRY_KEYS,
+    AnchorRefused,
+    resolve_anchor,
+)
 
 
 # There is no VOLUME_MAP. How loud a sound plays is the plan's own
@@ -98,6 +103,11 @@ from library.tools.spine_contract import (
 # landed 3.06 s early on the block start. `spine_block_position` is the
 # advertised position; `target_block_position`, `timeline_start` and
 # `timeline_in` are legacy spellings `_locate_sfx` still honours.
+# `anchor` is the sub-block address (library/tools/sub_block_anchor.py):
+# a word, beat/downbeat/bar or frame inside the block that the sound
+# lands on EXACTLY, winning over the envelope snap and the speech-gap
+# shift below. `anchor_end` is refused on a sound - a sound's extent is
+# its `duration_seconds`, so an end anchor names nothing placeable.
 SFX_ENTRY_KEYS = frozenset({
     "sfx_id",
     "spine_block_position",
@@ -109,7 +119,7 @@ SFX_ENTRY_KEYS = frozenset({
     "role",
     "lead_seconds",
     "rationale",
-})
+} | ANCHOR_ENTRY_KEYS)
 
 
 # What an entry IS in the mix: `literal` is a sound tied to a visible
@@ -637,24 +647,56 @@ def resolve_sfx(
         duration, fade_out = _entry_duration(
             entry, source_in, sfx.get("duration_seconds"), frame_rate)
 
-        # Signal-driven placement
-        refined_start = find_sfx_placement(
-            entry.get("envelope") or "", tl_start, duration, block, ti,
-            beat_grid,
-        )
-
-        # Speech collision avoidance
-        word_times_tl = _get_word_times_in_block(block)
-        tl_end = block["timeline_end"]
-        tl_block_start = block["timeline_start"]
-
-        if not is_layer:
-            refined_start = _avoid_speech_collision(
-                refined_start, duration, word_times_tl,
-                tl_block_start, tl_end,
+        # A sound's extent is its duration, so an end anchor names
+        # nothing placeable. Refused, never ignored: ignoring it would
+        # be the unread-key defect rung 1 removed, wearing a new key.
+        if sfx.get("anchor_end") is not None:
+            raise AnchorRefused(
+                what=(f"step plan_sfx plan entry {plan_index} anchor_end "
+                      f"names an end anchor on a sound"),
+                why=(f"a sound spans its duration_seconds, not an "
+                     f"anchor span: entry {plan_index} of `sfx_creative` "
+                     f"carries `anchor_end` and nothing in this step "
+                     f"reads it as an end."),
+                fix=(f"re-plan entry {plan_index} of `sfx_creative` "
+                     f"without `anchor_end` (size the sound with "
+                     f"`duration_seconds`), keeping `anchor` for the "
+                     f"moment it lands on."),
             )
-        # else: a layer plays UNDER speech by design. Shifting it into
-        # a word gap would stop it being a layer.
+
+        # Sub-block anchor: the plan's exact moment. It WINS over the
+        # envelope snap and the speech-gap shift below - a whoosh timed
+        # to the word "quit" IS on speech, so shifting it into a word
+        # gap would un-ask the question. Anchorless entries travel the
+        # signal path unchanged.
+        anchored = None
+        if sfx.get("anchor") is not None:
+            anchored = resolve_anchor(
+                sfx["anchor"], block=block,
+                music_analysis=music_analysis,
+                music_selection=music_selection,
+                frame_rate=frame_rate, step="plan_sfx",
+                plan="sfx_creative", index=plan_index)
+            refined_start = anchored["timeline_seconds"]
+        else:
+            # Signal-driven placement
+            refined_start = find_sfx_placement(
+                entry.get("envelope") or "", tl_start, duration, block, ti,
+                beat_grid,
+            )
+
+            # Speech collision avoidance
+            word_times_tl = _get_word_times_in_block(block)
+            tl_end = block["timeline_end"]
+            tl_block_start = block["timeline_start"]
+
+            if not is_layer:
+                refined_start = _avoid_speech_collision(
+                    refined_start, duration, word_times_tl,
+                    tl_block_start, tl_end,
+                )
+            # else: a layer plays UNDER speech by design. Shifting it into
+            # a word gap would stop it being a layer.
 
         if lead > 0:
             # The lead wins over the avoidance above: the plan timed
@@ -693,7 +735,10 @@ def resolve_sfx(
         tl_in_frame = int(round(tl_in_sec * frame_rate))
         tl_out_frame = int(round(tl_out_sec * frame_rate))
 
-        placement_method = _describe_placement(entry.get("envelope") or "")
+        placement_method = (
+            f"sub-block anchor: {anchored['method']}"
+            if anchored is not None
+            else _describe_placement(entry.get("envelope") or ""))
         if is_layer:
             placement_method += (
                 "; placed as an atmospheric layer under the picture, not "
@@ -864,7 +909,8 @@ def main():
     try:
         result = resolve_sfx(creative, spine, temporal, music,
                              music_selection, fps, cd, brand_audio)
-    except (UnplayableSfxPlan, SfxDurationRefused, UnreadPlanKey) as unplayable:
+    except (UnplayableSfxPlan, SfxDurationRefused, UnreadPlanKey,
+            AnchorRefused) as unplayable:
         print(json.dumps({"error": str(unplayable), "step": "4.04_bridge"}))
         sys.exit(1)
 
