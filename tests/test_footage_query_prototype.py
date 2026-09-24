@@ -400,6 +400,11 @@ def test_the_dashboard_is_the_one_caller_that_was_carved_out():
     the prototype. If a future change reaches it from somewhere else in
     the dashboard, that is fine - but the scan above no longer notices, so
     this records where the authorised caller lives.
+
+    The SECOND carve-out is `ren/cli.py`'s `search` / `search-index`
+    verbs: the captain's Q11 (2026-09-23), "Keep the search modules as a
+    chat-callable ren verb, no UI". That is the person-using-a-tool half
+    again, from a chat instead of a browser; no step is involved.
     """
     caller = REPO_ROOT / "library" / "dashboard" / "footage_search.py"
     assert caller.is_file(), "the dashboard's half of the footage index went missing"

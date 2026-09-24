@@ -17,10 +17,10 @@ Overlapping tracks are summed (amix normalize=0), as the timeline
 plays them. Nothing is denoised or levelled beyond the baked gains.
 
 Usage:
-    python3 scripts/render_iso_ab_reel15.py <out_dir>
+    python3 scripts/render_iso_ab_reel15.py <footage_dir> <out_dir>
 Writes the two FULL renders plus the 9-15 s pause excerpt pair and a
-manifest.json. Out dir defaults to the review folder that already
-holds the 2026-09-19 renders.
+manifest.json. <footage_dir> holds the podcast's MXF sources; the
+2026-09-19 renders went to the project's pipeline_output/review/iso-ab-reel15.
 """
 
 from __future__ import annotations
@@ -30,13 +30,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-FOOTAGE_ROOT = Path(
-    "/Users/prajwal/Documents/work_stuff/Lucie consulting/Social Media/podcast media"
-)
-DEFAULT_OUT = Path(
-    "/Users/prajwal/Documents/content_stuff/video_projects"
-    "/lucie/geo-podcast/pipeline_output/review/iso-ab-reel15"
-)
+FOOTAGE_ROOT = Path(".")  # set from argv by main()
 
 FPS_NUM, FPS_DEN = 24000, 1001
 
@@ -149,7 +143,13 @@ def cut_excerpt(full: Path, out_path: Path) -> None:
 
 
 def main(argv: list[str]) -> int:
-    out = Path(argv[1]) if len(argv) > 1 else DEFAULT_OUT
+    global FOOTAGE_ROOT
+    if len(argv) != 3:
+        print(__doc__.split("Usage:")[1].split("Writes")[0].strip(),
+              file=sys.stderr)
+        return 2
+    FOOTAGE_ROOT = Path(argv[1]).expanduser()
+    out = Path(argv[2]).expanduser()
     out.mkdir(parents=True, exist_ok=True)
     full_a = out / "reel15_A_program-mix_FULL.wav"
     full_b = out / "reel15_B_speaker-iso_gain-matched_FULL.wav"

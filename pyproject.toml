@@ -16,3 +16,30 @@ markers = [
     "heavy: marks tests whose worst observed duration across repeated full-suite runs is >= 1.0s (docs/HEAVY_TIER.md) - the slow tier the default lane deselects; NOT optional, the batch gate runs it before anything merges",
     "serial: marks tests that must run in the gate's serial lane (library/tools/lane_routing.py clause 6); takes a reason",
 ]
+
+# ─── Ren, the installed front door (README "Quickstart") ─────────────
+#
+# Installed EDITABLE into the shared 3.12 venv (docs/SHARED_ENVIRONMENT.md):
+#     ~/.local/share/vep/venv-py312/bin/pip install -e .
+# Only the small `ren` package is installed; it finds the engine - this
+# checkout - beside itself, so `library/` is never shadowed in site-packages.
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ren"
+version = "0.1.0"
+description = "Ren: an agent-driven video editor on DaVinci Resolve Studio"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dynamic = ["dependencies"]
+
+[project.scripts]
+ren = "ren.cli:main"
+
+[tool.setuptools]
+packages = ["ren"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }

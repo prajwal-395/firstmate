@@ -28,7 +28,7 @@ Agents and human editors use it to automate the tedious parts of video assembly 
 - `remotion-subtitles/`: Node.js React app that renders subtitle overlays.
 - `scripts/`: bash helpers for environment setup and maintenance.
 - `tests/`: unit and integration tests for the engine.
-- `manage_project.py`: top-level CLI for creating, listing and running projects.
+- `ren/`: the installed `ren` CLI, the ONE front door - `ren --help` lists its verbs, `ren doctor` checks the machine. It execs `manage_project.py`, which stays underneath. Machine paths: `~/.config/ren/config.env` (`library/tools/paths.py`).
 - `requirements.txt`: Python dependencies.
 
 **One thing in `library/tools/` is a prototype: it is in the DASHBOARD and stays out of the PIPELINE.**
@@ -135,19 +135,19 @@ One enumeration, `library/tools/reel_rebuild_need.py`, and the decision is FAIL-
 **The picker lists the project the server is SERVING, first**, even when that project is outside the root.
 
 - Review gates pause execution for inspection.  A rejected gate halts the pipeline entirely; a revised gate applies the reviewer's modifications directly to the step output in `pipeline_data.json`.
-- The dashboard also captures annotations and feedback as structured data for agent communication.
+- The dashboard also captures annotations and feedback as structured data for agents.
 - **Extend this dashboard. Never author a fresh per-run review page.**
 
 ### Footage search
 
 **Footage Search is a span search; Footage Library is a clip browser. Keep them apart.**
 `library/dashboard/footage_search.py` is the dashboard's half of the footage-index prototype
-(§2) - the ONE place authorised to call it.
+(§2); `ren search` is the other caller (Q11).
 
-- The index is built ONLY when the reviewer presses the button, into
+- The index is built ONLY when the reviewer asks (button, `ren search-index`), into
   `<project>/pipeline_output/scratch/footage_index/`, and the view states that path first.
   Never build it at server start or on first query: both write into the captain's project
-  without them asking.
+  unasked.
 - The embedding model is loaded once per server in a background thread; the banner reports
   `cold`/`loading`/`ready`/`unavailable` and names the backend, because a degraded backend
   must say so rather than quietly return worse results.

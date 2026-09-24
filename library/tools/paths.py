@@ -4,7 +4,8 @@ Centralized path configuration for the video editing pipeline.
 This is the single source of truth for every filesystem path the pipeline
 uses - repo directories, DaVinci Resolve application support paths, and
 external asset libraries. All paths are computed relative to the repo root
-or read from environment variables (loaded from .env on import).
+or read from environment variables - loaded on import from the per-user
+config file and the checkout's .env (see "Configuration" below).
 
 Usage:
     from library.tools.paths import (
@@ -26,22 +27,55 @@ except ImportError:  # imported as `tools.paths` from inside library/
     from tools.shared_environment import REMOTION_DIRNAME
 
 
-# ─── .env Loader ─────────────────────────────────────────────
-# Load .env file from repo root if it exists. We avoid adding a
-# dependency on python-dotenv by doing a minimal parse ourselves.
+# ─── Configuration: environment, then the user's file, then .env ──
+#
+# Three layers, first one to name a key wins:
+#
+#   1. the process environment - an explicit `export` always wins;
+#   2. the PER-USER config file, `user_config_path()` - one file per
+#      person, outside every checkout, so a machine's paths are written
+#      down once rather than once per worktree;
+#   3. the per-checkout `.env`, which keeps working for anyone who has one.
+#
+# Then the code default at each `os.environ.get(...)` below. A code
+# default names no one's machine: the engine is installed on machines
+# that are not the one it was written on (README "Quickstart").
+#
+# Both files use the same KEY=value format, parsed here with no
+# dependency, because this module is imported by Resolve's own Python
+# (Fusion subprocesses) where neither python-dotenv nor tomllib can be
+# assumed.
 
-def _load_dotenv(env_path: Path) -> None:
-    """Load key=value pairs from a .env file into os.environ.
+USER_CONFIG_ENV = "REN_CONFIG"
+"""Names the per-user config file outright, for a test or a second user."""
+
+
+def user_config_path() -> Path:
+    """Where the per-user config lives: `$REN_CONFIG`, else XDG.
+
+    `~/.config/ren/config.env` (or `$XDG_CONFIG_HOME/ren/config.env`),
+    not `~/Library/Application Support`: it is a file a person edits by
+    hand from a shell, and that path carries a space every command would
+    have to quote. `gh`, `git` and `opencode` keep theirs here too.
+    """
+    explicit = os.environ.get(USER_CONFIG_ENV)
+    if explicit:
+        return Path(explicit).expanduser()
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base).expanduser() / "ren" / "config.env"
+
+
+def read_env_file(env_path: Path) -> dict:
+    """KEY=value pairs from a .env-format file; {} when there is no file.
 
     Supports:
       - Comments (lines starting with #)
       - Blank lines
       - Quoted values (single or double quotes are stripped)
-      - Inline comments after quoted values
-    Does NOT override variables that are already set in the environment.
+      - $HOME / ~ expansion in values
     """
     if not env_path.is_file():
-        return
+        return {}
     # encoding="utf-8", not the locale default.
     #
     # `open()` with no encoding decodes with locale.getpreferredencoding(),
@@ -57,6 +91,7 @@ def _load_dotenv(env_path: Path) -> None:
     #
     # AGENTS.md records this hazard for subprocess text decoding. It is
     # the same hazard for every file read: name the encoding.
+    values = {}
     with open(env_path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
@@ -73,9 +108,34 @@ def _load_dotenv(env_path: Path) -> None:
             # Expand $HOME and ~ in paths
             value = os.path.expandvars(value)
             value = os.path.expanduser(value)
-            # Don't override existing env vars (explicit env takes precedence)
-            if key not in os.environ:
-                os.environ[key] = value
+            values[key] = value
+    return values
+
+
+def load_configuration(files, environ=None) -> dict:
+    """Fill `environ` from `files` in order, never overriding a key.
+
+    An earlier file beats a later one, and anything already in `environ`
+    beats both. Returns `{key: source}` for every key a file supplied
+    or the environment already held, where source is the file's path or
+    "environment" - what `ren config` reports.
+    """
+    if environ is None:
+        environ = os.environ
+    sources = {}
+    for env_path in files:
+        for key, value in read_env_file(Path(env_path)).items():
+            if key in environ:
+                sources.setdefault(key, "environment")
+                continue
+            environ[key] = value
+            sources[key] = str(env_path)
+    return sources
+
+
+def _load_dotenv(env_path: Path) -> None:
+    """Load one .env-format file into os.environ, never overriding a key."""
+    load_configuration((env_path,))
 
 
 # ─── Repo Structure ──────────────────────────────────────────
@@ -90,8 +150,9 @@ ASSETS_ROOT = LIBRARY_ROOT / "assets"
 STEPS_ROOT = LIBRARY_ROOT / "steps"
 TOOLS_ROOT = LIBRARY_ROOT / "tools"
 
-# Load .env AFTER computing PILOT_ROOT so we know where to find it
-_load_dotenv(PILOT_ROOT / ".env")
+# Load AFTER computing PILOT_ROOT so we know where .env is.
+CHECKOUT_ENV_FILE = PILOT_ROOT / ".env"
+CONFIG_SOURCES = load_configuration((user_config_path(), CHECKOUT_ENV_FILE))
 
 
 # ─── Preset Subdirectories ───────────────────────────────────
@@ -136,10 +197,14 @@ RESOLVE_SCRIPT_LIB = Path(os.environ.get(
 
 # ─── External Asset Libraries ────────────────────────────────
 
+# The code defaults sit under one neutral folder a new user can create
+# (`ren init` creates the projects root). Anyone whose files live
+# elsewhere sets these keys in `user_config_path()`.
+REN_HOME_DEFAULT = Path.home() / "Movies" / "Ren"
+
 SHARED_ASSETS_ROOT = Path(os.environ.get(
     "PIPELINE_SHARED_ASSETS",
-    str(Path.home() / "Documents" / "content_stuff"
-        / "assets i used (just copied here for convenience)"),
+    str(REN_HOME_DEFAULT / "assets"),
 ))
 
 SFX_LIBRARY = Path(os.environ.get(
@@ -180,7 +245,7 @@ REMOTION_DIR = Path(os.environ.get(
 
 PROJECTS_ROOT = Path(os.environ.get(
     "PIPELINE_PROJECTS_ROOT",
-    str(Path.home() / "Documents" / "content_stuff" / "video_projects"),
+    str(REN_HOME_DEFAULT / "projects"),
 ))
 
 

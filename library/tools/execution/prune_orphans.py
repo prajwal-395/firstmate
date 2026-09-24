@@ -248,7 +248,7 @@ def _disk_database_root(db_name: str) -> str:
 
     The file is colon-delimited text, NOT JSON - one database per line,
     `<name>:<path>:*:::DISK`, e.g.
-    `poetic:/Users/prajwal/Pictures/Davinci:*:::DISK`.  Matched on the
+    `poetic:/Users/<you>/Pictures/Davinci:*:::DISK`.  Matched on the
     name `GetCurrentDatabase()` reports, because a machine may have
     several and the first line is not necessarily the open one.
     """

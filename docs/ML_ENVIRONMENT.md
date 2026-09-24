@@ -47,10 +47,10 @@ reproduces the broken environment exactly.
 `uv` resolves this stack in seconds and can fetch 3.12 itself:
 
 ```sh
-uv venv --python 3.12 /Users/prajwal/.local/share/vep/venv-py312
-uv pip install --python /Users/prajwal/.local/share/vep/venv-py312/bin/python3 \
+uv venv --python 3.12 ~/.local/share/vep/venv-py312
+uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 \
     -r requirements.txt
-uv pip install --python /Users/prajwal/.local/share/vep/venv-py312/bin/python3 \
+uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 \
     pytest httpx2
 ```
 
@@ -74,7 +74,7 @@ worktree dies with that lane, and lanes are disposable. On the build machine the
 is:
 
 ```
-/Users/prajwal/.local/share/vep/venv-py312
+~/.local/share/vep/venv-py312
 ```
 
 A per-checkout `.venv` is still fine for ordinary work - `.venv/` is gitignored and
@@ -86,7 +86,7 @@ somewhere a teardown reaches.
 Four checks. The first two are the ones that were silently false for weeks.
 
 ```sh
-VENV=/Users/prajwal/.local/share/vep/venv-py312
+VENV=~/.local/share/vep/venv-py312
 
 # 1. the interpreter is 3.12
 $VENV/bin/python3 -V                       # Python 3.12.x
@@ -120,7 +120,7 @@ pyannote.audio 4.0.7.
 `scripts/full_suite_gate.sh` runs `python3` unless told otherwise:
 
 ```sh
-FULL_SUITE_GATE_PYTHON=/Users/prajwal/.local/share/vep/venv-py312/bin/python3 \
+FULL_SUITE_GATE_PYTHON=~/.local/share/vep/venv-py312/bin/python3 \
     scripts/full_suite_gate.sh
 ```
 

@@ -22,25 +22,20 @@ Usage from CLI:
 """
 
 import os
+import sys
 import json
 import argparse
 import numpy as np
 from pathlib import Path
 
-# Resolve SFX profiles dir from centralized paths (env-aware)
-try:
-    _tools_dir = Path(__file__).resolve().parent.parent
-    import sys
-    if str(_tools_dir.parent) not in sys.path:
-        sys.path.insert(0, str(_tools_dir.parent))
-    from library.tools.paths import SFX_PROFILES
-    DEFAULT_PROFILES_DIR = str(SFX_PROFILES)
-except ImportError:
-    DEFAULT_PROFILES_DIR = os.environ.get(
-        "PIPELINE_SFX_LIBRARY",
-        str(Path.home() / "Documents" / "content_stuff"
-            / "assets i used (just copied here for convenience)" / "sfx library"),
-    ) + "/profiles"
+# The SFX profiles dir comes from `paths.SFX_PROFILES`, the one place that
+# reads PIPELINE_SFX_LIBRARY from the environment, the user config and .env.
+_repo_root = str(Path(__file__).resolve().parents[3])
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
+from library.tools.paths import SFX_PROFILES  # noqa: E402
+
+DEFAULT_PROFILES_DIR = str(SFX_PROFILES)
 
 
 class SFXIndex:

@@ -241,11 +241,13 @@ def search_index(query, profiles_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="SFX Analysis Pipeline")
-    _sfx_default = os.environ.get(
-        "PIPELINE_SFX_LIBRARY",
-        str(Path.home() / "Documents" / "content_stuff"
-            / "assets i used (just copied here for convenience)" / "sfx library"),
-    )
+    # The default is `paths.SFX_LIBRARY` - the one place that reads
+    # PIPELINE_SFX_LIBRARY from the environment, the user config and .env.
+    _repo_root = str(Path(__file__).resolve().parents[3])
+    if _repo_root not in __import__('sys').path:
+        __import__('sys').path.insert(0, _repo_root)
+    from library.tools.paths import SFX_LIBRARY
+    _sfx_default = str(SFX_LIBRARY)
     parser.add_argument("--sfx-dir", default=_sfx_default)
     parser.add_argument("--output-dir", default=os.path.join(_sfx_default, "profiles"))
     parser.add_argument("--file", help="Analyze a single file")

@@ -7,7 +7,7 @@ the project_registry module and provides commands for creating, listing,
 running, and archiving video projects.
 
 The repo is the engine. Projects (assets, footage, pipeline output) live
-in PIPELINE_PROJECTS_ROOT (default: ~/Documents/content_stuff/video_projects).
+in PIPELINE_PROJECTS_ROOT (set in ~/.config/ren/config.env; see `ren config`).
 
 Usage:
     python3 manage_project.py list

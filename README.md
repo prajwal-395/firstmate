@@ -1,119 +1,74 @@
-# Video Editing Pilot
+# Ren
 
-This directory contains the **shortform video editing pipeline** — the first pilot implementation built on top of the [Process Automation Framework](file:///Users/prajwal/Documents/work_stuff/process%20design/README.md).
+Ren is an agent-driven video editor. It takes the raw footage from a shoot and
+builds the edit on a real DaVinci Resolve timeline - selects and orders what is
+said, cuts the A-roll and B-roll, subtitles, sound, music, grade and motion
+graphics - and cuts reels from it. You drive it from a chat harness (Claude
+Code), which calls the `ren` command.
 
-## What This Is
+The repository is the engine. Projects - footage, pipeline output, exports -
+live outside it, in the projects root.
 
-An end-to-end automated video editing pipeline for shortform (30–60s, vertical 9:16) content. It takes raw footage from a filming session and produces a finished, styled video — handling everything from media cataloging through color grading and rendering.
+## Requirements
 
-## Structure
+- A Mac (Apple Silicon) with **DaVinci Resolve Studio**. The free edition
+  does not accept external scripts, so Ren cannot drive it. In Resolve:
+  Settings > System > General > External scripting using: **Local**.
+- Python **3.12** (not 3.13 or 3.14 - `requirements.txt` says why).
+- `ffmpeg` and Node.js 18+: `brew install ffmpeg node`.
+- Claude Code, signed in with your Claude account. An API key does not count.
 
-```
-├── docs/                      ← Pilot-specific documentation
-│   ├── process_capture.md     ← Original process interview/capture
-│   ├── process_decomposition.md ← Detailed step-by-step decomposition
-│   └── style_specification.md ← Creator's editing style codified
-│
-├── library/                   ← Pilot step implementations
-│   ├── steps/                 ← 28 atomic steps (phases 0–6)
-│   ├── processes/edit_video/  ← DAG + manifest for the full pipeline
-│   └── tools/                 ← Video-specific utilities
-│       ├── frame_utils.py     ← Frame/seconds conversion (single rounding boundary)
-│       └── sfx_query_bridge.py ← FAISS-based SFX search bridge
-│
-├── research/                  ← Reference research
-│   ├── drp_reverse_engineering.md ← DaVinci Resolve programmatic control
-│   └── pipeline_comparison.md    ← Comparison with Palmier Pro's approach
-│
-├── palmier-pro/               ← Reference codebase (Palmier Pro video editor)
-│
-└── tests/
-    └── test_pipeline.py       ← Pipeline integration tests
-```
+## Quickstart
 
-## Pipeline Phases
+**1. Install.** Build the shared Python environment once per machine
+([docs/ML_ENVIRONMENT.md](docs/ML_ENVIRONMENT.md) has the details), then
+install `ren` into it from this checkout:
 
-| Phase | Steps | Purpose |
-|-------|-------|---------|
-| 0. Pre-requisites | 0.01 | Validate SFX library |
-| 1. Ingest & Index | 1.01-1.07 | Scan, catalog, analyze, temporally index, prosody analysis, segmentation, OCR |
-| 2. Plan | 2.01-2.06 | Creative direction, speech sequencing, music selection, analysis, spine |
-| 3. Rough Cut | 3.01-3.03 | A-roll assignment, B-roll selection, rough cut review |
-| 4. Polish | 4.01-4.06 | Subtitles, transitions, VFX, SFX planning, subtitle rendering, motion graphics |
-| 5. Finish | 5.01-5.04 | Color grading, audio mixing, creative cohesion, manifest compilation |
-| 6. Export | 6.01-6.02 | Render and validate output |
-
-> **Note:** Step 2.03 is intentionally skipped in the numbering.
-> 2.03 was merged into 2.02 during decomposition.
-> Steps 1.06 and 1.07 have definitions but are not wired into the DAG,
-> so a run executes 26 of the 28 steps.
-
-## Project Management CLI
-
-`run` needs the dedicated virtual environment, which contains all ML dependencies.
-Every other command - including `dashboard` - does not, and is served without it.
-
-The venv is per checkout and is gitignored, so a fresh clone has none:
-
-```bash
-# Make the virtual environment (once per checkout), for `run`
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-
-# Initialize the projects root directory
-python3 manage_project.py init-root
-
-# Create a new project
-python3 manage_project.py new <slug> --name "Project Name" \
-    [--client CLIENT] [--template TEMPLATE] [--source-type TYPE] \
-    [--resolution WxH] [--fps FPS] [--resolve-name NAME] \
-    [--tags TAGS] [--description DESC]
-
-# List projects
-python3 manage_project.py list [--status STATUS] [--client CLIENT]
-
-# Show project status or config
-python3 manage_project.py status <slug>
-python3 manage_project.py info <slug>
-
-# Run the pipeline
-python3 manage_project.py run <slug> \
-    [--from STEP] [--step STEP] [--dry-run] [--auto] [--review]
-
-# Start dashboard - <slug> or a path, for a project kept outside
-# PIPELINE_PROJECTS_ROOT. Needs no ML dependencies.
-python3 manage_project.py dashboard [<slug-or-path>] [--port PORT]
-
-# Relink and archive
-python3 manage_project.py relink [<slug>] [--scan]
-python3 manage_project.py archive <slug>
+```sh
+uv venv --python 3.12 ~/.local/share/vep/venv-py312
+uv pip install --python ~/.local/share/vep/venv-py312/bin/python3 -r requirements.txt
+~/.local/share/vep/venv-py312/bin/python3 -m pip install -e .
+ln -s ~/.local/share/vep/venv-py312/bin/ren /opt/homebrew/bin/ren   # or add the venv's bin/ to PATH
+scripts/install_node_deps.sh    # the subtitle renderer's Node dependencies
 ```
 
-`run`, `status`, `info` and `dashboard` also accept a path to the project
-directory (or its `project.yaml`) in place of the slug, so a project
-living outside `PIPELINE_PROJECTS_ROOT` is driven where it sits - nothing is
-copied or moved:
+**2. Configure.** Machine paths live in one per-user file,
+`~/.config/ren/config.env` - where projects go, where your sound-effect and
+music libraries are:
 
-```bash
-python3 manage_project.py run "/Volumes/media/client shoot/001"
+```sh
+ren config --init     # writes a commented starter; edit it
+ren config            # shows every setting and where it came from
 ```
 
-`list` still only scans `PIPELINE_PROJECTS_ROOT`, and `archive` refuses a
-project outside that root rather than move it there.
+An exported variable beats that file, and that file beats a checkout's `.env`
+(still read, see `.env.example`).
 
-## Architecture Notes
+**3. Check.** `ren doctor` checks the Mac, Resolve (Studio, running, scripting
+on), the Python environment, ffmpeg, Node, the local models, your paths and
+the chat harness. Each line is PASS or FAIL with the fix. It changes nothing.
 
-Steps use one of two execution patterns:
+```sh
+ren doctor
+```
 
-| Pattern | Entry Point | Used By |
-|---------|-------------|---------|
-| **Deterministic** | `step.py` reads stdin JSON, writes stdout JSON | Most steps (0.01, 1.x, 2.x, 3.01, 3.03, 4.01, 4.05, 5.x) |
-| **LLM + Bridge** | `handoff.md` (LLM prompt) + `bridge.py` (post-processor) | Creative steps (3.02, 4.02, 4.03, 4.04) |
+**4. First project.**
 
-Step 6.01 is a special case that directly scripts DaVinci Resolve.
-Step 6.02 combines automated Python checks with an optional LLM review variant.
+```sh
+ren init                              # create the projects root
+ren new my-vlog --name "My Vlog"      # then copy the footage into its raw/
+ren edit my-vlog                      # run the editing pipeline
+ren review my-vlog                    # the review dashboard
+ren propose my-vlog                   # reel candidates for your approval
+ren build my-vlog                     # build the approved reels in Resolve
+ren deliver my-vlog 1                 # render reel 1 to a file
+```
 
-## Relationship to the Framework
+`ren --help` lists every verb and `ren <verb> --help` its options. A project
+kept outside the projects root is addressed by its path instead of its slug.
 
-This pilot uses the generic orchestrator, MCP servers, and library schemas from the [Process Automation Framework](file:///Users/prajwal/Documents/work_stuff/process%20design). The steps here are domain-specific implementations that plug into that framework. See the [framework docs](file:///Users/prajwal/Documents/work_stuff/process%20design/docs) for methodology.
+## Where to read next
+
+- [AGENTS.md](AGENTS.md) - how the pipeline works and the rules that govern it.
+- [docs/](docs/) - design notes and the measurements behind them.
+- `library/processes/edit_video/dag.json` - the pipeline's steps and their order.

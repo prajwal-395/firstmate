@@ -95,8 +95,9 @@ for _entry in _NON_ROOT_ENTRIES:
 #
 # The route is closed at its source: before anything under `library/`
 # is imported, PIPELINE_PROJECTS_ROOT is pointed at an empty temporary
-# directory for the whole session.  `paths._load_dotenv` does not
-# override a variable that is already set, so this beats .env too.
+# directory for the whole session.  `paths.load_configuration` does not
+# override a variable that is already set, so this beats the user config
+# and .env too.
 # Nothing else needs to opt in, and a route into the real root that
 # nobody has thought of yet is closed as well.
 #
