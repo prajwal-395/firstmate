@@ -23,16 +23,29 @@ import pytest
 from library.tools import resolve_axi
 from library.tools.resolve_axi import (
     AxiError,
+    cmd_api_docs,
+    cmd_api_search,
+    cmd_api_stubs,
+    cmd_api_whats_new,
+    cmd_audio,
     cmd_captions,
     cmd_cursor,
     cmd_frames,
     cmd_fusion,
     cmd_items,
+    cmd_launch,
+    cmd_luts_delete,
+    cmd_luts_generate,
+    cmd_luts_list,
+    cmd_luts_update,
     cmd_markers,
     cmd_markers_audit_replies,
     cmd_markers_reply,
     cmd_markers_restore,
     cmd_markers_snapshot,
+    cmd_pool,
+    cmd_project,
+    cmd_renders,
     cmd_run,
     cmd_timeline_get,
     cmd_timeline_list,
@@ -56,6 +69,44 @@ class _Pool:
 
     def GetMarkers(self):
         return {}
+
+
+class _Folder:
+    def __init__(self, name, clips=None, subs=None):
+        self._name = name
+        self._clips = list(clips or [])
+        self._subs = list(subs or [])
+
+    def GetName(self):
+        return self._name
+
+    def GetClipList(self):
+        return list(self._clips)
+
+    def GetSubFolderList(self):
+        return list(self._subs)
+
+
+class _PoolClip:
+    def __init__(self, name, props=None):
+        self._name = name
+        self._props = dict(props or {})
+
+    def GetName(self):
+        return self._name
+
+    def GetClipProperty(self, name=None):
+        if name is None:
+            return dict(self._props)
+        return self._props.get(name, "")
+
+
+class _MediaPool:
+    def __init__(self, root):
+        self._root = root
+
+    def GetRootFolder(self):
+        return self._root
 
 
 class _Item:
@@ -159,6 +210,17 @@ class _Timeline:
     def GetTrackName(self, track_type, index):
         return self._tracks[(track_type, index)]["name"]
 
+    def GetIsTrackEnabled(self, track_type, index):
+        return bool(self._tracks[(track_type, index)].get("enabled",
+                                                           True))
+
+    def GetIsTrackLocked(self, track_type, index):
+        return bool(self._tracks[(track_type, index)].get("locked",
+                                                           False))
+
+    def GetTrackSubType(self, track_type, index):
+        return self._tracks[(track_type, index)].get("subtype", "")
+
     def GetItemListInTrack(self, track_type, index):
         return list(self._tracks[(track_type, index)]["items"])
 
@@ -173,14 +235,31 @@ class _Timeline:
             "duration": duration, "customData": custom_data}
         return True
 
+    def CopyGrades(self, items):
+        self.copied = list(items)
+        return True
+
 
 class _Project:
     """A project whose cursor cannot be moved: any attempt raises."""
 
-    def __init__(self, name, timelines, current):
+    def __init__(self, name, timelines, current, pool=None,
+                 render_jobs=None, render_status=None,
+                 rendering=False, settings=None, presets=None,
+                 render_presets=None):
         self._name = name
         self._timelines = list(timelines)
         self._current = current
+        self._pool = pool or _MediaPool(_Folder("root"))
+        self._render_jobs = list(render_jobs or [])
+        self._render_status = dict(render_status or {})
+        self._rendering = rendering
+        self._settings = dict(settings or {
+            "timelineFrameRate": "23.976",
+            "timelineResolutionWidth": "3840",
+            "timelineResolutionHeight": "2160"})
+        self._presets = list(presets or [])
+        self._render_presets = list(render_presets or [])
 
     def GetName(self):
         return self._name
@@ -199,6 +278,27 @@ class _Project:
 
     def SetCurrentProject(self, _project):
         raise _CursorMoved("reads must not move the cursor")
+
+    def GetMediaPool(self):
+        return self._pool
+
+    def GetRenderJobList(self):
+        return [dict(job) for job in self._render_jobs]
+
+    def GetRenderJobStatus(self, job_id):
+        return dict(self._render_status.get(job_id, {}))
+
+    def IsRenderingInProgress(self):
+        return self._rendering
+
+    def GetSetting(self, key):
+        return self._settings.get(key, "")
+
+    def GetPresetList(self):
+        return list(self._presets)
+
+    def GetRenderPresetList(self):
+        return list(self._render_presets)
 
 
 class _Manager:
@@ -560,7 +660,8 @@ def test_audit_replies_finds_a_drifted_reply(patched, monkeypatch, capsys):
 def _run_ns(**over):
     base = {"project": "", "timeline": "Reel 29 - salvage",
             "script": "", "script_pos": "", "file": "", "full": False,
-            "json": False, "unsafe": False}
+            "json": False, "unsafe": False,
+            "acknowledge_copy_grades": False}
     base.update(over)
     return _ns(**base)
 
@@ -607,3 +708,463 @@ def test_run_unsafe_writes_under_exclusive_lease(patched, capsys):
     assert "cursor_moved: no" in out
     assert patched["timeline"].added == [
         (20, "Blue", "note", "new words", 1, "")]
+
+
+# ── pool: the ingest/catalog read ────────────────────────────────
+
+
+def _pool_project(tmp_path):
+    real = tmp_path / "a.mov"
+    real.write_text("footage", encoding="utf-8")
+    root = _Folder(
+        "root",
+        clips=[_PoolClip("a.mov", {"Type": "Video",
+                                   "File Path": str(real)})],
+        subs=[_Folder(
+            "Day 1",
+            clips=[_PoolClip("b.mov", {"Type": "Video",
+                                       "File Path": "/nope/b.mov"}),
+                   _PoolClip("Reel 29 - salvage", {"Type": "Timeline"})])])
+    project = _Project("Podcast (field test)", [], None,
+                       pool=_MediaPool(root))
+    return project
+
+
+@pytest.fixture()
+def pool_patched(monkeypatch, tmp_path):
+    project = _pool_project(tmp_path)
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    return project
+
+
+def test_pool_walks_subfolders_and_counts_offline(pool_patched, capsys):
+    """A flat root-only listing reports 1 of 3: the bins hold the rest."""
+    assert cmd_pool(_ns(project="", bin="")) == 0
+    out = capsys.readouterr().out
+    assert "clips: 3" in out
+    assert "bins: 2" in out
+    assert "offline: 1" in out
+    assert "Day 1" in out
+    assert "b.mov" in out
+
+
+def test_pool_bin_scopes_the_walk(pool_patched, capsys):
+    assert cmd_pool(_ns(project="", bin="Day 1")) == 0
+    out = capsys.readouterr().out
+    assert "clips: 2" in out
+    assert "a.mov" not in out
+    assert resolve_axi.main(["pool", "Day 1"]) == 0
+    assert "clips: 2" in capsys.readouterr().out
+
+
+def test_pool_refuses_unknown_bin(pool_patched, capsys):
+    assert cmd_pool(_ns(project="", bin="Day 9")) == 1
+    out = capsys.readouterr().out
+    assert "no bin 'Day 9'" in out
+    assert "A/B/C" in out
+
+
+# ── renders: the queue read ──────────────────────────────────────
+
+
+def _render_project():
+    jobs = [
+        {"JobId": "1", "RenderJobName": "Reel 29",
+         "TimelineName": "Reel 29 - salvage", "TargetDir": "/tmp/out",
+         "OutputFilename": "r29.mov"},
+        {"JobId": "2", "RenderJobName": "Reel 30",
+         "TimelineName": "Reel 30", "TargetDir": "/tmp/out",
+         "OutputFilename": "r30.mov"},
+        {"JobId": "3", "RenderJobName": "Reel 31",
+         "TimelineName": "Reel 31", "TargetDir": "/tmp/out",
+         "OutputFilename": "r31.mov"},
+    ]
+    status = {
+        # An Italian install: the English literal never appears, and a
+        # reader comparing against "Complete" calls this queued.
+        "1": {"JobStatus": "Concluso", "CompletionPercentage": 100},
+        "2": {"JobStatus": "Rendering", "CompletionPercentage": 45},
+        "3": {"JobStatus": "Fallito", "CompletionPercentage": 12,
+              "Error": "codec missing"},
+    }
+    return _Project("Podcast (field test)", [], None,
+                    render_jobs=jobs, render_status=status,
+                    rendering=True)
+
+
+@pytest.fixture()
+def render_patched(monkeypatch):
+    project = _render_project()
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    return project
+
+
+def test_renders_derives_state_without_reading_english(render_patched,
+                                                       capsys):
+    assert cmd_renders(_ns(project="", full=False)) == 0
+    out = capsys.readouterr().out
+    assert "jobs: 3" in out
+    assert "rendering: yes" in out
+    assert "complete: 1" in out
+    assert "failed: 1" in out
+    assert "codec missing" in out
+    # States derived from percent/error, never the localized string:
+    # the Italian "Concluso" at 100% is complete, not queued.
+    assert "Reel 29 - salvage,100,complete" in out
+    assert "Reel 30,45,queued" in out
+    assert "Reel 31,12,failed" in out
+
+
+# ── run: the grade-destroying call ───────────────────────────────
+
+
+def test_run_unsafe_refuses_copygrades_without_ack(patched, capsys):
+    """`--unsafe` declares a write, not THIS one: CopyGrades replaces
+    the target's whole grade, returns True, and versions nothing."""
+    assert cmd_run(_run_ns(
+        script="x = timeline.CopyGrades",
+        unsafe=True)) == 1
+    out = capsys.readouterr().out
+    assert "CopyGrades" in out
+    assert "--acknowledge-copy-grades" in out
+
+
+def test_run_unsafe_runs_copygrades_once_named(patched, capsys):
+    assert cmd_run(_run_ns(
+        script="timeline.CopyGrades([])\nresult = {'copied': True}",
+        unsafe=True, acknowledge_copy_grades=True)) == 0
+    assert "unsafe: yes" in capsys.readouterr().out
+    assert patched["timeline"].copied == []
+
+
+# ── The positional rule, restored ────────────────────────────────
+#
+# The suite-halving deleted `test_positional_primary_args` while the
+# module docstring still cites it. `pool` is the next command the
+# rule covers, so the test comes back with the bin on it.
+
+
+@pytest.mark.parametrize("command", ["markers", "items", "captions",
+                                     "frames", "fusion"])
+def test_positional_primary_args(patched, notes, command, capsys):
+    """The class, not the instances: every command taking one obvious
+    primary argument - a reel name for the reads, a script for `run`,
+    a bin for `pool` - accepts it positionally. A future command
+    built without a positional fails here instead of on first use."""
+    notes["Reel 29 - salvage"] = [_Note("timeline_marker", 10,
+                                        note="hi")]
+    assert resolve_axi.main([command, "Reel 29 - salvage"]) == 0
+    out = capsys.readouterr().out
+    assert "Reel 29 - salvage" in out
+
+
+def test_positional_run_script(patched, capsys):
+    assert resolve_axi.main(
+        ["run", "--timeline", "Reel 29 - salvage",
+         "result = timeline_names"]) == 0
+    assert "result[2]{value}:" in capsys.readouterr().out
+
+
+# ── api: the wrapped knowledge tools ───────────────────────────
+
+
+@pytest.fixture()
+def canned(monkeypatch):
+    import types as _types
+    box = _types.SimpleNamespace(seen={}, responses={})
+
+    def fake_native(tool, args, fix):
+        box.seen["tool"] = tool
+        box.seen["args"] = args
+        return box.responses[tool], ""
+
+    monkeypatch.setattr(resolve_axi, "_native", fake_native)
+    return box
+
+
+def test_api_search_caps_at_fifty(canned, capsys):
+    canned.responses["search_scripting_api"] = "\n".join(
+        f"  def GetMarker{i}() ..." for i in range(60))
+    assert cmd_api_search(_ns(pattern="marker", full=False)) == 0
+    out = capsys.readouterr().out
+    assert "matches: 60" in out
+    assert "+10 more line(s)" in out
+    assert cmd_api_search(_ns(pattern="marker", full=True)) == 0
+    assert "GetMarker59" in capsys.readouterr().out
+    assert canned.seen["tool"] == "search_scripting_api"
+    assert canned.seen["args"] == {"pattern": "marker"}
+
+
+def test_api_search_surfaces_a_dead_backend(monkeypatch, capsys):
+    from library.tools.native_mcp import NativeMcpError
+    monkeypatch.setattr(
+        "library.tools.native_mcp.call",
+        lambda tool, args=None, timeout=90: (_ for _ in ()).throw(
+            NativeMcpError("wrapper is down")))
+    assert cmd_api_search(_ns(pattern="marker", full=False)) == 1
+    out = capsys.readouterr().out
+    assert "wrapper is down" in out
+    assert "help:" in out
+
+
+def test_api_stubs_returns_the_whole_unit(canned, capsys):
+    canned.responses["get_scripting_api"] = "class RenderJobInfo:\n\tJobId: str"
+    assert cmd_api_stubs(_ns(types=["RenderJobInfo"])) == 0
+    out = capsys.readouterr().out
+    assert "class RenderJobInfo" in out
+    assert canned.seen["args"] == {"types": ["RenderJobInfo"]}
+
+
+def test_api_docs_unwraps_the_envelope(canned, capsys):
+    canned.responses["get_scripting_docs"] = json.dumps({
+        "content": [{"type": "text", "text": "Hello docs"}]})
+    assert cmd_api_docs(_ns(document="README.md",
+                             section="Audio Mapping")) == 0
+    out = capsys.readouterr().out
+    assert "Hello docs" in out
+    assert '{"content"' not in out
+
+
+def test_api_docs_passes_plain_text_through(canned, capsys):
+    canned.responses["get_scripting_docs"] = "plain"
+    assert cmd_api_docs(_ns(document="README.md", section="TOC")) == 0
+    assert "plain" in capsys.readouterr().out
+
+
+def test_api_whats_new_tables_releases(canned, capsys):
+    canned.responses["get_whats_new"] = json.dumps({"entries": [
+        {"version": "21.0.4", "date": "2026-08-05",
+         "changelog": "* fixes galore"},
+        {"version": "21.0.3", "date": "2026-07-22",
+         "changelog": "* older fixes"},
+    ]})
+    assert cmd_api_whats_new(_ns(since="21.0", full=False)) == 0
+    out = capsys.readouterr().out
+    assert "entries: 2" in out
+    assert "21.0.4" in out
+    assert "fixes galore" not in out
+    assert cmd_api_whats_new(_ns(since="21.0", full=True)) == 0
+    assert "fixes galore" in capsys.readouterr().out
+
+
+def test_api_whats_new_refuses_garbage(canned, capsys):
+    canned.responses["get_whats_new"] = "not json at all"
+    assert cmd_api_whats_new(_ns(since="21.0", full=False)) == 1
+    assert "unparseable" in capsys.readouterr().out
+
+
+def test_positional_api_search_and_luts_delete(canned, shelf, capsys):
+    canned.responses["search_scripting_api"] = "  def GetMarkers() ..."
+    assert resolve_axi.main(["api", "search", "marker"]) == 0
+    assert "matches:" in capsys.readouterr().out
+    assert resolve_axi.main(["luts", "delete", "cool.dctl"]) == 0
+    assert "dry run" in capsys.readouterr().out
+
+
+# ── luts: the shared shelf ─────────────────────────────────────
+
+
+@pytest.fixture()
+def shelf(monkeypatch, tmp_path):
+    monkeypatch.setattr(resolve_axi, "LUT_DIR", str(tmp_path))
+    (tmp_path / "cool.dctl").write_text("dctl", encoding="utf-8")
+    (tmp_path / "warm.cube").write_text("cube", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("not a lut", encoding="utf-8")
+    return tmp_path
+
+
+def test_luts_list_counts_kinds(shelf, capsys):
+    assert cmd_luts_list(_ns()) == 0
+    out = capsys.readouterr().out
+    assert "files: 2" in out
+    assert "cool.dctl" in out
+    assert "warm.cube" in out
+    assert "notes.txt" not in out
+
+
+def test_luts_update_dry_run_writes_nothing(shelf, monkeypatch, capsys):
+    def no_call(tool, args, fix):
+        raise AssertionError("dry run must not reach the backend")
+    monkeypatch.setattr(resolve_axi, "_native", no_call)
+    assert cmd_luts_update(_ns(name="new.dctl", name_pos="",
+                                text="__DEVICE__ float x;",
+                                file="", apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "dry run" in out
+    assert not (shelf / "MCP" / "new.dctl").exists()
+
+
+def test_luts_update_apply_verifies_by_readback(shelf, monkeypatch,
+                                                capsys):
+    seen = {}
+
+    def fake_native(tool, args, fix):
+        seen["tool"] = tool
+        return '{"written": true}', ""
+
+    monkeypatch.setattr(resolve_axi, "_native", fake_native)
+    target = shelf / "MCP" / "new.dctl"
+    assert cmd_luts_update(_ns(name="new.dctl", name_pos="",
+                                text="x", file="", full=False,
+                                apply=True)) == 1
+    assert seen["tool"] == "update_dctl"
+    assert "NO - the server said written" in capsys.readouterr().out
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("x", encoding="utf-8")
+    assert cmd_luts_update(_ns(name="new.dctl", name_pos="",
+                                text="x", file="", full=False,
+                                apply=True)) == 0
+    assert "yes (read back)" in capsys.readouterr().out
+
+
+def test_luts_delete_refuses_shelf_escape(shelf, capsys):
+    assert cmd_luts_delete(_ns(name="../evil.dctl", name_pos="",
+                                apply=False)) == 1
+    assert "escapes" in capsys.readouterr().out
+    assert cmd_luts_delete(_ns(name="/abs/evil.dctl", name_pos="",
+                                apply=False)) == 1
+    assert "escapes" in capsys.readouterr().out
+
+
+def test_luts_delete_routes_by_extension(shelf, monkeypatch, capsys):
+    seen = {}
+
+    def fake_native(tool, args, fix):
+        seen["tool"] = tool
+        return "gone", ""
+
+    monkeypatch.setattr(resolve_axi, "_native", fake_native)
+    assert cmd_luts_delete(_ns(name="cool.dctl", name_pos="",
+                                full=False, apply=True)) == 0
+    assert seen["tool"] == "delete_dctl"
+    assert cmd_luts_delete(_ns(name="warm.cube", name_pos="",
+                                full=False, apply=True)) == 0
+    assert seen["tool"] == "delete_lut"
+
+
+def test_luts_generate_dry_run_names_size(shelf, capsys):
+    assert cmd_luts_generate(_ns(name="", name_pos="warm.cube",
+                                  size=33, transform="return (r, g, b)",
+                                  transform_file="",
+                                  apply=False)) == 0
+    out = capsys.readouterr().out
+    assert "size: 33" in out
+    assert "dry run" in out
+
+
+# ── launch: the idempotent start ───────────────────────────────
+
+
+def test_launch_reports_an_open_session(patched, capsys):
+    assert cmd_launch(_ns()) == 0
+    out = capsys.readouterr().out
+    assert "already - nothing launched" in out
+    assert "Reel 29 - salvage" in out
+
+
+def test_launch_starts_a_closed_resolve(monkeypatch, capsys):
+    import contextlib as _cl
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: _cl.nullcontext())
+    calls = {"connects": 0}
+
+    def flaky_connect():
+        calls["connects"] += 1
+        if calls["connects"] == 1:
+            raise AxiError("closed", "open it")
+        project = _Project("Podcast (field test)", [], None)
+        return _Resolve(project)
+
+    monkeypatch.setattr(resolve_axi, "_connect", flaky_connect)
+    launched = {}
+
+    def fake_open():
+        launched["ran"] = True
+        return True, ""
+
+    monkeypatch.setattr(resolve_axi, "_launch_app", fake_open)
+    assert cmd_launch(_ns()) == 0
+    out = capsys.readouterr().out
+    assert launched["ran"]
+    assert "launched now" in out
+
+
+def test_launch_reports_a_failed_open(monkeypatch, capsys):
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: (_ for _ in ()).throw(
+                            AxiError("closed", "open it")))
+    monkeypatch.setattr(resolve_axi, "_launch_app",
+                        lambda: (False, "denied by policy"))
+    assert cmd_launch(_ns()) == 1
+    assert "denied by policy" in capsys.readouterr().out
+
+
+def test_launch_argv_names_the_real_app():
+    """`open -a` with the wrong name opens the wrong app or nothing:
+    the argv is pinned here, and the name verified against the
+    installed bundle id (see `_LAUNCH_ARGV`)."""
+    assert list(resolve_axi._LAUNCH_ARGV) == [
+        "open", "-a", "DaVinci Resolve"]
+
+
+# ── project: identity plus delivery settings ───────────────────
+
+
+def test_project_reports_delivery_settings(patched, capsys):
+    assert cmd_project(_ns(project="")) == 0
+    out = capsys.readouterr().out
+    assert "Podcast (field test)" in out
+    assert "23.976" in out
+    assert "3840x2160" in out
+    assert "Reel 29 - salvage" in out
+
+
+# ── audio: the read-only probe ─────────────────────────────────
+
+
+@pytest.fixture()
+def audio_patched(monkeypatch):
+    first = _Item("a.wav", 0, 48, pool=_Pool("/audio/a.wav"))
+    second = _Item("b.wav", 48, 96, pool=_Pool("/audio/b.wav"))
+    timeline = _Timeline(
+        "Reel 29 - salvage",
+        tracks={("audio", 1): {"name": "A1",
+                                "items": [first, second]},
+                ("audio", 2): {"name": "A2", "items": [],
+                                "enabled": False, "locked": True,
+                                "subtype": "Stereo"}},
+        start=0, end=99)
+    project = _Project("Podcast (field test)", [timeline],
+                       current=timeline)
+    monkeypatch.setattr(resolve_axi, "_connect",
+                        lambda: _Resolve(project))
+    monkeypatch.setattr(resolve_axi, "_lease",
+                        lambda exclusive: contextlib.nullcontext())
+    return timeline
+
+
+def test_audio_lists_enable_state(audio_patched, capsys):
+    """A muted row must read muted: the mix decision needs it."""
+    assert cmd_audio(_ns(project="", timeline="Reel 29 - salvage",
+                          full=False)) == 0
+    out = capsys.readouterr().out
+    assert "tracks: 2" in out
+    assert "audio1,A1,yes,2" in out
+    assert "audio2,A2,no,0" in out
+
+
+def test_audio_full_tolerates_a_missing_voice_call(audio_patched,
+                                                   capsys):
+    """The fake defines no GetVoiceIsolationState: an older Resolve
+    answers the same way, with absence rather than an exception."""
+    assert cmd_audio(_ns(project="", timeline="Reel 29 - salvage",
+                          full=True)) == 0
+    out = capsys.readouterr().out
+    assert "Stereo" in out
+    assert "voice_isolation" in out

@@ -12,7 +12,15 @@ refused), `markers` (both marker planes in one call),
 `markers snapshot`/`restore`/`reply` (content round-trip, dry-run
 default), `items` (with `--transforms`), `captions`, `fusion` (comp
 coverage per clip), `cursor` (the global cursor made visible
-and assertable), `frames` (frame counts for drift checks), `run`
+and assertable), `frames` (frame counts for drift checks),
+`pool` (every clip in the media pool with its bin, plus the offline
+count), `renders` (the queue with locale-independent states, failures
+with their errors), `api` (the native MCP's knowledge tools - stubs,
+search, docs, whats-new - wrapped as TOON), `luts` (the shared LUT
+shelf listed locally; DCTL/LUT writes wrapped with compile check,
+dry-run default), `launch` (idempotent app start, never opens a
+project), `project` (identity plus the delivery-relevant settings),
+`audio` (audio tracks with enable state and clip counts), `run`
 (the cheap escape hatch: a caller script with ready Resolve names
 in scope, its `result` rendered as TOON rows).
 
@@ -33,6 +41,10 @@ Safety shape, stated once:
   (a prefix rule over mutator verbs, stated at `_RUN_WRITE_PREFIXES`).
   Reads must still never move the cursor, and the AST test still holds
   for everything that is not a declared write.
+- `run --unsafe` still refuses `CopyGrades` unless
+  `--acknowledge-copy-grades` names it out loud: the call replaces
+  the target's whole grade, reports success, and versions nothing
+  to go back to (`_COPYGRADES_TRAP`).
 - `markers restore` defaults to a dry-run diff. `--apply` is the
   explicit flag, and it restores the TIMELINE plane only; a snapshot
   holding clip/pool-plane rows is REFUSED unless `--allow-partial`
@@ -75,7 +87,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-VERSION = "0.2.0"
+VERSION = "0.4.0"
 
 DESCRIPTION = "Read the live DaVinci Resolve session in token-cheap TOON rows"
 
@@ -1211,6 +1223,809 @@ def cmd_captions(args) -> int:
     return 0
 
 
+def _pool_clip_rows(folder, bin_path: str) -> tuple:
+    """One row per media-pool item under `folder`, recursively.
+
+    Returns `(rows, bins, skipped)`. A row that would not report its name
+    or properties is SKIPPED and counted, never half-reported: the
+    caller says the count, so "12 clips, 1 unreadable" cannot read as
+    "11 clips".
+    """
+    rows, skipped, bins = [], 0, 0
+    stack = [(folder, bin_path)]
+    while stack:
+        current, path = stack.pop()
+        bins += 1
+        try:
+            clips = current.GetClipList() or []
+        except Exception:
+            clips = []
+        for clip in clips:
+            try:
+                name = clip.GetName()
+            except Exception:
+                skipped += 1
+                continue
+            try:
+                props = clip.GetClipProperty() or {}
+            except Exception:
+                props = {}
+            if not isinstance(props, dict):
+                props = {}
+            rows.append({
+                "name": name,
+                "bin": path,
+                "kind": props.get("Type") or "",
+                "file": props.get("File Path") or "",
+            })
+        try:
+            subs = current.GetSubFolderList() or []
+        except Exception:
+            subs = []
+        for sub in subs:
+            try:
+                sub_name = sub.GetName()
+            except Exception:
+                skipped += 1
+                continue
+            stack.append((sub, f"{path}/{sub_name}" if path else sub_name))
+    rows.sort(key=lambda r: (r["bin"], r["name"]))
+    return rows, bins, skipped
+
+
+def _resolve_bin(root, bin_path: str):
+    """The pool folder at `bin_path` (`A/B/C` from the root), or None."""
+    if not bin_path:
+        return root, ""
+    current, walked = root, []
+    for part in [p for p in bin_path.split("/") if p]:
+        try:
+            subs = current.GetSubFolderList() or []
+        except Exception:
+            return None, "/".join(walked)
+        names = {}
+        for sub in subs:
+            try:
+                names[sub.GetName()] = sub
+            except Exception:
+                continue
+        if part not in names:
+            return None, "/".join(walked)
+        current, walked = names[part], walked + [part]
+    return current, "/".join(walked)
+
+
+def cmd_pool(args) -> int:
+    """Every clip in the media pool, with the bin it sits in.
+
+    The ingest/catalog check `run` covers only at arbitrary token
+    cost: which footage is in the pool, where it lives, and whether
+    its file is still on disk (the offline aggregate). Read-only:
+    pool/folder/clip getters only, shared lease, nothing here moves
+    the cursor or opens anything.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        try:
+            pool = project.GetMediaPool()
+            root = pool.GetRootFolder()
+        except Exception as exc:
+            return fail(f"project {project.GetName()!r} would not open "
+                        f"its media pool ({exc}).",
+                        f"{TOOL} cursor")
+        folder, walked = _resolve_bin(root, args.bin or "")
+        if folder is None:
+            return fail(
+                f"no bin {args.bin!r} under "
+                f"{('/' + walked) if walked else 'the pool root'} - "
+                f"bins are addressed A/B/C from the root.",
+                f"{TOOL} pool")
+        rows, bins, skipped = _pool_clip_rows(folder, walked)
+    import os as _os
+    offline = 0
+    for row in rows:
+        if not row["file"]:
+            continue
+        try:
+            if not _os.path.exists(row["file"]):
+                offline += 1
+        except Exception:
+            offline += 1
+    emit([kv_block("pool", {
+              "project": project.GetName(),
+              "bin": ("/" + walked) if walked else "/ (root)",
+              "bins": bins,
+              "clips": len(rows),
+              "offline": offline,
+              "unreadable": skipped,
+          }),
+          table("clips", rows, ["name", "bin", "kind", "file"]),
+          (f"note: {skipped} item(s) would not report their "
+           f"properties and are counted, not listed.")
+          if skipped else "",
+          help_block([f"{TOOL} items --timeline \"<exact-name>\"",
+                      f"{TOOL} pool \"<bin/A/B>\""])])
+    return 0
+
+
+def _render_state(status: dict) -> str:
+    """The job's state without reading English.
+
+    `JobStatus` is a LOCALIZED display string ("Complete" on an
+    English install, "Concluso" on an Italian one) - comparing it to
+    the English literal fails every non-English Resolve with an error
+    saying the opposite of what happened. The locale-independent
+    signals decide: a populated `Error` is failed, 100% is complete.
+    The raw string travels untouched in its own column, never parsed.
+    """
+    status = status or {}
+    if status.get("Error"):
+        return "failed"
+    try:
+        if float(status.get("CompletionPercentage")) >= 100:
+            return "complete"
+    except (TypeError, ValueError):
+        pass
+    if str(status.get("JobStatus") or "") == "Complete":
+        return "complete"
+    return "queued"
+
+
+def cmd_renders(args) -> int:
+    """The render queue, as rows: which timeline, how far, what failed.
+
+    The delivery loop's missing read: `render_qa` measures the FILE,
+    nothing shows the QUEUE cheaply. Read-only (`GetRenderJobList` /
+    `GetRenderJobStatus` / `IsRenderingInProgress`), shared lease.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        try:
+            jobs = project.GetRenderJobList() or []
+        except Exception as exc:
+            return fail(f"project {project.GetName()!r} would not report "
+                        f"its render queue ({exc}).",
+                        f"{TOOL} cursor")
+        rows = []
+        for job in jobs:
+            if not isinstance(job, dict):
+                continue
+            job_id = job.get("JobId") or ""
+            try:
+                status = project.GetRenderJobStatus(job_id) or {}
+            except Exception:
+                status = {}
+            if not isinstance(status, dict):
+                status = {}
+            try:
+                percent = status.get("CompletionPercentage")
+                percent = ("" if percent is None else int(percent))
+            except (TypeError, ValueError):
+                percent = ""
+            rows.append({
+                "job": job.get("RenderJobName") or job_id,
+                "timeline": job.get("TimelineName") or "",
+                "percent": percent,
+                "state": _render_state(status),
+                "status": status.get("JobStatus") or "",
+                "error": status.get("Error") or "",
+                "output": "/".join([
+                    str(job.get("TargetDir") or "").rstrip("/"),
+                    str(job.get("OutputFilename") or "")]).strip("/"),
+            })
+        try:
+            rendering = bool(project.IsRenderingInProgress())
+        except Exception:
+            rendering = False
+    states: dict = {}
+    for row in rows:
+        states[row["state"]] = states.get(row["state"], 0) + 1
+    queue_cols = ["job", "timeline", "percent", "state"]
+    if args.full:
+        queue_cols += ["status", "output"]
+    parts = [kv_block("renders", {
+              "project": project.GetName(),
+              "jobs": len(rows),
+              "rendering": "yes" if rendering else "no",
+              "complete": states.get("complete", 0),
+              "failed": states.get("failed", 0),
+          }),
+          table("queue", [{c: r[c] for c in queue_cols} for r in rows],
+                queue_cols)]
+    failed = [r for r in rows if r["state"] == "failed"]
+    if failed:
+        parts.append(table("failed", [{
+            "job": r["job"],
+            "error": preview(r["error"], args.full),
+            "output": r["output"],
+        } for r in failed], ["job", "error", "output"]))
+    hints = [f"{TOOL} frames --timeline \"<exact-name>\""]
+    if failed and not args.full:
+        hints = [f"{TOOL} renders --full"] + hints
+    parts.append(help_block(hints))
+    emit(parts)
+    return 0
+
+
+# ── api: Blackmagic's knowledge tools, wrapped as TOON ─────────
+#
+# `search_scripting_api`, `get_scripting_api`, `get_scripting_docs`
+# and `get_whats_new` are documentation, not session state: they never
+# touch the captain's project, so they wrap the native MCP server
+# (`library/tools/native_mcp.py`) instead of being reimplemented. What
+# this layer adds is the axi shape - minimal tables, truncation with
+# `--full`, structured errors naming the fix.
+
+
+def _native(tool: str, args: dict, fix: str):
+    """One native MCP call, or a structured failure. Never raises."""
+    from library.tools.native_mcp import NativeMcpError, call
+    try:
+        return call(tool, args), ""
+    except NativeMcpError as exc:
+        return None, fail(str(exc), fix)
+
+
+def _unwrap_text(text: str) -> str:
+    """The text inside the native envelope, when there is one.
+
+    `get_scripting_docs` answers with a JSON-stringified
+    `{content: [{text}]}` envelope AS its text block; plain tools
+    answer with bare text. Unwrap the former, pass the latter through
+    untouched - a stub that happens to parse as JSON must survive.
+    """
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return text
+    if isinstance(parsed, dict):
+        blocks = parsed.get("content")
+        if isinstance(blocks, list):
+            return "\n".join(b.get("text", "") for b in blocks
+                             if isinstance(b, dict))
+    return text
+
+
+#: Search hits shown before the `--full` escape hatch fires.
+API_SEARCH_ROWS = 50
+
+
+def cmd_api_search(args) -> int:
+    text, _ = _native("search_scripting_api", {"pattern": args.pattern},
+                      f"{TOOL} api search --help")
+    if text is None:
+        return 1
+    lines = [line for line in text.splitlines() if line.strip()]
+    shown = lines if args.full else lines[:API_SEARCH_ROWS]
+    rest = len(lines) - len(shown)
+    emit([kv_block("api_search", {
+              "pattern": args.pattern,
+              "matches": len(lines),
+          }),
+          table("matches", [{"line": line} for line in shown], ["line"]),
+          (f"+{rest} more line(s) - re-run with --full")
+          if rest else "",
+          help_block([f"{TOOL} api stubs <Type>",
+                      f"{TOOL} api docs --section \"<heading>\""])])
+    return 0
+
+
+def cmd_api_stubs(args) -> int:
+    text, _ = _native("get_scripting_api", {"types": list(args.types)},
+                      f"{TOOL} api stubs --help")
+    if text is None:
+        return 1
+    emit([kv_block("api_stubs", {
+              "types": ",".join(args.types),
+              "chars": len(text),
+          }),
+          text,
+          help_block([f"{TOOL} api search \"<pattern>\"",
+                      f"{TOOL} api docs --section \"<heading>\""])])
+    return 0
+
+
+def cmd_api_docs(args) -> int:
+    text, _ = _native(
+        "get_scripting_docs",
+        {"document": args.document, "section": args.section},
+        f"{TOOL} api docs --help")
+    if text is None:
+        return 1
+    body = _unwrap_text(text)
+    emit([kv_block("api_docs", {
+              "document": args.document,
+              "section": args.section,
+              "chars": len(body),
+          }),
+          body,
+          help_block([f"{TOOL} api search \"<pattern>\"",
+                      f"{TOOL} luts update --help" if args.document == "DCTLReadme.txt"
+                      else f"{TOOL} api docs --section \"<heading>\""])])
+    return 0
+
+
+def cmd_api_whats_new(args) -> int:
+    text, _ = _native("get_whats_new", {"since": args.since},
+                      f"{TOOL} api whats-new --since <version>")
+    if text is None:
+        return 1
+    try:
+        entries = json.loads(text).get("entries", [])
+    except ValueError:
+        return fail(f"the native changelog came back unparseable.",
+                    f"{TOOL} api whats-new --since {args.since}")
+    if not isinstance(entries, list):
+        entries = []
+    cols = ["version", "date"] + (["changelog"] if args.full else [])
+    rows = [{
+        "version": e.get("version", ""),
+        "date": e.get("date", ""),
+        "changelog": e.get("changelog", ""),
+    } for e in entries if isinstance(e, dict)]
+    emit([kv_block("whats_new", {
+              "since": args.since,
+              "entries": len(rows),
+          }),
+          table("releases", rows, cols),
+          (f"changelogs hidden - re-run with --full")
+          if rows and not args.full else "",
+          help_block([f"{TOOL} api whats-new --since {args.since} --full"]
+                     if rows and not args.full else [])])
+    return 0
+
+
+# ── luts: the shared shelf, listed locally, written wrapped ──
+#
+# Listing walks the on-disk LUT directory (no Resolve contact at
+# all). Writes go through the native MCP's `update_dctl` /
+# `delete_dctl` / `delete_lut` / `generate_lut`, which compile-check
+# before writing - this layer adds the axi discipline those tools
+# lack: a dry-run plan by default, `--apply` to write, and a read-back
+# verification. All of it lands in the shared `LUT/MCP` shelf, never
+# in the captain's project.
+
+#: Where Resolve keeps third-party transforms, and our shelf in it.
+LUT_DIR = ("/Library/Application Support/Blackmagic Design/"
+           "DaVinci Resolve/LUT")
+LUT_MCP_SHELF = "MCP"
+
+LUT_EXTS = {".dctl": "dctl", ".3dl": "lut", ".cube": "lut",
+            ".dat": "lut", ".lut": "lut", ".olut": "lut"}
+
+
+def _lut_rows() -> list:
+    rows = []
+    for base, _dirs, files in os.walk(LUT_DIR):
+        for name in files:
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in LUT_EXTS:
+                continue
+            full = os.path.join(base, name)
+            rows.append({
+                "name": os.path.relpath(full, LUT_DIR),
+                "kind": LUT_EXTS[ext],
+                "file": full,
+            })
+    rows.sort(key=lambda r: r["name"])
+    return rows
+
+
+def cmd_luts_list(_args) -> int:
+    if not os.path.isdir(LUT_DIR):
+        emit(["luts: 0 rows (no shared LUT directory on this machine)",
+              help_block([f"{TOOL} api docs --document DCTLReadme.txt"])])
+        return 0
+    rows = _lut_rows()
+    kinds: dict = {}
+    for row in rows:
+        kinds[row["kind"]] = kinds.get(row["kind"], 0) + 1
+    emit([kv_block("luts", {
+              "dir": LUT_DIR,
+              "files": len(rows),
+              "dctl": kinds.get("dctl", 0),
+              "lut": kinds.get("lut", 0),
+          }),
+          table("files", rows, ["name", "kind", "file"]),
+          help_block([f"{TOOL} luts update --name \"<file>\" --file <path>",
+                      f"{TOOL} api docs --document DCTLReadme.txt "
+                      f"--section TOC"])])
+    return 0
+
+
+def _lut_name(args, tool: str):
+    """The shelf-relative target, or a structured refusal (None)."""
+    name = args.name or args.name_pos or ""
+    if not name:
+        fail(f"{tool} needs a shelf file name.",
+             f"{TOOL} luts {tool} --name \"<file>\"")
+        return None
+    if os.path.isabs(name) or ".." in name.split("/"):
+        fail(f"{name!r} escapes the {LUT_MCP_SHELF} shelf - pass a "
+             f"shelf-relative name like \"cool.dctl\".",
+             f"{TOOL} luts {tool} --name \"cool.dctl\"")
+        return None
+    return name
+
+
+def _lut_target(name: str) -> str:
+    return os.path.join(LUT_DIR, LUT_MCP_SHELF, name)
+
+
+def cmd_luts_update(args) -> int:
+    if args.text and args.file:
+        return fail("pass --text or --file, not both.",
+                    f"{TOOL} luts update --help")
+    if args.file:
+        try:
+            with open(args.file, encoding="utf-8") as handle:
+                content = handle.read()
+        except OSError as exc:
+            return fail(f"cannot read {args.file!r} ({exc}).",
+                        f"{TOOL} luts update --name \"{args.name}\" "
+                        f"--text \"...\"")
+    elif args.text:
+        content = args.text
+    else:
+        return fail("update needs the DCTL source: --text or --file.",
+                    f"{TOOL} api docs --document DCTLReadme.txt")
+    name = _lut_name(args, "update")
+    if name is None:
+        return 1
+    target = _lut_target(name)
+    if not args.apply:
+        emit([kv_block("lut_plan", {
+                  "name": name,
+                  "target": target,
+                  "bytes": len(content.encode("utf-8")),
+                  "exists": "yes" if os.path.exists(target) else "no",
+              }),
+              preview(content, False),
+              f"dry run - pass --apply to compile-check and write",
+              help_block([f"{TOOL} luts update --name \"{name}\" "
+                          f"--file <path> --apply"])])
+        return 0
+    text, _ = _native("update_dctl", {"path": name, "content": content},
+                      f"{TOOL} luts list")
+    if text is None:
+        return 1
+    placed = os.path.exists(target)
+    emit([kv_block("lut_update", {
+              "name": name,
+              "target": target,
+              "placed": "yes (read back)" if placed else
+              "NO - the server said written but the file is missing",
+          }),
+          preview(text, args.full),
+          help_block([f"{TOOL} luts list"])])
+    return 0 if placed else 1
+
+
+def cmd_luts_delete(args) -> int:
+    name = _lut_name(args, "delete")
+    if name is None:
+        return 1
+    target = _lut_target(name)
+    if not args.apply:
+        emit([kv_block("lut_plan", {
+                  "name": name,
+                  "target": target,
+                  "exists": "yes" if os.path.exists(target) else "no",
+              }),
+              f"dry run - pass --apply to delete",
+              help_block([f"{TOOL} luts delete --name \"{name}\" "
+                          f"--apply"])])
+        return 0
+    tool = ("delete_dctl" if name.lower().endswith(".dctl")
+            else "delete_lut")
+    text, _ = _native(tool, {"path": name}, f"{TOOL} luts list")
+    if text is None:
+        return 1
+    gone = not os.path.exists(target)
+    emit([kv_block("lut_delete", {
+              "name": name,
+              "deleted": "yes (read back)" if gone else
+              "NO - the file is still there",
+          }),
+          preview(text, args.full),
+          help_block([f"{TOOL} luts list"])])
+    return 0 if gone else 1
+
+
+def cmd_luts_generate(args) -> int:
+    if args.transform and args.transform_file:
+        return fail("pass --transform or --transform-file, not both.",
+                    f"{TOOL} luts generate --help")
+    if args.transform_file:
+        try:
+            with open(args.transform_file,
+                       encoding="utf-8") as handle:
+                transform = handle.read()
+        except OSError as exc:
+            return fail(f"cannot read {args.transform_file!r} ({exc}).",
+                        f"{TOOL} luts generate --help")
+    elif args.transform:
+        transform = args.transform
+    else:
+        return fail("generate needs the transform function body.",
+                    f"{TOOL} luts generate --help")
+    name = _lut_name(args, "generate")
+    if name is None:
+        return 1
+    target = _lut_target(name)
+    if not args.apply:
+        emit([kv_block("lut_plan", {
+                  "name": name,
+                  "target": target,
+                  "size": args.size,
+                  "exists": "yes" if os.path.exists(target) else "no",
+              }),
+              preview(transform, False),
+              f"dry run - pass --apply to evaluate and write",
+              help_block([f"{TOOL} luts generate --name \"{name}\" "
+                          f"--size {args.size} "
+                          f"--transform \"...\" --apply"])])
+        return 0
+    text, _ = _native("generate_lut",
+                      {"path": name, "size": args.size,
+                       "transform": transform},
+                      f"{TOOL} luts list")
+    if text is None:
+        return 1
+    placed = os.path.exists(target)
+    emit([kv_block("lut_generate", {
+              "name": name,
+              "target": target,
+              "placed": "yes (read back)" if placed else
+              "NO - the server said written but the file is missing",
+          }),
+          preview(text, args.full),
+          help_block([f"{TOOL} luts list"])])
+    return 0 if placed else 1
+
+
+# ── launch / project / audio ─────────────────────────────────────
+
+
+#: How the app is started. One place, so a renamed bundle fails in
+#: tests instead of opening the wrong app (or nothing) live.
+#: Verified against the installed bundle id
+#: `com.blackmagic-design.DaVinciResolve` via
+#: `osascript -e 'id of app "DaVinci Resolve"'` (resolves the name
+#: without launching anything).
+_LAUNCH_ARGV = ("open", "-a", "DaVinci Resolve")
+
+
+def _launch_app() -> tuple:
+    """Ask macOS to open Resolve. Returns `(ok, detail)`.
+
+    A module-level seam so tests never shell out: they monkeypatch
+    this, not the caller.
+    """
+    import subprocess as _subprocess
+    try:
+        started = _subprocess.run(
+            list(_LAUNCH_ARGV),
+            capture_output=True, text=True, encoding="utf-8",
+            timeout=60, check=False)
+    except Exception as exc:
+        return False, f"could not ask macOS to open Resolve ({exc})"
+    if started.returncode != 0:
+        detail = (started.stderr or "").strip() or "no reason given"
+        return False, f"macOS would not open Resolve ({detail})"
+    return True, ""
+
+
+def cmd_launch(_args) -> int:
+    """Start the Resolve app when it is not running. Nothing else.
+
+    Idempotent: when the scripting API already answers, nothing is
+    launched and the session is reported. This never opens or creates
+    a project or timeline - if Resolve starts with no project open,
+    that is reported, not fixed.
+    """
+    try:
+        resolve = _connect()
+    except AxiError:
+        resolve = None
+    if resolve is not None:
+        with _lease(exclusive=False):
+            project = _project(resolve, "")
+            from library.tools.marker_feedback import current_timeline
+            try:
+                cursor, _ = current_timeline(resolve)
+                cursor_name = cursor.GetName()
+            except Exception:
+                cursor_name = "(none open)"
+        emit([kv_block("launch", {
+                  "running": "yes (already - nothing launched)",
+                  "project": project.GetName(),
+                  "cursor": cursor_name,
+              }),
+              help_block([f"{TOOL} timeline list"])])
+        return 0
+    ok, detail = _launch_app()
+    if not ok:
+        return fail(detail, f"{TOOL} launch")
+    import time as _time
+    launched = None
+    for _ in range(30):
+        _time.sleep(2)
+        try:
+            launched = _connect()
+            break
+        except AxiError:
+            continue
+    if launched is None:
+        return fail("Resolve did not answer within 60s of launching.",
+                    f"{TOOL} launch")
+    with _lease(exclusive=False):
+        try:
+            project = _project(launched, "")
+            project_name = project.GetName()
+        except AxiError:
+            project_name = "(no project open)"
+    emit([kv_block("launch", {
+              "running": "yes (launched now)",
+              "project": project_name,
+          }),
+          help_block([f"{TOOL} timeline list"])])
+    return 0
+
+
+def _named_list(entries) -> list:
+    rows = []
+    for entry in entries or []:
+        if isinstance(entry, str):
+            rows.append({"name": entry})
+        elif isinstance(entry, dict):
+            rows.append({"name": entry.get("PresetName")
+                         or entry.get("name") or str(entry)})
+        else:
+            rows.append({"name": str(entry)})
+    return rows
+
+
+def cmd_project(args) -> int:
+    """The open project: identity plus the delivery-relevant settings.
+
+    Read-only. The settings are the ones a render decision needs
+    (frame rate, delivery frame) plus the preset inventory; the full
+    settings dict stays one `run` script away.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        from library.tools.marker_feedback import current_timeline
+        try:
+            cursor, _ = current_timeline(resolve)
+            cursor_name = cursor.GetName()
+        except Exception:
+            cursor_name = "(none open)"
+        settings = {}
+        for key in ("timelineFrameRate", "timelineResolutionWidth",
+                    "timelineResolutionHeight"):
+            try:
+                settings[key] = project.GetSetting(key)
+            except Exception:
+                settings[key] = ""
+        try:
+            presets = _named_list(project.GetPresetList())
+        except Exception:
+            presets = []
+        try:
+            render_presets = _named_list(project.GetRenderPresetList())
+        except Exception:
+            render_presets = []
+        names = _timeline_names(project)
+    emit([kv_block("project", {
+              "name": project.GetName(),
+              "timelines": len(names),
+              "cursor": cursor_name,
+              "fps": settings["timelineFrameRate"],
+              "resolution": (f"{settings['timelineResolutionWidth']}x"
+                             f"{settings['timelineResolutionHeight']}"),
+          }),
+          table("render_presets", render_presets, ["name"]),
+          table("presets", presets, ["name"]),
+          help_block([f"{TOOL} timeline list",
+                      f"{TOOL} renders"])])
+    return 0
+
+
+def _voice_state(value) -> str:
+    if isinstance(value, dict):
+        if value.get("isEnabled"):
+            return f"on {value.get('amount', '')}".strip()
+        return "off"
+    return _cell(value)
+
+
+def cmd_audio(args) -> int:
+    """Audio tracks: which rows carry sound, enabled or not, how much.
+
+    Read-only. Voice isolation and lock state ride along behind
+    `--full`; nothing here changes a mix - the mix goes through OTIO
+    at placement time.
+    """
+    try:
+        resolve = _connect()
+    except AxiError as exc:
+        return fail(str(exc), exc.fix)
+    with _lease(exclusive=False):
+        project = _project(resolve, args.project)
+        try:
+            timeline, is_current, note = _target_timeline(
+                project, args.timeline)
+        except AxiError as exc:
+            return fail(str(exc), exc.fix)
+        try:
+            count = timeline.GetTrackCount("audio") or 0
+        except Exception as exc:
+            return fail(f"timeline {timeline.GetName()!r} would not "
+                        f"report its audio tracks ({exc}).",
+                        f"{TOOL} timeline list")
+        rows = []
+        for index in range(1, count + 1):
+            try:
+                items = (timeline.GetItemListInTrack("audio", index)
+                         or [])
+            except Exception:
+                items = []
+            row: dict = {
+                "track": f"audio{index}",
+                "clips": len(items),
+            }
+            try:
+                row["name"] = timeline.GetTrackName("audio", index) or ""
+            except Exception:
+                row["name"] = ""
+            try:
+                row["enabled"] = ("yes" if timeline.GetIsTrackEnabled(
+                    "audio", index) else "no")
+            except Exception:
+                row["enabled"] = ""
+            full: dict = {}
+            for key, method in (("sub_type", "GetTrackSubType"),
+                                ("locked", "GetIsTrackLocked")):
+                try:
+                    value = getattr(timeline, method)("audio", index)
+                    full[key] = ("yes" if value is True else
+                                 "no" if value is False else _cell(value))
+                except Exception:
+                    full[key] = ""
+            try:
+                full["voice_isolation"] = _voice_state(
+                    timeline.GetVoiceIsolationState(index))
+            except Exception:
+                full["voice_isolation"] = ""
+            row.update(full if args.full else {})
+            rows.append(row)
+    cols = ["track", "name", "enabled", "clips"]
+    if args.full:
+        cols += ["sub_type", "locked", "voice_isolation"]
+    emit([kv_block("audio", {
+              "timeline": timeline.GetName() +
+              (" (current)" if is_current else ""),
+              "tracks": len(rows),
+          }),
+          note,
+          table("tracks", rows, cols),
+          help_block([f"{TOOL} items --timeline \"{timeline.GetName()}\""])])
+    return 0
+
+
 def cmd_cursor(args) -> int:
     try:
         resolve = _connect()
@@ -1336,6 +2151,26 @@ def _refused_resolve_writes(script: str) -> list:
     return hits
 
 
+#: Resolve calls that report success while destroying work that cannot
+#: be recovered. `TimelineItem.CopyGrades` replaces the target's whole
+#: grade, returns True while doing it, and versions nothing to go back
+#: to (measured by baking each state to a 33-point LUT and comparing
+#: bytes). `--unsafe` declares A write, not THIS one: the script must
+#: name it out loud with `--acknowledge-copy-grades` first.
+_COPYGRADES_TRAP = "CopyGrades"
+
+
+def _names_copygrades(script: str) -> bool:
+    """Whether the script reaches for the grade-destroying call."""
+    try:
+        tree = ast.parse(script)
+    except SyntaxError:
+        return False
+    return any(isinstance(node, ast.Attribute)
+               and node.attr == _COPYGRADES_TRAP
+               for node in ast.walk(tree))
+
+
 def _run_cell(value, full: bool) -> tuple:
     """One result cell under the same truncation discipline as markers.
 
@@ -1429,6 +2264,9 @@ def cmd_run(args) -> int:
       and after (an arbitrary script owns its own cursor, so there is
       nothing to assert it against). Reads must still never move the
       cursor, and nothing in this module moves it either way.
+    - `--unsafe` still refuses `CopyGrades` without
+      `--acknowledge-copy-grades`: that call destroys the target's
+      grade while reporting success.
     """
     if args.script and args.file:
         return fail("pass --script or --file, not both.",
@@ -1467,6 +2305,17 @@ def cmd_run(args) -> int:
             f"run is read-only by default.",
             f"{TOOL} run {timeline_flag}{unsafe_form} --unsafe "
             f"to declare the write")
+    if (args.unsafe and not args.acknowledge_copy_grades
+            and _names_copygrades(script)):
+        timeline_flag = (f"--timeline \"{args.timeline}\" "
+                         if args.timeline else "")
+        return fail(
+            f"script calls {_COPYGRADES_TRAP}, which replaces the "
+            f"target's whole grade, reports success, and versions "
+            f"nothing to go back to - `--unsafe` declares a write, "
+            f"not this one.",
+            f"{TOOL} run {timeline_flag}{unsafe_form} --unsafe "
+            f"--acknowledge-copy-grades to say you know what it does")
     try:
         resolve = _connect()
     except AxiError as exc:
@@ -1617,6 +2466,14 @@ def build_parser() -> Parser:
   {TOOL} markers snapshot --timeline "Reel 13 - moment" --out /tmp/m.json
   {TOOL} cursor --expect "Reel 13 - moment"
   {TOOL} frames --timeline "Reel 13 - moment"
+  {TOOL} pool
+  {TOOL} pool "Footage/Day 1"
+  {TOOL} renders
+  {TOOL} api search "marker"
+  {TOOL} api docs --section "Audio Mapping"
+  {TOOL} luts list
+  {TOOL} project
+  {TOOL} audio --timeline "Reel 29"
   {TOOL} run --timeline "Reel 29" --script "result = timeline_names"
   {TOOL} run --timeline "Reel 29" "result = timeline_names\"""")
     subs = parser.add_subparsers(dest="command")
@@ -1741,6 +2598,126 @@ def build_parser() -> Parser:
     _add_scope(p, "frames")
     p.set_defaults(func=cmd_frames)
 
+    p = subs.add_parser("api", help="the native MCP's knowledge tools "
+                                   "as TOON: stubs, search, docs, "
+                                   "whats-new")
+    asubs = p.add_subparsers(dest="api_command", required=True)
+    q = asubs.add_parser("search", help="search the scripting API "
+                                        "stubs by pattern")
+    q.add_argument("pattern", help="regex matched against stub names "
+                                    "and descriptions, e.g. \"marker\"")
+    q.add_argument("--full", action="store_true",
+                   help="all matching lines instead of the first 50")
+    q.set_defaults(func=cmd_api_search)
+    q = asubs.add_parser("stubs", help="the .pyi declarations for "
+                                        "named API types")
+    q.add_argument("types", nargs="+",
+                   help="type names, e.g. RenderJobInfo RenderJobStatus")
+    q.set_defaults(func=cmd_api_stubs)
+    q = asubs.add_parser("docs", help="the developer documents, whole "
+                                       "or by section")
+    q.add_argument("--document", default="README.md",
+                   help="README.md (scripting guide) or DCTLReadme.txt "
+                        "(DCTL reference)")
+    q.add_argument("--section", default="TOC",
+                   help="heading to return (default TOC); \"\" returns "
+                        "the whole document")
+    q.set_defaults(func=cmd_api_docs)
+    q = asubs.add_parser("whats-new", help="the Resolve changelog since "
+                                            "a version or date")
+    q.add_argument("--since", required=True,
+                   help="version (e.g. \"21.0\") or ISO date "
+                        "(e.g. \"2025-01-25\")")
+    q.add_argument("--full", action="store_true",
+                   help="include each release's changelog text")
+    q.set_defaults(func=cmd_api_whats_new)
+
+    p = subs.add_parser("luts", help="the shared LUT shelf: list "
+                                     "locally, write wrapped with "
+                                     "compile check (dry-run default)")
+    lsubs = p.add_subparsers(dest="luts_command", required=True)
+    q = lsubs.add_parser("list", help="every DCTL and LUT file on the "
+                                       "shared shelf")
+    q.set_defaults(func=cmd_luts_list)
+    q = lsubs.add_parser("update", help="write a .dctl file "
+                                         "(compile-checked); --apply "
+                                         "writes")
+    q.add_argument("name_pos", nargs="?", default="",
+                   help="shelf file name, e.g. \"cool.dctl\" (--name "
+                        "is the explicit form)")
+    q.add_argument("--name", default="",
+                   help="shelf file name relative to the MCP shelf")
+    q.add_argument("--text", default="",
+                   help="the DCTL source")
+    q.add_argument("--file", default="",
+                   help="read the DCTL source from this file")
+    q.add_argument("--apply", action="store_true",
+                   help="compile-check and write (default is a dry-run "
+                        "plan)")
+    q.set_defaults(func=cmd_luts_update)
+    q = lsubs.add_parser("delete", help="delete a shelf file; --apply "
+                                         "deletes")
+    q.add_argument("name_pos", nargs="?", default="",
+                   help="shelf file name (--name is the explicit form)")
+    q.add_argument("--name", default="",
+                   help="shelf file name relative to the MCP shelf")
+    q.add_argument("--apply", action="store_true",
+                   help="delete (default is a dry-run plan)")
+    q.set_defaults(func=cmd_luts_delete)
+    q = lsubs.add_parser("generate", help="evaluate a Python transform "
+                                           "into a .cube LUT; --apply "
+                                           "writes")
+    q.add_argument("name_pos", nargs="?", default="",
+                   help="shelf file name, e.g. \"warm.cube\" (--name is "
+                        "the explicit form)")
+    q.add_argument("--name", default="",
+                   help="shelf file name relative to the MCP shelf")
+    q.add_argument("--size", default=33, type=int,
+                   help="cube size per axis (17, 33, 65)")
+    q.add_argument("--transform", default="",
+                   help="Python body: receives r, g, b in [0,1], "
+                        "returns an (r, g, b) tuple")
+    q.add_argument("--transform-file", default="",
+                   help="read the transform body from this file")
+    q.add_argument("--apply", action="store_true",
+                   help="evaluate and write (default is a dry-run plan)")
+    q.set_defaults(func=cmd_luts_generate)
+
+    p = subs.add_parser("launch", help="start Resolve when it is not "
+                                       "running; never opens a project")
+    p.set_defaults(func=cmd_launch)
+
+    p = subs.add_parser("project", help="the open project: identity, "
+                                        "delivery settings, presets")
+    p.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    p.set_defaults(func=cmd_project)
+
+    p = subs.add_parser("audio", help="audio tracks: enable state and "
+                                      "clip counts (read-only)")
+    _add_scope(p, "audio")
+    p.add_argument("--full", action="store_true",
+                   help="add sub-type, lock and voice-isolation columns")
+    p.set_defaults(func=cmd_audio)
+
+    p = subs.add_parser("pool", help="every clip in the media pool, "
+                                    "with the bin it sits in")
+    p.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    p.add_argument("--bin", default="",
+                   help="bin path A/B/C from the pool root (or a bare "
+                        "positional); omit for the whole pool")
+    p.set_defaults(func=cmd_pool)
+
+    p = subs.add_parser("renders", help="the render queue: which "
+                                       "timeline, how far, what failed")
+    p.add_argument("--project", default="",
+                   help="expect this Resolve project open")
+    p.add_argument("--full", action="store_true",
+                   help="add the raw localized status and output "
+                        "path columns")
+    p.set_defaults(func=cmd_renders)
+
     p = subs.add_parser(
         "run",
         help="execute a caller script with ready Resolve names; "
@@ -1771,6 +2748,10 @@ def build_parser() -> Parser:
     p.add_argument("--unsafe", action="store_true",
                    help="allow Resolve writers; holds the exclusive "
                         "lease and reports cursor before/after")
+    p.add_argument("--acknowledge-copy-grades", action="store_true",
+                   help="the script names CopyGrades out loud: it "
+                        "replaces the target's whole grade with no "
+                        "version to go back to")
     p.set_defaults(func=cmd_run)
 
     p = subs.add_parser("setup", help="session integrations")
@@ -1791,6 +2772,11 @@ def build_parser() -> Parser:
 #: obvious shape (`markers "Reel 29"`), so it is accepted.
 _BARE_TIMELINE_COMMANDS = ("markers", "items", "captions", "frames",
                            "fusion")
+
+#: Commands whose first job is one pool bin: a bare path there is the
+#: obvious shape (`pool "Footage/Day 1"`), so it is accepted onto
+#: `--bin` the same way a bare reel routes onto `--timeline`.
+_BARE_BIN_COMMANDS = ("pool",)
 
 #: First-position tokens these commands own: `markers snapshot ...`,
 #: `markers restore ...` and `markers reply ...` must keep routing to
@@ -1814,6 +2800,9 @@ def _normalize(argv: list) -> list:
             and not argv[1].startswith("-")
             and argv[1] not in _OWN_SUBCOMMANDS):
         return [argv[0], "--timeline", argv[1]] + argv[2:]
+    if (len(argv) >= 2 and argv[0] in _BARE_BIN_COMMANDS
+            and not argv[1].startswith("-")):
+        return [argv[0], "--bin", argv[1]] + argv[2:]
     return argv
 
 
